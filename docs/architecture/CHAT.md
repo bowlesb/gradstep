@@ -5,13 +5,14 @@ Status 2026-10-05: deployed to staging and verified live (API smoke and the Simu
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored)}`.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
-- Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_operation` → stream → `worker_settle_operation` → `worker_record_provider_usage` → final event.
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean}` (the last two since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08)).
+- `GET` (2026-10-08) returns the versioned profile table, below.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
+- Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
 
-`@anthropic-ai/sdk` 0.131.0 (`npm:` import map entry and root `package.json`). Model `claude-sonnet-5-5`, `max_tokens` 8,000, adaptive thinking at effort `low` (the model guidance for chat; it skips thinking on simple turns and keeps time-to-first-token and cost low), thinking display omitted. Server-side refusal fallback `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); for this model it retries `cyber`/`frontier_llm` declines on Claude Sonnet 5, which matters for an ML-paper reader. Final `stop_reason: "refusal"` becomes `error refused`. System prompt = short instructions (cite sections/equations, LaTeX with `\( \)`/`\[ \]`, no "Answer:" label since 2026-10-07) + `<paper title>` MMD block with `cache_control: ephemeral` (cached prefix). The selected passage is a separate text block before the last question. One SDK retry; a 130 s generation deadline leaves time to settle inside the Edge wall-clock limit.
+`@anthropic-ai/sdk` 0.131.0 (`npm:` import map entry and root `package.json`). By default (no `profile`, and every request before 2026-10-08) model `claude-sonnet-5-5`, `max_tokens` 8,000, adaptive thinking at effort `low`; a reader's profile changes the model, effort, allowance and length instructions ([below](#models-effort-and-length-2026-10-08)). Effort `low` is the model guidance for chat: it skips thinking on simple turns and keeps time-to-first-token and cost low. Thinking display omitted. Server-side refusal fallback `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`; Sonnet and Opus only, Haiku 5.5 has no fallback models); for Sonnet 5.5 it retries `cyber`/`frontier_llm` declines on Claude Sonnet 5, which matters for an ML-paper reader. Final `stop_reason: "refusal"` becomes `error refused`. System prompt = short instructions (cite sections/equations, LaTeX with `\( \)`/`\[ \]`, no "Answer:" label since 2026-10-07) + `<paper title>` MMD block with `cache_control: ephemeral` (cached prefix). The selected passage is a separate text block before the last question. One SDK retry; a 130 s generation deadline leaves time to settle inside the Edge wall-clock limit.
 
 ## Ingest (selection action)
 
@@ -180,16 +181,257 @@ them. The app keeps the latest status per answer and shows it as one footnote li
 "Thinking…" before the first text; it clears when text resumes or the answer ends. Malformed or unknown statuses
 are ignored, never fatal.
 
+## Models, effort and length (2026-10-08)
+
+Owner request (2026-10-08): "chats should have the ability to customize the length and effort and model right there
+in the chat in a clear UX". Status: built and tested locally on branch `chat-controls-titles`; **not deployed**,
+migration 047 **not applied**, no paid provider request made. The lead runs a small paid check after review
+([deploy order](#deploy-order); local verification below).
+
+The server owns a versioned profile table (`chat-profiles-v1`, `supabase/functions/_shared/chat-profiles.ts`). A
+request names a choice; the server accepts only the table's combinations, sends the matching request, holds the
+maximum at that model's rates, freezes the quote with the hold and settles actual usage once. Clients only display the
+table's labels and estimates.
+
+### Profile table v1
+
+Model IDs and capabilities checked with `GET /v1/models` (staging key, 2026-10-08): all three accept adaptive thinking
+and `output_config.effort`; `allowed_fallback_models` is Sonnet 5 for Sonnet 5.5, Opus 4.8 and Opus 5 for Opus 5.5, and
+none for Haiku 5.5. **Claude Haiku 5.5 exists** (`claude-haiku-5-5`, listed since 2026-10-07, 1M context, 128K
+output); it replaces Haiku 4.5 here (10× cheaper, effort and adaptive thinking like the others). Prices: [Money](#money).
+
+| Choice | API request |
+|---|---|
+| Model: Haiku · Sonnet (default) · Opus | `claude-haiku-5-5` (no `fallbacks`) · `claude-sonnet-5-5` · `claude-opus-5-5` (both `fallbacks: "default"`) |
+| Effort: Low (default) · Medium · High | `thinking: {type: "adaptive"}` with `output_config.effort` `low` · `medium` · `high`; thinking allowance 2,000 · 4,000 · 8,000 tokens |
+| Length: Brief · Standard (default) · Detailed | answer allowance 1,000 · 6,000 · 10,000 tokens; Brief and Detailed add an instruction after the paper, Standard adds none |
+
+`max_tokens` = answer allowance + thinking allowance (it covers both, across every search round):
+
+| Length \ Effort | Low | Medium | High |
+|---|---:|---:|---:|
+| Brief | 3,000 | 5,000 | 9,000 |
+| Standard | **8,000** (today) | 10,000 | 14,000 |
+| Detailed | 12,000 | 14,000 | 18,000 |
+
+Sonnet · Low · Standard is exactly the request the function made before profiles (asserted at module load and in
+tests). Answers still stop at the 130 s generation deadline, so the largest allowances (Opus, High, Detailed) can end
+as interrupted answers on long questions; they are kept and charged for what was used.
+
+Published credit estimates (`credits: {low, high, max}`), a **planning basis, not measurements**: a question about a
+25-page paper (41,500 prompt tokens). `high`: the first question, writing the paper to the prompt cache; `low`: a
+follow-up reading it back with 1,800 tokens of conversation; typical answers of 250 · 900 · 2,200 tokens by length
+and thinking of 200 · 1,200 · 3,000 by effort; `max`: the whole prompt written to the cache plus the full allowance,
+one attempt, no search. The server's hold is larger (below).
+
+| Model | Length | Low | Medium | High |
+|---|---|---|---|---|
+| Haiku | Brief | 1–2 · max 2 | 1–2 · max 2 | 1–2 · max 2 |
+| Haiku | Standard | 1–2 · max 2 | 1–2 · max 3 | 1–2 · max 3 |
+| Haiku | Detailed | 1–2 · max 3 | 1–2 · max 3 | 1–2 · max 3 |
+| Sonnet | Brief | 3–22 · max 27 | 5–24 · max 31 | 9–28 · max 39 |
+| Sonnet | Standard | 4–24 · max 37 | 6–26 · max 41 | 10–29 · max 49 |
+| Sonnet | Detailed | 7–26 · max 45 | 9–28 · max 49 | 12–32 · max 57 |
+| Opus | Brief | 5–44 · max 54 | 9–48 · max 62 | 17–55 · max 78 |
+| Opus | Standard | 8–47 · max 74 | 12–51 · max 82 | 19–58 · max 98 |
+| Opus | Detailed | 13–52 · max 90 | 17–56 · max 98 | 24–63 · max 114 |
+
+**Local verification (2026-10-08, main merged through `7d4af7b`).** Database suite (047 applies after 046, both
+phases), 430 backend tests, the chat function's Deno type check, 258 Core Swift tests, the wire check (titles and
+answer labels), 402 iOS unit tests (5 skipped), the chat-controls journeys, All chats and Discuss in chat (iPhone
+10/10, iPad 4/4; light and dark screenshots inspected) and a universal (arm64 + x86_64) Catalyst build. Model IDs,
+prices and thinking rules re-read from Anthropic's price list, models overview and thinking guide the same day: the
+tariff above matches (Sonnet 5.5 cache reads $0.10), and Haiku 5.5 accepts the title request's
+`thinking: {type: "disabled"}` at its default effort (`medium`; only `xhigh`/`max` reject it). No provider request.
+
+Haiku 5.5 is new: before it is presented as a cheaper substitute it should pass factual/equation checks
+([pricing recommendation](../research/PRICING_RECOMMENDATION_20261008.md#more-models-effort-and-tools)); the paid check
+should include it.
+
+### Client contract (for the web composer and any other client)
+
+**`GET functions/v1/chat`** — user JWT as for `POST` (CORS allows GET). Returns `200 application/json`, the table:
+
+```json
+{"version":"chat-profiles-v1","rate_version":"beta-credits-v1","tariff":"anthropic-list-prices-2026-10-08",
+ "microusd_per_credit":5000,"default":{"model":"sonnet","effort":"low","length":"standard"},
+ "models":[{"id":"haiku","label":"Haiku","detail":"Fastest and cheapest","api_model":"claude-haiku-5-5"},…],
+ "efforts":[{"id":"low","label":"Low","detail":"Thinks only when needed; quickest"},…],
+ "lengths":[{"id":"brief","label":"Brief","detail":"A few sentences"},…],
+ "profiles":[{"id":"haiku-low-brief","model":"haiku","effort":"low","length":"brief","api_model":"claude-haiku-5-5",
+   "max_output_tokens":3000,"credits":{"low":1,"high":2,"max":2}},…27 entries],
+ "estimate_note":"For a question about a typical 25-page paper. Web searches add about 2 credits each."}
+```
+
+The exact server output is checked in as
+`apps/apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-v1.json`
+(`tests/backend/chat-profiles-fixture.test.ts` fails if they differ; regenerate deliberately with
+`node tests/backend/chat-profiles-fixture.test.ts --write-fixture`). Decoding (Swift `ChatProfileTable.decode`, web
+`lib/chat-profiles.ts`): refuse a body over 64 KiB, another `version`, or a `default` that isn't offered; skip unknown
+models/efforts/lengths and entries whose credits aren't `0 ≤ low ≤ high ≤ max`; a choice not listed isn't offered.
+Show "Usually ‹low›–‹high› credits · up to ‹max›", or "About ‹n› credit(s) · up to ‹max›" when low = high, then the
+note. A server from before profiles answers `405 {"code":"method_unavailable"}`: show no estimates and send neither
+new field.
+
+**Request fields** (part of the request digest when present):
+
+- `profile`: exactly `{"model": "haiku"|"sonnet"|"opus", "effort": "low"|"medium"|"high", "length": "brief"|"standard"|"detailed"}`.
+  Any other key or value is `invalid_request` (before any hold). Absent, `null` and the default
+  `{sonnet, low, standard}` are the same request with the same digest. Clients send it only when it isn't the default.
+- `topic_title: true` asks for a topic title; absent, `null` or `false` don't.
+- Neither is accepted with `action: "diagram_fix"` (a repair always uses the default model and needs no title).
+- Send either only after `GET` has returned the table: a server without profiles rejects unknown keys as
+  `invalid_request`. With the default choice and no title the body is byte-for-byte today's.
+
+**Answer metadata** — `done` gains `model` (the model that served the final attempt: `claude-sonnet-5` when Sonnet
+5.5's refusal fallback answered; omitted unless it matches `^[a-z0-9][a-z0-9.-]{0,63}$`) and `profile` (the profile
+ID, e.g. `opus-high-detailed`, or `diagram_fix`). Clients keep a label only if it is ASCII letters, digits, `-`, `.`
+or `_` and at most 64 bytes, else drop it (never fatal), and save both on the answer (below). Under an answer clients
+show "‹Model› · ‹Effort› · ‹Length›" from the profile ID, plus "· by ‹Claude Sonnet 5›" when the serving model isn't
+the profile's (`ChatProfileText.answeredBy`); nothing for answers saved without labels.
+
+**Which choice a chat uses** (as built in the iOS app): a choice made in the chat's control and not yet used; else the
+profile of the conversation's newest answer that has one (encrypted, so it follows the chat to every device); else
+the device's Chat defaults (Sonnet · Low · Standard until changed). A selection action (Explain, Why it matters,
+Related, Add paper) starts its new conversation with the choice the chat pane shows. The question is asked with the
+choice shown when Send is pressed; a retry asks with the same.
+
+### Holds, quotes and settlement
+
+- Hold rule per model (`holdRule` in `anthropic.ts`): Sonnet 5.5 — its own rates ×3, unchanged; Opus 5.5 — every token
+  at its fallbacks' higher Opus 5 rates, ×2 (the requested attempt and one fallback); Haiku 5.5 — one attempt at the
+  tier of the estimated prompt (the byte estimate never undercounts tokens, so it never wrongly picks the cheaper
+  tier); any other model — the unknown card ×3. Input is held at the 5-minute cache-write rate, output at the full
+  allowance. Search holds use the same model's rates. The per-round admission (`admittedAnthropic`) computes each
+  request's ceiling from its own model with the same rule, so the answer's first round plus the title exactly fill the
+  hold, and later rounds must fit what remains ("stop before a round that can't fit", unchanged).
+- The title's whole ceiling (Haiku 5.5, 40 output tokens, its prompt at the cache-write rate) is added to the hold.
+- **Quote (migration 047).** `worker_reserve_chat(account, id, request_sha256, rate_version, credits, microusd, quote)`
+  reserves exactly like `worker_reserve_operation(…, 'chat', …)` and, in the same transaction, records
+  `app_private.chat_quotes`: `profile_version`, `profile`, `model`, `effort`, `length` (`repair` for a diagram fix),
+  `rate_version`, `tariff`, `max_output_tokens` (thinking included), `input_estimate_tokens`, `max_searches`,
+  `title_model`, `title_max_tokens`, `title_ceiling_microusd`, and the credit and spend ceilings. Immutable,
+  service-role only, RLS on, no prompt or title text; a replay must carry the identical quote (else
+  `operation_id_conflict`); a malformed quote is `invalid_reservation` and rolls the hold back. Kept with the operation
+  on account deletion.
+- Settlement is unchanged: actual usage of every attempt (answer rounds, fallbacks and the title) priced per serving
+  model, rounded to credits once, never above the hold; no re-quote, no automatic escalation, no extra paid fallback.
+- Logs add `profile` (ID) and `title` (`written`, `unusable`, `failed`, `not_requested`) to `chat_answer`; never text.
+- Not changed: `worker_provider_attempt_begin`'s per-attempt `pricing_snapshot` (migration 034) still records the
+  2026-10-07 Sonnet/Haiku 4.5/fallback card as evidence; the authoritative tariff for a chat is the quote's `tariff`
+  and the function's rate card. Updating the snapshot needs a function redefinition and is left for a later migration.
+
+### Prompt caching
+
+The shared instructions and the paper block (its `cache_control` breakpoint) are byte-identical across every model,
+effort and length; a length's instruction follows the paper with a selection action's own, so it never invalidates the
+cached paper. Caches are per model, so changing a chat's model starts a new cache, and an effort change may too
+(model-specific); a chat keeps its choice, so its follow-ups read the cache as before. The title request has no
+cache breakpoint (its prompt is small).
+
+## Topic titles (2026-10-08)
+
+Owner feedback (TestFlight build 21): "Each chat should have a labeled title on the topic of the chat in the same way
+that ChatGPT does ("Explainer for a persona paper") and this should be embedded everywhere in the app".
+
+**Design: a parallel Haiku 5.5 request in the same operation.** With `topic_title: true` the function starts a second,
+small request as soon as the answer's hold exists: `claude-haiku-5-5`, `thinking: {type: "disabled"}`, `max_tokens`
+40, no tools or fallbacks, instructions to reply with a 3–7 word sentence-case topic ("Explainer for a persona paper").
+Its input is the paper's title, the selected passage (≤ 400 characters), the first question (≤ 1,200), and for a
+conversation titled late its first answer (≤ 800) and newest question (≤ 400); never the paper's text. It runs beside
+the answer, so it adds no wait; a title still running when the answer completes gets 4 s, then is abandoned (its
+attempt is still settled). Chosen over asking the main model for a stripped title line: that needs instructions and
+output at Sonnet/Opus rates (similar or higher cost: ~15 output tokens are $0.00015 on Sonnet, $0.0003 on Opus), holds
+back the stream to strip a line, and is lost when an answer ends in a tool call, is cut off or forgets the format.
+**Cost:** about 1,000 input and 10 output tokens, ≈ $0.0001 (0.02 credit) per title, inside the answer's single
+rounded charge; its ceiling (≈ 400–1,000 micro-USD) is held with the answer.
+
+**Stream:** `title {text}` once, before `done`, only when the answer completes (not a refusal, error or interruption)
+and the reply is usable: first line only, labels, quotes, Markdown and final punctuation removed, control and
+bidirectional-override characters dropped, at most 12 words and 80 characters (`cleanTitle`). The server never logs
+or stores the title. Clients clean it again (`ChatTopicTitle.clean`: one line, ≤ 80 characters) and ignore an unusable
+one.
+
+**Encrypted storage (wire format 1, additive optional keys).** A title is a **new revision of the conversation entity**,
+sealed in the same batch as the complete answer it came with:
+`{kind: "conversation", entityID: ‹conversation›, parents: ‹every current revision's event ID›, documentID, anchor,
+createdAt (copied from the current revision), text: ‹title›, titleSource: "generated"}`. A rename is the same with the
+reader's text and `titleSource: "renamed"`. An answer message gains `model` and `profile`. Readers validate the three
+new keys **only by length (≤ 64 UTF-8 bytes) on any kind** and accept any `titleSource` value, so a later build's
+values never stop an older one decoding (and syncing). Builds from before these keys ignore them: they show the newest
+revision's `text`, so they show topic titles too, and their history keeps working (a message's parent is still the
+original conversation revision, which stays). Concurrent titles resolve like any revision (lowest event ID; a rename
+supersedes all). Fixture: `apps/apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/labelled-events-v1.json`
+(a generated title, a renamed title with Unicode, a `titleSource` from a later build, and an answer with `model` and
+`profile`), sealed by Node and checked by `node scripts/check-wire.mjs` (Swift opens, validates and reseals each; Node
+reads Swift's back), by Swift Core tests and by the web unit tests.
+
+**Client rules:** ask for a title whenever the conversation's current revision has no `titleSource` (new chats, and
+existing chats lazily on their next question; no background generation); keep a generated title only with a complete
+answer, and only if the conversation still has none (a rename or another device's title wins); show a titled
+conversation's `text` as it is, and an untitled one's derived title (`ChatTitle.display`, "Explain · ‹passage›") as
+before; Rename writes `renamed` (≤ 80 characters; an empty name is ignored).
+
+### Clients
+
+- **iPhone/iPad (and Mac through Catalyst, shared code).** The message box is one glass pill: the question on top, and
+  on the row under it the answer settings control ("Sonnet · Low · Standard", a capsule) and Send, as in Gemini's
+  message box; with little height (a keyboard in landscape) everything is one row and the control shows only its
+  symbol. The control opens "Answers in this chat" (a popover on iPad and Mac, a half-height sheet on iPhone): Model,
+  Effort and Length as segmented controls (menus at accessibility text sizes), each with what the chosen option means,
+  the estimate and its note, then "Use for new chats" and Reset when the chat differs from the defaults. Settings ›
+  Chat defaults (above Reading) holds the same choices for new chats (this device). A quiet line under each answer
+  names its profile. The chat header, All chats (rows, search, the delete confirmation), the chat title menu's "Chats
+  about this paper" and "Chats about this passage" show topic titles; Rename is in the chat title menu and All chats'
+  long-press (and VoiceOver actions). Without the table (an older server or offline) the control shows the chat's
+  choice with "Couldn't load the answer choices" and Try again, and requests stay exactly as before. Mac menu commands
+  for these controls are left to the Mac work.
+- **Web.** Ownership moved to Codex on 2026-10-08, so this branch leaves `apps/web` exactly as on main (its web
+  work was removed when main was merged in). A first implementation of this contract, written before the handover,
+  remains in history for reference: commits `338e628` and `c286bdf` (composer control and panel, answer labels, titles
+  with Rename, account menu › Chat defaults, an e2e fixture serving the profile table; vitest 206, build and Playwright
+  passed at the time, against the pre-merge web). It is not part of the branch's result; Codex may reuse or replace it.
+
+### Deploy order
+
+1. Apply migration `202610080047_chat_profiles.sql` (additive): `python3 scripts/migrate-supabase.py staging`.
+2. Deploy the `chat` function: `python3 scripts/deploy-staging.py staging --skip-migrations --functions chat`. Before
+   step 1 its reservations fail (`worker_reserve_chat` missing) as `service_unavailable`, before any provider
+   request; deploy both together. The deploy runs the free deploy suite plus `chat.smoke` and `ingest.not-found`
+   (≈ $0.01, default requests: no profile, no title) unless `--skip-checks`.
+3. Paid check (lead): `node scripts/workflow-checks.mjs --only=chat.profiles,chat.profiles-max --cap-usd=0.75`
+   ([workflow checks](WORKFLOW_CHECKS.md)). `chat.profiles` (≈ $0.25 estimated) compares `GET chat` with the
+   checked-in table, asks the Mistral 7B question once per model at Low · Brief with a topic title, checks
+   `done.profile`, `done.model` and the `title` event, asks a Sonnet follow-up that must read the paper from the
+   cache, and compares each `chat_quotes` row and its Anthropic `provider_attempts` (state, title attempt, settled
+   credits ≤ the quoted ceiling). `chat.profiles-max` (≤ $0.40 estimated) does one Opus · High · Detailed answer.
+   Titles print to the console only. The runner skips a check whose estimate would pass the cap or leave the
+   platform budget under its $0.50 reserve; synthetic accounts are deleted afterwards.
+4. Ship clients. Older clients are unaffected (no new fields sent; `title` events and `done` labels are ignored).
+
 ## Money
 
 Rate version `beta-credits-v1`: credits = ⌈micro-USD / 5,000⌉ (1 credit ≈ $0.01 at 2× provider cost).
 
-| Model | Input | Cache write 5 m / 1 h | Cache read | Output ($/MTok) |
-|---|---|---|---|---|
-| `claude-sonnet-5-5`, `claude-sonnet-5` | 2 | 2.50 / 4 | 0.20 | 10 |
-| Any other serving model | 4 | 5 / 8 | 0.40 | 20 |
+Tariff `anthropic-list-prices-2026-10-08`, from [Anthropic's price list](https://platform.claude.com/docs/en/about-claude/pricing) read
+2026-10-08 ($/MTok):
 
-- Hold = ⌈prompt characters / 3⌉ tokens at the 5-minute cache-write rate + 8,000 output tokens. If the reader's available balance is at least 50 credits but below that hold, the credit hold is capped at the balance (owner decision 2026-10-05); the platform-budget (micro-USD) hold is never reduced, and an answer costing more charges the balance and logs `chat_credits_capped_at_balance`. Request digest = SHA-256 of a fixed-key-order canonical body (`\x<hex>`).
+| Model | Input | Cache write 5 m / 1 h | Cache read | Output |
+|---|---|---|---|---|
+| `claude-haiku-5-5`, prompt ≤ 100,000 tokens | 0.10 | 0.125 / 0.20 | 0.01 | 0.50 |
+| `claude-haiku-5-5`, prompt > 100,000 tokens (whole request) | 0.50 | 0.625 / 1 | 0.05 | 2.50 |
+| `claude-haiku-4-5` (catalog tags, not chat) | 1 | 1.25 / 2 | 0.10 | 5 |
+| `claude-sonnet-5-5` | 2 | 2.50 / 4 | **0.10** | 10 |
+| `claude-sonnet-5` (Sonnet 5.5's fallback) | 2 | 2.50 / 4 | 0.20 | 10 |
+| `claude-opus-5-5` | 4 | 5 / 8 | 0.20 | 20 |
+| `claude-opus-5`, `claude-opus-4-8` (Opus 5.5's fallbacks) | 5 | 6.25 / 10 | 0.50 | 25 |
+| Any other serving model | 5 | 6.25 / 10 | 0.50 | 25 |
+
+Correction (2026-10-08): the price list gives Sonnet 5.5 cache reads at 0.05× input, $0.10/MTok; the earlier card
+charged $0.20, overstating cache reads twice. Unknown models now price at the highest card this route can be served
+by (Opus 5/4.8, $5/$25), not Opus 5.5's.
+
+- Hold (Sonnet 5.5, unchanged) = ⌈prompt characters / 3⌉ tokens at the 5-minute cache-write rate + the output allowance (8,000 by default), ×3. Other models: [holds](#holds-quotes-and-settlement). If the reader's available balance is at least 50 credits but below that hold, the credit hold is capped at the balance (owner decision 2026-10-05); the platform-budget (micro-USD) hold is never reduced, and an answer costing more charges the balance and logs `chat_credits_capped_at_balance`. Request digest = SHA-256 of a fixed-key-order canonical body (`\x<hex>`).
 - A replay (`replayed: true`, any state) never calls the provider or settles; it returns `operation_replayed`. Reserve errors never settle. An ambiguous reserve transport failure is logged by operation ID for reconciliation.
 - After a hold, settlement happens exactly once on every path (success, refusal, provider error, deadline, client disconnect). It retries only ambiguous transport failures, with identical amounts (the RPC is idempotent for equal amounts). Settled amounts never exceed the hold; overruns settle at the hold and log `chat_usage_exceeded_hold`. Recorded provider usage keeps the true estimate.
 - Usage: final `usage.iterations` (per serving model, fallback included) or top-level usage. Without final usage: input from `message_start` and output = max(visible chars / 3, 100 tokens per elapsed second), capped at `max_tokens`. A typed HTTP rejection before `message_start` is unbilled. A lost connection before `message_start` charges the input estimate at the uncached rate. Estimates are marked `estimated: true` in `worker_record_provider_usage` units (event ID = message ID, else `operation:<id>`).

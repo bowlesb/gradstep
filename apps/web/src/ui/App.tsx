@@ -25,6 +25,7 @@ import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
+import { ReportDialog, ReportsDialog } from './SupportReports';
 import { useLibrary } from './useLibrary';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
@@ -128,6 +129,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
   const [help, setHelp] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
   const [chatDefaults, setChatDefaults] = useState(false);
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -385,7 +388,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
       </header>
@@ -402,6 +405,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
       {chat && <ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} />}
+      <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
+      <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <h2>Keyboard shortcuts</h2>
         <dl className="shortcuts">
@@ -433,7 +438,7 @@ function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolea
   return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ email, theme, setTheme, onHelp, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onSignOut: () => void;
+function AccountMenu({ email, theme, setTheme, onHelp, onReport, onReports, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onChatDefaults: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -458,6 +463,8 @@ function AccountMenu({ email, theme, setTheme, onHelp, onSignOut, onChatDefaults
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
           <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> Chat defaults…</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReport(); }} data-testid="report-issue"><Icon name="bug" size={14} /> Report this screen…</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReports(); }} data-testid="my-reports"><Icon name="bubble" size={14} /> My reports</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
         </div>

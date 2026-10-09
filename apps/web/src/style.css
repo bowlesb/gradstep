@@ -67,6 +67,9 @@ kbd { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; border: 1px soli
 .auth-card { width: min(100%, 440px); padding: 32px; display: flex; flex-direction: column; gap: 18px; }
 .auth-card h1 { margin: 6px 0 0; }
 .auth-card .signout { align-self: flex-start; }
+.keys-details { border-top: 1px solid var(--line); padding-top: 10px; }
+.keys-details summary { color: var(--accent); cursor: pointer; font-size: 12.5px; }
+.keys-details p { margin: 8px 0 0; }
 .oauth-actions { display: grid; gap: 10px; }
 .oauth-actions button { width: 100%; min-height: 44px; font-weight: 600; }
 .auth-divider { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
@@ -328,6 +331,29 @@ progress.mini { height: 3px; margin-top: 4px; }
 .dialog::backdrop { background: rgba(10, 10, 20, .45); }
 .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.support-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.support-field .fine { margin-left: 4px; font-weight: 400; }
+.support-field input, .support-field textarea { width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-weight: 400; resize: vertical; }
+.support-field input:focus, .support-field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.support-screenshot { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.support-section-head { display: flex; align-items: baseline; gap: 4px; font-size: 13px; }
+.support-image-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.support-preview { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.support-preview img { display: block; width: min(100%, 520px); max-height: 300px; object-fit: contain; object-position: left top; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.support-report-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; }
+.support-report-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); text-align: left; }
+.support-report-row:hover { border-color: var(--accent); background: var(--accent-soft); }
+.support-report-row span:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.support-report-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.support-report-row small { color: var(--muted); text-transform: capitalize; }
+.support-thread-title { margin: 0; font-size: 18px; }
+.support-thread-note { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.support-thread-images, .support-messages { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.support-thread-images img { width: min(100%, 720px); max-height: 420px; object-fit: contain; object-position: left top; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.support-message { padding: 9px 11px; border-radius: 8px; background: var(--bg); }
+.support-message.operator { background: var(--accent-soft); }
+.support-message small { color: var(--muted); }
+.support-message p { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .outcome { border-radius: 8px; padding: 10px 12px; font-size: 13.5px; display: flex; flex-direction: column; gap: 6px; }
 .outcome p { margin: 0; }
 .outcome.good { background: var(--accent-soft); }

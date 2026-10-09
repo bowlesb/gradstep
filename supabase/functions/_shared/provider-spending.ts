@@ -1,7 +1,7 @@
 // Durable admission around one provider transport request. No prompts, queries,
 // answers or raw errors are stored/logged; only domain-bound digests and counts.
 import type Anthropic from '@anthropic-ai/sdk';
-import { holdFor, priceAttempts, promptCharacters, WEB_SEARCH_MICROUSD, webSearchHoldMicrousd,
+import { holdForParams, priceAttempts, WEB_SEARCH_MICROUSD, webSearchHoldMicrousd,
   type ProviderOutcome, type StreamOptions } from './anthropic.ts';
 import { providerRequestID, tavilySearch, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { CONSENT_VERSION } from './chat.ts';
@@ -74,8 +74,9 @@ export function admittedAnthropic(deps: SpendingDependencies,
     // 30k estimate is not a hard cap. A policy flag alone cannot bypass the
     // missing context-bound quote: keep this route gated until implemented.
     if (search) return unavailable();
-    const hold = holdFor(promptCharacters(params), params.max_tokens);
-    const ceiling = hold.microusd + (maxSearches ? webSearchHoldMicrousd(hold.inputTokens, maxSearches) : 0);
+    // The requested model's own hold rule (chat profiles, the title's Haiku request), never a fixed Sonnet card.
+    const hold = holdForParams(params);
+    const ceiling = hold.microusd + (maxSearches ? webSearchHoldMicrousd(hold.inputTokens, maxSearches, params.model) : 0);
     if (!await admit(deps, attempt, 'anthropic', 'chat', params.model, ceiling,
       { output_tokens: params.max_tokens, web_searches: maxSearches })) return unavailable();
     let outcome: ProviderOutcome;

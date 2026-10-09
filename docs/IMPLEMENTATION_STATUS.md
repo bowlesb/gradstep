@@ -1,13 +1,13 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `e500c231`, and the admin site is deployed.**
+Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
-- **Browser release:** source is commit `d3fb7b3` on main; Pages deployment
-  `e500c231` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+- **Browser release:** source is commit `feb1099` on main; Pages deployment
+  `1b45e0af` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
   paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
@@ -24,12 +24,17 @@ removed executor work) is retained below where useful and in git history.
   skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
   journey passes on desktop (answer and Mermaid source copy controls). The local OAuth journey adds 5 passes and 1
   expected WebKit key-persistence skip across desktop, phone and WebKit, including a rejected state-less callback.
-  A fresh combined desktop + phone production-CSP run completed **149 passed / 25 intentional skips / 0 failures**
+  A fresh combined desktop + phone production-CSP run completed **151 passed / 25 intentional skips / 0 failures**
   in 8.7 minutes. It covered the deployed reader actions and chat-copy controls, OAuth, chat settings and titles,
   Feed personalization and feedback, podcasts, library commands and column choices, 4,000-entry windowed libraries,
-  reader drafts and references, recovery, update barriers, and narrow phone layouts. The skips are the existing
+  reader drafts and references, recovery, update barriers, narrow phone layouts, and the browser screenshot support-report
+  journey. The skips are the existing
   phone-inapplicable desktop cases and the explicitly gated journal/layout/reference journeys; no new failure was
   introduced by the browser OAuth revision.
+  Signed-in users can now choose Account → Report this screen… to attach a PNG/JPEG or capture an explicitly selected
+  browser tab/window, then follow the thread under My reports. Images are redrawn without metadata and bounded to
+  2,560 px/5 MiB. If the web connection fails, the composer stays open for retry; unsent web drafts are not persisted
+  offline. Mac already has the native Help → Report This Screen… command and encrypted offline outbox.
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated
@@ -47,7 +52,9 @@ removed executor work) is retained below where useful and in git history.
   in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
   the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
   checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
-  No new TestFlight upload or owner-device acceptance is claimed by this candidate.
+  **TestFlight build 22 is now uploaded and VALID / IN_BETA_TESTING for both iOS and Mac** (iOS build
+  `352fb5c3-3d10-44a5-884f-ac0eeb7dad3d`, Mac build `3544c167-c447-4a33-a537-60988240afc5`).
+  No owner-device acceptance is claimed by this candidate.
   The current main source also contains the Mac-specific purchase-settings copy (`fe0dd2b`); a fresh universal
   Catalyst build-for-testing and focused Mac execution passed **11/11** (approval and StoreKit purchase suites).
 
@@ -55,11 +62,20 @@ removed executor work) is retained below where useful and in git history.
 
 - **Paper podcasts v1 built on branch `podcast-v1`, dark, not applied or deployed.** Owner asked to "build the
   notebook LM podcasts feature"; Decisions 2 (≤ $2, ≤ 2 seed episodes, $0.75 each, inside the $25 cap) and 3
-  (bounded private generation, max 150 credits) recorded in [DECISIONS](DECISIONS.md#paper-podcasts-v1-owner-asked-2026-10-08).
+  (bounded private generation) recorded in [DECISIONS](DECISIONS.md#paper-podcasts-v1-owner-asked-2026-10-08).
   Migration 048 (every switch off), worker `POST /podcast` (Sonnet 5.5 two-pass script + deterministic evidence
   checker, Gemini 3.8 Flash TTS on Vertex via an impersonated dedicated service account, ffmpeg mono AAC 64 kbit/s with
-  chapters), Edge `podcast`/`podcast-member`, native client and a first browser client. Local tests only; **no paid
+  chapters), Edge `podcast`/`podcast-member`, native client and a first browser client. **Four lengths** (owner): Short / 5 / 10 / 20 min at 110 / 150 / 220 / 360 credits maximum, ten and twenty minutes
+  staged with chunked speech; seeds stay five-minute. Local tests only; **no paid
   provider call**. The lead's $2 seed-pilot runbook: [Paper podcasts](architecture/PAPER_PODCASTS.md#seed-pilot-runbook-2-the-lead-runs-this).
+
+- **iOS and Mac TestFlight build 22**, source `298e66b`, are now **VALID / IN_BETA_TESTING**. The iOS upload
+  completed at 16:41 PDT and the Mac upload at 16:46 PDT; both are internal-only builds and are available to
+  the existing internal testing group. Build 22 includes the current Mac wide-workspace direction, the
+  Catalyst purchase-settings wording, QR device approval, and the accumulated library/chat/reader fixes.
+  Archive/export evidence is `.artifacts/Paperstep-22.xcarchive`, `.artifacts/export-22.log`,
+  `.artifacts/Gradstep-mac-22.xcarchive` and `.artifacts/export-mac-22.log`. No physical-device or owner
+  acceptance claim is made here.
 
 - **Reader cutover completed at 09:33 UTC.** Migration 045 fences the old issuer; delivery is bounded-only.
   After the full in-flight/expiry horizon, all 1,046 historical/physical reader paths were cache-purged, including
@@ -185,6 +201,34 @@ removed executor work) is retained below where useful and in git history.
   scope/privacy and a **$2 total pilot inside the existing $25 provider cap** await owner acceptance. No podcast
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
+
+## TestFlight build 23 and For you serving — 2026-10-09 UTC
+
+- **TestFlight build 23** (iOS and Mac), from main `9ca3202`: build 22 plus the chat model/effort/length control and
+  generated chat titles. Both uploads succeeded; Apple processing is pending. Podcasts and the floating-tab-bar fix
+  come in a later build.
+- **Feed serving set to `staff`.** Builds 22+ show For you, specific topic chips, Topics and Popularity to owner and
+  tester accounts. Pool: 825 papers (2026-10-08), 29 with upvotes.
+
+## Chat controls and titles on staging — 2026-10-09 UTC
+
+- **Backup:** encrypted checkpoint `.artifacts/backups/20261009T001040Z-c2602a33734d`.
+- **Migration 047** (`chat_profiles`) applied and verified, then the `chat` function deployed.
+  Workflow checks: 18/18 pass, $0.007.
+- **Paid profile check** (`chat.profiles`, `chat.profiles-max`, cap $0.75): 3/3 pass, $0.14 measured.
+
+  | Profile | Credits | Cost |
+  |---|---|---|
+  | Haiku · Low · Brief | 1 | $0.0020 |
+  | Sonnet · Low · Brief | 9 | $0.0401 |
+  | Opus · Low · Brief | 17 | $0.0809 |
+  | Sonnet follow-up | 1 | $0.0033 (read 15,112 cached tokens) |
+  | Opus · High · Detailed | 3 | $0.0126 (first text 3.2 s) |
+
+  Quotes agreed with the provider attempts. Generated titles arrived ("Attention mechanisms in Mistral 7B").
+- **Local tests:** backend 430/430, database 229 PASS, wire check, Core 258, iOS unit tests 402 (5 skipped), chat
+  UI journeys 10/10 on iPhone and 4/4 on iPad, Catalyst build.
+- **Not yet done:** Haiku 5.5 has not been quality-checked on facts and equations. The app side ships in the next build.
 
 ## Feed topics and popularity on staging — 2026-10-08
 

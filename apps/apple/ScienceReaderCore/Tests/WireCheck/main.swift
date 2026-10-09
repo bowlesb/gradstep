@@ -15,6 +15,13 @@ struct Fixture: Decodable {
     let deviceEnvelope: Data
     /// Optional QR approval check: a recipient (e.g. a WebCrypto key) as its QR payload and server request name it.
     let approval: Approval?
+    /// Optional events with the 2026-10-08 labels (title revisions, answer model/profile), sealed by the caller.
+    let labelled: [Labelled]?
+}
+struct Labelled: Decodable {
+    let eventID: UUID
+    let payload: PrivateEvent
+    let ciphertext: Data
 }
 struct Approval: Decodable {
     let payload: String
@@ -34,6 +41,7 @@ struct Output: Encodable {
     let deviceEnvelope: Data
     let fingerprint: String
     let approval: ApprovalOutput?
+    let labelled: [Data]?
 }
 let data = FileHandle.standardInput.readDataToEndOfFile()
 guard data.count < 65_536 else { throw ReaderError.invalidEvent }
@@ -58,9 +66,19 @@ let approval = try input.approval.map { approval -> ApprovalOutput in
     return ApprovalOutput(code: try matched.comparisonCode(accountID: input.keys.accountID),
                           envelope: try DeviceApproval.envelope(for: matched, keys: input.keys), refusedSubstitute: refused)
 }
+// Each labelled event must open to exactly its payload (new keys included), then be sealed again by Swift.
+let labelled = try input.labelled.map { events in
+    try events.map { item -> Data in
+        let envelope = EventEnvelope(id: item.eventID, deviceID: input.deviceID, epoch: input.keys.epoch, ciphertext: item.ciphertext)
+        let opened = try ReaderCrypto.open(envelope, keys: input.keys)
+        guard opened == item.payload else { throw ReaderError.corruptData }
+        try opened.validate()
+        return try ReaderCrypto.seal(opened, id: item.eventID, deviceID: input.deviceID, keys: input.keys).ciphertext
+    }
+}
 let output = Output(eventCiphertext: try ReaderCrypto.seal(input.payload, id: input.eventID, deviceID: input.deviceID, keys: input.keys).ciphertext,
     recoveryPackage: try ReaderCrypto.wrapRecovery(input.keys, code: input.recoveryCode),
     deviceEnvelope: try ReaderCrypto.wrapForDevice(input.keys, deviceID: input.deviceID, recipientPublicKey: recipient.publicKey.rawRepresentation, challenge: input.challenge),
     fingerprint: try ReaderCrypto.enrollmentFingerprint(accountID: input.keys.accountID, deviceID: input.deviceID, publicKey: recipient.publicKey.rawRepresentation, challenge: input.challenge),
-    approval: approval)
+    approval: approval, labelled: labelled)
 FileHandle.standardOutput.write(try ReaderCrypto.encode(output))

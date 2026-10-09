@@ -1,0 +1,72 @@
+[
+  {
+    "eventID": "12345678-abcd-4abc-8def-100000000000",
+    "payload": {
+      "kind": "conversation",
+      "entityID": "CCCCCCCC-0000-4000-8000-AAAAAAAAAAAA",
+      "parents": [
+        "99999999-0000-4000-8000-111111111111"
+      ],
+      "documentID": "DDDDDDDD-0000-4000-8000-BBBBBBBBBBBB",
+      "text": "Explainer for a persona paper",
+      "anchor": {
+        "artifactID": "EEEEEEEE-0000-4000-8000-CCCCCCCCCCCC",
+        "quote": "∑ attention",
+        "prefix": "before ",
+        "suffix": " after",
+        "elementID": "section-2",
+        "page": 3
+      },
+      "createdAt": 1791849600000,
+      "titleSource": "generated"
+    },
+    "ciphertext": "QEFCQ0RFRkdISUpLuXbc7zMeqnlwCCsK5DglG3Xv/ve8BIXkTLvRRSWvikePPi8uBuyMEn2nDaml4IPf89uqc/6pk749p4ojZYd4M1CMzeVwTUhLrj5rBkPnBRNhK03Dh5HUsTFQQfUCYldb8mJn91qS573ZvJ4yZyp9LexhwnTnqGmN5/D8yZ9H/IPJNuBYkKEYKm/cSG3a3gBkNHwsv+I4PzL4s5XWVNyph2nEdU5VwLHlU+tkjDM4BrngKxyXjRt54ovGRt6Nx4l51vYiB/s+kj9k49dc43Rvg+vfBBeijgRQkgU1Q21UyLJY8C8Y1sJLEMvbw2XWDtJCeJdokcmkQxymASZgz9ACC/o0FCq88NO1lfoyRRF+aB6neFEd+Lt8aDBHsjtU0LHzlQoX1ITE7PZmKocw6IU8rvJD2gmo2S7d78pzCL+Nry5LSy0SJCO/EfG5GTsmRH6JhXfMZUPD3JFx/3iJ6RswqysF0MjKE99tLLjSgYVlo69lSNOrmHAr+4PyPKEUesCxFq96PgDbwDEd8XQrIAEQTi6RqvMvM9T5UEXGmVH6Yl55Rddm4olHqnGTB1DUxMRIp5ZnyEIiDEM="
+  },
+  {
+    "eventID": "12345678-abcd-4abc-8def-100000000001",
+    "payload": {
+      "kind": "conversation",
+      "entityID": "CCCCCCCC-0000-4000-8000-AAAAAAAAAAAA",
+      "parents": [
+        "12345678-ABCD-4ABC-8DEF-000000000001"
+      ],
+      "documentID": "DDDDDDDD-0000-4000-8000-BBBBBBBBBBBB",
+      "text": "Café notes on ∑ attention — 中文",
+      "createdAt": 1791849600000,
+      "titleSource": "renamed"
+    },
+    "ciphertext": "QUJDREVGR0hJSktMQkuG5nHp7e98QmsMdIkXfVlIVIyYCZ/fpdFTDrhzSLgFBRlIhRJEaKF6Q+Z8ymWYaAzaQpmtqbGGEq+mueI8bi6lHgqEIVmjA0rCKSrvrOwo3YiR7Yzu2IefkM8Ra2zXprwWVfEeMYCixDE6nV/igKKLIEhk0wBd3Tx94KTRKlv2CYoGZOzRcRxkS17WQNm3oesQ0+6CKuirIq7mzYOoIffkvudrjq6Qr1TT0wFvs60iwm4ieEFg0WFAsNrkJAlSFRE4LDHznyWcWo1SXDaQmylh+5CaSG6DIwv7jvnPS091tSEPStsIIHqq0+eL/iHfeBXPONjlTWRQxbAdXppo5dpR6rB7KP241nxcOD7Hztpbtg0KWmatmaqPe3COqCHXVmuN"
+  },
+  {
+    "eventID": "12345678-abcd-4abc-8def-100000000002",
+    "payload": {
+      "kind": "conversation",
+      "entityID": "CCCCCCCC-0000-4000-8000-AAAAAAAAAAAA",
+      "parents": [
+        "12345678-ABCD-4ABC-8DEF-000000000002"
+      ],
+      "text": "Imported later",
+      "titleSource": "imported-by-a-later-build"
+    },
+    "ciphertext": "QkNERUZHSElKS0xNTrbpwpb+ldjykrdA48+CLlALDQ41oZ02Cmsmp7nDgvhFtLVNigq97Dty9sywEHKYntXyfnVrtpLcnZ27T/CFWPK9zrxTGgKPpZAFquRa4zkq+q+wijQuUjLro3lkBpNFKUsCfQalnP92Pf2201EUqDu2y2qCwlUsQZZL6s88G2ohWG3okbzNZ9FDn6H7rNCFhhWDZIdrVW6JPhOsvx7RjZRrdC85NXjCn0Mj7l1lsD+6GC4XqcMPK6L4Nk8CjOc/XK/4qZYX7YR4MPVKwOQ="
+  },
+  {
+    "eventID": "12345678-abcd-4abc-8def-100000000003",
+    "payload": {
+      "kind": "message",
+      "entityID": "ABCDEF01-2345-4678-9ABC-DEF012345679",
+      "parents": [
+        "ABCDEF01-2345-4678-9ABC-DEF012345678"
+      ],
+      "conversationID": "CCCCCCCC-0000-4000-8000-AAAAAAAAAAAA",
+      "documentID": "DDDDDDDD-0000-4000-8000-BBBBBBBBBBBB",
+      "text": "Because ∑ of non-negative terms is ≥ 0.",
+      "role": "assistant",
+      "status": "complete",
+      "createdAt": 1791849660000,
+      "model": "claude-sonnet-5",
+      "profile": "opus-high-detailed"
+    },
+    "ciphertext": "Q0RFRkdISUpLTE1Op6V9Y2EgB6XScnR8e/MmfE/dwN4wixWC2/Kji2Rc1G27K4O0EIAof6QMlPxxfGzBrRCiamPn2xP9Ba90DNbDRR/11HZKw3sAifUPVSA/yghvltyTeKovwQYld72UKVe8wFhZ2NAvEeIRzeM4PBa0PYhJ9mqwneW2gDa5P4Zt6tFJ4wmqva6MYccJtIB6unsDfcurVp19rnfGEzmddfVg30BXrwdNAk7eWIAnhrXZzJGPcATujdULtnyHVvDgaHtR60MpflM84rUHKJkIXIADjg76X+gb+3I7LXyB6pw1SOreSZoFcJzMLX0knpx4qNPUO2UKsgGP2uczu0ceYc4CwUSamD2bzir6xi93lPcEnnUneAinYuK9lUWfkRE1mtp2hEDmwahYsw+knsSn3/BuhxqJex+2+9ZegpV6jqnmgGfDpNZpBqqHYTtdsaeVqn4E8vbrmiGhOCqT9MwEpo3/OXFlR4EDlkqA020CwO7waoyZB1qxHQU1vy5Eo9X7xt+Kh7p3i+qOVlKUxwVU+TE5XkR7TlOJK9iRdVAIsmLDFBEpVA=="
+  }
+]

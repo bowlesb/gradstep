@@ -51,7 +51,8 @@ test('model request has an exact bound and durable grant before send, with priva
   assert.deepEqual(begin.p_reserved_units, { output_tokens: 8000, web_searches: 0 });
   assert.match(String(begin.p_attempt_id), /^[a-f0-9-]{36}$/);
   assert.match(String(begin.p_request_sha256), /^\\x[a-f0-9]{64}$/);
-  assert.equal(finish.p_actual_microusd, 429);
+  // 100 input at $2, 50 cache writes at $2.50, 20 cache reads at Sonnet 5.5's $0.10, 10 output at $10.
+  assert.equal(finish.p_actual_microusd, 427);
   assert.equal(finish.p_provider_request_id, 'req_test');
   assert.equal(finish.p_state, 'succeeded');
   assert.ok(!JSON.stringify([h.calls, h.logs]).includes(privateText));
@@ -120,7 +121,7 @@ test('a missing search admission cannot escape through native fallback even in a
   const h = fixture(); let modelRequests = 0, searchRequests = 0;
   const original = h.deps.rpc;
   h.deps.rpc = async (name, args) => {
-    if (name === 'worker_reserve_operation') return { replayed: false };
+    if (name === 'worker_reserve_chat') return { replayed: false };
     if (name === 'worker_consume_request' || name === 'worker_settle_operation' || name === 'worker_record_provider_usage') return null;
     if (name === 'worker_provider_attempt_begin' && args.p_provider === 'tavily') {
       h.calls.push({ name, params: args }); throw Object.assign(new Error('missing admission'), { code: 'PGRST202' });

@@ -162,7 +162,7 @@ extension ReaderModel {
     /// The chooser's row for a conversation: its short title, with when it was last used if titles repeat.
     func passageChoiceTitle(_ id: UUID, among ids: [UUID]) -> String {
         func title(_ id: UUID) -> String {
-            let display = ChatTitle.display(conversationSummaries.first { $0.id == id }?.title ?? "")
+            let display = conversationSummaries.first { $0.id == id }.map { ChatTitle.display($0) } ?? ""
             return display.isEmpty ? "Untitled conversation" : display
         }
         let own = title(id)

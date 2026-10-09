@@ -799,6 +799,7 @@ struct ChatView: View {
     @State private var historyBounds = CGRect.zero
     @State private var newChatBounds = CGRect.zero
     @State private var toolbarLayoutWidth: CGFloat = 0
+    @State private var renaming: UUID?
     var body: some View {
         NavigationStack {
             GeometryReader { available in
@@ -825,6 +826,8 @@ struct ChatView: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { toolbarLayoutWidth = $0 }
             .tabBarSpace(fade: false)
+            .task(id: model.isSignedIn) { model.refreshChatProfiles() }
+            .renameConversationAlert(model: model, conversation: $renaming)
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -915,30 +918,50 @@ struct ChatView: View {
         .chromeBand(.bottom)
     }
 
-    /// One glass pill: the question, and Send (or Stop) inside it on the right.
-    private func composer(compact: Bool) -> some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            TextField("Chat", text: $model.chatInput, axis: .vertical)
-                .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
-                // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
-                .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
-                .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 18).padding(.vertical, 14)
-            Group {
-                if model.isAnswering {
-                    Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
-                        .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
-                } else {
-                    Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: !sendDisabled) }
-                        .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
-                        // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
-                        .macKeyboardShortcut(.return, modifiers: .command)
+    /// One glass pill: the question, then the answer settings (model, effort, length; 2026-10-08) and Send (or Stop)
+    /// on the row under it, as in Gemini's message box. With little height (a keyboard in landscape) everything is one
+    /// row and the settings control shows only its symbol.
+    @ViewBuilder private func composer(compact: Bool) -> some View {
+        let field = TextField("Chat", text: $model.chatInput, axis: .vertical)
+            .focused($composerFocused).accessibilityIdentifier("chat.composer")
+            .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
+            // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
+            .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
+            .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
+        Group {
+            if compact {
+                HStack(alignment: .bottom, spacing: 4) {
+                    ChatProfileButton(model: model, compact: true).padding(.leading, 6).padding(.bottom, 3)
+                    field.padding(.vertical, 14)
+                    sendButton
                 }
-            }.buttonStyle(.plain).padding(3)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    field.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 2)
+                    HStack(alignment: .center, spacing: 4) {
+                        ChatProfileButton(model: model).padding(.leading, 10)
+                        Spacer(minLength: 4)
+                        sendButton
+                    }
+                }
+            }
         }
         .frame(minHeight: 50)
         .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
+    }
+
+    private var sendButton: some View {
+        Group {
+            if model.isAnswering {
+                Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
+                    .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
+            } else {
+                Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: !sendDisabled) }
+                    .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                    // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
+                    .macKeyboardShortcut(.return, modifiers: .command)
+            }
+        }.buttonStyle(.plain).padding(3)
     }
 
     private func send() {
@@ -983,7 +1006,7 @@ struct ChatView: View {
                 Section("Chats about this paper") {
                     ForEach(others.prefix(5)) { chat in
                         Button { composerFocused = false; model.openConversation(chat.id) } label: {
-                            let title = ChatTitle.display(chat.title)
+                            let title = ChatTitle.display(chat)
                             Text(title.isEmpty ? "Untitled conversation" : title)
                             Text([ChatHistoryFormat.lastUsed(chat.lastUsedAt), ChatHistoryFormat.messages(chat.messageCount)].joined(separator: " · "))
                         }
@@ -1038,6 +1061,12 @@ struct ChatView: View {
             Menu {
                 // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
                 Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
+                if let conversation = model.activeConversation, !model.chatWasDeleted {
+                    Section {
+                        MenuRow("Rename…", systemImage: "pencil") { composerFocused = false; renaming = conversation }
+                            .accessibilityIdentifier("chat.rename")
+                    }
+                }
                 contextPicker
                 paperChatsSection
             } label: {
@@ -1186,6 +1215,18 @@ struct SettingsView: View {
                             .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
                     } header: { Text("Credits") } footer: {
                         Text("Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.")
+                    }
+                }
+                if model.chatTransport != nil {
+                    Section {
+                        NavigationLink {
+                            ChatDefaultsView(model: model)
+                        } label: {
+                            LabeledContent("Chat defaults", value: ChatProfileText.summary(model.chatDefaultProfile, table: model.chatProfileTable))
+                        }
+                        .accessibilityIdentifier("settings.chatDefaults")
+                    } footer: {
+                        Text("The model, effort and length new chats start with. A chat can change them in its message box.")
                     }
                 }
                 Section("Reading") {

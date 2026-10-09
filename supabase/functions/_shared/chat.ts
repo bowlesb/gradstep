@@ -2,11 +2,13 @@
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
-  ADD_PAPER_TOOL, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
+  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
-  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus,
+  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
+import { isDefaultChoice, parseChoice, PROFILE_VERSION, resolveProfile, type ChatProfile, type Choice } from './chat-profiles.ts';
+import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
@@ -48,6 +50,10 @@ export interface ChatRequest {
   action: ChatAction | null;
   /** Client features: 'web_import' = the app shows web (non-arXiv) library entries. */
   capabilities: string[];
+  /** The reader's model, effort and length (chat-profiles.ts); null = the default profile (today's request). */
+  choice: Choice | null;
+  /** Also write a topic title for the conversation (chat-title.ts). */
+  topicTitle: boolean;
 }
 
 export const CLIENT_CAPABILITIES = ['web_import'] as const;
@@ -76,7 +82,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action', 'capabilities']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title']);
   if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
   const consentVersion = body.consent_version;
   const mode = body.mode;
@@ -120,7 +126,15 @@ export function validateChatRequest(input: unknown): ChatRequest {
     capabilities = [...new Set(body.capabilities.map(value => typeof value === 'string' && value.length <= 32 ? value : invalid()))]
       .filter(value => (CLIENT_CAPABILITIES as readonly string[]).includes(value)).sort();
   }
-  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities };
+  let choice: Choice | null;
+  try { choice = parseChoice(body.profile); } catch { invalid(); }
+  // The default profile, named or not, is the same request (and the same digest).
+  if (choice && isDefaultChoice(choice)) choice = null;
+  if (body.topic_title !== undefined && body.topic_title !== null && typeof body.topic_title !== 'boolean') invalid();
+  const topicTitle = body.topic_title === true;
+  // A diagram repair is its own small request: the default model, no title.
+  if (action === 'diagram_fix' && (choice !== null || topicTitle)) invalid();
+  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle };
 }
 
 /** Fixed key order: the reservation's request digest. */
@@ -132,6 +146,8 @@ export function canonicalRequest(request: ChatRequest): string {
     selection: request.selection === null ? null : { quote: request.selection },
     ...(request.action ? { action: request.action } : {}),
     ...(request.capabilities.length ? { capabilities: request.capabilities } : {}),
+    ...(request.choice ? { profile: { effort: request.choice.effort, length: request.choice.length, model: request.choice.model } } : {}),
+    ...(request.topicTitle ? { topic_title: true } : {}),
   });
 }
 
@@ -293,7 +309,10 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'diagram'; data: { title: string; source: string } }
   /** Progress while the server searches or adds a paper. Builds that predate it ignore unknown events. */
   | { event: 'status'; data: ChatStatus }
-  | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number> } }
+  /** The conversation's topic title (requested with `topic_title`), sent once before `done`; never logged or stored. */
+  | { event: 'title'; data: { text: string } }
+  /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile. */
+  | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string } }
   | { event: 'error'; data: { code: ChatErrorCode } };
 
 export function sseFrame(message: ChatEvent): string {
@@ -389,10 +408,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (request.action === 'related' && searchOffered && !signal.aborted) emit({ event: 'status', data: searchingStatus(undefined) });
   const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
   const repair = request.action === 'diagram_fix';
-  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : CHAT_MAX_TOKENS;
+  // The reader's model, effort and length; a repair always uses the default model with its own small allowance.
+  const profile = resolveProfile(request.choice);
+  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered);
-  const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: instructions.action,
-    paper, turns: request.turns, selection: request.selection, maxTokens, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
+  // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
+  const trailing = [instructions.action, repair ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
+  const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
+    paper, turns: request.turns, selection: request.selection, maxTokens,
+    model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
       : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const held = balance ? await balance : null;
   const available = held?.ok ? held.value : null;
@@ -400,7 +424,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The history/instructions/output budget already imply this minimum hold.
   // Refuse clearly insufficient balances before downloading the paper; cheap
   // general chats still use their own quote, not an invented 50-credit minimum.
-  const minimum = Math.min(HOLD_CAP_MINIMUM_CREDITS, holdFor(promptCharacters(makeParams(null)), maxTokens).credits);
+  const minimum = Math.min(HOLD_CAP_MINIMUM_CREDITS, holdFor(promptCharacters(makeParams(null)), maxTokens, profile.apiModel).credits);
   if (available !== null && available < minimum) throw new ChatFailure('insufficient_credits');
 
   let paper: PaperContext | null = null;
@@ -419,12 +443,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   }
   const params = makeParams(paper);
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
-  const hold = holdFor(promptCharacters(params), params.max_tokens);
+  const hold = holdFor(promptCharacters(params), params.max_tokens, params.model);
   if (searchOffered) {
     // Sized for Anthropic's search, which also bounds Tavily and a mid-answer switch between them.
-    hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap);
-    hold.credits = creditsFor(hold.microusd);
+    hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
   }
+  // The topic title is a second, small request in the same operation: its whole ceiling is held too.
+  const titleParams = request.topicTitle ? titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null }) : null;
+  const titleHold = titleParams ? holdFor(promptCharacters(titleParams), titleParams.max_tokens, titleParams.model) : null;
+  if (titleHold) hold.microusd += titleHold.microusd;
+  hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
     hold.credits = available;
   }
@@ -433,9 +461,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
   let reservation: { replayed?: unknown; state?: unknown };
   try {
-    reservation = await deps.rpc('worker_reserve_operation', {
-      p_account_id: deps.accountID, p_id: request.operationID, p_kind: 'chat', p_request_sha256: `\\x${digest}`,
+    // The quote freezes what this hold was sized for (migration 047): the profile and its model, the output
+    // allowance (thinking included), the rate version and tariff, the input estimate, searches and the title.
+    reservation = await deps.rpc('worker_reserve_chat', {
+      p_account_id: deps.accountID, p_id: request.operationID, p_request_sha256: `\\x${digest}`,
       p_rate_version: RATE_VERSION, p_credits: hold.credits, p_microusd: hold.microusd,
+      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, repair),
     }) as typeof reservation;
   } catch (error) {
     const code = RESERVE_ERRORS[reason(error)];
@@ -457,15 +488,31 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const stats: SearchStats = { tavily: 0, credits: 0, failures: 0, failover: false };
   // Status lines go only to this reader's stream (the search query included); logs keep counts only.
   const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
+  // The title is written alongside the answer (from the question, not the answer), so it adds no wait.
+  const titleStop = new AbortController();
+  const stopTitle = () => titleStop.abort();
+  deadline.signal.addEventListener('abort', stopTitle, { once: true });
+  const titling = titleParams && titleHold ? writeTitle(deps.generate, titleParams, titleHold.inputTokens, titleStop.signal, now) : null;
+  let title: TitleResult | null = null;
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
     }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
+    if (titling) {
+      // A title still being written gets a short grace period; abandoning it still settles its attempt.
+      const grace = setTimeout(stopTitle, outcome.status === 'complete' && !signal.aborted ? TITLE_GRACE_MS : 0);
+      try { title = await titling; } finally { clearTimeout(grace); }
+    }
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', stop);
+    deadline.signal.removeEventListener('abort', stopTitle);
+  }
+  // The title's request is part of this operation: priced, held and recorded with the answer's.
+  if (title?.outcome.attempts.length) {
+    outcome = { ...outcome, attempts: [...outcome.attempts, ...title.outcome.attempts], exact: outcome.exact && title.outcome.exact };
   }
 
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
@@ -486,7 +533,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode,
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
-    failover: stats.failover, sources: outcome.sources?.length ?? 0 });
+    failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
+    // Whether a title was written (never the title itself).
+    title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed' });
 
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
@@ -556,12 +605,48 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       }
     }
     if (signal.aborted) return;
+    if (title?.text) emit({ event: 'title', data: { text: title.text } });
     // A tool call ends the provider turn; the server completed it.
     const stopReason = outcome.stopReason === 'tool_use' ? 'end_turn' : outcome.stopReason ?? 'end_turn';
-    emit({ event: 'done', data: { stop_reason: stopReason, credits, usage } });
+    // Which model answered (the serving model of the last attempt, a fallback when one ran) and with which profile.
+    const served = answeringModel(outcome);
+    emit({ event: 'done', data: { stop_reason: stopReason, credits, usage, ...(served ? { model: served } : {}),
+      profile: repair ? 'diagram_fix' : profile.id } });
     return;
   }
   emit({ event: 'error', data: { code: 'provider_unavailable' } });
+}
+
+/** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
+export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
+  maxSearches: number, titleMicrousd: number | null, repair: boolean): Record<string, string | number | null> {
+  return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
+    effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length, tariff: TARIFF,
+    max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
+    title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
+    title_ceiling_microusd: titleMicrousd };
+}
+
+/** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
+function answeringModel(outcome: ProviderOutcome): string | null {
+  const model = outcome.model ?? outcome.attempts.at(-1)?.model ?? null;
+  return model && /^[a-z0-9][a-z0-9.-]{0,63}$/.test(model) ? model : null;
+}
+
+interface TitleResult { outcome: ProviderOutcome; text: string | null }
+/** One title request through the same admitted provider adapter as the answer. Never throws. */
+async function writeTitle(generate: NonNullable<ChatDependencies['generate']>, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+  inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<TitleResult> {
+  let raw = '';
+  try {
+    const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: text => { raw = (raw + text).slice(0, 2_000); } });
+    const usable = outcome.status === 'complete' && outcome.stopReason === 'end_turn';
+    return { outcome, text: usable ? cleanTitle(raw) : null };
+  } catch {
+    return { outcome: { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
+      attempts: [{ model: params.model, estimated: true, usage: { input: inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }],
+      exact: false }, text: null };
+  }
 }
 
 export interface SearchStats { tavily: number; credits: number; failures: number; failover: boolean }
