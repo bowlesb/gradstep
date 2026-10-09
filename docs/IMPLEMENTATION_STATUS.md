@@ -193,6 +193,14 @@ removed executor work) is retained below where useful and in git history.
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## TestFlight build 23 and For you serving — 2026-10-09 UTC
+
+- **TestFlight build 23** (iOS and Mac), from main `9ca3202`: build 22 plus the chat model/effort/length control and
+  generated chat titles. Both uploads succeeded; Apple processing is pending. Podcasts and the floating-tab-bar fix
+  come in a later build.
+- **Feed serving set to `staff`.** Builds 22+ show For you, specific topic chips, Topics and Popularity to owner and
+  tester accounts. Pool: 825 papers (2026-10-08), 29 with upvotes.
+
 ## Chat controls and titles on staging — 2026-10-09 UTC
 
 - **Backup:** encrypted checkpoint `.artifacts/backups/20261009T001040Z-c2602a33734d`.
