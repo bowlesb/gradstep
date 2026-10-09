@@ -443,7 +443,7 @@ struct LibraryRowActions: View {
                 }.disabled(!model.uploads.isActive)
             }
             if inTable, item.phase != .resolving, item.phase != .acquiring, let url = item.sourceURL.flatMap({ URL(string: $0) }) {
-                Link(destination: url) { Label("View source", systemImage: "safari") }
+                Link(destination: url) { Label(item.sourceLinkTitle, systemImage: "safari") }
             }
             Button(stopped ? "Remove" : "Cancel import", systemImage: stopped ? "minus.circle" : "xmark.circle", role: .destructive) {
                 Task { await model.changeImport(item, retry: false) }

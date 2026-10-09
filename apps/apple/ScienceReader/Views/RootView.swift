@@ -599,7 +599,7 @@ struct ImportRow: View {
                     }
                     if !active, let url = item.sourceURL.flatMap({ URL(string: $0) }) {
                         Spacer(minLength: 8)
-                        Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
+                        Link(item.sourceLinkTitle, destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
                     }
                 }.padding(.top, 2)
             }

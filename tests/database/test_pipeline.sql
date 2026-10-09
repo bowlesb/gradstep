@@ -207,7 +207,7 @@ reset role;
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-d')=0
  and (select balance from app_private.credit_buckets where external_key='pipeline-test-d')=50,'resolved hold released without charge');
 
--- Non-CC papers: each interested account gets its own private conversion.
+-- An explicitly permitted non-CC paper may still use the owner-private path.
 reset role;
 insert into auth.users values('14000000-0000-0000-0000-00000000000e'),('14000000-0000-0000-0000-00000000000f');
 set role service_role;
@@ -225,7 +225,7 @@ select gen_random_uuid() as claim \gset
 select public.worker_pipeline_claim(:'claim') as entry \gset
 select (:'entry'::jsonb->>'id') as shared, (:'entry'::jsonb->>'generation')::bigint as gen \gset
 select test.assert(public.worker_pipeline_metadata(:'shared',:'claim',:'gen',2,'{"title":"Denoising Diffusion Probabilistic Models","authors":["Jonathan Ho"],"categories":["cs.LG"]}',
- false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/')->>'stage'='private_split','ineligible paper splits privately');
+ false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/',jsonb_build_object('private_permission','fixture-approved'))->>'stage'='private_split','explicit permission enables private conversion');
 select test.assert(public.worker_pipeline_split_private(:'shared',:'claim',:'gen')=2,'two private papers');
 select public.worker_pipeline_sync_imports(:'shared',:'claim',:'gen');
 select public.worker_pipeline_release(:'shared',:'claim',:'gen');

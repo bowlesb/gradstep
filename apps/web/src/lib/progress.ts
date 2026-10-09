@@ -53,7 +53,7 @@ export function importStatus(i: Import, short = false): string {
   const step = importStep(i);
   if (step) return short ? stepTableTitle[step] : stepTitle[step];
   switch (i.phase) {
-    case 'source_only': return 'Available at source';
+    case 'source_only': return i.source === 'arxiv' ? 'Available on arXiv' : 'Available at source';
     case 'failed': { const f = FAILURES[i.error_code ?? '']; return f ? f[short ? 1 : 0] : short ? 'Import failed' : 'Couldn’t import this paper'; }
     case 'membership_conflict': return 'Not added to library';
     case 'ready': return 'Added';

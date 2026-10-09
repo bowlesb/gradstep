@@ -12,16 +12,23 @@ Status 2026-10-05: implemented in migration 014, `supabase/functions/_shared/pip
    every minute.
 2. **Claim.** `worker_pipeline_claim` picks one due paper with `FOR UPDATE SKIP LOCKED`, bumps its
    generation and leases it. Every stage function verifies `(claim id, generation, unexpired lease)`.
-3. **Metadata.** Atom + OAI arXivRaw (globally spaced 3 s apart via `worker_pipeline_arxiv_slot`).
-   CC BY 4.0 / CC0 papers are eligible for the shared catalog. Others split into one private
-   conversion per interested account (`private_split`: `owner_private` document under
-   `private/<owner>/`, owner-funded OCR, never shared; see DECISIONS).
-4. **Download.** `worker_pipeline_admit_download` first (environment storage cap 5 GiB / 50k objects,
-   1 GiB of private originals per owner, private downloads need available credits). Then
-   `https://arxiv.org/pdf/<id>v<rev>`, bounded to 64 MiB, page count via pdf-lib (~100 ms for a 40 MB
-   PDF), stored at `paper-assets/[private/<owner>/]originals/<sha256>.pdf`. Identical bytes
-   from any slot reuse an existing reader without another charge.
-5. **Fund.** `page_limit = min(pages, 80)`. The first interested account with credits gets a hold of
+3. **Metadata and rights decision.** Atom + OAI arXivRaw (globally spaced 3 s apart via
+   `worker_pipeline_arxiv_slot`) pins the exact revision and records its license evidence. The
+   `rights_mode` column (migration 051) is set before any PDF is acquired: CC BY 4.0 / CC0 is
+   `shared`; default, missing, or uncertain arXiv licenses are `source_only`; an explicitly
+   evidenced private permission may be `private`; old pre-gate conversions are `legacy_private`.
+4. **Source-only delivery.** A `source_only` import stores metadata, a versioned arXiv abstract URL,
+   tags and encrypted account state, but never creates a server document, original object, OCR job,
+   reader artifact, podcast, or shared cache. The device may retrieve the versioned PDF directly
+   from arXiv, validate it, and retain an encrypted local copy; the local Mathpix/AirDrop design is
+   specified in [Device-local papers](DEVICE_LOCAL_PAPERS.md). Until a rights-cleared processing
+   route is enabled, the server does not claim that this paper is converted or synced as a PDF.
+5. **Shared-license download.** For `rights_mode=shared`, `worker_pipeline_admit_download` first
+   (environment storage cap 5 GiB / 50k objects). Then `https://arxiv.org/pdf/<id>v<rev>`, bounded to
+   64 MiB, page count via pdf-lib (~100 ms for a 40 MB PDF), is stored at
+   `paper-assets/originals/<sha256>.pdf`. Identical bytes from any eligible slot reuse an existing
+   reader without another charge.
+6. **Fund.** `page_limit = min(pages, 80)`. The first interested account with credits gets a hold of
    `page_limit × 1` credits and `page_limit × $0.005` of platform budget (`worker_reserve_operation`).
    No credits → import fails retryable (`insufficient_credits`); budget exhausted → wait.
 6. **Submit.** Payload prepared first, then `worker_pipeline_begin_submit` grants exactly one POST.

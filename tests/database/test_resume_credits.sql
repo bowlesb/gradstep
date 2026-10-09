@@ -168,7 +168,7 @@ select public.v2_begin_import('40000000-0000-0000-0000-0000000000f1','2302.13971
 select paper_id as shared_f from app_private.pipeline_imports where account_id=:'F' and import_id='40000000-0000-0000-0000-0000000000f1' \gset
 select test.cr_claim(:'shared_f') as e \gset
 select public.worker_pipeline_metadata(:'shared_f',(:'e'::jsonb->>'claim_id')::uuid,(:'e'::jsonb->>'generation')::bigint,1,
- '{"title":"LLaMA","authors":[],"categories":["cs.CL"]}',false,null,null);
+ '{"title":"LLaMA","authors":[],"categories":["cs.CL"]}',false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/',jsonb_build_object('private_permission','fixture-approved'));
 select public.worker_pipeline_release(:'shared_f',(:'e'::jsonb->>'claim_id')::uuid,(:'e'::jsonb->>'generation')::bigint);
 select test.cr_claim(:'shared_f') as e \gset
 select public.worker_pipeline_split_private(:'shared_f',(:'e'::jsonb->>'claim_id')::uuid,(:'e'::jsonb->>'generation')::bigint);

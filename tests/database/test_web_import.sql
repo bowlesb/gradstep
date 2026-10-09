@@ -128,7 +128,7 @@ select public.worker_pipeline_claim(:'claim') as entry \gset
 select (:'entry'::jsonb->>'id') as shared2, (:'entry'::jsonb->>'generation')::bigint as gen \gset
 select test.assert(:'entry'::jsonb->>'source_id'='2006.11239' and :'entry'::jsonb->>'source_kind'='arxiv','claimed the arXiv paper');
 select public.worker_pipeline_metadata(:'shared2',:'claim',:'gen',2,'{"title":"Denoising Diffusion Probabilistic Models","authors":["Jonathan Ho"],"categories":["cs.LG"]}',
- false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/');
+ false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/',jsonb_build_object('private_permission','fixture-approved'));
 select public.worker_pipeline_split_private(:'shared2',:'claim',:'gen');
 select public.worker_pipeline_release(:'shared2',:'claim',:'gen');
 reset role;

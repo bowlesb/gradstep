@@ -32,6 +32,8 @@ export interface PaperEntry {
   document_id: string | null; document_sha256: string | null; original_path: string | null; original_bytes: number | null; page_count: number | null;
   due?: boolean; raw_manifest_path?: string | null; ocr_run_id?: string | null;
   license_uri?: string | null; title?: string | null; authors?: string[] | null;
+  /** Migration 051: the durable rights decision made before any PDF/derived asset is written. */
+  rights_mode?: 'pending' | 'shared' | 'private' | 'source_only' | 'legacy_private';
   /** Web papers (migration 019): OpenAlex source ID, open-access PDF locations, landing page. */
   source_kind?: 'arxiv' | 'web' | 'upload'; pdf_urls?: string[] | null; landing_url?: string | null;
   /** A reader's PDF this private paper uses at download (migration 039): their own upload, or one
@@ -255,8 +257,10 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
   const record = fromAtom ?? (() => { try { return arxivRawRecord(raw, reference); } catch (error) { return notFound(error); } })();
   const reuse = await arxivReuseEvidence(raw, record, new Date(deps.now()).toISOString());
   const args = arxivCatalogArguments(record);
-  // Ineligible papers are converted privately; keep the observed license URL
-  // (validated server-side) as the private pin's provenance.
+  // Ineligible papers are source-only by default.  The database records the
+  // observed license URL for the versioned source link, but no PDF or derived
+  // asset is retained unless a separately reviewed private_permission evidence
+  // reference is supplied by a trusted worker.
   const observedLicense = /<license>\s*(https?:\/\/[A-Za-z0-9.-]+\/[ -~]{0,400}?)\s*<\/license>/.exec(new TextDecoder().decode(raw))?.[1] ?? null;
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_metadata', { ...claim, p_revision: record.revision, p_metadata: args.p_metadata,
     p_eligible: reuse.eligible, p_license_uri: reuse.eligible ? reuse.licenseURI : observedLicense, p_evidence: reuse.eligible ? reuse.evidence : null });

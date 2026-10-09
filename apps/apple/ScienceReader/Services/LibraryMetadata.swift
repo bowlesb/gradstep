@@ -451,6 +451,10 @@ struct ImportStepTiming: Equatable {
 }
 
 extension LibraryImportRecord {
+    /// Source-only imports are deliberately a link/device path. Name the
+    /// arXiv action directly so a reader does not mistake it for a server PDF.
+    var sourceLinkTitle: String { source == "arxiv" ? "Open on arXiv" : "View source" }
+
     /// The step while the import is in progress: the server's detailed step (migration 029), else its coarse
     /// progress (an import can still read "accepted" while its paper is already converting), else its phase.
     var step: LibraryImportStep? {
@@ -478,7 +482,7 @@ extension LibraryImportRecord {
     var libraryStatus: String {
         switch phase {
         case .accepted, .resolving, .acquiring: return step?.label(short: false) ?? "Waiting to start"
-        case .sourceOnly: return "Available at source"
+        case .sourceOnly: return source == "arxiv" ? "Available on arXiv" : "Available at source"
         case .failed:
             switch errorCode {
             case .insufficientCredits: return "Not enough credits to convert this paper"
