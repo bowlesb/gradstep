@@ -365,9 +365,9 @@ The supported path to remove the project hostname from Google/Apple provider han
 add-on, using `auth.gradstep.ai` as a CNAME to the staging project. Supabase then serves Auth from that hostname;
 the Google OAuth client's authorized callback and Apple's Services ID return URL must each include
 `https://auth.gradstep.ai/auth/v1/callback` before activation. The deploy accepts `VITE_AUTH_URL` and expands CSP
-`connect-src` to both origins. The add-on is not enabled yet; Supabase documents it as a paid project add-on at
-approximately $10/month. We will activate it only after the owner approves that recurring cost and the DNS/CNAME
-verification record is ready. [Supabase custom domains](https://supabase.com/docs/guides/platform/custom-domains)
+`connect-src` to both origins. The add-on is not enabled and is deferred to avoid the approximately $10/month
+recurring cost. If the owner later approves it, activate only after the DNS/CNAME verification record and both
+provider-console callbacks are ready. [Supabase custom domains](https://supabase.com/docs/guides/platform/custom-domains)
 
 ## Edge function origin
 
