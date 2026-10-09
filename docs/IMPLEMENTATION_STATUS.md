@@ -10,9 +10,10 @@ The owner’s current TestFlight purchase symptom is accounted for. Staging reco
 subscription transactions, but the account had already consumed the deliberate October Sandbox allowance (400 +
 400 + 200 = 1,000 credits), so those later records correctly granted zero. Migration `056` adds the read-only,
 service-role `worker_store_zero_grant_reason` diagnostic; `store-sync` returns its finite code and the native purchase
-sheet explains `sandbox_monthly_cap`. This preserves the spending guard and does not change Production grants. The
-focused Catalyst purchase suite passes 6/6; the migration and Edge deploy remain to be applied to staging before the
-next TestFlight build.
+sheet explains `sandbox_monthly_cap`. The migration is applied and verified on staging, and `store-sync` is deployed;
+the RPC returns that code for the owner’s recorded zero-credit transaction. This preserves the spending guard and does
+not change Production grants. The focused Catalyst purchase suite passes 6/6; the next TestFlight build carries the
+native copy.
 
 ## Current podcast and pipeline rollout — 2026-10-09 UTC
 

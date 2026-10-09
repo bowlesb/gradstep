@@ -25,8 +25,9 @@ one of a finite set of explanations without exposing receipt contents or changin
 exhaustion returns `sandbox_monthly_cap`; an absent Sandbox app-transaction identity returns
 `sandbox_identity_missing`; an ineligible subscription period returns `subscription_not_eligible`; other zero-grant
 cases return `no_credit_grant`. `store-sync` includes that code on the final response, and the native client gives
-the owner a specific TestFlight explanation instead of a generic success message. This diagnostic path does not
-raise the cap, retry a paid grant, or alter Production policy.
+the owner a specific TestFlight explanation instead of a generic success message. Migration `056` and the deployed
+`store-sync` path are live on staging; the owner account's recorded zero-credit transaction returns
+`sandbox_monthly_cap`. This diagnostic path does not raise the cap, retry a paid grant, or alter Production policy.
 
 ## Model
 
