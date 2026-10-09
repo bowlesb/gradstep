@@ -386,7 +386,7 @@ createServer(async (request, response) => {
     const code = randomUUID().replaceAll('-', '');
     oauthCodes.set(code, { account: ACCOUNTS['returning@example.test'], challenge, state: stateValue, expiresAt: Date.now() + 60_000 });
     callback.searchParams.set('code', code);
-    response.writeHead(302, { Location: callback.toString(), 'Cache-Control': 'no-store' });
+    response.writeHead(302, { ...cors, Location: callback.toString(), 'Cache-Control': 'no-store' });
     return response.end();
   }
   if (request.headers.apikey !== 'fixture-anon') return send(response, 401, { message: 'No API key' });

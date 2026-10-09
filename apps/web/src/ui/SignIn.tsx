@@ -11,6 +11,7 @@ const issueText: Record<string, string> = {
   configuration: 'Email sign-in is unavailable right now.',
   rejected: 'Couldn’t sign in. Try again.',
   oauth_cancelled: 'Sign-in was cancelled. Choose a provider to try again.',
+  oauth_configuration: 'This sign-in provider is not configured for browser access yet.',
   oauth_invalid: 'That sign-in link has expired or was already used. Start again.',
 };
 

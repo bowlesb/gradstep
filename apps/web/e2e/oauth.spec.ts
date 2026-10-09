@@ -31,6 +31,22 @@ test('Google OAuth returns through the PKCE callback and then restores the encry
   await expect(page.getByRole('link', { name: /Direct Preference Optimization/ })).toBeVisible({ timeout: 20_000 });
 });
 
+test('Apple OAuth uses the same callback contract', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279).');
+  const authorize: string[] = [];
+  page.on('request', request => { if (request.url().includes('/auth/v1/authorize')) authorize.push(request.url()); });
+  await page.goto('/');
+  await page.getByTestId('oauth-apple').click();
+  await expect(page.getByTestId('use-recovery-code')).toBeVisible({ timeout: 20_000 });
+  // Apple is probed once before navigation so a missing web secret becomes a
+  // local configuration message instead of a raw JSON page.
+  expect(authorize).toHaveLength(2);
+  const started = new URL(authorize.at(-1)!);
+  expect(started.searchParams.get('provider')).toBe('apple');
+  expect(started.searchParams.get('state')).toBeNull();
+  expect(new URL(started.searchParams.get('redirect_to')!).searchParams.get('client_state')).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
+});
+
 test('an OAuth callback without the matching browser state is rejected before any session is created', async ({ page }) => {
   await page.goto('/auth/callback?code=not-a-real-code&client_state=wrong-state');
   await expect(page.getByTestId('oauth-google')).toBeVisible();

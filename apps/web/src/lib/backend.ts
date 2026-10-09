@@ -19,7 +19,7 @@ export interface Session { accessToken: string; refreshToken: string; expiresAt:
 export interface AuthSnapshot { session: Session | null; generation: number; signal: AbortSignal }
 
 export type AuthIssue = 'invalid_email' | 'no_account' | 'rate_limited' | 'invalid_code' | 'connection' | 'configuration' | 'rejected'
-  | 'oauth_cancelled' | 'oauth_invalid';
+  | 'oauth_cancelled' | 'oauth_invalid' | 'oauth_configuration';
 export class AuthError extends Error { constructor(readonly issue: AuthIssue, readonly retryAfter?: number) { super(issue); } }
 /** `code` is a known server code (e.g. `library_resync_required`, `key_authority_required`) or `request_failed`. */
 export class BackendError extends Error { constructor(readonly code: string, readonly status = 0) { super(code); } }
@@ -145,8 +145,31 @@ function oauthError(value: string | null): AuthError {
   switch (value) {
     case 'access_denied': case 'user_cancelled': case 'cancelled': return new AuthError('oauth_cancelled');
     case 'temporarily_unavailable': case 'server_error': return new AuthError('connection');
-    case 'provider_disabled': case 'invalid_request': return new AuthError('configuration');
+    case 'provider_disabled': case 'invalid_request': return new AuthError('oauth_configuration');
     default: return new AuthError('oauth_invalid');
+  }
+}
+
+/**
+ * Supabase's authorize endpoint returns a redirect for a configured provider,
+ * but a JSON 400 for a missing client secret. Probe Apple before navigating so
+ * a configuration mistake becomes a Gradstep message instead of a raw JSON
+ * document replacing the app. A cross-origin redirect is intentionally opaque
+ * in browsers; status 0/opaqueredirect is the successful probe outcome.
+ */
+async function probeOAuth(url: URL): Promise<void> {
+  try {
+    const response = await fetch(url, { method: 'GET', redirect: 'manual', cache: 'no-store', credentials: 'omit',
+      headers: { apikey: config.anonKey } });
+    if (response.type === 'opaqueredirect' || response.status === 0 || (response.status >= 300 && response.status < 400)) return;
+    const body = await bounded(response, 65_536);
+    const value = parse(body) as { code?: unknown; error_code?: unknown } | null;
+    if (response.status === 400 && (value?.error_code === 'validation_failed' || value?.code === 400)) throw new AuthError('oauth_configuration');
+    if (response.status >= 500) throw new AuthError('connection');
+    throw new AuthError('oauth_invalid');
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    throw new AuthError('connection');
   }
 }
 
@@ -218,6 +241,10 @@ export const auth = {
     authorize.searchParams.set('redirect_to', redirectTo);
     authorize.searchParams.set('code_challenge', challenge);
     authorize.searchParams.set('code_challenge_method', 's256');
+    // Apple currently has no web credential in staging. Probe it so a missing
+    // secret is rendered in the sign-in card instead of navigating to JSON.
+    // Google goes directly to its provider page to avoid an extra OAuth hop.
+    if (provider === 'apple') await probeOAuth(authorize);
     // Navigation is intentional: provider pages must never be embedded or opened in a popup we cannot fence.
     window.location.assign(authorize.toString());
     throw new AuthError('connection'); // unreachable in a browser; keeps callers from continuing before navigation.
