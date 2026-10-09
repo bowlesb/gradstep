@@ -415,8 +415,8 @@ offers a new choice and captures it at the click. None of these fields assert wh
 served an answer: cloud message `model`/`profile` remain serving metadata from the final stream.
 
 These fields are optional so earlier, unshipped development checkpoints without them remain
-readable. Gate 1 has not shipped; this is the first deployed-format definition, not a guarantee
-that earlier writers preserve unknown fields. A future required field or changed write invariant
+readable. Gate 1 shipped in the integrated browser release; this is the first deployed-format
+definition, not a guarantee that earlier writers preserve unknown fields. A future required field or changed write invariant
 must raise the format/minimum-reader gate and retire incompatible writers before mutation.
 
 Composer and turn owner locks remain held through accepted writes. Reopening reads each

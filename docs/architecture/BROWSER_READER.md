@@ -48,10 +48,10 @@ Apple/Google web sign-in,
 device list and revocation, durable full-library sync, offline reading and purchases. Reference actions
 and tag editing are now deployed; they reuse the existing epoch-checked library command path.
 
-### Integrated draft and reader parity — local candidate, 2026-10-08
+### Integrated draft and reader parity — deployed candidate, 2026-10-09
 
-The integration branch now includes the independently reviewed [gate-1 encrypted journal](../verification/2026-10-08-browser-journal-gate1.md)
-and the verified reference/figure actions. **Not deployed.** App navigation first drains accepted draft checkpoints;
+The deployed browser includes the independently reviewed [gate-1 encrypted journal](../verification/2026-10-08-browser-journal-gate1.md)
+and the verified reference/figure actions. App navigation first drains accepted draft checkpoints;
 a failed save still honors the navigation, keeps the account-owned composer alive and offers Review drafts with
 a keep-this-tab-open notice. Later clicks, browser Back/Forward and authentication retirement supersede delayed
 navigation. Discuss in chat prepares an unsent paper draft, keeps the reader's earlier text, and focuses the composer
@@ -73,9 +73,9 @@ widths. Listen, reader and chat navigation await accepted draft checkpoints. A d
 cannot replace a newer navigation choice; its callback reports success only after the winning paper opens.
 All chats also offers **New general chat**, including when the compact toolbar has no chat-pane toggle.
 
-### Native Feed parity — local candidate, 2026-10-08
+### Native Feed parity — deployed candidate, 2026-10-09
 
-Built on `codex/mac-web-integration-20261008`; **not deployed**. The browser now follows the native Feed contract
+Built on `codex/mac-web-integration-20261008`; the browser now follows the native Feed contract
 from `feed-topics-popularity-20261008` (`a7320bf`): For you first when offered, specific interest topics, More topics
 for broad categories, recommendation reasons, and popularity attributed to Hugging Face Papers. Category browsing
 remains available when the personal feed is unavailable. Backend migration 048, the updated functions and their
