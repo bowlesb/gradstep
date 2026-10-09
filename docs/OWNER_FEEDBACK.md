@@ -161,3 +161,10 @@ is fixed, in a build, in progress, or listed here as a follow-up for the owner:
   - citations of paper passages on/off;
   - default chat settings per paper type.
 - **Builds 16–20:** the items shipped in 19/20 still await the owner's acceptance on device.
+
+## Podcast seed pilot budget, 2026-10-08
+
+After three failed attempts ($1.00 of $2 spent, no episode published), the owner approved **"Raise to $5 total"**.
+- **Where:** inside the existing $25 provider cap.
+- **Unchanged:** at most $0.75 per attempt and at most two published episodes.
+- **Needs:** migration 051, because 048's check constraint caps a seed period at $2.
