@@ -3,9 +3,9 @@
 // grant; an unknown outcome stops the job and keeps the liability; nothing paid is
 // retried automatically. Content (paper text, scripts, audio) never enters logs —
 // only ids, digests and counts; staged drafts are kept as bounded server checkpoints.
-import { checkScript, CHECKER_VERSION, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText,
-  parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument, scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds,
-  type Script, type ScriptCallResult, type ScriptParams, type ScriptProvider, type ScriptShape } from './podcast-script.ts';
+import { applyCorrections, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript,
+  NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument, scriptInstructions, SPEAKERS,
+  type CheckedScript, type CheckerBounds, type Script, type ScriptCallResult, type ScriptParams, type ScriptProvider, type ScriptShape } from './podcast-script.ts';
 import { alignSegments, fixtureAudio, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
   type SpeechProvider, type SpeechResult, type Timing } from './podcast-speech.ts';
 
@@ -41,7 +41,8 @@ interface Spec {
   storage: { audio_bytes: number; transcript_bytes: number; manifest_bytes: number };
 }
 interface DraftCheckpoint { format: 1; draft: Script; draft_sha256: string; models: Record<string, string | null> }
-interface ScriptCheckpoint { format: 1; final: Script; draft_sha256: string | null; models: Record<string, string | null> }
+/** `final` is the draft with the review's corrections applied; `review_sha256` digests that correction set (absent before checker v2). */
+interface ScriptCheckpoint { format: 1; final: Script; draft_sha256: string | null; review_sha256?: string | null; models: Record<string, string | null> }
 interface Claim {
   claimed: boolean; more?: boolean; job_id: string; claim_id: string; generation: number; origin: 'generated' | 'fixture';
   funding_kind: string; scope: 'shared' | 'private'; owner_id: string | null; episode_id: string; spec: Spec;
@@ -128,13 +129,14 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     const bounds = spec.checker ?? FIVE_MINUTE_BOUNDS;
     const instructions = spec.shape ? scriptInstructions(spec.shape, bounds.max_spoken_characters) : undefined;
 
-    let final: Script, draftDigest: string | null = null;
+    let final: Script, draftDigest: string | null = null, reviewDigest: string | null = null;
     const models: Record<string, string | null> = {};
     if (fixture) {
       final = fixtureScript(paper, title);
       await advance('checking');
     } else if (resume?.stage === 'speech') {
-      final = resume.document.final; draftDigest = resume.document.draft_sha256; Object.assign(models, resume.document.models);
+      final = resume.document.final; draftDigest = resume.document.draft_sha256; reviewDigest = resume.document.review_sha256 ?? null;
+      Object.assign(models, resume.document.models);
     } else {
       const [first, second] = spec.script.calls;
       let draft: Script;
@@ -144,14 +146,26 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
         const params = draftRequest(paper, title, first.max_output_tokens, instructions);
         // The review will read this paper plus the draft: refuse now, before any paid call, if that could not fit.
         await reviewMustFit(deps, params, first.max_input_tokens, first.max_output_tokens, second.max_input_tokens);
-        draft = await scriptCall(deps, fence, 'podcast_script', params, first.max_input_tokens, false,
-          () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, first.window_seconds), models);
+        const parsed = parseScript(await scriptCall(deps, fence, 'podcast_script', params, first.max_input_tokens,
+          () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, first.window_seconds), models));
+        if (!parsed) throw new Failure('script_invalid', true);
+        draft = parsed;
         draftDigest = await deps.sha256Hex(new TextEncoder().encode(JSON.stringify(draft)));
         if (staged) return await checkpoint('draft', { format: 1, draft, draft_sha256: draftDigest, models });
         await advance('checking');
       }
-      final = await scriptCall(deps, fence, 'podcast_review', reviewRequest(paper, title, draft, second.max_output_tokens, instructions),
-        second.max_input_tokens, true, () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, second.window_seconds), models);
+      // The review returns a bounded correction set (never the whole script), applied here deterministically.
+      const review = parseReview(await scriptCall(deps, fence, 'podcast_review', reviewRequest(paper, title, draft, second.max_output_tokens, instructions),
+        second.max_input_tokens, () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, second.window_seconds), models));
+      if (!review) throw new Failure('script_invalid', true);
+      reviewDigest = await deps.sha256Hex(new TextEncoder().encode(JSON.stringify(review)));
+      const reviewed = applyCorrections(draft, review, correctionLimit(second.max_output_tokens));
+      if (!reviewed.ok) {
+        log('podcast_review_invalid', { problems: reviewed.problems.length, first: reviewed.problems[0] ?? null });
+        throw new Failure('script_corrections_invalid', true);
+      }
+      log('podcast_reviewed', { verdict: review.verdict, corrections: reviewed.corrections, deleted: review.delete.length });
+      final = reviewed.script;
     }
     const checked = checkScript(final, paper, { fixture, bounds });
     if (!checked.ok) { log('podcast_script_rejected', { problems: checked.problems.length, first: checked.problems[0] ?? null }); throw new Failure('script_evidence_rejected', true); }
@@ -161,7 +175,7 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     const plan = fixture ? null : planSpeechChunks(script.segments, { maxInputTokens: spec.speech.max_input_tokens, maxCalls: spec.speech.max_calls ?? 1,
       perCallOutputTokens: perCall, maxAudioTokens: spec.speech.max_audio_tokens ?? perCall });
     if (!fixture && !plan) throw new Failure('script_too_long_for_speech', true);
-    if (staged && resume?.stage !== 'speech') return await checkpoint('script', { format: 1, final, draft_sha256: draftDigest, models });
+    if (staged && resume?.stage !== 'speech') return await checkpoint('script', { format: 1, final, draft_sha256: draftDigest, review_sha256: reviewDigest, models });
     if (resume?.stage !== 'speech') await advance('synthesizing');
 
     // Speech: every chunk granted together, sent together, each result recorded before any is judged.
@@ -232,7 +246,7 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       job_id: claim.job_id, episode_id: claim.episode_id, scope: claim.scope,
       members: [{ role: 'audio', path: 'audio.m4a', sha256: audioDigest, bytes: encoded.bytes.byteLength, media_type: encoded.mediaType },
         { role: 'transcript', path: 'transcript.json', sha256: transcriptDigest, bytes: transcript.byteLength, media_type: 'application/json' }],
-      script_sha256: scriptDigest, draft_sha256: draftDigest, duration_ms: pcm.durationMs, identity,
+      script_sha256: scriptDigest, draft_sha256: draftDigest, review_sha256: reviewDigest, duration_ms: pcm.durationMs, identity,
       source: { document_id: source.document_id, text_sha256: source.sha256, normalization_version: source.normalization_version } }));
     const manifestDigest = await deps.sha256Hex(manifest);
     const prefix = claim.scope === 'shared' ? `shared/${releaseKey}/` : `private/${ownerFromSource(claim)}${releaseKey}/`;
@@ -378,8 +392,9 @@ async function finishAttempt(deps: PodcastDeps, admission: Admission, state: 'su
   throw new Failure('provider_result_unrecorded', false);
 }
 
+/** One granted script pass; returns the complete model text (the caller parses it). */
 async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, route: 'podcast_script' | 'podcast_review', params: ScriptParams,
-  inputCap: number, review: boolean, windowFor: () => number, models: Record<string, string | null>): Promise<Script> {
+  inputCap: number, windowFor: () => number, models: Record<string, string | null>): Promise<string | null> {
   if (!deps.script) throw new Failure('script_unavailable', false);
   const bytes = requestBytes(params);
   const counted = bytes <= inputCap ? null : await deps.script.countTokens(params, AbortSignal.timeout(30_000));
@@ -395,9 +410,7 @@ async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, rou
   if (result.state === 'rejected') throw new Failure('script_rejected', false);
   if (result.model?.replace(/-\d{8}$/, '') !== params.model) throw new Failure('script_model_changed', true);
   if (result.stopReason !== 'end_turn') throw new Failure(result.stopReason === 'refusal' ? 'script_refused' : 'script_incomplete', true);
-  const parsed = parseScript(result.text, review);
-  if (!parsed) throw new Failure('script_invalid', true);
-  return parsed;
+  return result.text;
 }
 
 function chapterTimes(script: CheckedScript, timings: Timing[], durationMs: number) {

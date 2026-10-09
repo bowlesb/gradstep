@@ -1,7 +1,9 @@
 # Shared paper podcasts: implementation contract proposal
 
-2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark: migration 048 is not applied, nothing is
-deployed and no paid provider call has been made.** The design below was the reviewed input; the
+2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark.** Staging status (reported by the lead,
+2026-10-08): migration 048 is applied and worker revision 00013 ran the first two seed jobs, which both failed
+`script_incomplete` in the review; the [fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08)
+(worker checker v2 and migration 049) is not yet deployed or applied. The design below was the reviewed input; the
 [implementation section](#v1-implementation-branch-podcast-v1) records what was built, where it deviates and the
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
 5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
@@ -612,9 +614,17 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    otherwise the job fails **before any paid call** (`source_too_large`, charge 0). The paper is untrusted data.
    Every paid call must also fit its full window (240 s) plus the time later stages need inside the request;
    otherwise the job stops at zero charge (`deadline_before_paid_call`) instead of creating an unknown liability.
-3. **Script pass 2** (`podcast_review`): the same text plus the draft, ≤ 4,000 output tokens, fact-check and
-   repair, with an explicit `accept`/`reject` verdict.
-4. **Checker** (`podcast-checker-v1`, deterministic): structure, ids, 3–8 chapters, 8–80 segments, 450–1,000 words,
+3. **Script pass 2** (`podcast_review`): the same text plus the draft, ≤ 4,000 output tokens, a fact-check that
+   returns a **bounded correction set**, never the script: `delete` (segment id), `replace` (segment id, new spoken
+   text and its math notes), `claims` (segment id, corrected claim type and complete evidence list), then an explicit
+   `accept`/`reject` verdict, under a strict JSON schema. At most ⌊review output cap / 400⌋ corrections (10 for five
+   minutes). The worker applies them deterministically to the draft (chapters, order, speakers and styles never
+   change); an empty set with `accept` approves the draft as written. A correction naming an unknown or duplicated
+   segment id, two conflicting corrections of one segment, more corrections than the limit, or deletions that would
+   empty a chapter fail the job as a quality rejection (`script_corrections_invalid`, customer charged 0), never a
+   silent pass. See [Seed pilot fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08).
+4. **Checker** (`podcast-checker-v2`, deterministic; v2 = checker v1's rules run on the corrected draft — the
+   version is part of the approved-script identity): structure, ids, 3–8 chapters, 8–80 segments, 450–1,000 words,
    ≤ 6,000 spoken characters, no markup or speaker labels, every `paper_result`/`author_interpretation` segment has
    1–3 evidence quotes found verbatim (whitespace-normalized) in the pinned text, every number spoken in a segment
    appears in its evidence, segments without evidence contain no digits, math LaTeX comes from the paper, ≥ 5
@@ -631,7 +641,8 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    ffmpeg comes from Debian's package in our own worker container (LGPL/GPL components); it runs server-side only and
    is not distributed in any app.
 7. **Publication:** release key = SHA-256 of the job id and the audio and transcript hashes (the manifest also names
-   job, episode and scope, so identical bytes from two jobs stay distinct releases); exact 3-object plan (`audio.m4a`,
+   job, episode and scope, so identical bytes from two jobs stay distinct releases, and records the lineage
+   `draft_sha256` and `review_sha256`, the digest of the applied correction set); exact 3-object plan (`audio.m4a`,
    `transcript.json`, `manifest.json`), one write grant each, upload without overwrite (a lost reply is accepted
    only after re-reading the exact bytes), then `worker_podcast_publish` settles: seed → `pending_review` (operator
    `review` publishes), private → `ready`. Customer charge = ⌈known µ$ / 5,000⌉ credits ≤ 150.
@@ -696,9 +707,9 @@ episode is far below it.
 | Call | Ceiling (reserved) | Typical (20k-token paper, ~750 spoken words) |
 |---|---:|---:|
 | Script pass 1 | 80,000 in × $2/M + 6,000 out × $10/M = **$0.220000** | ~22k in + ~3k out ≈ $0.074 |
-| Script pass 2 | 80,000 × $2/M + 4,000 × $10/M = **$0.200000** | ~26k in + ~3k out ≈ $0.082 |
+| Script pass 2 | 80,000 × $2/M + 4,000 × $10/M = **$0.200000** | ~26k in + ~0.3k out (a correction set) ≈ $0.055 |
 | Speech | 8,192 × $1/M + 16,384 × $18/M = **$0.303104** | ~1.5k text + 7,500 audio tokens ≈ $0.137 list ($0.068 net of the 2026 credit) |
-| **Total** | **$0.723104**, held as **$0.75 / 150 credits** | **≈ $0.29 list** (≈ $0.22 with the 2026 credit) |
+| **Total** | **$0.723104**, held as **$0.75 / 150 credits** | **≈ $0.27 list** (≈ $0.20 with the 2026 credit) |
 
 Ceilings are hard: each grant must fit the operation's remaining reservation, and a recorded actual above an
 attempt's ceiling freezes platform work. "Typical" values are planning estimates from the pricing model, not
@@ -746,7 +757,15 @@ recomputes every total from its parts and refuses to apply on a mismatch; `tests
 re-derives each ceiling and credit maximum.
 
 Typical cost (planning estimate, 20k-token paper, 150 words a minute, ~4 output tokens per spoken word): Short ≈ $0.19
-(~38 credits), 5 min ≈ $0.29 (~59), 10 min ≈ $0.49 (~99), 20 min ≈ $0.90 (~180), at the January 2027 list price.
+(~38 credits), 5 min ≈ $0.29 (~59), 10 min ≈ $0.49 (~99), 20 min ≈ $0.90 (~180), at the January 2027 list price. These
+were estimated with a review that re-emitted the script; since checker v2 a review outputs only a correction set (see
+below), so each is a few cents lower.
+
+**Review output (checker v2).** The review's output cap ("Review … out" above, unchanged) is a ceiling for a correction
+set, never room for a rewrite: at most ⌊cap / 400⌋ corrections — Short 6, 5 min 10, 10 min 25, 20 min 47 — each of which
+needs at most ~400 tokens, so even a maximal set fits. Under checker v1 the review had to re-emit the whole draft, and
+every draft cap is larger than its review cap (3,200 vs 2,600, 6,000 vs 4,000, 12,000 vs 10,000, 22,800 vs 19,000).
+Expected sizes are in [Seed pilot fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08).
 
 **Chunked speech.** One TTS call holds at most 8,192 input tokens (bounded provably by request bytes) and 16,384 audio
 tokens (655 s). `planSpeechChunks` splits a script between segments — preferring where a chapter starts, then where the
@@ -860,6 +879,57 @@ lost reply.
 
 Rollback at any point: `policy --set seed_enabled=false --set generation_enabled=false --set catalog_enabled=false
 --set delivery_enabled=false`; settlement, deletion and already downloaded copies keep working.
+
+### Seed pilot fix: review correction set and seed episode count (2026-10-08)
+
+**What happened** (staging, worker revision 00013, reported by the lead). Both five-minute seed jobs failed
+`script_incomplete` in `checking`:
+
+| Pass | Job 1 output tokens | Job 1 cost | Job 2 output tokens | Job 2 cost |
+|---|---:|---:|---:|---:|
+| Draft (`podcast_script`, cap 6,000) | 4,785 | $0.107 | 4,497 | $0.109 |
+| Review (`podcast_review`, cap 4,000) | 4,000 (the cap) | $0.109 | 4,000 (the cap) | $0.114 |
+
+**Root cause (confirmed in the code).** Checker v1's review schema required the whole script (`title`, `chapters`,
+`segments`, `limitations`) plus the verdict, and its task said "Return the corrected script". A five-minute draft is
+~4,500–4,800 output tokens (verbatim evidence quotes and JSON are most of it; job 1's billed costs imply a ~29.6k-token
+draft request and a ~34.5k-token review request), so re-emitting it cannot fit the 4,000-token review cap: the API stopped at
+`max_tokens` and `scriptCall` failed the job `script_incomplete` after both passes were billed. The draft itself
+finished (`end_turn`, well under 6,000) and the checker never ran. Every length has the same mismatch, because every
+review cap is smaller than its draft cap. `tests/backend/podcast.test.ts` ("five-minute pilot") reproduces it with fakes
+billed at the staging units ($0.107 draft, $0.109 truncated review).
+
+**Fix 1 — worker only (checker v2).** The review returns a bounded correction set that the worker applies
+deterministically (Generation step 3); profiles, routes, grants and ceilings are unchanged. `CHECKER_VERSION` is now
+`podcast-checker-v2`, recorded in `podcast_scripts.checker_version`, the release identity and the approved-script
+document. The manifest also records `review_sha256` (the applied correction set) next to `draft_sha256`. Staged jobs
+checkpoint the corrected script with `review_sha256`; a `script` checkpoint written by the old worker still resumes (its
+script already carries the verdict). Failure codes: invalid corrections `script_corrections_invalid`, a review output
+that is not a correction set `script_invalid`, a `reject` verdict or a checker refusal `script_evidence_rejected`; all are
+quality failures (customer charged 0, platform quality loss recorded). `script_rejected` keeps its existing meaning (the
+provider refused the request) so the two stay distinguishable.
+
+**Expected review output** (estimates at ~4 characters per token; a correction is ~20 tokens for a deletion and ~60–150
+for a rewrite or a claim correction; a typical fact-check touches a small fraction of segments):
+
+| Profile | Review cap (unchanged) | Correction limit | Approve as written | Typical review | Limit, typical entries | Hard bound | v1 rewrite needed (≈ draft) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Short | 2,600 | 6 | ~15 | ~100–300 | ~600 | ≤ 2,400 | ~2,100–2,700 + verdict/issues |
+| 5 min | 4,000 | 10 | ~15 | ~150–500 | ~1,000 | ≤ 4,000 | 4,497–4,785 measured + verdict/issues |
+| 10 min | 10,000 | 25 | ~15 | ~400–1,000 | ~2,500 | ≤ 10,000 | ~8,600–10,600 + verdict/issues |
+| 20 min | 19,000 | 47 | ~15 | ~800–2,000 | ~4,700 | ≤ 18,800 | ~17,300–21,100 + verdict/issues |
+
+The v1 column scales the measured five-minute draft (~6.4 output tokens per spoken word) to each prompt's word range.
+The pilot test's three-correction set is 132 tokens. A five-minute review now costs ≈ $0.070–0.074 (its ~34.5k input
+tokens are unchanged) instead of the measured $0.109–0.114.
+
+**Residual risk, not changed here: five-minute speech request size.** The five-minute profile allows one speech call
+of at most 8,192 request bytes, counted as spoken text + ~80 bytes of speaker/style metadata per segment + 258. The
+checker allows 6,000 spoken characters in up to 80 segments, so a draft at the top of the prompt's range (about 800 words
+in 40 segments, ~4,700 spoken characters) can exceed it and fail `script_too_long_for_speech` after both script passes
+(≈ $0.18, charged to the seed allowance). The pilot drafts' segment counts were not recorded. A 30-segment draft fits up to
+~5,500 spoken characters (~900 words). If it happens, the follow-up is a tighter speech input bound (for example Vertex's
+free token count, as the script route already uses for Anthropic), not a profile change.
 
 ### Verification (local, 2026-10-08)
 

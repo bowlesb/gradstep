@@ -7,8 +7,9 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { writeFileSync } from 'node:fs';
-import { checkScript, draftRequest, fitsInput, fixtureScript, parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument,
-  type Script, type ScriptCallResult, type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
+import { applyCorrections, checkScript, correctionLimit, draftRequest, fitsInput, fixtureScript, parseReview, parseScript, requestBytes, REVIEW_SCHEMA,
+  reviewRequest, scriptCost, scriptDocument, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
+  type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
   vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
@@ -65,6 +66,9 @@ function goodScript(): Script {
   };
 }
 
+/** An empty correction set: the review approves the draft as written. */
+const ACCEPT: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: 'accept' };
+
 test('script requests: no tools, no fallback, no thinking, profile output caps and a provable input bound', () => {
   const draft = draftRequest(PAPER, 'Sparse Mixture Routing', 6000);
   assert.equal(draft.model, 'claude-sonnet-5-5');
@@ -111,9 +115,85 @@ test('checker accepts verbatim evidence and refuses unsupported numbers, paraphr
   assert.equal(checkScript(wrapped, PAPER).ok, true, 'consecutive lines of one paragraph read as one passage');
   const material = goodScript(); material.segments[5].evidence = [];
   assert.ok((checkScript(material, PAPER) as { problems: string[] }).problems.includes('evidence_missing:s6'));
-  assert.equal(parseScript('{"title":"x"}', false), null);
-  assert.equal(parseScript(JSON.stringify(goodScript()), true)?.review?.verdict, 'accept');
-  assert.equal(parseScript(JSON.stringify({ ...goodScript(), review: undefined }), true), null, 'review pass must return a verdict');
+  assert.equal(parseScript('{"title":"x"}'), null);
+  assert.equal(parseScript(JSON.stringify(goodScript()))?.segments.length, 15);
+  assert.equal(parseScript(JSON.stringify(goodScript()))?.review, undefined, 'a draft never carries a verdict');
+});
+
+test('review correction set: strict schema, a limit derived from the unchanged output cap, applied deterministically', () => {
+  // Structured outputs: every object closed and fully required, no size keywords (the API does not accept them).
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    const o = node as Record<string, unknown>;
+    for (const key of ['maxLength', 'minLength', 'maxItems', 'minItems', 'minimum', 'maximum']) assert.ok(!(key in o), `no ${key}`);
+    if (o.type === 'object') {
+      assert.equal(o.additionalProperties, false);
+      assert.deepEqual([...(o.required as string[])].sort(), Object.keys(o.properties as object).sort());
+    }
+    for (const value of Object.values(o)) walk(value);
+  };
+  walk(REVIEW_SCHEMA);
+  assert.deepEqual(Object.keys(REVIEW_SCHEMA.properties), ['delete', 'replace', 'claims', 'verdict'], 'the verdict comes after the corrections');
+  assert.ok(!('segments' in REVIEW_SCHEMA.properties) && !('title' in REVIEW_SCHEMA.properties), 'the review never re-emits the script');
+  // Short, 5, 10 and 20 minutes keep their review caps (2,600 / 4,000 / 10,000 / 19,000 output tokens).
+  assert.deepEqual([2_600, 4_000, 10_000, 19_000].map(correctionLimit), [6, 10, 25, 47]);
+  const request = reviewRequest(PAPER, null, goodScript(), 4_000);
+  assert.equal(request.max_tokens, 4_000);
+  assert.match(JSON.stringify(request.messages), /at most 10 corrections in total/);
+  assert.match(JSON.stringify(request.messages), /Do not rewrite or repeat the script/);
+
+  const draft = goodScript(); delete draft.review;
+  // Empty lists approve the draft as written.
+  const same = applyCorrections(draft, ACCEPT, 10);
+  assert.ok(same.ok);
+  if (same.ok) {
+    assert.deepEqual(same.script.segments, draft.segments);
+    assert.deepEqual(same.script.review, { verdict: 'accept', issues: [] });
+    assert.equal(checkScript(same.script, PAPER).ok, true);
+  }
+  // Delete, replace (text and formula notes) and claim corrections, keyed by segment id.
+  const review = parseReview(JSON.stringify({
+    delete: [{ segment: 's15', problem: 'repeats the caveat' }],
+    replace: [{ segment: 's4', text: 'Each token goes to the top 2 of 64 experts, picked by a learned gate.', math: [], problem: 'formula note not needed' }],
+    claims: [{ segment: 's3', claim_type: 'paper_result', evidence: [{ quote: 'Dense models scale poorly with expert count because every token visits every expert.', section: '1 Introduction' }],
+      problem: 'a stated result, not an interpretation' }],
+    verdict: 'accept' }))!;
+  const applied = applyCorrections(draft, review, 10);
+  assert.ok(applied.ok);
+  if (applied.ok) {
+    assert.equal(applied.corrections, 3);
+    assert.deepEqual(applied.script.segments.map(s => s.id), draft.segments.map(s => s.id).filter(id => id !== 's15'));
+    const s4 = applied.script.segments.find(s => s.id === 's4')!, s3 = applied.script.segments.find(s => s.id === 's3')!;
+    assert.equal(s4.text, 'Each token goes to the top 2 of 64 experts, picked by a learned gate.');
+    assert.deepEqual(s4.math, []); assert.deepEqual(s4.evidence, draft.segments[3].evidence, 'a rewrite keeps its evidence');
+    assert.equal(s4.speaker, 'explainer'); assert.equal(s4.chapter, 'c2');
+    assert.equal(s3.claim_type, 'paper_result'); assert.equal(s3.evidence[0].section, '1 Introduction'); assert.equal(s3.text, draft.segments[2].text);
+    assert.deepEqual(applied.script.review!.issues.map(i => [i.segment, i.action]), [['s15', 'delete'], ['s4', 'replace'], ['s3', 'claims']]);
+    assert.equal(checkScript(applied.script, PAPER).ok, true);
+    assert.equal(draft.segments.length, 15, 'the draft itself is never mutated');
+  }
+  // Refusals: unknown or ambiguous ids, conflicts, over the limit, an emptied chapter. Never a silent pass.
+  const problems = (r: ReturnType<typeof applyCorrections>) => r.ok ? [] : r.problems;
+  assert.deepEqual(problems(applyCorrections(draft, { ...ACCEPT, delete: [{ segment: 's99', problem: '' }] }, 10)), ['correction_unknown_segment:s99']);
+  assert.deepEqual(problems(applyCorrections(draft, { ...ACCEPT, delete: [{ segment: 'x<y>', problem: '' }] }, 10)), ['correction_unknown_segment:?'], 'model text never reaches logs');
+  const twice = { ...draft, segments: [...draft.segments, { ...draft.segments[0] }] };
+  assert.deepEqual(problems(applyCorrections(twice, { ...ACCEPT, delete: [{ segment: 's1', problem: '' }] }, 10)), ['correction_ambiguous_segment:s1']);
+  assert.deepEqual(problems(applyCorrections(draft, { ...ACCEPT, delete: [{ segment: 's4', problem: '' }], replace: [review.replace[0]] }, 10)), ['correction_conflict:s4']);
+  assert.deepEqual(problems(applyCorrections(draft, { ...ACCEPT, replace: [review.replace[0], review.replace[0]] }, 10)), ['correction_conflict:s4']);
+  assert.equal(applyCorrections(draft, { ...ACCEPT, replace: [review.replace[0]], claims: [{ ...review.claims[0], segment: 's4' }] }, 10).ok, true, 'rewrite and re-annotate one segment');
+  const many = { ...ACCEPT, delete: ['s10', 's11', 's12'].map(segment => ({ segment, problem: '' })) };
+  assert.deepEqual(problems(applyCorrections(draft, many, 2)), ['correction_limit']);
+  assert.deepEqual(problems(applyCorrections(draft, { ...ACCEPT, delete: ['s1', 's2', 's3'].map(segment => ({ segment, problem: '' })) }, 10)), ['correction_empty_chapter:c1']);
+  // A rejection carries no corrections forward; the checker refuses it.
+  const rejected = applyCorrections(draft, { ...ACCEPT, delete: [{ segment: 's99', problem: '' }], verdict: 'reject' }, 10);
+  assert.ok(rejected.ok && rejected.script.segments.length === 15);
+  if (rejected.ok) assert.ok((checkScript(rejected.script, PAPER) as { problems: string[] }).problems.includes('review_rejected'));
+  // Wrong shapes are refused, never read as approval.
+  assert.equal(parseReview('{"verdict":"accept"}'), null);
+  assert.equal(parseReview(JSON.stringify({ ...ACCEPT, verdict: 'maybe' })), null);
+  assert.equal(parseReview(JSON.stringify({ ...ACCEPT, claims: [{ segment: 's1', claim_type: 'opinion', evidence: [], problem: '' }] })), null);
+  assert.equal(parseReview(JSON.stringify({ ...ACCEPT, replace: [{ segment: 's1', text: '', math: [], problem: '' }] })), null);
+  assert.equal(parseReview(JSON.stringify(goodScript())), null, 'a whole script is not a correction set');
 });
 
 test('fixture script quotes real passages and is labeled synthetic', () => {
@@ -227,11 +307,12 @@ const PAPER_BYTES = new TextEncoder().encode(PAPER);
 const OWNER = '46000000-0000-4000-8000-00000000000a';
 
 function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' | 'private'; script?: Partial<ScriptProvider>; speech?: SpeechProvider | null;
-  failRpc?: (name: string, n: number) => Error | null; uploadFails?: 'lost_but_written' | 'missing'; scripts?: Script[]; claimed?: boolean;
+  failRpc?: (name: string, n: number) => Error | null; uploadFails?: 'lost_but_written' | 'missing'; scripts?: (Script | ReviewCorrections)[]; claimed?: boolean;
   spec?: Record<string, unknown>; resume?: Record<string, unknown> | null; speechRefused?: boolean } = {}) {
   const calls: { name: string; params: Record<string, unknown> }[] = [], logs: unknown[] = [], uploads = new Map<string, Uint8Array>();
   let n = 0, attempts = 0, claimed = false;
-  const queue = [...(options.scripts ?? [(() => { const s = goodScript(); delete s.review; return s; })(), goodScript()])];
+  // Model outputs in call order: the draft, then the review's correction set.
+  const queue = [...(options.scripts ?? [(() => { const s = goodScript(); delete s.review; return s; })(), ACCEPT])];
   const generate = async (): Promise<ScriptCallResult> => ({ state: 'succeeded', requestID: `req_${++attempts}`, model: 'claude-sonnet-5-5', stopReason: 'end_turn',
     text: JSON.stringify(queue.shift()), failure: null, usage: { input: 20_000, output: 3_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } });
   const deps: PodcastDeps = {
@@ -390,7 +471,9 @@ test('unknown script outcome keeps the liability and stops; no further grants or
 });
 
 test('checker rejection is a quality failure (customer charged zero) after recorded usage', async () => {
-  const bad = goodScript(); bad.segments[5].evidence[0].quote = 'paraphrased claim that is not in the paper text';
+  // The review "corrects" s6 to a paraphrase: applied, then refused by the checker.
+  const bad: ReviewCorrections = { ...ACCEPT, claims: [{ segment: 's6', claim_type: 'paper_result',
+    evidence: [{ quote: 'paraphrased claim that is not in the paper text', section: '' }], problem: 'tighter quote' }] };
   const h = harness({ scripts: [goodScript(), bad] });
   const result = await runPodcast(h.deps, Date.now() + 600_000);
   assert.equal(result.failure, 'script_evidence_rejected');
@@ -398,6 +481,111 @@ test('checker rejection is a quality failure (customer charged zero) after recor
   assert.equal(fail.name, 'worker_podcast_fail'); assert.equal(fail.params.p_quality, true);
   assert.equal(h.calls.filter(c => c.name === 'worker_provider_attempt_finish').length, 2);
   assert.ok(!h.names().includes('worker_podcast_asset_plan'));
+});
+
+// The staging seed pilot (worker revision 00013): drafts of 4,785 and 4,497 output tokens (cap 6,000), then
+// reviews stopped at exactly their 4,000-token cap, so both jobs failed `script_incomplete` while checking.
+const QUOTED: [string, string][] = [['Dense models scale poorly with expert count because every token visits every expert.', '1 Introduction'],
+  ['Each token is routed to the top 2 of 64 experts by a learned gate', '3 Method'], ['The load-balancing loss keeps expert utilization within 5% of uniform.', '3 Method'],
+  ['Sparse routing reaches 41.2 perplexity on the benchmark versus 43.9 for the dense baseline.', '4 Results'], ['Training throughput improves by 1.8x at equal compute.', '4 Results'],
+  ['We only evaluate English text and models up to 1.3B parameters, so the results may not transfer to larger scales.', '5 Limitations']];
+/** A checker-valid five-minute draft (5 chapters, 30 segments, ~945 words) of ~4,800 output tokens, the pilot's size. */
+function pilotDraft(): Script {
+  const lines = ['The authors frame the problem around how routing decides which experts see each token in a large language model.',
+    'So the question is whether the evidence in this passage really carries the weight the authors put on it here.'];
+  const segments = Array.from({ length: 30 }, (_, i) => {
+    const evidenced = i % 10 !== 9;
+    return { id: `s${i + 1}`, chapter: `c${Math.floor(i / 6) + 1}`, speaker: (i % 2 ? 'skeptic' : 'explainer') as 'explainer' | 'skeptic',
+      style: i % 2 ? 'skeptical, fair' : 'curious, measured',
+      text: lines[i % 2] + ' Listen closely to how the two hosts unpack it before moving on.',
+      claim_type: (evidenced ? (i % 2 ? 'author_interpretation' : 'paper_result') : 'context') as Script['segments'][number]['claim_type'],
+      evidence: evidenced ? [0, 1, 2].map(k => ({ quote: QUOTED[(i + k) % QUOTED.length][0], section: QUOTED[(i + k) % QUOTED.length][1] })) : [],
+      math: i === 7 ? [{ latex: 'g(x)=\\operatorname{softmax}(W x)', spoken: 'a softmax gate over the experts' }] : [] };
+  });
+  return { title: 'Sparse routing for mixture-of-experts models', limitations: ['Only English text and models up to 1.3B parameters were evaluated.'],
+    chapters: ['The question', 'The method', 'The evidence', 'What it means', 'Caveats'].map((title, i) => ({ id: `c${i + 1}`, title })), segments };
+}
+/** Output tokens at ~4 characters each (the pilot draft: 19,195 characters, 4,799 tokens; staging measured 4,785 and 4,497). */
+const outputTokens = (text: string) => Math.ceil(text.length / 4);
+/** A fake Sonnet 5.5 that stops at max_tokens like the API and bills the pilot's measured input sizes. */
+function pilotModel(review: (draft: Script) => unknown) {
+  const calls: { max: number; output: number; stop: string }[] = [];
+  const generate = async (params: ScriptParams): Promise<ScriptCallResult> => {
+    const reviewing = JSON.stringify(params.messages).includes('<draft>');
+    const full = JSON.stringify(reviewing ? review(pilotDraft()) : pilotDraft());
+    const output = Math.min(outputTokens(full), params.max_tokens), stop = outputTokens(full) > params.max_tokens ? 'max_tokens' : 'end_turn';
+    calls.push({ max: params.max_tokens, output, stop });
+    return { state: 'succeeded', requestID: `req_${calls.length}`, model: 'claude-sonnet-5-5', stopReason: stop, text: full.slice(0, output * 4), failure: null,
+      // Input: the paper (~29,575 tokens), then the paper plus the draft (~34,500), as billed on staging.
+      usage: { input: reviewing ? 34_500 : 29_575, output, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } };
+  };
+  return { calls, script: { countTokens: async () => null, generate } };
+}
+
+test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,000-token review cap; a small correction set fits and publishes', async () => {
+  const draftTokens = outputTokens(JSON.stringify(pilotDraft()));
+  assert.ok(draftTokens >= 4_700 && draftTokens <= 4_900, `draft ${draftTokens} tokens`);
+  assert.equal(checkScript({ ...pilotDraft(), review: { verdict: 'accept', issues: [] } }, PAPER).ok, true, 'the draft itself is valid');
+
+  // Checker v1's review contract (the whole corrected script plus a verdict), reproduced with the fake: cut at the cap.
+  const v1 = pilotModel(draft => ({ ...draft, review: { verdict: 'accept', issues: [] } }));
+  const before = harness({ script: v1.script });
+  assert.equal((await runPodcast(before.deps, Date.now() + 600_000)).failure, 'script_incomplete');
+  assert.deepEqual(v1.calls, [{ max: 6_000, output: draftTokens, stop: 'end_turn' }, { max: 4_000, output: 4_000, stop: 'max_tokens' }]);
+  assert.deepEqual(before.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => c.params.p_actual_microusd),
+    [29_575 * 2 + draftTokens * 10, 109_000], 'the staging attempts: ~$0.107 draft, $0.109 truncated review');
+  assert.deepEqual(before.calls.filter(c => c.name === 'worker_podcast_advance').map(c => c.params.p_state), ['checking']);
+  assert.equal(before.calls.at(-1)!.params.p_quality, true);
+
+  // Checker v2: the same draft, reviewed as a three-entry correction set.
+  const corrections: ReviewCorrections = {
+    delete: [{ segment: 's30', problem: 'repeats an earlier transition' }],
+    replace: [{ segment: 's19', text: 'Each token goes to the top 2 of 64 experts, so most experts never see most tokens.', math: [],
+      problem: 'states the routing rule plainly' }],
+    claims: [{ segment: 's3', claim_type: 'author_interpretation', evidence: [{ quote: QUOTED[0][0], section: QUOTED[0][1] }],
+      problem: 'interpretation, quoted from the introduction' }],
+    verdict: 'accept' };
+  const v2 = pilotModel(() => corrections);
+  const after = harness({ script: v2.script });
+  const outcome = await runPodcast(after.deps, Date.now() + 600_000);
+  assert.equal(outcome.state, 'ready', outcome.failure ?? '');
+  const reviewTokens = v2.calls[1].output;
+  assert.ok(reviewTokens < 300, `correction set ${reviewTokens} tokens`);
+  assert.deepEqual(v2.calls.map(c => [c.max, c.stop]), [[6_000, 'end_turn'], [4_000, 'end_turn']], 'same caps, nothing cut off');
+  const [draftCost, reviewCost] = after.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => c.params.p_actual_microusd as number);
+  assert.equal(draftCost, 29_575 * 2 + draftTokens * 10);
+  assert.equal(reviewCost, 34_500 * 2 + reviewTokens * 10);
+  assert.ok(reviewCost < 72_000, 'the review costs ~$0.07 instead of $0.109');
+  const plan = after.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
+  const transcript = JSON.parse(new TextDecoder().decode(after.uploads.get(plan[1].path)!));
+  const ids = transcript.segments.map((s: { id: string }) => s.id);
+  assert.equal(ids.length, 29); assert.ok(!ids.includes('s30'));
+  const segment = (id: string) => transcript.segments.find((s: { id: string }) => s.id === id);
+  assert.equal(segment('s19').text, corrections.replace[0].text);
+  assert.equal(segment('s3').claim_type, 'author_interpretation'); assert.deepEqual(segment('s3').evidence.map((e: { quote: string }) => e.quote), [QUOTED[0][0]]);
+  const manifest = JSON.parse(new TextDecoder().decode(after.uploads.get(plan[2].path)!));
+  assert.equal(manifest.identity.checker, 'podcast-checker-v2');
+  assert.equal(manifest.review_sha256, sha(JSON.stringify(corrections)), 'draft and correction set recorded as lineage');
+  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v2');
+  assert.ok(!JSON.stringify(after.logs).includes('most experts never see'), 'no script text in logs');
+});
+
+test('corrections naming unknown segments or emptying a chapter fail as a quality rejection after both passes are recorded', async () => {
+  for (const [bad, first] of [
+    [{ ...ACCEPT, replace: [{ segment: 's99', text: 'A sentence for a segment that does not exist.', math: [], problem: '' }] }, 'correction_unknown_segment:s99'],
+    [{ ...ACCEPT, delete: ['s1', 's2', 's3'].map(segment => ({ segment, problem: '' })) }, 'correction_empty_chapter:c1'],
+  ] as [ReviewCorrections, string][]) {
+    const h = harness({ scripts: [goodScript(), bad] });
+    assert.equal((await runPodcast(h.deps, Date.now() + 600_000)).failure, 'script_corrections_invalid');
+    const fail = h.calls.at(-1)!;
+    assert.equal(fail.name, 'worker_podcast_fail'); assert.equal(fail.params.p_quality, true, 'the customer is charged zero');
+    assert.equal(h.calls.filter(c => c.name === 'worker_provider_attempt_finish').length, 2);
+    assert.ok(!h.names().includes('worker_podcast_speech_begin'), 'no speech is bought');
+    assert.deepEqual(h.logs.find(l => (l as { event: string }).event === 'podcast_review_invalid'), { event: 'podcast_review_invalid', job_id: '46000000-0000-4000-8000-000000000101', problems: 1, first });
+  }
+  // A review whose output is not a correction set is invalid, never approval.
+  const whole = harness({ scripts: [goodScript(), goodScript()] });
+  assert.equal((await runPodcast(whole.deps, Date.now() + 600_000)).failure, 'script_invalid');
 });
 
 test('lost grant acknowledgement never becomes a provider call', async () => {
@@ -548,12 +736,13 @@ test('ten minutes runs in stages: draft and reviewed script are checkpointed, sp
   assert.ok(!first.names().includes('worker_podcast_advance'), 'parked by the checkpoint, not advanced');
   assert.match(JSON.stringify(first.calls.find(c => c.name === 'worker_podcast_attempt_begin')), /podcast_script/);
   // Request 2: resumes at the review with the stored draft.
-  const second = harness({ spec: TEN, scripts: [tenMinuteScript()], resume: { stage: 'review', document: draft.params.p_document } });
+  const second = harness({ spec: TEN, scripts: [ACCEPT], resume: { stage: 'review', document: draft.params.p_document } });
   assert.equal((await runPodcast(second.deps, Date.now() + 780_000)).state, 'synthesizing');
   assert.deepEqual(second.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_review']);
   const script = second.calls.find(c => c.name === 'worker_podcast_checkpoint')!;
   assert.equal(script.params.p_stage, 'script');
   assert.equal((script.params.p_document as { draft_sha256: string }).draft_sha256, (draft.params.p_document as { draft_sha256: string }).draft_sha256);
+  assert.equal((script.params.p_document as { review_sha256: string }).review_sha256, sha(JSON.stringify(ACCEPT)), 'the correction set is part of the lineage');
   // Request 3: every chunk granted in one call, all sent before any returns, then joined, encoded and published.
   let inFlight = 0, peak = 0;
   const third = harness({ spec: TEN, resume: { stage: 'speech', document: script.params.p_document }, speech: { generate: async request => {
