@@ -62,9 +62,9 @@ function endpoint(path: string): string {
   return url.toString();
 }
 
-async function send(path: string, init: RequestInit & { token?: string; maximum?: number; timeout?: number; sessionSignal?: AbortSignal }): Promise<{ status: number; body: Uint8Array<ArrayBuffer>; headers: Headers }> {
+async function send(path: string, init: RequestInit & { token?: string; maximum?: number; timeout?: number; sessionSignal?: AbortSignal; contentType?: string }): Promise<{ status: number; body: Uint8Array<ArrayBuffer>; headers: Headers }> {
   if (!config.url || !config.anonKey) throw new BackendError('not_configured');
-  const headers: Record<string, string> = { apikey: config.anonKey, ...(init.body ? { 'Content-Type': 'application/json' } : {}) };
+  const headers: Record<string, string> = { apikey: config.anonKey, ...(init.body ? { 'Content-Type': init.contentType ?? 'application/json' } : {}) };
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
   const deadline = requestDeadline([init.signal, init.sessionSignal], init.timeout ?? 30_000);
   try {
@@ -328,7 +328,7 @@ function authFailure(status: number, body: Uint8Array, headers: Headers, verifyi
 
 // ---------- Authorized calls ----------
 
-async function authorized(path: string, init: { method?: string; body?: string; maximum?: number; account?: string; signal?: AbortSignal; timeout?: number }): Promise<Uint8Array<ArrayBuffer>> {
+async function authorized(path: string, init: { method?: string; body?: BodyInit | null; contentType?: string; maximum?: number; account?: string; signal?: AbortSignal; timeout?: number }): Promise<Uint8Array<ArrayBuffer>> {
   init.signal?.throwIfAborted();
   const account = current?.user.id, before = generation;
   const sessionSignal = lifetime.signal;
@@ -414,6 +414,87 @@ export async function functionPost<T>(path: string, body: unknown, options: { ma
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'POST', body: JSON.stringify(body), ...options }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
+}
+
+// ---------- Support reports ----------
+
+/** Creates or replays one account-bound support report. The UUID makes a retry idempotent. */
+export async function createSupportReport(body: {
+  id: string; title: string; note: string; appVersion: string; build: string; osVersion: string; screen: string;
+}, account: string, signal?: AbortSignal): Promise<string> {
+  const value = await rpc<unknown>('v1_create_report', {
+    p_id: body.id, p_title: body.title, p_note: body.note, p_app_version: body.appVersion, p_build: body.build,
+    p_os_version: body.osVersion, p_screen: body.screen,
+  }, { account, signal, maximum: 65_536 });
+  if (typeof value !== 'string' || !isUUID(value) || value !== body.id) throw new BackendError('invalid_response');
+  return value;
+}
+
+/** Uploads a redrawn screenshot to the existing support-assets function. */
+export async function uploadSupportImage(bytes: Uint8Array, mediaType: 'image/png' | 'image/jpeg', account: string, reportID: string, attachmentID: string, signal?: AbortSignal): Promise<string> {
+  if (bytes.byteLength < 1 || bytes.byteLength > 5 * 1024 * 1024 || !isUUID(reportID) || !isUUID(attachmentID)) throw new BackendError('invalid_response');
+  const data = await authorized(`functions/v1/support-assets?report_id=${encodeURIComponent(reportID)}&attachment_id=${encodeURIComponent(attachmentID)}`, {
+    method: 'POST', body: bytes as BodyInit, contentType: mediaType, account, signal, maximum: 65_536,
+  });
+  const value = parse(data) as { id?: unknown } | null;
+  if (!value || typeof value.id !== 'string' || value.id !== attachmentID) throw new BackendError('invalid_response');
+  return value.id;
+}
+
+export async function listSupportReports(account: string, before?: { createdAt: string; id: string }, signal?: AbortSignal): Promise<SupportReportWire[]> {
+  const value = await rpc<unknown>('v2_reports', before ? { p_before_created_at: before.createdAt, p_before_id: before.id } : {}, { account, signal, maximum: 262_144 });
+  if (!Array.isArray(value)) throw new BackendError('invalid_response');
+  return value.filter(isSupportReportWire);
+}
+
+export interface SupportReportWire {
+  id: string; title: string; note: string; status: string; app_version: string; build: string; os_version: string; screen: string;
+  fixed_build: string | null; created_at: string; updated_at: string;
+}
+function isSupportReportWire(value: unknown): value is SupportReportWire {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.id === 'string' && isUUID(v.id) && typeof v.title === 'string' && typeof v.note === 'string' && typeof v.status === 'string'
+    && typeof v.app_version === 'string' && typeof v.build === 'string' && typeof v.os_version === 'string' && typeof v.screen === 'string'
+    && (v.fixed_build === null || typeof v.fixed_build === 'string') && typeof v.created_at === 'string' && typeof v.updated_at === 'string';
+}
+
+export interface SupportThreadWire { report: SupportReportWire; messages: { id: string; body: string; is_operator: boolean; created_at: string }[]; attachments: { id: string; object_id: string }[] }
+export async function getSupportThread(reportID: string, account: string, signal?: AbortSignal): Promise<SupportThreadWire> {
+  if (!isUUID(reportID)) throw new BackendError('invalid_response');
+  const value = await rpc<unknown>('v1_report_thread', { p_report_id: reportID }, { account, signal, maximum: 1_048_576 });
+  if (!value || typeof value !== 'object') throw new BackendError('invalid_response');
+  const v = value as Record<string, unknown>;
+  const report = isSupportReportWire(v.report) ? v.report : null;
+  const messages = Array.isArray(v.messages) ? v.messages.filter(isSupportMessageWire) : null;
+  const attachments = Array.isArray(v.attachments) ? v.attachments.filter(isSupportAttachmentWire) : null;
+  if (!report || !messages || !attachments) throw new BackendError('invalid_response');
+  return { report, messages, attachments };
+}
+function isSupportMessageWire(value: unknown): value is SupportThreadWire['messages'][number] {
+  if (!value || typeof value !== 'object') return false; const v = value as Record<string, unknown>;
+  return typeof v.id === 'string' && isUUID(v.id) && typeof v.body === 'string' && typeof v.is_operator === 'boolean' && typeof v.created_at === 'string';
+}
+function isSupportAttachmentWire(value: unknown): value is SupportThreadWire['attachments'][number] {
+  if (!value || typeof value !== 'object') return false; const v = value as Record<string, unknown>;
+  return typeof v.id === 'string' && isUUID(v.id) && typeof v.object_id === 'string' && isUUID(v.object_id);
+}
+
+export async function reportImage(attachmentID: string, account: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+  if (!isUUID(attachmentID)) throw new BackendError('invalid_response');
+  return authorized(`functions/v1/support-assets?attachment_id=${encodeURIComponent(attachmentID)}`, { method: 'GET', account, signal, maximum: 5 * 1024 * 1024 });
+}
+
+export async function replyToSupportReport(id: string, reportID: string, body: string, account: string, signal?: AbortSignal): Promise<string> {
+  if (!isUUID(id) || !isUUID(reportID) || !body.trim() || body.length > 10_000) throw new BackendError('invalid_response');
+  const value = await rpc<unknown>('v1_reply_to_report', { p_id: id, p_report_id: reportID, p_body: body }, { account, signal, maximum: 65_536 });
+  if (typeof value !== 'string' || value !== id) throw new BackendError('invalid_response');
+  return value;
+}
+
+export async function setSupportReportStatus(id: string, reportID: string, status: 'open' | 'verified', account: string, signal?: AbortSignal): Promise<void> {
+  if (!isUUID(id) || !isUUID(reportID)) throw new BackendError('invalid_response');
+  await rpc('v1_set_report_status', { p_id: id, p_report_id: reportID, p_status: status }, { account, signal, maximum: 65_536 });
 }
 
 /** One authorized, single-use audio GET on this deployment. No Range or grant retry. */
