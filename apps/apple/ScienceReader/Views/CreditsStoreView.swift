@@ -80,10 +80,18 @@ struct CreditsStoreView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let pageCapacity = model.creditBalance.map { capacity($0.available, divisor: 1, unit: "new page") }
+        let chatCapacity = model.creditBalance.map { capacity($0.available, divisor: 12, unit: "typical chat") }
+        let episodeCapacity = model.creditBalance.map { capacity($0.available, divisor: 60, unit: "five-minute private episode") }
+        let page = pageCapacity ?? "less than one new page"
+        let chat = chatCapacity ?? "less than one typical chat"
+        let episode = episodeCapacity ?? "less than one five-minute private episode"
+        return VStack(alignment: .leading, spacing: 6) {
             if let balance = model.creditBalance {
                 Text("\(balance.available.formatted()) credits available").font(.headline)
                     .accessibilityIdentifier("store.balance")
+                Text("At this balance: \(page), \(chat), or \(episode) if you used credits for one kind of work. These uses share the same balance.")
+                    .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if model.planOwnedElsewhere {
                 Text("The plan on this Apple Account belongs to another account. Credit packs can still be bought here.")
@@ -98,6 +106,12 @@ struct CreditsStoreView: View {
             }
             Text("Credits pay for paper conversion and AI answers. Usage depends on paper length and the answer.")
                 .font(.footnote).foregroundStyle(.secondary)
+            NavigationLink {
+                CreditUsageView()
+            } label: {
+                Label("How credits are used", systemImage: "questionmark.circle")
+            }
+            .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -130,5 +144,44 @@ struct CreditsStoreView: View {
         #else
         "Settings › Apple Account › Subscriptions"
         #endif
+    }
+
+    private func capacity(_ credits: Int64, divisor: Int64, unit: String) -> String {
+        let count = credits / divisor
+        return count > 0 ? "about \(count.formatted()) \(unit)\(count == 1 ? "" : "s")" : "less than one \(unit)"
+    }
+}
+
+/// The short cost guide shown beside the StoreKit offers. Keep this practical and separate from
+/// the longer privacy/provider explanation in About so a user can decide whether an action fits
+/// their allowance before buying anything.
+private struct CreditUsageView: View {
+    var body: some View {
+        Form {
+            Section {
+                Text("Credits are a flexible usage allowance. Different actions share the same balance, so the exact number of answers depends on paper length, model, effort, answer length and searches.")
+            } header: { Text("The useful rule") }
+            Section {
+                LabeledContent("Paper preparation", value: "About 1 credit / new page")
+                LabeledContent("Chat", value: "Usually 4–24 credits")
+                LabeledContent("Web search", value: "About 1–2 credits / search")
+            } header: { Text("Typical costs") } footer: {
+                Text("The chat composer shows the estimate and maximum for the selected profile before you send.")
+            }
+            Section {
+                Text("Shared episodes in Listen use no generation credits. Recent five-minute private episodes used about 55–60 credits. A private quote can hold up to 150 credits as a safety maximum; the actual measured usage is charged and the rest is released.")
+                Text("If an episode fails its quality checks, no customer credits are charged. Short, 10-minute and 20-minute profiles have their own maximums shown before you start.")
+            } header: { Text("Podcasts") }
+            Section {
+                Text("Standard includes 800 credits and Pro includes 1,800. A light mix of new papers and chats leaves room for occasional audio; many long papers, deep answers or private episodes use the balance faster.")
+                Text("You can read and play ready shared episodes without generating them. Eligible shared paper preparation can also avoid repeating Mathpix work.")
+            } header: { Text("Plans and sharing") }
+            Section {
+                Text("Before paid work starts, Gradstep reserves a bounded maximum. When it finishes, it settles measured provider usage. A failed or interrupted action does not silently spend more than its disclosed limit.")
+            } header: { Text("Why a maximum can be higher") }
+        }
+        .font(.subheadline)
+        .navigationTitle("How credits are used")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

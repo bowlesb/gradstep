@@ -250,6 +250,13 @@ struct GradstepInfoView: View {
             } header: { Text("How we keep costs bounded") }
 
             Section {
+                Text("These are planning guides, not a promise of a fixed number of answers. All paid actions use the same balance, and a longer paper or a more detailed profile can cost more.")
+                Text("Paper preparation: about 1 credit per new Mathpix page; an eligible shared conversion can avoid that charge. Chat: a typical Sonnet answer is usually about 4–24 credits, with the exact estimate shown before sending. Search: about 1–2 credits per search.")
+                Text("Podcasts: browsing and playing a shared episode uses no generation credits. Recent five-minute private episodes used about 55–60 credits; the safety maximum is 150 and the actual charge is settled afterward.")
+                Text("The current Standard and Pro plans include 800 and 1,800 credits. A light mix of new papers and chats leaves room for occasional audio; repeated long papers, deep answers and private episodes use the allowance faster.")
+            } header: { Text("What a normal month can cover") }
+
+            Section {
                 Text("Current chat answers use Anthropic's Claude models: Haiku is the fast, lower-cost choice for simpler work, Sonnet is the default balance of quality and cost, and Opus is reserved for harder reasoning. Mathpix prepares equations when you request it; search and speech use separate providers when enabled. The server enforces the available profiles and records the model that actually answered, including an approved fallback.")
                 Text("A lower-priced model is not automatically a safe replacement for scientific reading. Before adding a provider such as DeepSeek, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.")
             } header: { Text("Models and providers") }

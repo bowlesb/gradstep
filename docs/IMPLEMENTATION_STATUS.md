@@ -99,6 +99,22 @@ shared OCR and podcast reuse, model profiles, and account/platform spend gates. 
 candidate only; no traffic or routing policy changed. The browser build and 1440px desktop light/dark workflow pass;
 the Catalyst app builds successfully. See [DATA_HANDLING_AND_COSTS](architecture/DATA_HANDLING_AND_COSTS.md).
 
+## Cost UX and owner test balance — 2026-10-09 UTC
+
+Migration `057` (`podcast_price_ux`) is applied and verified on staging after encrypted backup
+`.artifacts/backups/20261009T194433Z-3ae85413991f` (1,539 objects, encrypted). It changes quote copy only: the five-minute
+v2 option now says that recent beta examples used about 55–60 credits and keeps the 150-credit maximum visible;
+profile ceilings, holds, settlement, prices and provider routing are unchanged. The browser and native credits surfaces
+now show a compact capacity guide and explain actual-versus-maximum usage. The full local database suite, 342 browser
+tests/build, and Catalyst build pass. The business proposal is
+[BUSINESS_MODEL_AND_COST_GUARDRAILS_20261009](reviews/BUSINESS_MODEL_AND_COST_GUARDRAILS_20261009.md).
+
+For continued TestFlight testing, the staging owner account has an explicit audited 100,000-credit nonexpiring test
+grant (external key `owner-testing-20261009`), leaving 100,490 credits available at the time of the grant. This is
+not a production billing bypass: provider budgets, rate limits, storage limits and unresolved-liability controls still
+apply. The normal Apple purchase path remains separately diagnosed; the grant removes the Sandbox allowance from the
+owner's critical testing loop without changing Production grants.
+
 ## On-device paper processing research — 2026-10-09 UTC
 
 The current Mathpix conversion remains the quality reference. A research note now compares PDFKit/Vision, Tesseract,

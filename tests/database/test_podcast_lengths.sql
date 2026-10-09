@@ -121,6 +121,8 @@ select test.assert((select jsonb_agg(e->>'label' order by n)=jsonb_build_array('
   and jsonb_agg((e->>'max_credits')::integer order by n)=jsonb_build_array(110,150,220,360)
   and jsonb_agg((e->>'target_seconds')::integer order by n)=jsonb_build_array(150,300,600,1200)
  from jsonb_array_elements(app_private.podcast_lengths()) with ordinality x(e,n)),'lengths listed with their own maximums');
+select test.assert((select app_private.podcast_estimate(spec) like 'Estimate — recent beta examples used about 55–60 credits; actual usage varies, maximum 150 credits'
+ from app_private.podcast_profiles where id='podcast-5min-v1' and version=2),'v2 five-minute estimate distinguishes observed use from the safety maximum');
 select test.reject($$update app_private.podcast_policy set allowed_profiles=array['podcast-40min-v1:1']$$,'invalid_podcast_policy');
 select test.reject($$update app_private.podcast_policy set allowed_profiles=array['podcast-5min-v1:1','podcast-5min-v1:1']$$,'invalid_podcast_policy');
 select test.reject(format('select public.worker_podcast_policy_set(%L,gen_random_uuid(),%L,%L)',:'O','{"allowed_profiles":"podcast-5min-v1:1"}','Bad shape'),'invalid_podcast_policy');

@@ -98,6 +98,38 @@ provider outcomes retain an internal liability and do not silently retry or exce
 - Reconcile provider invoices against the operation ledger and publish aggregate ranges in the admin dashboard.
   Customer credits, provider cost, platform-funded quality losses and unresolved liabilities must stay separate.
 
+## Should private podcasts be sold at cost?
+
+This is a sensible engagement strategy, but “at cost” needs a precise definition. The current five-minute
+settlement already charges only measured provider-equivalent usage: the two staging successes used 55 and 60
+credits, or about $0.275 and $0.300 at the internal $0.005-per-credit rate. The customer does not pay a second
+podcast surcharge. However, the credits came from bundles whose retail value is about 1.11–1.25 cents each, so
+the plan as a whole still has room for Apple fees, infrastructure, support, failed work and the rest of the
+product. The apparent gap is the plan's contribution margin, not a hidden episode markup.
+
+For that reason, the safest launch policy is:
+
+1. Keep the shared Listen catalog free to generate and play for users. It is the strongest retention loop and
+   lets one reviewed episode serve many readers.
+2. Keep private generation on the existing measured-credit path, with no additional podcast multiplier. Make
+   the observed range and the maximum visible before confirmation, and show the final charge and released hold
+   afterward.
+3. Treat any “at-cost episode” offer as an explicit experiment after the price ledger has at least 10–20 measured
+   successes. It should use a separate, versioned podcast allowance or offer, so a change cannot silently alter
+   the value of existing subscriptions or packs.
+
+A direct per-episode App Store price would not be literally provider cost: Apple commission, included VAT, storage,
+   delivery, quality review and uncertain provider outcomes still exist, and a dynamic post-generation charge is
+   a poor fit for fixed StoreKit products. If the experiment is approved, a better first version is one included
+   private five-minute generation per month on each paid plan (subject to the same hold and quality rules), with
+   further private episodes consuming ordinary credits. That gives users a clear engagement benefit without
+   promising unlimited audio or pretending that platform overhead is zero.
+
+The product should measure episode retention, repeat listening, shared-catalog discovery and the provider cost per
+completed episode separately from customer credits. If private episodes drive return visits but remain a small
+share of usage, the subsidy is doing its job; if they become the dominant workload, the allowance or profile needs
+to be revisited using measured p90 cost rather than the worst-case hold alone.
+
 ## Launch recommendation
 
 Do not lower the current subscription allowances or raise podcast prices based on the maximum holds alone. The

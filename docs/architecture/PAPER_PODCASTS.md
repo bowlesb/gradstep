@@ -37,6 +37,10 @@ bound (792 words for the five-minute 650–800 range) so evidence cleanup can re
 a supported episode too short.
 The review prompt also requires substantive replacements and a post-correction word-count check, so a reviewer cannot
 silently accept a script that falls below the requested profile range after evidence cleanup.
+Migration `057` changes only the quote copy: the current v2 five-minute quote includes the observed staging
+range (“recent beta examples used about 55–60 credits”) alongside the 150-credit safety maximum. It changes no
+profile ceiling, reservation, settlement or StoreKit offer. Other lengths retain the generic actual-usage wording
+until there is enough measured data to publish a responsible observed range.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
@@ -486,12 +490,14 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
   evidence: [{ id, quote, section|null }], math: [{ latex, spoken }] }] }`. Evidence `quote` is verbatim text from the
   pinned converted paper; clients open the paper at that quote (the passage-anchor finder), or show the source
   link and an explicit Add action when the paper is not in the library.
-- **Quote** `{ id, expires_at, max_credits, estimate: "Estimate — you're charged actual usage, maximum <max_credits> credits",
-  providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consent_version: "podcast-private-v1", target_seconds, profile, label }`
-  for the requested length (110 / 150 / 220 / 360 credits for Short / 5 / 10 / 20 minutes).
+- **Quote** `{ id, expires_at, max_credits, estimate, providers: ["Anthropic (script)", "Google Vertex AI (speech)"],
+  consent_version: "podcast-private-v1", target_seconds, profile, label }`. The v2 five-minute estimate is
+  `Estimate — recent beta examples used about 55–60 credits; actual usage varies, maximum 150 credits`; other
+  profiles say that actual usage is charged up to their disclosed maximum. This is display guidance, not a billing
+  guarantee; the immutable profile and settled provider receipts remain authoritative.
 - **Length** `{ profile, label, target_seconds, max_credits, estimate }`: one offered length. `capabilities.lengths` and the
-  quote's `options` list every offered length, shortest first (`podcast-short-v1` "Short" 150 s 110 credits,
-  `podcast-5min-v1` "5 min" 300 s 150, `podcast-10min-v1` "10 min" 600 s 220, `podcast-20min-v1` "20 min" 1200 s 360).
+  quote's `options` list every offered length, shortest first. The current v2 maximums are 140 / 150 / 300 / 530
+  credits for Short / 5 / 10 / 20 minutes; v1 rows retain their historical 110 / 150 / 220 / 360 values for old jobs.
 - **Job** `{ request_id, state, stage_entered_at, release_id|null, held_credits, charged_credits|null,
   released_credits|null, failure|null, cancel_requested: bool, profile }`; state is one of `queued, scripting, checking, synthesizing, verifying,
   publishing, ready, canceled, failed, capacity_wait, unknown_provider, quarantined`. Poll status; never infer
