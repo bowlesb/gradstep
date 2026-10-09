@@ -74,5 +74,9 @@
     ],
     "online_checks": true
   },
-  "pipeline_worker_url": "https://gradstep-pipeline-885355087025.us-west1.run.app"
+  "pipeline_worker_url": "https://gradstep-pipeline-885355087025.us-west1.run.app",
+  "podcast_speech": {
+    "service_account": "gradstep-podcast-speech@gradstep.iam.gserviceaccount.com",
+    "project": "gradstep"
+  }
 }
