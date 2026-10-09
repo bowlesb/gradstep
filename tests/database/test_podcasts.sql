@@ -102,8 +102,8 @@ select test.assert((public.worker_podcast_policy_set(:'O','46000000-0000-0000-00
 select test.reject(format('select public.worker_podcast_policy_set(%L,%L,%L,%L)',:'O','46000000-0000-0000-0002-000000000001','{"catalog_enabled":false}','Different'),'podcast_policy_id_conflict');
 select test.assert((select count(*)=1 from app_private.podcast_policy_events),'one audited policy change');
 
--- Seed allowance: at most $2, created explicitly, inside the platform budget.
-select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,2000001,true,%L)',:'O',:'month','owner-decision-20261008'),'invalid_seed_period');
+-- Seed allowance: at most $5 since migration 051 ($2 in 048), created explicitly, inside the platform budget.
+select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,5000001,true,%L)',:'O',:'month','owner-decision-20261008'),'invalid_seed_period');
 select test.reject(format('select public.worker_podcast_seed_admit(%L,gen_random_uuid(),%L,%L)',:'O',:'approval','Pilot seed before allowance'),'seed_allowance_unavailable');
 select public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000002',:'month',2000000,true,'owner-decision-20261008');
 select test.assert((public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000002',:'month',2000000,true,'owner-decision-20261008')->>'replayed')::boolean,'seed period replay');

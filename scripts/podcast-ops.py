@@ -6,7 +6,7 @@
   python3 scripts/podcast-ops.py candidates [--limit 20]
   python3 scripts/podcast-ops.py policy --actor <owner-account> --set seed_enabled=true --set catalog_enabled=true --reason "..."
   python3 scripts/podcast-ops.py policy --actor <owner-account> --set allowed_profiles=podcast-5min-v1:1,podcast-10min-v1:1 --reason "..."
-  python3 scripts/podcast-ops.py seed-period --actor <owner-account> --limit-usd 2 --enable --evidence owner-decision-20261008
+  python3 scripts/podcast-ops.py seed-period --actor <owner-account> --limit-usd 5 --enable --evidence owner-decision-20261008-raise-to-5
   python3 scripts/podcast-ops.py seed --actor <owner-account> --approval <approval-id> --reason "..." [--fixture]
   python3 scripts/podcast-ops.py kick
   python3 scripts/podcast-ops.py review --actor <owner-account> --release <release-id> --publish|--reject --reason "..."
@@ -136,7 +136,8 @@ def main(argv=None):
                                                        'p_changes': policy_changes(args.set), 'p_reason': args.reason})
     elif args.command == 'seed-period':
         microusd = round(args.limit_usd * 1_000_000)
-        if not 0 <= microusd <= 2_000_000: raise SystemExit('the approved seed allowance is at most $2')
+        # Owner, 2026-10-08: "Raise to $5 total" (migration 051 enforces the same bound).
+        if not 0 <= microusd <= 5_000_000: raise SystemExit('the approved seed allowance is at most $5')
         period = args.period or datetime.now(timezone.utc).strftime('%Y-%m-01')
         result = rpc(env, 'worker_podcast_seed_period', {'p_actor': args.actor, 'p_request_id': request_id(args), 'p_period': period,
                                                         'p_limit_microusd': microusd, 'p_enabled': args.enable, 'p_evidence': args.evidence,

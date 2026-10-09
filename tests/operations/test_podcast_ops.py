@@ -18,13 +18,17 @@ class PodcastOpsTests(unittest.TestCase):
             OPS.main(argv)
         return rpc.call_args
 
-    def test_seed_allowance_cannot_exceed_the_approved_two_dollars(self):
-        with self.assertRaises(SystemExit):
-            self.call(['seed-period', '--actor', OWNER, '--limit-usd', '2.01', '--enable', '--evidence', 'owner-decision-20261008'])
-        name, params = self.call(['seed-period', '--actor', OWNER, '--limit-usd', '2', '--enable', '--evidence', 'owner-decision-20261008',
+    def test_seed_allowance_cannot_exceed_the_approved_five_dollars(self):
+        # Owner, 2026-10-08: "Raise to $5 total" (was $2); migration 051 enforces the same bound.
+        for over in ('5.01', '5.000001', '-1'):
+            with self.assertRaises(SystemExit):
+                self.call(['seed-period', '--actor', OWNER, '--limit-usd', over, '--enable', '--evidence', 'owner-decision-20261008'])
+        name, params = self.call(['seed-period', '--actor', OWNER, '--limit-usd', '5', '--enable', '--evidence', 'owner-decision-20261008-raise-to-5',
                                   '--period', '2026-10-01']).args[1:]
         self.assertEqual(name, 'worker_podcast_seed_period')
-        self.assertEqual((params['p_limit_microusd'], params['p_enabled'], params['p_period']), (2_000_000, True, '2026-10-01'))
+        self.assertEqual((params['p_limit_microusd'], params['p_enabled'], params['p_period'], params['p_max_episodes']), (5_000_000, True, '2026-10-01', 2))
+        with self.assertRaises(SystemExit):
+            self.call(['seed-period', '--actor', OWNER, '--limit-usd', '5', '--max-episodes', '3', '--enable', '--evidence', 'owner-decision-20261008'])
 
     def test_mutations_carry_actor_and_replayable_request_ids(self):
         rid = '46000000-0000-4000-8000-000000000123'
