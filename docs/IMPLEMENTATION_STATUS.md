@@ -93,6 +93,13 @@ shared OCR and podcast reuse, model profiles, and account/platform spend gates. 
 candidate only; no traffic or routing policy changed. The browser build and 1440px desktop light/dark workflow pass;
 the Catalyst app builds successfully. See [DATA_HANDLING_AND_COSTS](architecture/DATA_HANDLING_AND_COSTS.md).
 
+## On-device paper processing research — 2026-10-09 UTC
+
+The current Mathpix conversion remains the quality reference. A research note now compares PDFKit/Vision, Tesseract,
+pix2tex, Surya, Nougat, PaddleOCR and the DeepSeek-OCR family for a layered local path. No model is bundled or
+enabled from this research. The proposed order is PDF text extraction, on-device general OCR, then a licensed,
+quality-gated equation model with Mathpix fallback; see [ON_DEVICE_PAPER_PROCESSING_20261009](research/ON_DEVICE_PAPER_PROCESSING_20261009.md).
+
 ## Current web/Mac candidate — 2026-10-09 UTC
 
 - **Browser release:** source is commit `f5c7e98` on main; Pages deployment `611e1652` is live at
