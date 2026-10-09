@@ -124,7 +124,6 @@ in the chat in a cleer UX".
 | — | Chat model / effort / length "right there in the chat" | Chat composer | A control showing the current choice with a live credit estimate and maximum; server-enforced, versioned profiles | In progress (chat agent) |
 
 | 8 | "Somehow I ended up with this please fix it bug report" (16:54 UTC) | Reader: tab bar and A−/A+ float ~170 pt up, page cut off, black below (keyboard-sized inset left behind) | Reproduce, fix the leftover keyboard inset at the root, regression UI test | Fixed 2026-10-08, verified in the Simulator only; ships in the next build once merged. Cause: Search in the find bar hides the keyboard and leaves the bar docked; UIKit reports the keyboard hidden with its frame still on screen, SwiftUI keeps that frame as a keyboard inset, and the tab bar was padded for the home indicator on top of it. The owner's page was not dimmed for find, so on the device the frame stayed after the bar had gone. Now the tab bar sits just above a docked find bar, and a frame left with nothing there is ignored. Covered by `PaperToolsTests` |
-| 9 | "Raise to $5 total" (seed pilot cap, 2026-10-08) | Podcast seed pilot on staging | Raise the pilot from $2 to $5 in total; still ≤ $0.75 per admission, ≤ 2 published episodes per period and inside the $25 provider cap. Migration 051 raises the database bound; `podcast-ops.py seed-period` allows $5; recorded in [DECISIONS](DECISIONS.md) | Ready on a branch with checker v4, not applied or deployed: [Seed pilot fix 3](architecture/PAPER_PODCASTS.md#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08) |
 
 ### Build 21 reader items in detail
 
@@ -169,3 +168,5 @@ After three failed attempts ($1.00 of $2 spent, no episode published), the owner
 - **Where:** inside the existing $25 provider cap.
 - **Unchanged:** at most $0.75 per attempt and at most two published episodes.
 - **Needs:** migration 051, because 048's check constraint caps a seed period at $2.
+- **Status:** migration `202610080051_podcast_seed_cap.sql` and `podcast-ops.py seed-period --limit-usd 5` are ready on a branch
+  with checker v4, not applied or deployed: [Seed pilot fix 3](architecture/PAPER_PODCASTS.md#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08).

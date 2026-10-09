@@ -1184,6 +1184,11 @@ a release; failed attempts free their slot and keep their spend committed (049).
 1. `python3 scripts/backup.py staging`; confirm it exited 0 before continuing (do not pipe it).
 2. `python3 scripts/migrate-supabase.py staging`: verifies the applied prefix through 050 and applies 051 with its
    ledger row. It touches no function the worker calls, so its order relative to step 3 does not matter.
+   **Ordering caveat:** main also has `202610090051_rights_aware_arxiv_delivery.sql` (a separate change, not applied to
+   staging), and the script applies *every* pending file in version order, so from main it applies the seed cap and
+   then that migration. To apply only the seed cap, run it from a checkout without that file (branch
+   `podcast-fix3-on-b12a6b3`, this fix on `b12a6b3`). If `202610090051` is applied first, the ledger rejects
+   `202610080051` as an inserted earlier file; it would then need a later version number (for example `202610090052`).
 3. Redeploy the worker (`podcast-checker-v4`) through the usual paused → readiness → activate procedure
    (`deploy-pipeline-worker.py … --defer-activation`, as in runbook step 3). No Edge function changes.
 4. Raise the current period: `python3 scripts/podcast-ops.py seed-period --actor <OWNER> --limit-usd 5 --max-episodes 2
@@ -1204,8 +1209,8 @@ Rollback: redeploy the previous worker revision. 051 only widens a bound; to ret
 the schema, prompt, parsing, policy and conversion unit cases and the worker cases — a segment-scoped reject degrades
 and publishes, severe, unscoped, unknown-segment and unexplained rejects fail with their codes recorded before
 settlement, an over-limit conversion rejects, invalid corrections record their reasons; `podcast-evidence.test.ts` 10,
-including the persona paper and report bounds with every code). `python3 scripts/test-database.py`: exit 0, 243 PASS
-lines (051 applies after 050; `test_podcast_seed_cap.sql`: privileges, the single $5 table check, the pilot's
+including the persona paper and report bounds with every code). `python3 scripts/test-database.py`: exit 0, 246 PASS
+lines (on main through `12ddd96`; 051 applies after 050 and before main's `202610090051`; `test_podcast_seed_cap.sql`: privileges, the single $5 table check, the pilot's
 $1.007186 committed admitting one hold under $2 and both seeds under $5, a third refused by the episode cap, $5
 accepted and replayable, $5.01, $5.000001 and −1 refused by the function, 5,000,001 and three episodes refused by the
 table; the 050 recorder accepts a v4 report; the worker journey asserts the v4 report). Operations: 138 Python tests
