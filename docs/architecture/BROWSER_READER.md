@@ -1,7 +1,7 @@
 # Browser reader
 
 Status, 2026-10-08 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
-`e500c231` from source `d3fb7b3` against staging.** It includes the reviewed Feed, library actions/columns,
+`4db5f2a2` from source `514dd86` against staging.** It includes the reviewed Feed, library actions/columns,
 encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
 output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
 Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
@@ -17,12 +17,19 @@ limitations. The local gate-2 schema-3 storage primitive and encrypted complete-
 behind explicit activation, but complete v5 library sync, descriptor writes, saved copies and cold offline startup
 remain future work.
 
-The current production-CSP browser verification also has a fresh combined desktop + phone result of **149 passed,
+The current production-CSP browser verification also has a fresh combined desktop + phone result of **151 passed,
 25 intentional skips, 0 failures** in 8.7 minutes. It exercised the deployed paper actions and chat-copy controls,
 OAuth callback validation, chat settings/titles, Feed topics and feedback, podcasts, library commands/columns,
 4,000-entry windowed libraries, reader drafts/references, recovery, update barriers and narrow layouts. The skips
 are the existing platform-gated or intentionally excluded journeys; this run does not claim Safari key persistence,
 live Google/Apple consent, or cold offline startup.
+
+The browser now has **Report this screen…** and **My reports** in the signed-in Account menu. A user can either
+choose a PNG/JPEG or use the browser's explicit screen-share chooser; the selected image is redrawn, metadata-stripped,
+bounded to 2,560 px and 5 MiB, and uploaded only after the user sends the report. Reports use the existing account-bound
+support thread, so the user can read replies, attach more context, and confirm or reopen an issue. The browser never
+captures silently. An unsent web report is kept in the open dialog for retry when the network fails; it is not persisted
+offline. The support journey passes on desktop and phone, and the combined run above includes both cases.
 
 ## Scope
 

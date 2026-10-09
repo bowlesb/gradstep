@@ -1,13 +1,13 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `e500c231`, and the admin site is deployed.**
+Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `4db5f2a2`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
-- **Browser release:** source is commit `d3fb7b3` on main; Pages deployment
-  `e500c231` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+- **Browser release:** source is commit `514dd86` on main; Pages deployment
+  `4db5f2a2` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
   paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
@@ -24,12 +24,17 @@ removed executor work) is retained below where useful and in git history.
   skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
   journey passes on desktop (answer and Mermaid source copy controls). The local OAuth journey adds 5 passes and 1
   expected WebKit key-persistence skip across desktop, phone and WebKit, including a rejected state-less callback.
-  A fresh combined desktop + phone production-CSP run completed **149 passed / 25 intentional skips / 0 failures**
+  A fresh combined desktop + phone production-CSP run completed **151 passed / 25 intentional skips / 0 failures**
   in 8.7 minutes. It covered the deployed reader actions and chat-copy controls, OAuth, chat settings and titles,
   Feed personalization and feedback, podcasts, library commands and column choices, 4,000-entry windowed libraries,
-  reader drafts and references, recovery, update barriers, and narrow phone layouts. The skips are the existing
+  reader drafts and references, recovery, update barriers, narrow phone layouts, and the browser screenshot support-report
+  journey. The skips are the existing
   phone-inapplicable desktop cases and the explicitly gated journal/layout/reference journeys; no new failure was
   introduced by the browser OAuth revision.
+  Signed-in users can now choose Account → Report this screen… to attach a PNG/JPEG or capture an explicitly selected
+  browser tab/window, then follow the thread under My reports. Images are redrawn without metadata and bounded to
+  2,560 px/5 MiB. If the web connection fails, the composer stays open for retry; unsent web drafts are not persisted
+  offline. Mac already has the native Help → Report This Screen… command and encrypted offline outbox.
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated
