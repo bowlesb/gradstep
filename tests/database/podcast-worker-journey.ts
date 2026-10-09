@@ -116,6 +116,7 @@ call('worker_podcast_policy_set', { p_actor: fixture.owner, p_request_id: random
   // Exercise the provider-safe v2 profiles. Their ids intentionally stay the
   // same as v1; the version is selected by the allow-list entry.
   p_changes: { catalog_enabled: true, delivery_enabled: true, generation_enabled: true, seed_enabled: true, fixtures_enabled: true,
+    profile_id: 'podcast-5min-v1', profile_version: 2,
     allowed_profiles: ['podcast-short-v1:2', 'podcast-5min-v1:2', 'podcast-10min-v1:2', 'podcast-20min-v1:2'] } });
 const month = new Date().toISOString().slice(0, 7) + '-01';
 call('worker_podcast_seed_period', { p_actor: fixture.owner, p_request_id: randomUUID(), p_period: month, p_limit_microusd: 2_000_000,

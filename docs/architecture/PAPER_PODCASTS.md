@@ -13,11 +13,12 @@ deployed or applied). The pilot has committed $1.00; the owner raised its cap fr
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
 5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
 The seed pilot stays five-minute; the other lengths are private generation only.
-On 2026-10-09, migration 052 was prepared locally after Vertex rejected the
+On 2026-10-09, migrations 052–053 were prepared locally after Vertex rejected the
 `maxOutputTokens` field: version-2 rows keep these same profile ids but reserve
 the complete 16,384-token serving limit for every speech chunk. The staging
 policy remains on version 1 until the encrypted backup, worker deployment and
-zero-spend journey are verified; the v1 numbers below describe the currently
+zero-spend journey are verified; the audited 053 policy RPC moves the default
+pointer and allowlist atomically. The v1 numbers below describe the currently
 active policy, while the v2 table records the approved rollout ceilings.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write

@@ -37,4 +37,8 @@ select test.assert((select bool_and(
 select test.assert((select allowed_profiles=array['podcast-short-v1:1','podcast-5min-v1:1','podcast-10min-v1:1','podcast-20min-v1:1']
   and profile_id='podcast-5min-v1' and profile_version=1 from app_private.podcast_policy),
   'v2 is staged without silently switching the active client policy');
+
+select test.assert((select pg_get_functiondef('public.worker_podcast_policy_set(uuid,uuid,jsonb,text)'::regprocedure)
+  like '%profile_version%' and pg_get_functiondef('public.worker_podcast_policy_set(uuid,uuid,jsonb,text)'::regprocedure) like '%next_allowed%'),
+  'the audited policy RPC can move the default pointer with its allow-list');
 commit;
