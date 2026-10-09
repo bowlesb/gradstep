@@ -227,6 +227,10 @@ struct ChatWorkspace {
         composers[token.composerID]?.discardAttempt = nil
     }
 
+    /// The context's composer, created (empty) when there is none yet: a choice made in the chat before typing
+    /// belongs to it.
+    mutating func composer(in context: String) -> UUID { ensureComposer(in: context) }
+
     mutating func setDraft(_ text: String, in context: String) {
         let id = ensureComposer(in: context)
         composers[id]?.draft = text

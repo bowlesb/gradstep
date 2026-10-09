@@ -34,7 +34,21 @@ const approval={accountID:account,deviceID:device,requestID,publicKey:publicByte
 const approvalFixture=new URL('device-approval-v1.json',directory),approvalEncoded=JSON.stringify(approval,null,2)+'\n';
 if(process.argv.includes('--write-fixture')) writeFileSync(approvalFixture,approvalEncoded);
 else assert.equal(readFileSync(approvalFixture,'utf8'),approvalEncoded,'Device approval fixture changed; review the protocol before regenerating it');
-const output=JSON.parse(execFileSync('swift',['run','--package-path',new URL('apps/apple/ScienceReaderCore',root).pathname,'ScienceReaderWireCheck'],{input:JSON.stringify({...input,approval:{payload:approval.payload,requestID,deviceID:device,publicKey:approval.publicKey,challenge:approval.challenge}}),encoding:'utf8',timeout:120000,maxBuffer:1024*1024}));
+// Chat topic titles and answer labels (2026-10-08): a conversation revision carrying `titleSource` (generated, renamed,
+// and a value from a later build, which must still decode) and an answer carrying `model` and `profile`. Additive
+// optional keys of the same format 1; the frozen envelopes above predate them and still decode.
+const conversationRoot='99999999-0000-4000-8000-111111111111';
+const labelled=[
+  {kind:'conversation',entityID:payload.conversationID,parents:[conversationRoot],documentID:payload.documentID,text:'Explainer for a persona paper',anchor:payload.anchor,createdAt:1791849600000,titleSource:'generated'},
+  {kind:'conversation',entityID:payload.conversationID,parents:['12345678-ABCD-4ABC-8DEF-000000000001'],documentID:payload.documentID,text:'Café notes on ∑ attention — 中文',createdAt:1791849600000,titleSource:'renamed'},
+  {kind:'conversation',entityID:payload.conversationID,parents:['12345678-ABCD-4ABC-8DEF-000000000002'],text:'Imported later',titleSource:'imported-by-a-later-build'},
+  {kind:'message',entityID:'ABCDEF01-2345-4678-9ABC-DEF012345679',parents:[payload.entityID],conversationID:payload.conversationID,documentID:payload.documentID,text:'Because ∑ of non-negative terms is ≥ 0.',role:'assistant',status:'complete',createdAt:1791849660000,model:'claude-sonnet-5',profile:'opus-high-detailed'},
+].map((value,index)=>{const id=`12345678-abcd-4abc-8def-1000000000${String(index).padStart(2,'0')}`;
+  return {eventID:id,payload:value,ciphertext:seal(content,encode(value),eventAAD(account,id,device),bytes(0x40+index,12)).toString('base64')};});
+const labelledFixture=new URL('labelled-events-v1.json',directory),labelledEncoded=JSON.stringify(labelled,null,2)+'\n';
+if(process.argv.includes('--write-fixture')) writeFileSync(labelledFixture,labelledEncoded);
+else assert.equal(readFileSync(labelledFixture,'utf8'),labelledEncoded,'Labelled event fixture changed; review the protocol before regenerating it');
+const output=JSON.parse(execFileSync('swift',['run','--package-path',new URL('apps/apple/ScienceReaderCore',root).pathname,'ScienceReaderWireCheck'],{input:JSON.stringify({...input,approval:{payload:approval.payload,requestID,deviceID:device,publicKey:approval.publicKey,challenge:approval.challenge},labelled}),encoding:'utf8',timeout:120000,maxBuffer:1024*1024}));
 const ciphertext=Buffer.from(output.eventCiphertext,'base64');
 assert.deepEqual(open(content,ciphertext,eventAAD(account,event,device)),payload);
 assert.deepEqual(open(recoveryKey(code,account),Buffer.from(output.recoveryPackage,'base64'),recoveryAAD(account)),keys);
@@ -42,8 +56,11 @@ assert.deepEqual(unwrapDevice(Buffer.from(output.deviceEnvelope,'base64'),accoun
 assert.equal(output.fingerprint,sha256(Buffer.concat([Buffer.from(`science-reader/enrollment/v1/${account}/${device}/`),publicBytes(rawPrivate),challenge])).toString('hex'));
 assert.equal(output.approval.code,approval.code);
 assert.equal(output.approval.refusedSubstitute,true);
+// Swift opened every Node-sealed labelled event (it compares them itself) and sealed its own; Node reads them back.
+assert.equal(output.labelled.length,labelled.length);
+output.labelled.forEach((sealed,index)=>assert.deepEqual(open(content,Buffer.from(sealed,'base64'),eventAAD(account,labelled[index].eventID,device)),labelled[index].payload));
 assert.deepEqual(unwrapDevice(Buffer.from(output.approval.envelope,'base64'),account,device,1,rawPrivate,challenge),keys);
 assert.throws(()=>open(content,ciphertext,eventAAD('00000000-0000-4000-8000-000000000001',event,device)));
 const damaged=Buffer.from(output.deviceEnvelope,'base64');damaged[damaged.length-1]^=1;
 assert.throws(()=>unwrapDevice(damaged,account,device,1,rawPrivate,challenge));
-console.log('PASS Node → Swift and Swift → Node event, recovery, device envelopes, Unicode/anchor payload, enrollment fingerprint, QR approval (payload, code, envelope, substitute refusal), and identity/tamper rejection');
+console.log('PASS Node → Swift and Swift → Node event, recovery, device envelopes, Unicode/anchor payload, chat title revisions and answer labels, enrollment fingerprint, QR approval (payload, code, envelope, substitute refusal), and identity/tamper rejection');

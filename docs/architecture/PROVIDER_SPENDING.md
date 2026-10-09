@@ -47,7 +47,11 @@ private content. The existing operation identity provides the account/feature tr
 
 ## Compatibility and call paths
 
-Chat reserves its existing customer/platform hold. Its adapter grants each model round separately;
+Chat reserves its existing customer/platform hold (since migration 047 through `worker_reserve_chat`, which also
+freezes the chat quote: profile, model, effort, length, output allowance, rate version and tariff; see
+[chat](CHAT.md#holds-quotes-and-settlement)). Each attempt's ceiling follows its own model's hold rule (Sonnet 5.5
+×3 at its card, unchanged; Opus 5.5 ×2 at its fallbacks' Opus 5 card; Haiku 5.5 once at its prompt tier), and a topic
+title is one more admitted `chat` attempt in the same operation. Its adapter grants each model round separately;
 the SDK makes one transport attempt. Tavily uses one shared admitted adapter for chat, Ingest and
 reference lookup. Its prepaid units are reserved globally and per account before the HTTP call;
 the old snapshot readiness check is no longer an admission decision. A prepaid-only call may be

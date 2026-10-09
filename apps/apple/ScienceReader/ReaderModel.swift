@@ -299,7 +299,93 @@ final class ReaderModel {
     }
     var canUsePaperChat: Bool { chatPaperID != nil || selectedPaper != nil }
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
-    var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text }.map(ChatTitle.display) ?? "New chat") }
+    var chatTitle: String {
+        guard !chatWasDeleted else { return "Deleted conversation" }
+        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return "New chat" }
+        return ChatTitle.display(root.payload.text ?? "", source: root.payload.titleSource)
+    }
+    /// The visible conversation has a topic title (generated or renamed); without one, its next answer asks for one.
+    var chatHasTopicTitle: Bool { activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.titleSource } != nil }
+
+    // MARK: Chat profiles (model, effort, length; owner request 2026-10-08, docs/architecture/CHAT.md#models-effort-and-length)
+
+    /// The chat function's published table; nil until fetched, or when the server offers no choices. Without it,
+    /// requests carry no choice and ask for no title, exactly as before profiles.
+    private(set) var chatProfileTable: ChatProfileTable?
+    /// The last fetch failed (the control offers Try again).
+    private(set) var chatProfileTableFailed = false
+    @ObservationIgnored private var chatProfileFetch: UUID?
+    /// Settings › Chat defaults: what a new chat starts with (this device only).
+    var chatDefaultProfile: ChatProfileChoice = ReaderModel.storedChatDefault() {
+        didSet { UserDefaults.standard.set(chatDefaultProfile.id, forKey: Self.chatDefaultKey) }
+    }
+    private static let chatDefaultKey = "chat.defaultProfile"
+    private static func storedChatDefault() -> ChatProfileChoice {
+        UserDefaults.standard.string(forKey: chatDefaultKey).flatMap(ChatProfileChoice.init(id:)) ?? .standard
+    }
+    /// A choice made in a chat's control and not yet used, per composer; once an answer carries it, the conversation's
+    /// newest answer remembers it (encrypted, on every device).
+    private var pendingChatProfiles: [UUID: ChatProfileChoice] = [:]
+
+    /// The visible chat's model, effort and length: a choice just made here, else what its newest answer used, else
+    /// Settings › Chat defaults.
+    var chatProfile: ChatProfileChoice {
+        if let composer = chatComposerID, let pending = pendingChatProfiles[composer] { return pending }
+        return Self.answeredProfile(in: chatMessages) ?? chatDefaultProfile
+    }
+
+    func setChatProfile(_ choice: ChatProfileChoice) {
+        pendingChatProfiles[chatComposerID ?? chatWorkspace.composer(in: chatContext)] = choice
+    }
+
+    /// The newest answer in a branch that recorded a profile.
+    static func answeredProfile(in messages: [AppliedEvent]) -> ChatProfileChoice? {
+        messages.last { $0.payload.role == .assistant && $0.payload.profile.flatMap(ChatProfileChoice.init(id:)) != nil }?
+            .payload.profile.flatMap(ChatProfileChoice.init(id:))
+    }
+
+    /// What a request carries: the choice when the server's table offers it (else the server's default), and whether
+    /// to ask for a topic title. Nothing extra without a table (an older server).
+    func requestChoices(for turn: ChatAnswerTurn, branch: [AppliedEvent], state: PrivateState)
+        -> (profile: ChatProfileChoice, topicTitle: Bool, sent: Bool) {
+        guard let table = chatProfileTable else { return (.standard, false, false) }
+        let conversationID = turn.conversationID
+        let wanted = turn.profile ?? pendingChatProfiles[turn.composerID] ?? Self.answeredProfile(in: branch) ?? chatDefaultProfile
+        let titled = state.revisions(for: conversationID).first?.payload.titleSource != nil
+        return (table.offers(wanted) ? wanted : table.defaultChoice, !titled, true)
+    }
+
+    /// Fetches the server's table once per session (again after a failure, when the controls open).
+    func refreshChatProfiles(force: Bool = false) {
+        guard let transport = chatTransport, let accountID, chatProfileFetch == nil, force || chatProfileTable == nil else { return }
+        let fetch = UUID()
+        chatProfileFetch = fetch
+        Task { [weak self] in
+            let table = try? await transport.chatProfiles(accountID: accountID)
+            guard let self, self.chatProfileFetch == fetch else { return }
+            self.chatProfileFetch = nil
+            if let table { self.chatProfileTable = table }
+            self.chatProfileTableFailed = table == nil && self.chatProfileTable == nil
+        }
+    }
+
+    /// Renames a conversation: a new encrypted revision with the reader's title (`renamed`), which a generated title
+    /// never replaces. Empty names are ignored.
+    func renameConversation(_ id: UUID, to title: String) async {
+        guard let store, let device, let event = privateState.titledConversation(id, title: title, source: PrivateEvent.renamedTitle) else { return }
+        let scope = sessionID, persistence = localPersistence, storeScope = workOwnership.storeScope
+        do {
+            let entries = [(id: UUID(), event: event)]
+            let write = try persistence.acceptWrite { local in try await local.appendBatch(entries, deviceID: device.deviceID) }
+            _ = try await write.value
+            let snapshot = await store.snapshot()
+            guard sessionID == scope else { return }
+            if workOwnership.owns(storeScope) { publish(snapshot) }
+            Task { if self.sessionID == scope { await self.synchronize() } }
+        } catch {
+            if sessionID == scope { show(error) }
+        }
+    }
     var chatWasDeleted: Bool { activeConversation.map { privateState.isDeleted($0) } ?? false }
     var privateState = PrivateState() {
         didSet {
@@ -2462,8 +2548,11 @@ final class ReaderModel {
 
     func selectionAction(_ action: SelectionAction, quote: String, origin: PassageOrigin? = nil) {
         selectedQuote = quote
+        // The chat's current model, effort and length go with the action into its new conversation.
+        let carried = chatProfile
         // The prompts live with `ChatTitle`, which turns them back into short titles.
         newChat(general: false); chatInput = action.prompt(quote)
+        if carried != chatDefaultProfile { setChatProfile(carried) }
         tab = .chat; wideMode = .reader; readerChatHidden = false
         // The quote (and the passage it came from, saved on the new conversation) travels with this exact prompt
         // and composer only.
@@ -2504,6 +2593,8 @@ final class ReaderModel {
         guard !isGenerating, !isAnswering, accountID == device.accountID else { return }
         let scope = sessionID
         let storeScope = workOwnership.storeScope, persistence = localPersistence
+        // The answer uses the model, effort and length the chat shows as Send is pressed.
+        let chosenProfile = chatProfile
         let documentID = generalChat ? nil : (chatPaperID ?? selectedPaper?.id)
         var parents = activeBranchID.map { [$0] } ?? []
         if parents.isEmpty, let activeConversation, let root = privateState.revisions(for: activeConversation).first { parents = [root.id] }
@@ -2557,7 +2648,7 @@ final class ReaderModel {
             if let question = committed.envelopes.last?.id {
                 requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
                     composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
-                    userMessageID: question, selection: selection, action: pending?.action), state: snapshot.state)
+                    userMessageID: question, selection: selection, action: pending?.action, profile: chosenProfile), state: snapshot.state)
             }
         } catch {
             if sessionID == scope {
@@ -2661,12 +2752,16 @@ final class ReaderModel {
             return ChatTurnInput(role: role, text: text)
         }
         let request: ChatGenerationRequest
-        do { request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection, action: turn.action) }
-        catch {
+        let choices = requestChoices(for: turn, branch: branch.messages, state: state)
+        do {
+            request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
+                                                     action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle)
+        } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: "invalid_request")
             return
         }
         var generation = ChatGeneration(turn: turn)
+        generation.profile = choices.profile; generation.sentProfile = choices.sent
         // A later explicit branch choice wins over moving to this answer.
         let choice = branchSelections.capture(in: turn.conversationID)
         let pending = generation
@@ -2683,6 +2778,7 @@ final class ReaderModel {
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?
+        var title: String?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
         // the HTTP request before any local sealing work begins.
@@ -2697,7 +2793,9 @@ final class ReaderModel {
                     bufferAnswer(generation, text: text)
                 case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
-                case .done(let stopReason, _): outcome = .completed(stopReason: stopReason)
+                case .title(let topic): title = topic
+                case .done(let stopReason, _, let model, let profile):
+                    outcome = .completed(stopReason: stopReason); answered = (model, profile)
                 case .failure(let code): outcome = .failed(code: code)
                 }
                 if outcome != nil { break }
@@ -2722,7 +2820,9 @@ final class ReaderModel {
             diagram = await checkedDiagram(drawn, generation: generation, transport: transport)
             guard ownsGeneration(generation) else { return }
         }
-        await finishGeneration(generation, text: text, outcome: resolved, choice: choice, diagram: diagram)
+        var labelled = generation
+        labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
+        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, title: title)
     }
 
     /// Diagrams are checked with the bundled Mermaid before they are kept (2026-10-07). One that doesn't parse is sent
@@ -2741,7 +2841,7 @@ final class ReaderModel {
                 guard ownsGeneration(generation) else { return drawn }
                 switch event {
                 case .diagram(_, let source): fixed = source
-                case .done(let stopReason, _):
+                case .done(let stopReason, _, _, _):
                     completed = stopReason == "end_turn" || stopReason == "stop_sequence"
                     break stream
                 case .failure: break stream
@@ -2770,7 +2870,8 @@ final class ReaderModel {
     }
 
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
-                                  choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil) async {
+                                  choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
+                                  title: String? = nil) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
         if let status = resolution.status {
@@ -2779,7 +2880,9 @@ final class ReaderModel {
             // A diagram is kept only with a complete answer, in the same batch.
             let drawn = status == .complete ? diagram.flatMap { ChatDiagram(title: $0.title, source: $0.source, messageID: generation.assistantID) } : nil
             do {
-                let kept = try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn)
+                // A topic title is kept only with a complete answer, in the same batch.
+                let kept = try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn,
+                                                title: status == .complete ? title : nil)
                 if drawn != nil, !kept, issue == nil { issue = "diagram_storage" }
             } catch { if issue == nil { issue = "storage" } }
         }
@@ -2802,15 +2905,21 @@ final class ReaderModel {
     /// Returns whether the diagram (if any) was kept with the answer.
     @discardableResult
     private func sealAnswer(_ generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus,
-                            choice: ConversationBranchSelections.Choice, diagram: ChatDiagram? = nil) async throws -> Bool {
+                            choice: ConversationBranchSelections.Choice, diagram: ChatDiagram? = nil, title: String? = nil) async throws -> Bool {
         guard !privateState.isDeleted(generation.turn.conversationID) else { return true }
         let persistence = localPersistence, scope = sessionID
         await persistence.waitForActivation()
         guard ownsGeneration(generation), persistence === localPersistence, let store else { throw CancellationError() }
         let storeScope = workOwnership.storeScope
         let id = generation.assistantID, deviceID = generation.turn.deviceID
-        let event = generation.event(text: text.boundedForPrivateEvent(), status: status)
+        let event = generation.event(text: text.boundedForPrivateEvent(), status: status, model: generation.answeredModel,
+                                     profile: generation.labelProfile)
         var batch: [(id: UUID, event: PrivateEvent)] = [(id: id, event: event)]
+        // The conversation's topic title, unless it got one meanwhile (a rename, or another device's title).
+        if let title, privateState.revisions(for: generation.turn.conversationID).first?.payload.titleSource == nil,
+           let titled = privateState.titledConversation(generation.turn.conversationID, title: title, source: PrivateEvent.generatedTitle) {
+            batch.append((id: UUID(), event: titled))
+        }
         if let diagram {
             let diagramID = UUID()
             batch.append((id: diagramID, event: PrivateEvent(kind: .diagram, entityID: diagramID, conversationID: generation.turn.conversationID,
@@ -2824,7 +2933,7 @@ final class ReaderModel {
             let write = try persistence.acceptWrite { local in try await local.appendBatch(entries, deviceID: deviceID) }
             envelopes = try await write.value
         } catch ReaderError.localCapacityExceeded where entries.count > 1 {
-            // Near the offline capacity limit the answer matters more than its diagram.
+            // Near the offline capacity limit the answer matters more than its diagram (or title).
             let answer = [(id: id, event: event)]
             let write = try persistence.acceptWrite { local in try await local.appendBatch(answer, deviceID: deviceID) }
             envelopes = try await write.value
@@ -2854,7 +2963,7 @@ final class ReaderModel {
             guard let text = buffers[generation.id], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !privateState.isDeleted(generation.turn.conversationID) else { continue }
             let id = generation.assistantID, deviceID = generation.turn.deviceID
-            let event = generation.event(text: text.boundedForPrivateEvent(), status: .interrupted)
+            let event = generation.event(text: text.boundedForPrivateEvent(), status: .interrupted, profile: generation.labelProfile)
             _ = try? localPersistence.acceptWrite { local in try await local.appendBatch([(id: id, event: event)], deviceID: deviceID) }
         }
     }

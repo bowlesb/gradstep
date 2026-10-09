@@ -85,6 +85,7 @@ struct ChatHistoryView: View {
     @State private var paperID: UUID?
     @State private var sort = ChatHistorySort.default
     @State private var deleting: ChatHistoryRow?
+    @State private var renaming: UUID?
     /// The list's width; rows sit inside the 16 pt margins.
     @State private var width: CGFloat = 0
     @State private var scroll = TableScrollState()
@@ -115,6 +116,7 @@ struct ChatHistoryView: View {
                 }
             }
             .navigationTitle("All chats").navigationBarTitleDisplayMode(.inline)
+            .renameConversationAlert(model: model, conversation: $renaming)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 // The table's options: its columns (build 16 #3).
@@ -423,6 +425,7 @@ struct ChatHistoryView: View {
         .accessibilityActions {
             if let paper = paper(for: row) { Button("Open paper") { model.select(paper); dismiss() } }
             if model.canGoToPassage(row.id) { Button("Go to passage") { dismiss(); model.goToPassage(row.id) } }
+            if model.canDeleteConversations { Button("Rename") { renaming = row.id } }
             if model.canDeleteConversations { Button("Delete") { deleting = row } }
         }
     }
@@ -470,6 +473,7 @@ struct ChatHistoryView: View {
             Button("Go to passage", systemImage: "text.quote") { dismiss(); model.goToPassage(row.id) }
         }
         if model.canDeleteConversations {
+            Button("Rename…", systemImage: "pencil") { renaming = row.id }
             Button("Delete conversation", systemImage: "trash", role: .destructive) { deleting = row }
         }
     }

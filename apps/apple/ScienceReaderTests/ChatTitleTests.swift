@@ -139,4 +139,21 @@ final class ChatTitleTests: XCTestCase {
         XCTAssertTrue(title.hasPrefix("Explain · ") && title.count > 12, title)
         XCTAssertFalse(title.contains("\\"), title)
     }
+
+    /// Topic titles (2026-10-08): a generated or renamed title is shown as saved, never parsed as a prompt; a
+    /// conversation without one keeps its derived title. All chats searches both the title and the questions.
+    func testTopicTitlesAreShownAsSavedEverywhere() {
+        XCTAssertEqual(ChatTitle.display("Explain in plain terms, including any symbols: x", source: "generated"),
+                       "Explain in plain terms, including any symbols: x", "A topic title is never shortened as a prompt")
+        XCTAssertEqual(ChatTitle.display("Explain in plain terms, including any symbols: x", source: nil), "Explain · x")
+        XCTAssertEqual(ChatTitle.display(" Scaling in\ndot-product attention ", source: "renamed"), "Scaling in dot-product attention")
+        let titled = ConversationSummary(id: UUID(), title: "Explainer for a persona paper", documentID: UUID(), messageCount: 2,
+            startedAt: nil, lastUsedAt: nil, lastArrival: 1, latestAnswer: "A", questions: "What is a persona vector?",
+            titleSource: PrivateEvent.generatedTitle)
+        let row = ChatHistoryRow(summary: titled, paperTitle: "Persona Vectors")
+        XCTAssertEqual(row.title, "Explainer for a persona paper")
+        XCTAssertTrue(ChatHistoryQuery.matches(row, "explainer"))
+        XCTAssertTrue(ChatHistoryQuery.matches(row, "vector?"), "The questions stay searchable")
+        XCTAssertEqual(ChatTitle.display(titled), "Explainer for a persona paper")
+    }
 }

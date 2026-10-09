@@ -5,6 +5,7 @@ import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type Chat
 import { paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
+import { publishedProfiles } from '../_shared/chat-profiles.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -16,14 +17,17 @@ const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthori
 // Streams one metered answer as text/event-stream. Authentication, origin and
 // method failures are HTTP JSON errors; everything after authentication is an
 // SSE `error` event. Plaintext prompts and answers are never logged or stored.
+// GET returns the versioned chat profile table (models, effort, length, credit
+// estimates) that clients display; it calls nothing and changes nothing.
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
   let accountID: string, body: unknown, service: ReturnType<typeof serviceClient>, user: Awaited<ReturnType<typeof userClient>>['user'];
   try {
     headers = cors(request);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-    if (request.method !== 'POST') throw new PublicError(405, 'method_unavailable');
+    if (request.method !== 'POST' && request.method !== 'GET') throw new PublicError(405, 'method_unavailable');
     ({ accountID, user } = await userClient(request));
+    if (request.method === 'GET') return Response.json(publishedProfiles(), { headers });
     service = serviceClient();
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
