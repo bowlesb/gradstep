@@ -98,12 +98,14 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let capabilities: [String]?
             let profile: ChatProfileChoice?
             let topic_title: Bool?
+            /// Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest).
+            let follow_ups: Bool?
         }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
             capabilities: action == .ingest ? ["web_import"] : nil, profile: profile == .standard ? nil : profile,
-            topic_title: topicTitle ? true : nil))
+            topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest ? nil : true))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {
@@ -122,6 +124,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case status(ChatProgress)
     /// The conversation's topic title (asked for with `topicTitle`), sent before `done`.
     case title(String)
+    /// Follow-up questions the answer suggested (servers from 2026-10-14), sent before `done`; shown, never saved.
+    case followUps([String])
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     case failure(code: String)
@@ -257,6 +261,12 @@ public struct ChatSSEParser: Sendable {
             struct Title: Decodable { let text: String }
             guard let title = try? JSONDecoder().decode(Title.self, from: payload), let text = ChatTopicTitle.clean(title.text) else { return nil }
             return .title(text)
+        case "followups":
+            // Informational: unusable suggestions are dropped, never fatal.
+            struct FollowUps: Decodable { let questions: [String] }
+            guard let decoded = try? JSONDecoder().decode(FollowUps.self, from: payload) else { return nil }
+            let questions = ChatFollowUps.clean(decoded.questions)
+            return questions.isEmpty ? nil : .followUps(questions)
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }
@@ -317,6 +327,24 @@ public enum ChatFailureText {
     /// Whether retrying the same question can reasonably succeed.
     public static func isRetryable(_ code: String) -> Bool {
         !["invalid_request", "refused"].contains(code)
+    }
+}
+
+/// Follow-up questions an answer suggests (2026-10-14): at most three one-line questions of 3–120 characters,
+/// cleaned the way the browser cleans them. They are shown as one-tap suggestions and never persisted.
+public enum ChatFollowUps {
+    public static let maximum = 3
+    public static let maximumCharacters = 120
+    public static func clean(_ raw: [String]) -> [String] {
+        var result: [String] = []
+        for value in raw {
+            let scalars = value.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }.joined()
+            let text = scalars.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard text.count >= 3, text.count <= maximumCharacters, !result.contains(where: { $0.lowercased() == text.lowercased() }) else { continue }
+            result.append(text)
+            if result.count == maximum { break }
+        }
+        return result
     }
 }
 

@@ -507,6 +507,8 @@ final class ReaderModel {
     /// Throttled partial text by generation ID; only the transcript reads it.
     private var chatStreamingText: [UUID: String] = [:]
     private var chatStreamProgress: [UUID: ChatProgress] = [:]
+    /// The newest complete answer's suggested follow-up questions per composer (memory only; the next question clears them).
+    private var chatFollowUps: [UUID: (messageID: UUID, questions: [String])] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?)?
@@ -2961,6 +2963,19 @@ final class ReaderModel {
         return generation
     }
     var chatStreamingMessageID: UUID? { visibleGeneration?.assistantID }
+    /// Follow-up questions offered under the shown conversation's newest answer (none while an answer streams).
+    var chatFollowUpQuestions: [String] {
+        guard visibleGeneration == nil, let composer = chatComposerID, let offered = chatFollowUps[composer],
+              chatMessages.last?.id == offered.messageID else { return [] }
+        return offered.questions
+    }
+    /// A tapped follow-up becomes the message; nothing is sent until the reader does.
+    func useFollowUp(_ question: String) {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        chatInput = text
+        requestComposerFocus()
+    }
     /// What the server is doing for the visible answer (searching, adding a paper) until text resumes.
     var chatStreamingProgress: ChatProgress? { visibleGeneration.flatMap { chatStreamProgress[$0.id] } }
     /// Saved branch messages plus the streaming answer, which already carries
@@ -3056,6 +3071,7 @@ final class ReaderModel {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
         }
+        chatFollowUps[turn.composerID] = nil
         var generation = ChatGeneration(turn: turn)
         generation.profile = choices.profile; generation.sentProfile = choices.sent
         // A later explicit branch choice wins over moving to this answer.
@@ -3074,7 +3090,7 @@ final class ReaderModel {
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?
-        var title: String?, answered: (model: String?, profile: String?) = (nil, nil)
+        var title: String?, followUps: [String]?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
         // the HTTP request before any local sealing work begins.
@@ -3090,6 +3106,7 @@ final class ReaderModel {
                 case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
                 case .title(let topic): title = topic
+                case .followUps(let questions): followUps = questions
                 case .done(let stopReason, _, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile)
                 case .failure(let code): outcome = .failed(code: code)
@@ -3118,7 +3135,7 @@ final class ReaderModel {
         }
         var labelled = generation
         labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
-        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, title: title)
+        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, title: title, followUps: followUps)
     }
 
     /// Diagrams are checked with the bundled Mermaid before they are kept (2026-10-07). One that doesn't parse is sent
@@ -3167,7 +3184,7 @@ final class ReaderModel {
 
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
                                   choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
-                                  title: String? = nil) async {
+                                  title: String? = nil, followUps: [String]? = nil) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
         if let status = resolution.status {
@@ -3185,6 +3202,8 @@ final class ReaderModel {
         guard ownsGeneration(generation) else { return }
         chatGenerations[generation.turn.composerID] = nil
         chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
+        // Suggestions belong to a complete, kept answer only.
+        chatFollowUps[generation.turn.composerID] = resolution.status == .complete && issue == nil ? followUps.map { (generation.assistantID, $0) } : nil
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {

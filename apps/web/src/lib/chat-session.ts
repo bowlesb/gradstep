@@ -27,6 +27,8 @@ export interface Composer {
   id: string; documentID: string | null; conversationID: string | null; head: string | null; draft: string; revision: number;
   phase: 'idle' | 'saving' | 'consent' | 'streaming' | 'finishing'; issue: string | null;
   question: Question | null; answer: Entry[] | null; liveID: string | null; liveText: string; progress: Progress | null; credits: number | null;
+  /** The newest complete answer's suggested follow-up questions (memory only; cleared by the next question). */
+  followUps: string[] | null;
   /** A model/effort/length the reader chose here (memory only); null follows the conversation, then the default. */
   profile: ProfileChoice | null;
   /** Identity of the current text edit (a new one per edit, even when the text repeats). */
@@ -188,7 +190,7 @@ export class ChatSession {
   }
   private blank(documentID: string | null, id: string = crypto.randomUUID()): Composer {
     return { id, documentID, conversationID: null, head: null, draft: '', revision: 0, phase: 'idle', issue: null, question: null, answer: null,
-      liveID: null, liveText: '', progress: null, credits: null, profile: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
+      liveID: null, liveText: '', progress: null, credits: null, followUps: null, profile: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
       branchRevision: crypto.randomUUID(), acknowledgedSubmissionID: null };
   }
   private create(documentID: string | null): Composer {
@@ -508,7 +510,7 @@ export class ChatSession {
     entries.push({ id, event: { kind: 'message', entityID: crypto.randomUUID(), parents: [c.head!], conversationID: c.conversationID,
       documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID), text, role: 'user', status: 'complete', createdAt: at } });
     const requestedAnswer = { questionID: id, choice: { ...this.profileFor(c) } };
-    c.question = { revision, id, entries, selection, action, profile: requestedAnswer.choice }; c.phase = 'saving'; c.issue = null; c.credits = null;
+    c.question = { revision, id, entries, selection, action, profile: requestedAnswer.choice }; c.phase = 'saving'; c.issue = null; c.credits = null; c.followUps = null;
     this.publish();
     return this.track((async () => {
       try {
@@ -674,7 +676,7 @@ export class ChatSession {
       const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpointDate };
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
-    let topicTitle: string | null = null, answeredBy: { model?: string; profile?: string } = {};
+    let topicTitle: string | null = null, followUps: string[] | null = null, answeredBy: { model?: string; profile?: string } = {};
     try {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
         controller.signal.throwIfAborted();
@@ -685,6 +687,7 @@ export class ChatSession {
         } else if (event.type === 'status') c.progress = event.progress;
         else if (event.type === 'diagram') diagram = event;
         else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
+        else if (event.type === 'followups') followUps = event.questions;
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();
@@ -701,6 +704,8 @@ export class ChatSession {
     if (!c.liveText.trim() && diagram && outcome.kind === 'completed' && ['end_turn', 'stop_sequence'].includes(outcome.stopReason)) c.liveText = diagram.title;
     const result = resolution(outcome, c.liveText);
     c.progress = null; c.issue = result.issue; c.phase = 'finishing';
+    // Suggestions belong to a complete answer only; an interrupted or failed one offers none.
+    c.followUps = result.status === 'complete' ? followUps : null;
     if (result.status) {
       const answer: PrivateEvent = { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
         documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID), text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() };

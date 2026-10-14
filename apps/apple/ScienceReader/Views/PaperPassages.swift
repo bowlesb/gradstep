@@ -25,11 +25,15 @@ struct PaperMark: Equatable {
     let anchor: TextAnchor
     /// Made on the artifact being shown, so its block ID applies; otherwise only its text is searched for.
     let sameArtifact: Bool
+    /// An answer's cited block (`[¶N]`), resolved against the open bundle: the bridge lands on the whole block.
+    var block: String? = nil
 
     /// What the bridge needs (`__scienceReaderSetMarks`, `__scienceReaderGoToPassage`); no conversation text.
     var bridgeValue: [String: Any] {
-        ["id": conversationID.wire, "quote": anchor.quote, "prefix": anchor.prefix, "suffix": anchor.suffix,
-         "element": anchor.elementID ?? NSNull(), "same": sameArtifact]
+        var value: [String: Any] = ["id": conversationID.wire, "quote": anchor.quote, "prefix": anchor.prefix, "suffix": anchor.suffix,
+                                    "element": anchor.elementID ?? NSNull(), "same": sameArtifact]
+        if let block { value["block"] = block }
+        return value
     }
 }
 
@@ -42,6 +46,8 @@ struct PaperPassageRequest: Equatable, Identifiable {
     let conversationID: UUID
     let anchor: TextAnchor
     var sameArtifact = false
+    /// A citation's block ID once resolved against the open paper's index.
+    var block: String? = nil
     let requestedAt = Date()
     var origin = Origin.chat
 }
@@ -72,7 +78,7 @@ extension PaperWebView.Coordinator {
               let request = parent.passage, request.id != passages.last else { return }
         passages.inFlight = request.id
         let generation = passages.generation
-        let anchor = PaperMark(conversationID: request.conversationID, anchor: request.anchor, sameArtifact: request.sameArtifact)
+        let anchor = PaperMark(conversationID: request.conversationID, anchor: request.anchor, sameArtifact: request.sameArtifact, block: request.block)
         web.callAsyncJavaScript("return window.__scienceReaderGoToPassage(anchor);", arguments: ["anchor": anchor.bridgeValue],
                                 in: nil, in: .defaultClient) { [weak self, weak web] result in
             guard let self, let web, self.active, self.passages.generation == generation else { return }
@@ -128,9 +134,27 @@ extension ReaderModel {
     func passageJump(for paper: Paper) -> PaperPassageRequest? {
         guard var request = passageRequest, request.documentID == paper.id,
               Date().timeIntervalSince(request.requestedAt) < 60 else { return nil }
+        // An answer's citation names a block number; it is resolved against this paper's index before the bridge sees it.
+        if let marker = PaperChatContext.citedMarker(request.anchor.elementID) {
+            guard let bundle = paper.readerBundle else { return nil }
+            guard let block = PaperChatContext.citedBlock(bundle.index, marker: marker) else { finishPassage(request.id, found: false); return nil }
+            request.block = block.id
+        }
         // A different compile of the same source keeps the quote search; `sameArtifact` only decides whether the block hint applies.
         request.sameArtifact = request.anchor.matches(paper)
         return request
+    }
+
+    /// An answer's `[¶N]` citation: the paper the chat is about opens (if needed) and lands on that block.
+    func goToCitedBlock(_ marker: Int) {
+        guard marker >= 1, let paperID = chatPaperID ?? selectedPaper?.id, let paper = papers.first(where: { $0.id == paperID }) else { return }
+        if selectedPaper?.id != paper.id { select(paper) }
+        referenceNotice = nil
+        // The anchor is transient: the block is named by its number and resolved when the paper is shown.
+        let anchor = TextAnchor(manifestSHA256: paper.readerBundle?.manifestSHA256 ?? String(repeating: "0", count: 64), quote: "", elementID: "¶\(marker)")
+        passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: activeConversation ?? UUID(), anchor: anchor)
+        tab = .paper
+        if wideMode != .browse { wideMode = .reader }
     }
 
     func finishPassage(_ id: UUID, found: Bool) {
@@ -139,6 +163,8 @@ extension ReaderModel {
         if !found {
             referenceNotice = ReferenceNotice(kind: .closed, message: request.origin == .podcastEvidence
                                               ? "Couldn’t find this quote in the paper. The paper may have changed since the episode was made."
+                                              : PaperChatContext.citedMarker(request.anchor.elementID) != nil
+                                              ? "This answer cites a passage this paper doesn’t have."
                                               : "Couldn’t find the passage this chat came from. The paper may have changed since.",
                                               reference: "")
         }

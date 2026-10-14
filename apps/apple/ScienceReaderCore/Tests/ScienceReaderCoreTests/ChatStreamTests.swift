@@ -14,7 +14,7 @@ import Testing
             ChatTurnInput(role: .user, text: "Why scale by it?")
         ], selection: "softmax(QK^T / sqrt(d_k))")
         let body = try object(request.encoded())
-        #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection"])
+        #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection", "follow_ups"])
         #expect(body["operation_id"] as? String == operation.wire)
         #expect(body["document_id"] as? String == document.wire)
         #expect(body["consent_version"] as? String == "cloud-ai-v2")
@@ -112,6 +112,17 @@ import Testing
             var invalid = ChatSSEParser()
             #expect(throws: ChatStreamError.malformed) { try invalid.consume(Array("event: diagram\ndata: \(body)\n\n".utf8)) }
         }
+    }
+
+    @Test func parserReadsFollowUpsCleanedAndBoundedAndIgnoresUnusableOnes() throws {
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Array("event: followups\ndata: {\"questions\":[\"  How is \\u03b2 chosen? \",\"x\",\"What does the\\tKL term do?\",\"One\",\"Two\",\"Three\"]}\n\n".utf8))
+        #expect(events == [.followUps(["How is β chosen?", "What does the KL term do?", "One"])])
+        for body in ["{\"questions\":\"none\"}", "{\"questions\":[1,\"\"]}", "{\"questions\":[\"" + String(repeating: "q", count: 121) + "\"]}", "{}"] {
+            var ignored = ChatSSEParser()
+            #expect(try ignored.consume(Array("event: followups\ndata: \(body)\n\n".utf8)).isEmpty, Comment(rawValue: body))
+        }
+        #expect(ChatFollowUps.clean(["Same?", "same?", "Other?"]) == ["Same?", "Other?"])
     }
 
     @Test func parserReadsStatusEventsAndIgnoresUnknownOrMalformedOnes() throws {

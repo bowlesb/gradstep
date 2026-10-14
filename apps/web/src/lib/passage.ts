@@ -44,5 +44,11 @@ export function passageAnchor(artifactID: string | undefined, selection: Selecti
 }
 
 /** What the bridge needs to find a passage (`__scienceReaderSetMarks`, `__scienceReaderGoToPassage`); no conversation text. */
-export const bridgeAnchor = (conversationID: string, anchor: TextAnchor, artifactID: string | undefined, manifestSHA256?: string) =>
-  ({ id: conversationID, quote: anchor.quote, prefix: anchor.prefix, suffix: anchor.suffix, element: anchor.elementID ?? null, same: anchor.manifestSHA256 ? anchor.manifestSHA256 === manifestSHA256 : !!anchor.artifactID && anchor.artifactID === artifactID });
+export const bridgeAnchor = (conversationID: string, anchor: TextAnchor, artifactID: string | undefined, manifestSHA256?: string, block?: string) =>
+  ({ id: conversationID, quote: anchor.quote, prefix: anchor.prefix, suffix: anchor.suffix, element: anchor.elementID ?? null,
+    same: anchor.manifestSHA256 ? anchor.manifestSHA256 === manifestSHA256 : !!anchor.artifactID && anchor.artifactID === artifactID,
+    // A cited block (`[¶N]` in an answer), resolved against the open bundle: the bridge lands on the whole block when the quote is absent.
+    ...(block ? { block } : {}) });
+/** An answer's `[¶N]` citation as a passage request the reader resolves against the open paper's index. */
+export const citationAnchor = (marker: number): TextAnchor => ({ elementID: `¶${marker}`, quote: '', prefix: '', suffix: '' });
+export const citedMarker = (anchor: TextAnchor): number | null => { const m = /^¶(\d{1,5})$/.exec(anchor.elementID ?? ''); return m ? Number(m[1]) : null; };

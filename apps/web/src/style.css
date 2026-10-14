@@ -460,6 +460,13 @@ progress.mini { height: 3px; margin-top: 4px; }
 .chat-composer textarea { width: 100%; min-height: 66px; max-height: 160px; resize: vertical; background: var(--surface); border-radius: 9px; padding: 10px; font: inherit; font-size: 14px; line-height: 1.45; }
 .composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 7px; }
 .draft-hint { font-size: 10px; margin: 6px 0 0; }
+/* Grounded citations in answers ([¶N]) and one-tap follow-up questions. */
+.cite { display: inline-block; font-size: .78em; line-height: 1.5; padding: 0 5px; margin: 0 1px; border-radius: 999px; background: var(--accent-muted); color: var(--accent); cursor: pointer; white-space: nowrap; text-decoration: none; }
+.cite:hover, .cite:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.follow-ups { display: flex; flex-wrap: wrap; gap: 6px; margin: -10px 0 18px; }
+.follow-up { font: inherit; font-size: 12.5px; line-height: 1.3; padding: 6px 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.follow-up:hover:not(:disabled), .follow-up:focus-visible { border-color: var(--accent); color: var(--accent); }
+.follow-up:disabled { opacity: .55; cursor: default; }
 .jump-latest { position: absolute; bottom: 160px; align-self: center; box-shadow: 0 2px 9px #0002; }
 .source-address { overflow-wrap: anywhere; font-size: 14px; }
 .history-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }

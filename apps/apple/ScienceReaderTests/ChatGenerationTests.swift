@@ -187,6 +187,30 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatMessages.last?.payload.text, "IPO generalizes it.", "Status text is never part of the answer")
     }
 
+    /// Follow-up suggestions (2026-10-14) belong to the newest complete answer only; a tap fills the message box and
+    /// the next question clears them. An interrupted answer offers none.
+    func testFollowUpsShowUnderACompleteAnswerFillTheComposerAndClearOnTheNextQuestion() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "What followed DPO?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("IPO generalizes it."), .followUps(["How does IPO regularize?", "What about KTO?"]))
+        XCTAssertEqual(model.chatFollowUpQuestions, [], "Nothing is offered while the answer streams")
+        transport.send(.done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        try await waitUntil("follow-ups offered") { model.chatFollowUpQuestions == ["How does IPO regularize?", "What about KTO?"] }
+        XCTAssertFalse(model.chatMessages.contains { ($0.payload.text ?? "").contains("KTO") }, "Suggestions are never saved as messages")
+        model.useFollowUp("What about KTO?")
+        XCTAssertEqual(model.chatInput, "What about KTO?")
+        XCTAssertTrue(model.takeComposerFocusRequest())
+        await model.sendMessage()
+        try await waitUntil("second request issued") { transport.requests.count == 2 }
+        XCTAssertEqual(model.chatFollowUpQuestions, [], "The next question clears the previous suggestions")
+        transport.send(.delta("Partial"), .followUps(["Dropped?", "Also dropped?"]), .failure(code: "provider_unavailable"))
+        try await waitUntil("interrupted") { !model.isAnswering }
+        XCTAssertEqual(model.chatFollowUpQuestions, [], "An interrupted answer offers no follow-ups")
+    }
+
     /// Owner feedback (build 21): a reference's Discuss in chat opens this paper's chat with the entry quoted in the
     /// message box, ready to type; nothing is sent. An empty new chat keeps its unsent words after the quote; a
     /// conversation under way is left as it was and the reference starts a new one.

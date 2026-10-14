@@ -1,18 +1,23 @@
 # Agent handoff
 
-**Current checkpoint, 2026-10-13 PDT:** HTML-first implementation is deployed on staging. Read
-[Implementation status](IMPLEMENTATION_STATUS.md) and [HTML-first architecture](architecture/HTML_FIRST_READER.md).
-Migration 058 and metadata-only Cloud Run `gradstep-pipeline-00033-2jw` block new server PDF/OCR work. Edge chat
-accepts explicit, ephemeral local reader context. Browser Pages `a3127547` and admin Pages `91c1eb33` are deployed.
-Native **build 30 is VALID and IN_BETA_TESTING on iOS and Mac**, including the figure compatibility fix.
-The hosted DPO v3 journey passed with zero PDF/artifact requests, no provider spend and successful cleanup.
+**Current checkpoint, 2026-10-14 PDT:** HTML-first reader and **Agent v2** are deployed on staging. Read
+[Implementation status](IMPLEMENTATION_STATUS.md#agent-v2-on-staging--2026-10-14-deployed), the
+[chat contract](architecture/CHAT.md#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups) and
+[HTML-first architecture](architecture/HTML_FIRST_READER.md). Migration **059** (follow-up ceiling in the chat quote)
+is applied (additive; the pre-migration backup attempt exceeded its time limit, so the newest complete checkpoint
+is still 2026-10-09); the `chat` function carries numbered local context v2, grounded `[¶N]` citations and forced Haiku
+follow-up suggestions; browser Pages `6cb0d781` and admin `91c1eb33` are deployed; native **build 31 is VALID for iOS and Mac**
+(owner acceptance open; build 30 remains IN_BETA_TESTING). Three paid live smokes on staging
+verified citations that resolve and three follow-ups per answer ($0.28 of provider spend; disposable accounts
+deleted). The repository review of 2026-10-13 (arXiv pacing, shared preparation, Go to passage across renderer
+revisions, deleted PDF/Mathpix code) shipped in the same release. Commits: `7233641` (cutover), `dc040a9` (review),
+and the Agent v2 commit that follows this checkpoint.
 
-**Repository review, 2026-10-13 late (local, not deployed):** arXiv asset acquisition is no longer spaced
-three seconds per request on either client (document requests still are); the browser shares one in-flight
-preparation per paper; Go to passage works across renderer revisions; the server/browser/native PDF-upload and
-Mathpix client code is deleted. Details and evidence: [implementation status](IMPLEMENTATION_STATUS.md#post-cutover-maintenance--2026-10-13-late-local-only-nothing-deployed).
-**The whole HTML-first cutover is still uncommitted in the working tree**; commit it before further work.
-Deploying the review's browser/native changes needs the usual slow checks and a new TestFlight build.
+**Before the next build:** run `node scripts/ux-review.mjs` and the native visual capture and read the sheets
+([UX_REVIEW.md](UX_REVIEW.md)); after chat prompt or function changes, one `node scripts/chat-live-smoke.mjs
+--questions=2` run (paid, about $0.25). The owner's next request is an exploration, not code: a learning-guide
+product extension (tailored ML concept teaching with a persistent learner state, a figure "guide" mode and an
+optional quiz); the proposal lives in `docs/proposals/LEARNING_GUIDE.md`.
 
 **Test policy and new baseline:** `npm test` is fast (~10 s); slow browser/corpus/Simulator/database/hosted checks
 are explicit and reused until relevant changes or a problem warrant rerunning. Read [TESTING.md](TESTING.md).

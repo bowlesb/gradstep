@@ -8,13 +8,50 @@ route is deployed on staging with `reader-local-context-v1` and `worker_local_ch
 
 Status 2026-10-05: deployed to staging and verified live (API smoke and the Simulator journey: consent, streamed paid answer with typeset math, relaunch). Ingest verified live through the API (DPO passage citing PPO → arXiv 1707.06347 queued, 26 credits); its Simulator path is covered by unit tests only.
 
+## Agent v2 (2026-10-14): numbered context, grounded citations, follow-ups
+
+Three additions to the same request/stream contract, built once on the server and shown by both clients:
+
+- **Numbered paper context** (`local_context.format: "reader-local-context-v2"`). A device-prepared paper is sent
+  block by block from its verified index, each block starting with `[¶N]` (N is 1-based in index order): headings as
+  `#…`, display equations as `\[ … \]` LaTeX, `[Figure] caption`, `[Table] text`, `- list item`. The browser
+  (`apps/web/src/lib/paper-context.ts`) and ScienceReaderCore (`PaperChatContext`) produce the same text;
+  `tests/fixtures/reader-arxiv/local-context-v2.txt` is the shared golden output both test against. `v1` (plain
+  block text) is still accepted. The format is part of the request digest. Server-held (historical) papers are
+  not numbered and get no citation instructions.
+- **Grounded citations.** For a v2 context the system prompt asks the model to cite the exact block as `[¶N]` after
+  the statement it supports. Clients render each marker as a small control (browser: `<span class="cite"
+  data-cite="N">`, native: a `gradstep-cite://N` link in the selectable answer text). A tap resolves N against the
+  open paper's index to the block ID and sends the existing passage request with `block` set; the shared reader
+  bridge lands on the whole block when no quote is given (or when the quote isn't found), with the same Back as a
+  citation jump. A marker the paper lacks shows "This answer cites a passage this paper doesn't have." Older
+  clients show the marker as plain text. Nothing about citations is stored or logged by the server.
+- **Follow-up questions.** A request with `follow_ups: true` (every ordinary answer from the current clients; refused
+  on Ingest and diagram repairs) gets two or three questions the reader might ask next. They come from a second small
+  request after the answer (`chat-follow-ups.ts`): Claude Haiku 5.5 with the `suggest_follow_ups` tool call forced,
+  reading only the paper's title, the selected passage, the question and the first 2,400 characters of the answer,
+  never the paper's text or earlier turns. The server validates the input (2–3 distinct one-line questions of 3–120
+  characters), relays them once as an SSE `followups {questions}` event before `title`/`done`, counts them in
+  `chat_answer` (`follow_ups: written|unusable|failed|skipped`, `follow_up_count`), and stores nothing. A complete,
+  non-refused answer with text is the only one that asks; a suggestion still unanswered after 8 s is abandoned (its
+  attempt is settled). Clients show them as one-tap suggestions under the newest complete answer only; a tap fills
+  the message box (nothing is sent until the reader sends), and the next question clears them. They are never
+  written to encrypted history. Old clients neither send the flag nor pay for it.
+
+Costs: the suggestion request is held with the answer at its largest possible size (every excerpt at its limit,
+`FOLLOW_UP_HOLD_PARAMS`) and frozen in the quote (`follow_ups_model`, `follow_ups_max_tokens`,
+`follow_ups_ceiling_microusd`); a real one is about 1,000 input and 60 output Haiku tokens, under a tenth of a cent,
+and about 1–2 s after the answer's last text. The first design offered the tool to the answering model inside its
+own turn; the live check on 2026-10-14 showed Sonnet at low effort ending its turn without calling it, so the forced
+side request replaced it (one mechanism, model-independent, testable).
+
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean}` (the last two since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08)).
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean}` (the last two since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
-- Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
+- Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
 
@@ -190,9 +227,9 @@ are ignored, never fatal.
 ## Models, effort and length (2026-10-08)
 
 Owner request (2026-10-08): "chats should have the ability to customize the length and effort and model right there
-in the chat in a clear UX". Status: built and tested locally on branch `chat-controls-titles`; **not deployed**,
-migration 047 **not applied**, no paid provider request made. The lead runs a small paid check after review
-([deploy order](#deploy-order); local verification below).
+in the chat in a clear UX". Status: migration 047 applied and the function deployed to staging on 2026-10-09, with a paid profile check
+(three profiles, $0.14; [implementation status](../IMPLEMENTATION_STATUS.md#chat-controls-and-titles-on-staging--2026-10-09-utc)).
+The native controls shipped in build 23; the browser controls in the first browser release.
 
 The server owns a versioned profile table (`chat-profiles-v1`, `supabase/functions/_shared/chat-profiles.ts`). A
 request names a choice; the server accepts only the table's combinations, sends the matching request, holds the
@@ -316,7 +353,9 @@ choice shown when Send is pressed; a retry asks with the same.
   reserves exactly like `worker_reserve_operation(…, 'chat', …)` and, in the same transaction, records
   `app_private.chat_quotes`: `profile_version`, `profile`, `model`, `effort`, `length` (`repair` for a diagram fix),
   `rate_version`, `tariff`, `max_output_tokens` (thinking included), `input_estimate_tokens`, `max_searches`,
-  `title_model`, `title_max_tokens`, `title_ceiling_microusd`, and the credit and spend ceilings. Immutable,
+  `title_model`, `title_max_tokens`, `title_ceiling_microusd`, since migration 059 (2026-10-14) the optional
+  `follow_ups_model`, `follow_ups_max_tokens`, `follow_ups_ceiling_microusd` group (all three keys when a
+  suggestion request is held, none otherwise; nulls for earlier quotes), and the credit and spend ceilings. Immutable,
   service-role only, RLS on, no prompt or title text; a replay must carry the identical quote (else
   `operation_id_conflict`); a malformed quote is `invalid_reservation` and rolls the hold back. Kept with the operation
   on account deletion.
@@ -447,7 +486,7 @@ by (Opus 5/4.8, $5/$25), not Opus 5.5's.
 - Plaintext leaving the device per answer: the question, earlier turns of that branch (bounded as above), an optional selected passage and, for paper chat, the paper MMD that the server already holds. Prompts are built on the device from decrypted history; nothing else (notes, other chats, keys) is sent.
 - The function stores no chat text: no tables, queues or logs. Logs carry only event names, operation IDs, counts and codes. The answer returns to the device, which seals it with the existing encrypted append path.
 - Anthropic processes and may retain request content under its API terms; no zero-retention claim is made. Consent copy says so.
-- First-use consent is per environment/account in the device Keychain (`<env>.<account>.cloud-ai-consent` = `cloud-ai-v1`), not in chat history. The question is saved locally first; consent then binds the request to that saved turn. Declining keeps the question and offers “Get answer”.
+- First-use consent is per environment/account in the device Keychain (`<env>.<account>.cloud-ai-consent` = `cloud-ai-v2`, the current consent text; a stored `cloud-ai-v1` is re-asked), not in chat history. The question is saved locally first; consent then binds the request to that saved turn. Declining keeps the question and offers “Get answer”.
 
 ## Native behavior and failures
 

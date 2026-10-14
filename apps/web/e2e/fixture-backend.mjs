@@ -437,6 +437,8 @@ createServer(async (request, response) => {
     if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus'].includes(p.model)
       || !['low', 'medium', 'high'].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
+    if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
+    if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
@@ -444,7 +446,7 @@ createServer(async (request, response) => {
     if (mode === 'insufficient_credits') { event('error', { code: 'insufficient_credits' }); return response.end(); }
     if (mode === 'refusal') { event('delta', { text: 'Discard this refused partial' }); event('error', { code: 'refused' }); return response.end(); }
     event('status', { kind: body.action === 'related' ? 'searching' : 'reading', query: body.action === 'related' ? 'DPO related work' : undefined });
-    const text = 'The **objective** compares preferences.\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
+    const text = 'The **objective** compares preferences [¶2].\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
     const chunks = text.match(mode === 'steady' ? /[\s\S]/g : /[\s\S]{1,24}/g);
     let index = 0;
     const tick = () => {
@@ -454,6 +456,7 @@ createServer(async (request, response) => {
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
 click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
       if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
+      if (body.follow_ups === true) event('followups', { questions: ['How is β chosen?', 'What does the KL term do?'] });
       const profile = body.profile ? `${body.profile.model}-${body.profile.effort}-${body.profile.length}` : 'sonnet-low-standard';
       const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }[body.profile?.model ?? 'sonnet'];
       event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile } : {}) }); response.end();

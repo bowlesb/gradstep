@@ -60,7 +60,9 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.failure(code: "refused"))
                     case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research:
                         try await Task.sleep(for: .milliseconds(300))
-                        let text = mode == .research ? Self.research : mode == .sources ? Self.answer + Self.sources : Self.answer
+                        // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
+                        let cited = request.localContext != nil
+                        let text = mode == .research ? Self.research : mode == .sources ? Self.answer + Self.sources : cited ? Self.citedAnswer : Self.answer
                         let pieces = Self.pieces(of: text, size: 14)
                         let delay: Duration = mode == .slow ? .milliseconds(250) : .milliseconds(30)
                         // research: a search before the first text, and another one mid-answer (status events).
@@ -81,6 +83,7 @@ struct ChatFixtureTransport: ChatTransport {
                             // A server from before profiles (`--chat-fixture-no-profiles`) sends neither a title nor labels.
                             if Self.serverHasProfiles {
                                 if request.topicTitle { continuation.yield(.title(Self.topicTitle(for: request))) }
+                                continuation.yield(.followUps(Self.followUps))
                                 continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model),
                                                          profile: request.profile.id))
                             } else {
@@ -94,6 +97,12 @@ struct ChatFixtureTransport: ChatTransport {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    /// Follow-up questions every complete fixture answer suggests (servers from 2026-10-14).
+    static let followUps = ["Why does the softmax saturate without the scaling?", "How does this compare with additive attention?"]
+
+    /// The fixture answer for a device-prepared paper: the same text citing its numbered blocks.
+    static let citedAnswer = answer.replacingOccurrences(of: "The paper motivates this in Section 3.2.1:", with: "The paper motivates this in Section 3.2.1 [¶4]:")
 
     /// Web search answers end with sources in this form (see docs/CHAT.md).
     static let sources = """

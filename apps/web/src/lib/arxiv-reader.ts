@@ -2,6 +2,7 @@ import { fromBase64, fromUtf8, toBase64, type Bytes } from './bytes';
 import { verifyBundle, type VerifiedBundle } from './bundle';
 import { sourceReference, type SourcePaperReference } from './events';
 import { arxivPreparationMessage } from './arxiv-reader-error';
+import { buildPaperContext, PAPER_CONTEXT_FORMAT } from './paper-context';
 export class ArxivReaderError extends Error {}
 
 /** Acquisition pacing. A paper's HTML document request is spaced like a new page visit; that page's
@@ -151,8 +152,8 @@ export function localChatContext(ref: SourcePaperReference, bundle: VerifiedBund
  if (bundle.manifest.source.kind !== 'arxiv-html' || !raw) throw new ArxivReaderError('Open this paper to prepare its HTML reader first.');
  const provenance = JSON.parse(fromUtf8(raw));
  if (provenance.source.url !== arxivHTMLURL(ref)) throw new ArxivReaderError('The reader does not match this paper revision.');
- const text = bundle.index.blocks.map(b => b.text).join('\n\n');
+ const text = buildPaperContext(bundle.index);
  if (!text.trim() || new TextEncoder().encode(text).length > 2097152) throw new ArxivReaderError('This paper exceeds the chat context limit.');
- return { format: 'reader-local-context-v1', membership_id: ref.membershipID, source: 'arxiv', source_id: ref.sourceID, revision: ref.revision,
+ return { format: PAPER_CONTEXT_FORMAT, membership_id: ref.membershipID, source: 'arxiv', source_id: ref.sourceID, revision: ref.revision,
   manifest_sha256: bundle.manifestSHA256, source_sha256: bundle.manifest.source.sha256, text };
 }

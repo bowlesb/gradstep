@@ -33,17 +33,19 @@ struct ChatMessageText: View {
     /// An answer: its text is selectable with actions, and a leading "Answer:" label is not shown.
     var assistant = false
     var onQuote: ChatQuoteHandler?
+    /// An answer's `[¶N]` citations open that block of the paper (nil while streaming).
+    var onCite: ChatCiteHandler?
 
     var body: some View {
         let shown = assistant ? ChatRichText.withoutAnswerLabel(source) : source
         let blocks = ChatRichText.parse(shown, streaming: streaming)
         if blocks.contains(where: { if case .table = $0 { true } else { false } }) {
-            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, speaker: speaker, selectable: assistant, onQuote: onQuote)
+            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, speaker: speaker, selectable: assistant, onQuote: onQuote, onCite: onCite)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(identifier)
         } else {
             let spoken = streaming ? shown : (ChatRichText.trailingSources(shown)?.body ?? shown)
-            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, selectable: assistant, onQuote: onQuote)
+            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, selectable: assistant, onQuote: onQuote, onCite: onCite)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(identifier)
                 .accessibilityLabel(Text("\(speaker): \(Text(ChatInlineText.markdown(spoken, inertLinks: false)))"))
@@ -62,6 +64,8 @@ struct ChatBlocksView: View {
     var selectable = false
     /// Answers: actions on selected text and formulas (nil while streaming).
     var onQuote: ChatQuoteHandler?
+    /// Answers: `[¶N]` citations as links into the paper.
+    var onCite: ChatCiteHandler?
     @Environment(\.colorScheme) private var colorScheme
 
     private enum Group { case flow([ChatBlock]), table(ChatTable, number: Int) }
@@ -110,14 +114,14 @@ struct ChatBlocksView: View {
         switch block {
         case .paragraph(let parts):
             if selectable {
-                ChatSelectableText(parts: parts, size: fontSize, dark: colorScheme == .dark, onQuote: onQuote)
+                ChatSelectableText(parts: parts, size: fontSize, dark: colorScheme == .dark, onQuote: onQuote, onCite: onCite)
             } else {
                 inlineText(parts, size: fontSize).lineSpacing(4).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
         case .heading(let level, let parts):
             if selectable {
                 ChatSelectableText(parts: parts, size: fontSize * (level <= 2 ? 1.12 : 1.04), weight: .semibold, lineSpacing: 0,
-                                   dark: colorScheme == .dark, onQuote: onQuote)
+                                   dark: colorScheme == .dark, onQuote: onQuote, onCite: onCite)
                     .accessibilityAddTraits(.isHeader)
             } else {
                 inlineText(parts, size: fontSize * (level <= 2 ? 1.12 : 1.04)).fontWeight(.semibold)
@@ -128,7 +132,7 @@ struct ChatBlocksView: View {
                 Text(marker).font(.system(size: fontSize)).foregroundStyle(.secondary).accessibilityHidden(marker == "•")
                 if selectable {
                     // A text view has no baseline for SwiftUI: its first line's is the font's ascender.
-                    ChatSelectableText(parts: parts, size: fontSize, dark: colorScheme == .dark, onQuote: onQuote)
+                    ChatSelectableText(parts: parts, size: fontSize, dark: colorScheme == .dark, onQuote: onQuote, onCite: onCite)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .alignmentGuide(.firstTextBaseline) { _ in UIFont.systemFont(ofSize: fontSize).ascender }
                 } else {
@@ -198,6 +202,8 @@ struct ChatBlocksView: View {
 
 /// Runs an action on text or a formula from an answer (Quote in Chat, Explain, Define).
 typealias ChatQuoteHandler = @MainActor (ReaderModel.ChatQuoteAction, String) -> Void
+/// Opens the paper block an answer cites (`[¶N]`, grounded citations, 2026-10-14).
+typealias ChatCiteHandler = @MainActor (Int) -> Void
 
 extension NSAttributedString.Key {
     /// The LaTeX of an inline formula drawn as an image attachment.
@@ -234,12 +240,21 @@ struct ChatSelectableText: UIViewRepresentable {
     var lineSpacing: CGFloat = 4
     let dark: Bool
     var onQuote: ChatQuoteHandler?
+    var onCite: ChatCiteHandler?
 
     struct Key: Equatable { let parts: [ChatInline]; let size: Double; let weight: CGFloat; let dark: Bool }
+
+    /// A citation link's address: `gradstep-cite://12` names block 12 of the paper the chat is about.
+    static let citeScheme = "gradstep-cite"
+    static func citedBlock(_ url: URL) -> Int? {
+        guard url.scheme == citeScheme, let host = url.host, let marker = Int(host), marker >= 1 else { return nil }
+        return marker
+    }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var key: Key?
         var onQuote: ChatQuoteHandler?
+        var onCite: ChatCiteHandler?
 
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             guard let onQuote, range.length > 0, let text = textView.attributedText else { return nil }
@@ -255,17 +270,26 @@ struct ChatSelectableText: UIViewRepresentable {
                           + suggestedActions.filter { !isEdit($0) })
         }
 
-        /// Long-press (or right-click) on an inline formula.
+        /// A tap on a formula does nothing (its image is not a document to preview or share); a tap on a
+        /// citation opens the cited block of the paper instead of following a URL.
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+            if case .textAttachment = textItem.content { return nil }
+            if case .link(let url) = textItem.content, let marker = ChatSelectableText.citedBlock(url) {
+                guard let onCite else { return nil }
+                return UIAction(title: "Go to passage") { _ in onCite(marker) }
+            }
+            return defaultAction
+        }
+
+        /// A citation's long-press menu offers only the jump, never a web preview of its address.
         func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem, defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+            if case .link(let url) = textItem.content, let marker = ChatSelectableText.citedBlock(url) {
+                guard let onCite else { return nil }
+                return UITextItem.MenuConfiguration(menu: UIMenu(children: [UIAction(title: "Go to passage", image: UIImage(systemName: "text.quote")) { _ in onCite(marker) }]))
+            }
             guard let onQuote, case .textAttachment = textItem.content, let text = textView.attributedText,
                   let latex = ChatSelectableText.soleFormula(text, range: textItem.range) else { return nil }
             return UITextItem.MenuConfiguration(menu: UIMenu(children: ChatFormulaActions.menu(latex, quote: "\\(\(latex)\\)", onQuote: onQuote)))
-        }
-
-        /// A tap on a formula does nothing (its image is not a document to preview or share).
-        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
-            if case .textAttachment = textItem.content { return nil }
-            return defaultAction
         }
     }
 
@@ -292,11 +316,29 @@ struct ChatSelectableText: UIViewRepresentable {
 
     func updateUIView(_ view: TextView, context: Context) {
         context.coordinator.onQuote = onQuote
+        context.coordinator.onCite = onCite
+        view.linkTextAttributes = [.foregroundColor: UIColor.tintColor]
         let key = Key(parts: parts, size: size, weight: weight.rawValue, dark: dark)
         guard context.coordinator.key != key else { return }
         context.coordinator.key = key
-        view.attributedText = attributed()
+        view.attributedText = Self.withCitations(attributed(), size: size)
         view.invalidateIntrinsicContentSize()
+    }
+
+    /// `[¶N]` in the answer text becomes a small tinted link to that block (an image attachment never matches).
+    static func withCitations(_ text: NSAttributedString, size: Double) -> NSAttributedString {
+        let string = text.string
+        guard string.contains("[¶"), let pattern = try? NSRegularExpression(pattern: #"\[¶(\d{1,5})\]"#) else { return text }
+        let result = NSMutableAttributedString(attributedString: text)
+        let font = UIFont.systemFont(ofSize: size * 0.82, weight: .medium)
+        for match in pattern.matches(in: string, range: NSRange(string.startIndex..., in: string)).reversed() {
+            guard let marker = Int((string as NSString).substring(with: match.range(at: 1))), marker >= 1,
+                  let url = URL(string: "\(citeScheme)://\(marker)") else { continue }
+            result.replaceCharacters(in: match.range, with: "¶\(marker)")
+            let shown = NSRange(location: match.range.location, length: ("¶\(marker)" as NSString).length)
+            result.addAttributes([.link: url, .font: font], range: shown)
+        }
+        return result
     }
 
     /// Wraps to any finite proposed width (so stacks can size it like Text); unproposed, one line.

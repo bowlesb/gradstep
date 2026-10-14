@@ -1,8 +1,74 @@
 # Implementation status
 
-Updated 2026-10-13 PDT. Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
+
+## Agent v2 on staging — 2026-10-14 (deployed)
+
+Owner direction (2026-10-14): a materially better agent ("new tools, new capabilities, better performance, more
+stable, better design and UX"), more UX work before each build, and one answer per hard problem across surfaces.
+Design: [CHAT.md, Agent v2](architecture/CHAT.md#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups);
+decisions: [DECISIONS.md, Agent v2 and framework stance](DECISIONS.md#agent-v2-and-framework-stance-agent-decisions-2026-10-14-reversible);
+pre-build review: [UX_REVIEW.md](UX_REVIEW.md). This release also carries the post-cutover maintenance below
+(arXiv acquisition pacing, shared preparation, Go to passage across renderer revisions, dead PDF code removed).
+
+- **Numbered paper context** (`reader-local-context-v2`): a device-prepared paper is sent block by block with `[¶N]`
+  markers by both clients (`apps/web/src/lib/paper-context.ts`, Core `PaperChatContext`), tested against the same
+  golden fixtures (`tests/fixtures/reader-arxiv/local-context-v2.txt`, `figures-local-context-v2.txt`).
+- **Grounded citations**: answers cite `[¶N]`; the marker is a control on iPhone, iPad, Mac and the browser that lands
+  on the block with Back; a marker the paper lacks shows a notice. Server-held (historical) papers are not numbered.
+- **Follow-up suggestions**: two or three one-tap questions under the newest answer (fill the message box, never
+  send). Built first as an optional tool for the answering model; the first live check returned 15 citations and no
+  follow-ups (Sonnet at low effort ended its turn without the call), so it became a forced Claude Haiku 5.5 side
+  request after the answer (`chat-follow-ups.ts`, request flag `follow_ups: true`, held and frozen in the quote by
+  **migration 059**). One mechanism, model-independent, covered by tests.
+- **Browser composer and waits**: one short status line instead of a repeated storage caveat; "Thinking… N s" after
+  five seconds.
+- **Review tooling**: `node scripts/ux-review.mjs` (48 browser captures, light/dark, desktop/phone),
+  `scripts/visual-check.mjs capture --label=agent-v2` (iPhone chat screens) and the paid, explicit
+  `scripts/chat-live-smoke.mjs` ([TESTING.md](TESTING.md)).
+
+**Deployed:** migration 059 applied and verified in the ledger (`python3 scripts/migrate-supabase.py staging`);
+`chat` function deployed twice (the second carries the side request and the quote fields); browser Pages
+`6cb0d781` (app.gradstep.ai); native **build 31 is VALID on App Store Connect for both the iOS and the Mac upload** (uploaded 23:19 and 23:23 PDT;
+`BUILD_NUMBER=31 scripts/upload-testflight.sh`, then the Mac script); owner device acceptance is still open. An encrypted backup checkpoint was started before the migration and **failed after its time limit**
+("Backup time limit exceeded"; the partial `20261014T060655Z-fb0a0dd6b47f` was discarded by the tool), so the newest
+complete checkpoint remains `20261009T194433Z-3ae85413991f`. Migration 059 adds three nullable columns and replaces
+one function; nothing was deleted or rewritten. The backup tool's limit against the current bucket size is a
+maintenance item. Admin `91c1eb33` and Cloud Run `gradstep-pipeline-00033-2jw` unchanged.
+
+**Evidence (local):** fast suite **447 backend + 362 browser unit tests** plus compiler freshness in about 10 s
+(chat contracts 87, including the forced side request, its hold and quote, the flag rules and the validator); the
+database suite on the local fixture **321 steps pass** including migration 059 and
+`tests/database/chat_follow_up_quotes.sql`; Swift Core ChatStreamTests + ChatProfilesTests **23 pass** (the request
+contract now includes `follow_ups`) and DeviceReaderTests golden-context comparison 5 pass; browser journeys on
+desktop Chromium (arxiv-html, chat, chat-controls) **17 pass** after the fixture backend began gating follow-ups on
+the flag, with journal and reader-drafts passing earlier in the night; iPad Simulator ArxivHTMLReaderTests,
+PDFUploadTests, ChatGenerationTests (follow-up chips, cited answer) and PaperPassageTests passed (83 s) before the
+request flag was added (those suites use the fixture transport; the body is covered by the Core tests).
+
+**Evidence (hosted, staging, real model; disposable account deleted each run, DPO 2305.18290v3 metadata membership,
+274-block local context v2):**
+
+| Run (UTC) | Question | Citations (resolvable) | Follow-ups | Credits | First text | Total |
+|---|---|---|---|---|---|---|
+| 05:52, before the side request | reference model and loss | 15 (15) | 0 | 27 | 3.4 s | 11.3 s |
+| 06:14, Q1 | same | 22 (22) | 3 | 27 | 3.0 s | 12.2 s |
+| 06:14, Q2 = first suggested follow-up | β in practice (cache read 47,062 tokens) | 14 (14) | 3 | 4 | 2.1 s | 9.6 s |
+
+Topic titles arrived on the first turn ("Reference model role in DPO loss"). Provider attempts for the three smokes:
+**$0.279296** (7 attempts). Platform budget readback at 06:25 UTC: **$21.023497 spent of $25, $0 reserved, work
+enabled** (Anthropic attempts in October $5.501806 across 122 attempts; the rest of the platform figure is earlier
+Mathpix and other provider spend). Captures reviewed: browser `.artifacts/ux/web/index.html`, iPhone
+`.artifacts/visual/agent-v2-sheet.png` (chips and citation controls in light and dark at phone width).
+
+**Not done / limitations:** owner acceptance of build 31 on a device (physical iPhone work remains paused); the
+`chat.profiles` workflow check does not send `follow_ups` yet (the next paid workflow run should, expecting three
+provider attempts per titled answer); the 1-hour prompt cache remains an owner cost decision; "Explain this figure"
+with an image attachment and a library-aware tool were considered and not built (see DECISIONS.md).
 
 ## Post-cutover maintenance — 2026-10-13, late (local only; nothing deployed)
+
+*Superseded 2026-10-14: these changes shipped with Agent v2 above (browser `6cb0d781`, build 31, the deleted server code).*
 
 A repository review after the cutover found and fixed the following. All changes are in the working tree with the
 rest of the HTML-first work; **none is deployed**: native build 30, browser Pages `a3127547`, admin `91c1eb33`,
@@ -1051,6 +1117,10 @@ capability and six-digit email-code settings configured. The owner subsequently 
 sign-in; browser OAuth and current-release device acceptance remain separate.
 
 ## Spending (October 2026, staging)
+
+Readback **2026-10-14 06:25 UTC** (`app_private.platform_budgets`, read-only query): **$21.023497 spent, $0 reserved,
+$25 limit, work enabled.** The Agent v2 live smokes that night cost $0.279296 in provider attempts. The earlier
+snapshots below are retained.
 
 The October provider budget snapshot at **2026-10-08 09:08 UTC** is **$14.017212 spent, $0 reserved, $25 limit**
 (`.artifacts/takeover-20261008/spend-current-readback.json`), with no unresolved provider attempts.

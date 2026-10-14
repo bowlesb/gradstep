@@ -2,13 +2,14 @@
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
-  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
+  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
   webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
 import { isDefaultChoice, parseChoice, PROFILE_VERSION, resolveProfile, type ChatProfile, type Choice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
+import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
@@ -55,24 +56,30 @@ export interface ChatRequest {
   choice: Choice | null;
   /** Also write a topic title for the conversation (chat-title.ts). */
   topicTitle: boolean;
+  /** Also suggest follow-up questions after the answer (chat-follow-ups.ts); never for Ingest or a repair. */
+  followUps: boolean;
 }
 
+/** `reader-local-context-v2` (2026-10-14) is the same snapshot with the paper's blocks numbered `[¶N]` (headings,
+ * display equations and figure captions marked), so answers can cite passages the reader can jump to. */
+export type LocalContextFormat = 'reader-local-context-v1' | 'reader-local-context-v2';
+export const LOCAL_CONTEXT_FORMATS: readonly LocalContextFormat[] = ['reader-local-context-v1', 'reader-local-context-v2'];
 export interface LocalPaperContext {
-  format: 'reader-local-context-v1'; membership_id: string; source: 'arxiv'; source_id: string; revision: number;
+  format: LocalContextFormat; membership_id: string; source: 'arxiv'; source_id: string; revision: number;
   manifest_sha256: string; source_sha256: string; text: string;
 }
 
 function localPaperContext(input: unknown): LocalPaperContext {
   const c = record(input);
   onlyKeys(c, ['format', 'membership_id', 'source', 'source_id', 'revision', 'manifest_sha256', 'source_sha256', 'text']);
-  if (c.format !== 'reader-local-context-v1' || c.source !== 'arxiv' || typeof c.source_id !== 'string' ||
+  if (!LOCAL_CONTEXT_FORMATS.includes(c.format as LocalContextFormat) || c.source !== 'arxiv' || typeof c.source_id !== 'string' ||
     !/^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/.test(c.source_id) ||
     !Number.isSafeInteger(c.revision) || (c.revision as number) < 1 || (c.revision as number) > 2147483647 ||
     typeof c.manifest_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.manifest_sha256) ||
     typeof c.source_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.source_sha256) ||
     typeof c.text !== 'string' || !c.text.trim() || encoder.encode(c.text).length > MAX_PAPER_BYTES ||
     /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(c.text)) invalid();
-  return { format: 'reader-local-context-v1', membership_id: id(c.membership_id), source: 'arxiv', source_id: c.source_id,
+  return { format: c.format as LocalContextFormat, membership_id: id(c.membership_id), source: 'arxiv', source_id: c.source_id,
     revision: c.revision as number, manifest_sha256: c.manifest_sha256, source_sha256: c.source_sha256, text: c.text };
 }
 
@@ -102,7 +109,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title', 'follow_ups']);
   if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
   const consentVersion = body.consent_version;
   const mode = body.mode;
@@ -154,9 +161,12 @@ export function validateChatRequest(input: unknown): ChatRequest {
   if (choice && isDefaultChoice(choice)) choice = null;
   if (body.topic_title !== undefined && body.topic_title !== null && typeof body.topic_title !== 'boolean') invalid();
   const topicTitle = body.topic_title === true;
-  // A diagram repair is its own small request: the default model, no title.
-  if (action === 'diagram_fix' && (choice !== null || topicTitle)) invalid();
-  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle,
+  if (body.follow_ups !== undefined && body.follow_ups !== null && typeof body.follow_ups !== 'boolean') invalid();
+  const followUps = body.follow_ups === true;
+  // A diagram repair is its own small request: the default model, no title, no follow-ups. Ingest's answer is a report.
+  if (action === 'diagram_fix' && (choice !== null || topicTitle || followUps)) invalid();
+  if (action === 'ingest' && followUps) invalid();
+  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle, followUps,
     ...(localContext ? { localContext } : {}) };
 }
 
@@ -171,6 +181,7 @@ export function canonicalRequest(request: ChatRequest): string {
     ...(request.capabilities.length ? { capabilities: request.capabilities } : {}),
     ...(request.choice ? { profile: { effort: request.choice.effort, length: request.choice.length, model: request.choice.model } } : {}),
     ...(request.topicTitle ? { topic_title: true } : {}),
+    ...(request.followUps ? { follow_ups: true } : {}),
     ...(request.localContext ? { local_context: request.localContext } : {}),
   });
 }
@@ -209,6 +220,12 @@ Ground answers in the paper and point to where support comes from, such as "Sect
 A <selected_passage> block, when present, is the text the reader highlighted for this question.`;
 const GENERAL_INSTRUCTIONS = `This is a general research conversation that is not tied to a specific paper. A <selected_passage> block, when present, is text the reader highlighted.`;
 
+// Grounded citations (2026-10-14): a numbered context lets an answer point at the exact passage; the reader's
+// app turns each marker into a link into the paper. Only for contexts the device numbered (local context v2).
+const CITATION_INSTRUCTIONS = `The paper's blocks are numbered: each paragraph, heading, equation, figure caption and table starts with a marker such as [¶12]. When a statement relies on a specific passage, cite it by writing that marker right after the statement, exactly as it appears ([¶12]; several markers may follow one another: [¶12][¶15]). Cite the most specific block: the equation or figure itself rather than the paragraph around it. Cite only markers that exist in the paper, and never cite for general knowledge. Markers are in addition to naming sections ("Section 3.2"), not a replacement.`;
+
+// Follow-up suggestions (2026-10-14): shown as one-tap questions under the answer; never part of the answer text.
+
 const INGEST_INSTRUCTIONS = `The reader used "Ingest" on the selected passage: they want the paper it references added to their library.
 Identify that paper, using the paper's bibliography when the passage is an in-text citation. Write one short sentence naming it
 (title, first author, year), then call add_paper once with its exact title, first author and year (and the arXiv id only if it appears in the text).
@@ -245,16 +262,22 @@ const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the questio
 /** The instructions in two parts: what every answer with the same tools shares (`shared`, cached with the
  * paper) and the selection action's own (`action`, sent after the paper), so that Related or Why it matters
  * right after a question about the same paper reads the paper from the prompt cache instead of rewriting it. */
-export function chatInstructionParts(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false): { shared: string; action: string | null } {
+export interface InstructionOptions {
+  /** The paper context carries [¶N] markers (local context v2): ask for grounded citations. */
+  citations?: boolean;
+}
+export function chatInstructionParts(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false, options: InstructionOptions = {}): { shared: string; action: string | null } {
   if (action === 'diagram_fix') return { shared: DIAGRAM_FIX_INSTRUCTIONS, action: null };
   // Why it matters never searches (its request carries no search tool either).
   const search = webSearch && action !== 'relevance';
-  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
+  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
+    : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
   const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS : null;
-  return { shared: `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${tools}`, action: own };
+  const paper = mode === 'paper' ? `${PAPER_INSTRUCTIONS}${options.citations ? `\n\n${CITATION_INSTRUCTIONS}` : ''}` : GENERAL_INSTRUCTIONS;
+  return { shared: `${BASE_INSTRUCTIONS}\n\n${paper}\n\n${tools}`, action: own };
 }
-export function chatInstructions(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false): string {
-  const parts = chatInstructionParts(mode, action, webSearch);
+export function chatInstructions(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false, options: InstructionOptions = {}): string {
+  const parts = chatInstructionParts(mode, action, webSearch, options);
   return parts.action ? `${parts.shared}\n\n${parts.action}` : parts.shared;
 }
 
@@ -335,6 +358,8 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'status'; data: ChatStatus }
   /** The conversation's topic title (requested with `topic_title`), sent once before `done`; never logged or stored. */
   | { event: 'title'; data: { text: string } }
+  /** Follow-up questions the answer suggested (2026-10-14), sent once before `done`; never logged or stored. */
+  | { event: 'followups'; data: { questions: string[] } }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile. */
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string } }
   | { event: 'error'; data: { code: ChatErrorCode } };
@@ -358,6 +383,8 @@ export interface ChatDependencies {
   sleep?: (ms: number) => Promise<void>;
   deadlineMs?: number;
   ingestDeadlineMs?: number;
+  /** Bound on the follow-up suggestion request after the answer (tests shorten it). */
+  followUpTimeoutMs?: number;
   /** The caller's available credits (for the hold cap); null if unknown. */
   availableCredits?: () => Promise<number | null>;
   /** Offer web search (server setting; off by default). Anthropic's search serves it,
@@ -435,7 +462,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The reader's model, effort and length; a repair always uses the default model with its own small allowance.
   const profile = resolveProfile(request.choice);
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : profile.maxTokens;
-  const instructions = chatInstructionParts(request.mode, request.action, searchOffered);
+  const instructions = chatInstructionParts(request.mode, request.action, searchOffered, { citations: request.localContext?.format === 'reader-local-context-v2' });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
   const trailing = [instructions.action, repair ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
@@ -484,6 +511,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const titleParams = request.topicTitle ? titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null }) : null;
   const titleHold = titleParams ? holdFor(promptCharacters(titleParams), titleParams.max_tokens, titleParams.model) : null;
   if (titleHold) hold.microusd += titleHold.microusd;
+  // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
+  const followUpHold = request.followUps && !repair && request.action !== 'ingest' ? holdForParams(FOLLOW_UP_HOLD_PARAMS) : null;
+  if (followUpHold) hold.microusd += followUpHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
     hold.credits = available;
@@ -498,7 +528,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     reservation = await deps.rpc('worker_reserve_chat', {
       p_account_id: deps.accountID, p_id: request.operationID, p_request_sha256: `\\x${digest}`,
       p_rate_version: RATE_VERSION, p_credits: hold.credits, p_microusd: hold.microusd,
-      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, repair),
+      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair),
     }) as typeof reservation;
   } catch (error) {
     const code = RESERVE_ERRORS[reason(error)];
@@ -516,7 +546,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const stop = () => deadline.abort();
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
-  let wroteText = false, answerTail = '';
+  let wroteText = false, answerTail = '', answerHead = '';
   const stats: SearchStats = { tavily: 0, credits: 0, failures: 0, failover: false };
   // Status lines go only to this reader's stream (the search query included); logs keep counts only.
   const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
@@ -529,7 +559,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
-      onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
+      onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
+        if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
     }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
     if (titling) {
@@ -545,6 +576,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The title's request is part of this operation: priced, held and recorded with the answer's.
   if (title?.outcome.attempts.length) {
     outcome = { ...outcome, attempts: [...outcome.attempts, ...title.outcome.attempts], exact: outcome.exact && title.outcome.exact };
+  }
+  // Follow-up suggestions read the finished answer, so they come after it (bounded; the answer is already on the
+  // device). Only a complete, non-refused answer with text gets them; the request is part of this operation too.
+  let suggested: FollowUpResult | null = null;
+  if (followUpHold && outcome.status === 'complete' && outcome.stopReason !== 'refusal' && wroteText && !signal.aborted) {
+    const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead });
+    suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now);
+    if (suggested.outcome.attempts.length) {
+      outcome = { ...outcome, attempts: [...outcome.attempts, ...suggested.outcome.attempts], exact: outcome.exact && suggested.outcome.exact };
+    }
   }
 
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
@@ -566,8 +607,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
     failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
-    // Whether a title was written (never the title itself).
-    title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed' });
+    // Whether a title was written (never the title itself), and how many follow-ups were suggested (never their text).
+    title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed',
+    ...(followUpHold ? { follow_ups: !suggested ? 'skipped' : suggested.questions ? 'written' : suggested.outcome.status === 'complete' ? 'unusable' : 'failed',
+      follow_up_count: suggested?.questions?.length ?? 0 } : {}) });
 
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
@@ -636,6 +679,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         emit({ event: 'diagram', data: diagram });
       }
     }
+    // Follow-up questions: relayed once, never stored (chat-follow-ups.ts; counted in chat_answer).
+    if (suggested?.questions && !signal.aborted) emit({ event: 'followups', data: { questions: suggested.questions } });
     if (signal.aborted) return;
     if (title?.text) emit({ event: 'title', data: { text: title.text } });
     // A tool call ends the provider turn; the server completed it.
@@ -651,18 +696,37 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
-  maxSearches: number, titleMicrousd: number | null, repair: boolean): Record<string, string | number | null> {
+  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean): Record<string, string | number | null> {
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length, tariff: TARIFF,
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
-    title_ceiling_microusd: titleMicrousd };
+    title_ceiling_microusd: titleMicrousd,
+    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }) };
 }
 
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
 function answeringModel(outcome: ProviderOutcome): string | null {
   const model = outcome.model ?? outcome.attempts.at(-1)?.model ?? null;
   return model && /^[a-z0-9][a-z0-9.-]{0,63}$/.test(model) ? model : null;
+}
+
+/** How much of the answer the follow-up request may read (chat-follow-ups.ts bounds it again). */
+const ANSWER_HEAD_CHARACTERS = 2_400;
+
+interface FollowUpResult { outcome: ProviderOutcome; questions: string[] | null }
+/** One follow-up suggestion request (the tool call forced) through the same admitted provider adapter. Never throws. */
+async function suggestFollowUps(generate: NonNullable<ChatDependencies['generate']>, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+  inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<FollowUpResult> {
+  try {
+    const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: () => { /* a forced tool call writes no text */ } });
+    const call = outcome.status === 'complete' ? outcome.toolCalls?.find(c => c.name === SUGGEST_FOLLOW_UPS_TOOL.name) : undefined;
+    return { outcome, questions: call ? followUpRequest(call.input) : null };
+  } catch {
+    return { outcome: { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
+      attempts: [{ model: params.model, estimated: true, usage: { input: inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }],
+      exact: false }, questions: null };
+  }
 }
 
 interface TitleResult { outcome: ProviderOutcome; text: string | null }

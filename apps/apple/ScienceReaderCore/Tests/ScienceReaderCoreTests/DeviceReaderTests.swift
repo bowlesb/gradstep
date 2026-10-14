@@ -24,7 +24,18 @@ import Testing
         let ref = try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2)
         let context = try LocalPaperChatContext(reference: ref, bundle: bundle)
         let data = try JSONEncoder().encode(context)
-        #expect(String(decoding: data, as: UTF8.self).contains("reader-local-context-v1"))
+        #expect(String(decoding: data, as: UTF8.self).contains("reader-local-context-v2"))
+        // The numbered context is byte-identical to the browser's (shared golden fixture).
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let golden = try String(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/local-context-v2.txt"), encoding: .utf8)
+        #expect(context.text == golden)
+        let figures = try fixture("figures-package.json")
+        let figuresGolden = try String(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/figures-local-context-v2.txt"), encoding: .utf8)
+        #expect(PaperChatContext.text(figures.index) == figuresGolden)
+        #expect(PaperChatContext.citedBlock(bundle.index, marker: 1)?.kind == "heading")
+        #expect(PaperChatContext.citedBlock(bundle.index, marker: 12) == nil)
+        #expect(PaperChatContext.citedMarker("¶12") == 12); #expect(PaperChatContext.citedMarker("b-1") == nil); #expect(PaperChatContext.citedMarker("¶0") == nil)
         let wrong = try SourcePaperReference(membershipID: ref.membershipID, sourceID: ref.sourceID, revision: 1)
         #expect(throws: (any Error).self) { try LocalPaperChatContext(reference: wrong, bundle: bundle) }
     }

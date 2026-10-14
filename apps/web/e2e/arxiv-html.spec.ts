@@ -43,8 +43,18 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(page.getByTestId('chat-pane').getByRole('region',{name:'Conversation'})).toContainText('objective');
  const evidence=await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json();
  expect(evidence.requests[0].mode).toBe('paper');expect(evidence.requests[0].document_id).toBeUndefined();
- expect(evidence.requests[0].local_context).toMatchObject({format:'reader-local-context-v1',membership_id:member,source_id:'2601.01234',revision:2});
+ expect(evidence.requests[0].local_context).toMatchObject({format:'reader-local-context-v2',membership_id:member,source_id:'2601.01234',revision:2});
  expect(JSON.stringify(evidence.events)).not.toContain('Explain the authored equation');
  expect(pdfRequests).toBe(0);expect(artifacts).toBe(0);
+ // The device numbered the paper for the model; its answer cites [¶2], which lands in the paper with Back offered.
+ expect(evidence.requests[0].local_context.format).toBe('reader-local-context-v2');
+ expect(evidence.requests[0].local_context.text.startsWith('[¶1] # Authored HTML fixture\n\n[¶2] A. Author')).toBe(true);
+ const cite=page.getByTestId('chat-assistant').locator('.cite').first();
+ await expect(cite).toHaveText('¶2');await cite.click();
+ await expect(page.getByTestId('citation-back')).toBeVisible();
+ // The answer's suggested follow-up fills the message box; nothing is sent until the reader does.
+ await page.getByTestId('follow-up').first().click();
+ await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('How is β chosen?');
+ expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(1);
  await page.screenshot({path:`../../.artifacts/html-browser-${test.info().project.name}.png`});
 });

@@ -47,6 +47,20 @@ md.inline.ruler.before('escape', 'gradstep_math', (state, silent) => {
   if (!silent) { const token = state.push('gradstep_math', 'math', 0); token.content = body; token.meta = { display }; }
   state.pos = end + close.length; return true;
 });
+// Grounded citations: an answer about a numbered paper (reader-local-context-v2) cites blocks as `[¶12]`; each becomes a
+// small control that the chat pane turns into a jump to that passage. Any other bracketed text is left to Markdown.
+md.inline.ruler.before('escape', 'gradstep_cite', (state, silent) => {
+  const source = state.src, start = state.pos;
+  if (source.charCodeAt(start) !== 0x5b /* [ */ || source[start + 1] !== '¶') return false;
+  const match = /^\[¶(\d{1,5})\]/.exec(source.slice(start, start + 9));
+  if (!match) return false;
+  if (!silent) { const token = state.push('gradstep_cite', 'span', 0); token.content = String(Number(match[1])); }
+  state.pos = start + match[0].length; return true;
+});
+md.renderer.rules.gradstep_cite = (tokens, i) => {
+  const n = /^\d{1,5}$/.test(tokens[i].content) ? tokens[i].content : null;
+  return n ? `<span class="cite" data-cite="${n}" role="link" tabindex="0" title="Go to passage ¶${n}">¶${n}</span>` : '';
+};
 md.renderer.rules.gradstep_math = (tokens, i, _options, env) => {
   if (!env) return '';
   env.formulas = (typeof env.formulas === 'number' ? env.formulas : 0) + 1;
@@ -98,6 +112,9 @@ export function sanitize(html: string): string {
       } else if (tag === 'a' && name === 'href') {
         const href = safeLink(value); if (href) out.setAttribute('href', href);
       } else if ((name === 'class' && ['code', 'span', 'div'].includes(tag)) || (name === 'start' && tag === 'ol') || (name === 'style' && (tag === 'th' || tag === 'td') && /^text-align:(left|right|center)$/.test(value))) {
+        out.setAttribute(name, value);
+      } else if (tag === 'span' && element.classList.contains('cite') && ((name === 'data-cite' && /^\d{1,5}$/.test(value)) || (name === 'role' && value === 'link')
+        || (name === 'tabindex' && value === '0') || (name === 'title' && /^Go to passage ¶\d{1,5}$/.test(value)))) {
         out.setAttribute(name, value);
       }
     }

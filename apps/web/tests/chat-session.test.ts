@@ -126,3 +126,17 @@ it('background sync acknowledges a failed question visibly, but never initiates 
   expect(c.issue).toBe('question_ready'); expect(c.draft).toBe(''); expect(server.requests).toHaveLength(0);
   await chat.retry(c); expect(server.requests).toHaveLength(1);
 });
+it('keeps an answer’s follow-up suggestions with a complete answer only, and the next question clears them', async () => {
+  const followups: StreamEvent = { type: 'followups', questions: ['How is β chosen?', 'What does the KL term do?'] };
+  const { chat } = await setup([{ type: 'delta', text: 'An answer.' }, followups, done]), c = chat.current(null);
+  chat.edit(c, 'First'); await chat.send(c);
+  expect(c.followUps).toEqual(['How is β chosen?', 'What does the KL term do?']);
+  expect(chat.edit(c, c.followUps![0])).toBe(true); expect(c.draft).toBe('How is β chosen?');
+  await chat.send(c);
+  expect(c.followUps).toEqual(['How is β chosen?', 'What does the KL term do?']);
+  server.rows = []; // a fresh account for the interrupted case
+  const { chat: interrupted } = await setup([{ type: 'delta', text: 'Partial' }, followups, { type: 'error', code: 'provider_unavailable' }]);
+  const d = interrupted.current(null); interrupted.edit(d, 'Q'); await interrupted.send(d);
+  expect(d.followUps).toBeNull(); expect(d.issue).toBe('provider_unavailable');
+  expect(JSON.stringify(server.rows)).not.toContain('KL term');
+});

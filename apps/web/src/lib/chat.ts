@@ -10,7 +10,7 @@ export const CONSENT_VERSION = 'cloud-ai-v2';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix';
 export interface ChatTurn { role: Role; text: string }
-export interface LocalPaperContext { format:'reader-local-context-v1';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
+export interface LocalPaperContext { format:'reader-local-context-v1'|'reader-local-context-v2';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
 export interface ChatRequest {
   localContext?:LocalPaperContext;
   operationID: string; documentID: string | null; turns: ChatTurn[]; selection: string | null; action: ChatAction | null;
@@ -55,6 +55,8 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   if (r.action === 'ingest') body.capabilities = ['web_import']; // Add paper may add an open-access web paper
   if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
   if (r.action !== 'diagram_fix' && r.topicTitle) body.topic_title = true;
+  // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest).
+  if (r.action !== 'diagram_fix' && r.action !== 'ingest') body.follow_ups = true;
   return body;
 }
 
@@ -66,6 +68,8 @@ export type StreamEvent =
   | { type: 'delta'; text: string } | { type: 'diagram'; title: string; source: string } | { type: 'status'; progress: Progress }
   /** The conversation's topic title (asked for with topicTitle), sent before `done`. */
   | { type: 'title'; text: string }
+  /** Follow-up questions the answer suggested (servers from 2026-10-14); shown as one-tap suggestions, never saved. */
+  | { type: 'followups'; questions: string[] }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string };
 
@@ -151,6 +155,12 @@ export class SSEParser {
         // A title that isn't usable is dropped; the answer is unaffected.
         const title = typeof v?.text === 'string' ? cleanTopicTitle(v.text) : null;
         return title ? { type: 'title', text: title } : null;
+      }
+      case 'followups': {
+        // Informational: unusable suggestions are dropped, never fatal.
+        const questions = (Array.isArray(v?.questions) ? v.questions : []).filter((q): q is string => typeof q === 'string')
+          .map(q => q.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim()).filter(q => q.length >= 3 && [...q].length <= 120).slice(0, 3);
+        return questions.length ? { type: 'followups', questions } : null;
       }
       case 'done': {
         if (!(typeof v?.stop_reason === 'string' && Number.isSafeInteger(v.credits) && (v.credits as number) >= 0)) return bad();

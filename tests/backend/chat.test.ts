@@ -8,6 +8,7 @@ import {
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
+import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
@@ -1599,4 +1600,141 @@ test('another account or revision cannot use local context to bypass library aut
   const h = harness({ script: { worker_local_chat_context: () => {throw new RpcFailure('document_unavailable');} } });
   await runChat(h.deps, paperBody({ document_id: null, local_context: localContext }), h.emit, new AbortController().signal);
   assert.equal(h.generations(), 0); assert.ok(!names(h.calls).includes('worker_reserve_chat'));
+});
+
+function followUpOutcome(questions: string[], changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
+  return completeOutcome({ messageID: 'msg_follow', model: 'claude-haiku-5-5', stopReason: 'tool_use',
+    toolCalls: [{ name: 'suggest_follow_ups', input: { questions } }],
+    attempts: [{ model: 'claude-haiku-5-5', estimated: false, usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 60 } }], ...changes });
+}
+
+test('follow-ups are a forced Haiku 5.5 request after the answer: relayed once before done, cleaned and bounded, charged, never logged as text', async () => {
+  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  let answered = 0;
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(params);
+    if (params.model === 'claude-haiku-5-5') {
+      assert.equal(answered, 1, 'the suggestion request waits for the answer');
+      return followUpOutcome([' How does β\tscale? ', 'how does β scale?', 'x', 'Why is the reference model frozen?', 'What breaks without the KL term?', 'A fourth question']);
+    }
+    stream.onText('The answer '); stream.onText('in two parts.'); answered++;
+    return completeOutcome();
+  } });
+  await runChat(h.deps, paperBody({ follow_ups: true, selection: { quote: 'divide by sqrt(d_k)' } }), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'followups', 'done']);
+  assert.deepEqual(h.events[2].data, { questions: ['How does β scale?', 'Why is the reference model frozen?', 'What breaks without the KL term?'] });
+  assert.equal((h.events[3].data as { stop_reason: string }).stop_reason, 'end_turn');
+  const suggestion = sent.find(params => params.model === 'claude-haiku-5-5')!;
+  assert.equal(suggestion.max_tokens, FOLLOW_UP_MAX_TOKENS); assert.deepEqual(suggestion.thinking, { type: 'disabled' });
+  assert.deepEqual(suggestion.tools, [SUGGEST_FOLLOW_UPS_TOOL]); assert.deepEqual(suggestion.tool_choice, { type: 'tool', name: 'suggest_follow_ups' });
+  const input = JSON.stringify(suggestion.messages);
+  assert.match(input, /<paper_title>Attention<\/paper_title>/); assert.match(input, /private-question-marker/); assert.match(input, /sqrt\(d_k\)/);
+  assert.match(input, /<answer>The answer in two parts\.<\/answer>/);
+  assert.ok(!input.includes('We scale by'), 'the suggestion never reads the paper text');
+  // Charged with the answer: 900 input + 300 output (Sonnet) + 500 input + 60 output (Haiku 5.5).
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.equal(Number(settle.p_actual_microusd), priceAttempts([...completeOutcome().attempts, ...followUpOutcome(['a?', 'b?']).attempts]));
+  assert.deepEqual((h.events[3].data as { usage: Record<string, number> }).usage, { input_tokens: 1400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 360 });
+  // Logged as counts only.
+  const answer = h.answers[0];
+  assert.equal(answer.follow_ups, 'written'); assert.equal(answer.follow_up_count, 3);
+  assert.ok(!JSON.stringify(h.logs).includes('reference model'), 'questions are never logged');
+});
+
+test('follow-ups are held with the answer, only when asked for, and never for Ingest, repairs, refusals or empty answers', async () => {
+  // Not asked for: one request, no event, no extra hold.
+  const plain = harness();
+  await runChat(plain.deps, paperBody(), plain.emit, new AbortController().signal);
+  assert.equal(plain.generations(), 1); assert.ok(!plain.events.some(e => e.event === 'followups'));
+  const plainQuote = plain.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
+  assert.ok(!('follow_ups_model' in plainQuote)); assert.equal(plain.answers[0].follow_ups, undefined);
+  // Asked for: the hold is the answer's ceiling plus the suggestion's largest request, frozen in the quote.
+  let reserved = 0; const ceilings: number[] = [];
+  const held = harness({ script: { worker_reserve_chat: params => { reserved = Number(params.p_microusd); return { replayed: false }; } },
+    generate: async (params, stream) => {
+      ceilings.push(holdFor(promptCharacters(params), params.max_tokens, params.model).microusd);
+      if (params.model === 'claude-haiku-5-5') return followUpOutcome(['One?', 'Two?']);
+      stream.onText('An answer.'); return completeOutcome();
+    } });
+  await runChat(held.deps, paperBody({ follow_ups: true }), held.emit, new AbortController().signal);
+  const suggestionCeiling = holdFor(promptCharacters(FOLLOW_UP_HOLD_PARAMS), FOLLOW_UP_MAX_TOKENS, 'claude-haiku-5-5').microusd;
+  assert.equal(ceilings.length, 2);
+  assert.equal(ceilings[0] + suggestionCeiling, reserved, 'the hold is the answer ceiling plus the suggestion ceiling');
+  assert.ok(ceilings[1] <= suggestionCeiling, 'the real suggestion request never exceeds its held ceiling');
+  const quote = held.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
+  assert.equal(quote.follow_ups_model, 'claude-haiku-5-5'); assert.equal(quote.follow_ups_max_tokens, FOLLOW_UP_MAX_TOKENS); assert.equal(quote.follow_ups_ceiling_microusd, suggestionCeiling);
+  // Unusable input: no event, the answer completes, the outcome is counted.
+  const invalid = harness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') return followUpOutcome(['', 'ab']);
+    stream.onText('x'); return completeOutcome(); } });
+  await runChat(invalid.deps, paperBody({ follow_ups: true }), invalid.emit, new AbortController().signal);
+  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']);
+  assert.equal(invalid.answers[0].follow_ups, 'unusable');
+  // A failed suggestion request is settled (estimated) and the answer still completes.
+  const failed = harness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') throw new Error('provider down');
+    stream.onText('x'); return completeOutcome(); } });
+  await runChat(failed.deps, paperBody({ follow_ups: true }), failed.emit, new AbortController().signal);
+  assert.deepEqual(failed.events.map(e => e.event), ['delta', 'done']);
+  assert.equal(failed.answers[0].follow_ups, 'failed');
+  assert.ok(Number(failed.calls.find(c => c.name === 'worker_settle_operation')!.params.p_actual_microusd) > priceAttempts(completeOutcome().attempts));
+  // A slow suggestion is abandoned after its bound; the answer still completes.
+  const slow = harness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return followUpOutcome([], { status: 'failed', failure: 'aborted', stopReason: null }); }
+    stream.onText('x'); return completeOutcome(); } });
+  slow.deps.followUpTimeoutMs = 20;
+  await runChat(slow.deps, paperBody({ follow_ups: true }), slow.emit, new AbortController().signal);
+  assert.deepEqual(slow.events.map(e => e.event), ['delta', 'done']);
+  // A refused answer makes no suggestion request.
+  const refused = harness({ generate: async () => completeOutcome({ stopReason: 'refusal' }) });
+  await runChat(refused.deps, paperBody({ follow_ups: true }), refused.emit, new AbortController().signal);
+  assert.equal(refused.generations(), 1); assert.deepEqual(refused.events, [{ event: 'error', data: { code: 'refused' } }]);
+  // Ingest and repairs refuse the flag outright.
+  for (const body of [ingestBody(), { operation_id: operation, consent_version: 'cloud-ai-v2', mode: 'general', action: 'diagram_fix', messages: [{ role: 'user', text: 'Title: x' }] }]) {
+    assert.throws(() => validateChatRequest({ ...body, follow_ups: true }), { code: 'invalid_request' });
+  }
+  assert.throws(() => validateChatRequest(paperBody({ follow_ups: 'yes' })), { code: 'invalid_request' });
+  // The flag is part of the request digest; the answer's own tools no longer include a suggestion tool.
+  assert.notEqual(canonicalRequest(validateChatRequest(paperBody({ follow_ups: true }))), canonicalRequest(validateChatRequest(paperBody())));
+  assert.equal(canonicalRequest(validateChatRequest(paperBody({ follow_ups: false }))), canonicalRequest(validateChatRequest(paperBody())));
+  assert.doesNotMatch(chatInstructions('paper'), /suggest_follow_ups/);
+  assert.equal(sseFrame({ event: 'followups', data: { questions: ['A?'] } }), 'event: followups\ndata: {"questions":["A?"]}\n\n');
+});
+
+test('follow-up input is validated strictly: shape, length, duplicates and control characters', () => {
+  assert.equal(followUpRequest(null), null); assert.equal(followUpRequest({ questions: 'x' }), null); assert.equal(followUpRequest({ questions: [] }), null);
+  assert.equal(followUpRequest({ questions: [1, true, 'ab'] }), null);
+  assert.deepEqual(followUpRequest({ questions: ['a'.repeat(121), 'Valid question?'] }), ['Valid question?']);
+  assert.deepEqual(followUpRequest({ questions: ['Same?', 'same?', 'Other?'] }), ['Same?', 'Other?']);
+  assert.deepEqual(followUpRequest({ questions: ['One?', 'Two?', 'Three?', 'Four?'] }), ['One?', 'Two?', 'Three?']);
+  assert.deepEqual(followUpRequest({ questions: ['Line\u0000one\u0007?'] }), ['Line one ?']);
+  // The request reads bounded excerpts only, with the tool call forced.
+  const params = followUpRequestParams({ paperTitle: 'T'.repeat(400), selection: null, question: 'Q'.repeat(2_000), answer: 'A'.repeat(5_000) });
+  const text = (params.messages[0].content as string);
+  assert.ok(text.length < 4_200, `bounded excerpts (${text.length})`); assert.ok(!text.includes('<selected_passage>'));
+  assert.match(text, /<paper_title>T{300}…<\/paper_title>/);
+  assert.equal(params.tool_choice?.type, 'tool');
+});
+
+test('a numbered local context (v2) asks for grounded citations; v1 and server-held papers do not', async () => {
+  const v2 = { ...localContext, format: 'reader-local-context-v2', text: '[¶1] # Title\n\n[¶2] A paragraph.\n\n[¶3] \\[x^2\\]' };
+  assert.equal(validateChatRequest(paperBody({ document_id: null, local_context: v2 })).localContext?.format, 'reader-local-context-v2');
+  assert.throws(() => validateChatRequest(paperBody({ document_id: null, local_context: { ...v2, format: 'reader-local-context-v3' } })), { code: 'invalid_request' });
+  assert.notEqual(canonicalRequest(validateChatRequest(paperBody({ document_id: null, local_context: v2 }))),
+    canonicalRequest(validateChatRequest(paperBody({ document_id: null, local_context: { ...v2, format: 'reader-local-context-v1' } }))));
+  const systems: string[] = [];
+  const run = async (body: unknown) => {
+    const h = harness({ script: { worker_local_chat_context: () => ({ title: 'Local' }) }, generate: async (params, stream) => {
+      systems.push((params.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text); stream.onText('Cited [¶2].'); return completeOutcome(); } });
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+    assert.equal(h.events.at(-1)?.event, 'done');
+  };
+  await run(paperBody({ document_id: null, local_context: v2 }));
+  await run(paperBody({ document_id: null, local_context: localContext }));
+  await run(paperBody());
+  assert.match(systems[0], /numbered: each paragraph, heading, equation, figure caption and table starts with a marker such as \[¶12\]/);
+  assert.doesNotMatch(systems[1], /\[¶12\]/); assert.doesNotMatch(systems[2], /\[¶12\]/);
+  // The citation instructions precede the tools block and never reach general chat.
+  assert.ok(systems[0].indexOf('[¶12]') < systems[0].indexOf('create_diagram'));
+  assert.doesNotMatch(chatInstructions('general', null, false, { citations: true }), /\[¶12\]/);
 });

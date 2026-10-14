@@ -9,7 +9,8 @@ import { BundleError, type VerifiedBundle, loadBundle } from '../lib/bundle';
 import { type ReaderPaper, paperReference, readerCacheKey } from '../lib/reader-paper';
 import { prepareArxivReader, ArxivReaderError } from '../lib/arxiv-reader';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
-import { bridgeAnchor, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
+import { bridgeAnchor, citedMarker, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
+import { citedBlock } from '../lib/paper-context';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
@@ -210,9 +211,13 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     if (!passage || !bridgeReady || appliedPassage.current === passage.id) return;
     appliedPassage.current = passage.id;
     if (Date.now() - passage.at > 60_000) { onPassageHandled(); return; }
+    // An answer's citation names a block number; it is resolved against this paper's index before the bridge sees it.
+    const marker = citedMarker(passage.anchor);
+    const block = marker !== null && bundle ? citedBlock(bundle.index, marker)?.id : undefined;
+    if (marker !== null && !block) { setNotice('This answer cites a passage this paper doesn’t have.'); onPassageHandled(); return; }
     // A different compile of the same source (or another artifact) keeps the quote search: `same` only decides whether the block hint applies.
-    command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256));
-  }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled]);
+    command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256, block));
+  }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled, bundle]);
   const quote = bundle && selection ? resolveQuote(bundle, selection) : null;
 
   const changeFont = (delta: number) => {

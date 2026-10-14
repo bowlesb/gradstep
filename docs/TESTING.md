@@ -15,6 +15,8 @@ Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/we
 | Slow, reader journeys | `npm run test:slow` | Production-CSP browser compiler, complete HTML reader/chat admission, local PDF worker and membership/reselection cases. Local fixture backend only. |
 | Slow, real corpus | `npm run test:slow:corpus` | Offline replay of eight exact arXiv revisions through Chromium, Firefox and WebKit; independent bundle verification, math/images/fragments, device-only PDF intake/reload. |
 | Slow, native | `npm run test:slow:native` | iPad Simulator WKWebView compiler, PDF admission, locked/over-limit PDF rejection, real-PDF PDFKit rendering and encrypted store reopen. Never selects a physical device. |
+| Pre-build UX review | `node scripts/ux-review.mjs` | Browser sign-in, library, reader and every chat state on the fixture backend, desktop and phone, light and dark; contact sheet at `.artifacts/ux/web/index.html`. Native screens: `scripts/visual-check.mjs`. Process and findings: [UX_REVIEW.md](UX_REVIEW.md). |
+| Paid, explicit: live chat | `node scripts/chat-live-smoke.mjs --questions=2` | One disposable staging account, the DPO v3 metadata membership, one or two real questions with a numbered local context; prints citations (and whether each resolves), follow-ups, credits and the answer; deletes the account. About $0.25 of provider spend per run; needs `.env.staging` and a compiled `reader.json` for 2305.18290 (`--index`). Rerun after chat function or prompt changes, never routinely. |
 | Saved evidence | `npm run test:status` | Shows last result, duration and whether tested source has changed. Does not rerun anything or turn stale evidence into a pass. |
 
 `test:slow` accepts Playwright selectors, e.g. `npm run test:slow -- --project=desktop --grep reselection`.
@@ -25,6 +27,12 @@ The existing full browser `npm run e2e --prefix apps/web`, standalone podcast E2
 database (`test:database`), operations and hosted checks are also **slow / explicit**. They keep their existing
 commands and prerequisites. There is deliberately no default command that launches all infrastructure checks.
 Hosted or metered checks retain their existing authorization and budget rules; these new suites never call providers.
+
+The database suite (`npm run test:database`) expects a disposable PostgreSQL 18 server on `127.0.0.1:55431` (binaries
+at `SCIENCE_READER_PG_BIN`). Create the cluster with `initdb -A trust -E UTF8 --locale=C` (a `--no-locale` cluster is
+SQL_ASCII and migration 032's collation fails) and start it with a short socket directory, e.g. `-k /tmp/srpg` (a long
+path exceeds the macOS socket limit). Post-cutover tests such as `tests/database/chat_follow_up_quotes.sql` run in the
+final phase with migration 058 and later.
 
 ## Corpus setup and boundaries
 

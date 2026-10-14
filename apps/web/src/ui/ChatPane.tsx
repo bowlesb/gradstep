@@ -4,6 +4,7 @@ import { chatTitle, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary } from '../lib/chat-profiles';
 import { ChatSession, composerBusy } from '../lib/chat-session';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
+import { citationAnchor } from '../lib/passage';
 import { ProfileControl } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate } from './common';
@@ -79,6 +80,19 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
     return () => clearInterval(t);
   }, [c.id, c.phase]);
   useEffect(() => { follow.current = true; setAway(false); }, [c.id]);
+  // Seconds spent waiting for the first text: a long think shows its length instead of a frozen "Thinking…".
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (c.phase !== 'streaming' || c.liveText) { setWaited(0); return; }
+    const started = Date.now(), t = setInterval(() => setWaited(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [c.id, c.phase, !c.liveText]);
+  // An answer's [¶N] citation: the paper opens (if needed) and lands on that block.
+  const cite = (target: Element | null) => {
+    const control = target?.closest('.cite'), marker = Number(control?.getAttribute('data-cite'));
+    if (!control || !documentID || !Number.isInteger(marker) || marker < 1) return false;
+    onPassage(documentID, citationAnchor(marker)); return true;
+  };
   useEffect(() => { if (follow.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [branch?.head, branch?.messages.length, displayText, c.phase, c.id]);
   const messages = branch?.messages ?? [];
   const savedLive = messages.some(m => m.payload.entityID === c.liveID);
@@ -116,9 +130,10 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
     <div ref={viewport} className="chat-transcript" role="region" aria-label="Conversation" tabIndex={0} onScroll={() => {
       const el = viewport.current!; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; setAway(!follow.current);
     }} onClick={e => {
+      if (cite(e.target as Element)) { e.preventDefault(); return; }
       const a = (e.target as Element).closest('a[href]'); if (!a) return;
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
-    }}>
+    }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
       {!messages.length && !composerBusy(c) && <div className="chat-empty"><Icon name="chat" size={28} /><p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
         <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p></div>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
@@ -128,7 +143,10 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
         {diagrams.has(m.payload.entityID) && <Diagram title={diagrams.get(m.payload.entityID)!.title} source={diagrams.get(m.payload.entityID)!.source} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
-        <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : 'Thinking…'}</p>}</div>}
+        <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
+      {c.followUps && !composerBusy(c) && !c.answer && !c.issue && last?.payload.role === 'assistant' && <div className="follow-ups" role="group" aria-label="Suggested questions">
+        {c.followUps.map(question => <button key={question} type="button" className="follow-up" data-testid="follow-up" disabled={disabled}
+          onClick={() => { if (chat.edit(c, question)) field.current?.focus(); }}>{question}</button>)}</div>}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>
         {c.issue === 'local_save' && !retired && <button className="secondary small" onClick={() => void chat.retryDeviceSave(c)}>Retry device save</button>}
@@ -144,6 +162,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
     {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
       <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
+        title="Enter sends; Shift+Enter starts a new line"
         onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
       <div className="composer-footer"><div className="composer-meta">
@@ -154,10 +173,14 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
           : <button type="submit" className="primary small" disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}>{c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'}</button>}
       </div>
       {inputIssue && <p className="issue fine">This draft is too long. Shorten it to continue.</p>}
-      <p className="fine draft-hint" data-testid="draft-status">{retired ? 'This tab has stopped sending. Select your text to copy it.' : chat.durable
-        ? c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
-          : c.revision > c.savedRevision ? 'Saving draft on this device…' : 'Saved on this device. Site-data clearing can remove unsynced work. Shift+Enter for a new line.'
-        : 'Unsent drafts stay in this tab only and aren’t kept after a reload. Shift+Enter for a new line.'}</p>
+      {(() => {
+        // Only what the reader should act on: a stopped tab, a failed device save, or a draft that is not kept after a reload.
+        const hint = retired ? 'This tab has stopped sending. Select your text to copy it.'
+          : chat.durable ? (c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
+            : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : 'Saved on this device.')
+          : 'Unsent drafts stay in this tab only and aren’t kept after a reload.';
+        return hint ? <p className="fine draft-hint" data-testid="draft-status">{hint}</p> : null;
+      })()}
     </form>
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       <h2>Cloud AI answers</h2><p>Your question, selected passage, earlier turns and the paper’s text go to Anthropic to write an answer.</p>

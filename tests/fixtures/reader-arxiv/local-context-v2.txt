@@ -1,0 +1,21 @@
+[¶1] # Authored HTML fixture
+
+[¶2] A. Author
+
+[¶3] ## 1 Introduction
+
+[¶4] An equation x^2 and Figure 1; see [1].
+
+[¶5] \[ x^2 \]
+
+[¶6] [Figure] Figure 1: A test figure.
+
+[¶7] [Table] Value Square 2 4 Table 1: Values.
+
+[¶8] - First item
+
+[¶9] - Second item
+
+[¶10] ## References
+
+[¶11] - [1] Author. Paper.

@@ -70,6 +70,7 @@ import Testing
         }
         let plain = try body(try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: turns, selection: nil))
         #expect(plain["profile"] == nil && plain["topic_title"] == nil)
+        #expect(plain["follow_ups"] as? Bool == true, "every ordinary answer asks for follow-up suggestions")
         let named = try body(try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: turns, selection: nil, profile: .standard))
         #expect(named["profile"] == nil, "the default is sent exactly as before profiles")
         let chosen = try body(try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: turns, selection: nil,
@@ -78,7 +79,7 @@ import Testing
         #expect(chosen["topic_title"] as? Bool == true)
         let repair = try #require(ChatGenerationRequest.diagramRepair(operationID: UUID(), title: "T", source: "flowchart TD\nA-->B", error: "x"))
         let repairBody = try body(repair)
-        #expect(repairBody["profile"] == nil && repairBody["topic_title"] == nil)
+        #expect(repairBody["profile"] == nil && repairBody["topic_title"] == nil && repairBody["follow_ups"] == nil)
     }
 
     @Test func titleAndLabelledDoneEventsAreParsedOlderOnesStillAre() throws {

@@ -74,4 +74,4 @@ if fence.is_file() or args.reader_issuer_fence_candidate:
     module('reader_issuer_fence').verify()
 
 # Retained legacy accounting is verified before the explicit runtime cutover.
-phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql'], [])
+phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql'], [])

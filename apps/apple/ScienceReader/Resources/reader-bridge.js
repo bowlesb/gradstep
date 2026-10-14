@@ -1637,7 +1637,16 @@
   // Exact quote → collapsed whitespace → (fuzzy only) the quote's first line and openings → the text around it.
   const resolvePassage = (anchor, fuzzy) => {
     const quote = String(anchor?.quote || '').trim();
-    if (!quote || !config) return null;
+    if (!config) return null;
+    // A cited block (an answer's [¶N], resolved by the app to the block's ID): the whole block is the
+    // passage when there is no quote, or when the quote cannot be found inside the open paper.
+    const blockRange = () => {
+      const element = typeof anchor?.block === 'string' && anchor.block ? document.getElementById(anchor.block) : null;
+      if (!element || !element.hasAttribute(key)) return null;
+      const range = document.createRange(); range.selectNodeContents(element);
+      return range.collapsed ? null : {range, method: 'block'};
+    };
+    if (!quote) return blockRange();
     const paper = readPaperText(), flat = flatText(paper);
     const span = anchor.same ? blockSpan(paper, anchor.element) : null;
     const flatSpan = span && {start: flatIndex(flat, span.start), end: flatIndex(flat, span.end)};
@@ -1655,7 +1664,7 @@
     const needle = collapse(quote);
     found = find(flat.text, needle, flatSpan, index => fromFlat(index, needle.length));
     if (found.length) return choose(paper, found, anchor, span, 'whitespace');
-    if (!fuzzy) return null;
+    if (!fuzzy) return blockRange();
     const firstLine = collapse(quote.split('\n').find(line => line.trim()) || '');
     for (const opening of [firstLine, needle.slice(0, 80), needle.slice(0, 60), needle.slice(0, 40), needle.slice(0, 25)]) {
       const part = opening.trim();
@@ -1674,7 +1683,7 @@
         if (to > from) return choose(paper, [fromFlat(from, to - from)], anchor, span, 'context');
       }
     }
-    return null;
+    return blockRange();
   };
   const highlights = () => typeof Highlight !== 'undefined' && window.CSS?.highlights ? CSS.highlights : null;
   if (config && !config.figure_id) {

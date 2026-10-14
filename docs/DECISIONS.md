@@ -27,6 +27,22 @@ The owner clarified the separate transfer request: copy the entire codebase, not
 the SSH user's home directory. Include current source and design changes; omit local credentials, dependency
 caches and generated build artifacts. This does not authorize a processing service or change NAS restrictions.
 
+## Agent v2 and framework stance (agent decisions, 2026-10-14; reversible)
+
+The owner asked for a materially better chat agent ("new tools, new capabilities, better performance, more stable,
+better design and UX") and for one answer per hard problem across surfaces. Decided and built, with the contract in
+[CHAT.md](architecture/CHAT.md#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups):
+
+| Decision | Requirement |
+|---|---|
+| Grounded citations | Device-prepared papers are sent to the model numbered block by block (`reader-local-context-v2`); answers cite `[¶N]`, and a tap lands on that block in the reader with Back. One builder spec, two implementations (browser and Core), one shared golden fixture. |
+| Follow-up questions | Every ordinary answer gets two or three one-tap questions from a small forced Haiku 5.5 request after the answer (the first design let the answering model call an optional tool; the live check showed it skipping the call, so one deterministic mechanism replaced it). Shown under the newest answer only, never saved, cleared by the next question. A tap fills the message box; sending stays explicit because answers cost credits. |
+| Composer noise | The browser composer no longer repeats storage caveats on every keystroke; it reports only a stopped tab, a failed device save, a draft being saved, or a non-durable browser. The long wait before the first text shows its length after five seconds. |
+| Web framework | Stay on React + TypeScript + Vite (owner's earlier "react it is then"). A Svelte rewrite would not address any current defect and would discard tested journeys; not revisited unless a concrete limitation appears. |
+| Mathpix code | The server Mathpix client and PDF pipeline were deleted from the tree on 2026-10-13 (commit `dc040a9`); they remain in git history (`7233641`) for a possible future role. Nothing about them is tested or deployed now, and no credentials are kept in the server environment. |
+| Learning guide (proposal only) | Owner request 2026-10-14 for a tailored ML learning extension (learner state, figure guide, optional quiz). Explored, not built: [docs/proposals/LEARNING_GUIDE.md](proposals/LEARNING_GUIDE.md) with a cheap prototype path and five open questions. No decision taken. |
+| Not changed | Prompt cache TTL (5 minutes) and the credit rate card; a 1-hour cache for long reading sessions is a cost-policy choice left to the owner with the measurements in `IMPLEMENTATION_STATUS.md`. |
+
 ## Fast and slow tests (owner decided 2026-10-13)
 
 Separate routine fast checks from slow integration/corpus work. Long checks can run once as a baseline and are

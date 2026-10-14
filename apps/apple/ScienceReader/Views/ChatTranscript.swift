@@ -19,7 +19,7 @@ struct ChatTranscript: View {
         let messages = model.chatTranscriptMessages
         ZStack(alignment: .bottomTrailing) {
             TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, progress: model.chatStreamingProgress,
-                fontSize: fontSize, diagrams: model.chatDiagrams,
+                fontSize: fontSize, diagrams: model.chatDiagrams, followUps: model.chatFollowUpQuestions,
                 openDiagram: { model.openDiagram($0) }, papers: ChatPaperContext(model: model, actions: paperActions), jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
                 insets: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0),
@@ -80,6 +80,8 @@ private struct TranscriptMessage: View {
     let diagram: ChatDiagramLink?
     let openDiagram: (UUID) -> Void
     let papers: ChatPaperContext?
+    /// Follow-up questions the newest answer suggests (only on that answer, never while streaming).
+    var followUps: [String] = []
     let first: Bool
     let last: Bool
 
@@ -101,7 +103,7 @@ private struct TranscriptMessage: View {
                     let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
                     ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
                                     speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)",
-                                    assistant: message.payload.role == .assistant, onQuote: quoteHandler)
+                                    assistant: message.payload.role == .assistant, onQuote: quoteHandler, onCite: citeHandler)
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
                     // What the server is doing between pieces of text; cleared when text resumes.
                     if streaming, let progress {
@@ -135,6 +137,20 @@ private struct TranscriptMessage: View {
                     }
                     .buttonStyle(.bordered).accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
                 }
+                // One-tap follow-up questions (2026-10-14): each becomes the message; nothing is sent until the reader does.
+                if !followUps.isEmpty, !streaming, message.payload.role == .assistant, let model = papers?.model {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(followUps, id: \.self) { question in
+                            Button { model.useFollowUp(question) } label: {
+                                Text(verbatim: question).font(.system(size: fontSize * 0.86)).multilineTextAlignment(.leading).lineLimit(3)
+                            }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(.accentColor)
+                        }
+                    }
+                    .padding(.top, 2)
+                    .accessibilityElement(children: .contain).accessibilityLabel("Suggested questions")
+                    .accessibilityIdentifier("chat.followUps")
+                }
             }
             // Design audit F7: answers sit on the page (more room for equations); your messages keep a bubble.
             .padding(message.payload.role == .user ? 12 : 0)
@@ -152,6 +168,11 @@ private struct TranscriptMessage: View {
         guard message.payload.role == .assistant, !streaming, let model = papers?.model else { return nil }
         return { action, quote in model.chatQuoteAction(action, quote: quote) }
     }
+    /// An answer's `[¶N]` citations open that block of the paper (not while streaming).
+    private var citeHandler: ChatCiteHandler? {
+        guard message.payload.role == .assistant, !streaming, let model = papers?.model else { return nil }
+        return { marker in model.goToCitedBlock(marker) }
+    }
 }
 
 private struct TranscriptTable: UIViewRepresentable {
@@ -160,6 +181,7 @@ private struct TranscriptTable: UIViewRepresentable {
     let progress: ChatProgress?
     let fontSize: Double
     let diagrams: [UUID: ChatDiagramLink]
+    let followUps: [String]
     let openDiagram: (UUID) -> Void
     let papers: ChatPaperContext
     let jump: TranscriptJump
@@ -203,6 +225,7 @@ private struct TranscriptTable: UIViewRepresentable {
         private var displayedProgress: ChatProgress?
         private var displayedFont = 0.0
         private var displayedDiagrams: [UUID: ChatDiagramLink] = [:]
+        private var displayedFollowUps: [String] = []
         private var pending: TranscriptTable?
         private var generation = 0
         private var applying = false
@@ -254,7 +277,7 @@ private struct TranscriptTable: UIViewRepresentable {
                     TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID,
                         progress: id == self.displayedStreamingID ? self.displayedProgress : nil, fontSize: self.displayedFont,
                         diagram: self.displayedDiagrams[self.displayed[index].payload.entityID], openDiagram: { [weak self] id in self?.owner?.openDiagram(id) },
-                        papers: self.owner?.papers,
+                        papers: self.owner?.papers, followUps: index == self.displayed.count - 1 ? self.displayedFollowUps : [],
                         first: index == 0, last: index == self.displayed.count - 1)
                 }.margins(.all, 0).minSize(width: 0, height: 0)
                 return cell
@@ -274,7 +297,7 @@ private struct TranscriptTable: UIViewRepresentable {
             }
             lastLocalRequest = value.localRequest
             guard displayed != value.messages || displayedFont != value.fontSize || displayedStreamingID != value.streamingID
-                    || displayedProgress != value.progress || displayedDiagrams != value.diagrams || applying else { return }
+                    || displayedProgress != value.progress || displayedDiagrams != value.diagrams || displayedFollowUps != value.followUps || applying else { return }
             generation += 1
             pending = value
             applyPending(table)
@@ -297,11 +320,13 @@ private struct TranscriptTable: UIViewRepresentable {
             if !following && anchors.isEmpty && !userScrolling { anchors = readAnchors(table) }
             let old = Dictionary(uniqueKeysWithValues: displayed.map { ($0.id, $0) })
             let oldFont = displayedFont, oldStreaming = displayedStreamingID, oldDiagrams = displayedDiagrams, oldProgress = displayedProgress
+            let oldFollowUps = displayedFollowUps
             let oldFirst = displayed.first?.id
             let oldLast = displayed.last?.id
             displayed = update.messages; displayedFont = update.fontSize; displayedStreamingID = update.streamingID
             displayedProgress = update.progress
             displayedDiagrams = update.diagrams
+            displayedFollowUps = update.followUps
             var snapshot = NSDiffableDataSourceSnapshot<Int, UUID>()
             snapshot.appendSections([0]); snapshot.appendItems(displayed.map(\.id))
             let existing = Set(source.snapshot().itemIdentifiers)
@@ -312,7 +337,8 @@ private struct TranscriptTable: UIViewRepresentable {
                 let streamingChanged = (item.id == oldStreaming) != (item.id == displayedStreamingID)
                     || (item.id == displayedStreamingID && oldProgress != displayedProgress)
                 let diagramChanged = oldDiagrams[item.payload.entityID] != displayedDiagrams[item.payload.entityID]
-                return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged || diagramChanged ? item.id : nil
+                let followUpsChanged = (item.id == oldLast || item.id == displayed.last?.id) && oldFollowUps != displayedFollowUps
+                return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged || diagramChanged || followUpsChanged ? item.id : nil
             })
             applying = true
             let revision = generation

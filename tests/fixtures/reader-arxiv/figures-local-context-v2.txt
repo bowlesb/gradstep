@@ -1,0 +1,11 @@
+[¶1] # Figure compatibility fixture
+
+[¶2] See Figure 1 and Figure 3.
+
+[¶3] [Figure] Standalone illustration
+
+[¶4] [Figure] Figure 1: First panel x^2 .
+
+[¶5] [Figure] Figure 2: Second panel.
+
+[¶6] [Figure] Figure 3: Legend and illustration.
