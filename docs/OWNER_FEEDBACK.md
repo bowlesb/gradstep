@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat report, 2026-10-14 (evening): the podcast starts with "So the motivation is computational, but…"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "thats not a sane start to a podcast" | The owner's first DeepSeek episode (job `4ce016b9`) | The checker had removed seven of 28 turns: four for Markdown and inline-math wrappers in the spoken text (the voices cannot read them) and three as unanswered questions, among them the opening turn, so the episode began on the reply. Three fixes in the worker: readable markup is stripped and the turn kept; the writer must open with a plain welcome that names the paper and never ends on a question, and close the same way; a check that passes but leaves the opener removed or a reply orphaned runs the repair pass, and refuses the episode where no repair call exists. The word band was then widened once more (80%–125% of the writer's range) after a 930-word draft failed a 920 ceiling by ten words. | Deployed (worker 00039); verified on seed `8dd7ac8f` (release `9e90fb77`, 5 min 55 s, 24 turns, none removed): opens "Welcome to Gradstep. Today we are looking at…" |
+
 ## Chat request, 2026-10-14 (evening): "expose an option when creating a podcast to use anthropic or sonnet"
 
 | # | Owner said | Where | Cause / plan | Status |

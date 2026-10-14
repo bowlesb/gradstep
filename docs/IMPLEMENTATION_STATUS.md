@@ -91,6 +91,12 @@ html, or graph."
   `podcast_writer_choice.sql`, backend podcast tests 44, web podcast tests 36, native podcast tests 22 (a writer-choice
   case among them), the full native tier before the build. Deployed: migration 065, the podcast function, Pages
   **`c4737d77`**; **TestFlight build 35** (iOS and Mac) uploaded at 12:53 and 12:57 PDT after the native tier passed.
+- **Openings and spoken markup (owner, after the first episode):** the episode opened mid-answer because the checker
+  had cut the opener (an unanswered question) and four turns for markup. Readable markup is now stripped and the turn
+  kept; the writer opens with a welcome and closes with a sign-off; a passing check that leaves the dialogue broken
+  runs the repair or refuses the episode; the version-2 word band is 80%–125% of the writer's range. Worker revision
+  **00039**; backend podcast tests 51. Verified on seed `8dd7ac8f` (release `9e90fb77`, pending the owner's review):
+  24 turns kept, opens "Welcome to Gradstep…". October's seed allowance now has $0.70 of $4.00 left.
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
   numbered membership) for the `study-bar`/`study-sheet` captures.
