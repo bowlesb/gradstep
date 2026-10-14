@@ -9,6 +9,8 @@ export interface ArxivImage {
 }
 export interface ArxivBundleInput {
   source: Uint8Array; sourceID: string; revision: number; images: Map<string, ArxivImage>;
+  /** The library's author names (see `ArxivConvertOptions.authors`); part of the bundle, so the same on every device of one library. */
+  authors?: readonly string[];
 }
 export const ARXIV_CSS = READER_CSS + '\nfigure img.reader-inline-image,body.reader-figure-detail figure img.reader-inline-image{display:inline-block;width:auto;height:.65em;max-width:none;margin:0 .15em;border-radius:0;vertical-align:baseline;background:transparent}\n';
 export const ARXIV_BUILD_SHA256 = sha256Hex(canonicalBytes({ renderer: ARXIV_RENDERER_ID,
@@ -42,7 +44,7 @@ export function composeArxivReader(input: ArxivBundleInput) {
   });
   const rendered = convertArxivHTML(source, url, reference => {
     const image = references.get(reference); check(image, 'arxiv_asset_missing'); return image;
-  });
+  }, { authors: input.authors });
   check(JSON.stringify(rendered.imageURLs) === JSON.stringify(required), 'arxiv_asset_coverage');
   const sourceSHA256 = sha256Hex(input.source);
   const provenance = canonicalBytes({ format: ARXIV_PROVENANCE_FORMAT,

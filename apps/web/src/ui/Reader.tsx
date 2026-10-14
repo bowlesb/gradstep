@@ -109,7 +109,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     // item included; its server bundle is the fallback when arXiv has no usable HTML for that revision.
     const bundle = () => loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); });
     const source = readingSource(item);
-    (source ? prepareArxivReader(source, controller.signal, setLoaded).catch(e => item.kind === 'item' && e instanceof ArxivReaderError && !controller.signal.aborted ? bundle() : Promise.reject(e))
+    (source ? prepareArxivReader(source, controller.signal, setLoaded, { authors: item.metadata?.authors ?? [] }).catch(e => item.kind === 'item' && e instanceof ArxivReaderError && !controller.signal.aborted ? bundle() : Promise.reject(e))
       : bundle()).then(verified => {
       if (controller.signal.aborted) return;
       cache.set(cacheKey, verified);

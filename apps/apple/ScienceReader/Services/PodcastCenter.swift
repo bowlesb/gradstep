@@ -250,11 +250,13 @@ final class PodcastCenter {
     /// Why Listen cannot start for a paper the server has no podcast source for (owner report 2026-10-14: "not able to
     /// create a podcast at all"). Episodes are written from the server's converted text; a paper read on this device
     /// through the HTML reader has none, which is not the same as being outside the synced library.
+    /// Owner (build 35): the earlier wording ("a server copy of the paper") read as if PDFs were kept on the server
+    /// (they are not; the server keeps only the text it converted for older papers) and was off-putting.
     static func noEpisodeSource(for paper: Paper) -> String {
         if paper.sourceMembership != nil {
-            return "Episodes are made from a server copy of the paper. Papers read on this device don’t have one yet, so this paper can’t be made into an episode."
+            return "Episodes can’t be made for this paper yet. Listening still works from the text the server converted for older papers; making episodes from the paper on this device is being built."
         }
-        return "Listening needs this paper in your synced library."
+        return "Episodes can’t be made for this paper yet: it isn’t in your synced library. Add it to your library, then try again."
     }
     func canListen(to paper: Paper) -> Bool {
         #if DEBUG && FIXTURE_HOST

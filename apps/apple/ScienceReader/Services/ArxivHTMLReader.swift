@@ -112,7 +112,9 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
         try await ArxivHTMLAcquisition.shared.fetch(url, source: source, maximum: maximum)
     }) { self.acquire = acquire; super.init() }
 
-    func prepare(_ source: ArxivReaderSource) async throws -> VerifiedReaderBundle {
+    /// `authors`: the library's author names for this paper; the compiler shows them when the HTML's own names are
+    /// graphics or missing (a team logo). Every device of one library passes the same names, so the bundle is the same.
+    func prepare(_ source: ArxivReaderSource, authors: [String] = []) async throws -> VerifiedReaderBundle {
         defer { close() }
         let html = try await acquire(source.htmlURL, source, ArxivAcquisitionPolicy.sourceBytes)
         try await load()
@@ -123,7 +125,8 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
         guard urls.count <= ArxivAcquisitionPolicy.assets, Set(urls).count == urls.count else { throw ArxivHTMLError.invalid }
         let inputs = try await fetchAssets(urls, source: source, used: html.count)
         var args = arguments; args["inputs"] = inputs
-        let package = try await call("return JSON.stringify(await GradstepArxivReader.prepare(source, sourceID, revision, inputs));", arguments: args)
+        args["options"] = ["authors": Array(authors.map { String($0.prefix(256)) }.prefix(64))]
+        let package = try await call("return JSON.stringify(await GradstepArxivReader.prepare(source, sourceID, revision, inputs, options));", arguments: args)
         try Task.checkCancellation()
         guard let bytes = package.data(using: .utf8) else { throw ArxivHTMLError.invalid }
         let bundle = try DeviceReaderPackage.decode(bytes)

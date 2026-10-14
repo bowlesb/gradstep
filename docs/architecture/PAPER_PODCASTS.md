@@ -1474,6 +1474,57 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
   the eight generation and docked-player journeys pass there) — unchanged from before this work, and why those journeys
   are recorded on the iPhone. A Debug Mac Catalyst `build` compiles with 0 errors; the Mac app was not launched.
 
+### Episodes from the paper on this device (design 2026-10-14 night; migration 066)
+
+Owner (TestFlight, build 35): "we should have stopped storing PDFs at all on the server is that not the case? And the
+message is also very off putting". The server keeps no PDFs (HTML-first cutover, 2026-10-13); Listen could still only
+use the text the server had converted for older papers (`podcast_item_pin`: the Mathpix `standalone.mmd`), so every
+paper read on the device refused. A private episode can now be written from the **paper's own text on the device**:
+the numbered text the chat already sends as local context (`PAPER_CONTEXT_FORMAT` v2 built from the verified bundle
+on both surfaces), uploaded with the quote. Shared catalog episodes are unchanged (CC BY approvals, server text).
+
+- **Request.** `podcast?action=quote` takes, instead of or beside `item_id`, a `device_source` object:
+  `{source:'arxiv', source_id, revision, manifest_sha256, format:'paper-context-v2', title, authors, text}`. The text
+  is at most the length's `max_source_bytes` (400 KB; more → `source_too_large` before anything is stored), the title
+  at most 500 characters, at most 20 author names of 200. `item_id` for a device source is the paper's membership id
+  (the client's name for the paper; quotes and joins key on it as before).
+- **Storage.** The function computes the text's SHA-256 and, unless the account already holds that digest, uploads
+  it with the service role to the private bucket `private-content` at `podcast-sources/<account>/<sha256>.txt`, then
+  registers it through `v1_podcast_source_register(p_sha256, p_bytes, p_source)` (authenticated; one row per account
+  and digest in `app_private.stored_objects`, owner-scoped, `state='verified'` after the upload is confirmed by the
+  function's own read-back of the object's size). Nothing is stored for a request that fails validation. Account
+  deletion already removes every owner-scoped object (`account_deletion_objects`); the bucket prefix is added to the
+  deletion plan for safety.
+- **Pin.** `app_private.podcast_device_pin(a, p_object, p_source)` resolves the object (owned, verified, digest and
+  size match) and returns `{kind:'device', source:'arxiv', source_id, revision, manifest_sha256, text_object_id,
+  text_sha256, text_bytes, normalization_version:'gradstep-paper-context-v2', title, authors}` — ids and digests
+  only, like the Mathpix pin. The work key (`podcast_work_key`) hashes, for a device pin, `[kind, source_id,
+  revision, manifest_sha256, text_sha256, normalization_version]` in place of the document tuple, so the same text at
+  the same length and writer reuses the episode, and a re-prepared paper with a different digest is new work.
+  Mathpix pins hash exactly as before (existing keys unchanged).
+- **Schema (additive).** `app_private.podcast_device_sources(episode_id pk → podcast_episode_keys, owner_id,
+  source_id, revision, manifest_sha256 bytea, text_object_id → stored_objects, text_sha256 bytea, text_bytes,
+  normalization_version check 'gradstep-paper-context-v2', title, authors jsonb, created_at)`, immutable.
+  `podcast_insert_episode` writes this row for a device pin and `podcast_sources` for a Mathpix pin.
+- **Quote and start.** `v1_podcast_quote(p_item_id, p_request_id, p_profile, p_writer, p_device jsonb)` and
+  `v1_podcast_start` resolve the pin by kind; the start still refuses when the recomputed pin differs from the quote's.
+  Private generation limits, rate limits, credits and consent are unchanged.
+- **Claim and worker.** `worker_podcast_claim` reads `podcast_sources` or, when absent, `podcast_device_sources`,
+  and returns the same `source` object (`bucket`, `path`, `sha256`, `bytes`, `normalization_version`; `document_id`
+  null) and `metadata` (title, authors) from the device row. The worker downloads and verifies the text as before.
+  The script writer is told that paragraph markers (`¶12`) are not the paper's words and must not be quoted; the
+  checker strips a leading marker from any evidence quote before verifying it against the pinned text, so transcript
+  evidence stays a verbatim span the reader can find (`goToPassage` by quote).
+- **Episodes for a paper.** `v1_podcast_paper(p_item_id, p_source_id, p_revision)`: with a source id and revision
+  it also lists the account's private releases and running job whose device source names that paper revision;
+  `podcast_episode_public` carries `source` (arxiv id, version, url) for device episodes and a null `document_id`.
+  Clients open transcript evidence by `document_id` when present, else by the episode's arXiv source.
+- **Clients.** When Listen finds no server source for a paper that is numbered on this device, the apps build the
+  device source from the verified bundle (native `LocalPaperChatContext`, web `localChatContext`) and quote with it;
+  the rest of the flow (lengths, writer, consent, progress, play, download) is unchanged. Papers neither converted
+  on the server nor prepared on this device keep the refusal copy ("open the paper first").
+- **Costs.** Unchanged per episode; the text object is small (≤ 400 KB) and counted in the account's private storage.
+
 ### Script repair: one bounded second draft (migration 062, worker; 2026-10-14)
 
 Owner (2026-10-14): "I was not able to create a podcast at all." The recorded reason for every customer and seed

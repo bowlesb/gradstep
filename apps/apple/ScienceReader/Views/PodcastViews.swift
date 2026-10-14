@@ -126,7 +126,8 @@ struct PodcastListenView: View {
             })
             Menu {
                 Section {
-                    MenuRow("Refresh episodes", systemImage: "arrow.clockwise") { center.loadCatalog() }
+                    // Pull to refresh does the same; the row names what it checks (owner report, build 34: "Refresh episodes what does that mean??").
+                    MenuRow("Check for new episodes", systemImage: "arrow.clockwise") { center.loadCatalog() }
                 }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
             } label: { HeaderButtonLabel(systemImage: "ellipsis") }

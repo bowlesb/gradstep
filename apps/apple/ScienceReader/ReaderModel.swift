@@ -2448,7 +2448,7 @@ final class ReaderModel {
                     let reopened = try await store.read(record.identity)
                     bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
                 } else {
-                    bundle = try await ArxivHTMLReader().prepare(source)
+                    bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames)
                     try Task.checkCancellation()
                     guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
                     let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }

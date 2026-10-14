@@ -113,7 +113,8 @@ async function raster(input: Uint8Array, svg: boolean): Promise<ArxivImage> {
 export function assets(source64: string, sourceID: string, revision: number): string[] {
   return arxivHTMLAssets(decodeUTF8(decode64(source64, LIMITS.sourceBytes)), arxivHTMLURL(sourceID, revision));
 }
-export async function prepare(source64: string, sourceID: string, revision: number, inputs: { url: string; base64: string }[]) {
+export async function prepare(source64: string, sourceID: string, revision: number, inputs: { url: string; base64: string }[], options?: { authors?: unknown }) {
+  const authors = Array.isArray(options?.authors) ? options!.authors.filter((a): a is string => typeof a === 'string').slice(0, 64).map(a => a.slice(0, 256)) : [];
   const source = decode64(source64, LIMITS.sourceBytes), urls = assets(source64, sourceID, revision);
   check(Array.isArray(inputs) && inputs.length === urls.length && new Set(inputs.map(i => i.url)).size === inputs.length &&
     inputs.every(i => urls.includes(i.url)), 'arxiv_asset_set');
@@ -129,7 +130,7 @@ export async function prepare(source64: string, sourceID: string, revision: numb
     const image = await raster(data, input.svg); pixels += image.width * image.height;
     check(pixels <= LIMITS.totalImagePixels, 'image_total_limit'); images.set(input.key, image);
   }
-  const bundle = composeArxivReader({ source, sourceID, revision, images });
+  const bundle = composeArxivReader({ source, sourceID, revision, images, authors });
   validateHTML(bundle.members.get('index.html')!, bundle.index,
     new Map(JSON.parse(decodeUTF8(bundle.manifestBytes)).members.filter((m: { role: string }) => m.role === 'image')
       .map((m: { path: string; width: number; height: number }) => [m.path, { width: m.width, height: m.height }])), true);

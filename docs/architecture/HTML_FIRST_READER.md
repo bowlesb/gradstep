@@ -384,6 +384,18 @@ arxiv-html.test.ts` ("the authors block reads as names with single marks…"). R
 shared author rules (`apps/web/src/lib/authors.ts`, native `LibraryFormat.shortAuthors` / `authorLine` /
 `firstAuthor`): compact "Family, Family, Family +N", full names up to six, "Family et al." bylines.
 
+Later the same night (four more owner screenshots): `ltx_contact_name` labels ("Affiliation:") and `ltx_role_email`
+contacts are dropped, e-mail addresses inside affiliation text are removed, a project page (`a[href^=http]` in the
+block) goes on its own line, and when no name carries a numeric mark but authors have their own affiliations, the
+distinct affiliations are numbered in order of first appearance and each author gets the numbers of theirs
+("Chenghao Yue<sup>1</sup>, Hao Wang<sup>2</sup> … <sup>1</sup>Tsinghua University · <sup>2</sup>Dalian
+University of Technology"). A name that was a graphic (a team logo followed by " Team") or no name at all is replaced
+by the **library's author metadata**, which both apps now pass to the device compiler (`prepare(…, inputs,
+{authors})`; native `ArxivHTMLReader.prepare(_:authors:)`, web `prepareArxivReader(…, {authors})`): the names are part
+of the bundle, so every device of one library compiles the same bundle, and a library whose metadata differs compiles
+a different one (its own manifest digest). Empty emphasis wrappers left by a dropped logo are removed. Checked on
+2305.18290, 2610.16334, 2610.14704, 2610.16352 and 2610.17288 (`.artifacts/back-repro/authors-check.mjs`, local).
+
 ### Budget at cutover
 
 The incremental ceiling remains $100/month and the metered provider cap remains $25. The live October ledger

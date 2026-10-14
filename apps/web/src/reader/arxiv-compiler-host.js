@@ -25,7 +25,7 @@ addEventListener('message', async event => {
  try {
   if (!p || !['assets','prepare'].includes(p.method)) throw Error('invalid');
   const result = p.method === 'assets' ? GradstepArxivReader.assets(p.source,p.sourceID,p.revision)
-   : await GradstepArxivReader.prepare(p.source,p.sourceID,p.revision,p.inputs);
+   : await GradstepArxivReader.prepare(p.source,p.sourceID,p.revision,p.inputs,p.options);
   port.postMessage({ok:true,result});
  } catch (error) { port.postMessage({ok:false,failure:compilerFailure(error)}); }
  finally { port.close(); }

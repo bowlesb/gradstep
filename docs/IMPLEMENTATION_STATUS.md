@@ -2,6 +2,20 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## TestFlight screenshots on builds 33–36: author blocks, Listen copy, menu wording — 2026-10-14, late night (built; deployment noted below)
+
+Six screenshot reports (`docs/OWNER_FEEDBACK.md`, "TestFlight screenshots, 2026-10-14"). The arXiv compiler's author
+block now covers per-author "Affiliation:" contacts (numbered marks), e-mail, project pages and dagger notes, and
+takes the library's author names from both apps for logo-only names (HTML_FIRST_READER.md "Authors block", second
+paragraph). Listen's two refusals are reworded (no "server copy of the paper"; what to do next) and the Listen menu's
+"Refresh episodes" reads "Check for new episodes". The browser compiler journey's second case now uses a page without
+an article (LaTeXML error markers are tolerated since `c615af3`). Episodes from the paper's own text on the device are
+designed in PAPER_PODCASTS.md and built next.
+
+Evidence (local): compiler tests 17/17; `npm test`; browser types, units, arxiv-html and arxiv-compiler journeys;
+iPhone Simulator `ArxivHTMLReaderTests`, `LegacyArxivReaderTests`, `OfflineModelTests`, the HTML Back journey and
+the Listen filter journey. Deployment: recorded below once done.
+
 ## Owner reports: authors list, Back after a jump, scrolling while streaming — 2026-10-14, night (built; deployment noted below)
 
 Owner (chat): "make sure that the authors list is presented nicely on all surfaces"; "the 'Back to where you were'

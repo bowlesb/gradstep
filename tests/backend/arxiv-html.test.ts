@@ -200,3 +200,29 @@ test('the authors block reads as names with single marks, affiliations and notes
  assert.match(html,new RegExp(`href="#${authorsBlock.id}">the note</a>`));
  assert.ok(checked.index.blocks.some(b=>b.text.startsWith('Rafael Rafailov')));
 });
+
+test('authors with one "Affiliation:" contact each get numbered marks; e-mail and labels go, a project page gets its own line',()=>{
+ const creator=(name,affiliation,extra='')=>`<span class="ltx_creator ltx_role_author"><span class="ltx_personname">${name}\n</span><span class="ltx_author_notes"><span class="ltx_author_notes_content"><span class="ltx_contact ltx_role_affiliation"><span class="ltx_contact_name">Affiliation: </span>${affiliation}${extra}\n</span></span></span></span>`;
+ const authors=`<div class="ltx_authors">${creator('Chenghao Yue','Tsinghua University')}<span class="ltx_author_before">  </span>${creator('Hao Wang','Dalian University of Technology')}`
+  +`<span class="ltx_author_before">  </span>${creator('Jiahao Chen','Peking University','<a href="https://seen-e.github.io/PRISM/" title="" class="ltx_ref ltx_href ltx_font_typewriter">https://seen-e.github.io/PRISM/</a>')}`
+  +`<span class="ltx_author_before">  </span>${creator('Gayoung Kim',' A+HRI Laboratory, Incheon National University. <span class="ltx_text ltx_font_typewriter">{7rdud36, jow}@inu.ac.kr</span>')}</div>`;
+ const bundle=build(source.replace('<div class="ltx_authors">A. Author</div>',authors));
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ const block=/<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1]??'';
+ assert.equal(block,'Chenghao Yue<sup>1</sup>, Hao Wang<sup>2</sup>, Jiahao Chen<sup>3</sup>, Gayoung Kim<sup>4</sup><br><sup>1</sup>Tsinghua University · <sup>2</sup>Dalian University of Technology · <sup>3</sup>Peking University · <sup>4</sup>A+HRI Laboratory, Incheon National University.<br><a href="https://seen-e.github.io/PRISM/" rel="noopener noreferrer">https://seen-e.github.io/PRISM/</a>');
+});
+
+test('a name that was a graphic (a team logo) is replaced by the library author metadata',()=>{
+ const authors='<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname"><span class="ltx_text ltx_font_bold"><img src="2601.01234v2/figure.jpg" class="ltx_graphics" alt="[Uncaptioned image]"></span><span class="ltx_text ltx_font_bold"> Team</span></span></span></div>';
+ const text=source.replace('<div class="ltx_authors">A. Author</div>',authors);
+ const named=composeArxivReader({source:utf8(text),sourceID:'2601.01234',revision:2,images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]]),authors:['LoongSage Team']});
+ const html=new TextDecoder().decode(named.members.get('index.html'));
+ assert.match(html,/<p class="reader-authors"[^>]*>LoongSage Team<\/p>/);
+ assert.match(html,/left out 1 inline graphic/);
+ // Without metadata the words that remain are shown, as before.
+ const bare=new TextDecoder().decode(build(text).members.get('index.html'));
+ assert.match(bare,/<p class="reader-authors"[^>]*><strong>Team<\/strong><\/p>/);
+ // The same source and metadata give the same bundle on every device; different metadata is a different bundle.
+ assert.equal(composeArxivReader({source:utf8(text),sourceID:'2601.01234',revision:2,images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]]),authors:['LoongSage Team']}).manifestSHA256,named.manifestSHA256);
+ assert.notEqual(build(text).manifestSHA256,named.manifestSHA256);
+});

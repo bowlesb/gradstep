@@ -147,7 +147,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     if(!chat)return;
     chat.setSourcePapers(new Map(library.entries.filter(isSourcePaper).map(paper=>[paper.id,{reference:paperReference(paper)!,load:async()=>{
       const key=readerCacheKey(account,paper),saved=readerCache.get(key);if(saved)return saved;
-      const bundle=await prepareArxivReader(paperReference(paper)!,chat.signal);chat.signal.throwIfAborted();
+      const bundle=await prepareArxivReader(paperReference(paper)!,chat.signal,undefined,{authors:paper.metadata?.authors??[]});chat.signal.throwIfAborted();
       readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
     }}])));
   },[chat,library.entries,readerCache,account]);

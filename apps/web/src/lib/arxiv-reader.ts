@@ -107,7 +107,8 @@ export function shareInflight<T extends Preparation>(registry: Map<string, T>, k
 }
 const preparations = new Map<string, Preparation>();
 
-async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress: (fraction: number) => void): Promise<VerifiedBundle> {
+export interface ArxivPrepareOptions { /** The library's author names for this paper (`ArxivConvertOptions.authors`). */ authors?: readonly string[] }
+async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress: (fraction: number) => void, options: ArxivPrepareOptions): Promise<VerifiedBundle> {
  const url = arxivHTMLURL(ref);
  const html = await retrieveArxiv(url, ARXIV_LIMITS.sourceBytes, true, signal); abort(signal);
  const { default: compiler } = await import('virtual:arxiv-compiler'); abort(signal);
@@ -115,7 +116,7 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
  frame.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${compiler.hash}'; img-src data:; connect-src 'none'; style-src 'none'; base-uri 'none'"><script>${compiler.script}</script>`;
  const loaded = new Promise<void>((resolve, reject) => { frame.onload = () => resolve(); frame.onerror = () => reject(new ArxivReaderError('The device compiler could not start.')); });
  document.body.append(frame);
- const call = async (method: 'assets' | 'prepare', inputs?: { url: string; base64: string }[]): Promise<unknown> => {
+ const call = async (method: 'assets' | 'prepare', inputs?: { url: string; base64: string }[], compile?: { authors: string[] }): Promise<unknown> => {
   abort(signal);
   return await new Promise((resolve, reject) => {
    const channel = new MessageChannel(); let timer: ReturnType<typeof setTimeout>;
@@ -124,14 +125,15 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
    timer = setTimeout(() => { cleanup(); reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still download its PDF on this device.')); }, 90000);
    signal.addEventListener('abort', stop, { once: true });
    channel.port1.onmessage = e => { cleanup(); e.data?.ok ? resolve(e.data.result) : reject(new ArxivReaderError(arxivPreparationMessage(e.data?.failure))); };
-   frame.contentWindow!.postMessage({ method, source: toBase64(html), sourceID: ref.sourceID, revision: ref.revision, inputs }, '*', [channel.port2]);
+   frame.contentWindow!.postMessage({ method, source: toBase64(html), sourceID: ref.sourceID, revision: ref.revision, inputs, options: compile }, '*', [channel.port2]);
   });
  };
  try {
   await Promise.race([loaded, wait(15000, signal).then(() => { throw new ArxivReaderError('The device compiler could not start.'); })]);
   const assets = await call('assets');
   const inputs = await fetchArxivAssets(assets, url, ARXIV_LIMITS.totalBytes - html.length, signal, progress);
-  const p = await call('prepare', inputs) as { manifest: string; manifestSHA256: string; members: { path: string; base64: string }[] };
+  const authors = (options.authors ?? []).filter(a => typeof a === 'string').slice(0, 64).map(a => a.slice(0, 256));
+  const p = await call('prepare', inputs, { authors }) as { manifest: string; manifestSHA256: string; members: { path: string; base64: string }[] };
   abort(signal);
   if (!p || typeof p.manifest !== 'string' || p.manifest.length > 349528 || !Array.isArray(p.members) || p.members.length > 512) throw new ArxivReaderError('Invalid reader bundle.');
   const members = new Map<string, Bytes>(); let total = 0;
@@ -142,9 +144,10 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
  } finally { frame.remove(); }
 }
 
-export function prepareArxivReader(reference: SourcePaperReference, signal: AbortSignal, progress?: (fraction: number) => void): Promise<VerifiedBundle> {
+/** Every caller for one paper passes the same `options` (its library metadata), so a shared preparation is the same bundle. */
+export function prepareArxivReader(reference: SourcePaperReference, signal: AbortSignal, progress?: (fraction: number) => void, options: ArxivPrepareOptions = {}): Promise<VerifiedBundle> {
  const ref = sourceReference(reference);
- return shareInflight(preparations, `${ref.sourceID}v${ref.revision}`, (shared, report) => prepare(ref, shared, report), signal, progress);
+ return shareInflight(preparations, `${ref.sourceID}v${ref.revision}`, (shared, report) => prepare(ref, shared, report, options), signal, progress);
 }
 
 export function localChatContext(ref: SourcePaperReference, bundle: VerifiedBundle): import('./chat').LocalPaperContext {

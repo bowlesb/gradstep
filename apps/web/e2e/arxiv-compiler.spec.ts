@@ -20,7 +20,8 @@ test('isolated HTML compiler preserves content and reports finite failure reason
    frame.contentWindow!.postMessage({method,source:btoa(text),sourceID:'2601.01234',revision:2,
     inputs:[{url:'https://arxiv.org/html/2601.01234v2/figure.jpg',base64:image}]},'*',[channel.port2]);
   });
-  try {return [await call(source), await call(source.replace('An equation','<span class="ltx_ERROR">bad source</span>'),'assets'),
+  // A LaTeXML error marker is tolerated with a closing note since 2026-10-14; a page without the article is not a paper.
+  try {return [await call(source), await call(source.replace('class="ltx_document"','class="ltx_page"'),'assets'),
    await call(source.replace('<msup>','<maction>').replace('</msup>','</maction>')), await call(figures),
    await call(figures.replace('href="#glyph"','href="https://example.test/remote.svg#glyph"')),
    await call(figures.replace('<defs>','<foreignObject><p>unsafe</p></foreignObject><defs>'))];}
@@ -28,7 +29,7 @@ test('isolated HTML compiler preserves content and reports finite failure reason
  }, {script,hash,source,image,figures});
  expect(results[0].ok).toBe(true);
  expect(results[0].result).toHaveProperty('manifestSHA256');
- expect(results[1]).toEqual({ok:false,failure:'source-incomplete'});
+ expect(results[1]).toEqual({ok:false,failure:'source-unavailable'});
  expect(results[2]).toEqual({ok:false,failure:'math'});
  expect(results[3].ok).toBe(true);
  const bundle=results[3].result as {members:{path:string;base64:string}[]};
@@ -36,5 +37,9 @@ test('isolated HTML compiler preserves content and reports finite failure reason
  expect(index.figures).toHaveLength(4); expect(index.equations).toHaveLength(2);
  expect(index.blocks.at(-1).text).toContain('Retained legend text');
  expect(results[4]).toEqual({ok:false,failure:'figure'});
- expect(results[5].ok).toBe(false);
+ // A picture whose foreignObject holds text is read as paragraphs since 2026-10-14; the SVG itself is never emitted.
+ expect(results[5].ok).toBe(true);
+ const tolerated=results[5].result as {members:{path:string;base64:string}[]};
+ const html=Buffer.from(tolerated.members.find(m=>m.path==='index.html')!.base64,'base64').toString();
+ expect(html).not.toContain('foreignObject');
 });
