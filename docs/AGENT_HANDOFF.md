@@ -30,8 +30,9 @@ native), the cost-audit fixes with migration **060** (budget periods, health che
 stale sweep at zero, the sync fence code), the native sync scheduler and sync copy by code, the podcast UX pass and
 the offline fixture. Status and evidence in
 [Implementation status](IMPLEMENTATION_STATUS.md#study-tutor-audit-fixes-native-sync-scheduler--2026-10-14-midday-commit-bafae2d-and-after-deployment-noted-below);
-migrations **060 and 061** are applied, chat function **122** and Pages **`0a4c0f85`** are live, and the native side
-waits for the podcast pass before build 34. One incident to know: function 118's smaller hold estimate paused all paid
+migrations **060 and 061** are applied, chat function **123** and Pages **`0a4c0f85`** are live, the podcast pass
+(`78e1ba4`) is merged, and **TestFlight build 34** (iOS and Mac) is uploaded (iOS VALID at 10:23 PDT; Mac processing
+when this was written). Owner acceptance of builds 31 to 34 is open. One incident to know: function 118's smaller hold estimate paused all paid
 work on staging for eleven minutes (a per-attempt ceiling overrun); 121 restored the margin and the switch was set
 back on at the same limit ([SPENDING_CONTROLS.md](architecture/SPENDING_CONTROLS.md#budget-periods-failed-answers-and-the-stale-hold-sweep--2026-10-14-migration-060-staging)).
 Exercise the tutor on staging with `node scripts/chat-live-smoke.mjs --study` (paid, about $0.30; verified 17:05 UTC).

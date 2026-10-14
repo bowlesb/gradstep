@@ -30,9 +30,19 @@ html, or graph."
   named codes, acknowledgement tolerance), 4 (the browser keeps the storage-persistence answer and says "Saved in this
   browser. It may clear this when space runs low." when declined) and 5 (honest copy for an unsupported journal) are
   built; 6 (hosted two-device evidence on format 2) remains.
-- **Podcast UX:** a read-only review ranked eight improvements; the four obvious ones (pinned transport controls,
-  an end-of-generation notice with expected waits, the Create button and balance up front with lengths greyed above
-  the balance, persisted speed) are being built in a separate pass and will be recorded when verified.
+- **Podcast UX** (merged from the worktree branch, commit `78e1ba4`): a read-only review ranked eight improvements
+  and the four obvious ones are built: the player's heading, slider, transport, Download and pane picker are a fixed
+  header and only the pane scrolls; a job that finishes while its sheet is closed raises "Your episode of … is
+  ready" with Play (an alert, or a banner inside an open player or Listen sheet), the progress screen states the
+  expected wait per length, and the 1,800 s polling limit says "Still preparing" instead of going quiet; the Listen
+  sheet shows "Available: N credits" at once, greys lengths whose maximum exceeds the balance, quotes on choice and on
+  opening so Create is the one confirm step, pinned at the bottom; the playback speed is remembered per device
+  (UserDefaults). The fixture maxima are v2 (140/300/530). No local notifications (owner decision). Evidence: 20 unit
+  tests (PodcastTransport, 4 new PodcastPresentation, PodcastFixture) and the iPhone PodcastJourneyTests 16 of 17
+  (one iPad-only skip) with four new journeys; the same journeys on the 13-inch iPad fail at their first step because
+  the wide layout has no tab bar (pre-existing; the doc records them on the iPhone). Still open from the review:
+  Listen's visibility on the paper and in lists, the reader's own episode list, play-before-download feedback,
+  browser parity, the mini-player's Stop, and the Mac player capture's black title bar (likely a capture artefact).
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
   numbered membership) for the `study-bar`/`study-sheet` captures.
@@ -52,7 +62,10 @@ first live study turn: function 118 sent the three study quote keys and `worker_
 set as `invalid_request`. Live study smoke after 061 and the switch (`chat-live-smoke.mjs --study`, 17:05 UTC): three
 tutored turns on DPO v3, 4/4, 4/4 and 5/5 citations resolvable, maps after turns one and two (3 concepts, 3 links,
 focus and journey as the tutor's replies implied), the third turn's map update dropped by the strict validator (hence
-122), 31 credits in all. TestFlight: the native side waits for the podcast pass, then build 34.
+122), 31 credits in all. **TestFlight build 34** (iOS and Mac) was archived from the merged tree after the full
+native tier passed and uploaded at 10:22 and 10:25 PDT; the iOS upload was VALID on App Store Connect when this was
+written, the Mac upload still processing. Build 34 carries the Study tutor, the podcast pass, the native sync
+scheduler, the sync copy, the zero-cost failed answers and the credits-store copy.
 
 ## Owner report and the iPad/Mac audit — 2026-10-14, early morning (built; deployment noted below)
 
