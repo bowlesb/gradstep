@@ -27,9 +27,9 @@ Connect when this was written, the second still processing. Owner acceptance of 
 
 **Build 31 screenshots (2026-10-14 15:34 UTC):** tiny figure, missing Back after in-page citation links, poor streaming
 scroll; fixed in the compiler, the shared bridge and the native flush cadence (the scroll fix needs the owner's eye),
-shipped as Pages `PAGES33` and TestFlight build 33 (state below). Audits of the credit system and sync reliability
-were delivered in chat on 2026-10-14 (not yet acted on; findings in the chat transcript and summarized in the next
-handoff pass).
+shipped as Pages **`7bbf4a45`** and TestFlight build 33 (uploading when this was written). The credit-system and
+sync-reliability audits are in [docs/reviews/COST_CREDITS_AND_SYNC_AUDIT_20261014.md](reviews/COST_CREDITS_AND_SYNC_AUDIT_20261014.md)
+(17 ranked gaps with sizes; none acted on yet; suggested order at the end).
 
 **Before the next build:** run `node scripts/ux-review.mjs` and the native visual capture and read the sheets
 ([UX_REVIEW.md](UX_REVIEW.md)); after chat prompt or function changes, one `node scripts/chat-live-smoke.mjs
