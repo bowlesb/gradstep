@@ -7,8 +7,10 @@ import {durableKeys} from './key-capability';
 import {choosePDF,guardLocalContent,signInReader} from './device-reader-helpers';
 
 const root=new URL('../../../',import.meta.url);
-const papers=JSON.parse(readFileSync(new URL('tests/corpus/reader.json',root),'utf8')).papers;
-const lock=JSON.parse(readFileSync(new URL('tests/corpus/reader-lock.json',root),'utf8'));
+// READER_CORPUS_SET=<name> replays tests/corpus/<name>.json with its lock (an ad-hoc audit list); default: the pinned corpus.
+const corpusSet=/^[a-z0-9-]{1,40}$/.test(process.env.READER_CORPUS_SET??'')?process.env.READER_CORPUS_SET:'reader';
+const papers=JSON.parse(readFileSync(new URL(`tests/corpus/${corpusSet}.json`,root),'utf8')).papers;
+const lock=JSON.parse(readFileSync(new URL(`tests/corpus/${corpusSet}-lock.json`,root),'utf8'));
 const script=readFileSync(new URL('apps/web/public/arxiv-reader.js',root),'utf8')+'\n'+readFileSync(new URL('apps/web/src/reader/arxiv-compiler-host.js',root),'utf8');
 const hash='sha256-'+createHash('sha256').update(script).digest('base64');
 function input(key:string,name:string,record:{bytes:number;sha256:string}) {
@@ -45,7 +47,8 @@ for(const paper of papers) {
   expect(checked.provenance.source.url).toBe(pinned.html.url);
   const counts={blocks:checked.index.blocks.length,equations:checked.index.equations.length,figures:checked.index.figures.length};
   if(paper.counts)expect(counts).toEqual(paper.counts);
-  expect(counts.blocks).toBeGreaterThan(100);expect(counts.equations).toBeGreaterThan(20);expect(counts.figures).toBeGreaterThan(0);
+  // The pinned corpus is chosen for coverage; an ad-hoc audit set only has to compile, verify and render.
+  if(corpusSet==='reader'){expect(counts.blocks).toBeGreaterThan(100);expect(counts.equations).toBeGreaterThan(20);expect(counts.figures).toBeGreaterThan(0);}
   let html=members.get('index.html')!.toString();
   const manifest=JSON.parse(Buffer.from(bundle.manifest,'base64').toString());
   for(const m of manifest.members.filter((m:{role:string})=>m.role==='image'))html=html.replaceAll(`src="${m.path}"`,`src="data:${m.media_type};base64,${members.get(m.path)!.toString('base64')}"`);

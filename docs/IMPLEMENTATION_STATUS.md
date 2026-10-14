@@ -2,6 +2,45 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Owner report and the iPad/Mac audit — 2026-10-14, early morning (built; deployment noted below)
+
+Owner (chat, build 31): papers already in the library don't open; new papers still fail with "Couldn't open this
+paper"; frame what is downloaded better. In parallel: an iPad and macOS UX and reliability audit. Everything here is
+in the working tree; the deployment state is in the last paragraph.
+
+- **Legacy library papers.** The owner's 42 visible pre-cutover items all read as available on the server (every
+  one with a bundle, approval, metadata and original; read-only query), so the failure was on the device: a legacy
+  item opened only through the server-bundle path, which could end silently on an actionless "Paper download
+  needed". Legacy arXiv items now open through the on-device HTML reader by their exact revision (the same path as
+  new papers), the installed server copy still opens offline, the server bundle is the fallback, and every refusal
+  has a reason and an action. Browser: the same through `readingSource`; chat keeps the item's server document.
+  Library rows say "Opens from arXiv" until a paper is prepared on this device.
+- **New papers.** The nine papers the owner added on 2026-10-13/14 were fetched with the paced corpus tool
+  (`READER_CORPUS_SET=owner-20261014`; all nine have arXiv HTML) and replayed offline: **five of nine refused to
+  compile** (`arxiv_conversion_error` ×1, `arxiv_nested_content` ×3, inline TikZ pictures ×2 of those and one
+  more at the SVG admission). The compiler now drops and counts LaTeXML conversion markers, leaves out and counts
+  graphics in running text, reads a lone graphic paragraph as a figure, reads TikZ text boxes as paragraphs and
+  keeps TikZ diagram labels as SVG text, and derives its asset and inline-SVG lists from a dry compile; a closing
+  note in the paper says what was left out. Nine of nine compile in Node; browser replay evidence below.
+- **Audit.** [docs/reviews/IPAD_MAC_AUDIT_20261014.md](reviews/IPAD_MAC_AUDIT_20261014.md): 472 iPad captures (two
+  sizes, light/dark, both orientations, every scenario) and 26 Mac captures per appearance through a new
+  permission-free Mac capture path (`VisualCapture.swift`, `--devices=mac`), with the findings and what still needs
+  the owner's eye. The `--appearance` and `--window-size` arguments and the `--wide-mode`, `--visual-ask`,
+  `--visual-show-*` staging arguments were added to the fixture app for it.
+
+**Evidence (local, final tree):** fast suite passes (compiler freshness, backend 447 → the compiler tests grew from
+9 to 13, browser units 362); the owner's nine papers replay in Chromium **18 of 18** (every HTML compiles, verifies and
+renders; every PDF imports on the device); the pinned corpus replays **16 of 16** with DeepSeek-V2 v1 now a supported
+paper (271 blocks, 225 equations, 6 figures, one dropped marker noted) and KAN v1 still refused at the pixel limit
+as recorded; browser journeys arxiv-html, reader-drafts and chat pass on desktop Chromium (14 of 14 chat journeys; the
+chat journey now aborts arXiv so its legacy fixture item falls back to the server bundle, as production would offline); iPad Simulator native tier passed with the final compiler bundle, plus
+LegacyArxivReaderTests (4 new), LibraryModelTests, PaperPassageTests and ArxivHTMLReaderTests; Swift Core chat
+tests 23. The pinned lock gained DeepSeek-V2's six assets; no pinned HTML digest changed.
+
+**Deployment:** browser Pages deployed after the commit (hash in the handoff); TestFlight build 32 uploaded for iOS and
+Mac after this section was written (state recorded in the handoff); no Edge function or migration changed (the compiler
+runs on the device and in tests only).
+
 ## Agent v2 on staging — 2026-10-14 (deployed)
 
 Owner direction (2026-10-14): a materially better agent ("new tools, new capabilities, better performance, more

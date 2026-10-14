@@ -69,8 +69,11 @@
       "revision": 1,
       "title": "DeepSeek-V2",
       "coverage": "model report, tables, multi-panel figures",
-      "expectedFailure": "source-incomplete",
-      "reason": "Official exact-revision HTML has an ltx_ERROR undefined reportnumber node; the reader refuses an incomplete source."
+      "counts": {
+        "blocks": 271,
+        "equations": 225,
+        "figures": 6
+      }
     },
     {
       "id": "2407.04620",

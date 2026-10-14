@@ -118,7 +118,7 @@ export async function prepare(source64: string, sourceID: string, revision: numb
   check(Array.isArray(inputs) && inputs.length === urls.length && new Set(inputs.map(i => i.url)).size === inputs.length &&
     inputs.every(i => urls.includes(i.url)), 'arxiv_asset_set');
   const images = new Map<string, ArxivImage>(); let bytes = source.length, pixels = 0;
-  const inline = arxivInlineImages(decodeUTF8(source));
+  const inline = arxivInlineImages(decodeUTF8(source), arxivHTMLURL(sourceID, revision));
   check(inputs.length + inline.size <= LIMITS.archiveImages, 'image_limit');
   function* decodeInputs() {
     for (const input of inputs) yield {key:input.url,data:decode64(input.base64,LIMITS.memberBytes),svg:/\.svg$/i.test(new URL(input.url).pathname)};

@@ -20,7 +20,10 @@ Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/we
 | Saved evidence | `npm run test:status` | Shows last result, duration and whether tested source has changed. Does not rerun anything or turn stale evidence into a pass. |
 
 `test:slow` accepts Playwright selectors, e.g. `npm run test:slow -- --project=desktop --grep reselection`.
-The corpus command accepts the same flags. Selection flags are recorded in the run report; a selected run is not
+The corpus command accepts the same flags. `READER_CORPUS_SET=<name>` runs an ad-hoc list instead of the pinned
+corpus: `tests/corpus/<name>.json` with its `<name>-lock.json` (fetch with the same variable and `--update-lock`;
+`owner-20261014` is the owner's nine October papers from the 2026-10-14 report, kept as an audit set, not evidence
+for the pinned corpus). Selection flags are recorded in the run report; a selected run is not
 evidence for the whole suite. Native flags may override the default iPad Simulator destination.
 
 The existing full browser `npm run e2e --prefix apps/web`, standalone podcast E2E, Swift Core, complete Xcode,

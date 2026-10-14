@@ -339,6 +339,34 @@ never sent as diagnostics. See the current implementation-status entry for hoste
   pass. Slow reader journeys and the iPad Simulator checks for the touched areas are recorded in
   `IMPLEMENTATION_STATUS.md`. Nothing was deployed; native build 30 and browser Pages `a3127547` remain live.
 
+### Compiler tolerance and legacy items — 2026-10-14 (owner report: "quite a few 'couldn't open this paper'")
+
+The owner's nine papers added on 2026-10-13/14 were replayed offline (`READER_CORPUS_SET=owner-20261014`): five of
+nine refused to compile, for three structural reasons, none of which should cost a reader the paper. The adapter
+now reads them all, and says in the paper what it left out:
+
+- **LaTeXML conversion markers** (`ltx_ERROR`, an undefined preamble macro such as `\pdfauthor`; one paper carried
+  288) no longer refuse the paper: the markers are dropped and counted; over 1,000 still refuses (`arxiv_conversion_error`).
+- **Graphics in running text** (an affiliation logo in the author line, a TikZ mark in a sentence) were refused as
+  `arxiv_nested_content`. Outside a figure the reader has no inline-image vocabulary, so they are left out and
+  counted; a paragraph whose only content is one graphic (an unwrapped `\includegraphics`) is a figure.
+- **TikZ pictures** (`svg.ltx_picture`) draw their labels as `foreignObject` HTML, which the device SVG admission
+  refuses. A lone picture whose labels hold text (a framed "Finding" box) reads as paragraphs with the frame left
+  out and counted; a picture inside a figure keeps its labels as centred SVG `<text>` (best-effort placement). Math
+  inside a picture counts as carried by it, not as a missing equation.
+- When anything was left out the paper ends with one paragraph: "Note: arXiv's HTML conversion of this version
+  left out N unsupported commands and M inline graphics. The PDF is complete."
+- **Asset planning is the compile.** `arxivHTMLAssets` and `arxivInlineImages` now come from a dry compile, so what
+  is fetched, what is published and what provenance lists are the same set by construction (a left-out graphic is
+  never downloaded), and a structural refusal surfaces before any image is fetched.
+
+**Legacy arXiv items** (library items from before the cutover, with a server-processed bundle and no source
+membership) open through the same on-device HTML reader by their exact revision; an installed server copy still
+opens offline, and the server bundle is the fallback when arXiv has no usable HTML for that revision. Chat for
+such an item keeps its server document (no numbered local context). The library says "Opens from arXiv" for an
+arXiv paper not yet prepared on this device, and the reader never dead-ends on "download needed" without a reason
+and an action. Both clients (`ReaderModel.openLocalPaperIfNeeded`, `Reader.tsx` with `readingSource`).
+
 ### Budget at cutover
 
 The incremental ceiling remains $100/month and the metered provider cap remains $25. The live October ledger

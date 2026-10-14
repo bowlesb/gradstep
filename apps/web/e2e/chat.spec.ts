@@ -23,7 +23,10 @@ test('paper/general, consent, math, safe sources, encrypted reload and cross-bro
   test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
   const errors: string[] = [], remote: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
-  page.on('request', r => { if (!r.url().startsWith('http://127.0.0.1:') && !r.url().startsWith('data:')) remote.push(r.url()); });
+  // The fixture paper is a legacy arXiv item: the reader tries its official HTML first (2026-10-14) and falls back to
+  // the server bundle when arXiv is unreachable, which this journey makes it (no third-party request ever completes).
+  await page.route('https://arxiv.org/**', route => route.abort());
+  page.on('request', r => { if (!r.url().startsWith('http://127.0.0.1:') && !r.url().startsWith('data:') && !r.url().startsWith('https://arxiv.org/')) remote.push(r.url()); });
   await login(page); await send(page, 'Explain the private β objective');
   await expect(page.getByRole('dialog', { name: 'Cloud AI answers' })).toBeVisible(); expect((await evidence(request)).requests).toHaveLength(0);
   await page.getByRole('button', { name: 'Not now', exact: true }).click();

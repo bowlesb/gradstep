@@ -51,6 +51,15 @@ struct Paper: Identifiable, Sendable {
     var pageCount: Int? = nil
     /// False for a library item whose structured reader isn't available (not converted).
     var canReadStructured = true
+    /// An arXiv paper from before the HTML-first reader (a library item with a server-processed bundle rather than a
+    /// source membership): it opens through the same on-device HTML reader as any other arXiv paper, by its exact
+    /// revision; the server bundle stays the fallback (owner report 2026-10-14: "papers already in my library don't work").
+    var legacyArxivSource: ArxivReaderSource? {
+        guard sourceMembership == nil, !isSample, !isLocalPDF, let sourceID, let sourceRevision else { return nil }
+        return try? ArxivReaderSource(sourceID: sourceID, revision: sourceRevision)
+    }
+    /// The official arXiv HTML this paper reads from on the device, membership or legacy.
+    var arxivReaderSource: ArxivReaderSource? { (try? sourceMembership?.arxivSource) ?? legacyArxivSource }
     /// Archived (migration 020): in the library, hidden from the default list.
     var archived = false
     /// Where it was published ("NeurIPS"), from the library metadata (`publicationLine`).
@@ -168,6 +177,8 @@ final class ReaderModel {
     private(set) var localReaderRecords: [LocalReaderRecord] = []
     @ObservationIgnored private var localReaderTask: Task<Void, Never>?
     private var localReaderOpeningID: UUID?
+    /// Legacy arXiv items whose official HTML could not be prepared this session: they open from their server bundle.
+    @ObservationIgnored private var legacyBundleFallback: Set<UUID> = []
     private(set) var localPaperDownloads: Set<UUID> = []
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
@@ -935,11 +946,12 @@ final class ReaderModel {
         case .paper(let paper):
             if openingPaperID == paper.id { return .active("Opening…") }
             if paper.isLocalPDF { return .info(localPaperRecords.contains(where: { $0.identity.sourceID == paper.sourceID }) ? "PDF on this device" : "PDF needed on this device") }
-            if !paper.canReadStructured { return .problem("Reader unavailable") }
+            if !paper.canReadStructured, paper.arxivReaderSource == nil { return .problem("Reader unavailable") }
             switch offlineStatus(for: paper) {
             case .available: return .none
             case .unavailable: return .problem("Unavailable offline")
-            case .none: return paper.isSample ? .none : .info("Not downloaded")
+            // An arXiv paper is prepared from its official HTML the first time it opens (network needed once).
+            case .none: return paper.isSample ? .none : .info(paper.arxivReaderSource != nil ? "Opens from arXiv" : "Not downloaded")
             }
         case .pending(let item):
             if localPaperDownloads.contains(item.id) { return .active("Downloading on this device…") }
@@ -2312,9 +2324,9 @@ final class ReaderModel {
         if let status = fixtureOfflineStatus[paper.id] { return status }
         #endif
         if paper.isSample { return paper.readerBundle == nil ? .none : .available }
-        if let source = paper.sourceMembership {
-            return localReaderRecords.contains { $0.identity.sourceID == source.sourceID && $0.identity.revision == source.revision } ? .available : .none
-        }
+        if let source = paper.arxivReaderSource,
+           localReaderRecords.contains(where: { $0.identity.sourceID == source.sourceID && $0.identity.revision == source.revision }) { return .available }
+        if paper.sourceMembership != nil { return .none }
         guard accountID != nil, let coordinator = readerBundles,
               let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return .none }
         return coordinator.permits(installation) ? .available : .unavailable
@@ -2324,6 +2336,12 @@ final class ReaderModel {
 
     private func openLocalPaperIfNeeded() {
         if let paper = selectedPaper, paper.sourceMembership != nil { openHTMLReader(paper); return }
+        // A legacy arXiv item: an installed server bundle still opens offline; otherwise its official HTML is prepared
+        // on this device like any other arXiv paper. When arXiv has no usable HTML for it, the server bundle is tried.
+        if let paper = selectedPaper, paper.readerBundle == nil, paper.legacyArxivSource != nil, !legacyBundleFallback.contains(paper.id),
+           readerBundles?.installation(documentID: paper.id, artifactID: paper.artifactID) == nil {
+            openHTMLReader(paper); return
+        }
         localReaderTask?.cancel(); localReaderTask = nil; localReaderOpeningID = nil
         if let paper = selectedPaper, !paper.isSample, let bundle = paper.readerBundle {
             let installed = readerBundles?.localCopy(documentID: paper.id, artifactID: paper.artifactID)
@@ -2392,13 +2410,16 @@ final class ReaderModel {
     /// Opening a metadata membership prepares its exact official HTML on this
     /// device, or reopens the authenticated local copy while offline.
     private func openHTMLReader(_ paper: Paper) {
-        guard let ref = paper.sourceMembership else { return }
+        guard let source = paper.arxivReaderSource else { return }
+        let legacy = paper.sourceMembership == nil
         if paper.readerBundle != nil { return }
         if localReaderOpeningID == paper.id { return }
         localReaderTask?.cancel()
         guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
         let scope = sessionID, persistence = localPersistence
         localReaderOpeningID = paper.id; openingPaperID = paper.id; readerOpenIssue = nil
+        // The same paper, whichever row it is shown from (a legacy item keeps its document identity).
+        let same: (Paper) -> Bool = { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }
         localReaderTask = Task { [weak self] in
             guard let self else { return }
             defer {
@@ -2408,25 +2429,32 @@ final class ReaderModel {
             }
             do {
                 let bundle: VerifiedReaderBundle
-                if let record = await store.record(sourceID: ref.sourceID, revision: ref.revision) {
+                if let record = await store.record(sourceID: source.sourceID, revision: source.revision) {
                     let reopened = try await store.read(record.identity)
                     bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
                 } else {
-                    bundle = try await ArxivHTMLReader().prepare(ref.arxivSource)
+                    bundle = try await ArxivHTMLReader().prepare(source)
                     try Task.checkCancellation()
-                    guard self.sessionID == scope, self.papers.contains(where: { $0.sourceMembership == ref }) else { throw CancellationError() }
+                    guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
                     let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }
                     _ = try await commit.value
                 }
                 try Task.checkCancellation()
-                guard self.sessionID == scope, self.selectedPaper?.sourceMembership == ref else { return }
+                guard self.sessionID == scope, let current = self.selectedPaper, same(current) else { return }
                 self.localReaderRecords = await store.records()
-                guard self.sessionID == scope, self.selectedPaper?.sourceMembership == ref else { return }
-                let displayed = paper.displaying(bundle)
+                guard self.sessionID == scope, let shown = self.selectedPaper, same(shown) else { return }
+                let displayed = shown.displaying(bundle)
                 self.papers = self.papers.map { $0.id == paper.id ? displayed : $0 }
                 self.selectedPaper = displayed
             } catch {
                 guard self.sessionID == scope, self.localReaderOpeningID == paper.id, !(error is CancellationError) else { return }
+                // A legacy item whose HTML cannot be prepared falls back to its server-processed bundle, once.
+                if legacy, paper.canReadStructured, !self.legacyBundleFallback.contains(paper.id) {
+                    self.legacyBundleFallback.insert(paper.id)
+                    self.localReaderOpeningID = nil; self.localReaderTask = nil; self.openingPaperID = nil
+                    if self.selectedPaper?.id == paper.id { self.openLocalPaperIfNeeded() }
+                    return
+                }
                 self.readerOpenIssue = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device. Try again, or open its PDF."
             }
         }
@@ -2438,9 +2466,18 @@ final class ReaderModel {
     /// then the normal open path runs.
     private func downloadReaderIfNeeded(_ paper: Paper, coordinator: ReaderBundleCoordinator) {
         if readerDownloadAttempt?.documentID == paper.id { openingPaperID = paper.id; return }
-        guard libraryContextAuthenticated, backend != nil, accountID != nil, let artifactID = paper.artifactID,
-              let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }), item.canReadStructured,
-              item.artifactID == artifactID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
+        // Never a silent dead end (owner report 2026-10-14): say why the reading copy cannot be fetched now.
+        guard !workOwnership.isActivating, !libraryPublicationDeferred else { return }
+        guard libraryContextAuthenticated, backend != nil, accountID != nil else {
+            readerOpenIssue = "Sign in to download this paper’s reading copy, or save its PDF on this device."; return
+        }
+        guard let artifactID = paper.artifactID, let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }),
+              item.artifactID == artifactID else {
+            readerOpenIssue = "This paper’s reading copy isn’t in your synced library yet. Refresh your library and try again."; return
+        }
+        guard item.canReadStructured else {
+            readerOpenIssue = "This paper has no reading copy on the server. You can save its PDF on this device."; return
+        }
         let attempt = UUID(), scope = sessionID
         readerDownloadAttempt = (attempt, paper.id); openingPaperID = paper.id; readerOpenIssue = nil
         Task {

@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { BackendError, functionPost } from '../lib/backend';
 import { BundleError, type VerifiedBundle, loadBundle } from '../lib/bundle';
-import { type ReaderPaper, paperReference, readerCacheKey } from '../lib/reader-paper';
+import { type ReaderPaper, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { prepareArxivReader, ArxivReaderError } from '../lib/arxiv-reader';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
 import { bridgeAnchor, citedMarker, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
@@ -105,8 +105,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     if (cache.has(cacheKey)) { setBundle(cache.get(cacheKey)!); return; }
     const controller = new AbortController();
     setError(null); setLoaded(0);
-    (item.kind === 'import' ? prepareArxivReader(paperReference(item)!, controller.signal, setLoaded)
-      : loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); })).then(verified => {
+    // An arXiv paper reads from its official HTML prepared on this device (owner direction 2026-10-13), a legacy
+    // item included; its server bundle is the fallback when arXiv has no usable HTML for that revision.
+    const bundle = () => loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); });
+    const source = readingSource(item);
+    (source ? prepareArxivReader(source, controller.signal, setLoaded).catch(e => item.kind === 'item' && e instanceof ArxivReaderError && !controller.signal.aborted ? bundle() : Promise.reject(e))
+      : bundle()).then(verified => {
       if (controller.signal.aborted) return;
       cache.set(cacheKey, verified);
       while (cache.size > 3) cache.delete(cache.keys().next().value!);

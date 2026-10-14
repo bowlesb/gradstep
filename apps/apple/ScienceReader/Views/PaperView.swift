@@ -276,7 +276,9 @@ struct PaperView: View {
                             description: { Text(issue) }
                             actions: { Button("Try again") { model.retryOpeningSelectedPaper() } }
                     } else {
-                        ContentUnavailableView("Paper download needed", systemImage: "arrow.down.document", description: Text("Download this paper’s complete reading bundle to open it offline."))
+                        ContentUnavailableView { Label("Reading copy needed", systemImage: "arrow.down.document") }
+                            description: { Text("This paper’s reading copy isn’t on this device yet.") }
+                            actions: { Button("Download") { model.retryOpeningSelectedPaper() } }
                     }
                 } else {
                     ContentUnavailableView("Open a paper", image: GradstepSymbol.paper, description: Text("Choose a paper from your library to start reading."))

@@ -19,7 +19,7 @@ export function composeArxivReader(input: ArxivBundleInput) {
   check(input.source instanceof Uint8Array && input.source.length > 0 && input.source.length <= LIMITS.sourceBytes, 'source_limit');
   check(input.images instanceof Map && input.images.size <= LIMITS.archiveImages, 'image_limit');
   const source = decodeUTF8(input.source), url = arxivHTMLURL(input.sourceID, input.revision);
-  const inline = arxivInlineImages(source);
+  const inline = arxivInlineImages(source, url);
   const required = [...arxivHTMLAssets(source, url), ...inline.keys()].sort();
   check(required.length === input.images.size && required.every(url => input.images.has(url)), 'arxiv_asset_set');
   const published = new Map<string, ArxivImage>();

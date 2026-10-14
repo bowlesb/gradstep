@@ -748,13 +748,43 @@
         "bytes": 683715,
         "sha256": "556e5f1c42a2657d763f0da1fdb42fcdc3cc36989fe868f2b94ad76621dfcf01"
       },
-      "assets": [],
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2405.04434v1/code.svg",
+          "bytes": 70998,
+          "sha256": "b4177a9cccfc00c7335d875fc897381c6c2430b9591daa6504d01d521a853053"
+        },
+        {
+          "url": "https://arxiv.org/html/2405.04434v1/deepseekv2.png",
+          "bytes": 228151,
+          "sha256": "f3eb2b0aacebc9c51b88c8b6f935c15c44c0646ba669342c7195b0b38c8a4ebc"
+        },
+        {
+          "url": "https://arxiv.org/html/2405.04434v1/dsattn.png",
+          "bytes": 100873,
+          "sha256": "4595663dfc123e89769ebefd6f59fdf38f10d7d7d980d29c35af600e3dc03f9b"
+        },
+        {
+          "url": "https://arxiv.org/html/2405.04434v1/efficiency.svg",
+          "bytes": 82614,
+          "sha256": "669977e3409f7ceb0451fd7e73ffd43f82479b5531ad50aabf292a4924becc68"
+        },
+        {
+          "url": "https://arxiv.org/html/2405.04434v1/mmlu.svg",
+          "bytes": 90168,
+          "sha256": "ed8ba3997b00299398c48afcde8a6ab663ff1413aee868c4b6e7d49f4ca96947"
+        },
+        {
+          "url": "https://arxiv.org/html/2405.04434v1/needle_in_a_haystack.png",
+          "bytes": 130910,
+          "sha256": "d90e9e8edf423440a1968d8689de3a6079a7a67e66025960243827c80d19b4a2"
+        }
+      ],
       "pdf": {
         "url": "https://arxiv.org/pdf/2405.04434v1",
         "bytes": 1576608,
         "sha256": "e930bb96dd1f0ecbe57b47b7a27141f8c165cd4a9de41b1cc2e46f54ec96e96b"
-      },
-      "acquisitionFailure": "arxiv_conversion_error"
+      }
     },
     {
       "key": "2407.04620v1",

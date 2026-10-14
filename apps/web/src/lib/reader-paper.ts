@@ -14,6 +14,12 @@ export const paperIdentity = (e: ReaderPaper): string => e.kind === 'item' ? e.d
 export const paperReference = (e: ReaderPaper): SourcePaperReference | undefined => e.kind === 'item' ? undefined :
  ({format:'source-membership-v1',membershipID:e.id,source:'arxiv',sourceID:e.source_id,revision:e.source_revision});
 
+/** What the reader prepares on this device: a membership's exact arXiv HTML, or, for an arXiv paper that joined the
+ * library before the HTML-first reader (a server-processed bundle, no membership), the same official HTML by its
+ * exact revision. Reading only: chat keeps the item's server document (`paperReference` stays membership-only). */
+export const readingSource = (e: ReaderPaper): SourcePaperReference | undefined => e.kind === 'import' ? paperReference(e) :
+ e.source === 'arxiv' && e.source_id && e.source_revision ? {format:'source-membership-v1',membershipID:e.id,source:'arxiv',sourceID:e.source_id,revision:e.source_revision} : undefined;
+
 export const readerCacheKey = (account: string, item: ReaderPaper): string => JSON.stringify([account,item.id,item.artifact_id,item.readiness,item.render_availability,item.render_availability_revision,item.source_id,item.source_revision]);
 
 export const isLibraryPaper = (e:ClientEntry):e is LibraryPaper => e.kind === 'local_pdf' || isReaderPaper(e);

@@ -45,11 +45,84 @@ test('assets stay in the exact official source revision and never become PDF fet
  assert.throws(()=>arxivHTMLURL('2601.01234',0));
 });
 
-test('missing images, duplicate IDs, conversion errors, missing TeX and unresolved references fail preparation',()=>{
- for(const text of [source.replace('id="p1"','id="S1"'),source.replace('An equation','<span class="ltx_ERROR">bad</span>'),
+test('missing images, duplicate IDs, missing TeX and unresolved references fail preparation',()=>{
+ for(const text of [source.replace('id="p1"','id="S1"'),
   source.replace('href="#bib1"','href="#missing"'),source.replace(math,'<math><mi>x</mi></math>')])assert.throws(()=>build(text));
  assert.throws(()=>composeArxivReader({source:utf8(source),sourceID:'2601.01234',revision:2,images:new Map()}));
  assert.throws(()=>convertArxivHTML('<html>Challenge page</html>',url,()=>{throw Error('no image expected')}));
+});
+
+test('LaTeXML conversion-error markers are dropped and counted, and the paper still reads; too many refuse it',()=>{
+ // An undefined preamble macro, as LaTeXML emits it (2026-10-14: a real paper carried 288 of these and was refused).
+ const marked=source.replace('An equation','<span id="p1.1" class="ltx_ERROR undefined">\\pdfauthor</span>An equation');
+ const bundle=build(marked),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const clean=validateReaderBundle(build().manifestBytes,build().members,build().manifestSHA256);
+ assert.equal(checked.index.blocks.length,clean.index.blocks.length+1,'one note block more');
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ assert.ok(!html.includes('pdfauthor') && !html.includes('ltx_ERROR'),'the marker and its text are gone');
+ assert.match(checked.index.blocks.at(-1)!.text,/^Note: arXiv’s HTML conversion of this version left out 1 unsupported command\. The PDF is complete\.$/);
+ assert.equal(checked.index.blocks.at(-1)!.kind,'paragraph');
+ assert.deepEqual(arxivHTMLAssets(marked,url),[url+'/figure.jpg'],'assets are still found');
+ const many=source.replace('An equation','<span class="ltx_ERROR">x</span>'.repeat(1001)+'An equation');
+ assert.throws(()=>build(many),/arxiv_conversion_error/);
+});
+
+test('graphics in running text are left out and counted; a paragraph holding one graphic is a figure (owner papers, 2026-10-14)',()=>{
+ // An affiliation logo inside the author line (2610.16352) and an inline TikZ mark (2610.13021) no longer refuse the paper.
+ const icon=source.replace('An equation','<span class="ltx_text"><img src="2601.01234v2/logo.png" class="ltx_graphics" alt="Refer to caption"></span>An equation');
+ assert.deepEqual(arxivHTMLAssets(icon,url),[url+'/figure.jpg'],'the left-out graphic is never fetched');
+ const bundle=build(icon),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ assert.equal(checked.index.figures.length,1);
+ assert.match(checked.index.blocks.at(-1)!.text,/left out 1 inline graphic\. The PDF is complete\.$/);
+ assert.ok(!new TextDecoder().decode(bundle.members.get('index.html')).includes('logo.png'));
+ // A bare \\includegraphics paragraph (2610.17288) reads as a figure, with its image acquired and published.
+ const lone=source.replace('<p id="p1">','<p class="ltx_p"><span class="ltx_text ltx_align_center"><img src="2601.01234v2/lone.jpg" class="ltx_graphics" alt="Refer to caption"></span></p><p id="p1">');
+ assert.deepEqual(arxivHTMLAssets(lone,url),[url+'/figure.jpg',url+'/lone.jpg']);
+ const both=composeArxivReader({source:utf8(lone),sourceID:'2601.01234',revision:2,
+  images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}],[url+'/lone.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]])});
+ const loneChecked=validateReaderBundle(both.manifestBytes,both.members,both.manifestSHA256);
+ assert.equal(loneChecked.index.figures.length,2);
+ assert.ok(!loneChecked.index.blocks.some(b=>b.text.startsWith('Note:')),'nothing was left out');
+ // Both counts in one note.
+ const mixed=icon.replace('<p id="p1">','<p id="p1"><span class="ltx_ERROR undefined">\\reportid</span>');
+ const mixedChecked=(()=>{const b=build(mixed);return validateReaderBundle(b.manifestBytes,b.members,b.manifestSHA256);})();
+ assert.match(mixedChecked.index.blocks.at(-1)!.text,/left out 1 unsupported command and 1 inline graphic\./);
+});
+
+test('TikZ pictures: a framed text box reads as paragraphs; a diagram keeps its labels as SVG text (owner papers, 2026-10-14)',()=>{
+ const picture=(id:string,label:string)=>`<svg id="${id}" class="ltx_picture" height="40" overflow="visible" version="1.1" viewBox="0 0 200 40" width="200"><g><path d="M 0 0 L 200 0 L 200 40 L 0 40 Z" fill="none" stroke="#000"></path>`+
+  `<foreignObject style="font-size:10pt;" height="20" overflow="visible" transform="matrix(1 0 0 -1 0 30)" width="180"><span class="ltx_foreignobject_container"><span class="ltx_foreignobject_content"><span class="ltx_p">${label}</span></span></span></foreignObject></g></svg>`;
+ // A lone picture holding a sentence (2610.13021's "Finding" boxes): the sentence is a paragraph, the frame is left out.
+ const boxed=source.replace('<p id="p1">',`<div class="ltx_para"><span class="ltx_inline-block">${picture('S1.pic1','Finding 1: experience from basic tasks helps.')}</span></div><p id="p1">`);
+ const bundle=build(boxed),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ assert.ok(checked.index.blocks.some(b=>b.kind==='paragraph'&&b.text==='Finding 1: experience from basic tasks helps.'),'the box reads as text');
+ assert.equal(checked.index.figures.length,1,'the frame is not a figure');
+ assert.match(checked.index.blocks.at(-1)!.text,/left out 1 inline graphic\./);
+ assert.deepEqual([...arxivInlineImages(boxed,url).keys()],[],'the frame is never serialized');
+ // A labelled diagram inside a figure keeps its label as SVG text, which the device admission accepts.
+ const figured=source.replace('<p id="p1">',`<figure id="S1.F9" class="ltx_figure">${picture('S1.F9.pic1','h_t')}<figcaption class="ltx_caption">Figure 9: A diagram.</figcaption></figure><p id="p1">`);
+ const inline=arxivInlineImages(figured,url);
+ assert.deepEqual([...inline.keys()],['#S1.F9.pic1']);
+ const xml=inline.get('#S1.F9.pic1')!;
+ assert.ok(!xml.includes('foreignObject')&&!xml.includes('<span'),'no HTML inside the SVG');
+ assert.match(xml,/<text [^>]*dominant-baseline="central"[^>]*>h_t<\/text>/);
+ assert.match(xml,/<g transform="matrix\(1 0 0 -1 0 30\)">/);
+});
+
+test('a table inside inline blocks (resizebox) reads as a table block (KAN, 2404.19756)',()=>{
+ const wrapped=source.replace('<p id="p1">','<div class="ltx_inline-block ltx_align_center"><span class="ltx_transformed_outer"><span class="ltx_transformed_inner"><table class="ltx_tabular"><tr><td>Layer</td><td>Width</td></tr></table></span></span></div><p id="p1">');
+ const bundle=build(wrapped),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const clean=validateReaderBundle(build().manifestBytes,build().members,build().manifestSHA256);
+ assert.equal(checked.index.blocks.filter(b=>b.kind==='table').length,clean.index.blocks.filter(b=>b.kind==='table').length+1);
+ assert.ok(checked.index.blocks.some(b=>b.kind==='table'&&/Layer Width/.test(b.text)));
+});
+
+test('a list item holding a table keeps the table (KAN, 2404.19756)',()=>{
+ const listed=source.replace('<p id="p1">','<ol class="ltx_enumerate"><li class="ltx_item"><div class="ltx_para">Compare:<table class="ltx_tabular"><tr><td>Depth</td><td>Error</td></tr></table></div></li></ol><p id="p1">');
+ const bundle=build(listed),checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const item=checked.index.blocks.find(b=>b.kind==='list');
+ assert.ok(item&&item.text.startsWith('Compare:'),'the item reads');
+ assert.match(new TextDecoder().decode(bundle.members.get('index.html')),/<li[^>]*>Compare:<table>/);
 });
 
 test('unsafe MathML and inconsistent TeX are rejected rather than silently losing equations',()=>{
@@ -68,7 +141,7 @@ test('independent verification rejects a self-consistently rehashed foreign sour
 
 test('grouped captions and inline vector legends preserve figure order, text and image provenance',()=>{
  const text=readFileSync(new URL('../fixtures/reader-arxiv/figures.html',import.meta.url),'utf8');
- const inline=arxivInlineImages(text);
+ const inline=arxivInlineImages(text,url);
  assert.deepEqual([...inline.keys()],['#legend-symbol']);
  assert.deepEqual(arxivHTMLAssets(text,url),[url+'/figure.jpg']);
  const png=admitReaderImage(new Uint8Array(readFileSync(new URL('../fixtures/reader/assets/attention.png',import.meta.url))));

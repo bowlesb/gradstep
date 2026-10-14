@@ -9,9 +9,11 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 process.chdir(root);
 if (!process.argv.includes('--on-this-device')) throw Error('Use --on-this-device on your local computer; PDFs must never be downloaded by a hosted runner.');
 if (process.env.CI || process.env.K_SERVICE || process.env.GITHUB_ACTIONS) throw Error('Local-device corpus acquisition only.');
-const papers = JSON.parse(readFileSync('tests/corpus/reader.json')).papers;
+// READER_CORPUS_SET=<name> uses tests/corpus/<name>.json and its lock (an ad-hoc audit list); default: the pinned corpus.
+const corpusSet = /^[a-z0-9-]{1,40}$/.test(process.env.READER_CORPUS_SET ?? '') ? process.env.READER_CORPUS_SET : 'reader';
+const papers = JSON.parse(readFileSync(`tests/corpus/${corpusSet}.json`)).papers;
 const cache = '.artifacts/reader-corpus';
-const lockPath = 'tests/corpus/reader-lock.json';
+const lockPath = `tests/corpus/${corpusSet}-lock.json`;
 const update = process.argv.includes('--update-lock');
 const lock = existsSync(lockPath) ? JSON.parse(readFileSync(lockPath)) : {format:1,papers:[]};
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');

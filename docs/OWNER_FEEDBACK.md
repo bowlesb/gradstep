@@ -9,6 +9,18 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat report, 2026-10-14 (build 31): library papers and new papers not opening
+
+Owner (chat, not TestFlight): "papers that were already in my library don't work. Probably we need a better framing
+of papers that are in library that have pdf downloaded vs not. Also I still see quite a few failures even for new
+papers 'couldn't open this paper'."
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | Papers already in the library don't work | Reader, legacy items (42 visible, all with a server bundle; the server said every one was available) | The device opened them only through the server bundle path, which could end silently on "Paper download needed" with no action. Legacy arXiv items now open through the on-device HTML reader like every other arXiv paper; the server bundle is the fallback; every refusal has a reason and an action. | Built 2026-10-14, native and browser; ships in build 32 and the next Pages deploy |
+| 2 | Better framing of what is downloaded | Library rows and table | Rows say "Opens from arXiv" until a paper is prepared on this device, "Unavailable offline" for a blocked copy, "PDF on this device" for a PDF; "Reader unavailable" only for non-arXiv items without a server bundle | Same |
+| 3 | "Couldn't open this paper" on new papers | Reader, nine papers added 2026-10-13/14 | Replayed offline: five of nine refused (conversion markers, inline graphics, TikZ pictures). The compiler now tolerates all three and notes what it left out; nine of nine compile ([HTML_FIRST_READER.md](architecture/HTML_FIRST_READER.md#compiler-tolerance-and-legacy-items--2026-10-14-owner-report-quite-a-few-couldnt-open-this-paper)) | Same; browser replay evidence in IMPLEMENTATION_STATUS.md |
+
 ## Purchase credits, 2026-10-07 (TestFlight build 13; observed Sandbox path repaired)
 
 Report `APgSDbWf0gMbTamRckWVdHs`, submitted 08:09 PDT, says:
