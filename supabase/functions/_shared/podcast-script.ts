@@ -214,6 +214,35 @@ export function reviewRequest(paperText: string, title: string | null, draft: Sc
   } as ScriptParams;
 }
 
+const REPAIR_TASK = `The draft below was reviewed and accepted, but the evidence checker then removed the turns listed in <removed> (each with the checker's reason code: unsupported_number and number_not_in_evidence mean a spoken number that no evidence quote of that turn states; evidence_missing means a result or interpretation with no verified quote; unanswered_question means the answer that followed was removed), and the episode is now below its word range.
+Write the complete episode again as JSON matching the schema:
+- Keep every turn in <kept> exactly as it is, with its id, chapter, speaker, style, claim_type, evidence and math.
+- In place of each removed turn, write a new turn that makes the same point only where the paper supports it, in the same chapter and position. Every number it speaks must appear, with the same digits, in one of its own evidence quotes copied character for character from the paper; where the paper does not state the figure, leave the number out or make the point without it. A removed question is replaced by a question the next turn answers, or dropped together with the reply it would have needed.
+- Give new turns new ids that continue the numbering after the highest existing id; never reuse a removed id. Keep the chapters and the limitations. Count the spoken words of the whole episode before returning and reach the word range.
+${QUOTING_RULES}`;
+
+/**
+ * Pass 3 (2026-10-14): one bounded second draft when an accepted script fell under its word floor after the checker's
+ * removals. The writer sees the paper, the kept turns (as the checker kept them) and the removed turns with their
+ * reason codes, and returns a whole script in the draft schema; the deterministic checker then runs again. No second
+ * review: the checker verifies every quote and number, and the repair only replaces the turns that failed it.
+ */
+export function repairRequest(paperText: string, title: string | null, script: Script, kept: CheckedSegment[],
+  removals: { segment: string; reason: SegmentRemoval }[], maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS): ScriptParams {
+  const keptTurns = kept.map(k => ({ id: k.id, chapter: k.chapter, speaker: k.speaker, text: k.text, style: k.style, claim_type: k.claim_type,
+    evidence: k.evidence.map(e => ({ quote: e.quote, section: e.section ?? '' })), math: k.math }));
+  const removed = removals.map(r => { const s = script.segments.find(x => x.id === r.segment);
+    return { id: r.segment, reason: r.reason, chapter: s?.chapter ?? '', speaker: s?.speaker ?? '', text: s?.text ?? '' }; });
+  const frame = { title: script.title, chapters: script.chapters, limitations: script.limitations };
+  return {
+    model: SCRIPT_MODEL, max_tokens: maxTokens,
+    thinking: { type: 'between_tools' }, output_config: { effort: 'medium', format: { type: 'json_schema', schema: DRAFT_SCHEMA } },
+    system: instructions,
+    messages: [{ role: 'user', content: [{ type: 'text', text: paperBlock(paperText, title) },
+      { type: 'text', text: `${REPAIR_TASK}\n\n<draft>\n${JSON.stringify(frame)}\n</draft>\n<kept>\n${JSON.stringify(keptTurns)}\n</kept>\n<removed>\n${JSON.stringify(removed)}\n</removed>` }] }],
+  } as ScriptParams;
+}
+
 /** Provable input bound: one token never covers less than one UTF-8 byte of the serialized request. */
 export function requestBytes(params: ScriptParams): number {
   return new TextEncoder().encode(JSON.stringify({ system: params.system, messages: params.messages,
@@ -351,7 +380,8 @@ export interface CheckReport {
 /** Checker removals, plus (v4) review removals and (v5) a question whose answer was removed. */
 export type SegmentRemoval = 'length' | 'markup' | 'evidence_missing' | 'unsupported_number' | 'number_not_in_evidence' | 'review_deleted' | 'review_flagged' | 'unanswered_question';
 export type CheckResult = { ok: true; script: CheckedScript; spokenCharacters: number; words: number; report: CheckReport }
-  | { ok: false; problems: string[]; report: CheckReport };
+  /** `kept`: the turns that survived, for a repair (podcast-worker.ts); the report stays counts and codes only. */
+  | { ok: false; problems: string[]; report: CheckReport; kept: CheckedSegment[] };
 
 /** Degradation limits: beyond these shares the script is not repaired but rejected. */
 export const MAX_UNVERIFIED_EVIDENCE_SHARE = 0.3, MAX_REMOVED_SEGMENT_SHARE = 0.3;
@@ -724,7 +754,7 @@ export function checkScript(script: Script, paperText: string, options: { fixtur
     || mathCounts.dropped || evidenceCounts.excess ? 'degraded' : 'accepted',
     segments: { checked: script.segments.length, kept: kept.length, removed: script.segments.length - kept.length }, removed,
     evidence: evidenceCounts, unverified, repaired, math: mathCounts, words, spoken_characters: spoken, rules: unique, items, removals });
-  if (unique.length) return { ok: false, problems: unique, report: final };
+  if (unique.length) return { ok: false, problems: unique, report: final, kept };
   return { ok: true, spokenCharacters: spoken, words, report: final, script: { title: script.title.replace(/\s+/g, ' ').trim().slice(0, 200),
     chapters: script.chapters.map(c => ({ id: c.id, title: c.title.replace(/\s+/g, ' ').trim().slice(0, 120) })), segments: kept,
     limitations: script.limitations.map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12) } };

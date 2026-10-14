@@ -1473,3 +1473,58 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
   that start from the Feed's Listen chip cannot start (`tab.feed` is absent in the wide layout, which has no tab bar;
   the eight generation and docked-player journeys pass there) — unchanged from before this work, and why those journeys
   are recorded on the iPhone. A Debug Mac Catalyst `build` compiles with 0 errors; the Mac app was not launched.
+
+### Script repair: one bounded second draft (migration 062, worker; 2026-10-14)
+
+Owner (2026-10-14): "I was not able to create a podcast at all." The recorded reason for every customer and seed
+generation since 2026-10-09 was the same (`podcast_job_events`, kind `checked`): the review accepted the draft, the
+checker removed the turns whose spoken numbers were not in their own evidence quotes (`unsupported_number`,
+`number_not_in_evidence`, then the question each had answered), and what remained fell under the length's word floor,
+so the whole job failed `script_evidence_rejected` with nothing charged and about $0.35 of platform loss. Jobs
+`17cc7dbd` (10 min, 7 of 47 turns removed, 1,217 words left) and `da14208a` (5 min seed, 1 of 21, 448 words) are the
+two reports; `1ab521cd` was `source_too_large` and is unrelated.
+
+- **A third script route, `podcast_script_repair`.** When the checker's only standing problem is `word_budget`, the
+  count is below the floor (never above), and at least one turn was removed, the worker records the first check, then
+  asks the writer once more: the paper, the kept turns exactly as the checker kept them (ids, located evidence), and
+  the removed turns with their reason codes. The writer returns a whole script in the draft schema, keeping every kept
+  turn verbatim and writing new turns in place of the removed ones with new ids (a removed id is never reused), every
+  spoken number only where its own quote states it. The deterministic checker then runs again on the result; if it
+  still fails, the job fails as before with both reports recorded. One repair per job, like every route.
+- **No second review.** The review's job is semantic (misrepresentation, fabricated detail); the repair only replaces
+  the turns the checker removed, and the checker verifies every quote and number of the result. The review's verdict
+  and reasons carry over to the second report; its converted removals do not repeat (they were applied, and their ids
+  are gone). A repaired episode can therefore carry a replacement turn the reviewer never read, bounded by the checker's
+  evidence rules; recorded here as the accepted risk for the private beta.
+- **Grants.** The route is admitted in `checking` after a succeeded review (`podcast_grant_gate`); speech still needs
+  the review only, so a failed or refused repair never blocks synthesizing. On a profile without the call (every
+  version-2 job) the grant is refused with `route_unavailable`, an event not an error, and the job goes on as before.
+  `provider_attempts.route` and `podcast_job_attempts.route` accept the new value; `worker_provider_attempt_begin`
+  lists it under Anthropic.
+- **Version-3 profiles** carry the call: `max_input_tokens` 80,000 + draft output + 2,000, `max_output_tokens` the
+  draft's, the ceiling by the same rates, the window the draft's when staged. The profile ceiling grows by that call
+  and the maximum credits follow the existing rule (ceiling ÷ 50,000 rounded up, times 10):
+
+  | Length | Repair ceiling | Profile ceiling v2 → v3 | Maximum credits v2 → v3 |
+  |---|---|---|---|
+  | Short | $0.2024 | $0.6895 → $0.8919 | 140 → 180 |
+  | 5 min | $0.236 | $0.7371 → $0.9731 | 150 → 200 |
+  | 10 min | $0.308 | $1.4753 → $1.7833 | 300 → 360 |
+  | 20 min | $0.4376 | $2.6042 → $3.0418 | 530 → 610 |
+
+  Version-2 rows stay for their jobs. The policy pointer is not moved by the migration: as with version 2, the
+  operator moves it through the audited `worker_podcast_policy_set`
+  (`python3 scripts/podcast-ops.py policy --actor <owner account id> --set profile_version=3 --set
+  allowed_profiles=podcast-short-v1:3,podcast-5min-v1:3,podcast-10min-v1:3,podcast-20min-v1:3 --reason "..."`) after
+  the worker that makes the repair call is deployed. The five-minute estimate text (057) keeps its measured range on
+  version 3. The native fixture's maxima (140/150/300/530) describe version 2 until the pointer moves.
+- **Evidence (local).** `tests/backend/podcast.test.ts`: a thinned draft (12 of 15 turns kept, 346 words against a
+  floor of 450) is repaired and publishes with the replacement turns in place, both checks recorded, four billed
+  attempts; a repair that fails again ends `script_evidence_rejected` with both reports; no repair for a version-2
+  profile, for too many words, or for a removal share beyond the limit. `tests/database/podcast_script_repair.sql`:
+  the four version-3 rows and their arithmetic, the lengths quoting the new maxima after the audited pointer move, the
+  route refused before the draft and before the review, granted once at its ceiling, `route_used` the second time,
+  synthesizing after a repair, and `route_unavailable` on a version-2 job that then goes on to speech.
+- **Not done:** the quote's "up to N credits" rises with the pointer (the actual charge does not; holds are released);
+  automatic retry of the three recorded failures (they are settled; the owner can create the episodes again once the
+  pointer moves); and device-prepared papers, which still have no server text to write from (a separate design).

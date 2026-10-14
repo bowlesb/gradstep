@@ -842,6 +842,87 @@ test('review reasons in the worker: a segment-scoped reject degrades and publish
   assert.ok(!JSON.stringify([many.logs, report(many), report(scoped)]).includes('repeats the caveat'), 'no problem text in logs or reports');
 });
 
+// Repair (migration 062, 2026-10-14): staging jobs 17cc7dbd and da14208a were accepted by the review, lost the turns whose
+// numbers were not in their evidence, and fell under the word floor. With the repair call in the profile, the writer is
+// asked once for replacement turns and the checker runs again.
+// The repair is gated by the call's presence, not the version (the v1 audio bounds keep the fake 150 s speech valid here).
+const REPAIR_SPEC = { ...SPEC, script: { ...SPEC.script, calls: [...SPEC.script.calls,
+  { route: 'podcast_script_repair', max_input_tokens: 88000, max_output_tokens: 6000 }] } };
+/** goodScript, thinned: three context turns speak a digit with no evidence (removed), the rest of the caveats are short. */
+function thinScript(): Script {
+  const s = goodScript(); delete s.review;
+  for (const seg of s.segments) if (/^s1[0-5]$/.test(seg.id)) seg.text = 'That caveat is worth repeating for anyone planning to build on this work.';
+  s.segments.find(x => x.id === 's10')!.text = 'Version 2 of this idea would need a bigger study.';
+  s.segments.find(x => x.id === 's12')!.text = 'Round 3 of experiments might change that picture.';
+  s.segments.find(x => x.id === 's14')!.text = 'About 7 teams are said to be trying it.';
+  return s;
+}
+test('a script under the word floor after removals is repaired once: the writer gets the kept turns and the removals, the checker runs again, the episode publishes', async () => {
+  // The thinned draft alone: 12 of 15 turns kept, 346 words against a floor of 450, the only problem the word budget.
+  const first = checkScript({ ...thinScript(), review: { verdict: 'accept', issues: [] } }, PAPER);
+  assert.equal(first.ok, false); if (first.ok) throw new Error('unreachable');
+  assert.deepEqual(first.problems, ['word_budget']); assert.equal(first.report.words, 346); assert.equal(first.kept.length, 12);
+  // The repair returns the full-length script (new ids for the three replaced turns).
+  const repaired = goodScript(); delete repaired.review;
+  for (const [from, to] of [['s10', 's16'], ['s12', 's17'], ['s14', 's18']]) repaired.segments.find(x => x.id === from)!.id = to;
+  const sent: ScriptParams[] = [];
+  const h = harness({ spec: REPAIR_SPEC, scripts: [thinScript(), ACCEPT, repaired] });
+  const inner = h.deps.script!.generate;
+  h.deps.script = { ...h.deps.script!, generate: async (params, signal) => { sent.push(params); return inner(params, signal); } };
+  const result = await runPodcast(h.deps, Date.now() + 600_000);
+  assert.deepEqual(result, { processed: 1, recovered: 0, state: 'ready', failure: null });
+  assert.deepEqual(h.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_script', 'podcast_review', 'podcast_script_repair']);
+  // The repair request: the paper, the kept turns as the checker kept them, the removed turns with their reason codes; the draft schema out.
+  const request = sent[2];
+  assert.equal(request.max_tokens, 6000);
+  const text = (request.messages[0].content as { text: string }[]).map(c => c.text).join('\n');
+  assert.match(text, /<kept>/); assert.match(text, /<removed>/); assert.match(text, /"id":"s10","reason":"unsupported_number"/);
+  assert.match(text, /Version 2 of this idea/); assert.ok(!text.includes('"id":"s10","chapter"'), 'a removed turn is not among the kept ones');
+  assert.match(text, /Sparse routing reaches 41.2 perplexity/, 'kept evidence travels as the checker located it');
+  assert.ok(text.includes('<paper'), 'the paper is read again');
+  // Both checks recorded: the rejected first one, then the accepted repair; the published transcript carries the new ids.
+  const reports = h.calls.filter(c => c.name === 'worker_podcast_checked').map(c => c.params.p_report as CheckReport);
+  assert.deepEqual(reports.map(r => [r.outcome, r.rules, r.words]), [['rejected', ['word_budget'], 346], ['accepted', [], 601]]);
+  const plan = h.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
+  const transcript = JSON.parse(new TextDecoder().decode(h.uploads.get(plan[1].path)!));
+  const ids = transcript.segments.map((x: { id: string }) => x.id);
+  assert.deepEqual(ids.filter((id: string) => ['s16', 's17', 's18'].includes(id)), ['s16', 's17', 's18'], 'the replacement turns are published in place');
+  assert.ok(!ids.some((id: string) => ['s10', 's12', 's14'].includes(id)), 'the removed ids are gone');
+  assert.ok(h.logs.some(l => (l as { event: string }).event === 'podcast_script_repairing'));
+  const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish');
+  assert.equal(finishes.length, 4, 'draft, review, repair and speech are each billed');
+  assert.ok(!JSON.stringify(h.logs).includes('Version 2 of this idea'), 'no script text in logs');
+});
+
+test('a repair that still fails, a problem other than the word floor, too many words, or a profile without the call: no second repair, the job fails or proceeds as before', async () => {
+  const report = (h: ReturnType<typeof harness>) => h.calls.filter(c => c.name === 'worker_podcast_checked').map(c => c.params.p_report as CheckReport);
+  // The repair returns the same thin script: rejected again, both checks recorded, charged zero, no speech.
+  const again = harness({ spec: REPAIR_SPEC, scripts: [thinScript(), ACCEPT, thinScript()] });
+  assert.equal((await runPodcast(again.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.deepEqual(again.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_script', 'podcast_review', 'podcast_script_repair']);
+  assert.deepEqual(report(again).map(r => [r.outcome, r.rules]), [['rejected', ['word_budget']], ['rejected', ['word_budget']]]);
+  assert.equal(again.calls.at(-1)!.name, 'worker_podcast_fail'); assert.equal(again.calls.at(-1)!.params.p_quality, true);
+  assert.ok(!again.names().includes('worker_podcast_speech_begin'));
+  // A version-2 profile has no repair call: the first rejection stands, one check recorded.
+  const v2 = harness({ scripts: [thinScript(), ACCEPT] });
+  assert.equal((await runPodcast(v2.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.deepEqual(v2.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_script', 'podcast_review']);
+  assert.equal(report(v2).length, 1);
+  // Too many words is a word-budget problem too, but not one a repair addresses.
+  const long = goodScript(); delete long.review;
+  for (const seg of long.segments) seg.text += ' The hosts talk this through carefully and slowly so the listener can follow every step of the argument.'.repeat(3);
+  const over = harness({ spec: REPAIR_SPEC, scripts: [long, ACCEPT] });
+  assert.equal((await runPodcast(over.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.ok(!over.calls.some(c => c.name === 'worker_podcast_attempt_begin' && c.params.p_route === 'podcast_script_repair'));
+  assert.ok((report(over)[0].words ?? 0) > 1000);
+  // A removal share beyond the limit is not repaired either (the review's deletions count): the existing rule stands.
+  const reject = (reasons: ReviewCorrections['reasons'], extra: Partial<ReviewCorrections> = {}): ReviewCorrections => ({ ...ACCEPT, ...extra, verdict: 'reject', reasons });
+  const draft = () => { const s = goodScript(); delete s.review; return s; };
+  const many = harness({ spec: REPAIR_SPEC, scripts: [draft(), reject([{ code: 'unsupported_claims', segments: ['s10', 's11', 's12', 's13'] }], { delete: [{ segment: 's14', problem: 'repeats the caveat' }] })] });
+  assert.equal((await runPodcast(many.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.ok(!many.calls.some(c => c.name === 'worker_podcast_attempt_begin' && c.params.p_route === 'podcast_script_repair'));
+});
+
 test('lost grant acknowledgement never becomes a provider call', async () => {
   let sent = 0;
   const h = harness({ failRpc: name => name === 'worker_podcast_attempt_begin' ? new Error('network_lost') : null,

@@ -3,7 +3,7 @@
 // grant; an unknown outcome stops the job and keeps the liability; nothing paid is
 // retried automatically. Content (paper text, scripts, audio) never enters logs —
 // only ids, digests and counts; staged drafts are kept as bounded server checkpoints.
-import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, FIVE_MINUTE_SHAPE,
+import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, FIVE_MINUTE_SHAPE, repairRequest,
   fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewReport, reviewRequest, scriptCost, scriptDocument,
   scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds, type CheckReport, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider, type ScriptShape } from './podcast-script.ts';
@@ -201,10 +201,29 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     }
     // The checker drops unverifiable evidence and removes unsupported claims (and the turns a converted reject
     // names) within bounded shares; its report (counts, codes, ids and offsets only) is recorded whatever the outcome.
-    const checked = checkScript(final, paper, { fixture, bounds });
+    let checked = checkScript(final, paper, { fixture, bounds });
     const resumedSpeech = resume?.stage === 'speech';
     log('podcast_script_checked', { outcome: checked.report.outcome, kept: checked.report.segments?.kept ?? null, removed: checked.report.segments?.removed ?? null,
       evidence: checked.report.evidence?.checked ?? null, unverified: checked.report.evidence?.unverified ?? null, first: checked.ok ? null : checked.problems[0] ?? null });
+    // Repair (2026-10-14): an accepted script that the checker's removals pushed under the word floor gets one more
+    // draft from the writer (the kept turns stay; the removed ones are rewritten against their own evidence), then the
+    // checker runs again. Only profiles with the repair call (version 3) can; the first check is recorded either way.
+    const repairCall = !fixture && !resumedSpeech ? spec.script.calls.find(c => c.route === 'podcast_script_repair') : undefined;
+    if (!checked.ok && repairCall && repairable(checked, bounds)) {
+      await recordCheck(deps, fence, checked.report, log);
+      const removals = checked.report.removals ?? [];
+      log('podcast_script_repairing', { words: checked.report.words ?? null, removed: removals.length, floor: bounds.words[0] });
+      const params = repairRequest(paper, title, final, checked.kept, removals, repairCall.max_output_tokens, instructions);
+      const repaired = parseScript(await scriptCall(deps, fence, 'podcast_script_repair', params, repairCall.max_input_tokens,
+        () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, repairCall.window_seconds), models));
+      if (!repaired) throw new Failure('script_invalid', true);
+      // The review's verdict and reasons carry over; its removals were applied by the first check and are not repeated
+      // (a removed id is never reused, so a stale removal would reject the repair as naming an unknown turn).
+      final = { ...repaired, review: final.review ? { ...final.review, verdict: 'accept', remove: undefined, rule: undefined } : final.review };
+      checked = checkScript(final, paper, { fixture, bounds });
+      log('podcast_script_rechecked', { outcome: checked.report.outcome, kept: checked.report.segments?.kept ?? null, removed: checked.report.segments?.removed ?? null,
+        words: checked.report.words ?? null, first: checked.ok ? null : checked.problems[0] ?? null });
+    }
     if (!checked.ok) { await recordCheck(deps, fence, checked.report, log); throw new Failure('script_evidence_rejected', true); }
     // The speech plan: chunks within the per-call input limit, at most the profile's calls, its audio budget shared out;
     // delivery directions are shortened if that is what it takes to fit (never a spoken word).
@@ -451,7 +470,13 @@ async function finishAttempt(deps: PodcastDeps, admission: Admission, state: 'su
 }
 
 /** One granted script pass; returns the complete model text (the caller parses it). */
-async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, route: 'podcast_script' | 'podcast_review', params: ScriptParams,
+/** The checker's only standing problem is the word floor, after it removed at least one turn: a repair can help. */
+function repairable(checked: Extract<ReturnType<typeof checkScript>, { ok: false }>, bounds: CheckerBounds): boolean {
+  return checked.problems.length === 1 && checked.problems[0] === 'word_budget'
+    && (checked.report.words ?? 0) < bounds.words[0] && (checked.report.segments?.removed ?? 0) > 0;
+}
+
+async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, route: 'podcast_script' | 'podcast_review' | 'podcast_script_repair', params: ScriptParams,
   inputCap: number, windowFor: () => number, models: Record<string, string | null>): Promise<string | null> {
   if (!deps.script) throw new Failure('script_unavailable', false);
   const bytes = requestBytes(params);
