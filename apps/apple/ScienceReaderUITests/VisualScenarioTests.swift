@@ -307,11 +307,19 @@ final class VisualScenarioTests: XCTestCase {
     /// the reader there).
     private func go(_ app: XCUIApplication, _ tab: String) {
         if app.buttons["tab.\(tab)"].exists { app.buttons["tab.\(tab)"].tap(); return }
+        #if targetEnvironment(macCatalyst)
+        // The Mac's view switch is the window toolbar's "View" group and its Settings item.
+        let title = tab == "settings" ? "Settings" : tab == "chat" ? "Reader" : tab.capitalized
+        for candidate in [app.toolbars.buttons[title], app.toolbars.radioButtons[title], app.buttons[title].firstMatch, app.radioButtons[title].firstMatch]
+        where candidate.waitForExistence(timeout: 2) { candidate.tap(); return }
+        XCTFail("no Mac toolbar control for \(tab)")
+        #else
         switch tab {
         case "settings": app.buttons["Settings"].tap()
         case "chat": app.segmentedControls.buttons["Reader"].tap()
         default: app.segmentedControls.buttons[tab.capitalized].tap()
         }
+        #endif
     }
 
     /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and
@@ -422,11 +430,16 @@ final class VisualScenarioTests: XCTestCase {
         let names = requested == "all" ? scenarios.keys.sorted() : requested.split(separator: ",").map(String.init)
         let landscape = ProcessInfo.processInfo.environment["SCIENCE_READER_VISUAL_ORIENTATION"] == "landscape"
         var failures: [String] = []
+        // The Mac has no Simulator settings: the appearance and window size are launch arguments (MacSupport.swift).
+        let appearance = ProcessInfo.processInfo.environment["SCIENCE_READER_VISUAL_APPEARANCE"] ?? ""
+        let window = ProcessInfo.processInfo.environment["SCIENCE_READER_VISUAL_WINDOW"] ?? ""
         for name in names {
             guard let scenario = scenarios[name] else { failures.append("\(name): unknown scenario"); continue }
+            #if !targetEnvironment(macCatalyst)
             XCUIDevice.shared.orientation = landscape ? .landscapeLeft : .portrait
+            #endif
             let app = XCUIApplication()
-            app.launchArguments = scenario.arguments
+            app.launchArguments = scenario.arguments + (appearance.isEmpty ? [] : ["--appearance=\(appearance)"]) + (window.isEmpty ? [] : ["--window-size=\(window)"])
             app.launch()
             if scenario.arguments.contains("--offline-reader-fixture") { XCTAssertTrue(app.buttons[mathpixID].waitForExistence(timeout: 15)) }
             else {
@@ -434,7 +447,13 @@ final class VisualScenarioTests: XCTestCase {
                               || app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
             }
             do { try scenario.steps(app) } catch { failures.append("\(name): \(error)") }
-            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            #if targetEnvironment(macCatalyst)
+            // The app's window only, never the whole display.
+            let screenshot = app.windows.firstMatch.exists ? app.windows.firstMatch.screenshot() : app.screenshot()
+            #else
+            let screenshot = XCUIScreen.main.screenshot()
+            #endif
+            let attachment = XCTAttachment(screenshot: screenshot)
             attachment.name = "visual__\(name)"; attachment.lifetime = .keepAlways; add(attachment)
             app.terminate()
         }

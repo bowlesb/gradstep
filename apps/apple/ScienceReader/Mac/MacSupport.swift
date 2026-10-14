@@ -22,6 +22,32 @@ enum Platform {
         let idiom = UIDevice.current.userInterfaceIdiom
         return idiom == .pad || idiom == .mac
     }
+
+    /// Visual checks (docs/VISUAL_CHECK.md): `--appearance=dark|light` pins the appearance for a capture where no
+    /// Simulator setting can (the Mac). Nil otherwise: the system appearance.
+    static var fixtureAppearance: ColorScheme? {
+        #if DEBUG && FIXTURE_HOST
+        switch ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--appearance=") })?.dropFirst("--appearance=".count) {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Visual checks on the Mac: `--window-size=WxH` opens the window at that size and never remembers it.
+    static var fixtureWindowSize: CGSize? {
+        #if DEBUG && FIXTURE_HOST
+        guard let value = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--window-size=") })?.dropFirst("--window-size=".count) else { return nil }
+        let parts = value.split(separator: "x").compactMap { Double($0) }
+        guard parts.count == 2, parts[0] >= 320, parts[1] >= 240, parts[0] <= 8192, parts[1] <= 8192 else { return nil }
+        return CGSize(width: parts[0], height: parts[1])
+        #else
+        return nil
+        #endif
+    }
 }
 
 extension ReaderModel {
@@ -322,7 +348,7 @@ final class WindowHookView: UIView {
         // The window opens at the size it had when the app was last used (the system's first window is
         // small for three panes, and Mac Catalyst doesn't restore it), centered on the screen.
         let saved = UserDefaults.standard.string(forKey: Self.sizeKey).map(NSCoder.cgSize(for:)) ?? .zero
-        let wanted = saved.width >= Self.minimumSize.width && saved.height >= Self.minimumSize.height ? saved : Self.defaultSize
+        let wanted = Platform.fixtureWindowSize ?? (saved.width >= Self.minimumSize.width && saved.height >= Self.minimumSize.height ? saved : Self.defaultSize)
         // After the window is on screen; an earlier request is ignored.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak scene, weak window] in
             guard let self, let scene, let window else { return }
@@ -338,7 +364,7 @@ final class WindowHookView: UIView {
     }
 
     func windowResized(to size: CGSize) {
-        guard !restoringSize, size.width >= Self.minimumSize.width, size.height >= Self.minimumSize.height else { return }
+        guard !restoringSize, Platform.fixtureWindowSize == nil, size.width >= Self.minimumSize.width, size.height >= Self.minimumSize.height else { return }
         UserDefaults.standard.set(NSCoder.string(for: size), forKey: Self.sizeKey)
     }
 

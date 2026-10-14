@@ -69,6 +69,11 @@ extension ReaderModel {
             case .library, .settings: break
             }
         }
+        // The wide layouts' view (iPad and Mac): `--wide-mode=feed|library|reader|browse|chat`.
+        if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--wide-mode=") })?.dropFirst("--wide-mode=".count),
+           let mode = WideMode.allCases.first(where: { $0.rawValue.lowercased().contains(name) }) {
+            showWideMode(mode)
+        }
     }
 
     /// Varied library metadata for the table / detailed-row layouts: author counts, years,

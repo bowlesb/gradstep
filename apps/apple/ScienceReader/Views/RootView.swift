@@ -56,6 +56,11 @@ struct RootView: View {
         }
         // A frame left with nothing there: ignored here and inside each screen's NavigationStack (`tabBarSpace`).
         .ignoresSafeArea(keyboardLeftover == .frame ? .keyboard : [], edges: .bottom)
+        // Visual checks pin the appearance (`--appearance=`); nil follows the system.
+        .preferredColorScheme(Platform.fixtureAppearance)
+        #if DEBUG && FIXTURE_HOST
+        .task { await VisualCapture.runIfRequested(model) }
+        #endif
         .environment(\.ignoresKeyboardFrame, keyboardLeftover == .frame)
         // On the root so the state stays true across wide/compact layout switches.
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in

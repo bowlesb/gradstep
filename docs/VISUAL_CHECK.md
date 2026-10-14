@@ -53,6 +53,15 @@ node scripts/visual-check.mjs compare --before=before --after=after
   `light`, `dark`, `xxl` (the largest text below the accessibility sizes), `xl` (accessibility extra large text), `rt` (Reduce
   Transparency, light). The status bar is pinned to 9:41 and full battery. `--skip-build` reuses the build folder's
   last build.
+- Mac (2026-10-14): `--devices=mac` builds the Mac Catalyst app into `<derived>-mac` and launches it directly with
+  fixture arguments; the app renders its own window to `<container>/tmp/visual-capture/<scenario>.png`
+  (`VisualCapture.swift`, Debug fixture hosts only) and the tool copies it to `mac-<variant>/`. XCUITest on the Mac
+  needs an interactive automation permission, so no UI steps run: the Mac catalogue (`MAC_SCENARIOS` in the script)
+  is the launch-argument scenarios, staged by `--start-tab`, `--wide-mode`, `--visual-ask`, `--visual-show-store`,
+  `--visual-show-all-chats`, `--visual-show-signin`, `--visual-show-import`, `--visual-open-paper`; `--appearance`
+  pins light or dark and `--window-size` the window (default 1280×820, `--window=WxH`). Known limits: the window
+  toolbar (view switch, Settings) is AppKit and outside the capture; a presented sheet is drawn over the window at the
+  top, centred, with a painted backdrop (its own window is AppKit too); `xxl`/`xl`/`rt` variants are Simulator-only.
 - Output: `.artifacts/visual/<label>/<device>-<variant>/<scenario>.png`, a contact sheet `<label>-sheet.png`, and
   for compare `compare-<before>-<after>/` with side-by-side images (before | after | changed pixels in red) and
   `report.md` sorted by the share of changed pixels. Over 0.3 % is flagged: confirm every flagged screen changed
