@@ -15,7 +15,7 @@ and the Agent v2 commit that follows this checkpoint.
 
 **Night, 2026-10-14 (owner testing build 35):** three chat reports — the authors list on all surfaces, "Back to where
 you were" missing after a reference or figure, and the chat snapping down while an answer streams — are handled in
-the commit after `e9601ab`: the arXiv compiler's `authorsBlock` and shared author rules on both surfaces, bridge
+commit `beba14c` (browser Pages `943836e8`, TestFlight build 36 iOS VALID and Mac uploaded, 16:31–16:34 PDT): the arXiv compiler's `authorsBlock` and shared author rules on both surfaces, bridge
 hardening for Back's lifetime (the regression itself did not reproduce: see `docs/OWNER_FEEDBACK.md` row 2 and the new
 native journey `testHTMLPaperInPageLinksOfferBack`), and end-only transcript following on both clients. Deployment
 (browser Pages, TestFlight build 36) is recorded in `docs/IMPLEMENTATION_STATUS.md` ("Owner reports … night"). If the

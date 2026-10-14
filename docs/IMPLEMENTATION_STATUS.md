@@ -26,7 +26,12 @@ it won't let me stay where I am (all surfaces)". `docs/OWNER_FEEDBACK.md` has th
 Evidence (2026-10-14 night, local): compiler tests 15/15; `npm test` fast suite; browser units (`authors`,
 `chat-follow`); browser journeys arxiv-html, chat, reader-drafts, library, feed-abstract; iPhone Simulator
 `LibraryMetadataTests`, `ReaderNavigationTests` (all, incl. the new HTML journey), the chat follow journey and the
-figure gallery Back journey. Deployment: recorded at the end of this section once done.
+figure gallery Back journey. Commit `beba14c`.
+
+Deployment (2026-10-14 PDT): browser Pages **`943836e8`** (the live `arxiv-reader.js` carries the author block and the
+app bundle the bridge hardening, author rules and transcript follow); TestFlight **build 36** iOS uploaded 16:31 and
+VALID on App Store Connect, Mac uploaded 16:34 (processing when written). No server function or migration changed.
+Owner acceptance of builds 31–36 remains open.
 
 ## Study tutor, audit fixes, native sync scheduler — 2026-10-14, midday (commit `bafae2d` and after; deployment noted below)
 
