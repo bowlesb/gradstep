@@ -204,6 +204,77 @@ private final class LockedValue: @unchecked Sendable {
     func get() -> Int { lock.withLock { value } }
 }
 
+/// Presentation rules of the player and the Listen sheet (2026-10-14 UX fixes): the speed is a device preference,
+/// lengths beyond the balance are greyed out and not quoted, the wait is stated per length, and an episode that
+/// becomes ready after its sheet was closed is offered by name.
+@MainActor
+final class PodcastPresentationTests: XCTestCase {
+    private static let lengths = [("podcast-short-v1", "Short", 150, 140), ("podcast-5min-v1", "5 min", 300, 150),
+                                  ("podcast-10min-v1", "10 min", 600, 300), ("podcast-20min-v1", "20 min", 1200, 530)]
+        .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3) }
+    private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, lengths: lengths)
+
+    private func generation(selected: String? = nil, ready: [PodcastEpisode] = []) -> PodcastGeneration {
+        PodcastGeneration(paperTitle: "A paper", itemID: UUID(), documentID: UUID(), phase: .offer, capabilities: Self.capabilities,
+                          ready: ready, selected: selected)
+    }
+
+    func testPlaybackSpeedIsRememberedOnThisDevice() throws {
+        let suite = "podcast-presentation-\(UUID().wire)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = PodcastPlayer(defaults: defaults)
+        XCTAssertEqual(first.rate, 1, "Nothing saved: 1×")
+        first.rate = 1.5
+        XCTAssertEqual(PodcastPlayer(defaults: defaults).rate, 1.5, "A new player (the next launch) starts at the chosen speed")
+        XCTAssertEqual(PodcastPlayer.storedRate(in: defaults), 1.5)
+        // Only speeds the player offers are restored; anything else means 1×.
+        defaults.set(3.0, forKey: PodcastPlayer.rateKey)
+        XCTAssertEqual(PodcastPlayer(defaults: defaults).rate, 1)
+        XCTAssertNil(PodcastPlayer.storedRate(in: defaults))
+        let reset = PodcastPlayer(defaults: defaults)
+        reset.rate = 2
+        reset.resetRatePreference()
+        XCTAssertEqual(reset.rate, 1)
+        XCTAssertNil(defaults.object(forKey: PodcastPlayer.rateKey), "The fixture reset forgets the choice")
+    }
+
+    func testLengthsBeyondTheBalanceAreGreyedOutAndNotQuoted() {
+        let offer = generation()
+        XCTAssertEqual(offer.selected, "podcast-5min-v1")
+        let ten = Self.lengths[2], five = Self.lengths[1]
+        XCTAssertFalse(offer.affordable(ten, credits: 200), "300 > 200: greyed out")
+        XCTAssertTrue(offer.affordable(five, credits: 200))
+        XCTAssertTrue(offer.affordable(five, credits: 150), "Exactly the maximum fits")
+        XCTAssertTrue(offer.affordable(ten, credits: nil), "An unknown balance greys nothing out; the server decides")
+        XCTAssertTrue(offer.shouldQuote(credits: 200), "The chosen five minutes is quoted at once")
+        XCTAssertTrue(offer.shouldQuote(credits: nil))
+        XCTAssertFalse(generation(selected: "podcast-10min-v1").shouldQuote(credits: 200), "A length beyond the balance waits for another choice")
+        XCTAssertTrue(generation(selected: "podcast-10min-v1").shouldQuote(credits: 300))
+    }
+
+    func testExpectedWaitIsStatedPerLength() {
+        XCTAssertEqual(PodcastGeneration.expectedWait(targetSeconds: 150), "Usually ready in a few minutes.")
+        XCTAssertEqual(PodcastGeneration.expectedWait(targetSeconds: 300), "Usually ready in a few minutes.")
+        XCTAssertEqual(PodcastGeneration.expectedWait(targetSeconds: 600), "This length can take 10 minutes or more.")
+        XCTAssertEqual(PodcastGeneration.expectedWait(targetSeconds: 1200), "This length can take 10 minutes or more.")
+        let running = generation()
+        let tenMinuteJob = PodcastJob(requestID: UUID(), state: .scripting, stageEnteredAt: nil, releaseID: nil, heldCredits: 300,
+                                      chargedCredits: nil, releasedCredits: nil, failure: nil, profile: "podcast-10min-v1")
+        XCTAssertEqual(running.length(of: tenMinuteJob)?.targetSeconds, 600, "The job's own length, not the sheet's default")
+        let unnamed = PodcastJob(requestID: UUID(), state: .scripting, stageEnteredAt: nil, releaseID: nil, heldCredits: 150,
+                                 chargedCredits: nil, releasedCredits: nil, failure: nil, profile: nil)
+        XCTAssertEqual(running.length(of: unnamed)?.targetSeconds, 300, "An older server names no length: the chosen one")
+    }
+
+    func testReadyNoticeNamesThePaperAndPollingSaysWhenItStops() {
+        let notice = PodcastCenter.ReadyNotice(releaseID: UUID(), title: "LoRA: Low-Rank Adaptation of Large Language Models")
+        XCTAssertEqual(notice.message, "Your episode of “LoRA: Low-Rank Adaptation of Large Language Models” is ready.")
+        XCTAssertEqual(PodcastCenter.pollLimit, 1_800, "The polling bound from the design is unchanged")
+        XCTAssertEqual(PodcastCenter.stillPreparingNotice, "Still preparing. Check back from Listen on this paper.")
+    }
+}
+
 // The app compiles its fixtures with FIXTURE_HOST in Debug Simulator and Mac builds (project.yml); match that here.
 #if DEBUG && (targetEnvironment(simulator) || targetEnvironment(macCatalyst))
 /// The zero-spend fixture stays honest: valid audio of the stated length, contract-valid episodes, and evidence quotes
@@ -244,6 +315,21 @@ final class PodcastFixtureTests: XCTestCase {
         let quotes = sample.transcript?.segments.flatMap(\.evidence).map(\.quote) ?? []
         XCTAssertEqual(quotes.count, 6)
         for quote in quotes { XCTAssertTrue(text.contains(quote), "Not in the sample: \(quote)") }
+    }
+
+    /// The fixture's maximums are the serving-limit (v2) profiles staging serves, and a ready length never needs credits.
+    @MainActor func testFixtureLengthsAreTheServingLimitProfiles() {
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [140, 150, 300, 530])
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.targetSeconds), [150, 300, 600, 1200])
+        XCTAssertEqual(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture", "--podcast-fixture-credits=200"]), 200)
+        XCTAssertNil(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture"]), "No argument: the balance is unknown")
+        let document = UUID()
+        let ready = PodcastFixtureTransport.build(PodcastFixtureTransport.privateSpec(document: document, length: PodcastFixtureTransport.lengths[3])).episode
+        let generation = PodcastGeneration(paperTitle: "A paper", itemID: document, documentID: document, phase: .offer,
+                                           capabilities: PodcastCapabilities(catalog: true, generation: true, delivery: true, lengths: PodcastFixtureTransport.lengths),
+                                           ready: [ready], selected: "podcast-20min-v1")
+        XCTAssertTrue(generation.affordable(PodcastFixtureTransport.lengths[3], credits: 0), "Ready: playing it costs nothing, so never greyed out")
+        XCTAssertFalse(generation.shouldQuote(credits: 10_000), "Ready: played, not quoted")
     }
 }
 #endif

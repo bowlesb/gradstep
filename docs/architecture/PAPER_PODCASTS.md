@@ -1439,3 +1439,37 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
   rebuilt the text field). The composer now changes shape through one `AnyLayout` with a stable text field, and the
   mini-player's share of the reserve no longer decides the layout; main's chat-controls (3), iPhone chat keyboard (4)
   and tablet keyboard (4) UI tests pass.
+- **UX fixes (2026-10-14, native only; the browser is unchanged):** from the read-only review of the same day.
+  (1) *Player:* the heading, transport controls, download row and the Transcript/Chapters/About picker are a fixed
+  header; only the chosen pane scrolls (`podcast.player.controls` above `podcast.player.content`), so follow-along's
+  centring of the current passage never scrolls play/±15 s/speed away. The title is bounded to three lines.
+  (2) *Generation end signal and expectation:* polling captures the sheet it followed; when the job settles with that
+  sheet closed, a ready episode becomes `PodcastCenter.readyNotice` — "Your episode of “<paper>” is ready." with **Play**
+  (a root alert, or a banner inside an open podcast sheet; `playReadyNotice` fetches the release and plays it, no new
+  charge) — and a failed/canceled job becomes a plain notice naming the paper and the charge. Reaching the 1,800 s
+  polling limit now says "Still preparing. Check back from Listen on this paper." instead of stopping silently. The
+  progress screen and the quote state what to expect per length (`PodcastGeneration.expectedWait`: Short and five
+  minutes "Usually ready in a few minutes."; ten and twenty minutes "This length can take 10 minutes or more.", per the
+  staged-generation note above). In-app only: no UserNotifications; local notifications remain an owner decision.
+  (3) *Listen sheet:* "Available: N credits" sits under the paper title as soon as the balance is known (the sheet
+  refreshes it on appear, and the centre refreshes it when a job settles); a length whose maximum exceeds the balance
+  is greyed out with "Not enough credits" (ready lengths never are; an unknown balance greys nothing out — the server's
+  hold still decides). The chosen length is quoted as soon as it is chosen, on opening too (one quote request per
+  length as before; nothing is held by a quote), so "Get an estimate" is gone and **Create episode · up to N credits**
+  is the one confirm step, pinned at the bottom of the sheet (`safeAreaInset`) with "Play the … episode" pinned the
+  same way for a ready length. A refused quote keeps the length list so a cheaper length can be chosen. Pricing
+  wording (hold / charged / released) is unchanged. Note the `podcast-generate` rate limit (20/account/hour) now also
+  counts the quote made on opening.
+  (4) *Speed:* the playback speed is kept in `UserDefaults` (`podcast.rate`, a device presentation preference, not
+  private content) and restored when the player starts; only offered speeds are restored. `--reset-podcast-fixture`
+  forgets it.
+  Fixture: the lengths' maximums are the serving-limit profiles staging serves (140 / 150 / 300 / 530, migration 052);
+  `--podcast-fixture-credits=N` supplies a balance for journeys. Tests: `PodcastPresentationTests` and a fixture
+  maxima test in `ScienceReaderTests`; the podcast journeys follow the one-step flow and add the pinned controls,
+  greyed-out lengths, ready-while-closed alert and remembered-speed journeys.
+  Evidence (local, 2026-10-14): `npm run test:slow:native` with the podcast unit classes on the iPad Pro 13-inch (M5)
+  Simulator: 20 unit tests, 1 pre-existing skip, 0 failures; `PodcastJourneyTests` on `GS-Podcast-iPhone` (iPhone 17
+  Pro): 17 run, 16 passed, the iPad-only docked-player test skipped, 0 failures. On the 13-inch iPad the nine journeys
+  that start from the Feed's Listen chip cannot start (`tab.feed` is absent in the wide layout, which has no tab bar;
+  the eight generation and docked-player journeys pass there) — unchanged from before this work, and why those journeys
+  are recorded on the iPhone. A Debug Mac Catalyst `build` compiles with 0 errors; the Mac app was not launched.

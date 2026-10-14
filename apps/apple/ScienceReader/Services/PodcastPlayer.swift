@@ -12,6 +12,8 @@ final class PodcastPlayer {
     enum SaveReason { case periodic, paused, chapter, seek, finished, stopped }
     static let rates: [Float] = [0.75, 1, 1.25, 1.5, 1.75, 2]
     static let skipSeconds = 15
+    /// The chosen speed is a presentation preference of this device (not private content): it survives relaunches.
+    static let rateKey = "podcast.rate"
 
     private(set) var episode: PodcastEpisode?
     private(set) var isPlaying = false
@@ -20,9 +22,11 @@ final class PodcastPlayer {
     private(set) var chapterID: String?
     /// "Paused for a call" and similar, shown once in the player.
     private(set) var notice: String?
-    var rate: Float = 1 {
+    /// The playback speed: restored from the last choice on this device, applied to every episode.
+    var rate: Float {
         didSet {
             guard rate != oldValue else { return }
+            defaults.set(Double(rate), forKey: Self.rateKey)
             player?.defaultRate = rate
             if isPlaying { player?.rate = rate }
             updateNowPlaying()
@@ -31,6 +35,7 @@ final class PodcastPlayer {
     /// Called with the playing episode's position whenever it should be saved (center: device-local history).
     @ObservationIgnored var onSave: ((PodcastEpisode, Int, Int, Bool, SaveReason) -> Void)?
 
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var player: AVPlayer?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
@@ -40,6 +45,21 @@ final class PodcastPlayer {
 
     var progress: Double { durationMS > 0 ? min(1, Double(currentMS) / Double(durationMS)) : 0 }
     var chapter: PodcastChapter? { episode?.chapters?.first { $0.id == chapterID } }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        rate = Self.storedRate(in: defaults) ?? 1
+    }
+
+    /// The speed saved on this device, when it is one the player offers (anything else means 1×).
+    static func storedRate(in defaults: UserDefaults) -> Float? {
+        guard defaults.object(forKey: rateKey) != nil else { return nil }
+        let stored = Float(defaults.double(forKey: rateKey))
+        return rates.first { abs($0 - stored) < 0.001 }
+    }
+
+    /// Back to 1× and forget the saved choice (an account-neutral preference, reset with the fixture).
+    func resetRatePreference() { rate = 1; defaults.removeObject(forKey: Self.rateKey) }
 
     /// Loads `episode` from a verified local file and seeks to `startMS`. Playback starts only when `autoplay`.
     func load(_ episode: PodcastEpisode, fileURL: URL, startMS: Int, autoplay: Bool) {
