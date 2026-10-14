@@ -100,6 +100,17 @@ final class PodcastJourneyTests: XCTestCase {
         app.buttons["podcast.player.forward"].tap()
         waitFor("Forward 15 seconds") { self.elapsedSeconds(app) >= 14 }
         capture(app, "Player sheet")
+        // The transport controls are pinned above the transcript: scrolling the transcript (and follow-along's own
+        // scrolling) never moves them away.
+        let content = element(app, "podcast.player.content"), controls = element(app, "podcast.player.controls")
+        XCTAssertTrue(content.exists); XCTAssertTrue(controls.exists)
+        content.swipeUp(); content.swipeUp()
+        XCTAssertTrue(app.buttons["podcast.player.toggle"].isHittable, "Play/pause stays in reach while the transcript scrolls")
+        XCTAssertTrue(app.sliders["podcast.player.position"].isHittable)
+        XCTAssertTrue(app.buttons["podcast.player.back"].isHittable && app.buttons["podcast.player.forward"].isHittable)
+        XCTAssertTrue(element(app, "podcast.player.pane").isHittable, "The Transcript/Chapters/About picker stays too")
+        XCTAssertLessThanOrEqual(controls.frame.maxY, content.frame.minY + 1, "The controls sit above the scrolling pane")
+        capture(app, "Player sheet, transcript scrolled")
         app.buttons["Done"].tap()
         let mini = element(app, "podcast.miniPlayer")
         XCTAssertTrue(mini.waitForExistence(timeout: 5), "Dismissing the sheet keeps playing in the mini-player")
@@ -151,8 +162,9 @@ final class PodcastJourneyTests: XCTestCase {
         playSample(app)
         app.buttons["podcast.player.toggle"].tap()  // pause; the evidence jump doesn't need sound
         let evidence = app.buttons["podcast.evidence.e6-1"]
-        // The transcript is lazy: scroll until the last passage's evidence is there.
-        for _ in 0..<4 where !(evidence.exists && evidence.isHittable) { app.swipeUp() }
+        // The transcript is lazy: scroll its own pane until the last passage's evidence is there.
+        let content = element(app, "podcast.player.content")
+        for _ in 0..<4 where !(evidence.exists && evidence.isHittable) { content.swipeUp() }
         XCTAssertTrue(evidence.waitForExistence(timeout: 5))
         capture(app, "Transcript with evidence")
         evidence.tap()
@@ -223,17 +235,20 @@ final class PodcastJourneyTests: XCTestCase {
         lora.press(forDuration: 1.2)
         let listen = app.buttons["Listen"]
         XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
-        // No episode: an offer, then an explicit quote before anything is held.
-        let quote = app.buttons["podcast.generate.quote"]
-        XCTAssertTrue(quote.waitForExistence(timeout: 10)); quote.tap()
+        // No episode: the chosen length (five minutes) is quoted at once; nothing is held before Create.
         let estimate = app.staticTexts["podcast.generate.estimate"]
-        XCTAssertTrue(estimate.waitForExistence(timeout: 5))
+        XCTAssertTrue(estimate.waitForExistence(timeout: 10))
         XCTAssertTrue(estimate.label.contains("maximum 150 credits"), estimate.label)
+        XCTAssertFalse(app.buttons["podcast.generate.quote"].exists, "No separate estimate step")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Anthropic (script) and Google Vertex AI (speech)")).firstMatch.exists)
+        let start = app.buttons["podcast.generate.start"]
+        XCTAssertTrue(start.isHittable, "Create is pinned at the bottom, not below the fold")
+        XCTAssertTrue(start.label.contains("150 credits"))
         capture(app, "Private episode quote")
-        app.buttons["podcast.generate.start"].tap()
+        start.tap()
         XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("150 credits"))
+        XCTAssertEqual(app.staticTexts["podcast.generate.wait"].label, "Usually ready in a few minutes.", "What to expect for five minutes")
         capture(app, "Private episode in progress")
         let charged = app.staticTexts["podcast.generate.charged"]
         XCTAssertTrue(charged.waitForExistence(timeout: 15))
@@ -243,8 +258,8 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["podcast.player.title"].label, "LoRA: Low-Rank Adaptation of Large Language Models", "A private episode is titled from the library")
     }
 
-    /// Lengths: Short · 5 min · 10 min · 20 min, each with its own maximum; choosing 10 minutes quotes its own estimate,
-    /// and choosing another length after that quotes again (a quote holds nothing).
+    /// Lengths: Short · 5 min · 10 min · 20 min, each with its own maximum (the serving-limit profiles staging serves);
+    /// the chosen length is quoted as soon as it is chosen (a quote holds nothing), so Create is the one confirm step.
     func testChoosingTenMinutesQuotesItsOwnMaximum() {
         let app = launch(["--library-metadata-fixture"])
         let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
@@ -254,28 +269,99 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
         let ten = element(app, "podcast.length.podcast-10min-v1")
         XCTAssertTrue(ten.waitForExistence(timeout: 10), "the sheet lists the lengths")
-        for (profile, maximum) in [("podcast-short-v1", 110), ("podcast-5min-v1", 150), ("podcast-10min-v1", 220), ("podcast-20min-v1", 360)] {
+        for (profile, maximum) in [("podcast-short-v1", 140), ("podcast-5min-v1", 150), ("podcast-10min-v1", 300), ("podcast-20min-v1", 530)] {
             XCTAssertTrue(element(app, "podcast.length.\(profile)").label.contains("up to \(maximum) credits"), "\(profile) shows its own maximum")
         }
         XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isSelected, "five minutes by default")
+        let estimate = app.staticTexts["podcast.generate.estimate"]
+        waitFor("Five minutes is quoted on opening") { estimate.exists && estimate.label.contains("maximum 150 credits") }
         ten.tap()
         XCTAssertTrue(ten.isSelected)
-        app.buttons["podcast.generate.quote"].tap()
-        let estimate = app.staticTexts["podcast.generate.estimate"]
-        XCTAssertTrue(estimate.waitForExistence(timeout: 5))
-        XCTAssertTrue(estimate.label.contains("maximum 220 credits"), estimate.label)
+        waitFor("Ten minutes is quoted at once") { estimate.exists && estimate.label.contains("maximum 300 credits") }
         XCTAssertTrue(app.staticTexts["podcast.generate.quotedLength"].label.hasPrefix("10 min episode"))
-        XCTAssertTrue(app.buttons["podcast.generate.start"].label.contains("220 credits"))
+        XCTAssertTrue(app.buttons["podcast.generate.start"].label.contains("300 credits"))
         capture(app, "Ten-minute quote")
         // Another length: its own quote at once.
         element(app, "podcast.length.podcast-short-v1").tap()
-        waitFor("Short is quoted") { estimate.exists && estimate.label.contains("maximum 110 credits") }
+        waitFor("Short is quoted") { estimate.exists && estimate.label.contains("maximum 140 credits") }
         XCTAssertTrue(app.staticTexts["podcast.generate.quotedLength"].label.hasPrefix("Short episode"))
         element(app, "podcast.length.podcast-10min-v1").tap()
-        waitFor("Ten minutes again") { estimate.exists && estimate.label.contains("maximum 220 credits") }
+        waitFor("Ten minutes again") { estimate.exists && estimate.label.contains("maximum 300 credits") }
         app.buttons["podcast.generate.start"].tap()
         XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("220 credits"), "the ten-minute hold")
+        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("300 credits"), "the ten-minute hold")
+        XCTAssertEqual(app.staticTexts["podcast.generate.wait"].label, "This length can take 10 minutes or more.", "What to expect for ten minutes")
+    }
+
+    /// With the balance known, it is shown at the top before any quote, and lengths whose maximum exceeds it are greyed
+    /// out with the reason; the affordable chosen length is still quoted at once.
+    func testLengthsBeyondTheBalanceAreGreyedOut() {
+        let app = launch(["--library-metadata-fixture", "--podcast-fixture-credits=200"])
+        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
+        XCTAssertTrue(lora.waitForExistence(timeout: 10))
+        lora.press(forDuration: 1.2)
+        let listen = app.buttons["Listen"]
+        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
+        let available = app.staticTexts["podcast.generate.available"]
+        XCTAssertTrue(available.waitForExistence(timeout: 10))
+        XCTAssertEqual(available.label, "Available: 200 credits")
+        let ten = element(app, "podcast.length.podcast-10min-v1"), twenty = element(app, "podcast.length.podcast-20min-v1")
+        XCTAssertFalse(ten.isEnabled, "300 > 200"); XCTAssertFalse(twenty.isEnabled, "530 > 200")
+        XCTAssertTrue(ten.label.contains("Not enough credits"), ten.label)
+        XCTAssertTrue(element(app, "podcast.length.podcast-short-v1").isEnabled)
+        XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isEnabled)
+        let estimate = app.staticTexts["podcast.generate.estimate"]
+        waitFor("Five minutes (150) is quoted") { estimate.exists && estimate.label.contains("maximum 150 credits") }
+        XCTAssertTrue(app.buttons["podcast.generate.start"].isHittable)
+        capture(app, "Lengths beyond the balance")
+        element(app, "podcast.length.podcast-short-v1").tap()
+        waitFor("Short (140) is quoted") { estimate.exists && estimate.label.contains("maximum 140 credits") }
+    }
+
+    /// An episode that becomes ready after its sheet was closed is offered by name, with Play.
+    func testEpisodeReadyAfterTheSheetClosesOffersPlay() {
+        let app = launch(["--library-metadata-fixture"])
+        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
+        XCTAssertTrue(lora.waitForExistence(timeout: 10))
+        lora.press(forDuration: 1.2)
+        let listen = app.buttons["Listen"]
+        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
+        let start = app.buttons["podcast.generate.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10)); start.tap()
+        XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("you’ll be offered Play in the app when it’s ready"))
+        app.buttons["podcast.generate.close"].tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 20), "The ready episode is announced once the sheet is closed")
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Your episode of “LoRA: Low-Rank Adaptation of Large Language Models” is ready")).firstMatch.exists)
+        capture(app, "Episode ready while the sheet was closed")
+        alert.buttons["Play"].tap()
+        XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["podcast.player.title"].label, "LoRA: Low-Rank Adaptation of Large Language Models")
+        waitFor("The ready episode plays") { app.buttons["podcast.player.toggle"].label == "Pause" }
+    }
+
+    /// The playback speed is a device preference: chosen once, it is the speed the next episode (and the next launch) starts at.
+    func testPlaybackSpeedSurvivesRelaunch() {
+        var app = launch()
+        openListen(app)
+        playSample(app)
+        let speed = app.buttons["podcast.player.speed"]
+        XCTAssertEqual(speed.value as? String, "1×")
+        speed.tap()
+        let faster = app.buttons["1.5×"]
+        XCTAssertTrue(faster.waitForExistence(timeout: 5)); faster.tap()
+        waitFor("The speed is 1.5×") { speed.value as? String == "1.5×" }
+        app.terminate()
+        app = launch(reset: false)
+        openListen(app)
+        playSample(app)
+        XCTAssertEqual(app.buttons["podcast.player.speed"].value as? String, "1.5×", "Restored on the next launch")
+        // Leave 1× behind for the next journey (its reset would do the same).
+        app.buttons["podcast.player.speed"].tap()
+        let normal = app.buttons["1×"]
+        XCTAssertTrue(normal.waitForExistence(timeout: 5)); normal.tap()
+        waitFor("Back to 1×") { app.buttons["podcast.player.speed"].value as? String == "1×" }
     }
 
     /// A paper with a ready five-minute episode: Other lengths offers to play it (no credits) or to make another length.
@@ -291,12 +377,13 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(five.waitForExistence(timeout: 10))
         XCTAssertTrue(five.label.contains("Ready"), five.label)
         XCTAssertTrue(element(app, "podcast.length.podcast-10min-v1").isSelected, "the next length still to make is chosen")
-        XCTAssertTrue(app.buttons["podcast.generate.quote"].exists)
+        let estimate = app.staticTexts["podcast.generate.estimate"]
+        waitFor("The next length is quoted at once") { estimate.exists && estimate.label.contains("maximum 300 credits") }
         capture(app, "Other lengths")
         five.tap()
         let play = app.buttons["podcast.generate.playReady"]
         XCTAssertTrue(play.waitForExistence(timeout: 5), "a ready length plays instead of being made again")
-        XCTAssertFalse(app.buttons["podcast.generate.quote"].exists)
+        XCTAssertFalse(app.buttons["podcast.generate.start"].exists, "nothing to create for a ready length")
         play.tap()
         XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
     }
@@ -307,10 +394,8 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(lora.waitForExistence(timeout: 10))
         lora.press(forDuration: 1.2)
         app.buttons["Listen"].tap()
-        let quote = app.buttons["podcast.generate.quote"]
-        XCTAssertTrue(quote.waitForExistence(timeout: 10)); quote.tap()
         let start = app.buttons["podcast.generate.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 5)); start.tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 10)); start.tap()
         let failed = element(app, "podcast.generate.failed")
         XCTAssertTrue(failed.waitForExistence(timeout: 15))
         XCTAssertEqual(app.staticTexts["podcast.generate.charged"].label, "No credits were charged.")
@@ -323,10 +408,8 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(lora.waitForExistence(timeout: 10))
         lora.press(forDuration: 1.2)
         app.buttons["Listen"].tap()
-        let quote = app.buttons["podcast.generate.quote"]
-        XCTAssertTrue(quote.waitForExistence(timeout: 10)); quote.tap()
         let start = app.buttons["podcast.generate.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 5)); start.tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 10)); start.tap()
         let message = element(app, "podcast.generate.sourceTooLarge")
         XCTAssertTrue(message.waitForExistence(timeout: 15), "The overlong source gets an actionable explanation")
         XCTAssertTrue(message.label.contains("too long for a full-paper episode at any available length"), message.label)
@@ -341,12 +424,12 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(lora.waitForExistence(timeout: 10))
         lora.press(forDuration: 1.2)
         app.buttons["Listen"].tap()
-        let quote = app.buttons["podcast.generate.quote"]
-        XCTAssertTrue(quote.waitForExistence(timeout: 10)); quote.tap()
+        // The automatic quote is refused: explained at once, with the lengths still offered for another choice.
         let message = app.staticTexts["podcast.generate.error"]
-        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
         XCTAssertTrue(message.label.hasPrefix("Your previous episode’s charge is still being confirmed."), message.label)
         XCTAssertFalse(app.buttons["podcast.generate.start"].exists, "No quote, so nothing to start")
+        XCTAssertTrue(element(app, "podcast.length.podcast-short-v1").exists, "Another length can still be chosen")
     }
 
     /// The iPad's wide layout (no tab bar): the player docks along the bottom, below every pane, so the chat column's

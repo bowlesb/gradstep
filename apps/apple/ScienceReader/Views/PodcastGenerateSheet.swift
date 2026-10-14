@@ -3,7 +3,8 @@ import ScienceReaderCore
 
 /// Listen on a paper without an episode: an explicit, bounded private generation (docs/DECISIONS.md, "Paper podcasts
 /// v1", Decision 3). Nothing is held until the reader confirms the quote; status is the server's, polled; charges are
-/// shown only as the server reports them.
+/// shown only as the server reports them. The chosen length is quoted as soon as it is chosen (a quote holds nothing),
+/// so confirming is one step; the balance is shown at the top and lengths beyond it are greyed out.
 struct PodcastGenerateSheet: View {
     @Bindable var model: ReaderModel
     @Environment(\.dismiss) private var dismiss
@@ -15,12 +16,21 @@ struct PodcastGenerateSheet: View {
                 if let generation = center.generation {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(generation.paperTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
+                        if let credits = center.availableCredits {
+                            Text("Available: \(credits) credits").font(.subheadline).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("podcast.generate.available")
+                        }
                         if let notice = center.notice { PodcastNoticeBanner(center: center, message: notice) }
+                        if let ready = center.readyNotice { PodcastReadyBanner(center: center, notice: ready) }
                         content(generation)
                     }
                     .padding(DesignMetrics.margin)
                     .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
                 }
+            }
+            // The primary action stays in reach: pinned below the scrolling content, never below the fold.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let generation = center.generation { footer(generation) }
             }
             .navigationTitle("Listen").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -28,6 +38,8 @@ struct PodcastGenerateSheet: View {
                     Button(closeTitle) { dismiss() }.accessibilityIdentifier("podcast.generate.close")
                 }
             }
+            // The balance shown is the account's latest; credits move when an episode settles.
+            .task { await model.refreshCreditBalance() }
         }
         .presentationDetents([.large])
     }
@@ -47,31 +59,36 @@ struct PodcastGenerateSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             lengthPicker(generation, quote: nil)
             if let ready = generation.readyEpisode(generation.selected) {
-                Button { center.playSelectedReady() } label: {
-                    ProminentLabel(title: "Play the \(generation.selectedLength?.label ?? "ready") episode", fullWidth: true)
-                }
-                .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.playReady")
-                .accessibilityHint("Already made: \(PodcastDuration.spoken(milliseconds: ready.durationMS)). No credits are used.")
+                Text("Already made: \(PodcastDuration.spoken(milliseconds: ready.durationMS)). Playing it uses no credits.")
+                    .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else if let length = generation.selectedLength, !generation.affordable(length, credits: center.availableCredits) {
+                Text("Your available credits don’t cover this length’s maximum. Choose a shorter length, or add credits first.")
+                    .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("podcast.generate.unaffordable")
             } else {
                 Text("Only your account can play it. You’ll see the credit estimate before anything is held.")
                     .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button { center.requestQuote() } label: { ProminentLabel(title: "Get an estimate", fullWidth: true) }
-                    .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.quote")
             }
-        case .quoting, .starting:
-            HStack(spacing: 10) { ProgressView(); Text(generation.phase == .quoting ? "Getting an estimate…" : "Starting…") }
+        case .quoting:
+            lengthPicker(generation, quote: nil)
+            HStack(spacing: 10) { ProgressView(); Text("Getting an estimate…") }
+                .accessibilityElement(children: .combine).accessibilityIdentifier("podcast.generate.quoting")
+        case .starting:
+            HStack(spacing: 10) { ProgressView(); Text("Starting…") }
                 .accessibilityElement(children: .combine)
         case .quoted(let quote):
             lengthPicker(generation, quote: quote)
             quoteCard(quote)
         case .running(let job):
-            progress(job)
+            progress(job, generation)
         case .finished(let job):
             finished(job)
         case .failed(let failure):
             if failure.isSourceTooLarge {
                 sourceTooLarge()
             } else {
+                // Another length may still fit (fewer credits, a smaller maximum): the picker stays.
+                lengthPicker(generation, quote: nil)
                 StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: failure.message, messageID: "podcast.generate.error") { EmptyView() }
                 Button("Try again") { center.requestQuote() }
                     .font(.body.weight(.semibold)).accessibilityIdentifier("podcast.generate.retry")
@@ -79,7 +96,43 @@ struct PodcastGenerateSheet: View {
         }
     }
 
+    /// The pinned primary action: Play for a ready length, Create for a quoted one; nothing otherwise.
+    @ViewBuilder private func footer(_ generation: PodcastGeneration) -> some View {
+        switch generation.phase {
+        case .offer:
+            if let ready = generation.readyEpisode(generation.selected) {
+                footerBar {
+                    Button { center.playSelectedReady() } label: {
+                        ProminentLabel(title: "Play the \(generation.selectedLength?.label ?? "ready") episode", fullWidth: true)
+                    }
+                    .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.playReady")
+                    .accessibilityHint("Already made: \(PodcastDuration.spoken(milliseconds: ready.durationMS)). No credits are used.")
+                }
+            }
+        case .quoted(let quote):
+            footerBar {
+                Button { center.startGeneration() } label: { ProminentLabel(title: "Create episode · up to \(quote.maxCredits) credits", fullWidth: true) }
+                    .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.start")
+                    .accessibilityHint("Holds up to \(quote.maxCredits) credits and starts making a private episode")
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func footerBar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            Divider()
+            content()
+                .padding(.horizontal, DesignMetrics.margin).padding(.vertical, 12)
+                .frame(maxWidth: DesignMetrics.column)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.chromeBackground)
+    }
+
     /// Short · 5 min · 10 min · 20 min, each with its own maximum (from the quote once there is one), or marked ready.
+    /// A length whose maximum exceeds the known balance is greyed out with the reason.
     private func lengthPicker(_ generation: PodcastGeneration, quote: PodcastQuote?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Length").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
@@ -88,6 +141,7 @@ struct PodcastGenerateSheet: View {
                 let option = quote?.options.first { $0.profile == length.profile } ?? length
                 let ready = generation.readyEpisode(length.profile)
                 let chosen = generation.selected == length.profile
+                let affordable = generation.affordable(option, credits: center.availableCredits)
                 Button { center.selectLength(length.profile) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
@@ -97,14 +151,20 @@ struct PodcastGenerateSheet: View {
                             Text(ready.map { "Ready · \(PodcastDuration.short(milliseconds: $0.durationMS)) · no credits" }
                                  ?? "\(Self.about(seconds: option.targetSeconds)) · up to \(option.maxCredits) credits")
                                 .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            if !affordable {
+                                Text("Not enough credits").font(.footnote.weight(.semibold)).foregroundStyle(.orange)
+                            }
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(.vertical, 8).contentShape(Rectangle())
+                    .opacity(affordable ? 1 : 0.55)
                 }
                 .buttonStyle(.plain)
+                .disabled(!affordable)
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(chosen ? .isSelected : [])
+                .accessibilityHint(affordable ? "" : "Needs up to \(option.maxCredits) credits; \(center.availableCredits ?? 0) available")
                 .accessibilityIdentifier("podcast.length.\(length.profile)")
                 if length.id != generation.lengths.last?.id { Divider().padding(.leading, 34) }
             }
@@ -129,9 +189,6 @@ struct PodcastGenerateSheet: View {
                     .accessibilityIdentifier("podcast.generate.estimate")
                 Text("Starting holds up to \(quote.maxCredits) credits. You’re charged for the work actually done, and the rest is released. If the episode fails our checks, nothing is charged.")
                     .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if let balance = model.creditBalance {
-                    Text("Available: \(balance.available) credits").font(.subheadline).foregroundStyle(.secondary)
-                }
             }
             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -142,9 +199,8 @@ struct PodcastGenerateSheet: View {
                 Label { Text("AI-generated · beta: check important claims against the paper.") } icon: { PodcastConsentIcon(name: "waveform") }
             }
             .font(.subheadline).fixedSize(horizontal: false, vertical: true)
-            Button { center.startGeneration() } label: { ProminentLabel(title: "Create episode · up to \(quote.maxCredits) credits", fullWidth: true) }
-                .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.start")
-                .accessibilityHint("Holds up to \(quote.maxCredits) credits and starts making a private episode")
+            Text(PodcastGeneration.expectedWait(targetSeconds: quote.targetSeconds))
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -153,7 +209,7 @@ struct PodcastGenerateSheet: View {
         (.synthesizing, "Recording the two voices"), (.verifying, "Checking the audio"), (.publishing, "Finishing up"),
     ]
 
-    private func progress(_ job: PodcastJob) -> some View {
+    private func progress(_ job: PodcastJob, _ generation: PodcastGeneration) -> some View {
         let index = Self.steps.firstIndex { $0.0 == job.state }
         return VStack(alignment: .leading, spacing: 12) {
             if job.state == .capacityWait {
@@ -172,7 +228,12 @@ struct PodcastGenerateSheet: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityValue(index.map { offset < $0 ? "done" : offset == $0 ? "in progress" : "not started" } ?? "")
             }
-            Text("Holding up to \(job.heldCredits) credits. You can close this; it keeps going, and Listen on this paper shows its progress.")
+            if let length = generation.length(of: job) {
+                Text(PodcastGeneration.expectedWait(targetSeconds: length.targetSeconds))
+                    .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("podcast.generate.wait")
+            }
+            Text("Holding up to \(job.heldCredits) credits. You can close this; it keeps going, and you’ll be offered Play in the app when it’s ready. Listen on this paper shows its progress.")
                 .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("podcast.generate.held")
             if job.cancelRequested {

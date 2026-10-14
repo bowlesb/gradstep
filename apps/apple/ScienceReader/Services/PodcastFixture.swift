@@ -14,6 +14,11 @@ actor PodcastFixtureTransport: PodcastTransport {
     static let sampleRelease = UUID(uuidString: "fa000000-0000-4000-8000-000000000001")!
     static let attentionRelease = UUID(uuidString: "fa000000-0000-4000-8000-000000000002")!
     static let fixtureAccount = UUID(uuidString: "fa000000-0000-4000-8000-0000000000ac")!
+    /// `--podcast-fixture-credits=N`: the account's available credits, so the Listen sheet's balance line and the
+    /// greyed-out lengths can be checked without a backend (absent: the balance is unknown, nothing is greyed out).
+    static func fixtureCredits(arguments: [String] = ProcessInfo.processInfo.arguments) -> Int64? {
+        arguments.first { $0.hasPrefix("--podcast-fixture-credits=") }.flatMap { Int64($0.dropFirst("--podcast-fixture-credits=".count)) }
+    }
 
     enum GenerationMode { case succeeds, fails, sourceTooLarge }
     private let generation: GenerationMode
@@ -32,9 +37,9 @@ actor PodcastFixtureTransport: PodcastTransport {
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
     }
 
-    /// The server's four lengths and their maximums (migration 048's profiles).
-    static let lengths = [("podcast-short-v1", "Short", 150, 110), ("podcast-5min-v1", "5 min", 300, 150),
-                          ("podcast-10min-v1", "10 min", 600, 220), ("podcast-20min-v1", "20 min", 1200, 360)]
+    /// The server's four lengths and their maximums (migration 052's serving-limit profiles, as staging serves them).
+    static let lengths = [("podcast-short-v1", "Short", 150, 140), ("podcast-5min-v1", "5 min", 300, 150),
+                          ("podcast-10min-v1", "10 min", 600, 300), ("podcast-20min-v1", "20 min", 1200, 530)]
         .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3,
                              estimate: "Estimate — you're charged actual usage, maximum \($0.3) credits") }
     private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 150, targetSeconds: 300,

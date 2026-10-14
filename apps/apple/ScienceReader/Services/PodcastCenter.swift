@@ -80,6 +80,30 @@ struct PodcastGeneration: Identifiable, Equatable {
 
     var selectedLength: PodcastLength? { lengths.first { $0.profile == selected } }
     func readyEpisode(_ profile: String) -> PodcastEpisode? { ready.first { ($0.profile ?? PodcastLength.defaultProfile) == profile } }
+
+    /// A length can be started when its maximum fits the available credits (a ready length never needs any; an
+    /// unknown balance greys nothing out: the server still decides, and says so).
+    func affordable(_ length: PodcastLength, credits: Int64?) -> Bool {
+        guard readyEpisode(length.profile) == nil, let credits else { return true }
+        return Int64(length.maxCredits) <= credits
+    }
+
+    /// Whether the chosen length is quoted at once (nothing is held by a quote): not ready and not known to be
+    /// beyond the balance.
+    func shouldQuote(credits: Int64?) -> Bool {
+        guard let length = selectedLength else { return false }
+        return readyEpisode(selected) == nil && affordable(length, credits: credits)
+    }
+
+    /// The job's length when the server names it, else the chosen one.
+    func length(of job: PodcastJob) -> PodcastLength? { lengths.first { $0.profile == job.profile } ?? selectedLength }
+
+    /// What to expect while an episode is made (docs/architecture/PAPER_PODCASTS.md, "Staged generation"): Short
+    /// and five minutes run as one request; ten and twenty minutes run in stages, and a twenty-minute draft alone can
+    /// take about ten minutes.
+    static func expectedWait(targetSeconds: Int) -> String {
+        targetSeconds > 300 ? "This length can take 10 minutes or more." : "Usually ready in a few minutes."
+    }
 }
 
 /// An evidence quote whose paper isn't in this library: offer the source and an explicit Add.
@@ -120,6 +144,18 @@ final class PodcastCenter {
     var evidenceElsewhere: PodcastEvidenceElsewhere?
     /// A one-line problem or outcome, shown as an alert.
     var notice: String?
+    /// A private episode that became ready after its sheet was closed: offered with Play (an alert at the root, a
+    /// banner inside an open podcast sheet). In-app only; local notifications are an owner decision.
+    struct ReadyNotice: Identifiable, Equatable {
+        let id = UUID()
+        let releaseID: UUID
+        let title: String
+        var message: String { "Your episode of “\(title)” is ready." }
+    }
+    var readyNotice: ReadyNotice?
+    /// Status polling stops after this long; the job itself continues on the server.
+    static let pollLimit: TimeInterval = 1_800
+    static let stillPreparingNotice = "Still preparing. Check back from Listen on this paper."
     /// Releases the server has corrected (superseded) since they were downloaded: their replacement.
     private(set) var corrections: [UUID: UUID] = [:]
 
@@ -147,6 +183,8 @@ final class PodcastCenter {
         #if DEBUG && FIXTURE_HOST
         // Quick visual checks (`simctl launch … --podcast-fixture --podcast-listen`): open on the Listen filter.
         if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-listen") { listenSelected = true }
+        // A reset fixture starts at 1×: the saved speed is a device preference the journeys must not inherit.
+        if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--reset-podcast-fixture") { player.resetRatePreference() }
         // Autoplay needs the catalog, whichever tab the check opens on.
         if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-autoplay") {
             Task { [weak self] in self?.loadCatalog() }
@@ -192,6 +230,15 @@ final class PodcastCenter {
 
     var nowPlaying: PodcastEpisode? { player.episode }
 
+    /// The account's available credits as last loaded (nil until known), for the Listen sheet's balance line and
+    /// for greying out lengths whose maximum exceeds it. Only the server's hold decides; this is a courtesy.
+    var availableCredits: Int64? {
+        #if DEBUG && FIXTURE_HOST
+        if PodcastFixtureTransport.isEnabled { return PodcastFixtureTransport.fixtureCredits() }
+        #endif
+        return host?.creditBalance?.available
+    }
+
     /// Listen is offered for a synced library paper (the offline sample only has a fixture episode).
     func canListen(to paper: Paper) -> Bool {
         #if DEBUG && FIXTURE_HOST
@@ -214,7 +261,7 @@ final class PodcastCenter {
         pollTask?.cancel(); pollTask = nil; catalogTask?.cancel(); catalogTask = nil
         catalog = []; catalogState = .idle; catalogNext = nil; capabilities = nil
         downloads = [:]; history = PodcastPlaybackLedger(); generation = nil; evidenceElsewhere = nil; notice = nil; corrections = [:]
-        showPlayer = false; listenSelected = false
+        readyNotice = nil; showPlayer = false; listenSelected = false
     }
 
     /// The current account's context, loading its sealed history and downloads list the first time.
@@ -320,6 +367,7 @@ final class PodcastCenter {
     /// Plays `episode`: from a verified local copy, or after fetching and verifying the whole file first (no Range,
     /// no streaming). Tapping Play never adds a paper or buys anything.
     func play(_ episode: PodcastEpisode, at startMS: Int? = nil) {
+        if readyNotice?.releaseID == episode.id { readyNotice = nil }
         if nowPlaying?.id == episode.id {
             if let startMS { player.seek(toMS: startMS) }
             if !player.isPlaying { player.play() }
@@ -545,6 +593,8 @@ final class PodcastCenter {
                 } else if lookup.capabilities?.generation == true {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer,
                                                    capabilities: lookup.capabilities, ready: ready)
+                    // One confirm step: the chosen length's estimate is fetched at once (a quote holds nothing).
+                    quoteIfWanted()
                 } else if choosingLength, let episode = lookup.episode, !episode.state.blocksPlayback {
                     notice = "Other lengths can’t be made right now. This episode keeps playing."
                 } else {
@@ -583,21 +633,26 @@ final class PodcastCenter {
         }
     }
 
-    /// Choosing a length. With an estimate already shown, the newly chosen length is quoted at once (a quote holds
-    /// nothing); a length that is ready plays instead of being made again.
+    /// Choosing a length: it is quoted at once (a quote holds nothing; an estimate still in flight for the previous
+    /// choice is ignored when it lands); a length that is ready plays instead of being made again; one known to be
+    /// beyond the balance waits, greyed out, for a different choice.
     func selectLength(_ profile: String) {
         guard var current = generation, current.selected != profile, current.lengths.contains(where: { $0.profile == profile }) else { return }
-        let quoted: Bool
         switch current.phase {
-        case .offer: quoted = false
-        case .quoted, .failed: quoted = true
-        case .finished(let job) where job.state == .failed: quoted = true
+        case .offer, .quoting, .quoted, .failed: break
+        case .finished(let job) where job.state == .failed: break
         default: return
         }
         current.selected = profile
         current.phase = .offer
         generation = current
-        if quoted, current.readyEpisode(profile) == nil { requestQuote() }
+        quoteIfWanted()
+    }
+
+    /// The offer's chosen length, quoted unless it is ready or known not to fit the balance.
+    private func quoteIfWanted() {
+        guard let current = generation, current.phase == .offer, current.shouldQuote(credits: availableCredits) else { return }
+        requestQuote()
     }
 
     /// The chosen length is already ready for this paper: play it (no new charge).
@@ -641,10 +696,13 @@ final class PodcastCenter {
     }
 
     /// Durable server status, polled on a bounded schedule (2 s, then 5 s, then 15 s); never inferred from time.
+    /// The sheet may be closed meanwhile (`generation` nil, or another paper's): the outcome is then told as a notice,
+    /// with Play when the episode is ready; reaching the polling limit says so instead of going quiet.
     private func poll(_ requestID: UUID) {
         pollTask?.cancel()
         generationCounter += 1
         let counter = generationCounter
+        let followed = generation
         pollTask = Task {
             let started = Date()
             while !Task.isCancelled, let account, generationCounter == counter {
@@ -655,16 +713,56 @@ final class PodcastCenter {
                 let interval: Double = elapsed < 30 ? 2 : elapsed < 180 ? 5 : 15
                 #endif
                 try? await Task.sleep(for: .seconds(interval))
-                guard !Task.isCancelled, generationCounter == counter, elapsed < 1_800 else { return }
+                guard !Task.isCancelled, generationCounter == counter else { return }
+                if elapsed >= Self.pollLimit { notice = Self.stillPreparingNotice; return }
                 guard let outcome = try? await account.transport.status(requestID: requestID), self.account?.id == account.id else { continue }
+                let sheetOpen = generation?.id == followed?.id
                 guard case .job(let job) = outcome else {
                     // Ready already (another request for the same episode): play it, no new charge.
-                    if case .reuse(let releaseID) = outcome, let current = generation { try? await playReady(releaseID, title: current.paperTitle, account: account) }
+                    if case .reuse(let releaseID) = outcome, let current = followed {
+                        if sheetOpen { try? await playReady(releaseID, title: current.paperTitle, account: account) }
+                        else { readyNotice = ReadyNotice(releaseID: releaseID, title: current.paperTitle) }
+                    }
                     return
                 }
-                if generation != nil, generation?.phase != .offer { generation?.phase = job.state.isActive ? .running(job) : .finished(job) }
-                if !job.state.isActive { return }
+                if sheetOpen, generation?.phase != .offer { generation?.phase = job.state.isActive ? .running(job) : .finished(job) }
+                if job.state.isActive { continue }
+                // Settled: the balance moved (charged or released), and a closed sheet is told the outcome.
+                Task { await host?.refreshCreditBalance() }
+                if !sheetOpen, let current = followed { settledWhileClosed(job, of: current) }
+                return
             }
+        }
+    }
+
+    /// The outcome of a job whose sheet was closed: Play when ready, otherwise a plain line (Listen has the details).
+    private func settledWhileClosed(_ job: PodcastJob, of current: PodcastGeneration) {
+        let charge = job.chargedCredits.map { $0 == 0 ? "No credits were charged." : "Charged \($0) credits." } ?? ""
+        let outcome: String
+        switch job.state {
+        case .ready:
+            guard let releaseID = job.releaseID else { outcome = "Your episode of “\(current.paperTitle)” is ready."; break }
+            readyNotice = ReadyNotice(releaseID: releaseID, title: current.paperTitle); return
+        case .canceled: outcome = "The episode of “\(current.paperTitle)” was canceled."
+        default: outcome = "The episode of “\(current.paperTitle)” couldn’t be made."
+        }
+        notice = [outcome, charge, "Listen on this paper has the details."].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Play from the ready notice (no new charge). The alert passes the notice it showed; a banner uses the current one.
+    func playReadyNotice(_ shown: ReadyNotice? = nil) {
+        guard let ready = shown ?? readyNotice, let account else { return }
+        readyNotice = nil
+        // From a banner inside another paper's Listen sheet: that sheet goes first (one sheet presents at a time).
+        let closingSheet = generation != nil
+        generation = nil
+        Task {
+            do {
+                let episode = try await account.transport.episode(ready.releaseID)
+                if closingSheet { try? await Task.sleep(for: .milliseconds(600)) }
+                guard self.account?.id == account.id else { return }
+                play(resolve(episode, fallback: ready.title))
+            } catch { notice = error.podcastMessage }
         }
     }
 

@@ -19,32 +19,46 @@ struct PodcastPlayerSheet: View {
     var body: some View {
         NavigationStack {
             if let episode = player.episode {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            heading(episode)
-                            if let notice = center.notice { PodcastNoticeBanner(center: center, message: notice) }
-                            controls(episode)
-                            if let notice = player.notice {
-                                Text(notice).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("podcast.player.notice")
-                            }
-                            downloadRow(episode)
-                            Picker("Show", selection: $pane) {
-                                ForEach(Pane.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                            }.pickerStyle(.segmented).accessibilityIdentifier("podcast.player.pane")
-                            switch pane {
-                            case .transcript: transcript(episode)
-                            case .chapters: chapters(episode)
-                            case .about: about(episode)
-                            }
+                // The transport controls and the pane picker stay put; only the chosen pane scrolls, so follow-along
+                // (which keeps the passage being read centred) never scrolls the controls away.
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        heading(episode)
+                        if let notice = center.notice { PodcastNoticeBanner(center: center, message: notice) }
+                        if let ready = center.readyNotice { PodcastReadyBanner(center: center, notice: ready) }
+                        controls(episode)
+                        if let notice = player.notice {
+                            Text(notice).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("podcast.player.notice")
                         }
-                        .padding(.horizontal, DesignMetrics.margin).padding(.bottom, 24)
-                        .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
+                        downloadRow(episode)
+                        Picker("Show", selection: $pane) {
+                            ForEach(Pane.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }.pickerStyle(.segmented).accessibilityIdentifier("podcast.player.pane")
                     }
-                    .onChange(of: currentSegmentID(episode)) { _, id in
-                        guard follow, pane == .transcript, let id else { return }
-                        if reduceMotion { proxy.scrollTo(id, anchor: .center) }
-                        else { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) } }
+                    .padding(.horizontal, DesignMetrics.margin).padding(.bottom, 10)
+                    .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
+                    .background(Color.chromeBackground)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("podcast.player.controls")
+                    Divider()
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            Group {
+                                switch pane {
+                                case .transcript: transcript(episode)
+                                case .chapters: chapters(episode)
+                                case .about: about(episode)
+                                }
+                            }
+                            .padding(.horizontal, DesignMetrics.margin).padding(.top, 12).padding(.bottom, 24)
+                            .frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
+                        }
+                        .accessibilityIdentifier("podcast.player.content")
+                        .onChange(of: currentSegmentID(episode)) { _, id in
+                            guard follow, pane == .transcript, let id else { return }
+                            if reduceMotion { proxy.scrollTo(id, anchor: .center) }
+                            else { withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) } }
+                        }
                     }
                 }
                 .navigationTitle("Now playing").navigationBarTitleDisplayMode(.inline)
@@ -72,10 +86,11 @@ struct PodcastPlayerSheet: View {
 
     private func heading(_ episode: PodcastEpisode) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(episode.displayTitle).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            // Part of the fixed header: bounded so a long title never crowds out the transcript.
+            Text(episode.displayTitle).font(.title3.weight(.semibold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("podcast.player.title")
             let line = ([episode.year.map(String.init)] + [authorsLine(episode)] + [episode.topicName]).compactMap { $0 }.filter { !$0.isEmpty }
-            if !line.isEmpty { Text(line.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary) }
+            if !line.isEmpty { Text(line.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
             PodcastBadges(episode: episode, kept: center.isKept(episode.id))
         }
         .padding(.top, 8)
@@ -475,6 +490,19 @@ struct PodcastNoticeBanner: View {
     }
 }
 
+/// An episode made while its sheet was closed is ready: Play it, inside a podcast sheet.
+struct PodcastReadyBanner: View {
+    let center: PodcastCenter
+    let notice: PodcastCenter.ReadyNotice
+    var body: some View {
+        StatusBanner(tone: .info, systemImage: "checkmark.circle", message: notice.message, messageID: "podcast.ready") {
+            Button("Play") { center.playReadyNotice() }.accessibilityIdentifier("podcast.ready.play")
+            Button { center.readyNotice = nil } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)) }
+                .accessibilityLabel("Dismiss").tint(.secondary)
+        }
+    }
+}
+
 /// The podcast sheets and notices, attached once at the root.
 struct PodcastPresenter: ViewModifier {
     @Bindable var model: ReaderModel
@@ -488,6 +516,13 @@ struct PodcastPresenter: ViewModifier {
                                                   set: { if !$0 { center.notice = nil } })) {
                 Button("OK") { model.podcasts.notice = nil }
             } message: { Text(model.podcasts.notice ?? "") }
+            // An episode that became ready after its sheet was closed: Play now, or later from Listen on the paper.
+            .alert("Listen", isPresented: Binding(get: { center.readyNotice != nil && center.notice == nil && !center.showPlayer && center.generation == nil },
+                                                  set: { if !$0 { center.readyNotice = nil } }),
+                   presenting: center.readyNotice) { ready in
+                Button("Play") { center.playReadyNotice(ready) }
+                Button("Not now", role: .cancel) { center.readyNotice = nil }
+            } message: { ready in Text(ready.message) }
     }
 }
 
