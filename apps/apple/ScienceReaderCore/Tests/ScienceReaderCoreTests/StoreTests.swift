@@ -4,6 +4,27 @@ import Testing
 @testable import ScienceReaderCore
 
 @Suite struct StoreTests {
+    @Test func unreadableRemoteEventIsReportedAsInvalidEvent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().wire)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = UUID(), keys = KeyBundle.generate(accountID: account)
+        let store = try EncryptedStore(url: directory.appendingPathComponent("state.sqlite"), accountID: account, localKey: ReaderCrypto.randomKey(), keys: keys)
+        let sealed = try ReaderCrypto.seal(PrivateEvent(kind: .note, text: "remote"), id: UUID(), deviceID: UUID(), keys: keys)
+        var corrupt = sealed.ciphertext; corrupt[corrupt.count - 1] ^= 1
+        let tampered = EventEnvelope(id: sealed.id, deviceID: sealed.deviceID, epoch: sealed.epoch, format: sealed.format, ciphertext: corrupt)
+        // The digest matches the bytes sent, so only AES-GCM fails: a named code, not a CryptoKit error.
+        await #expect(throws: ReaderError.invalidEvent) {
+            try await store.ingest([RemoteEvent(cursor: 1, envelope: tampered, digest: tampered.sha256)])
+        }
+        #expect(await store.cursor() == 0)
+        // A key the page needs but this bundle lacks still asks for a key refresh, not a report.
+        var future = keys; try future.rotate()
+        let later = try ReaderCrypto.seal(PrivateEvent(kind: .note, text: "newer epoch"), id: UUID(), deviceID: UUID(), keys: future)
+        await #expect(throws: ReaderError.missingKey) {
+            try await store.ingest([RemoteEvent(cursor: 1, envelope: later, digest: later.sha256)])
+        }
+    }
+
     @Test func failedPageCommitRollsBackRecordsCursorAndAcknowledgment() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().wire)
         defer { try? FileManager.default.removeItem(at: directory) }

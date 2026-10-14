@@ -132,6 +132,8 @@ struct RootView: View {
         #if INTERNAL
         .modifier(SessionCaptureHooks(model: model))
         #endif
+        // Scheduled sync (ReaderModel.updateSyncSchedule) follows the scene; the first sync on return is below.
+        .onChange(of: scenePhase, initial: true) { _, phase in model.sceneActive = phase == .active }
         .onChange(of: scenePhase) { _, phase in
             Task {
                 model.flushReadingActivity()
@@ -947,6 +949,10 @@ struct ChatView: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                 .readableColumn()
             }
+            // Study (experimental, 2026-10-14): the knowledge map sits above the message box while the chat is a study.
+            if let map = model.chatStudyMap {
+                StudyMapBar(model: model, map: map).readableColumn()
+            }
             if let issue = model.chatDraftIssue {
                 HStack {
                     Text(issue).font(.caption)
@@ -982,7 +988,7 @@ struct ChatView: View {
     /// on the row under it, as in Gemini's message box. With little height (a keyboard in landscape) everything is one
     /// row and the settings control shows only its symbol.
     @ViewBuilder private func composer(compact: Bool) -> some View {
-        let field = TextField("Chat", text: $model.chatInput, axis: .vertical)
+        let field = TextField(model.chatStudyMap != nil ? "Your answer" : "Chat", text: $model.chatInput, axis: .vertical)
             .focused($composerFocused).accessibilityIdentifier("chat.composer")
             .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
             // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
@@ -1165,6 +1171,12 @@ struct ChatView: View {
                 GoToPassageMenuRow(model: model) { composerFocused = false }
                 MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
+            }
+            // Study (experimental, 2026-10-14).
+            if model.chatStudyMap != nil {
+                Section { MenuRow("End study", systemImage: "graduationcap") { model.endStudy() } }
+            } else if model.canStudyPaper {
+                Section { MenuRow("Study this paper", systemImage: "graduationcap") { composerFocused = false; Task { await model.startStudy() } } }
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }

@@ -211,6 +211,59 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatFollowUpQuestions, [], "An interrupted answer offers no follow-ups")
     }
 
+    /// Study (experimental, 2026-10-14): a tutored chat on a paper numbered on this device. The opening turn carries
+    /// an empty map; each answer sends the map back; a complete tutored answer advances it; a failed one keeps it;
+    /// ending the study keeps the conversation and drops the map, which is never saved.
+    func testStudySendsTheMapWithEveryTurnAdvancesItOnCompleteAnswersOnlyAndEndsWithoutATrace() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        // The paper numbered on this device: the shared arXiv HTML fixture, as its membership.
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/package.json")))
+        let reference = try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2)
+        // A membership's library row carries the membership id (its events bind to the reference by that id).
+        var paper = Paper(id: reference.membershipID, title: "Authored HTML fixture", authors: "A. Author", year: 2026, abstract: "", keywords: [], fileURL: nil, artifactID: nil)
+        paper.sourceID = "2601.01234"; paper.sourceRevision = 2; paper.sourceMembership = reference
+        let numbered = paper.displaying(bundle)
+        model.papers.append(numbered); model.selectedPaper = numbered; model.chatPaperID = numbered.id; model.generalChat = false
+        XCTAssertTrue(model.canStudyPaper); XCTAssertNil(model.chatStudyMap)
+        let first = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .learning, paragraphs: [2])], links: [], focus: "attention", journey: ["attention"], next: .calibrate)
+        let grown = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .known, paragraphs: [2]), StudyMap.Concept(id: "softmax", label: "Softmax", state: .learning, paragraphs: [2])],
+                             links: [StudyMap.Link(from: "softmax", to: "attention", kind: .prerequisite)], focus: "softmax", journey: ["attention", "softmax"], next: .teach)
+        await model.startStudy()
+        try await waitUntil("opening turn issued") { transport.requests.count == 1 }
+        let opening = transport.requests[0]
+        XCTAssertEqual(opening.action, .study); XCTAssertEqual(opening.study, .empty); XCTAssertNotNil(opening.localContext); XCTAssertNil(opening.selection)
+        XCTAssertEqual(opening.turns.last?.text, StudyMap.startMessage())
+        XCTAssertEqual(model.chatStudyMap, .empty, "the study starts with an empty map")
+        transport.send(.delta("**What does attention compute?**"), .study(first), .done(stopReason: "end_turn", credits: 4))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        XCTAssertEqual(model.chatStudyMap, first)
+        XCTAssertEqual(model.chatFollowUpQuestions, [], "the tutor asks its own question")
+        // The reader's answer carries the current map; a failed answer leaves it unchanged, with its cost shown.
+        model.chatInput = "A weighted sum of the values."
+        await model.sendMessage()
+        try await waitUntil("answer turn issued") { transport.requests.count == 2 }
+        XCTAssertEqual(transport.requests[1].action, .study); XCTAssertEqual(transport.requests[1].study, first)
+        // The provider never started: nothing to keep, nothing charged, and the question can be asked again.
+        transport.send(.study(grown), .failure(code: "provider_unavailable", credits: 0))
+        try await waitUntil("failed") { !model.isAnswering }
+        XCTAssertEqual(model.chatStudyMap, first, "a failed answer keeps the previous map")
+        XCTAssertEqual(model.chatAnswerIssue?.code, "provider_unavailable"); XCTAssertEqual(model.chatAnswerIssue?.credits, 0)
+        model.retryAnswer()
+        try await waitUntil("retry issued") { transport.requests.count == 3 }
+        XCTAssertEqual(transport.requests[2].study, first, "a retry sends the same map")
+        transport.send(.delta("Right. **Next?**"), .study(grown), .done(stopReason: "end_turn", credits: 4))
+        try await waitUntil("retry sealed") { !model.isAnswering && model.chatStudyMap == grown }
+        // Nothing of the map was saved: the history holds the messages only.
+        XCTAssertFalse(model.chatMessages.contains { ($0.payload.text ?? "").contains("Softmax") })
+        model.endStudy()
+        XCTAssertNil(model.chatStudyMap)
+        XCTAssertEqual(model.chatMessages.count, 4, "the conversation stays")
+        // A paper without its reader on this device is not offered a study.
+        model.generalChat = true
+        XCTAssertFalse(model.canStudyPaper)
+    }
+
     /// Owner feedback (build 21): a reference's Discuss in chat opens this paper's chat with the entry quoted in the
     /// message box, ready to type; nothing is sent. An empty new chat keeps its unsent words after the quote; a
     /// conversation under way is left as it was and the reference starts a new one.

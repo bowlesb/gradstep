@@ -5,10 +5,11 @@
 import { BackendError, functionStream } from './backend';
 import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
+import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 
 export const CONSENT_VERSION = 'cloud-ai-v2';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix';
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study';
 export interface ChatTurn { role: Role; text: string }
 export interface LocalPaperContext { format:'reader-local-context-v1'|'reader-local-context-v2';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
 export interface ChatRequest {
@@ -18,6 +19,8 @@ export interface ChatRequest {
   profile: ProfileChoice;
   /** Ask the server for a topic title alongside the answer (server 2026-10-08). */
   topicTitle: boolean;
+  /** Study: the knowledge map so far (lib/study.ts); sent with every `study` turn, an empty map first. */
+  study?: StudyMap;
 }
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
@@ -41,7 +44,8 @@ export function makeRequest(operationID: string, documentID: string | null, tran
   while (kept.length && kept[0].role !== 'user') kept.shift();
   const quote = selection === null ? null : scalars(selection, MAX_SELECTION_SCALARS);
   const kept_quote = quote && quote.trim() ? quote : null;
-  return { operationID, documentID, turns: kept, selection: kept_quote, action: kept_quote ? action : null,
+  // Every selection action needs its quote; Study acts on the paper (a quote only starts it on a passage).
+  return { operationID, documentID, turns: kept, selection: kept_quote, action: action === 'study' || kept_quote ? action : null,
     profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, topicTitle: action !== 'diagram_fix' && options.topicTitle === true };
 }
 
@@ -55,8 +59,9 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   if (r.action === 'ingest') body.capabilities = ['web_import']; // Add paper may add an open-access web paper
   if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
   if (r.action !== 'diagram_fix' && r.topicTitle) body.topic_title = true;
-  // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest).
-  if (r.action !== 'diagram_fix' && r.action !== 'ingest') body.follow_ups = true;
+  // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own).
+  if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study') body.follow_ups = true;
+  if (r.action === 'study') body.study = r.study ?? EMPTY_STUDY_MAP;
   return body;
 }
 
@@ -70,8 +75,10 @@ export type StreamEvent =
   | { type: 'title'; text: string }
   /** Follow-up questions the answer suggested (servers from 2026-10-14); shown as one-tap suggestions, never saved. */
   | { type: 'followups'; questions: string[] }
+  /** Study: the updated knowledge map after a tutored answer (servers from 2026-10-14); kept with the open chat only. */
+  | { type: 'study'; map: StudyMap }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
-  | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string };
+  | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string; credits?: number };
 
 /** A label from `done` (ChatSSEParser.label): a bounded plain identifier, else dropped (never fatal). */
 export function streamLabel(value: unknown): string | undefined {
@@ -162,6 +169,11 @@ export class SSEParser {
           .map(q => q.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim()).filter(q => q.length >= 3 && [...q].length <= 120).slice(0, 3);
         return questions.length ? { type: 'followups', questions } : null;
       }
+      case 'study': {
+        // A map that is not whole is dropped; the answer and the previous map are unaffected.
+        const map = studyMap(v?.map);
+        return map ? { type: 'study', map } : null;
+      }
       case 'done': {
         if (!(typeof v?.stop_reason === 'string' && Number.isSafeInteger(v.credits) && (v.credits as number) >= 0)) return bad();
         const done: Extract<StreamEvent, { type: 'done' }> = { type: 'done', stopReason: v.stop_reason, credits: v.credits as number };
@@ -170,7 +182,11 @@ export class SSEParser {
         if (profile) done.profile = profile;
         return done;
       }
-      case 'error': return typeof v?.code === 'string' && v.code.length <= 64 ? { type: 'error', code: v.code } : bad();
+      case 'error': {
+        if (typeof v?.code !== 'string' || v.code.length > 64) return bad();
+        const credits = typeof v.credits === 'number' && Number.isSafeInteger(v.credits) && v.credits >= 0 ? v.credits : undefined;
+        return { type: 'error', code: v.code, ...(credits === undefined ? {} : { credits }) };
+      }
       default: return null;
     }
   }

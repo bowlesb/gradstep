@@ -19,6 +19,7 @@ import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validat
 import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
+import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
@@ -29,6 +30,8 @@ export interface Composer {
   question: Question | null; answer: Entry[] | null; liveID: string | null; liveText: string; progress: Progress | null; credits: number | null;
   /** The newest complete answer's suggested follow-up questions (memory only; cleared by the next question). */
   followUps: string[] | null;
+  /** Study (lib/study.ts): the knowledge map while this chat is a study; null otherwise. Memory only. */
+  study: StudyMap | null;
   /** A model/effort/length the reader chose here (memory only); null follows the conversation, then the default. */
   profile: ProfileChoice | null;
   /** Identity of the current text edit (a new one per edit, even when the text repeats). */
@@ -190,7 +193,7 @@ export class ChatSession {
   }
   private blank(documentID: string | null, id: string = crypto.randomUUID()): Composer {
     return { id, documentID, conversationID: null, head: null, draft: '', revision: 0, phase: 'idle', issue: null, question: null, answer: null,
-      liveID: null, liveText: '', progress: null, credits: null, followUps: null, profile: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
+      liveID: null, liveText: '', progress: null, credits: null, followUps: null, study: null, profile: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
       branchRevision: crypto.randomUUID(), acknowledgedSubmissionID: null };
   }
   private create(documentID: string | null): Composer {
@@ -489,8 +492,23 @@ export class ChatSession {
 
   // ---------- Sending ----------
 
+  /** Study needs the paper numbered on this device (the HTML reader's bundle), as the server's tutor cites [¶N]. */
+  canStudy(documentID: string | null): boolean { return !!documentID && this.sourcePapers.has(documentID); }
+  /** Starts (or restarts) a study in this chat: an empty map and the opening turn, sent as the reader's message. */
+  startStudy(c: Composer, selection: string | null = null, anchor?: TextAnchor): Promise<void> {
+    this.allowed();
+    if (busy(c) || c.answer || !this.canStudy(c.documentID)) return Promise.resolve();
+    c.study = { ...EMPTY_STUDY_MAP };
+    if (!this.edit(c, studyStart(selection))) { c.study = null; return Promise.resolve(); }
+    return this.send(c, selection, 'study', anchor);
+  }
+  /** Ends the study: the chat goes on as an ordinary paper chat; the map is dropped (it was never stored). */
+  endStudy(c: Composer) { this.allowed(); c.study = null; this.publish(); }
+
   send(c: Composer, selection: string | null = null, action: ChatAction | null = null, anchor?: TextAnchor): Promise<void> {
     this.allowed();
+    // While a chat is a study, every message is the reader's answer to the tutor.
+    if (!action && c.study) action = 'study';
     if (this.retiredStorage) return Promise.resolve(); // refused: nothing is saved or requested from this page
     if (busy(c) || c.answer || this.turnOwners.has(c.id) || !c.draft.trim()) return Promise.resolve();
     if (this.history.status !== 'ready' || this.history.issue) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
@@ -552,7 +570,7 @@ export class ChatSession {
       if (!c.question) {
         const branch = this.branch(c), last = branch?.messages.at(-1);
         if (!branch?.complete || last?.payload.role !== 'user') { c.issue = 'branch_required'; this.publish(); return Promise.resolve(); }
-        c.question = { revision: -1, id: last.id, entries: [], selection: null, action: null };
+        c.question = { revision: -1, id: last.id, entries: [], selection: null, action: c.study ? 'study' : null };
       }
       c.question.profile ??= capturedProfile;
       const questionID = this.history.resolve(c.question.id);
@@ -631,6 +649,7 @@ export class ChatSession {
     if (table ? !offers(table, capturedProfile) : !isStandard(capturedProfile)) { c.phase = 'idle'; c.issue = 'profile_unavailable'; this.publish(); return; }
     const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action,
       table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {});
+    if (question.action === 'study') request.study = c.study ?? { ...EMPTY_STUDY_MAP };
     const reference=this.reference(c.documentID);
     if(reference){
       try {
@@ -676,7 +695,7 @@ export class ChatSession {
       const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpointDate };
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
-    let topicTitle: string | null = null, followUps: string[] | null = null, answeredBy: { model?: string; profile?: string } = {};
+    let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
     try {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
         controller.signal.throwIfAborted();
@@ -688,7 +707,8 @@ export class ChatSession {
         else if (event.type === 'diagram') diagram = event;
         else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
         else if (event.type === 'followups') followUps = event.questions;
-        else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; break; }
+        else if (event.type === 'study') nextMap = event.map;
+        else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();
       }
@@ -706,6 +726,8 @@ export class ChatSession {
     c.progress = null; c.issue = result.issue; c.phase = 'finishing';
     // Suggestions belong to a complete answer only; an interrupted or failed one offers none.
     c.followUps = result.status === 'complete' ? followUps : null;
+    // The map advances only with a complete tutored answer; a failed or interrupted one keeps the previous map.
+    if (result.status === 'complete' && nextMap && c.study && request.action === 'study') c.study = nextMap;
     if (result.status) {
       const answer: PrivateEvent = { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
         documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID), text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() };

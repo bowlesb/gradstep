@@ -604,6 +604,24 @@ check('pdf.device-only', {title:'The server refuses PDF upload intents',suites:A
  const r=await acct.fn('upload-pdf',{method:'POST',body:{action:'begin'},signal});
  return r.status===410 && r.json?.code==='pdf_device_only' ? pass('HTTP 410 pdf_device_only; no PDF bytes sent') : fail(`PDF admission not fenced: HTTP ${r.status}`);
 });
+// Budget health (audit 2026-10-14): paused work, a spent share at or above 80 %, attempts left unknown for over an hour
+// (platform liability nobody released), holds open for over an hour, or a missing next-month row each fail the check,
+// so the scheduled run emails the owner (migration 060 readback; no customer data).
+check('budget.health', {title:'Platform budget is enabled, under 80 %, without aged liability, with next month ready',suites:ALL,timeout:30},async()=>{
+ const h=await rpc('worker_budget_health',{},{service:true});
+ if(!h||h.missing)return fail('No platform budget row for this month: every paid request would be refused');
+ const limit=Number(h.limit_microusd),spent=Number(h.spent_microusd),reserved=Number(h.reserved_microusd);
+ const share=limit>0?(spent+reserved)/limit:1;
+ const problems=[];
+ if(!h.work_enabled)problems.push('paid work is paused (work_enabled=false)');
+ if(share>=0.8)problems.push(`${Math.round(share*100)} % of the ${usd(limit/1e6)} limit is spent or reserved`);
+ if(Number(h.unknown_attempts_over_1h)>0)problems.push(`${h.unknown_attempts_over_1h} provider attempt(s) unknown for over an hour`);
+ if(Number(h.open_operations_over_1h)>0)problems.push(`${h.open_operations_over_1h} hold(s) open for over an hour`);
+ if(!h.next_period_exists)problems.push('next month has no budget row');
+ const summary=`${h.period}: ${usd(spent/1e6)} spent, ${usd(reserved/1e6)} reserved of ${usd(limit/1e6)}; next month ${h.next_period_exists?'ready':'missing'}`;
+ return problems.length?fail(`${summary}; ${problems.join('; ')}`):pass(summary,{spent_microusd:spent,reserved_microusd:reserved,limit_microusd:limit});
+});
+
 check('html.membership', {title:'Exact arXiv metadata membership, source tags/archive and replay',suites:ALL,timeout:180},async({signal})=>{
  const acct=await account('device-reader',0),id=randomUUID(),source='2305.18290';
  const {cursor}=await acct.entries(signal);

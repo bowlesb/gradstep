@@ -62,6 +62,8 @@ struct ChatAnswerTurn: Equatable, Sendable {
     /// The chat's model, effort and length when Send was pressed (2026-10-08); a retry asks with the same.
     var profile: ChatProfileChoice? = nil
     var paperReference: SourcePaperReference? = nil
+    /// Study: the knowledge map this turn answers against (memory only; a retry sends the same map).
+    var study: StudyMap? = nil
 }
 
 /// One in-flight answer. The assistant ID is allocated before streaming so the
@@ -99,6 +101,8 @@ struct ChatGeneration: Sendable {
 struct ChatAnswerIssue: Equatable, Sendable {
     let turn: ChatAnswerTurn
     let code: String
+    /// What the failed answer cost, when the server said (0: the provider never started it; servers from 2026-10-14).
+    var credits: Int? = nil
     var message: String {
         switch code {
         case "local_reader_unavailable": "Open this paper to prepare its HTML reader on this device, then retry your question."
@@ -106,7 +110,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
         case "storage": "The answer couldn’t be saved on this device."
         case "diagram_storage": "The answer was saved, but its diagram couldn’t be: this device’s unsynced storage is full."
-        default: ChatFailureText.message(for: code)
+        default: credits == 0 ? ChatFailureText.message(for: code) + " No credits were used." : ChatFailureText.message(for: code)
         }
     }
     /// A kept answer whose diagram could not be stored is informational; asking

@@ -783,7 +783,11 @@ public actor EncryptedStore {
             if let existing = try lookup(envelope.id) {
                 guard existing == envelope else { throw ReaderError.eventConflict }
             } else { additions.append(envelope) }
-            let payload = try ReaderCrypto.open(envelope, keys: keys)
+            let payload: PrivateEvent
+            do { payload = try ReaderCrypto.open(envelope, keys: keys) }
+            catch let error as ReaderError { throw error }
+            // AES-GCM or JSON failure: a named code, so the reader can say what stopped instead of "could not finish".
+            catch { throw ReaderError.invalidEvent }
             try state.apply(AppliedEvent(id: envelope.id, deviceID: envelope.deviceID, payload: payload))
             next.outbox.removeAll { $0 == envelope.id }; next.cursor = remote.cursor
         }

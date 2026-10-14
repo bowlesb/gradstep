@@ -472,6 +472,8 @@ final class ReaderModel {
     func diagram(_ id: UUID) -> ChatDiagram? { privateState.revisions(for: id).first.flatMap { ChatDiagram.decode($0.payload.text) } }
     var syncStatus = "On this device"
     var syncIssue: String?
+    /// RootView mirrors the scene phase here. Scheduled sync runs only while a signed-in account is on screen.
+    var sceneActive = false { didSet { if sceneActive != oldValue { updateSyncSchedule() } } }
     var error: String?
     var showSignIn = false
     private(set) var authentication: AuthenticationCoordinator?
@@ -520,6 +522,9 @@ final class ReaderModel {
     private var chatStreamProgress: [UUID: ChatProgress] = [:]
     /// The newest complete answer's suggested follow-up questions per composer (memory only; the next question clears them).
     private var chatFollowUps: [UUID: (messageID: UUID, questions: [String])] = [:]
+    /// Study (ChatStudy.swift): the knowledge map per composer while its chat is a study. Memory only: never written
+    /// to this device or the cloud; a new chat or sign-out drops it.
+    private var chatStudyMaps: [UUID: StudyMap] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?)?
@@ -1520,6 +1525,7 @@ final class ReaderModel {
         libraryCommandCoordinator?.resume()
         activateUploads()
         openLocalPaperIfNeeded()
+        syncFailures = 0; updateSyncSchedule()
         await synchronize()
         return activation
     }
@@ -1529,6 +1535,7 @@ final class ReaderModel {
         if let support { await support.flush() }
         guard workOwnership.owns(storeScope), let sync, let store,
               let attempt = workOwnership.beginSync() else { return }
+        syncsInFlight += 1; defer { syncsInFlight -= 1 }
         syncStatus = "Syncing…"
         do {
             try await sync.synchronize()
@@ -1536,7 +1543,8 @@ final class ReaderModel {
             guard workOwnership.owns(storeScope) else { return }
             publish(snapshot)
             guard workOwnership.owns(attempt) else { return }
-            syncIssue = nil
+            syncIssue = nil; syncFailures = 0
+            SessionTimeline.shared.record("sync", ["status": "synced", "pending": String(publishedPendingCount)])
             syncStatus = publishedPendingCount == 0 ? "Synced" : "\(publishedPendingCount) changes waiting to sync"
             if publishedPendingCount > 0 { Task { if self.workOwnership.owns(attempt) { await self.synchronize() } } }
         } catch {
@@ -1547,6 +1555,9 @@ final class ReaderModel {
             guard workOwnership.owns(storeScope) else { return }
             publish(snapshot)
             guard workOwnership.owns(attempt) else { return }
+            syncFailures += 1
+            // The timeline gets a code (ReaderError case, known server code, URLError number), never the copy.
+            SessionTimeline.shared.record("sync", ["status": "failed", "code": SyncFailure.code(error)])
             syncStatus = "Saved on this device · Sync paused"
             syncIssue = (error as? LocalizedError)?.errorDescription ?? "Sync could not finish. Your saved work remains on this device."
             if let keyError = error as? ReaderError, keyError == .missingKey || keyError == .staleEpoch {
@@ -1642,6 +1653,7 @@ final class ReaderModel {
         draftQueue?.close(); draftQueue = nil; pendingDraftCheckpoints = [:]; draftsRestored = false
         retirementQueue.retire(sync: sync, persistence: localPersistence, commands: oldCommands, bundles: oldBundles)
         sync = nil
+        syncSchedule?.task.cancel(); syncSchedule = nil; syncFailures = 0
         device = nil; localPersistence = ReaderLocalPersistence(); keys = nil
         importPollTask?.cancel(); importPollTask = nil
         privateState = PrivateState(); papers = []; selectedPaper = nil; chatPaperID = nil
@@ -2919,6 +2931,9 @@ final class ReaderModel {
         }
         let selection = pending?.quote
         if pendingSelection?.composerID == submission.composerID { pendingSelection = nil }
+        // While a chat is a study, every message is the reader's answer to the tutor (a selection action still acts).
+        let studyMap = chatStudyMaps[submission.composerID]
+        let action = pending?.action ?? (studyMap != nil ? ChatAction.study : nil)
         // A remote user message is not a local scrolling action. Capture the
         // accepted submit gesture before saving, scoped to its own composer.
         chatFollowRequest = ChatFollowRequest(composerID: submission.composerID)
@@ -2967,7 +2982,8 @@ final class ReaderModel {
             if let question = committed.envelopes.last?.id {
                 requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
                     composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
-                    userMessageID: question, selection: selection, action: pending?.action, profile: chosenProfile, paperReference: reference), state: snapshot.state)
+                    userMessageID: question, selection: selection, action: action, profile: chosenProfile, paperReference: reference,
+                    study: action == .study ? studyMap ?? .empty : nil), state: snapshot.state)
             }
         } catch {
             if sessionID == scope {
@@ -3006,6 +3022,32 @@ final class ReaderModel {
               chatMessages.last?.id == offered.messageID else { return [] }
         return offered.questions
     }
+    // MARK: Study (experimental, 2026-10-14)
+
+    /// Study needs the paper numbered on this device (its HTML reader bundle), as the server's tutor cites [¶N].
+    var canStudyPaper: Bool {
+        guard !generalChat, let paper = chatPaper, let reference = paper.sourceMembership else { return false }
+        return papers.first(where: { $0.sourceMembership == reference })?.readerBundle != nil
+    }
+    /// The shown chat's knowledge map while it is a study; nil otherwise.
+    var chatStudyMap: StudyMap? { chatComposerID.flatMap { chatStudyMaps[$0] } }
+    /// Starts a study in the shown chat: an empty map and the opening turn, sent as the reader's message (words
+    /// already in the message box open the study instead, so nothing typed is lost).
+    func startStudy() async {
+        guard canStudyPaper, !isGenerating, !isAnswering else { return }
+        if chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { chatInput = StudyMap.startMessage() }
+        // The composer exists once the context has a draft.
+        guard let composer = chatComposerID else { return }
+        chatStudyMaps[composer] = .empty
+        await sendMessage()
+        // Nothing left the device (the draft is still here, no turn awaits consent or an answer): no study either.
+        if chatStudyMaps[composer] != nil, chatGenerations[composer] == nil, chatAnswerIssues[composer] == nil, chatConsentPrompt == nil, !chatInput.isEmpty {
+            chatStudyMaps[composer] = nil
+        }
+    }
+    /// Ends the study: the chat goes on as an ordinary paper chat; the map is dropped (it was never stored).
+    func endStudy() { if let composer = chatComposerID { chatStudyMaps[composer] = nil } }
+
     /// A tapped follow-up becomes the message; nothing is sent until the reader does.
     func useFollowUp(_ question: String) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3103,7 +3145,8 @@ final class ReaderModel {
                 localContext = try LocalPaperChatContext(reference: reference, bundle: bundle)
             } else { localContext = nil }
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
-                                                     action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext)
+                                                     action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
+                                                     study: turn.study)
         } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
@@ -3127,7 +3170,7 @@ final class ReaderModel {
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?
-        var title: String?, followUps: [String]?, answered: (model: String?, profile: String?) = (nil, nil)
+        var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
         // the HTTP request before any local sealing work begins.
@@ -3144,9 +3187,10 @@ final class ReaderModel {
                 case .diagram(let title, let source): diagram = (title, source)
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
+                case .study(let map): studyMap = map
                 case .done(let stopReason, _, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile)
-                case .failure(let code): outcome = .failed(code: code)
+                case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
                 }
                 if outcome != nil { break }
             }
@@ -3172,7 +3216,8 @@ final class ReaderModel {
         }
         var labelled = generation
         labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
-        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, title: title, followUps: followUps)
+        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, title: title, followUps: followUps,
+                               study: studyMap, failedCredits: failedCredits)
     }
 
     /// Diagrams are checked with the bundled Mermaid before they are kept (2026-10-07). One that doesn't parse is sent
@@ -3224,7 +3269,7 @@ final class ReaderModel {
 
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
                                   choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
-                                  title: String? = nil, followUps: [String]? = nil) async {
+                                  title: String? = nil, followUps: [String]? = nil, study: StudyMap? = nil, failedCredits: Int? = nil) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
         if let status = resolution.status {
@@ -3244,7 +3289,11 @@ final class ReaderModel {
         chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
         // Suggestions belong to a complete, kept answer only.
         chatFollowUps[generation.turn.composerID] = resolution.status == .complete && issue == nil ? followUps.map { (generation.assistantID, $0) } : nil
-        if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
+        // The map advances only with a complete tutored answer; a failed or interrupted one keeps the previous map.
+        if generation.turn.action == .study, resolution.status == .complete, issue == nil, let study, chatStudyMaps[generation.turn.composerID] != nil {
+            chatStudyMaps[generation.turn.composerID] = study
+        }
+        if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits) }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {
             guard self.sessionID == scope else { return }
@@ -3395,6 +3444,43 @@ final class ReaderModel {
     @ObservationIgnored private var readerDownloads: [UUID: Task<Void, Error>] = [:]
     @ObservationIgnored private var storeRetry: Task<Void, Never>?
     @ObservationIgnored private var storeRetryAttempt = 0
+
+    /// Delay before the next scheduled sync, by consecutive failures: a minute while healthy (the browser polls every
+    /// 30 s; two pulls a minute per device stay far below the server's 1,000 sync reads an hour per account), then
+    /// 15 s, 60 s and 300 s. Tests shorten it.
+    @ObservationIgnored var syncScheduleDelay: (Int) -> Duration = { failures in
+        switch failures { case 0: .seconds(60); case 1: .seconds(15); case 2: .seconds(60); default: .seconds(300) }
+    }
+    @ObservationIgnored private var syncSchedule: (id: UUID, task: Task<Void, Never>)?
+    @ObservationIgnored private var syncFailures = 0
+    @ObservationIgnored private var syncsInFlight = 0
+    var isSyncScheduled: Bool { syncSchedule != nil }
+
+    /// Foreground sync. Other devices' chats and a push that failed arrive without reopening the app; a failure
+    /// backs off instead of retrying every minute. Stops when the scene leaves the foreground or the account
+    /// signs out, and never starts a second sync beside one already running.
+    private func updateSyncSchedule() {
+        guard sceneActive, accountID != nil, sync != nil else { syncSchedule?.task.cancel(); syncSchedule = nil; return }
+        guard syncSchedule == nil else { return }
+        let id = UUID(), scope = sessionID
+        syncSchedule = (id, Task { [weak self] in
+            while !Task.isCancelled {
+                let delay = self.map { $0.syncScheduleDelay($0.syncFailures) } ?? .seconds(60)
+                try? await Task.sleep(for: delay)
+                guard let self, !Task.isCancelled, self.sessionID == scope, self.syncSchedule?.id == id else { return }
+                guard self.sceneActive, self.sync != nil else { self.syncSchedule = nil; return }
+                await self.scheduledSync(scope: scope)
+            }
+        })
+    }
+
+    private func scheduledSync(scope: UUID) async {
+        guard sessionID == scope, !workOwnership.isActivating, !needsRecovery, syncsInFlight == 0 else { return }
+        await synchronize()
+        // The cheapest drain: a local queue read, and a request only when a command is still unfinished.
+        guard sessionID == scope, !workOwnership.isActivating else { return }
+        await libraryCommandCoordinator?.retry()
+    }
 
     /// Binds every purchase to the signed-in account on Apple's side.
     var purchaseOptions: Set<Product.PurchaseOption> { accountID.map { [.appAccountToken($0)] } ?? [] }

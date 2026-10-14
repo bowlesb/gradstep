@@ -59,7 +59,7 @@ struct CreditsStoreView: View {
         ContentUnavailableView {
             Label("Sign in to get credits", systemImage: "creditcard")
         } description: {
-            Text("Credits pay for converting papers and for AI answers.")
+            Text("Credits pay for AI answers, web searches and podcast episodes.")
         } actions: {
             Button {
                 // Sign-in is its own sheet; it opens once this one has gone.
@@ -80,17 +80,16 @@ struct CreditsStoreView: View {
     }
 
     private var header: some View {
-        let pageCapacity = model.creditBalance.map { capacity($0.available, divisor: 1, unit: "new page") }
+        // Papers are prepared on the device for free since 2026-10-13; credits pay for answers, searches and episodes.
         let chatCapacity = model.creditBalance.map { capacity($0.available, divisor: 12, unit: "typical chat") }
         let episodeCapacity = model.creditBalance.map { capacity($0.available, divisor: 60, unit: "five-minute private episode") }
-        let page = pageCapacity ?? "less than one new page"
         let chat = chatCapacity ?? "less than one typical chat"
         let episode = episodeCapacity ?? "less than one five-minute private episode"
         return VStack(alignment: .leading, spacing: 6) {
             if let balance = model.creditBalance {
                 Text("\(balance.available.formatted()) credits available").font(.headline)
                     .accessibilityIdentifier("store.balance")
-                Text("At this balance: \(page), \(chat), or \(episode) if you used credits for one kind of work. These uses share the same balance.")
+                Text("At this balance: \(chat) or \(episode) if you used credits for one kind of work. Reading papers is free; these uses share the same balance.")
                     .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if model.planOwnedElsewhere {
@@ -162,7 +161,6 @@ private struct CreditUsageView: View {
                 Text("Credits are a flexible usage allowance. Different actions share the same balance, so the exact number of answers depends on paper length, model, effort, answer length and searches.")
             } header: { Text("The useful rule") }
             Section {
-                LabeledContent("Paper preparation", value: "About 1 credit / new page")
                 LabeledContent("Chat", value: "Usually 4–24 credits")
                 LabeledContent("Web search", value: "About 1–2 credits / search")
             } header: { Text("Typical costs") } footer: {

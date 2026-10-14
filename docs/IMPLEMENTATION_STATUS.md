@@ -49,6 +49,25 @@ uploaded for iOS and Mac (one upload VALID on App Store Connect at the time of w
 build-31 screenshot fixes went to Pages and **build 33** afterwards (handoff); no Edge function or migration changed (the compiler
 runs on the device and in tests only).
 
+### Native sync reliability — 2026-10-14 (working tree; not committed or deployed)
+
+From the read-only sync audit: the native app never polled or retried sync, mapped `reader_update_required` to a generic
+message, and reported a failed `v1_acknowledge_cursor` as "Sync paused". Now `ReaderModel` runs `synchronize()` every
+60 s while the scene is active and an account is activated, backs off 15 s → 60 s → 300 s after failures, drains
+pending library commands on the same tick, never starts beside a running sync, and stops when the scene is inactive or
+the account signs out (two pulls a minute per device, against the server's 1,000 sync reads an hour per account).
+`reader_update_required` and `sync_page_too_large` read "Update Gradstep to keep syncing this history. Everything on
+this device stays available."; `ReaderError` cases carry their own copy; an undecryptable remote entry is named
+(`invalidEvent`) instead of "Sync could not finish"; the session timeline records each sync's outcome code, never text.
+A failed acknowledgement after a complete pull is logged and sent again next sync, as the browser does.
+
+**Evidence (local):** Core `swift test` 290 tests in 37 suites; iPad Simulator SyncSchedulerTests 6 of 6 (interval,
+back-off order 1 → 2 → 3, stop when inactive, resume, sign-out, acknowledgement tolerance, update copy, unreadable
+entry, codes), LibraryModelTests 12 (1 skipped), PDFUploadTests 6, LiveSyncTests skipped (hosted fixture absent).
+OfflineModelTests: 14 of 15 pass; `testDownloadQuotaAndUpgradeReasons…` times out identically on an untouched HEAD
+checkout (since c615af3 a legacy fixture item first fetches the real arXiv paper 2404.00001 before the server-bundle
+fallback the test observes within 5 s), so it is a fixture follow-up, not a regression here.
+
 ## Agent v2 on staging — 2026-10-14 (deployed)
 
 Owner direction (2026-10-14): a materially better agent ("new tools, new capabilities, better performance, more

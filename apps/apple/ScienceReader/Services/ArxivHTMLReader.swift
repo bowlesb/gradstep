@@ -35,6 +35,12 @@ private actor ArxivHTMLAcquisition {
     static let shared = ArxivHTMLAcquisition()
     private var nextDocumentRequest = Date.distantPast
     private var busyUntil = Date.distantPast
+    #if DEBUG
+    /// Tests: URL protocols that answer arxiv.org in-process (no pacing, nothing leaves the process).
+    private var fixtureProtocols: [AnyClass]? { ArxivHTMLReader.fixtureProtocolClasses }
+    #else
+    private var fixtureProtocols: [AnyClass]? { nil }
+    #endif
 
     func fetch(_ url: URL, source: ArxivReaderSource, maximum: Int) async throws -> Data {
         let document = url == source.htmlURL
@@ -47,11 +53,12 @@ private actor ArxivHTMLAcquisition {
             scheduled = max(scheduled, nextDocumentRequest)
             nextDocumentRequest = scheduled.addingTimeInterval(ArxivAcquisitionPolicy.documentSpacing)
         }
-        if scheduled > now { try await Task.sleep(for: .seconds(scheduled.timeIntervalSince(now))) }
+        if scheduled > now, fixtureProtocols == nil { try await Task.sleep(for: .seconds(scheduled.timeIntervalSince(now))) }
         try Task.checkCancellation()
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil; config.httpCookieStorage = nil; config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 30; config.timeoutIntervalForResource = 90
+        if let fixtureProtocols { config.protocolClasses = fixtureProtocols }
         let session = URLSession(configuration: config, delegate: ArxivNoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
@@ -92,6 +99,10 @@ private final class ArxivNoRedirects: NSObject, URLSessionTaskDelegate, Sendable
 
 @MainActor
 final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
+    #if DEBUG
+    /// Tests only: protocols for the acquisition session, so a fixture answers arxiv.org without the network or pacing.
+    nonisolated(unsafe) static var fixtureProtocolClasses: [AnyClass]?
+    #endif
     private var web: WKWebView?
     private var completion: CheckedContinuation<String, Error>?
     private var timeout: Task<Void, Never>?

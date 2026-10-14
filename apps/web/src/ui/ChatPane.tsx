@@ -12,6 +12,7 @@ import { CopyButton } from './CopyButton';
 import { Diagram } from './Diagram';
 import { Icon } from './icons';
 import { PaneHeader, useWorkspaceControls } from './Shell';
+import { StudyPanel } from './StudyPanel';
 
 export function useChatUpdates(chat: ChatSession) {
   useSyncExternalStore(chat.subscribe, chat.getVersion);
@@ -103,6 +104,9 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   const canAnswer = !retired && !chat.hasUnresolvedTurn(c) && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
   const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
   const send = () => { if (!disabled) void chat.send(c); };
+  // Study (experimental): an adaptive tutor for this paper; offered when the paper is numbered on this device.
+  const studyOffered = mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
+  const startStudy = () => { if (!disabled) void chat.startStudy(c); };
 
   return <div className="chat-pane" data-testid="chat-pane">
     <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
@@ -116,7 +120,8 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       {renaming && summary ? <RenameField initial={titleText} label="Chat name" onCancel={() => setRenaming(false)}
         onSave={async name => { const ok = await chat.rename(summary.id, name); if (ok) setRenaming(false); return ok; }} />
         : <div className="chat-title-row"><strong title={titleText} data-testid="chat-title">{titleText}</strong>
-          {summary && !deleted && <button className="link small rename-link" disabled={retired} onClick={() => setRenaming(true)} aria-label={`Rename “${titleText}”`}>Rename</button>}</div>}
+          {summary && !deleted && <button className="link small rename-link" disabled={retired} onClick={() => setRenaming(true)} aria-label={`Rename “${titleText}”`}>Rename</button>}
+          {studyOffered && messages.length > 0 && <button className="link small" data-testid="study-start" disabled={disabled || composerBusy(c) || !!c.answer} onClick={startStudy}>Study this paper</button>}</div>}
       {mode === 'paper' && <span className="fine chat-paper" title={paper?.title}>{paper?.title ?? 'Paper chat'}</span>}
       {summary?.anchor && summary.documentID && <button className="link small" onClick={() => onPassage(summary.documentID!, summary.anchor!)}>Go to passage</button>}
       {branches.length > 1 && <label className="branch-picker">Branch <select aria-label="Conversation branch" value={c.head ?? ''} disabled={composerBusy(c) || !!c.answer} onChange={e => chat.chooseBranch(c, e.target.value)}>
@@ -135,7 +140,9 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
     }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
       {!messages.length && !composerBusy(c) && <div className="chat-empty"><Icon name="chat" size={28} /><p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
-        <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p></div>}
+        <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p>
+        {studyOffered && <div className="study-offer"><button type="button" className="secondary small" data-testid="study-start" disabled={disabled} onClick={startStudy}>Study this paper</button>
+          <p className="fine">A tutor asks one question at a time, teaches what you miss, and maps what you know. Experimental.</p></div>}</div>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={m.payload.text ?? ''} label="Copy answer" /></div><Answer text={m.payload.text ?? ''} /></>}
         {m.payload.status === 'interrupted' && <span className="fine interrupted">Answer interrupted</span>}
@@ -155,13 +162,15 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       </div>}
       {!c.issue && canAnswer && !composerBusy(c) && last?.payload.role === 'user' && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
       {canAnswer && (c.issue || last?.payload.role === 'user') && <p className="fine" data-testid="retry-profile">This question: {profileSummary(chat.retryProfile(c), table)}</p>}
-      {c.credits !== null && <p className="fine answer-cost">{c.credits} {c.credits === 1 ? 'credit' : 'credits'} used</p>}
+      {c.credits !== null && <p className="fine answer-cost">{c.credits === 0 && c.issue ? 'No credits used' : `${c.credits} ${c.credits === 1 ? 'credit' : 'credits'} used`}</p>}
       {deleted && <p className="issue">This conversation was deleted. Your draft is still here to copy.</p>}
+      {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
       <div ref={bottom} />
     </div>
-    {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
+    {c.study && <StudyPanel map={c.study} busy={composerBusy(c) || !!c.answer} onEnd={() => chat.endStudy(c)}
+      onPassage={paragraph => { if (documentID) onPassage(documentID, citationAnchor(paragraph)); }} />}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
-      <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
+      <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={c.study ? 'Your answer…' : mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
         title="Enter sends; Shift+Enter starts a new line"
         onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />

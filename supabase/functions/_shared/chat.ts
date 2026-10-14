@@ -10,6 +10,7 @@ import {
 import { isDefaultChoice, parseChoice, PROFILE_VERSION, resolveProfile, type ChatProfile, type Choice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
+import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
@@ -58,6 +59,9 @@ export interface ChatRequest {
   topicTitle: boolean;
   /** Also suggest follow-up questions after the answer (chat-follow-ups.ts); never for Ingest or a repair. */
   followUps: boolean;
+  /** Study (`action: "study"`, chat-study.ts): the reader's knowledge map so far, as the device last received it
+   * (an empty map on the first turn). Present exactly when the action is Study. */
+  study?: StudyMap;
 }
 
 /** `reader-local-context-v2` (2026-10-14) is the same snapshot with the paper's blocks numbered `[¶N]` (headings,
@@ -84,8 +88,8 @@ function localPaperContext(input: unknown): LocalPaperContext {
 }
 
 export const CLIENT_CAPABILITIES = ['web_import'] as const;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix';
-const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix'];
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study';
+const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study'];
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
 export const DIAGRAM_FIX_MAX_BYTES = 24_000;
 /** A repair writes one diagram (no prose): a small output allowance keeps its hold and cost small. */
@@ -109,7 +113,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title', 'follow_ups']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title', 'follow_ups', 'study']);
   if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
   const consentVersion = body.consent_version;
   const mode = body.mode;
@@ -146,8 +150,19 @@ export function validateChatRequest(input: unknown): ChatRequest {
     // A repair is general (no paper), one bounded turn, no selection; every other action acts on a selection.
     if (action === 'diagram_fix') {
       if (mode !== 'general' || selection !== null || turns.length !== 1 || encoder.encode(turns[0].text).length > DIAGRAM_FIX_MAX_BYTES) invalid();
+    } else if (action === 'study') {
+      // Study tutors the numbered paper on the device ([¶N] citations); a selection may start it on a passage.
+      if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2') invalid();
     } else if (selection === null) invalid();
   }
+  // The knowledge map travels with every Study turn (an empty one first) and with nothing else.
+  let study: StudyMap | undefined;
+  if (action === 'study') {
+    if (body.study === undefined || body.study === null) invalid();
+    const map = studyMap(body.study);
+    if (!map) invalid();
+    study = map;
+  } else if (body.study !== undefined && body.study !== null) invalid();
   let capabilities: string[] = [];
   if (body.capabilities !== undefined && body.capabilities !== null) {
     if (!Array.isArray(body.capabilities) || body.capabilities.length > 8) invalid();
@@ -166,8 +181,10 @@ export function validateChatRequest(input: unknown): ChatRequest {
   // A diagram repair is its own small request: the default model, no title, no follow-ups. Ingest's answer is a report.
   if (action === 'diagram_fix' && (choice !== null || topicTitle || followUps)) invalid();
   if (action === 'ingest' && followUps) invalid();
+  // The tutor ends every turn with its own question: no follow-up suggestions beside it.
+  if (action === 'study' && followUps) invalid();
   return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle, followUps,
-    ...(localContext ? { localContext } : {}) };
+    ...(localContext ? { localContext } : {}), ...(study ? { study } : {}) };
 }
 
 /** Fixed key order: the reservation's request digest. */
@@ -183,6 +200,7 @@ export function canonicalRequest(request: ChatRequest): string {
     ...(request.topicTitle ? { topic_title: true } : {}),
     ...(request.followUps ? { follow_ups: true } : {}),
     ...(request.localContext ? { local_context: request.localContext } : {}),
+    ...(request.study ? { study: request.study } : {}),
   });
 }
 
@@ -265,6 +283,8 @@ const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the questio
 export interface InstructionOptions {
   /** The paper context carries [¶N] markers (local context v2): ask for grounded citations. */
   citations?: boolean;
+  /** Study: the reader's knowledge map for this turn (chat-study.ts); sent after the paper like an action's own text. */
+  studyMap?: StudyMap;
 }
 export function chatInstructionParts(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false, options: InstructionOptions = {}): { shared: string; action: string | null } {
   if (action === 'diagram_fix') return { shared: DIAGRAM_FIX_INSTRUCTIONS, action: null };
@@ -272,7 +292,8 @@ export function chatInstructionParts(mode: 'paper' | 'general', action: ChatActi
   const search = webSearch && action !== 'relevance';
   const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
     : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
-  const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS : null;
+  const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS
+    : action === 'study' ? `${STUDY_INSTRUCTIONS}\n\n${studyMapForPrompt(options.studyMap ?? EMPTY_STUDY_MAP)}` : null;
   const paper = mode === 'paper' ? `${PAPER_INSTRUCTIONS}${options.citations ? `\n\n${CITATION_INSTRUCTIONS}` : ''}` : GENERAL_INSTRUCTIONS;
   return { shared: `${BASE_INSTRUCTIONS}\n\n${paper}\n\n${tools}`, action: own };
 }
@@ -360,9 +381,11 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'title'; data: { text: string } }
   /** Follow-up questions the answer suggested (2026-10-14), sent once before `done`; never logged or stored. */
   | { event: 'followups'; data: { questions: string[] } }
+  | { event: 'study'; data: { map: StudyMap } }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile. */
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string } }
-  | { event: 'error'; data: { code: ChatErrorCode } };
+  /** `credits` (2026-10-14): what a failed answer still cost the reader (0 when the provider never started it). */
+  | { event: 'error'; data: { code: ChatErrorCode; credits?: number } };
 
 export function sseFrame(message: ChatEvent): string {
   return `event: ${message.event}\ndata: ${JSON.stringify(message.data)}\n\n`;
@@ -385,6 +408,8 @@ export interface ChatDependencies {
   ingestDeadlineMs?: number;
   /** Bound on the follow-up suggestion request after the answer (tests shorten it). */
   followUpTimeoutMs?: number;
+  /** Bound on the Study knowledge-map request after the answer (tests shorten it). */
+  studyTimeoutMs?: number;
   /** The caller's available credits (for the hold cap); null if unknown. */
   availableCredits?: () => Promise<number | null>;
   /** Offer web search (server setting; off by default). Anthropic's search serves it,
@@ -441,8 +466,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   };
   let request: ChatRequest;
   try { request = validateChatRequest(body); } catch (error) { await admitted(); throw error; }
-  // Ingest, Why it matters (the paper only) and diagram repairs never search.
-  const search = !['ingest', 'relevance', 'diagram_fix'].includes(request.action ?? '') && deps.webSearch === true;
+  // Ingest, Why it matters (the paper only), Study (the paper only) and diagram repairs never search.
+  const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
   // otherwise, and as its backup, Anthropic's search.
   const tavilyReady = search && request.consentVersion === CONSENT_VERSION && deps.search
@@ -459,12 +484,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (request.action === 'related' && searchOffered && !signal.aborted) emit({ event: 'status', data: searchingStatus(undefined) });
   const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
   const repair = request.action === 'diagram_fix';
+  const study = request.action === 'study';
   // The reader's model, effort and length; a repair always uses the default model with its own small allowance.
   const profile = resolveProfile(request.choice);
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : profile.maxTokens;
-  const instructions = chatInstructionParts(request.mode, request.action, searchOffered, { citations: request.localContext?.format === 'reader-local-context-v2' });
+  const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
+    { citations: request.localContext?.format === 'reader-local-context-v2', ...(request.study ? { studyMap: request.study } : {}) });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
-  const trailing = [instructions.action, repair ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
+  // A Study turn has its own length (one step, one question); the profile's length would contradict it.
+  const trailing = [instructions.action, repair || study ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens,
     model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
@@ -514,6 +542,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
   const followUpHold = request.followUps && !repair && request.action !== 'ingest' ? holdForParams(FOLLOW_UP_HOLD_PARAMS) : null;
   if (followUpHold) hold.microusd += followUpHold.microusd;
+  // Study: the knowledge-map request after the answer is held at its largest (a full map, both excerpts at their limits).
+  const studyHold = study ? holdForParams(STUDY_HOLD_PARAMS) : null;
+  if (studyHold) hold.microusd += studyHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
     hold.credits = available;
@@ -528,7 +559,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     reservation = await deps.rpc('worker_reserve_chat', {
       p_account_id: deps.accountID, p_id: request.operationID, p_request_sha256: `\\x${digest}`,
       p_rate_version: RATE_VERSION, p_credits: hold.credits, p_microusd: hold.microusd,
-      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair),
+      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair, studyHold?.microusd ?? null),
     }) as typeof reservation;
   } catch (error) {
     const code = RESERVE_ERRORS[reason(error)];
@@ -587,6 +618,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       outcome = { ...outcome, attempts: [...outcome.attempts, ...suggested.outcome.attempts], exact: outcome.exact && suggested.outcome.exact };
     }
   }
+  // Study: the knowledge map is updated from the exchange after the answer (the previous map, the reader's answer,
+  // the tutor's reply; never the paper). The reader's first message starts the study and is no answer.
+  let studied: StudyResult | null = null;
+  if (studyHold && request.study && outcome.status === 'complete' && outcome.stopReason !== 'refusal' && wroteText && !signal.aborted) {
+    const params = studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead });
+    studied = await updateStudyMap(deps.generate, params, studyHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.studyTimeoutMs ?? STUDY_TIMEOUT_MS)]), now);
+    if (studied.outcome.attempts.length) {
+      outcome = { ...outcome, attempts: [...outcome.attempts, ...studied.outcome.attempts], exact: outcome.exact && studied.outcome.exact };
+    }
+  }
 
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
   // Provider spend (the platform budget): tokens and Anthropic's per-search fee. Tavily
@@ -596,7 +637,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const priced = Math.ceil(tokens + anthropicFees + stats.credits * TAVILY_CREDIT_MICROUSD);
   // The customer is never charged above the hold, but the platform budget
   // records the true provider cost: an overrun freezes new paid work.
-  const credits = Math.min(creditsFor(priced), hold.credits);
+  // A request the provider never started (no message_start: a 5xx, an overload, a dropped connection) charges the
+  // reader nothing; the attempt keeps the platform's liability until it is resolved (audit 2026-10-14).
+  const credits = outcome.status === 'failed' && !outcome.messageID ? 0 : Math.min(creditsFor(priced), hold.credits);
   if (priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
   else if (creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
   await settle(deps, request.operationID, credits, actual);
@@ -610,7 +653,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // Whether a title was written (never the title itself), and how many follow-ups were suggested (never their text).
     title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed',
     ...(followUpHold ? { follow_ups: !suggested ? 'skipped' : suggested.questions ? 'written' : suggested.outcome.status === 'complete' ? 'unusable' : 'failed',
-      follow_up_count: suggested?.questions?.length ?? 0 } : {}) });
+      follow_up_count: suggested?.questions?.length ?? 0 } : {}),
+    // Study: whether the map was updated and its size (never a concept name).
+    ...(studyHold ? { study: !studied ? 'skipped' : studied.map ? 'written' : studied.outcome.status === 'complete' ? 'unusable' : 'failed',
+      study_concepts: studied?.map?.concepts.length ?? request.study?.concepts.length ?? 0 } : {}) });
 
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
@@ -681,6 +727,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
     // Follow-up questions: relayed once, never stored (chat-follow-ups.ts; counted in chat_answer).
     if (suggested?.questions && !signal.aborted) emit({ event: 'followups', data: { questions: suggested.questions } });
+    // Study: the updated knowledge map, relayed once; the device keeps it with the conversation and sends it back.
+    if (studied?.map && !signal.aborted) emit({ event: 'study', data: { map: studied.map } });
     if (signal.aborted) return;
     if (title?.text) emit({ event: 'title', data: { text: title.text } });
     // A tool call ends the provider turn; the server completed it.
@@ -691,18 +739,19 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       profile: repair ? 'diagram_fix' : profile.id } });
     return;
   }
-  emit({ event: 'error', data: { code: 'provider_unavailable' } });
+  emit({ event: 'error', data: { code: 'provider_unavailable', credits } });
 }
 
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
-  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean): Record<string, string | number | null> {
+  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null): Record<string, string | number | null> {
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length, tariff: TARIFF,
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
-    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }) };
+    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }),
+    ...(studyMicrousd === null ? {} : { study_model: STUDY_MODEL, study_max_tokens: STUDY_MAX_TOKENS, study_ceiling_microusd: studyMicrousd }) };
 }
 
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
@@ -726,6 +775,21 @@ async function suggestFollowUps(generate: NonNullable<ChatDependencies['generate
     return { outcome: { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
       attempts: [{ model: params.model, estimated: true, usage: { input: inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }],
       exact: false }, questions: null };
+  }
+}
+
+interface StudyResult { outcome: ProviderOutcome; map: StudyMap | null }
+/** One knowledge-map request (the tool call forced) through the same admitted provider adapter. Never throws. */
+async function updateStudyMap(generate: NonNullable<ChatDependencies['generate']>, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+  inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<StudyResult> {
+  try {
+    const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: () => { /* a forced tool call writes no text */ } });
+    const call = outcome.status === 'complete' ? outcome.toolCalls?.find(c => c.name === UPDATE_STUDY_MAP_TOOL.name) : undefined;
+    return { outcome, map: call ? studyMap(call.input) : null };
+  } catch {
+    return { outcome: { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
+      attempts: [{ model: params.model, estimated: true, usage: { input: inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }],
+      exact: false }, map: null };
   }
 }
 

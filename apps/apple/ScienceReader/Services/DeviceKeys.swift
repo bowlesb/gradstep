@@ -264,6 +264,21 @@ final class DeviceKeys {
 
 struct EmptyResponse: Codable, Sendable {}
 
+/// A short code for the session timeline: an error's case or a code from BackendClient's finite known set,
+/// never server prose, event content or localized text.
+enum SyncFailure {
+    static func code(_ error: Error) -> String {
+        switch error {
+        case let reader as ReaderError: "reader_" + String(describing: reader)
+        case BackendError.rejected(let code): code
+        case let backend as BackendError: String(describing: backend)
+        case let url as URLError: "url_\(url.code.rawValue)"
+        case is CancellationError: "cancelled"
+        default: String(describing: type(of: error))
+        }
+    }
+}
+
 @MainActor
 final class CloudSync {
     private let backend: BackendClient
@@ -335,8 +350,16 @@ final class CloudSync {
         try await pull()
         try Task.checkCancellation()
         struct Acknowledgment: Encodable, Sendable { let p_device_id: UUID; let p_cursor: Int64; let p_management_token: String }
-        try await backend.rpcVoid("v1_acknowledge_cursor", params: Acknowledgment(p_device_id: device.deviceID,
-            p_cursor: await store.cursor(), p_management_token: DeviceKeys.hex(keys.managementToken)), accountID: device.accountID)
+        // The pull above is complete and durable; the acknowledgement only trims server retention. As in the
+        // browser (history.ts), its failure is logged and the cursor is sent again next sync, never "Sync paused".
+        do {
+            try await backend.rpcVoid("v1_acknowledge_cursor", params: Acknowledgment(p_device_id: device.deviceID,
+                p_cursor: await store.cursor(), p_management_token: DeviceKeys.hex(keys.managementToken)), accountID: device.accountID)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            SessionTimeline.shared.record("sync", ["step": "acknowledge", "status": "failed", "code": SyncFailure.code(error)])
+        }
     }
 
     private func pull() async throws {

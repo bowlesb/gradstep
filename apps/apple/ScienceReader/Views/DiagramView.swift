@@ -53,14 +53,14 @@ struct DiagramDetail: View {
     }
 }
 
-private struct MermaidWebView: UIViewRepresentable {
+struct MermaidWebView: UIViewRepresentable {
     let source: String
     let dark: Bool
     let onFailure: () -> Void
 
-    fileprivate static let library: String? = Bundle.main.url(forResource: "mermaid.min", withExtension: "js")
+    static let library: String? = Bundle.main.url(forResource: "mermaid.min", withExtension: "js")
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-    fileprivate static let page = """
+    static let page = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=6">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">

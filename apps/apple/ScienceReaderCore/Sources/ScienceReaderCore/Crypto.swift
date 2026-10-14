@@ -1,10 +1,34 @@
 import CryptoKit
 import Foundation
 
-public enum ReaderError: Error, Equatable, Sendable {
+public enum ReaderError: Error, Equatable, Sendable, CaseIterable {
     case invalidKey, invalidRecoveryCode, wrongAccount, unsupportedFormat, corruptData
     case eventConflict, cursorGap, staleEpoch, missingKey, invalidEvent, pendingChanges
     case storageUnavailable, storeChanged, localCapacityExceeded
+}
+
+/// Sync-status copy. Each case says what stopped and that this device's copy still works; nothing quotes server
+/// text or event content. A sign-in does not reopen history from zero, so no case promises that.
+extension ReaderError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedFormat: "Update Gradstep to keep syncing this history. Everything on this device stays available."
+        case .invalidEvent, .corruptData:
+            "Sync stopped at an entry this device can’t read. Everything on this device stays available; send a report so it can be fixed."
+        case .eventConflict:
+            "Sync stopped at an entry that doesn’t match this device’s copy. Everything on this device stays available; send a report so it can be fixed."
+        case .cursorGap:
+            "Sync stopped at a gap in your cloud history. Everything on this device stays available; send a report so it can be fixed."
+        case .missingKey, .staleEpoch: "This device needs updated encryption keys from an approved device or recovery code."
+        case .invalidKey: "This device’s encryption keys aren’t valid. Restore them with a recovery code or an approved device."
+        case .invalidRecoveryCode: "That recovery code wasn’t accepted. Check it and try again."
+        case .wrongAccount: "These keys belong to a different account. Sign out and sign in again."
+        case .pendingChanges: "Changes on this device haven’t synced yet. Try again once sync finishes."
+        case .storageUnavailable: "This device’s private library isn’t open. Reopen the app and try again."
+        case .storeChanged: "This device’s private library was replaced. Reopen the app and try again."
+        case .localCapacityExceeded: "This device’s private library is full. Remove downloaded papers or chats to make room."
+        }
+    }
 }
 
 public struct KeyBundle: Codable, Equatable, Sendable {

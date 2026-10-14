@@ -274,9 +274,12 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
  * scale accepted by holdFor. One token per UTF-8 byte avoids an ASCII prose
  * heuristic undercounting code, citations and rare symbols. Include nested tool
  * results and definitions, not just top-level text blocks. */
+/** Prompt size in characters for the hold: the UTF-8 bytes of everything sent (estimateTokens divides by three; the
+ * byte count already triples multi-byte text, and English prose runs about four bytes per token). Until 2026-10-14
+ * this returned three times the bytes, so holds ran about 80× the actual cost and refused small balances. */
 export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): number {
   return new TextEncoder().encode(JSON.stringify({ system: params.system ?? [], messages: params.messages,
-    tools: params.tools ?? [] })).byteLength * 3;
+    tools: params.tools ?? [] })).byteLength;
 }
 
 export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected';

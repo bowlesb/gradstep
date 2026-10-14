@@ -439,12 +439,27 @@ createServer(async (request, response) => {
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
+    // Study (chat-study.ts): a paper action on numbered local context that carries a whole map and no follow-ups.
+    if (body.action === 'study' && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.study || !Array.isArray(body.study.concepts)
+      || !Array.isArray(body.study.links) || body.follow_ups !== undefined)) return send(response, 400, { code: 'invalid_request' });
+    if (body.action !== 'study' && body.study !== undefined) return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
     const mode = a.chatMode;
     if (mode === 'insufficient_credits') { event('error', { code: 'insufficient_credits' }); return response.end(); }
     if (mode === 'refusal') { event('delta', { text: 'Discard this refused partial' }); event('error', { code: 'refused' }); return response.end(); }
+    if (body.action === 'study') {
+      // The tutor: a calibrating question first, then a judgement, a taught passage and one bold question; the map grows.
+      const first = body.messages.length === 1;
+      event('delta', { text: first ? 'Let’s start with the central idea. **In one sentence, what does attention compute?**'
+        : 'Partly right. Attention weights the values by how well each key matches the query [¶2]. **What does the softmax do to large scores?**' });
+      event('study', { map: first
+        ? { concepts: [{ id: 'attention', label: 'Attention', state: 'learning', paragraphs: [2] }], links: [], focus: 'attention', journey: ['attention'], next: 'calibrate' }
+        : { concepts: [{ id: 'attention', label: 'Attention', state: 'known', paragraphs: [2], note: 'Knows the weighted sum' }, { id: 'softmax', label: 'Softmax', state: 'learning', paragraphs: [2] }],
+          links: [{ from: 'softmax', to: 'attention', kind: 'prerequisite' }], focus: 'softmax', journey: ['attention', 'softmax'], next: 'teach' } });
+      event('done', { stop_reason: 'end_turn', credits: 4 }); return response.end();
+    }
     event('status', { kind: body.action === 'related' ? 'searching' : 'reading', query: body.action === 'related' ? 'DPO related work' : undefined });
     const text = 'The **objective** compares preferences [¶2].\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
     const chunks = text.match(mode === 'steady' ? /[\s\S]/g : /[\s\S]{1,24}/g);

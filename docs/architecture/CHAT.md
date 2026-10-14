@@ -45,12 +45,55 @@ and about 1–2 s after the answer's last text. The first design offered the too
 own turn; the live check on 2026-10-14 showed Sonnet at low effort ending its turn without calling it, so the forced
 side request replaced it (one mechanism, model-independent, testable).
 
+## Study — 2026-10-14 (experimental; staging)
+
+Owner direction (2026-10-14): "an experimental feature that combines quizzes you and teaches you about a paper. It
+uses its knowledge of you to ask questions, and backs up when it seems like you don't know, and if you do know, it
+either goes deeper where applicable, or goes to a new tangential topic within the context of the paper… It should
+make clear the mental model that is being built up of your knowledge, and display it in some type of flow, html, or
+graph." This is the first slice, built to learn from; the product angle is still open
+([proposals/LEARNING_GUIDE.md](../proposals/LEARNING_GUIDE.md)).
+
+- **One mechanism, no new storage.** A study is an ordinary paper conversation whose turns carry `action: "study"`.
+  It needs the paper numbered on the device (local context v2), because the tutor cites `[¶N]`; a selection may
+  start it on a passage but is not required (the only action without one). The reader's **knowledge map** is the
+  state: concepts with a state (`unknown` could not answer · `learning` taught, not verified · `known` answered once ·
+  `verified` answered a second, different check), links between them (`prerequisite`, `deeper`, `related`), the
+  concept in focus, the journey (ids in the order explored, revisits included) and the step planned next
+  (`calibrate|teach|verify|deeper|tangent|revisit`). The client sends the map with every study turn (an empty map
+  first) and keeps the one that comes back; the server stores nothing, logs counts only, and the map is never written
+  to encrypted history or the browser (it lives with the open chat, in memory; a new chat or sign-out drops it).
+- **The tutor** (`chat-study.ts`, `STUDY_INSTRUCTIONS`): one step and exactly one bold question per turn, under 180
+  words. It judges the reader's last answer (correct, partly, not yet; never flattery), then teaches from the paper
+  with citations when the answer was wrong or partial and asks a simpler check, verifies once after teaching with a
+  different check, goes deeper on a known concept or moves to a related one, and returns to an earlier `unknown` or
+  `learning` concept once the focus is solid. On the first turn it asks a calibrating question. The map goes in the
+  system prompt after the paper (the action's own text), so the cached paper is reused; the profile's length
+  instructions are left out (the tutor's length is its own); no web search.
+- **The map update** is a forced tool call to Claude Haiku 5.5 after the answer (`update_study_map`, like follow-ups):
+  it reads the previous map, the reader's answer (the first turn is "none") and the tutor's reply, never the paper,
+  and returns the whole updated map (states change only on evidence; the tutor's final question sets the focus and
+  extends the journey). The server validates it whole (`studyMap`: slugs, bounded labels and notes, known states and
+  kinds, links on the map without self links, journey on the map, at most 60 concepts / 120 links / 16 KiB) and
+  relays it once as SSE `study {map}` before `done`; an unusable or late (12 s) update leaves the client's map as it
+  was. Follow-up suggestions are refused beside a study (the tutor's question is the follow-up).
+- **Cost:** the update request is held with the answer at its largest (`STUDY_HOLD_PARAMS`: a full map and both
+  excerpts at their limits) and frozen in the quote (`study_model`, `study_max_tokens`, `study_ceiling_microusd`); a
+  real update is about 1,500 input and 300 output Haiku tokens. `chat_answer` logs `study: written|unusable|failed|skipped`
+  and `study_concepts` (a count, never a name).
+- **Clients.** Browser: "Study this paper" in the empty paper chat and beside the title; a knowledge-map panel above
+  the message box (summary line, "Now: concept · step", Map as a Mermaid flowchart in the sandboxed diagram frame,
+  Journey as chips in order, Concepts with state, note, links and `¶N` buttons that land in the paper; End study).
+  Native: "Study this paper" in the empty paper chat and the chat's "…" menu; a knowledge-map bar above the message
+  box with View (a sheet: Map/Journey/Concepts, the Mermaid canvas drawn by the diagram renderer) and End study; the
+  message box reads "Your answer". The fixture backends tutor deterministically for the journeys.
+
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean}` (the last two since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study](#study--2026-10-14-experimental-staging)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study?: {concepts, links, focus, journey, next}} ` (`study` is required with `action: "study"` and refused otherwise; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study {map}` (2026-10-14, [Study](#study--2026-10-14-experimental-staging)), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code, credits?}` (`credits` since 2026-10-14: what the failed answer cost the reader; 0 when the provider never started it, and nothing is charged then) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request

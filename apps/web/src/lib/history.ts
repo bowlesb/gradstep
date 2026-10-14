@@ -162,9 +162,7 @@ export class History {
       } catch (error) {
         if (this.signal.aborted) return;
         this.status = this.status === 'loading' ? 'error' : this.status;
-        this.issue = error instanceof BackendError && error.code === 'history_capacity' ? 'This history is larger than this browser currently supports. Use Gradstep on iPhone, iPad or Mac.'
-          : error instanceof BackendError && error.code === 'connection' ? 'Couldn’t reach Gradstep to sync your chats.'
-          : 'Your chat history couldn’t be synced. Reload the page to try again.';
+        this.issue = syncIssueText(error);
         this.publish();
         throw error;
       } finally { this.running = null; }
@@ -392,4 +390,21 @@ export function journalCode(error: unknown): string {
   if (code === 'journal_capacity') return 'local_capacity';
   if (typeof code === 'string' && code.startsWith('storage_')) return code;
   return 'local_storage';
+}
+
+
+/** Sync failures by server code (docs/architecture/PRIVACY_AND_SYNC.md), never server prose: what stopped and that this
+ * device's copy still works. Unknown failures keep the generic line. */
+export function syncIssueText(error: unknown): string {
+  const code = error instanceof BackendError ? error.code : null;
+  switch (code) {
+    case 'history_capacity': return 'This history is larger than this browser currently supports. Use Gradstep on iPhone, iPad or Mac.';
+    case 'connection': return 'Couldn’t reach Gradstep to sync your chats.';
+    case 'sync_page_too_large': case 'reader_update_required': return 'Reload to get the latest Gradstep and keep syncing this history. Everything saved here stays available.';
+    case 'sync_account_storage_limit': case 'sync_environment_storage_limit': return 'Cloud history uploads are paused because storage is full. New changes stay on this device.';
+    case 'sync_account_transfer_limit': case 'sync_environment_transfer_limit': return 'Cloud history downloads are paused for now. Your saved work stays on this device.';
+    case 'request_rate_limit': case 'rate_limited': return 'Sync is limited for a moment and will try again.';
+    case 'stale_key_epoch': case 'key_authority_required': return 'This browser needs updated encryption keys from an approved device or a recovery code.';
+    default: return 'Your chat history couldn’t be synced. Reload the page to try again.';
+  }
 }

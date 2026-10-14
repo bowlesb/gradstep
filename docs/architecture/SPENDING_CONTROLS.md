@@ -185,3 +185,36 @@ It also rejects malformed copied receipts that could produce a nonexpiring subsc
 used a verifier pause/drain, encrypted backup, zero-history guard, unchanged purchase/grant terms and exact
 function/permission readback before restoring both channels. No price, allowance, balance backfill or provider
 limit changed. [Retention contract and evidence](../reviews/SUBSCRIPTION_UPGRADE_RETENTION_20261008.md).
+
+
+## Budget periods, failed answers and the stale-hold sweep — 2026-10-14 (migration 060; staging)
+
+From the [cost and credit audit](../reviews/COST_CREDITS_AND_SYNC_AUDIT_20261014.md), items 2, 4, 5 and 6, and the
+hold-sizing part of item 3:
+
+- **The monthly budget row creates itself.** `worker_ensure_platform_budget()` (service role) creates this month's
+  row from the latest earlier period and next month's from this month's, same limit and same work switch, never
+  larger; pg_cron runs it daily at 03:07 UTC (`science-reader-budget-period`) and the migration ran it once. The
+  budget is still only ever raised by hand (`scripts/pipeline-ops.py budget`); copying the same limit forward does not
+  increase it. Without any earlier row nothing is created (a fresh environment still needs its first row by hand).
+- **One readback for alerting.** `worker_budget_health()` (service role) returns the period, limit, spent, reserved,
+  the work switch, provider attempts left `unknown` for over an hour, operations open for over an hour and whether
+  next month's row exists. The scheduled workflow check `budget.health` (`scripts/workflow-checks.mjs`, every suite)
+  fails, and so emails the owner through the existing Resend path, on paused work, 80 % of the limit spent plus
+  reserved, aged unknown attempts, aged open holds or a missing next month.
+- **The stale-hold sweep books no spend.** `worker_expire_stale_chat_operations` settles a chat operation that never
+  reached the provider at 0 credits and 0 micro-USD (it used to settle at the full ceiling and add it to
+  `spent_microusd` for good). Staging's `spent` of $21.03 against $9.59 of recorded provider attempts predates this;
+  it is not corrected retroactively.
+- **Failed answers.** An answer the provider never started (no `message_start`: a 5xx, an overload, a dropped
+  connection) charges the reader 0 credits; the `error` event carries `credits` and both clients show "No credits
+  used". The provider attempt keeps the platform's liability until it is resolved (audit item 1, still open).
+- **Hold sizing.** `promptCharacters` now counts UTF-8 bytes once (it counted them three times), so the input part of
+  every chat hold is about a third of what it was; `FALLBACK_HOLD_FACTOR` and `HOLD_CAP_MINIMUM_CREDITS` are
+  unchanged (audit item 3's remaining work: a token count instead of bytes, and "needs N available" in the estimate).
+- **Sync fence.** `v2_pull_events` raises `sync_page_too_large` (which builds up to 27 render as an update notice)
+  instead of `reader_update_required` (which they rendered as "try again") when a page holds a format-2 event.
+
+Evidence: `tests/database/budget_period.sql` (ensure creates next month once, copies and never raises, health
+readback, permissions, the sweep releases a two-hour-old hold without charge or booked spend) in the cutover phase of
+`scripts/test-database.py`; backend chat tests for the zero charge and the `credits` on `error`.

@@ -9,6 +9,7 @@ import {
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
+import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
@@ -636,7 +637,8 @@ test('a provider error mid-stream settles once and reports provider_unavailable'
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
   assert.equal(h.calls.filter(c => c.name === 'worker_settle_operation').length, 1);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'error']);
-  assert.deepEqual(h.events[1].data, { code: 'provider_unavailable' });
+  // Mid-stream (message_start seen): the reader pays the estimated usage and is told so.
+  assert.deepEqual(h.events[1].data, { code: 'provider_unavailable', credits: 1 });
 });
 
 test('a thrown provider failure is settled as uncertain input, never left reserved', async () => {
@@ -644,7 +646,8 @@ test('a thrown provider failure is settled as uncertain input, never left reserv
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
   const settles = h.calls.filter(c => c.name === 'worker_settle_operation');
   assert.equal(settles.length, 1); assert.ok(Number(settles[0].params.p_actual_microusd) > 0);
-  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable' } }]);
+  // Never started: nothing charged to the reader (the attempt keeps the platform's liability).
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable', credits: 0 } }]);
 });
 
 test('a replayed operation never calls the provider or settles again', async () => {
@@ -735,7 +738,7 @@ test('the server deadline aborts generation and reports provider_unavailable', a
   }))) });
   h.deps.deadlineMs = 5;
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable' } }]);
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable', credits: 0 } }]);
   assert.deepEqual(h.calls.find(c => c.name === 'worker_settle_operation')!.params, { p_account_id: account, p_id: operation, p_actual_credits: 0, p_actual_microusd: 0 });
 });
 
@@ -869,12 +872,12 @@ test('all prompt text and nested tool results use a conservative UTF-8 byte boun
   const { promptCharacters } = await import('../../supabase/functions/_shared/anthropic.ts');
   const params = (text: string) => ({ model: 'x', max_tokens: 1, messages: [{ role: 'user' as const, content: text }] });
   const base = promptCharacters(params(''));
-  assert.equal(promptCharacters(params('abc')) - base, 9);
-  assert.equal(promptCharacters(params('漢字')) - base, 18);
-  assert.equal(promptCharacters(params('é')) - base, 6);
+  assert.equal(promptCharacters(params('abc')) - base, 3);
+  assert.equal(promptCharacters(params('漢字')) - base, 6);
+  assert.equal(promptCharacters(params('é')) - base, 2);
   const nested = { ...params(''), messages: [{ role: 'user' as const,
     content: [{ type: 'tool_result' as const, tool_use_id: 's1', content: 'private-result'.repeat(50) }] }] };
-  assert.ok(promptCharacters(nested) >= 3 * new TextEncoder().encode('private-result'.repeat(50)).length);
+  assert.ok(promptCharacters(nested) >= new TextEncoder().encode('private-result'.repeat(50)).length);
 });
 
 test('Related searches the web by instruction; every answer logs counts only', async () => {
@@ -1737,4 +1740,141 @@ test('a numbered local context (v2) asks for grounded citations; v1 and server-h
   // The citation instructions precede the tools block and never reach general chat.
   assert.ok(systems[0].indexOf('[¶12]') < systems[0].indexOf('create_diagram'));
   assert.doesNotMatch(chatInstructions('general', null, false, { citations: true }), /\[¶12\]/);
+});
+
+// Study (chat-study.ts): a tutored turn carries the reader's knowledge map; a forced Haiku request updates it after the answer.
+const studyContext = { ...localContext, format: 'reader-local-context-v2' };
+const studyBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: studyContext, action: 'study', study: EMPTY_STUDY_MAP,
+  messages: [{ role: 'user', text: 'Start studying this paper.' }], ...overrides });
+const sampleMap = { concepts: [{ id: 'scaling', label: 'Scaled dot-product attention', state: 'learning', paragraphs: [3, 4], note: 'Confuses d_k with d_model' },
+  { id: 'softmax', label: 'Softmax saturation', state: 'unknown', paragraphs: [4] }],
+  links: [{ from: 'softmax', to: 'scaling', kind: 'prerequisite' }], focus: 'scaling', journey: ['scaling', 'softmax', 'scaling'], next: 'verify' };
+const studyHarness = (options: Parameters<typeof harness>[0] = {}) =>
+  harness({ ...options, script: { worker_local_chat_context: () => ({ title: 'Attention' }), ...options.script } });
+function studyOutcome(map: unknown, changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
+  return completeOutcome({ messageID: 'msg_study', model: 'claude-haiku-5-5', stopReason: 'tool_use',
+    toolCalls: [{ name: 'update_study_map', input: map }],
+    attempts: [{ model: 'claude-haiku-5-5', estimated: false, usage: { input: 700, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 200 } }], ...changes });
+}
+
+test('a Study turn is a paper action on numbered local context that carries a validated map and no follow-ups', () => {
+  const parsed = validateChatRequest(studyBody({ study: sampleMap }));
+  assert.equal(parsed.action, 'study'); assert.deepEqual(parsed.study, sampleMap); assert.equal(parsed.selection, null);
+  // The map is part of the digest: the same question over a different map is a different request.
+  assert.notEqual(canonicalRequest(parsed), canonicalRequest(validateChatRequest(studyBody())));
+  assert.match(canonicalRequest(parsed), /"study":\{"concepts"/);
+  for (const [label, change] of Object.entries({
+    'no map': { study: undefined }, 'null map': { study: null }, 'map without links': { study: { concepts: [] } },
+    'unknown state': { study: { ...sampleMap, concepts: [{ ...sampleMap.concepts[0], state: 'mastered' }] } },
+    'dangling link': { study: { ...sampleMap, links: [{ from: 'scaling', to: 'ghost', kind: 'related' }] } },
+    'journey off the map': { study: { ...sampleMap, journey: ['ghost'] } },
+    'label too long': { study: { ...sampleMap, concepts: [{ ...sampleMap.concepts[0], label: 'x'.repeat(81) }] } },
+    'too many concepts': { study: { ...sampleMap, concepts: Array.from({ length: 61 }, (_, i) => ({ id: `c${i}`, label: 'c', state: 'known', paragraphs: [] })) } },
+    'general mode': { mode: 'general', local_context: undefined },
+    'server document': { document_id: documentID, local_context: undefined },
+    'unnumbered context (v1)': { local_context: localContext },
+    'follow-ups beside the tutor': { follow_ups: true },
+  })) assert.throws(() => validateChatRequest(studyBody(change as Record<string, unknown>)), { code: 'invalid_request' }, label);
+  // Only Study carries a map.
+  assert.throws(() => validateChatRequest(paperBody({ study: EMPTY_STUDY_MAP })), { code: 'invalid_request' });
+  // A selection may start the study on a passage; it is not required.
+  assert.equal(validateChatRequest(studyBody({ selection: { quote: 'divide by sqrt(d_k)' } })).selection, 'divide by sqrt(d_k)');
+});
+
+test('the map validator keeps whole maps only: ids, states, links and journeys are checked, text is cleaned, notes optional', () => {
+  const map = studyMap({ ...sampleMap, concepts: [{ id: 'scaling', label: ' Scaled\u0000 dot-product ', state: 'known', paragraphs: [4, 3, 3, 0, 1e9], note: '' },
+    { id: 'softmax', label: 'Softmax', state: 'unknown', paragraphs: [] }], links: [...sampleMap.links, ...sampleMap.links, { from: 'softmax', to: 'softmax', kind: 'related' }], next: 'sideways' });
+  assert.equal(map, null, 'a self-link is rejected');
+  const cleaned = studyMap({ ...sampleMap, concepts: [{ id: 'scaling', label: ' Scaled\u0000 dot-product ', state: 'known', paragraphs: [4, 3, 3, 0, 1e9], note: '' },
+    { id: 'softmax', label: 'Softmax', state: 'unknown', paragraphs: [] }], links: [...sampleMap.links, ...sampleMap.links], focus: null, next: 'sideways' })!;
+  assert.deepEqual(cleaned.concepts[0], { id: 'scaling', label: 'Scaled dot-product', state: 'known', paragraphs: [3, 4] });
+  assert.equal(cleaned.links.length, 1, 'duplicate links collapse'); assert.equal(cleaned.focus, null); assert.equal(cleaned.next, 'calibrate', 'an unknown next step calibrates');
+  assert.equal(studyMap({ ...sampleMap, concepts: [...sampleMap.concepts, { id: 'scaling', label: 'dup', state: 'known', paragraphs: [] }] }), null, 'duplicate ids');
+  assert.equal(studyMap({ ...sampleMap, concepts: [{ id: 'Bad Id', label: 'x', state: 'known', paragraphs: [] }], links: [], journey: [], focus: null }), null);
+  assert.equal(studyMap({ ...sampleMap, focus: 'ghost' })!.focus, null, 'a focus off the map is dropped, not fatal');
+  assert.deepEqual(studyMap(EMPTY_STUDY_MAP), EMPTY_STUDY_MAP);
+  // The model's largest possible map fits the request the hold is sized for.
+  assert.ok(promptCharacters(STUDY_HOLD_PARAMS) > 16_000);
+});
+
+test('Study: the tutor sees the map after the paper, the map request runs after the answer and is relayed once before done', async () => {
+  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  let answered = 0;
+  const h = studyHarness({ generate: async (params, stream) => {
+    sent.push(params);
+    if (params.model === 'claude-haiku-5-5') { assert.equal(answered, 1, 'the map request waits for the answer'); return studyOutcome({ ...sampleMap, journey: ['scaling', 'softmax', 'scaling', 'scaling'] }); }
+    stream.onText('Partly right. '); stream.onText('**What does dividing by √d_k keep small?**'); answered++;
+    return completeOutcome();
+  } });
+  await runChat(h.deps, studyBody({ study: sampleMap, messages: [{ role: 'user', text: 'Start studying this paper.' }, { role: 'assistant', text: '**What is d_k?**' },
+    { role: 'user', text: 'The key dimension, I think (reader-answer-marker)' }] }), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'study', 'done']);
+  assert.deepEqual(h.events[2].data, { map: { ...sampleMap, journey: ['scaling', 'softmax', 'scaling', 'scaling'] } });
+  // The answer's prompt: the tutor protocol and the map follow the paper (cached), no length instructions, no search.
+  const answer = sent[0];
+  const system = (answer.system as { text: string }[]).map(block => block.text).join('\n');
+  assert.match(system, /one step per turn/); assert.match(system, /<study_map>\{"concepts":\[\{"id":"scaling"/);
+  assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('<study_map>'), 'the map follows the paper');
+  assert.ok(!/Length:|Answer length/i.test(system.slice(system.indexOf('<study_map>'))), 'no profile length after the map');
+  assert.deepEqual(answer.tools?.map(t => t.name), ['create_diagram']);
+  // The map request: previous map, the reader's answer, the tutor's reply; never the paper.
+  const update = sent[1];
+  assert.equal(update.max_tokens, STUDY_MAX_TOKENS); assert.deepEqual(update.tools, [UPDATE_STUDY_MAP_TOOL]); assert.deepEqual(update.tool_choice, { type: 'tool', name: 'update_study_map' });
+  const input = JSON.stringify(update.messages);
+  assert.match(input, /<study_map>/); assert.match(input, /reader-answer-marker/); assert.match(input, /<tutor_reply>Partly right\. \*\*What does dividing/);
+  assert.ok(!input.includes('device-only-context-marker'), 'the map request never reads the paper');
+  // Charged with the answer, held at the map request's largest size, frozen in the quote.
+  const quote = h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
+  assert.equal(quote.study_model, 'claude-haiku-5-5'); assert.equal(quote.study_max_tokens, STUDY_MAX_TOKENS);
+  assert.equal(quote.study_ceiling_microusd, holdFor(promptCharacters(STUDY_HOLD_PARAMS), STUDY_MAX_TOKENS, 'claude-haiku-5-5').microusd);
+  assert.equal(quote.max_searches, 0);
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.equal(Number(settle.p_actual_microusd), priceAttempts([...completeOutcome().attempts, ...studyOutcome(sampleMap).attempts]));
+  // Logged as counts only.
+  assert.equal(h.answers[0].study, 'written'); assert.equal(h.answers[0].study_concepts, 2);
+  assert.ok(!JSON.stringify(h.logs).includes('Softmax'), 'concept names are never logged');
+});
+
+test('Study: the first turn is no answer; unusable, failed or slow map requests leave the map unchanged and the answer completes', async () => {
+  const first = studyHarness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') {
+      assert.match(JSON.stringify(params.messages), /<reader_answer>none: the first turn<\/reader_answer>/);
+      return studyOutcome({ concepts: [{ id: 'attention', label: 'Attention', state: 'learning', paragraphs: [1] }], links: [], focus: 'attention', journey: ['attention'], next: 'calibrate' });
+    }
+    stream.onText('**In one sentence, what problem does attention solve?**'); return completeOutcome(); } });
+  await runChat(first.deps, studyBody(), first.emit, new AbortController().signal);
+  assert.deepEqual(first.events.map(e => e.event), ['delta', 'study', 'done']);
+  assert.equal((first.events[1].data as { map: { focus: string } }).map.focus, 'attention');
+  const invalid = studyHarness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') return studyOutcome({ concepts: [{ id: 'x', label: 'x', state: 'fluent', paragraphs: [] }], links: [], focus: null, journey: [], next: 'teach' });
+    stream.onText('x'); return completeOutcome(); } });
+  await runChat(invalid.deps, studyBody(), invalid.emit, new AbortController().signal);
+  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']); assert.equal(invalid.answers[0].study, 'unusable');
+  const failed = studyHarness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') throw new Error('provider down');
+    stream.onText('x'); return completeOutcome(); } });
+  await runChat(failed.deps, studyBody(), failed.emit, new AbortController().signal);
+  assert.deepEqual(failed.events.map(e => e.event), ['delta', 'done']); assert.equal(failed.answers[0].study, 'failed');
+  assert.ok(Number(failed.calls.find(c => c.name === 'worker_settle_operation')!.params.p_actual_microusd) > priceAttempts(completeOutcome().attempts));
+  const slow = studyHarness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return studyOutcome(null, { status: 'failed', failure: 'aborted', stopReason: null }); }
+    stream.onText('x'); return completeOutcome(); } });
+  slow.deps.studyTimeoutMs = 20;
+  await runChat(slow.deps, studyBody(), slow.emit, new AbortController().signal);
+  assert.deepEqual(slow.events.map(e => e.event), ['delta', 'done']);
+  // A refused answer makes no map request; a plain answer makes none and holds nothing for one.
+  const refused = studyHarness({ generate: async () => completeOutcome({ stopReason: 'refusal' }) });
+  await runChat(refused.deps, studyBody(), refused.emit, new AbortController().signal);
+  assert.equal(refused.generations(), 1); assert.deepEqual(refused.events, [{ event: 'error', data: { code: 'refused' } }]);
+  const plain = studyHarness();
+  await runChat(plain.deps, paperBody({ document_id: null, local_context: studyContext }), plain.emit, new AbortController().signal);
+  assert.ok(!('study_model' in (plain.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as object))); assert.equal(plain.answers[0].study, undefined);
+  // Study never searches, even when search is on.
+  const searching = studyHarness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') return studyOutcome(EMPTY_STUDY_MAP);
+    assert.ok(!params.tools?.some(t => t.name === 'web_search' || t.name === 'search_web'), 'no search tool for the tutor');
+    stream.onText('x'); return completeOutcome(); } });
+  searching.deps.webSearch = true; searching.deps.nativeSearch = true;
+  await runChat(searching.deps, studyBody(), searching.emit, new AbortController().signal);
+  assert.equal(searching.answers[0].web_search_offered, false);
 });

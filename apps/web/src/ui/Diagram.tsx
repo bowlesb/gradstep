@@ -9,7 +9,7 @@ export function Diagram({ title, source }: { title: string; source: string }) {
       <DiagramFrame source={source} /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>
     </Dialog></div>;
 }
-function DiagramFrame({ source }: { source: string }) {
+export function DiagramFrame({ source }: { source: string }) {
   const [doc, setDoc] = useState<string | null>(null), [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [zoom, setZoom] = useState(1);
   const [requestID] = useState(() => crypto.randomUUID());

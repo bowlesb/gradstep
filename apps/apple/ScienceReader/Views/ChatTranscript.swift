@@ -56,7 +56,21 @@ struct ChatTranscript: View {
         } else if !model.generalChat && !model.canUsePaperChat {
             ContentUnavailableView("Choose a paper", image: GradstepSymbol.paper, description: Text("Open a paper from your library, or use General chat."))
         } else {
-            ContentUnavailableView(model.generalChat ? "Explore an idea" : "Ask about this paper", image: GradstepSymbol.chat, description: Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question."))
+            ContentUnavailableView {
+                Label(model.generalChat ? "Explore an idea" : "Ask about this paper", image: GradstepSymbol.chat)
+            } description: {
+                Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question.")
+            } actions: {
+                // Study (experimental, 2026-10-14): a tutor for this paper, offered when the paper is numbered on this device.
+                if model.canStudyPaper, model.chatStudyMap == nil {
+                    VStack(spacing: 6) {
+                        Button("Study this paper") { Task { await model.startStudy() } }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).accessibilityIdentifier("chat.study.start")
+                        Text("A tutor asks one question at a time, teaches what you miss, and maps what you know. Experimental.")
+                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
+                }
+            }
         }
     }
 }

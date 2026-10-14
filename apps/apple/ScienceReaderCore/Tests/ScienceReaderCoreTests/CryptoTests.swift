@@ -29,6 +29,18 @@ import Testing
         }
     }
 
+    @Test func readerErrorsDescribeThemselvesWithoutServerText() {
+        let update = "Update Gradstep to keep syncing this history. Everything on this device stays available."
+        #expect(ReaderError.unsupportedFormat.errorDescription == update)
+        #expect(ReaderError.invalidEvent.errorDescription?.hasPrefix("Sync stopped at an entry this device can’t read.") == true)
+        #expect(ReaderError.invalidEvent.errorDescription == ReaderError.corruptData.errorDescription)
+        #expect(ReaderError.missingKey.errorDescription == ReaderError.staleEpoch.errorDescription)
+        for error in ReaderError.allCases {
+            #expect(error.errorDescription?.isEmpty == false, "\(error) has copy")
+            #expect(error.errorDescription?.contains("recover your history") == false, "\(error) must not promise that a sign-in recovers history")
+        }
+    }
+
     @Test func recoveryRequiresCodeAndCorrectAccount() throws {
         let keys = KeyBundle.generate(accountID: account)
         let code = ReaderCrypto.recoveryCode()

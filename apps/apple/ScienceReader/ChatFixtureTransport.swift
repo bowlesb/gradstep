@@ -44,6 +44,18 @@ struct ChatFixtureTransport: ChatTransport {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    if request.action == .study {
+                        // Study (2026-10-14): a calibrating question first, then a judgement, a taught passage and one
+                        // bold question; the map grows as the live server's would.
+                        try await Task.sleep(for: .milliseconds(300))
+                        let first = request.turns.count == 1
+                        for piece in Self.pieces(of: first ? Self.studyFirst : Self.studyNext, size: 14) {
+                            continuation.yield(.delta(piece)); try await Task.sleep(for: .milliseconds(30))
+                        }
+                        continuation.yield(.study(first ? Self.studyMapFirst : Self.studyMapNext))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 4, model: "claude-sonnet-5-5", profile: request.profile.id))
+                        continuation.finish(); return
+                    }
                     if request.action == .diagramFix {
                         try await Task.sleep(for: .milliseconds(1500))
                         continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram))
@@ -97,6 +109,14 @@ struct ChatFixtureTransport: ChatTransport {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    static let studyFirst = "Let’s start with the central idea. **In one sentence, what does attention compute?**"
+    static let studyNext = "Partly right. Attention weights the values by how well each key matches the query [¶4]. **What does the softmax do to large scores?**"
+    static let studyMapFirst = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .learning, paragraphs: [4])],
+                                        links: [], focus: "attention", journey: ["attention"], next: .calibrate)
+    static let studyMapNext = StudyMap(concepts: [StudyMap.Concept(id: "attention", label: "Attention", state: .known, paragraphs: [4], note: "Knows the weighted sum"),
+                                                  StudyMap.Concept(id: "softmax", label: "Softmax", state: .learning, paragraphs: [4])],
+                                       links: [StudyMap.Link(from: "softmax", to: "attention", kind: .prerequisite)], focus: "softmax", journey: ["attention", "softmax"], next: .teach)
 
     /// Follow-up questions every complete fixture answer suggests (servers from 2026-10-14).
     static let followUps = ["Why does the softmax saturate without the scaling?", "How does this compare with additive attention?"]

@@ -18,7 +18,9 @@ public enum ChatRequestError: Error, Equatable {
 /// `related` (server: always searches the web for related papers) needs a server that accepts it
 /// (chat.ts, 2026-10-06); `ingest` adds the cited paper. `relevance` (Why it matters: the paper only, never the web)
 /// and `diagramFix` (one corrected diagram for one the device could not parse) need the chat function of 2026-10-07.
-public enum ChatAction: String, Equatable, Sendable { case ingest, related, relevance, diagramFix = "diagram_fix" }
+/// `study` (2026-10-14, experimental): a tutored turn on the paper numbered on this device; it carries the reader's
+/// knowledge map (`StudyMap`) and needs no selection.
+public enum ChatAction: String, Equatable, Sendable { case ingest, related, relevance, diagramFix = "diagram_fix", study }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
     public static let consentVersion = "cloud-ai-v2"
@@ -39,12 +41,14 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let profile: ChatProfileChoice
     /// Ask the server for a topic title alongside the answer (server 2026-10-08).
     public let topicTitle: Bool
+    /// Study: the knowledge map so far (an empty map first); present exactly when the action is `study`.
+    public let study: StudyMap?
 
     /// Keeps the newest turns that fit the server bounds. The context always
     /// starts and ends with a user turn; empty turns are skipped.
     public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
                             action: ChatAction? = nil, profile: ChatProfileChoice = .standard,
-                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil) throws -> ChatGenerationRequest {
+                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
         guard last.text.utf8.count <= maximumMessageBytes else { throw ChatRequestError.questionTooLarge }
@@ -58,8 +62,11 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         while let first = kept.first, first.role != .user { kept.removeFirst() }
         let quote = selection.map { bounded($0, scalars: maximumSelectionScalars) }
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        // Every selection action needs its quote; Study acts on the paper (a quote only starts it on a passage).
+        let kept_action = action == .study || quote != nil ? action : nil
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
-                                     action: quote == nil ? nil : action, profile: profile, topicTitle: topicTitle, localContext: localContext)
+                                     action: kept_action, profile: profile, topicTitle: topicTitle, localContext: localContext,
+                                     study: kept_action == .study ? study ?? .empty : nil)
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -76,9 +83,9 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     }
 
     private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?,
-                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil) {
+                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil) {
         self.operationID = operationID; self.documentID = localContext == nil ? documentID : nil; self.localContext = localContext; self.turns = turns; self.selection = selection; self.action = action
-        self.profile = profile; self.topicTitle = topicTitle
+        self.profile = profile; self.topicTitle = topicTitle; self.study = study
     }
 
     public func encoded() throws -> Data {
@@ -98,14 +105,17 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let capabilities: [String]?
             let profile: ChatProfileChoice?
             let topic_title: Bool?
-            /// Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest).
+            /// Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest, not Study: the tutor asks).
             let follow_ups: Bool?
+            /// Study: the knowledge map this turn answers against.
+            let study: StudyMap?
         }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
             capabilities: action == .ingest ? ["web_import"] : nil, profile: profile == .standard ? nil : profile,
-            topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest ? nil : true))
+            topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest || action == .study ? nil : true,
+            study: action == .study ? study ?? .empty : nil))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {
@@ -126,9 +136,13 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case title(String)
     /// Follow-up questions the answer suggested (servers from 2026-10-14), sent before `done`; shown, never saved.
     case followUps([String])
+    /// Study: the updated knowledge map after a tutored answer (servers from 2026-10-14), sent before `done`; kept
+    /// with the open chat only.
+    case study(StudyMap)
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
-    case failure(code: String)
+    /// `credits`: what the failed answer cost (0 when the provider never started it; servers from 2026-10-14).
+    case failure(code: String, credits: Int? = nil)
 }
 
 /// Server work in progress during an answer (`status` events, server 2026-10-07).
@@ -267,16 +281,22 @@ public struct ChatSSEParser: Sendable {
             guard let decoded = try? JSONDecoder().decode(FollowUps.self, from: payload) else { return nil }
             let questions = ChatFollowUps.clean(decoded.questions)
             return questions.isEmpty ? nil : .followUps(questions)
+        case "study":
+            // A map that is not whole is dropped; the answer and the previous map are unaffected.
+            struct Study: Decodable { let map: StudyMapBox }
+            struct StudyMapBox: Decodable { let data: Data; init(from decoder: Decoder) throws { data = try JSONEncoder().encode(AnyJSON(from: decoder)) } }
+            guard let study = try? JSONDecoder().decode(Study.self, from: payload), let map = StudyMap.validated(study.map.data) else { return nil }
+            return .study(map)
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }
             // Labels only: bounded plain identifiers, else left out (never fatal).
             return .done(stopReason: done.stop_reason, credits: done.credits, model: Self.label(done.model), profile: Self.label(done.profile))
         case "error":
-            struct Failure: Decodable { let code: String }
+            struct Failure: Decodable { let code: String; let credits: Int? }
             guard let failure = try? JSONDecoder().decode(Failure.self, from: payload),
                   failure.code.utf8.count <= 64 else { throw ChatStreamError.malformed }
-            return .failure(code: failure.code)
+            return .failure(code: failure.code, credits: failure.credits.flatMap { $0 >= 0 ? $0 : nil })
         default: return nil
         }
     }
@@ -366,4 +386,36 @@ public enum ChatTopicTitle {
         // A typed name longer than the limit keeps its first 80 characters.
         return String(line.prefix(maximumCharacters)).trimmingCharacters(in: .whitespaces)
     }
+}
+
+
+/// Any JSON value, re-encoded as it was received (an object's keys kept): how a nested document reaches a validator
+/// that reads raw JSON.
+struct AnyJSON: Codable {
+    let value: Any
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { value = NSNull() }
+        else if let bool = try? container.decode(Bool.self) { value = bool }
+        else if let int = try? container.decode(Int.self) { value = int }
+        else if let double = try? container.decode(Double.self) { value = double }
+        else if let string = try? container.decode(String.self) { value = string }
+        else if let array = try? container.decode([AnyJSON].self) { value = array.map(\.value) }
+        else if let object = try? container.decode([String: AnyJSON].self) { value = object.mapValues(\.value) }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON") }
+    }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch value {
+        case is NSNull: try container.encodeNil()
+        case let bool as Bool: try container.encode(bool)
+        case let int as Int: try container.encode(int)
+        case let double as Double: try container.encode(double)
+        case let string as String: try container.encode(string)
+        case let array as [Any]: try container.encode(array.map(AnyJSON.init(value:)))
+        case let object as [String: Any]: try container.encode(object.mapValues(AnyJSON.init(value:)))
+        default: throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: [], debugDescription: "Unsupported JSON"))
+        }
+    }
+    init(value: Any) { self.value = value }
 }

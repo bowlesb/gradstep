@@ -111,7 +111,7 @@ enum BackendError: LocalizedError {
             case "sync_environment_storage_limit": "Cloud history uploads are paused because storage is full. New changes remain on this device."
             case "sync_account_transfer_limit": "Your cloud history download allowance has been reached for this month. Your saved work remains on this device."
             case "sync_environment_transfer_limit": "Cloud history downloads are temporarily paused. Your saved work remains on this device."
-            case "sync_page_too_large": "Update the app to sync this history. Your saved work remains on this device."
+            case "reader_update_required", "sync_page_too_large": "Update Gradstep to keep syncing this history. Everything on this device stays available."
             case "request_rate_limit": "Cloud requests are temporarily limited. Your saved work remains on this device."
             case "owner_mfa_required", "operator_required": "This action needs an authorized administrator with two-factor authentication."
             default: "The server could not complete this request. Please try again."
@@ -1023,7 +1023,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                              "upload_write_proof_required", "upload_disabled", "upload_storage_capacity", "paper_storage_capacity", "asset_inventory_reconciling",
                              "library_descriptor_required", "invalid_upload", "rate_limited",
                              "library_active_import_limit", "import_not_retryable", "import_unavailable",
-                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
+                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "reader_update_required", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
                 .union(BackendError.podcastCodes)
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)

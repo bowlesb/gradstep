@@ -663,6 +663,10 @@ private final class OfflineModelFixture {
         server = try OfflineModelServer(catalog: catalog, additionalCatalogs: additionalCatalogs, device: device, holdRefresh: expired)
         let server = server
         StubProtocol.install(host: configuration.url.host!) { server.handle($0) }
+        // A legacy arXiv item first tries the on-device HTML reader (c615af3); the fixture answers arxiv.org in-process
+        // with 404 so that attempt fails at once and the server-bundle fallback under test follows, offline.
+        StubProtocol.install(host: "arxiv.org") { $0.respond(Data(), status: 404) }
+        ArxivHTMLReader.fixtureProtocolClasses = [StubProtocol.self]
         let settings = URLSessionConfiguration.ephemeral
         settings.protocolClasses = [StubProtocol.self]
         network = URLSession(configuration: settings)
@@ -775,6 +779,8 @@ private final class OfflineModelFixture {
         await model.waitForLocalRetirement()
         network.invalidateAndCancel()
         StubProtocol.remove(host: host)
+        StubProtocol.remove(host: "arxiv.org")
+        ArxivHTMLReader.fixtureProtocolClasses = nil
         for name in [environment + ".auth-session", "\(environment).\(catalog.account.wire).device-keys",
                      "\(environment).\(catalog.account.wire).support-outbox-key"] {
             try? KeychainVault.delete(name)
