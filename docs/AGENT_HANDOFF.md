@@ -42,6 +42,13 @@ generation has run through the repair yet: October's seed allowance ($0.58 of $3
 so the first live check is either the owner trying a pre-cutover paper from the app or an owner-approved allowance
 increase followed by `podcast-ops.py seed --actor <OWNER> --approval c6c381f5-2b9e-445c-af03-045e7810a245` (the
 CoTrace paper whose seed failed on 2026-10-09) and `kick`.
+**DeepSeek (owner: "set up DeepSeek, prove it works with podcasts", afternoon):** migration **063** applied, the
+`podcast` and `podcast-member` functions redeployed, pipeline worker revision **00034** (with `DEEPSEEK_API_KEY`
+pinned) deployed, the policy moved to the version-4 profiles (revision 7: DeepSeek V4 Pro writes the script; maxima
+140/150/280/500 credits), browser Pages **`9b227fa2`** (quote handling no longer pinned to the Anthropic label and
+150 credits). October's seed allowance was raised from $3 to $4 for one proof seed (CoTrace, job `230c71a2`); the
+result is in [Implementation status](IMPLEMENTATION_STATUS.md). Flip back with `podcast-ops.py policy --set
+profile_version=3 --set allowed_profiles=<the :3 list>` if DeepSeek disappoints.
 
 **Build 31 screenshots (2026-10-14 15:34 UTC):** tiny figure, missing Back after in-page citation links, poor streaming
 scroll; fixed in the compiler, the shared bridge and the native flush cadence (the scroll fix needs the owner's eye),

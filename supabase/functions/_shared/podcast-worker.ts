@@ -23,7 +23,10 @@ export interface PodcastStorage {
 export interface PodcastDeps {
   rpc<T>(name: string, params: Record<string, unknown>): Promise<T>;
   storage: PodcastStorage;
+  /** The Anthropic script provider (every profile before version 4). */
   script: ScriptProvider | null;
+  /** Script providers by the spec's `script.provider` (2026-10-14: `deepseek`); `anthropic` falls back to `script`. */
+  scriptProviders?: Partial<Record<string, ScriptProvider>>;
   speech: SpeechProvider | null;
   encoder: AudioEncoder;
   sha256Hex(bytes: Uint8Array): Promise<string>;
@@ -36,7 +39,7 @@ interface Spec {
   id: string; version: number; target_seconds: number; min_seconds: number; max_seconds: number; max_source_bytes: number;
   /** Ten and twenty minutes: one paid script pass per request, checkpointed in between. */
   staged?: boolean; shape?: ScriptShape; checker?: CheckerBounds;
-  script: { model: string; calls: { route: string; max_input_tokens: number; max_output_tokens: number; window_seconds?: number }[] };
+  script: { provider?: string; model: string; calls: { route: string; max_input_tokens: number; max_output_tokens: number; window_seconds?: number }[] };
   speech: { model: string; max_input_tokens: number; max_output_tokens: number; max_calls?: number; max_audio_tokens?: number; serving_limit_tokens?: number; window_seconds?: number;
     voices: { explainer: string; skeptic: string }; rates_microusd_per_token: { text_input: number; audio_output: number } };
   storage: { audio_bytes: number; transcript_bytes: number; manifest_bytes: number };
@@ -101,9 +104,17 @@ export const REVIEW_FRAMING_TOKENS = 1_000;
  * long enough to match the option the reader selected. Version 1 stays on its
  * historical bounds because changing those would reinterpret existing jobs.
  */
+/** Version 2 and later keep the episode near its advertised length: the checker's word range is the writer's target
+ * range with a tolerance band (85% of the floor to 115% of the ceiling; five minutes: 552–920 words), inside the
+ * profile's hard audio and character caps. The band comes from the first DeepSeek seeds of 2026-10-14: 876 and
+ * 604 words against 650–800, both fine for "about five minutes", both rejected by the exact range. */
+export const WORD_RANGE_TOLERANCE = Object.freeze({ floor: 0.85, ceiling: 1.15 });
 export function podcastCheckerBounds(spec: Pick<Spec, 'version' | 'shape' | 'checker'>): CheckerBounds {
   const configured = spec.checker ?? FIVE_MINUTE_BOUNDS;
-  if (spec.version >= 2 && spec.shape) return { ...configured, words: spec.shape.words };
+  if (spec.version >= 2 && spec.shape) {
+    const [floor, ceiling] = spec.shape.words;
+    return { ...configured, words: [Math.floor(floor * WORD_RANGE_TOLERANCE.floor), Math.ceil(ceiling * WORD_RANGE_TOLERANCE.ceiling)] };
+  }
   return configured;
 }
 
@@ -168,11 +179,11 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       if (resume?.stage === 'review') {
         draft = resume.document.draft; draftDigest = resume.document.draft_sha256; Object.assign(models, resume.document.models);
       } else {
-        const params = draftRequest(paper, title, first.max_output_tokens, instructions);
+        const params = draftRequest(paper, title, first.max_output_tokens, instructions, spec.script.model);
         // The review will read this paper plus the draft: refuse now, before any paid call, if that could not fit.
-        await reviewMustFit(deps, params, first.max_input_tokens, first.max_output_tokens, second.max_input_tokens);
+        await reviewMustFit(deps, params, first.max_input_tokens, first.max_output_tokens, second.max_input_tokens, spec);
         const parsed = parseScript(await scriptCall(deps, fence, 'podcast_script', params, first.max_input_tokens,
-          () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, first.window_seconds), models));
+          () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, first.window_seconds), models, spec));
         if (!parsed) throw new Failure('script_invalid', true);
         draft = parsed;
         draftDigest = await deps.sha256Hex(new TextEncoder().encode(JSON.stringify(draft)));
@@ -180,8 +191,8 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
         await advance('checking');
       }
       // The review returns a bounded correction set (never the whole script), applied here deterministically.
-      const review = parseReview(await scriptCall(deps, fence, 'podcast_review', reviewRequest(paper, title, draft, second.max_output_tokens, instructions),
-        second.max_input_tokens, () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, second.window_seconds), models));
+      const review = parseReview(await scriptCall(deps, fence, 'podcast_review', reviewRequest(paper, title, draft, second.max_output_tokens, instructions, spec.script.model),
+        second.max_input_tokens, () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, second.window_seconds), models, spec));
       if (!review) throw new Failure('script_invalid', true);
       reviewDigest = await deps.sha256Hex(new TextEncoder().encode(JSON.stringify(review)));
       const reviewed = applyCorrections(draft, review, correctionLimit(second.max_output_tokens));
@@ -209,13 +220,15 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     // draft from the writer (the kept turns stay; the removed ones are rewritten against their own evidence), then the
     // checker runs again. Only profiles with the repair call (version 3) can; the first check is recorded either way.
     const repairCall = !fixture && !resumedSpeech ? spec.script.calls.find(c => c.route === 'podcast_script_repair') : undefined;
-    if (!checked.ok && repairCall && repairable(checked, bounds)) {
+    const direction = !checked.ok && repairCall ? repairable(checked, bounds) : null;
+    if (!checked.ok && repairCall && direction) {
       await recordCheck(deps, fence, checked.report, log);
       const removals = checked.report.removals ?? [];
-      log('podcast_script_repairing', { words: checked.report.words ?? null, removed: removals.length, floor: bounds.words[0] });
-      const params = repairRequest(paper, title, final, checked.kept, removals, repairCall.max_output_tokens, instructions);
+      log('podcast_script_repairing', { words: checked.report.words ?? null, removed: removals.length, floor: bounds.words[0], ceiling: bounds.words[1], direction });
+      const params = repairRequest(paper, title, final, checked.kept, removals, repairCall.max_output_tokens, instructions, spec.script.model,
+        { direction, words: bounds.words });
       const repaired = parseScript(await scriptCall(deps, fence, 'podcast_script_repair', params, repairCall.max_input_tokens,
-        () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, repairCall.window_seconds), models));
+        () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, repairCall.window_seconds), models, spec));
       if (!repaired) throw new Failure('script_invalid', true);
       // The review's verdict and reasons carry over; its removals were applied by the first check and are not repeated
       // (a removed id is never reused, so a stale removal would reject the repair as naming an unknown turn).
@@ -380,11 +393,10 @@ async function recordCheck(deps: PodcastDeps, fence: Record<string, unknown>, re
   }
 }
 
-async function reviewMustFit(deps: PodcastDeps, params: ScriptParams, draftCap: number, draftOutput: number, reviewCap: number): Promise<void> {
+async function reviewMustFit(deps: PodcastDeps, params: ScriptParams, draftCap: number, draftOutput: number, reviewCap: number, spec: Pick<Spec, 'script'>): Promise<void> {
   const bytes = requestBytes(params);
   if (bytes <= draftCap && bytes + draftOutput + REVIEW_FRAMING_TOKENS <= reviewCap) return;
-  if (!deps.script) throw new Failure('script_unavailable', false);
-  const counted = await deps.script.countTokens(params, AbortSignal.timeout(30_000));
+  const counted = await scriptProviderFor(deps, spec).countTokens(params, AbortSignal.timeout(30_000));
   if (!fitsInput(bytes, counted, draftCap) || counted === null || Math.ceil(counted * 1.05) + 512 + draftOutput + REVIEW_FRAMING_TOKENS > reviewCap) {
     throw new Failure('source_too_large', false);
   }
@@ -471,21 +483,34 @@ async function finishAttempt(deps: PodcastDeps, admission: Admission, state: 'su
 
 /** One granted script pass; returns the complete model text (the caller parses it). */
 /** The checker's only standing problem is the word floor, after it removed at least one turn: a repair can help. */
-function repairable(checked: Extract<ReturnType<typeof checkScript>, { ok: false }>, bounds: CheckerBounds): boolean {
-  return checked.problems.length === 1 && checked.problems[0] === 'word_budget'
-    && (checked.report.words ?? 0) < bounds.words[0] && (checked.report.segments?.removed ?? 0) > 0;
+/** The one standing problem is the word range: under the floor after removals (the Sonnet failures of 2026-10-09) or
+ * over the ceiling (DeepSeek's first live draft, 876 words against 650–800). Either way the writer gets one more pass. */
+function repairable(checked: Extract<ReturnType<typeof checkScript>, { ok: false }>, bounds: CheckerBounds): 'short' | 'long' | null {
+  if (checked.problems.length !== 1 || checked.problems[0] !== 'word_budget') return null;
+  const words = checked.report.words ?? 0;
+  if (words < bounds.words[0] && (checked.report.segments?.removed ?? 0) > 0) return 'short';
+  if (words > bounds.words[1]) return 'long';
+  return null;
+}
+
+/** The script provider the spec names (`script.provider`, 2026-10-14): `deepseek` from `scriptProviders`, else Anthropic. */
+function scriptProviderFor(deps: PodcastDeps, spec: Pick<Spec, 'script'>): ScriptProvider {
+  const name = spec.script.provider ?? 'anthropic';
+  const provider = name === 'anthropic' ? deps.scriptProviders?.anthropic ?? deps.script : deps.scriptProviders?.[name] ?? null;
+  if (!provider) throw new Failure('script_unavailable', false);
+  return provider;
 }
 
 async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, route: 'podcast_script' | 'podcast_review' | 'podcast_script_repair', params: ScriptParams,
-  inputCap: number, windowFor: () => number, models: Record<string, string | null>): Promise<string | null> {
-  if (!deps.script) throw new Failure('script_unavailable', false);
+  inputCap: number, windowFor: () => number, models: Record<string, string | null>, spec: Pick<Spec, 'script'>): Promise<string | null> {
+  const provider = scriptProviderFor(deps, spec);
   const bytes = requestBytes(params);
-  const counted = bytes <= inputCap ? null : await deps.script.countTokens(params, AbortSignal.timeout(30_000));
+  const counted = bytes <= inputCap ? null : await provider.countTokens(params, AbortSignal.timeout(30_000));
   // Refuse before any paid call; never truncate the paper silently.
   if (!fitsInput(bytes, counted, inputCap)) throw new Failure('source_too_large', false);
   const window = windowFor();
   const admission = await admit(deps, fence, route, params);
-  const result: ScriptCallResult = await deps.script.generate(params, AbortSignal.timeout(window));
+  const result: ScriptCallResult = await provider.generate(params, AbortSignal.timeout(window));
   models[route] = result.model;
   const cost = result.state === 'succeeded' ? scriptCost(result) : null;
   await finishAttempt(deps, admission, result.state, result.requestID, result.state === 'rejected' ? 0 : cost?.microusd ?? null, cost?.units ?? {}, result.failure);

@@ -1528,3 +1528,68 @@ two reports; `1ab521cd` was `source_too_large` and is unrelated.
 - **Not done:** the quote's "up to N credits" rises with the pointer (the actual charge does not; holds are released);
   automatic retry of the three recorded failures (they are settled; the owner can create the episodes again once the
   pointer moves); and device-prepared papers, which still have no server text to write from (a separate design).
+
+### DeepSeek script provider (migration 063, database side; 2026-10-14)
+
+Owner direction (2026-10-14): "Let's set up DeepSeek, prove it works with podcasts, hopefully it will be more cost
+effective." The database side is migration `202610140063_podcast_deepseek_profiles.sql`; the adapter, the worker's
+provider selection, the clients and the secrets are the parent thread's work and are recorded separately.
+
+- **Provider `deepseek`** joins the attempt constraint and `worker_provider_attempt_begin`'s route rules for the
+  three script routes only (`podcast_script`, `podcast_review`, `podcast_script_repair`); chat and speech refuse it
+  with `invalid_provider_route`. `app_private.podcast_grant` reads the provider from the profile spec
+  (`script.provider`, Anthropic when absent) instead of assuming Anthropic; speech stays with Google. The attempt's
+  pricing snapshot records `deepseek-token-rates-peak-20261014` with the rates below.
+- **Rates.** DeepSeek's published prices vary by time of day (off-peak is a quarter to half of peak), so every ceiling
+  uses the **peak** list prices: `deepseek-v4-pro` $1.32 per million input tokens (cache miss) and $3.96 per million
+  output tokens, stored on the spec as `rates_microusd_per_token: {"input": 1.32, "output": 3.96}` (micro-USD per
+  token; jsonb decimals). A ceiling is an upper bound on what an attempt can cost; the worker records actual usage at
+  the real rate.
+- **Consent `podcast-private-v2`.** A quote carries its profile's consent version (the quotes table now allows v1 and
+  v2) and `v1_podcast_start` requires exactly that version, after the quote is found, instead of the literal v1. A
+  version-4 quote therefore refuses v1 consent with `consent_required`, and a version-3 quote refuses v2. The quote's
+  `providers` array names the script provider from the spec (`app_private.podcast_script_provider_label`:
+  "DeepSeek (script)" or "Anthropic (script)") beside "Google Vertex AI (speech)"; both clients show that list in the
+  consent step. Older clients that hard-check the Anthropic label (the browser's quote parser did until today) must be
+  updated before the pointer moves.
+- **Version-4 profiles** copy version 3 (same routes, token caps and windows, the repair call included) with
+  `script.provider = deepseek`, `script.model = deepseek-v4-pro`, every script call's ceiling recomputed at the peak
+  rates, the total as the sum of the script calls and the Google speech ceiling, and the same credit and hold rules as
+  before. Maxima: Short 180 → **140**, 5 min 200 → **150**, 10 min 360 → **280**, 20 min 610 → **500** credits
+  (the ceilings fall by less than the prices because the 80,000-token input cap dominates them; actual charges are
+  usage at the real rates). The five-minute estimate makes no "55–60 credits" claim on version 4, since that figure
+  was measured on Sonnet. Version-2 and version-3 rows and jobs are untouched.
+- **The pointer.** Not moved by the migration. After the worker that speaks DeepSeek is deployed:
+  `podcast-ops.py policy --actor <OWNER> --set profile_version=4 --set allowed_profiles=podcast-short-v1:4,podcast-5min-v1:4,podcast-10min-v1:4,podcast-20min-v1:4 --reason "..."`,
+  and back to `:3` the same way if DeepSeek disappoints.
+- **Evidence:** `tests/database/podcast_deepseek_profiles.sql` (cutover phase): the version-4 rows and their
+  arithmetic against version 3, the labels and the estimate text, a seed job on version 4 whose draft, review and
+  repair are admitted under `deepseek` at the version-4 ceilings with the peak-rate snapshot and whose speech follows,
+  deepseek refused for chat and speech, a customer quote naming DeepSeek with consent v2 (v1 and a made-up v3 refused,
+  v2 holds 280 credits), and a version-3 quote still naming Anthropic with v1 (v2 refused). `python3 scripts/test-database.py`
+  passes with it.
+
+
+### Trim repair (2026-10-14, after the first DeepSeek seed)
+
+The first live DeepSeek draft (job `230c71a2`, CoTrace, profile v4) was accepted by the review and rejected by the
+checker for the word range alone: 876 spoken words against the five-minute writer's 650–800, under the 6,000
+spoken-character cap, after four removals. The repair route covered only scripts under the floor, so the job failed
+`script_evidence_rejected` at $0.116 of script cost (both DeepSeek calls together; the same two calls cost about $0.35
+on Sonnet). The repair now runs in both directions: under the floor after removals as before, or over the ceiling with
+no other standing problem. The over-length prompt (`TRIM_TASK`) keeps every evidence quote, drops the least important
+turns whole (a question with its answer) and tightens wording to land inside the range; the checker then runs again and
+a second miss fails as before. `tests/backend/podcast.test.ts` covers the trim that publishes and the one that stays
+long; the spoken-character cap is still not a repairable problem.
+
+
+### Word-range tolerance (2026-10-14, after the second DeepSeek seed)
+
+The second DeepSeek seed (job `13e9078f`) wrote 604 words, three turns were removed, the repair's replacement turn
+again lacked a verified quote, and the job failed `script_evidence_rejected` at $0.049 of script cost for three
+DeepSeek calls (the paper was a cache hit: $0.018 draft, $0.009 review, $0.023 repair). Two live drafts, 876 and
+604 words, both sound like "about five minutes" and both fell outside the writer's exact 650–800 target, which the
+version-2 checker had been applying as a hard range. The checker's word range is now the target range with a
+tolerance band: 85% of the floor to 115% of the ceiling (five minutes: 552–920; ten minutes: 1,147–1,898), inside
+the unchanged audio and spoken-character caps; the repair still runs for anything outside the band. The first
+DeepSeek draft would have passed at 876 and the second at 604.

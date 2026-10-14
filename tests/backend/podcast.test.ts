@@ -419,7 +419,8 @@ test('v2 podcast lengths enforce their advertised word and audio windows; v1 rem
     shape: { duration: 'about five minutes', words: [650, 800] as [number, number], chapters: [4, 6] as [number, number], segments: [16, 28] as [number, number] },
     checker: { words: [450, 1000] as [number, number], chapters: [3, 8] as [number, number], segments: [8, 80] as [number, number], max_spoken_characters: 6000, min_evidenced: 5 },
   };
-  assert.deepEqual(podcastCheckerBounds(v2), { ...v2.checker, words: [650, 800] });
+  // Version 2 and later: the writer's range with the tolerance band (85% of the floor, 115% of the ceiling).
+  assert.deepEqual(podcastCheckerBounds(v2), { ...v2.checker, words: [552, 920] });
   assert.deepEqual(podcastAudioBounds(v2, false), { minMs: 240_000, maxMs: 375_000 });
   assert.deepEqual(podcastAudioBounds({ ...v2, version: 1 }, false), { minMs: 120_000, maxMs: 660_000 });
   assert.deepEqual(podcastAudioBounds(v2, true), { minMs: 1_000, maxMs: 660_000 });
@@ -486,6 +487,7 @@ function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' |
       },
     },
     script: { countTokens: async () => null, generate, ...options.script },
+    ...(options.scriptProviders ? { scriptProviders: options.scriptProviders } : {}),
     speech: options.speech === undefined ? { generate: async () => ({ state: 'succeeded', requestID: 'resp-1', model: 'gemini-3.8-flash-tts', finishReason: 'STOP',
       audio: tone(150, [20, 40, 60, 80, 100, 120]), mimeType: 'audio/wav', usage: { text_input_tokens: 1500, audio_output_tokens: 3750 }, failure: null }) } : options.speech,
     encoder: { encode: async (wav, chapters) => { const pcm = parseWav(wav); assert.ok(chapters.length >= 1);
@@ -908,13 +910,23 @@ test('a repair that still fails, a problem other than the word floor, too many w
   assert.equal((await runPodcast(v2.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
   assert.deepEqual(v2.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_script', 'podcast_review']);
   assert.equal(report(v2).length, 1);
-  // Too many words is a word-budget problem too, but not one a repair addresses.
+  // Too many words is repaired too (DeepSeek's first live draft, 876 words against 650–800): one trim pass, then the
+  // checker again. A trim that lands in range publishes; one that comes back as long fails as before. The draft is
+  // padded past a 700-word ceiling while staying under the spoken-character cap, which is not a repairable problem.
+  const words = (script: Script) => script.segments.reduce((n, seg) => n + seg.text.split(/\s+/).filter(Boolean).length, 0);
   const long = goodScript(); delete long.review;
-  for (const seg of long.segments) seg.text += ' The hosts talk this through carefully and slowly so the listener can follow every step of the argument.'.repeat(3);
-  const over = harness({ spec: REPAIR_SPEC, scripts: [long, ACCEPT] });
-  assert.equal((await runPodcast(over.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
-  assert.ok(!over.calls.some(c => c.name === 'worker_podcast_attempt_begin' && c.params.p_route === 'podcast_script_repair'));
-  assert.ok((report(over)[0].words ?? 0) > 1000);
+  while (words(long) <= 760) for (const seg of long.segments) seg.text += ' The hosts talk this through step by step.';
+  assert.ok(long.segments.reduce((n, seg) => n + seg.text.length, 0) < 5_800, 'padded within the spoken-character cap');
+  const TRIM_SPEC = { ...REPAIR_SPEC, checker: { ...FIVE_MINUTE_BOUNDS, words: [450, 700] } };
+  const trimmed = goodScript(); delete trimmed.review;
+  const over = harness({ spec: TRIM_SPEC, scripts: [long, ACCEPT, trimmed] });
+  assert.equal((await runPodcast(over.deps, Date.now() + 600_000)).failure, null, 'the trimmed script publishes');
+  const trimCall = over.calls.find(c => c.name === 'worker_podcast_attempt_begin' && c.params.p_route === 'podcast_script_repair');
+  assert.ok(trimCall, 'a trim repair was attempted');
+  assert.ok((report(over)[0].words ?? 0) > 700, 'the first check recorded the long draft');
+  const stillLong = harness({ spec: TRIM_SPEC, scripts: [long, ACCEPT, long] });
+  assert.equal((await runPodcast(stillLong.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.equal(stillLong.calls.filter(c => c.name === 'worker_podcast_attempt_begin' && c.params.p_route === 'podcast_script_repair').length, 1, 'one repair only');
   // A removal share beyond the limit is not repaired either (the review's deletions count): the existing rule stands.
   const reject = (reasons: ReviewCorrections['reasons'], extra: Partial<ReviewCorrections> = {}): ReviewCorrections => ({ ...ACCEPT, ...extra, verdict: 'reject', reasons });
   const draft = () => { const s = goodScript(); delete s.review; return s; };
@@ -1333,4 +1345,31 @@ test('a chunk granted less than the serving limit is refused before any speech i
   const result = await runPodcast(third.deps, Date.now() + 780_000);
   assert.equal(result.failure, 'speech_grant_below_serving_limit');
   assert.ok(!third.names().includes('worker_podcast_speech_begin'), 'nothing granted or sent');
+});
+
+
+// DeepSeek as the script provider (2026-10-14): a spec naming `deepseek` sends every script call there, never to the
+// Anthropic provider, and prices them from the DeepSeek card; a spec naming a provider the worker lacks fails
+// script_unavailable before any paid call.
+test('a spec naming deepseek routes the draft and the review to that provider at its prices; a missing provider is script_unavailable', async () => {
+  const seen: string[] = [];
+  const outputs = [(() => { const d = goodScript(); delete d.review; return d; })(), ACCEPT];
+  const deepseek: ScriptProvider = { countTokens: async () => null, generate: async params => {
+    seen.push(params.model);
+    return { state: 'succeeded', requestID: `ds_${seen.length}`, model: 'deepseek-v4-pro', stopReason: 'end_turn', text: JSON.stringify(outputs.shift()),
+      usage: { input: 50_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 5_000 }, failure: null }; } };
+  // The harness's version-1 shape (later versions bound the fake speech's duration); the provider gates on the spec's field, not the version.
+  const spec = { ...SPEC, script: { ...SPEC.script, provider: 'deepseek', model: 'deepseek-v4-pro' } };
+  const h = harness({ spec, script: { generate: async () => { throw new Error('anthropic must not be called'); } }, scriptProviders: { deepseek } });
+  await runPodcast(h.deps, Date.now() + 600_000);
+  assert.deepEqual(seen, ['deepseek-v4-pro', 'deepseek-v4-pro'], `draft and review went to DeepSeek with the spec model; calls: ${h.names().join(',')}`);
+  const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish');
+  assert.ok(finishes.length >= 2);
+  assert.equal(Number(finishes[0].params.p_actual_microusd), Math.ceil(50_000 * 1.32 + 5_000 * 3.96), 'priced from the DeepSeek card');
+  assert.ok(!h.names().includes('worker_podcast_fail'), 'the episode completes');
+  const missing = harness({ spec, script: { generate: async () => { throw new Error('must not call'); } } });
+  await runPodcast(missing.deps, Date.now() + 600_000);
+  assert.ok(missing.names().includes('worker_podcast_fail'), 'no provider for the spec fails the job');
+  assert.ok(JSON.stringify(missing.calls).includes('script_unavailable'));
+  assert.ok(!missing.names().includes('worker_provider_attempt_finish'), 'nothing was attempted');
 });

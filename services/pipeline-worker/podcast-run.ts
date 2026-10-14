@@ -8,6 +8,7 @@ import { createAnthropicClient } from '../../supabase/functions/_shared/anthropi
 import { pipelineService, rpcAdapter, runtimeEnv } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { boundedStorageDownload } from '../../supabase/functions/_shared/reader-delivery.ts';
 import { anthropicScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
+import { deepseekScriptProvider } from '../../supabase/functions/_shared/deepseek.ts';
 import { impersonatedTokenSource, vertexSpeechProvider } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { runPodcast, type PodcastDeps, type PodcastRunResult } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { ffmpegEncoder } from './podcast-encode.ts';
@@ -25,10 +26,14 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
   const speechAccount = runtimeEnv('PODCAST_SPEECH_SERVICE_ACCOUNT'), project = runtimeEnv('PODCAST_GCP_PROJECT') ?? 'gradstep';
   // Each call's own window (AbortSignal) bounds it: up to 680 s for a staged twenty-minute draft, inside this request's budget.
   const script = anthropicKey ? anthropicScriptProvider(createAnthropicClient({ apiKey: anthropicKey, maxRetries: 0, timeout: PODCAST_BUDGET_MS })) : null;
+  // DeepSeek (2026-10-14): the version-4 profiles' script provider; a profile without its key fails script_unavailable.
+  const deepseekKey = runtimeEnv('DEEPSEEK_API_KEY');
+  const deepseek = deepseekKey ? deepseekScriptProvider({ apiKey: deepseekKey }) : null;
   const speech = speechAccount ? vertexSpeechProvider({ project, tokens: impersonatedTokenSource(speechAccount), timeoutMs: PODCAST_BUDGET_MS }) : null;
   return {
     generated: !!(script && speech),
     rpc: rpcAdapter(service),
+    scriptProviders: { ...(script ? { anthropic: script } : {}), ...(deepseek ? { deepseek } : {}) },
     storage: {
       download: (bucket, path, maximum) => boundedStorageDownload(url, key, bucket, path, maximum),
       async upload(bucket, path, bytes, contentType) {

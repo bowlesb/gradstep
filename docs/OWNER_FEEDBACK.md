@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat request, 2026-10-14 (afternoon): "Lets setup deep seek, prove it works with podcasts"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | Set up DeepSeek and prove it with podcasts; hopefully more cost-effective | Podcast script writing (draft, review, repair) | A DeepSeek adapter beside the Anthropic one, chosen by the profile spec; migration 063 (provider, consent v2, version-4 profiles on DeepSeek V4 Pro at peak list prices); the worker and functions deployed; the browser quote handling unpinned. Script-stage ceilings fall from about $0.75 to about $0.40 per 5-minute episode; the maxima shown to readers fall from 180/200/360/610 to 140/150/280/500 credits. | Deployed 2026-10-14 ~18:45 UTC; proof seed `230c71a2` result recorded in IMPLEMENTATION_STATUS.md |
+
 ## Chat report, 2026-10-14 (afternoon): "I was not able to create a podcast at all"
 
 | # | Owner said | Where | Cause / plan | Status |

@@ -251,9 +251,16 @@ describe('current server contract and private generation', () => {
   it('requires the displayed v1 credit cap, provider identities and consent, and one quote outcome', async () => {
     const { podcast } = await setup();
     expect(podcast.decodeQuote({ quote: quote() })).toMatchObject({ kind: 'quote', quote: { maxCredits: 150, consentVersion: 'podcast-private-v1' } });
+    // A version-2 quote (DeepSeek writes the script, 2026-10-14) names its provider and consent version; the reader confirms those.
+    expect(podcast.decodeQuote({ quote: { ...quote(), max_credits: 200, providers: ['DeepSeek (script)', 'Google Vertex AI (speech)'], consent_version: 'podcast-private-v2' } }))
+      .toMatchObject({ kind: 'quote', quote: { maxCredits: 200, providers: ['DeepSeek (script)', 'Google Vertex AI (speech)'], consentVersion: 'podcast-private-v2' } });
+    for (const bad of [{ consent_version: 'podcast-private-v9' }, { providers: [] }, { providers: ['<script>'] }, { max_credits: 0 }, { max_credits: 2001 }]) {
+      expect(() => podcast.decodeQuote({ quote: { ...quote(), ...bad } })).toThrow();
+    }
     expect(podcast.decodeQuote({ reuse: { release_id: RELEASE } })).toEqual({ kind: 'reuse', releaseID: RELEASE });
     expect(podcast.decodeQuote({ join: { request_id: requestID } })).toEqual({ kind: 'join', requestID });
-    for (const patch of [{ max_credits: 151 }, { consent_version: 'v2' }, { expires_at: 'later' }, { providers: ['other'] }, { target_seconds: 3600 }]) {
+    // Other maxima and lengths are the server's to set (profiles change); unknown consent, a bad date or a malformed label still refuse.
+    for (const patch of [{ max_credits: 'many' }, { consent_version: 'v2' }, { expires_at: 'later' }, { providers: 'other' }, { target_seconds: -1 }]) {
       expect(() => podcast.decodeQuote({ quote: { ...quote(), ...patch } })).toThrow();
     }
     expect(() => podcast.decodeQuote({ quote: quote(), reuse: { release_id: RELEASE } })).toThrow();
@@ -297,7 +304,7 @@ describe('current server contract and private generation', () => {
     expect(podcast.jobTerminal(podcast.decodeJob(job({ state: 'unknown_provider', charged_credits: 0, released_credits: 150 })))).toBe(true);
     expect(() => podcast.decodeJob(job({ state: 'ready' }))).toThrow();
     expect(() => podcast.decodeJob(job({ state: 'magic' }))).toThrow();
-    expect(() => podcast.decodeJob(job({ charged_credits: 151 }))).toThrow();
+    expect(() => podcast.decodeJob(job({ charged_credits: 2001 }))).toThrow();
   });
   it('keeps error text finite for quote limits and credit failures', async () => {
     const { podcast } = await setup();

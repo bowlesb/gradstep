@@ -56,8 +56,21 @@ html, or graph."
   pre-cutover paper or one more seed, and October's seed allowance has $0.58 of $3.00 left, which no profile's ceiling
   fits; raising it is the owner's call. Episodes from the device's own numbered text are a design change still to
   write up.
-- **Cheap provider (owner question):** no second provider exists; Haiku 5.5 is the cheap tier. What DeepSeek would
-  take, and why not for cost alone this month, is in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md).
+- **DeepSeek writes podcast scripts (owner: "set up DeepSeek, prove it works with podcasts").** A second script
+  provider, built the same afternoon: `supabase/functions/_shared/deepseek.ts` sends the worker's Anthropic-shaped
+  script calls to DeepSeek's chat completions in JSON mode with the draft or review schema in the system prompt,
+  thinking disabled (on by default there, and its tokens come out of the output allowance: a 60-token probe returned
+  only reasoning), and reports usage in the adapter's shape; the rate card carries `deepseek-v4-pro` (peak list
+  $1.32 / $3.96 per million, cache hits $0.044) and `deepseek-flash` ($0.30 / $1.20). Migration **063** adds the
+  provider, admits it for the three script routes, takes the provider from the profile spec, names it in the quote
+  ("DeepSeek (script)") under consent `podcast-private-v2`, and adds version-4 profiles (DeepSeek V4 Pro) whose
+  maxima are 140 / 150 / 280 / 500 credits against 180 / 200 / 360 / 610 for the Sonnet profiles. The worker picks
+  the provider the spec names; the pipeline worker builds both from their keys. The browser's quote handling no longer
+  pins the Anthropic label, the 150-credit maximum or consent v1 (it had refused every quote since the v3 move);
+  the native quote already read providers and consent from the server. Evidence: backend 60 podcast, adapter and
+  evidence tests; database suite with `podcast_deepseek_profiles.sql`; web podcast tests 36; a live probe of both
+  aliases through the adapter. The proposal in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md) is
+  superseded by this build for podcasts; chat still uses Anthropic only.
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
   numbered membership) for the `study-bar`/`study-sheet` captures.

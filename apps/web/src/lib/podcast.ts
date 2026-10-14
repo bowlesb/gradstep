@@ -198,13 +198,18 @@ export async function downloadEpisodeAudio(account: string, episode: Episode, si
 
 // ---------- Explicitly quoted private generation ----------
 export const CONSENT_VERSION = 'podcast-private-v1';
+/** Consent versions the quote may name: v1 (Anthropic writes the script) and v2 (DeepSeek writes it, 2026-10-14). The
+ * reader confirms the providers the quote lists, and the start call sends back the version the quote carried. */
+export const CONSENT_VERSIONS = ['podcast-private-v1', 'podcast-private-v2'] as const;
+export const PROVIDER_LABEL = /^[A-Za-z0-9 .()\-]{3,40}$/;
+export const MAX_QUOTE_CREDITS = 2_000;
 export const JOB_STATES = ['queued', 'scripting', 'checking', 'synthesizing', 'verifying', 'publishing', 'ready',
   'canceled', 'failed', 'capacity_wait', 'unknown_provider', 'quarantined'] as const;
 export type JobState = typeof JOB_STATES[number];
 export interface Job { requestID: string; state: JobState; stageEnteredAt: string; releaseID: string | null;
   heldCredits: number; chargedCredits: number | null; releasedCredits: number | null; failure: string | null }
 export interface Quote { id: string; expiresAt: number; maxCredits: number; estimate: string; providers: string[];
-  consentVersion: typeof CONSENT_VERSION; targetSeconds: number }
+  consentVersion: typeof CONSENT_VERSIONS[number]; targetSeconds: number }
 export type QuoteResult = { kind: 'quote'; quote: Quote } | { kind: 'reuse'; releaseID: string } | { kind: 'join'; requestID: string };
 export interface PaperPodcast { episode: Episode | null; job: Job | null; capabilities: Capabilities }
 const timestamp = (v: unknown): v is string => text(v, 64) && Number.isFinite(Date.parse(v));
@@ -212,8 +217,8 @@ const timestamp = (v: unknown): v is string => text(v, 64) && Number.isFinite(Da
 export function decodeJob(value: unknown): Job {
   const v = value as Record<string, unknown> | null;
   if (!v || !isUUID(v.request_id) || !JOB_STATES.includes(v.state as JobState) || !timestamp(v.stage_entered_at)
-    || (v.release_id !== null && !isUUID(v.release_id)) || !count(v.held_credits, 150)
-    || (v.charged_credits !== null && !count(v.charged_credits, 150)) || (v.released_credits !== null && !count(v.released_credits, 150))
+    || (v.release_id !== null && !isUUID(v.release_id)) || !count(v.held_credits, MAX_QUOTE_CREDITS)
+    || (v.charged_credits !== null && !count(v.charged_credits, MAX_QUOTE_CREDITS)) || (v.released_credits !== null && !count(v.released_credits, MAX_QUOTE_CREDITS))
     || (v.state === 'ready' && !isUUID(v.release_id))) throw new BackendError('invalid_response');
   return { requestID: (v.request_id as string).toLowerCase(), state: v.state as JobState, stageEnteredAt: v.stage_entered_at,
     releaseID: isUUID(v.release_id) ? v.release_id.toLowerCase() : null, heldCredits: v.held_credits as number,
@@ -226,11 +231,13 @@ export function decodeQuote(value: unknown): QuoteResult {
   if (isUUID(v.reuse?.release_id)) return { kind: 'reuse', releaseID: v.reuse.release_id.toLowerCase() };
   if (isUUID(v.join?.request_id)) return { kind: 'join', requestID: v.join.request_id.toLowerCase() };
   const q = v.quote;
-  if (!q || !isUUID(q.id) || !timestamp(q.expires_at) || q.max_credits !== 150 || q.target_seconds !== 300
-    || q.consent_version !== CONSENT_VERSION || !text(q.estimate, 2000) || !Array.isArray(q.providers) || q.providers.length !== 2
-    || q.providers[0] !== 'Anthropic (script)' || q.providers[1] !== 'Google Vertex AI (speech)') throw new BackendError('invalid_response');
-  return { kind: 'quote', quote: { id: q.id.toLowerCase(), expiresAt: Date.parse(q.expires_at), maxCredits: q.max_credits,
-    estimate: clean(q.estimate), providers: q.providers as string[], consentVersion: CONSENT_VERSION, targetSeconds: q.target_seconds } };
+  // The quote's own maximum, length and consent version (profiles change; the reader confirms what the quote says).
+  if (!q || !isUUID(q.id) || !timestamp(q.expires_at) || !count(q.max_credits, MAX_QUOTE_CREDITS) || (q.max_credits as number) < 1 || !count(q.target_seconds, 7_200) || (q.target_seconds as number) < 1
+    || !CONSENT_VERSIONS.includes(q.consent_version as typeof CONSENT_VERSIONS[number]) || !text(q.estimate, 2000)
+    || !Array.isArray(q.providers) || q.providers.length < 1 || q.providers.length > 3
+    || !q.providers.every(label => typeof label === 'string' && PROVIDER_LABEL.test(label))) throw new BackendError('invalid_response');
+  return { kind: 'quote', quote: { id: q.id.toLowerCase(), expiresAt: Date.parse(q.expires_at), maxCredits: q.max_credits as number,
+    estimate: clean(q.estimate), providers: q.providers as string[], consentVersion: q.consent_version as typeof CONSENT_VERSIONS[number], targetSeconds: q.target_seconds as number } };
 }
 export function decodePaper(value: unknown): PaperPodcast {
   const v = value as Record<string, unknown> | null;
@@ -264,7 +271,7 @@ export function decodeRequestResult(value: unknown, requestID: string): RequestR
 export async function podcastStart(account: string, quote: Quote, requestID: string, signal?: AbortSignal): Promise<RequestResult> {
   if (!isUUID(requestID)) throw new BackendError('invalid_request');
   return decodeRequestResult(await functionPost('podcast?action=start',
-    { quote_id: quote.id, request_id: requestID, consent_version: CONSENT_VERSION }, { account, signal, maximum: 16_384 }), requestID);
+    { quote_id: quote.id, request_id: requestID, consent_version: quote.consentVersion }, { account, signal, maximum: 16_384 }), requestID);
 }
 export async function podcastStatus(account: string, requestID: string, signal?: AbortSignal): Promise<RequestResult> {
   if (!isUUID(requestID)) throw new BackendError('invalid_request');

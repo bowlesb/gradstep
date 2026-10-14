@@ -193,9 +193,9 @@ function paperBlock(paperText: string, title: string | null): string {
 }
 
 /** Pass 1. No tools, no server-side fallback (a hidden second sampling could exceed the grant), no thinking. */
-export function draftRequest(paperText: string, title: string | null, maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS): ScriptParams {
+export function draftRequest(paperText: string, title: string | null, maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS, model: string = SCRIPT_MODEL): ScriptParams {
   return {
-    model: SCRIPT_MODEL, max_tokens: maxTokens,
+    model, max_tokens: maxTokens,
     thinking: { type: 'between_tools' }, output_config: { effort: 'medium', format: { type: 'json_schema', schema: DRAFT_SCHEMA } },
     system: instructions,
     messages: [{ role: 'user', content: [{ type: 'text', text: paperBlock(paperText, title) }, { type: 'text', text: DRAFT_TASK }] }],
@@ -203,10 +203,10 @@ export function draftRequest(paperText: string, title: string | null, maxTokens:
 }
 
 /** Pass 2 fact-checks the draft against the same pinned text and returns a bounded correction set. */
-export function reviewRequest(paperText: string, title: string | null, draft: Script, maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS): ScriptParams {
+export function reviewRequest(paperText: string, title: string | null, draft: Script, maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS, model: string = SCRIPT_MODEL): ScriptParams {
   const task = REVIEW_TASK.replaceAll('{LIMIT}', number(correctionLimit(maxTokens)));
   return {
-    model: SCRIPT_MODEL, max_tokens: maxTokens,
+    model, max_tokens: maxTokens,
     thinking: { type: 'between_tools' }, output_config: { effort: 'medium', format: { type: 'json_schema', schema: REVIEW_SCHEMA } },
     system: instructions,
     messages: [{ role: 'user', content: [{ type: 'text', text: paperBlock(paperText, title) },
@@ -227,19 +227,27 @@ ${QUOTING_RULES}`;
  * reason codes, and returns a whole script in the draft schema; the deterministic checker then runs again. No second
  * review: the checker verifies every quote and number, and the repair only replaces the turns that failed it.
  */
+const TRIM_TASK = `The draft below was reviewed and accepted, and the evidence checker kept the turns in <kept> (and removed any listed in <removed>, each with the checker's reason code), but the episode is now above its word range: it must be shortened to between {FLOOR} and {CEILING} spoken words.
+Write the complete episode again as JSON matching the schema:
+- Keep the chapters, the limitations and the order of turns. Shorten by tightening wording and by dropping the least important turns whole (a question together with its answer), never by removing an evidence quote from a turn you keep: every kept turn's evidence stays copied character for character from the paper, and every number it speaks must still appear in one of its own quotes.
+- Keep each turn's id, chapter, speaker, style, claim_type, evidence and math unless you drop the turn; give any new turn a new id after the highest existing id; never reuse a removed id.
+- Count the spoken words of the whole episode before returning and land inside the range.
+${QUOTING_RULES}`;
+
 export function repairRequest(paperText: string, title: string | null, script: Script, kept: CheckedSegment[],
-  removals: { segment: string; reason: SegmentRemoval }[], maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS): ScriptParams {
+  removals: { segment: string; reason: SegmentRemoval }[], maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS, model: string = SCRIPT_MODEL,
+  options: { direction: 'short' | 'long'; words: [number, number] } = { direction: 'short', words: [0, 0] }): ScriptParams {
   const keptTurns = kept.map(k => ({ id: k.id, chapter: k.chapter, speaker: k.speaker, text: k.text, style: k.style, claim_type: k.claim_type,
     evidence: k.evidence.map(e => ({ quote: e.quote, section: e.section ?? '' })), math: k.math }));
   const removed = removals.map(r => { const s = script.segments.find(x => x.id === r.segment);
     return { id: r.segment, reason: r.reason, chapter: s?.chapter ?? '', speaker: s?.speaker ?? '', text: s?.text ?? '' }; });
   const frame = { title: script.title, chapters: script.chapters, limitations: script.limitations };
   return {
-    model: SCRIPT_MODEL, max_tokens: maxTokens,
+    model, max_tokens: maxTokens,
     thinking: { type: 'between_tools' }, output_config: { effort: 'medium', format: { type: 'json_schema', schema: DRAFT_SCHEMA } },
     system: instructions,
     messages: [{ role: 'user', content: [{ type: 'text', text: paperBlock(paperText, title) },
-      { type: 'text', text: `${REPAIR_TASK}\n\n<draft>\n${JSON.stringify(frame)}\n</draft>\n<kept>\n${JSON.stringify(keptTurns)}\n</kept>\n<removed>\n${JSON.stringify(removed)}\n</removed>` }] }],
+      { type: 'text', text: `${options.direction === 'long' ? TRIM_TASK.replace('{FLOOR}', String(options.words[0])).replace('{CEILING}', String(options.words[1])) : REPAIR_TASK}\n\n<draft>\n${JSON.stringify(frame)}\n</draft>\n<kept>\n${JSON.stringify(keptTurns)}\n</kept>\n<removed>\n${JSON.stringify(removed)}\n</removed>` }] }],
   } as ScriptParams;
 }
 

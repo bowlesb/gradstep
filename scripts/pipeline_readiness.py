@@ -27,7 +27,7 @@ ORGANIZATION = 'mhiweqpcwyqtyorgqhla'
 SERVICE_NAME = f'projects/{PROJECT}/locations/{REGION}/services/{SERVICE}'
 SERVICE_URL = f'https://{SERVICE}-{PROJECT_NUMBER}.{REGION}.run.app'
 SECRET_NAMES = ('SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY',
-                'PIPELINE_SECRET', 'ANTHROPIC_API_KEY')
+                'PIPELINE_SECRET', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY')
 REQUIRED_MIGRATIONS = {f'2026100700{number}' for number in range(34, 39)}
 EVIDENCE_KINDS = {'old_cloud_run_invocations_terminated', 'old_edge_invocations_terminated',
                   'admitted_edge_deployments_verified', 'legacy_liabilities_reviewed'}
@@ -126,11 +126,17 @@ def require_scope(project, region):
         raise ReadinessError('readiness_scope_mismatch')
 
 
+# Secrets introduced after a running revision was deployed: the previous revision may lack them (the deploy pins them on
+# the new one); a revision that carries one must still pin it properly. DEEPSEEK_API_KEY: podcast scripts, 2026-10-14.
+INTRODUCED_SECRETS = ('DEEPSEEK_API_KEY',)
+
 def pinned_secrets(container, *, v1=False):
     """Known secret references and numeric versions only; never read/return values."""
     versions = {}
     for name in SECRET_NAMES:
         entries = [row for row in container.get('env', []) if row.get('name') == name]
+        if not entries and name in INTRODUCED_SECRETS:
+            continue
         if len(entries) != 1 or 'value' in entries[0]:
             return None
         reference = entries[0].get('valueFrom' if v1 else 'valueSource', {}).get('secretKeyRef', {})

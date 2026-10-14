@@ -3,7 +3,7 @@
 // request on its own, and is never evicted to make room for a different request.
 import { auth, config, type AuthSnapshot } from './backend';
 import { isUUID } from './bytes';
-import { CONSENT_VERSION, type Quote } from './podcast';
+import { CONSENT_VERSION, CONSENT_VERSIONS, MAX_QUOTE_CREDITS, PROVIDER_LABEL, type Quote } from './podcast';
 
 export const MAX_UNRESOLVED_PODCASTS = 20;
 const MAX_BYTES = 16_384;
@@ -84,8 +84,9 @@ export class PodcastRequests {
   remember(itemID: string, requestID: string, quote: Quote): UnresolvedPodcast {
     return this.access(() => {
       const next: RecordV1 = { itemID, requestID, quoteID: quote.id, expiresAt: quote.expiresAt };
-      if (!valid(next) || quote.maxCredits !== 150 || quote.targetSeconds !== 300 || quote.consentVersion !== CONSENT_VERSION
-        || quote.providers.length !== 2 || quote.providers[0] !== 'Anthropic (script)' || quote.providers[1] !== 'Google Vertex AI (speech)') throw new PodcastTrackingError('damaged');
+      if (!valid(next) || !Number.isSafeInteger(quote.maxCredits) || quote.maxCredits < 1 || quote.maxCredits > MAX_QUOTE_CREDITS
+        || !Number.isSafeInteger(quote.targetSeconds) || quote.targetSeconds < 1 || !CONSENT_VERSIONS.includes(quote.consentVersion)
+        || quote.providers.length < 1 || quote.providers.length > 3 || !quote.providers.every(label => PROVIDER_LABEL.test(label))) throw new PodcastTrackingError('damaged');
       const ledger = decode(sessionStorage.getItem(this.key));
       const old = ledger.records.find(r => r.itemID === itemID || r.requestID === requestID);
       if (old && (old.itemID !== next.itemID || old.requestID !== next.requestID || old.quoteID !== next.quoteID || old.expiresAt !== next.expiresAt)) throw new PodcastTrackingError('conflict');

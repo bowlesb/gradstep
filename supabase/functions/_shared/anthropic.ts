@@ -34,10 +34,15 @@ const HAIKU_LONG: TokenRates = Object.freeze({ input: 0.5, cacheWrite5m: 0.625, 
 const HAIKU_4_5: TokenRates = Object.freeze({ input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.1, output: 5 });
 // Unknown serving model: price at the highest rate card any model this route
 // can be served by carries (Claude Opus 5 / 4.8, Opus 5.5's fallbacks).
+// DeepSeek (podcast script provider, 2026-10-14): PEAK list prices in micro-USD per token (input cache miss, output;
+// cache hits as cache reads; no cache-write price). Off-peak bills less; the card never under-prices.
+const DEEPSEEK_V4_PRO: TokenRates = Object.freeze({ input: 1.32, cacheWrite5m: 1.32, cacheWrite1h: 1.32, cacheRead: 0.044, output: 3.96 });
+const DEEPSEEK_FLASH: TokenRates = Object.freeze({ input: 0.3, cacheWrite5m: 0.3, cacheWrite1h: 0.3, cacheRead: 0.006, output: 1.2 });
 export const UNKNOWN_MODEL_RATES: TokenRates = OPUS_5;
 const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({
   'claude-sonnet-5-5': SONNET, 'claude-sonnet-5': SONNET_5, 'claude-opus-5-5': OPUS_5_5, 'claude-opus-5': OPUS_5,
   'claude-opus-4-8': OPUS_5, 'claude-haiku-5-5': HAIKU, 'claude-haiku-4-5': HAIKU_4_5,
+  'deepseek-v4-pro': DEEPSEEK_V4_PRO, 'deepseek-flash': DEEPSEEK_FLASH,
 });
 
 /** `promptTokens` (the whole prompt: uncached, cache-write and cache-read tokens) chooses Haiku 5.5's tier. */
