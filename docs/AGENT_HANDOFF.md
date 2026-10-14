@@ -36,6 +36,12 @@ when this was written). Owner acceptance of builds 31 to 34 is open. One inciden
 work on staging for eleven minutes (a per-attempt ceiling overrun); 121 restored the margin and the switch was set
 back on at the same limit ([SPENDING_CONTROLS.md](architecture/SPENDING_CONTROLS.md#budget-periods-failed-answers-and-the-stale-hold-sweep--2026-10-14-migration-060-staging)).
 Exercise the tutor on staging with `node scripts/chat-live-smoke.mjs --study` (paid, about $0.30; verified 17:05 UTC).
+Podcasts (owner report, afternoon): migration **062** and the podcast functions are deployed with the script-repair
+route and the version-3 profiles (policy revision 6); a device-read paper now says why it has no episode source. No
+generation has run through the repair yet: October's seed allowance ($0.58 of $3.00 left) fits no profile ceiling,
+so the first live check is either the owner trying a pre-cutover paper from the app or an owner-approved allowance
+increase followed by `podcast-ops.py seed --actor <OWNER> --approval c6c381f5-2b9e-445c-af03-045e7810a245` (the
+CoTrace paper whose seed failed on 2026-10-09) and `kick`.
 
 **Build 31 screenshots (2026-10-14 15:34 UTC):** tiny figure, missing Back after in-page citation links, poor streaming
 scroll; fixed in the compiler, the shared bridge and the native flush cadence (the scroll fix needs the owner's eye),

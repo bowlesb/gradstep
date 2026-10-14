@@ -329,7 +329,7 @@ final class PodcastFixtureTests: XCTestCase {
 
     /// The fixture's maximums are the serving-limit (v2) profiles staging serves, and a ready length never needs credits.
     @MainActor func testFixtureLengthsAreTheServingLimitProfiles() {
-        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [140, 150, 300, 530])
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [180, 200, 360, 610])
         XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.targetSeconds), [150, 300, 600, 1200])
         XCTAssertEqual(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture", "--podcast-fixture-credits=200"]), 200)
         XCTAssertNil(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture"]), "No argument: the balance is unknown")

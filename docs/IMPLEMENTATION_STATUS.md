@@ -47,8 +47,15 @@ html, or graph."
   [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md#chat-report-2026-10-14-afternoon-i-was-not-able-to-create-a-podcast-at-all):
   device-prepared papers have no server text to write from (the Listen notice now says so instead of blaming the
   synced library), and every generation for legacy papers since 2026-10-09 has failed at the evidence checker's word
-  floor after removals (a bounded repair draft is being built). Episodes from the device's own numbered text are a
-  design change still to write up.
+  floor after removals. The repair (commit `c43b538`, migration **062**: route `podcast_script_repair`, version-3
+  profiles with the extra call, one bounded second draft from quoted evidence, no second review) is **deployed**:
+  migration applied and verified at 18:08 UTC, `podcast` and `podcast-member` functions deployed, the policy moved to
+  the version-3 profiles through the audited operator path (revision 6), quotes now say up to 180/200/360/610 credits
+  and the app fixture matches. Evidence: backend podcast tests 55, database suite with `podcast_script_repair.sql`,
+  native podcast tests 21. Not yet verified live: a real generation through the repair needs either the owner trying a
+  pre-cutover paper or one more seed, and October's seed allowance has $0.58 of $3.00 left, which no profile's ceiling
+  fits; raising it is the owner's call. Episodes from the device's own numbered text are a design change still to
+  write up.
 - **Cheap provider (owner question):** no second provider exists; Haiku 5.5 is the cheap tier. What DeepSeek would
   take, and why not for cost alone this month, is in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md).
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture

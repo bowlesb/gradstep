@@ -38,11 +38,12 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     /// The server's four lengths and their maximums (migration 052's serving-limit profiles, as staging serves them).
-    static let lengths = [("podcast-short-v1", "Short", 150, 140), ("podcast-5min-v1", "5 min", 300, 150),
-                          ("podcast-10min-v1", "10 min", 600, 300), ("podcast-20min-v1", "20 min", 1200, 530)]
+    // Version-3 maxima (migration 062: the script repair call), as staging quotes since 2026-10-14.
+    static let lengths = [("podcast-short-v1", "Short", 150, 180), ("podcast-5min-v1", "5 min", 300, 200),
+                          ("podcast-10min-v1", "10 min", 600, 360), ("podcast-20min-v1", "20 min", 1200, 610)]
         .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3,
                              estimate: "Estimate — you're charged actual usage, maximum \($0.3) credits") }
-    private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 150, targetSeconds: 300,
+    private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 200, targetSeconds: 300,
                                                           transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600),
                                                           lengths: lengths)
     private static func length(_ profile: String?) -> PodcastLength? { lengths.first { $0.profile == (profile ?? PodcastLength.defaultProfile) } }
