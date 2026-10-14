@@ -19,7 +19,7 @@ export interface PodcastAPIDeps {
 const STATUS: Record<string, number> = {
   authentication_required: 401, account_unavailable: 403, spending_suspended: 403, request_rate_limit: 429,
   podcast_unavailable: 503, podcast_release_unavailable: 404, podcast_request_unavailable: 404, podcast_request_conflict: 409,
-  quote_unavailable: 404, quote_expired: 410, consent_required: 400, source_unavailable: 404, source_too_large: 413,
+  quote_unavailable: 404, quote_expired: 410, consent_required: 400, source_unavailable: 404, source_too_large: 413, podcast_writer_unavailable: 400,
   active_generation_limit: 429, podcast_busy: 429, podcast_daily_limit: 429, podcast_paused: 503, storage_full: 507,
   podcast_outcome_pending: 409, podcast_profile_unavailable: 400,
   insufficient_credits: 402, platform_budget_exhausted: 503, too_many_active_operations: 429,
@@ -72,8 +72,12 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
       if (b.profile !== undefined && b.profile !== null && (typeof b.profile !== 'string' || !/^[a-z][a-z0-9-]{2,47}$/.test(b.profile))) {
         throw new PublicError(400, 'podcast_profile_unavailable');
       }
+      // The writer (owner request 2026-10-14): `anthropic` (Claude Sonnet 5.5) or `deepseek`; omitted means the policy's default.
+      if (b.writer !== undefined && b.writer !== null && (typeof b.writer !== 'string' || !/^[a-z][a-z0-9_-]{1,31}$/.test(b.writer))) {
+        throw new PublicError(400, 'podcast_writer_unavailable');
+      }
       return json(await session.rpc('v1_podcast_quote', { p_item_id: uuid(String(b.item_id ?? '')), p_request_id: uuid(String(b.request_id ?? '')),
-        ...(typeof b.profile === 'string' ? { p_profile: b.profile } : {}) }), headers);
+        ...(typeof b.profile === 'string' ? { p_profile: b.profile } : {}), ...(typeof b.writer === 'string' ? { p_writer: b.writer } : {}) }), headers);
     }
     case 'start': {
       const b = await body(request);

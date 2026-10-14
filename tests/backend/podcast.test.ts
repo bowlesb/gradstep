@@ -1262,6 +1262,10 @@ test('Edge API: customer RPCs, validated inputs, transcript integrity and single
   assert.equal(h.calls.at(-1)!.params.p_profile, undefined, 'no length means the default (five minutes)');
   await handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'podcast-10min-v1' }) }), h.deps, headers);
   assert.equal(h.calls.at(-1)!.params.p_profile, 'podcast-10min-v1');
+  // The writer (2026-10-14) is forwarded as p_writer; a malformed one is refused before any call.
+  await handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'podcast-5min-v1', writer: 'anthropic' }) }), h.deps, headers);
+  assert.deepEqual(h.calls.at(-1)?.params, { p_item_id: RELEASE, p_request_id: ACCOUNT, p_profile: 'podcast-5min-v1', p_writer: 'anthropic' });
+  await assert.rejects(handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, writer: 'Sonnet 5.5' }) }), h.deps, headers), /podcast_writer_unavailable/);
   await assert.rejects(handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'Long!' }) }), h.deps, headers),
     /podcast_profile_unavailable/);
   assert.equal(podcastError('podcast_profile_unavailable').status, 400);

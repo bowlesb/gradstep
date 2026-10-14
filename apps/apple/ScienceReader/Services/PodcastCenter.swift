@@ -57,6 +57,8 @@ struct PodcastGeneration: Identifiable, Equatable {
     var ready: [PodcastEpisode] = []
     /// The chosen length's profile.
     var selected: String
+    /// The chosen writer (`anthropic`, `deepseek`; 2026-10-14), nil when the server lists none: the policy's default.
+    var selectedWriter: String?
     /// Idempotency keys: one quote request per length and one start request per quote, so a retried quote or start is
     /// the same request, never a second quote or charge.
     var quoteRequestIDs: [String: UUID] = [:]
@@ -76,16 +78,21 @@ struct PodcastGeneration: Identifiable, Equatable {
             ?? (fresh.first { $0.targetSeconds > 300 } ?? fresh.first)?.profile
             ?? lengths.first { $0.profile == PodcastLength.defaultProfile }?.profile ?? lengths[0].profile
         self.lengths = lengths; self.ready = playable; self.selected = chosen
+        self.selectedWriter = lengths.first { $0.profile == chosen }?.writers.first?.writer
     }
 
     var selectedLength: PodcastLength? { lengths.first { $0.profile == selected } }
+    /// The writers the chosen length offers (empty on servers without the choice), the default first.
+    var writers: [PodcastWriter] { selectedLength?.writers ?? [] }
+    /// The maximum shown for a length: the chosen writer's when the server lists writers.
+    func maxCredits(_ length: PodcastLength) -> Int { length.maxCredits(for: selectedWriter) }
     func readyEpisode(_ profile: String) -> PodcastEpisode? { ready.first { ($0.profile ?? PodcastLength.defaultProfile) == profile } }
 
     /// A length can be started when its maximum fits the available credits (a ready length never needs any; an
     /// unknown balance greys nothing out: the server still decides, and says so).
     func affordable(_ length: PodcastLength, credits: Int64?) -> Bool {
         guard readyEpisode(length.profile) == nil, let credits else { return true }
-        return Int64(length.maxCredits) <= credits
+        return Int64(maxCredits(length)) <= credits
     }
 
     /// Whether the chosen length is quoted at once (nothing is held by a quote): not ready and not known to be
@@ -619,15 +626,17 @@ final class PodcastCenter {
     /// Step 1: an explicit quote for the chosen length. Nothing is held yet.
     func requestQuote() {
         guard var current = generation, let account else { return }
-        let profile = current.selected
-        let requestID = current.quoteRequestIDs[profile] ?? UUID()
-        current.quoteRequestIDs[profile] = requestID
+        let profile = current.selected, writer = current.selectedWriter
+        // One request id per length and writer: a changed writer is a new quote, a retry is the same one.
+        let key = writer.map { "\(profile)|\($0)" } ?? profile
+        let requestID = current.quoteRequestIDs[key] ?? UUID()
+        current.quoteRequestIDs[key] = requestID
         current.phase = .quoting
         generation = current
         Task {
             do {
-                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile)
-                guard generation?.id == current.id, generation?.selected == profile else { return }
+                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile, writer: writer)
+                guard generation?.id == current.id, generation?.selected == profile, generation?.selectedWriter == writer else { return }
                 switch outcome {
                 case .quote(let quote): generation?.phase = .quoted(quote)
                 case .reuse(let releaseID): try await playReady(releaseID, title: current.paperTitle, account: account)
@@ -645,6 +654,14 @@ final class PodcastCenter {
     /// Choosing a length: it is quoted at once (a quote holds nothing; an estimate still in flight for the previous
     /// choice is ignored when it lands); a length that is ready plays instead of being made again; one known to be
     /// beyond the balance waits, greyed out, for a different choice.
+    /// The reader chose a writer: the maxima follow it and the length is quoted again.
+    func selectWriter(_ writer: String) {
+        guard var current = generation, current.selectedWriter != writer, current.writers.contains(where: { $0.writer == writer }) else { return }
+        current.selectedWriter = writer
+        if case .quoted = current.phase { current.phase = .offer }
+        generation = current
+        quoteIfWanted()
+    }
     func selectLength(_ profile: String) {
         guard var current = generation, current.selected != profile, current.lengths.contains(where: { $0.profile == profile }) else { return }
         switch current.phase {

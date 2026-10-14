@@ -109,7 +109,7 @@ final class PodcastTransportTests: XCTestCase {
         let itemID = UUID(), requestID = UUID()
         let options = #"[{"profile":"podcast-short-v1","label":"Short","target_seconds":150,"max_credits":110},{"profile":"podcast-10min-v1","label":"10 min","target_seconds":600,"max_credits":220}]"#
         let transport = try transport(["/functions/v1/podcast?quote": .init(body: Data(#"{"quote":{"id":"\#(release.wire)","expires_at":"2026-10-08T12:15:00Z","max_credits":220,"estimate":"Estimate — you're charged actual usage, maximum 220 credits","providers":["Anthropic (script)","Google Vertex AI (speech)"],"consent_version":"podcast-private-v1","target_seconds":600,"profile":"podcast-10min-v1","label":"10 min"},"options":\#(options)}"#.utf8))])
-        guard case .quote(let quote) = try await transport.quote(itemID: itemID, requestID: requestID, profile: "podcast-10min-v1") else { return XCTFail("A quote") }
+        guard case .quote(let quote) = try await transport.quote(itemID: itemID, requestID: requestID, profile: "podcast-10min-v1", writer: nil) else { return XCTFail("A quote") }
         XCTAssertEqual(quote.profile, "podcast-10min-v1"); XCTAssertEqual(quote.maxCredits, 220); XCTAssertEqual(quote.label, "10 min")
         XCTAssertEqual(quote.options.map(\.maxCredits), [110, 220])
         let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(PodcastHTTPProtocol.recorded(host).first).1) as? [String: String])
@@ -117,7 +117,7 @@ final class PodcastTransportTests: XCTestCase {
         // No length: the body carries none (the server's default, five minutes, for older behaviour).
         host = "podcast-\(UUID().wire).invalid"
         let plain = try self.transport(["/functions/v1/podcast?quote": .init(body: Data(#"{"reuse":{"release_id":"\#(release.wire)"}}"#.utf8))])
-        let reused = try await plain.quote(itemID: itemID, requestID: requestID, profile: nil)
+        let reused = try await plain.quote(itemID: itemID, requestID: requestID, profile: nil, writer: nil)
         XCTAssertEqual(reused, .reuse(releaseID: release))
         XCTAssertNil((try JSONSerialization.jsonObject(with: try XCTUnwrap(PodcastHTTPProtocol.recorded(host).first).1) as? [String: String])?["profile"])
     }
@@ -135,7 +135,7 @@ final class PodcastTransportTests: XCTestCase {
             host = "podcast-\(UUID().wire).invalid"
             let transport = try transport(["/functions/v1/podcast?quote": .init(status: status, body: Data(body.utf8))])
             do {
-                _ = try await transport.quote(itemID: UUID(), requestID: UUID(), profile: nil)
+                _ = try await transport.quote(itemID: UUID(), requestID: UUID(), profile: nil, writer: nil)
                 XCTFail("\(status) should fail")
             } catch BackendError.rejected(let code) {
                 XCTAssertEqual(code, expected)
@@ -249,6 +249,26 @@ final class PodcastPresentationTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: PodcastPlayer.rateKey), "The fixture reset forgets the choice")
     }
 
+    /// Owner request 2026-10-14: a writer choice. The first writer the server lists is the default, each writer carries
+    /// its own maximum per length, and affordability follows the chosen writer.
+    func testTheWriterChoiceDefaultsToTheFirstListedAndMovesEveryMaximum() {
+        // The fixture transport's lengths carry both writers (as staging lists them); this class's own carry none.
+        let listed = PodcastCapabilities(catalog: true, generation: true, delivery: true, lengths: PodcastFixtureTransport.lengths)
+        var offer = PodcastGeneration(paperTitle: "A paper", itemID: UUID(), documentID: UUID(), phase: .offer, capabilities: listed)
+        XCTAssertEqual(offer.selectedWriter, "deepseek", "the server lists the default first")
+        XCTAssertEqual(offer.writers.map(\.label), ["DeepSeek V4 Pro", "Claude Sonnet 5.5"])
+        let ten = PodcastFixtureTransport.lengths[2]
+        XCTAssertEqual(offer.maxCredits(ten), 300)
+        XCTAssertTrue(offer.affordable(ten, credits: 300))
+        offer.selectedWriter = "anthropic"
+        XCTAssertEqual(offer.maxCredits(ten), 360, "Sonnet's maximum for ten minutes")
+        XCTAssertFalse(offer.affordable(ten, credits: 300), "360 > 300 once Sonnet writes")
+        XCTAssertEqual(ten.maxCredits(for: "flash"), ten.maxCredits, "an unknown writer falls back to the length's own maximum")
+        let plain = PodcastLength(profile: "podcast-5min-v1", label: "5 min", targetSeconds: 300, maxCredits: 150)
+        XCTAssertEqual(plain.writers, [], "servers without the choice list no writers")
+        XCTAssertNil(generation().selectedWriter, "no writers listed: the policy's default, nothing to choose")
+    }
+
     func testLengthsBeyondTheBalanceAreGreyedOutAndNotQuoted() {
         let offer = generation()
         XCTAssertEqual(offer.selected, "podcast-5min-v1")
@@ -329,7 +349,9 @@ final class PodcastFixtureTests: XCTestCase {
 
     /// The fixture's maximums are the serving-limit (v2) profiles staging serves, and a ready length never needs credits.
     @MainActor func testFixtureLengthsAreTheServingLimitProfiles() {
-        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [180, 200, 360, 610])
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.maxCredits), [140, 150, 300, 520], "the default writer's (DeepSeek, version 5) maxima")
+        XCTAssertEqual(PodcastFixtureTransport.lengths.map { $0.maxCredits(for: "anthropic") }, [180, 200, 360, 610], "Sonnet's maxima")
+        XCTAssertEqual(PodcastFixtureTransport.lengths[1].writers.map(\.label), ["DeepSeek V4 Pro", "Claude Sonnet 5.5"])
         XCTAssertEqual(PodcastFixtureTransport.lengths.map(\.targetSeconds), [150, 300, 600, 1200])
         XCTAssertEqual(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture", "--podcast-fixture-credits=200"]), 200)
         XCTAssertNil(PodcastFixtureTransport.fixtureCredits(arguments: ["--podcast-fixture"]), "No argument: the balance is unknown")

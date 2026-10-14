@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat request, 2026-10-14 (evening): "expose an option when creating a podcast to use anthropic or sonnet"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | A writer choice at podcast creation: Anthropic (Sonnet) or DeepSeek | Listen sheet (native), podcast dialog (browser) | Migration 065: a length may be offered under more than one allowed profile version, one per writer; `podcast_lengths()` lists each length's writers (default first, each with its own maximum, estimate and consent version); the quote takes a `writer` and resolves the matching version, so the providers and consent named in the quote follow the choice. Native: a "Written by" segmented control above the lengths (DeepSeek V4 Pro · lower cost, scripts vary more / Claude Sonnet 5.5 · steadier scripts), the lengths' maxima follow it and the length is quoted again. Browser: the same choice as radio buttons before the estimate. The policy offers both writers for all four lengths (revision 9; DeepSeek stays the default). | Server and browser live 2026-10-14 ~19:40 UTC (migration 065, podcast function, Pages `c4737d77`); native in TestFlight build 35 |
+
 ## Chat request, 2026-10-14 (afternoon): "Lets setup deep seek, prove it works with podcasts"
 
 | # | Owner said | Where | Cause / plan | Status |

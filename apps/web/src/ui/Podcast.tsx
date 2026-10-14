@@ -471,6 +471,8 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared }: 
   const [shown, setShown] = useState(false);
   const [paper, setPaper] = useState<PaperPodcast | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
+  // The chosen writer (2026-10-14); null follows the server's default (the first it lists).
+  const [writer, setWriter] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState<'paper' | 'quote' | 'start' | 'status' | 'cancel' | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
@@ -519,7 +521,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared }: 
     if (!live(c)) return;
     if (episode.state !== 'ready') throw new BackendError('podcast_release_unavailable');
     confirmed(id);
-    const capabilities = discovery?.capabilities ?? { catalog: false, generation: false, delivery: false, maxCredits: 150, targetSeconds: 300, transfer: null };
+    const capabilities = discovery?.capabilities ?? { catalog: false, generation: false, delivery: false, maxCredits: 150, targetSeconds: 300, transfer: null, writers: [] };
     setPaper({ capabilities, job: null, episode: { ...episode, title: episode.scope === 'private' ? title : episode.title } });
     setJob(null); setQuote(null); setUncertainStart(false);
   };
@@ -552,7 +554,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared }: 
     const c = begin('quote'); if (!c) return;
     requestID.current ??= crypto.randomUUID();
     try {
-      const result = await podcastQuote(account, itemID, requestID.current, c.signal); if (!live(c)) return;
+      const result = await podcastQuote(account, itemID, requestID.current, c.signal, writer ?? undefined); if (!live(c)) return;
       if (result.kind === 'quote') { setQuote(result.quote); setJob(null); }
       else if (result.kind === 'join') {
         requestID.current = result.requestID;
@@ -657,6 +659,11 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared }: 
         </>}
         {paper && !ready && !job && !quote && !sourceTooLarge && <>
           {paper.capabilities.generation ? <><p>Make a private, five-minute episode with two AI hosts and a transcript linked to the paper.</p>
+            {paper.capabilities.writers.length > 1 && <fieldset className="podcast-writers" data-testid="podcast-writers"><legend>Written by</legend>
+              {paper.capabilities.writers.map(w => <label key={w.writer} className="podcast-writer"><input type="radio" name="podcast-writer" value={w.writer}
+                checked={(writer ?? paper.capabilities.writers[0].writer) === w.writer} onChange={() => { setWriter(w.writer); setQuote(null); requestID.current = null; }} />
+                <span>{w.label}</span><span className="fine">up to {w.maxCredits} credits{w.writer === 'deepseek' ? ' · lower cost, scripts vary more' : ' · steadier scripts'}</span></label>)}
+            </fieldset>}
             <p className="fine">You’ll see the credit estimate before anything is held.</p><button className="primary" disabled={!!busy || trackingBlocked} onClick={() => void estimate()}>Get an estimate</button></>
             : <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
         </>}

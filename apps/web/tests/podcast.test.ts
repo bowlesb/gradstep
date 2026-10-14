@@ -57,7 +57,7 @@ describe('podcast contract decoding', () => {
     const [e] = catalog.episodes;
     expect(e).toMatchObject({ releaseID: RELEASE, title: 'Synthetic fixture: Direct Preference Optimization', authors: ['Rafael Rafailov', 'Archit Sharma'], fixture: true,
       durationMs: 48_000, topic: 'Alignment', audio: { bytes: 4096, sha256: AUDIO_SHA, mediaType: 'audio/wav' } });
-    expect(catalog.capabilities).toEqual({ catalog: true, generation: false, delivery: true, maxCredits: 150, targetSeconds: 300, transfer: { remainingBytes: 5, limitBytes: 10 } });
+    expect(catalog.capabilities).toEqual({ catalog: true, generation: false, delivery: true, maxCredits: 150, targetSeconds: 300, writers: [], transfer: { remainingBytes: 5, limitBytes: 10 } });
   });
 
   it('treats absent capabilities as unavailable and refuses malformed pages', async () => {

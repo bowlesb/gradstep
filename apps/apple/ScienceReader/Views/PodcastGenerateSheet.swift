@@ -133,12 +133,35 @@ struct PodcastGenerateSheet: View {
 
     /// Short · 5 min · 10 min · 20 min, each with its own maximum (from the quote once there is one), or marked ready.
     /// A length whose maximum exceeds the known balance is greyed out with the reason.
+    /// Who writes the script (owner request 2026-10-14): the writers the server lists for the chosen length, the default
+    /// first, each with its own maximum; the lengths' maxima follow the choice and the length is quoted again.
+    @ViewBuilder private func writerPicker(_ generation: PodcastGeneration) -> some View {
+        if generation.writers.count > 1 {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Written by").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
+                Picker("Written by", selection: Binding(get: { generation.selectedWriter ?? generation.writers[0].writer }, set: { center.selectWriter($0) })) {
+                    ForEach(generation.writers) { writer in Text(writer.label).tag(writer.writer) }
+                }
+                .pickerStyle(.segmented).accessibilityIdentifier("podcast.writer")
+                if let chosen = generation.writers.first(where: { $0.writer == (generation.selectedWriter ?? generation.writers[0].writer) }) {
+                    Text(chosen.writer == "deepseek" ? "Lower cost. Scripts vary more between runs." : "Steadier scripts at a higher maximum.")
+                        .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("podcast.writer.note")
+                }
+            }
+            .padding(.bottom, 14)
+        }
+    }
+
     private func lengthPicker(_ generation: PodcastGeneration, quote: PodcastQuote?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            writerPicker(generation)
             Text("Length").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
                 .accessibilityAddTraits(.isHeader)
             ForEach(generation.lengths) { length in
-                let option = quote?.options.first { $0.profile == length.profile } ?? length
+                let listed = quote?.options.first { $0.profile == length.profile } ?? length
+                // The chosen writer's maximum for this length (the length's own when the server lists no writers).
+                let option = PodcastLength(profile: listed.profile, label: listed.label, targetSeconds: listed.targetSeconds,
+                                           maxCredits: listed.maxCredits(for: generation.selectedWriter), estimate: listed.estimate, writers: listed.writers)
                 let ready = generation.readyEpisode(length.profile)
                 let chosen = generation.selected == length.profile
                 let affordable = generation.affordable(option, credits: center.availableCredits)

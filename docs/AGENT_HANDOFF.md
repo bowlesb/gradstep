@@ -48,7 +48,9 @@ pinned; **00037** is current), migration **064** (version-5 profiles with larger
 version-5 profiles (revision 8: DeepSeek V4 Pro writes the script; maxima 140/150/300/520 credits), browser Pages
 **`9b227fa2`** (quote handling no longer pinned to the Anthropic label and 150 credits). October's seed allowance was
 raised from $3 to $4 for the proof seeds; the fourth (`fe9e26d4`) published release `c7a9a3e4`, pending the owner's
-seed review (`podcast-ops.py review --release c7a9a3e4 --publish|--reject`). Details in
+seed review (`podcast-ops.py review --release c7a9a3e4 --publish|--reject`). Then the owner asked for a **writer
+choice**: migration **065**, the podcast function, Pages **`c4737d77`** and policy revision 9 (both writers for every
+length, DeepSeek default) are live; the native picker ships in **build 35**. Details in
 [Implementation status](IMPLEMENTATION_STATUS.md). Flip back with `podcast-ops.py policy --set
 profile_version=3 --set allowed_profiles=<the :3 list>` if DeepSeek disappoints.
 

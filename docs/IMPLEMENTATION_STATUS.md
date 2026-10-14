@@ -81,6 +81,15 @@ html, or graph."
   is why the tolerance and the trim exist; if the owner's own episodes fail, `podcast-ops.py policy --set
   profile_version=3` returns to Sonnet. The proposal in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md) is
   superseded by this build for podcasts; chat still uses Anthropic only.
+- **Writer choice (owner, evening):** readers pick who writes the script. Migration **065** lets a length be offered
+  under one allowed version per writer and lists them (`podcast_lengths().writers`, default first, each with its
+  own maximum, estimate and consent version); the quote takes `writer` and resolves that version, so the quote's
+  providers and consent follow the choice; a replay with another writer conflicts. The native Listen sheet shows
+  "Written by" (DeepSeek V4 Pro / Claude Sonnet 5.5) above the lengths and re-quotes on change; the browser dialog
+  offers the same before the estimate. The policy (revision 9) offers both writers for all four lengths with DeepSeek
+  as the default: 140/150/300/520 credits for DeepSeek and 180/200/360/610 for Sonnet. Evidence: database suite with
+  `podcast_writer_choice.sql`, backend podcast tests 44, web podcast tests 36, native podcast tests 22 (a writer-choice
+  case among them). Deployed: migration 065, the podcast function, Pages **`c4737d77`**; native in **build 35**.
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
   numbered membership) for the `study-bar`/`study-sheet` captures.

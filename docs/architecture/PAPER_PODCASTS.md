@@ -1605,3 +1605,24 @@ allowance counts every character), and migration 064 adds version-5 profiles cop
 repair output caps raised by half (the review and repair input caps follow, since they carry the draft) and every
 ceiling recomputed at the same peak rates; the policy moved to version 5 (revision 8; maxima 140 / 150 / 300 / 520
 credits). Version 4 stays for its quotes and jobs.
+
+
+### Writer choice (migration 065, database side; 2026-10-14)
+
+Owner: "expose an option when creating a podcast to use anthropic or sonnet." The policy's `allowed_profiles` may now
+hold one version per writer for each length (distinct entries, distinct writers per id, up to 16 entries; the audited
+`worker_podcast_policy_set` accepts the longer list): version 3 is Claude Sonnet 5.5, version 5 is DeepSeek V4 Pro,
+version 4 is never offered. `app_private.podcast_writer(spec)` is the provider the spec names (`anthropic` when
+absent) and `podcast_writer_label(spec)` the label the clients show ("Claude Sonnet 5.5", "DeepSeek V4 Pro",
+"DeepSeek Flash"). `podcast_allowed_spec(profile, writer)` resolves a length and a writer; without a writer it takes
+the policy's default profile's writer, or the length's first offered entry when that writer is not offered for it;
+an unknown length is `podcast_profile_unavailable`, a writer not offered for the length is
+`podcast_writer_unavailable`. `podcast_lengths()` keeps one row per length with the default writer's `max_credits`
+and `estimate` at the top level (older clients read what they read) and adds `writers`: `[{writer, label,
+max_credits, estimate, consent_version}]`, the default writer first. `v1_podcast_quote(item, request, profile,
+writer)` (the three-argument signature is gone; PostgREST callers that omit `p_writer` get the default) returns
+`writer` and `writer_label` beside the quote and treats a replayed request id with a different length or writer as
+`podcast_request_conflict`. `v1_podcast_start` resolves the quote's own `(profile_id, profile_version)` through
+`podcast_allowed_version`, so a version withdrawn after quoting is `podcast_profile_unavailable` rather than the
+other writer's spec. The policy pointer is moved through the audited path after deploy (both `:3` and `:5` entries of
+every length, default on version 5). Test: `tests/database/podcast_writer_choice.sql`.

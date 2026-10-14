@@ -10,7 +10,7 @@ protocol PodcastTransport: Sendable {
     func episode(_ releaseID: UUID) async throws -> PodcastEpisode
     func paper(itemID: UUID) async throws -> PodcastPaperLookup
     /// `profile` names a length (`podcast-10min-v1`); nil asks for the default (five minutes).
-    func quote(itemID: UUID, requestID: UUID, profile: String?) async throws -> PodcastQuoteOutcome
+    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?) async throws -> PodcastQuoteOutcome
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome
     func status(requestID: UUID) async throws -> PodcastJobOutcome
     func cancel(requestID: UUID) async throws -> PodcastJobOutcome
@@ -49,9 +49,10 @@ struct BackendPodcastTransport: PodcastTransport {
     func paper(itemID: UUID) async throws -> PodcastPaperLookup {
         try await get("action=paper&item_id=\(itemID.wire)", PodcastPaperLookup.self)
     }
-    func quote(itemID: UUID, requestID: UUID, profile: String?) async throws -> PodcastQuoteOutcome {
+    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?) async throws -> PodcastQuoteOutcome {
         var body: [String: Any] = ["item_id": itemID.wire, "request_id": requestID.wire]
         if let profile { body["profile"] = profile }
+        if let writer { body["writer"] = writer }
         return try await post("quote", body, PodcastQuoteOutcome.self)
     }
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {

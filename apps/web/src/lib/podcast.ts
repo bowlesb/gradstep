@@ -23,8 +23,10 @@ export interface Segment {
 }
 export interface Transcript { speakers: Record<Speaker, string>; disclosure: string; segments: Segment[] }
 export interface EpisodeDetail extends Episode { chapters: Chapter[]; transcript: Transcript }
+/** A writer the server offers for the default length (2026-10-14): `anthropic` (Claude Sonnet 5.5) or `deepseek`, each with its maximum. */
+export interface Writer { writer: string; label: string; maxCredits: number }
 export interface Capabilities { catalog: boolean; generation: boolean; delivery: boolean; maxCredits: number; targetSeconds: number;
-  transfer: { remainingBytes: number; limitBytes: number } | null }
+  transfer: { remainingBytes: number; limitBytes: number } | null; writers: Writer[] }
 export interface Catalog { episodes: Episode[]; next: string | null; capabilities: Capabilities }
 export interface Member { role: 'audio'; url: string; bytes: number; sha256: string; mediaType: string }
 
@@ -69,9 +71,15 @@ export function decodeEpisode(value: unknown): Episode | null {
 
 export function decodeCapabilities(value: unknown): Capabilities {
   const v = (value ?? {}) as Record<string, unknown>, t = v.transfer as Record<string, unknown> | null | undefined;
+  // The default length's writers (servers from 2026-10-14; none before): the browser offers one length, so one list.
+  const lengths = Array.isArray(v.lengths) ? v.lengths as Record<string, unknown>[] : [];
+  const five = lengths.find(l => l?.profile === 'podcast-5min-v1') ?? lengths[0];
+  const writers = (Array.isArray(five?.writers) ? five!.writers as Record<string, unknown>[] : []).slice(0, 4)
+    .filter(w => typeof w?.writer === 'string' && /^[a-z][a-z0-9_-]{1,31}$/.test(w.writer as string) && typeof w.label === 'string' && PROVIDER_LABEL.test(w.label as string) && count(w.max_credits, MAX_QUOTE_CREDITS))
+    .map(w => ({ writer: w.writer as string, label: w.label as string, maxCredits: w.max_credits as number }));
   return { catalog: v.catalog === true, generation: v.generation === true, delivery: v.delivery === true,
     maxCredits: count(v.max_credits, 100_000) ? v.max_credits as number : 150, targetSeconds: count(v.target_seconds, 7200) ? v.target_seconds as number : 300,
-    transfer: t && count(t.remaining_bytes, 2 ** 40) && count(t.limit_bytes, 2 ** 40) ? { remainingBytes: t.remaining_bytes as number, limitBytes: t.limit_bytes as number } : null };
+    transfer: t && count(t.remaining_bytes, 2 ** 40) && count(t.limit_bytes, 2 ** 40) ? { remainingBytes: t.remaining_bytes as number, limitBytes: t.limit_bytes as number } : null, writers };
 }
 
 export function decodeCatalog(value: unknown): Catalog {
@@ -250,9 +258,10 @@ export async function podcastPaper(account: string, itemID: string, signal?: Abo
   if (!isUUID(itemID)) throw new BackendError('invalid_request');
   return decodePaper(await functionGet(`podcast?action=paper&item_id=${itemID}`, { account, signal, maximum: 65_536 }));
 }
-export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal): Promise<QuoteResult> {
+export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal, writer?: string): Promise<QuoteResult> {
   if (!isUUID(itemID) || !isUUID(requestID)) throw new BackendError('invalid_request');
-  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID }, { account, signal, maximum: 16_384 }));
+  if (writer !== undefined && !/^[a-z][a-z0-9_-]{1,31}$/.test(writer)) throw new BackendError('invalid_request');
+  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID, ...(writer ? { writer } : {}) }, { account, signal, maximum: 16_384 }));
 }
 /** Start and status can reuse an episode that became ready after quoting (046), with no job or new hold. */
 export type RequestResult = { kind: 'job'; job: Job } | { kind: 'reuse'; releaseID: string };

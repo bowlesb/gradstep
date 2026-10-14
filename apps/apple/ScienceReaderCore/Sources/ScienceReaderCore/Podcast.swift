@@ -275,18 +275,37 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
 }
 
 /// A length offered for private generation (Short, 5, 10, 20 minutes), with its own credit maximum.
+/// Who writes the script for a length (2026-10-14): the server lists each allowed writer with its own maximum, the
+/// default first. `writer` is the id sent back with the quote request (`anthropic`, `deepseek`).
+public struct PodcastWriter: Codable, Equatable, Sendable, Identifiable {
+    public let writer: String
+    public let label: String
+    public let maxCredits: Int
+    public let estimate: String?
+    public let consentVersion: String?
+    public var id: String { writer }
+    public init(writer: String, label: String, maxCredits: Int, estimate: String? = nil, consentVersion: String? = nil) {
+        self.writer = writer; self.label = label; self.maxCredits = maxCredits; self.estimate = estimate; self.consentVersion = consentVersion
+    }
+    private enum CodingKeys: String, CodingKey { case writer, label, estimate; case maxCredits = "max_credits", consentVersion = "consent_version" }
+}
+
 public struct PodcastLength: Codable, Equatable, Sendable, Identifiable {
     public let profile: String
     public let label: String
     public let targetSeconds: Int
     public let maxCredits: Int
     public let estimate: String?
+    /// The writers offered for this length (servers from 2026-10-14; empty before), the default first.
+    public var writers: [PodcastWriter]
     public var id: String { profile }
     public static let defaultProfile = "podcast-5min-v1"
-    public init(profile: String, label: String, targetSeconds: Int, maxCredits: Int, estimate: String? = nil) {
-        self.profile = profile; self.label = label; self.targetSeconds = targetSeconds; self.maxCredits = maxCredits; self.estimate = estimate
+    public init(profile: String, label: String, targetSeconds: Int, maxCredits: Int, estimate: String? = nil, writers: [PodcastWriter] = []) {
+        self.profile = profile; self.label = label; self.targetSeconds = targetSeconds; self.maxCredits = maxCredits; self.estimate = estimate; self.writers = writers
     }
-    private enum CodingKeys: String, CodingKey { case profile, label, estimate; case targetSeconds = "target_seconds", maxCredits = "max_credits" }
+    /// The maximum for a writer, else the length's own (the default writer's).
+    public func maxCredits(for writer: String?) -> Int { writers.first { $0.writer == writer }?.maxCredits ?? maxCredits }
+    private enum CodingKeys: String, CodingKey { case profile, label, estimate, writers; case targetSeconds = "target_seconds", maxCredits = "max_credits" }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         profile = try c.decode(String.self, forKey: .profile); label = try c.decode(String.self, forKey: .label)
@@ -294,6 +313,7 @@ public struct PodcastLength: Codable, Equatable, Sendable, Identifiable {
         estimate = try c.decodeIfPresent(String.self, forKey: .estimate)
         guard Self.isProfile(profile), !label.isEmpty, label.utf8.count <= 40, (30...3_600).contains(targetSeconds),
               (1...10_000).contains(maxCredits), (estimate?.utf8.count ?? 0) <= 300 else { throw ReaderError.corruptData }
+        writers = (try? c.decodeIfPresent([PodcastWriter].self, forKey: .writers)) ?? []
     }
     static func isProfile(_ value: String) -> Bool { value.range(of: "^[a-z][a-z0-9-]{2,47}$", options: .regularExpression) != nil }
 }
@@ -374,17 +394,20 @@ public struct PodcastQuote: Codable, Equatable, Sendable, Identifiable {
     /// The quoted length (absent from older servers: five minutes).
     public let profile: String?
     public let label: String?
+    /// The writer the quote resolved to and its name (servers from 2026-10-14).
+    public let writer: String?
+    public let writerLabel: String?
     /// Every offered length with its own maximum, as listed beside the quote.
     public var options: [PodcastLength]
     public init(id: UUID, expiresAt: String, maxCredits: Int, estimate: String, providers: [String], consentVersion: String, targetSeconds: Int,
-                profile: String? = nil, label: String? = nil, options: [PodcastLength] = []) {
+                profile: String? = nil, label: String? = nil, options: [PodcastLength] = [], writer: String? = nil, writerLabel: String? = nil) {
         self.id = id; self.expiresAt = expiresAt; self.maxCredits = maxCredits; self.estimate = estimate
         self.providers = providers; self.consentVersion = consentVersion; self.targetSeconds = targetSeconds
-        self.profile = profile; self.label = label; self.options = options
+        self.profile = profile; self.label = label; self.options = options; self.writer = writer; self.writerLabel = writerLabel
     }
     private enum CodingKeys: String, CodingKey {
-        case id, estimate, providers, profile, label
-        case expiresAt = "expires_at", maxCredits = "max_credits", consentVersion = "consent_version", targetSeconds = "target_seconds"
+        case id, estimate, providers, profile, label, writer
+        case expiresAt = "expires_at", maxCredits = "max_credits", consentVersion = "consent_version", targetSeconds = "target_seconds", writerLabel = "writer_label"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -393,6 +416,7 @@ public struct PodcastQuote: Codable, Equatable, Sendable, Identifiable {
         providers = try c.decode([String].self, forKey: .providers); consentVersion = try c.decode(String.self, forKey: .consentVersion)
         targetSeconds = try c.decodeIfPresent(Int.self, forKey: .targetSeconds) ?? 300
         profile = try c.decodeIfPresent(String.self, forKey: .profile); label = try c.decodeIfPresent(String.self, forKey: .label)
+        writer = try c.decodeIfPresent(String.self, forKey: .writer); writerLabel = try c.decodeIfPresent(String.self, forKey: .writerLabel)
         options = []
         guard profile.map(PodcastLength.isProfile) ?? true, (label?.utf8.count ?? 0) <= 40,
               (1...10_000).contains(maxCredits), !estimate.isEmpty, estimate.utf8.count <= 300, expiresAt.utf8.count <= 64,
