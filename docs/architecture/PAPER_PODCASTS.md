@@ -1593,3 +1593,15 @@ version-2 checker had been applying as a hard range. The checker's word range is
 tolerance band: 85% of the floor to 115% of the ceiling (five minutes: 552–920; ten minutes: 1,147–1,898), inside
 the unchanged audio and spoken-character caps; the repair still runs for anything outside the band. The first
 DeepSeek draft would have passed at 876 and the second at 604.
+
+
+### Output caps and compact JSON (2026-10-14, after the third DeepSeek seed)
+
+The third DeepSeek seed (job `1e2c27d6`) ended `script_incomplete`: the draft reached the 6,000-token output cap the
+version-4 profiles had copied from the Sonnet ones. An offline draft of a comparable paper through the same request
+parsed cleanly at 30 turns and 639 words but used 4,378 output tokens for 17,477 characters of pretty-printed JSON,
+so a chattier draft runs out of room. Two changes: the adapter asks DeepSeek for compact JSON on one line (the
+allowance counts every character), and migration 064 adds version-5 profiles copied from version 4 with the draft and
+repair output caps raised by half (the review and repair input caps follow, since they carry the draft) and every
+ceiling recomputed at the same peak rates; the policy moved to version 5 (revision 8; maxima 140 / 150 / 300 / 520
+credits). Version 4 stays for its quotes and jobs.

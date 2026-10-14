@@ -44,10 +44,12 @@ increase followed by `podcast-ops.py seed --actor <OWNER> --approval c6c381f5-2b
 CoTrace paper whose seed failed on 2026-10-09) and `kick`.
 **DeepSeek (owner: "set up DeepSeek, prove it works with podcasts", afternoon):** migration **063** applied, the
 `podcast` and `podcast-member` functions redeployed, pipeline worker revision **00034** (with `DEEPSEEK_API_KEY`
-pinned) deployed, the policy moved to the version-4 profiles (revision 7: DeepSeek V4 Pro writes the script; maxima
-140/150/280/500 credits), browser Pages **`9b227fa2`** (quote handling no longer pinned to the Anthropic label and
-150 credits). October's seed allowance was raised from $3 to $4 for one proof seed (CoTrace, job `230c71a2`); the
-result is in [Implementation status](IMPLEMENTATION_STATUS.md). Flip back with `podcast-ops.py policy --set
+pinned; **00037** is current), migration **064** (version-5 profiles with larger output caps), the policy on the
+version-5 profiles (revision 8: DeepSeek V4 Pro writes the script; maxima 140/150/300/520 credits), browser Pages
+**`9b227fa2`** (quote handling no longer pinned to the Anthropic label and 150 credits). October's seed allowance was
+raised from $3 to $4 for the proof seeds; the fourth (`fe9e26d4`) published release `c7a9a3e4`, pending the owner's
+seed review (`podcast-ops.py review --release c7a9a3e4 --publish|--reject`). Details in
+[Implementation status](IMPLEMENTATION_STATUS.md). Flip back with `podcast-ops.py policy --set
 profile_version=3 --set allowed_profiles=<the :3 list>` if DeepSeek disappoints.
 
 **Build 31 screenshots (2026-10-14 15:34 UTC):** tiny figure, missing Back after in-page citation links, poor streaming

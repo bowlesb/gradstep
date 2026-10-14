@@ -18,8 +18,8 @@ export function deepseekMessages(params: ScriptParams): { role: 'system' | 'user
   else if (Array.isArray(params.system)) system.push(...(params.system as Block[]).filter(b => b.type === 'text').map(b => b.text ?? ''));
   const format = (params as { output_config?: { format?: { type?: string; schema?: unknown } } }).output_config?.format;
   if (format?.type === 'json_schema' && format.schema) {
-    system.push(`Respond with exactly one JSON object and nothing else. It must match this JSON schema:\n${JSON.stringify(format.schema)}`);
-  } else system.push('Respond with exactly one JSON object and nothing else.');
+    system.push(`Respond with exactly one JSON object and nothing else, as compact JSON on one line (no indentation, no line breaks between keys: the output allowance counts every character). It must match this JSON schema:\n${JSON.stringify(format.schema)}`);
+  } else system.push('Respond with exactly one compact JSON object on one line and nothing else.');
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [{ role: 'system', content: system.join('\n\n') }];
   for (const message of params.messages) {
     const content = typeof message.content === 'string' ? message.content

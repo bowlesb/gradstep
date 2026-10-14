@@ -69,7 +69,17 @@ html, or graph."
   pins the Anthropic label, the 150-credit maximum or consent v1 (it had refused every quote since the v3 move);
   the native quote already read providers and consent from the server. Evidence: backend 60 podcast, adapter and
   evidence tests; database suite with `podcast_deepseek_profiles.sql`; web podcast tests 36; a live probe of both
-  aliases through the adapter. The proposal in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md) is
+  aliases through the adapter. **Proven live** on the fourth seed (job `fe9e26d4`, CoTrace, profile v5 after three
+  failed seeds taught three fixes: a trim repair for over-length drafts, a tolerance band on the version-2 word
+  range, and larger output caps with compact JSON): an episode of 5 min 35 s, 686 words, three turns removed within
+  limits, released as `c7a9a3e4` pending the owner's seed review. Cost of that run: DeepSeek draft $0.061 (33k input,
+  4.3k output) and review $0.050, speech $0.152; the script stage was $0.111 against about $0.35 for the same two
+  calls on Sonnet, and the two earlier DeepSeek runs with cache hits cost $0.05 and $0.12. Deployed: migrations 063
+  and 064, pipeline worker revision **00037**, policy revision 8 on the version-5 profiles (maxima 140/150/300/520
+  credits), Pages **`9b227fa2`**. October's seed allowance was raised from $3 to $4 for the proof (four seeds, $2.87
+  committed). Caveat: DeepSeek's drafts vary more than Sonnet's (604, 876 words and one runaway in four tries), which
+  is why the tolerance and the trim exist; if the owner's own episodes fail, `podcast-ops.py policy --set
+  profile_version=3` returns to Sonnet. The proposal in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md) is
   superseded by this build for podcasts; chat still uses Anthropic only.
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a

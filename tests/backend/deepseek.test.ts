@@ -13,6 +13,7 @@ test('messages: the system text and the output schema first, each turn as plain 
   const messages = deepseekMessages(params);
   assert.equal(messages[0].role, 'system');
   assert.ok(messages[0].content.startsWith('Write it.')); assert.ok(messages[0].content.includes(JSON.stringify(DRAFT_SCHEMA)));
+  assert.match(messages[0].content, /compact JSON on one line/, 'pretty-printed JSON spent the output allowance on whitespace (seed 3, 2026-10-14)');
   assert.equal(messages[1].role, 'user'); assert.match(messages[1].content, /<paper title="A title">/); assert.match(messages[1].content, /Write the episode script/);
   assert.equal(params.model, 'deepseek-v4-pro');
 });
