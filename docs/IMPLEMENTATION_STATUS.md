@@ -89,7 +89,8 @@ html, or graph."
   offers the same before the estimate. The policy (revision 9) offers both writers for all four lengths with DeepSeek
   as the default: 140/150/300/520 credits for DeepSeek and 180/200/360/610 for Sonnet. Evidence: database suite with
   `podcast_writer_choice.sql`, backend podcast tests 44, web podcast tests 36, native podcast tests 22 (a writer-choice
-  case among them). Deployed: migration 065, the podcast function, Pages **`c4737d77`**; native in **build 35**.
+  case among them), the full native tier before the build. Deployed: migration 065, the podcast function, Pages
+  **`c4737d77`**; **TestFlight build 35** (iOS and Mac) uploaded at 12:53 and 12:57 PDT after the native tier passed.
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
   numbered membership) for the `study-bar`/`study-sheet` captures.
