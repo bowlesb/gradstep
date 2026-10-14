@@ -430,12 +430,16 @@ private struct TranscriptTable: UIViewRepresentable {
 
         private func pixel(_ table: UITableView) -> CGFloat { 1 / (table.window?.screen.scale ?? 2) }
 
-        private func isAtEnd(_ table: UITableView) -> Bool {
+        /// Whether the end of the conversation is on screen. Layout and chrome changes allow 80 pt of slack; the
+        /// reader's own scroll allows none (`Self.gestureTolerance`): scrolling up even a little while an answer
+        /// streams means staying there (owner report, build 35), and following resumes only at the end itself.
+        private func isAtEnd(_ table: UITableView, tolerance: CGFloat = 80) -> Bool {
             guard !displayed.isEmpty else { return true }
             let last = IndexPath(row: displayed.count - 1, section: 0)
             guard table.cellForRow(at: last) != nil else { return false }
-            return table.rectForRow(at: last).maxY <= table.contentOffset.y + table.bounds.height - table.adjustedContentInset.bottom + 80
+            return table.rectForRow(at: last).maxY <= table.contentOffset.y + table.bounds.height - table.adjustedContentInset.bottom + tolerance
         }
+        static let gestureTolerance: CGFloat = 2
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             guard !retired, owner?.isCurrent() == true else { return }
@@ -445,7 +449,7 @@ private struct TranscriptTable: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let table = scrollView as? TranscriptTableView, !retired, owner?.isCurrent() == true,
                   !applying, !updating, layoutDepth == 0, !restoring, !animating, (!needsRestore || userScrolling) else { return }
-            following = isAtEnd(table)
+            following = isAtEnd(table, tolerance: userScrolling ? Self.gestureTolerance : 80)
             anchors = following ? [] : readAnchors(table)
             if publishedFollow != following { publishedFollow = following; owner?.didFollow(following) }
         }
@@ -470,7 +474,7 @@ private struct TranscriptTable: UIViewRepresentable {
             settleAfterApply = false
             // The gesture's final position owns any resize that happened while
             // dragging. Never replay an anchor captured before that gesture.
-            following = isAtEnd(table)
+            following = isAtEnd(table, tolerance: Self.gestureTolerance)
             anchors = following ? [] : readAnchors(table)
             realizingAnchor = nil; needsRestore = true
             table.setNeedsLayout()

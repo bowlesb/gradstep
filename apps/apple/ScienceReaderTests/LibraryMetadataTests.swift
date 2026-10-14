@@ -24,8 +24,13 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(LibraryFormat.shortAuthors(["Diederik P. Kingma", "Jimmy Ba"]), "Kingma, Ba")
         XCTAssertEqual(LibraryFormat.shortAuthors(["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit",
                                                    "Llion Jones", "Aidan N. Gomez", "Łukasz Kaiser", "Illia Polosukhin"]),
-                       "Vaswani, Shazeer +6")
-        XCTAssertEqual(LibraryFormat.shortAuthors(["A B", "C D", "E F"]), "B, D +1")
+                       "Vaswani, Shazeer, Parmar +5")
+        XCTAssertEqual(LibraryFormat.shortAuthors(["A B", "C D", "E F"]), "B, D, F")
+        XCTAssertNil(LibraryFormat.authorLine([]))
+        XCTAssertEqual(LibraryFormat.authorLine(["Ashish Vaswani", "Noam Shazeer"]), "Ashish Vaswani, Noam Shazeer")
+        XCTAssertEqual(LibraryFormat.authorLine(["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit",
+                                                 "Llion Jones", "Aidan N. Gomez", "Łukasz Kaiser", "Illia Polosukhin"]),
+                       "Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez +2")
         XCTAssertEqual(LibraryFormat.familyName("Vaswani, Ashish"), "Vaswani")
         XCTAssertEqual(LibraryFormat.familyName("Ludwig van Beethoven"), "van Beethoven")
         XCTAssertEqual(LibraryFormat.familyName("Martin Luther King Jr."), "King")
@@ -37,7 +42,7 @@ final class LibraryMetadataTests: XCTestCase {
                           keywords: [], fileURL: nil, artifactID: nil)
         XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "Gradstep · offline sample", "Joined byline when names are unknown")
         paper.authorNames = ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"]
-        XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "He, Zhang +2")
+        XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "He, Zhang, Ren +1")
     }
 
     func testRelativeDays() {

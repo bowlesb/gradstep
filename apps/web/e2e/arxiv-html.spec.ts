@@ -36,8 +36,14 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(frame.locator('img').first()).toBeVisible();
  await expect(frame.locator('[data-reader-block]')).not.toHaveCount(0);
  // The paper's own citation link ("[1]" to its bibliography) jumps with Back offered, and Back returns (build 31 report).
+ // With the chat pane open a wide reader is at its narrowest: Back must still be in view in the toolbar (owner report, build 35).
+ // On a phone the pane is an overlay over the paper, so it stays closed there.
+ const wide=(page.viewportSize()?.width??0)>=900;
+ if(wide&&!await page.getByTestId('chat-pane').isVisible())await page.getByTestId('ask').click();
+ if(wide)await expect(page.getByTestId('chat-pane')).toBeVisible();
  await frame.locator('a[href^="#b-"]').first().click();
  await expect(page.getByTestId('citation-back')).toBeVisible();
+ await expect(page.getByTestId('citation-back')).toBeInViewport();
  await page.getByTestId('citation-back').click();
  await expect(page.getByTestId('citation-back')).toBeHidden();
  expect(sourceRequests).toBe(2);expect(pdfRequests).toBe(0);expect(artifacts).toBe(0);

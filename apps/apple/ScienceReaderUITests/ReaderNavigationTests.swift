@@ -27,6 +27,34 @@ final class ReaderNavigationTests: XCTestCase {
         }
     }
 
+    /// Owner report (build 35): "Back to where you were … no longer is there". An HTML paper's own in-page links
+    /// (a citation "[1]", a figure reference) jump with Back on this surface, and Back returns to the place left.
+    func testHTMLPaperInPageLinksOfferBack() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--study-fixture"]
+        app.launch()
+        // The fixture selects the HTML paper; on a phone it is read on the Paper tab.
+        let paperTab = app.buttons["tab.paper"]
+        if paperTab.waitForExistence(timeout: 10) { paperTab.tap() }
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15), "The study fixture opens the HTML paper")
+        let back = app.buttons["reader.citation.back"]
+        let citation = web.links["[1]"].firstMatch
+        XCTAssertTrue(citation.waitForExistence(timeout: 10), "The paper's citation link is in the page")
+        XCTAssertFalse(back.exists, "No Back before any jump")
+        citation.tap()
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back is offered after an in-page citation link")
+        let jumped = XCTAttachment(screenshot: app.screenshot()); jumped.name = "HTML paper: Back after a citation link"; jumped.lifetime = .keepAlways; add(jumped)
+        back.tap()
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5), "Back returns and goes away")
+        let figure = web.links["Figure 1"].firstMatch
+        XCTAssertTrue(figure.waitForExistence(timeout: 5), "The paper's figure reference link is in the page")
+        figure.tap()
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back is offered after a figure reference link")
+        let atFigure = XCTAttachment(screenshot: app.screenshot()); atFigure.name = "HTML paper: Back after a figure link"; atFigure.lifetime = .keepAlways; add(atFigure)
+    }
+
     /// Owner feedback (build 11 session): citations link to their references, Back returns to the
     /// same place, references offer actions, and the year shows under the authors.
     func testCitationGoesToItsReferenceAndBackReturnsToTheSamePlace() throws {

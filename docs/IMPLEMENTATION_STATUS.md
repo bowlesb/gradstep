@@ -2,6 +2,32 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Owner reports: authors list, Back after a jump, scrolling while streaming — 2026-10-14, night (built; deployment noted below)
+
+Owner (chat): "make sure that the authors list is presented nicely on all surfaces"; "the 'Back to where you were'
+… no longer is there (all surfaces)"; "when the text is coming out (streaming) in chat, and I try to scroll up …
+it won't let me stay where I am (all surfaces)". `docs/OWNER_FEEDBACK.md` has the three rows.
+
+- **Authors.** The arXiv HTML compiler renders LaTeXML's author block as names with single marks, then affiliations
+  and notes on their own lines, without "footnotemark:" labels or e-mail (`authorsBlock`, HTML_FIRST_READER.md
+  "Authors block"); the device compiler was rebuilt for both surfaces. One author rule set on both surfaces:
+  `apps/web/src/lib/authors.ts` (`compactAuthors`, `authorLine`, `firstAuthorLine`) and native `LibraryFormat`
+  (`shortAuthors` now three family names, `authorLine`): library rows/columns, feed rows/cards, podcast cards and the
+  player's "Paper by", pending imports, bylines.
+- **Back.** Not reproduced; verified three ways (new native journey `testHTMLPaperInPageLinksOfferBack` on the HTML
+  fixture, the browser arXiv journey with the chat pane open and Back `toBeInViewport`, a WebKit harness on the real
+  DPO paper by mouse and touch). Bridge hardening: the landing place waits for the page to stop (6 s, not 1.5 s), and
+  Back outlives only the reader's own wheel/touch/key scrolling (`movedSinceJump`).
+- **Streaming scroll.** Following resumes only at the end of the transcript (2 px/pt) after the reader's own scroll;
+  programmatic scrolls are ignored (CHAT.md "Transcript follow").
+- **Also:** three `podcast-evidence` tests still assumed Markdown cut a turn (stripped since `ce17eb9`); they now use
+  unreadable math and unsupported numbers.
+
+Evidence (2026-10-14 night, local): compiler tests 15/15; `npm test` fast suite; browser units (`authors`,
+`chat-follow`); browser journeys arxiv-html, chat, reader-drafts, library, feed-abstract; iPhone Simulator
+`LibraryMetadataTests`, `ReaderNavigationTests` (all, incl. the new HTML journey), the chat follow journey and the
+figure gallery Back journey. Deployment: recorded at the end of this section once done.
+
 ## Study tutor, audit fixes, native sync scheduler — 2026-10-14, midday (commit `bafae2d` and after; deployment noted below)
 
 Owner (chat): address the open audit items, look at the podcast feature, and "take a stab at an experimental feature

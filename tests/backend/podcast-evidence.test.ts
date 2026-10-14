@@ -181,7 +181,7 @@ test('checker v5 removes a dangling question when its answer was removed', () =>
       { id: 's2', chapter: 'c1', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'What does the paper test?' },
       { id: 's3', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'It compares two approaches.' },
       { id: 's4', chapter: 'c2', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'Can we trust that comparison?' },
-      { id: 's5', chapter: 'c2', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: '**unusable markup**' },
+      { id: 's5', chapter: 'c2', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'A \\frac{a}{b} no voice can read' },
       { id: 's6', chapter: 'c2', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'We mark that issue for later.' },
       { id: 's7', chapter: 'c3', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'The closing caveat matters.' },
       { id: 's8', chapter: 'c3', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'That gives the listener a clear ending.' },
@@ -202,7 +202,7 @@ test('checker v5 does not use an unrelated later turn as a removed answer', () =
     chapters: [{ id: 'c1', title: 'Opening' }],
     segments: [
       { id: 's1', chapter: 'c1', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'What does this comparison establish?' },
-      { id: 's2', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: '**removed answer**' },
+      { id: 's2', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'A \\frac{a}{b} no voice can read' },
       { id: 's3', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'The closing limitation still matters.' },
       { id: 's4', chapter: 'c1', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'That is the point to carry forward.' },
     ],
@@ -228,8 +228,8 @@ test('degradation limits: unverifiable evidence or removed claims beyond 30%, or
   // The caveats chapter loses its only evidenced claims: the limitations would be heard without support.
   const caveats = rejected(s => s.segments.filter(x => x.chapter === 'c5' && x.evidence.length).forEach(x => { x.evidence = []; }));
   assert.ok(!caveats.ok && caveats.problems.includes('chapter_unsupported:c5'));
-  // A chapter that loses every turn.
-  const empty = rejected(s => s.segments.filter(x => x.chapter === 'c1').forEach(x => { x.text = 'Host 1: **markup**'; }));
+  // A chapter that loses every turn (to unsupported numbers: readable markup is stripped now, not cut).
+  const empty = rejected(s => s.segments.filter(x => x.chapter === 'c1').forEach(x => { x.text = 'Host 1: That is 99 percent of it.'; }));
   assert.ok(!empty.ok && empty.problems.includes('empty_chapter:c1'));
   // A rejected review is never repaired.
   const review = rejected(s => { s.review = { verdict: 'reject', issues: [] }; });

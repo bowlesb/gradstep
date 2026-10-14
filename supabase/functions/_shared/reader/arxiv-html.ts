@@ -137,6 +137,110 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     out.children = make(id);
     return out;
   }
+  // The authors (LaTeXML `div.ltx_authors`): each author's name once with its affiliation marks, then the affiliations
+  // and the notes those marks and daggers point to, each on its own line. LaTeXML prints every mark twice with a
+  // "footnotemark:" label and its tag, and lists e-mail addresses; none of that reads well (owner request,
+  // 2026-10-14: the authors list presented nicely on every surface). Math and links inside keep their handling.
+  function authorsBlock(n: DomNode): OutNode {
+    return block(n, 'p', 'paragraph', id => {
+      for (const e of elements(n, () => true)) bind(e, id);
+      const INLINE = ['em', 'i', 'strong', 'b', 'u', 's', 'sub', 'sup', 'code'];
+      const notes: { mark: string; body: Child[] }[] = [];
+      const seen = new Set<string>();
+      const drop = (c: DomNode): Child[] => { for (const m of elements(c, x => x.name === 'math')) skippedMath.add(m); return []; };
+      const plain = (parts: Child[]) => normalizeSpace(parts.map(part => typeof part === 'string' ? part : outText(part)).join(''));
+      const walk = (c: DomNode): Child[] => {
+        if (c.type === 'text') return [c.data];
+        if (c.type !== 'tag') return [];
+        if (c.name === 'math') return [equation(c, id)];
+        if (['svg', 'img', 'object'].includes(c.name)) { omittedGraphics += 1; return drop(c); }
+        if (has(c, 'ltx_note')) {
+          const first = elements(c, x => has(x, 'ltx_note_mark'))[0];
+          const mark = first ? normalizeSpace(textContent(first)) : '';
+          const content = elements(c, x => has(x, 'ltx_note_content'))[0];
+          const body: Child[] = [];
+          for (const x of content ? children(content) : []) {
+            if (x.type === 'tag' && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type') || has(x, 'ltx_tag'))) drop(x); else body.push(...walk(x));
+          }
+          const text = plain(body);
+          if (text && !seen.has(mark + '\u0000' + text)) { seen.add(mark + '\u0000' + text); notes.push({ mark, body: tidy(body) }); }
+          return mark ? [el('sup', {}, [mark])] : [];
+        }
+        if (has(c, 'ltx_role_email') || c.name === 'a' && /^mailto:/i.test(c.attribs?.href ?? '')) return drop(c);
+        if (has(c, 'ltx_author_before') || has(c, 'ltx_author_after')) return [' '];
+        if (c.name === 'a') return inline(c, id);
+        if (c.name === 'br') return [el('br')];
+        const name = INLINE.includes(c.name) ? c.name : has(c, 'ltx_font_bold') ? 'strong' : has(c, 'ltx_font_italic') ? 'em' : null;
+        const result = children(c).flatMap(walk);
+        return name ? [el(name, {}, result)] : result;
+      };
+      // Collapsed whitespace, no space before a mark, consecutive marks as one ("1,2"), trimmed ends.
+      const tidy = (parts: Child[]): Child[] => {
+        const out: Child[] = [];
+        for (const part of parts) {
+          if (typeof part === 'string') {
+            const last = out[out.length - 1];
+            // No space after a mark either: "²Stanford University" like "Rafailov²".
+            const text = (typeof last === 'object' && last.name === 'sup' ? part.trimStart() : part).replace(/\s+/g, ' ');
+            if (!text) continue;
+            if (typeof last === 'string') out[out.length - 1] = (last + text).replace(/\s+/g, ' '); else out.push(text);
+          } else if (part.name === 'sup') {
+            const last = out[out.length - 1];
+            if (typeof last === 'string') { const trimmed = last.trimEnd(); if (trimmed) out[out.length - 1] = trimmed; else out.pop(); }
+            const previous = out[out.length - 1];
+            if (typeof previous === 'object' && previous.name === 'sup') {
+              const marks = [...new Set([...outText(previous).split(','), ...outText(part).split(',')].map(m => m.trim()).filter(Boolean))];
+              previous.children = [marks.join(',')];
+            } else out.push(part);
+          } else out.push(part);
+        }
+        if (typeof out[0] === 'string') { out[0] = out[0].trimStart(); if (!out[0]) out.shift(); }
+        const last = out[out.length - 1];
+        if (typeof last === 'string') { out[out.length - 1] = last.trimEnd(); if (!out[out.length - 1]) out.pop(); }
+        return out;
+      };
+      // An affiliation line ("²Stanford University ³CZ Biohub"): each mark starts an entry, entries read "a · b".
+      const entries = (parts: Child[]): Child[][] => {
+        const list: Child[][] = [];
+        for (const part of parts) {
+          if (typeof part === 'object' && part.name === 'sup' || !list.length) list.push([]);
+          list[list.length - 1].push(part);
+        }
+        return list.map(tidy).filter(entry => plain(entry).replace(/[\d,†‡*§¶‖]/g, '').trim());
+      };
+      const names: Child[][] = [], affiliations: Child[][] = [], affiliationKeys = new Set<string>();
+      const addAffiliations = (parts: Child[]) => {
+        for (const entry of entries(parts)) {
+          const key = plain(entry).replace(/^[\d,†‡*§¶‖\s]+/, '').toLowerCase();
+          if (!affiliationKeys.has(key)) { affiliationKeys.add(key); affiliations.push(entry); }
+        }
+      };
+      for (const creator of elements(n, c => has(c, 'ltx_creator'))) {
+        const person = elements(creator, c => has(c, 'ltx_personname'))[0];
+        const parts = walk(person ?? creator);
+        // Lines after the name (LaTeXML's `\\` in an author block) are that author's affiliations.
+        const cut = parts.findIndex(part => typeof part === 'object' && part.name === 'br');
+        const head = tidy(cut >= 0 ? parts.slice(0, cut) : parts);
+        const startsWithMark = typeof head[0] === 'object' && head[0].name === 'sup';
+        const text = plain(head).replace(/^[\d,†‡*§¶‖\s]+/, '');
+        if (text && !startsWithMark) names.push(head); else if (text) addAffiliations(head);
+        if (cut >= 0) addAffiliations(parts.slice(cut + 1).filter(part => !(typeof part === 'object' && part.name === 'br')));
+        for (const extra of person ? children(creator).filter(c => c !== person) : []) {
+          // A note beside the name (a dagger for equal contribution) marks the name; anything else is an affiliation.
+          const marks = extra.type === 'tag' && (has(extra, 'ltx_note') || elements(extra, x => has(x, 'ltx_note')).length > 0 && !normalizeSpace(textContent(extra).replace(/[\d,†‡*§¶‖]/g, '')).length);
+          const rendered = walk(extra);
+          if (marks && names.length && text && !startsWithMark) names[names.length - 1] = tidy([...names[names.length - 1], ...rendered]);
+          else addAffiliations(rendered);
+        }
+      }
+      if (!names.length) return tidy(children(n).flatMap(walk)).filter(part => !(typeof part === 'object' && part.name === 'br'));
+      const out: Child[] = [];
+      names.forEach((name, index) => { if (index) out.push(', '); out.push(...name); });
+      if (affiliations.length) { out.push(el('br')); affiliations.forEach((entry, index) => { if (index) out.push(' · '); out.push(...entry); }); }
+      for (const note of notes) { out.push(el('br')); if (note.mark) out.push(el('sup', {}, [note.mark]), ' '); out.push(...note.body); }
+      return out;
+    }, { class: 'reader-authors' });
+  }
   function mathNode(n: DomNode): Child[] {
     if (n.type === 'text') return n.data.trim() || isMathToken(n.parent?.name ?? '') ? [n.data] : [];
     if (n.name === 'annotation' || n.name === 'annotation-xml') return [];
@@ -394,6 +498,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     // A table or figure wrapped in inline-blocks (LaTeXML's resizebox, `span.ltx_transformed_inner`): its container
     // is flow, not a paragraph, so the table reads as a table block.
     else if (n.name !== 'figcaption' && !has(n, 'ltx_authors') && elements(n, c => c !== n && ['table', 'figure'].includes(c.name)).length) output = children(n).flatMap(flow);
+    else if (has(n, 'ltx_authors') && elements(n, c => has(c, 'ltx_creator')).length) output = [authorsBlock(n)];
     else if (n.name === 'p' || n.name === 'figcaption' || has(n, 'ltx_authors') || n.name === 'math') {
       output = [block(n, 'p', n.name === 'math' ? 'equation' : 'paragraph', id => n.name === 'math' ? [equation(n, id)]
         : children(n).flatMap(c => inline(c, id)), has(n, 'ltx_authors') ? { class: 'reader-authors' }

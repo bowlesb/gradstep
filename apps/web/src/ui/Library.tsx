@@ -1,4 +1,5 @@
 import type { DevicePDFs } from './useDevicePDFs';
+import { compactAuthors, firstAuthorLine } from '../lib/authors';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
 import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
@@ -47,12 +48,6 @@ export const commandError = (error: unknown) => {
 
 const isReading = (a: Activity | undefined) => !!a && a.progress < 0.995;
 const authorList = (entry: ClientEntry) => entry.metadata?.authors ?? [];
-const shortAuthors = (authors: string[]) => {
-  const surname = (name: string) => name.trim().split(/\s+/).pop() ?? name;
-  if (authors.length === 0) return '';
-  if (authors.length <= 3) return authors.map(surname).join(', ');
-  return `${authors.slice(0, 3).map(surname).join(', ')} +${authors.length - 3}`;
-};
 
 /** Rows, counts, tags and the filtered, sorted list for one library view. Shared by the table, rail and compact list. */
 export function useLibraryModel(library: Library, current: Map<string, Activity>, view: LibraryQuery, visible = true) {
@@ -395,13 +390,13 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
         {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
-        {!columns.includes('authors') && row.firstAuthor && <span className="author">{row.firstAuthor}{authors.length > 1 ? ' et al.' : ''}</span>}
+        {!columns.includes('authors') && row.firstAuthor && <span className="author">{firstAuthorLine(authors)}</span>}
         {row.status && !progress && <span className={`status ${row.status.kind}`}>{row.status.kind === 'problem' ? '⚠︎ ' : ''}{row.status.text}</span>}
         {progress && <span className="status active" aria-label={progress.label}>{progress.title}{progress.detail ? ` (${progress.detail})` : ''}</span>}
         {busy && <span className="status active">Updating…</span>}
         <span className="inline-action"><RowAction row={row} busy={busy} retry={retry} remove={remove} run={run} /></span>
       </td>
-      {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{shortAuthors(authors) || <span className="faint">—</span>}</td>}
+      {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{compactAuthors(authors) || <span className="faint">—</span>}</td>}
       {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
         <button className="tag" key={t} onClick={e => { e.stopPropagation(); onTag(q => ({ ...q, tag: t })); }} title={`Show papers tagged “${t}”`}>{t}</button>))}</span>
@@ -437,7 +432,7 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
       <ul ref={list} className="compact-list" aria-label="Library" onKeyDown={e => moveRowFocus(e, 'a.compact-link')}>
         {model.shown.map(row => {
           const entry = row.entry, a = isReaderPaper(entry) ? activity.get(entry.id) : undefined;
-          const meta = [row.firstAuthor ? `${row.firstAuthor}${(entry.metadata?.authors.length ?? 0) > 1 ? ' et al.' : ''}` : null, row.year].filter(Boolean).join(' · ');
+          const meta = [firstAuthorLine(entry.metadata?.authors ?? []) || null, row.year].filter(Boolean).join(' · ');
           return (
             <li key={row.key} className={entry.id === currentID ? 'current' : undefined}>
               {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={model.library.pending.has(entry.id)} expanded={actions.menuItemID === entry.id} onOpen={actions.open} />}

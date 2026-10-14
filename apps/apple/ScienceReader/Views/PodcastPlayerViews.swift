@@ -281,8 +281,8 @@ struct PodcastPlayerSheet: View {
                     Link(destination: license) { Label("License", systemImage: "doc.text") }.font(.subheadline)
                 }
             }
-            if !episode.authors.isEmpty {
-                Text("Paper by " + episode.authors.prefix(12).joined(separator: ", ") + (episode.authors.count > 12 ? ", et al." : ""))
+            if let authors = LibraryFormat.authorLine(episode.authors) {
+                Text("Paper by " + authors)
                     .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Text("Your listening position stays on this device.").font(.footnote).foregroundStyle(.secondary)

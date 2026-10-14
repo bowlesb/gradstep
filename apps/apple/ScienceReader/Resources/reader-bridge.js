@@ -1229,15 +1229,23 @@
   // Citation jumps: to the reference (smooth unless Reduce Motion), a brief
   // highlight, and native "Back" to the exact place left.
   const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Runs `then` once the page has stopped moving (four still frames). A long smooth scroll on a slow device is
+  // waited out rather than cut short: where the jump landed must be the place it really stopped.
   const settled = then => {
     let last = NaN, still = 0;
     const started = performance.now();
     const tick = () => {
       still = Math.abs(window.scrollY - last) < 0.5 ? still + 1 : 0; last = window.scrollY;
-      if (still >= 4 || performance.now() - started > 1500) then(); else requestAnimationFrame(tick);
+      if (still >= 4 || performance.now() - started > 6000) then(); else requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   };
+  // Whether the reader has scrolled, swiped or keyed since the last jump: Back outlives only their own scrolling,
+  // never a smooth scroll still in flight or a programmatic restore (owner report, build 35: Back no longer there).
+  let movedSinceJump = false;
+  for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+    window.addEventListener(type, () => { movedSinceJump = true; }, {passive: true, capture: true});
+  }
   const flash = rect => {
     if (!rect || (!rect.width && !rect.height)) return;
     const box = document.createElement('div');
@@ -1277,7 +1285,7 @@
   const jumpToReference = (entry, cite) => {
     // A second citation followed from the bibliography keeps the first place.
     const origin = citationBack?.origin ?? {location: window.__scienceReaderLocation(), cite};
-    citationBack = {origin, entry, landing: null};
+    citationBack = {origin, entry, landing: null}; movedSinceJump = false;
     showReference(entry, false);
     post({type:'citation',state:'jumped',id:entry.id});
   };
@@ -1296,7 +1304,7 @@
   // Back stays offered until the reader scrolls two screens from where the jump landed, or comes back to the place
   // left by scrolling there themselves (owner feedback, build 21: "a 'return to reading location' option").
   const backOutlived = () => {
-    if (citationBack?.landing == null) return false;
+    if (citationBack?.landing == null || !movedSinceJump) return false;
     if (Math.abs(window.scrollY - citationBack.landing) > 2 * window.innerHeight) return true;
     const origin = locationY(citationBack.origin.location);
     return Math.abs(citationBack.landing - origin) > window.innerHeight / 2 && Math.abs(window.scrollY - origin) < window.innerHeight / 4;
@@ -1720,7 +1728,7 @@
     if (!found) return {found: false};
     const entry = {id: 'passage', range: found.range};
     const origin = citationBack?.origin ?? {location: window.__scienceReaderLocation(), cite: null};
-    citationBack = {origin, entry, landing: null};
+    citationBack = {origin, entry, landing: null}; movedSinceJump = false;
     window.scrollTo({top: scrollTarget(found.range.getBoundingClientRect()), behavior: reducedMotion() ? 'instant' : 'smooth'});
     settled(() => {
       if (citationBack?.entry !== entry) return;

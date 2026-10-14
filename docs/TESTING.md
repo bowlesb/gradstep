@@ -72,7 +72,11 @@ capability gate; standalone compiler/worker tests do not depend on that gate.
 ## When to rerun slow checks
 
 - HTML adapter, SVG rasterizer, MathML, bundle validators, CSP or reader bridge: affected authored journeys plus
-  the relevant real sources/engines. Run the whole corpus when a shared contract changes.
+  the relevant real sources/engines. Run the whole corpus when a shared contract changes. A Back/jump change also
+  reruns the iPhone Simulator journeys `ReaderNavigationTests` (the HTML fixture's in-page links in
+  `testHTMLPaperInPageLinksOfferBack`, the Mathpix citation and figure journeys) with
+  `xcodebuild … -only-testing:ScienceReaderUITests/ReaderNavigationTests test` (see `scripts/simulator-session.mjs`
+  for the destination and derived-data arguments).
 - PDF intake, worker, encrypted store, account lifecycle or membership: PDF journeys and relevant native cases.
 - Database/migrations, deployment configuration or hosted behavior: the corresponding database/operations/hosted
   checks, with no server PDF corpus or Mathpix fallback.

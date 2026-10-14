@@ -17,7 +17,7 @@ async function paper(page: Page) {
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click();
   await openChat(page);
 }
-const saved = (page: Page) => expect(page.getByTestId('draft-status')).toContainText('Saved on this device.');
+const saved = (page: Page) => expect(page.getByTestId('draft-status')).toContainText(/Saved (on this device|in this browser)\./);
 test.beforeEach(async ({ page, request }) => {
   test.skip(!await durableKeys(page), 'Safari secure-key storage is a separate acceptance gate.');
   await request.post(`${API}/__reset`);

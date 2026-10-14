@@ -182,3 +182,21 @@ test('installed v1 HTML bundles remain independently readable',()=>{
  const p=JSON.parse(readFileSync(new URL('../fixtures/reader-arxiv/package.json',import.meta.url),'utf8'));
  assert.equal(validateReaderBundle(Buffer.from(p.manifest,'base64'),new Map(p.members.map((m:{path:string;base64:string})=>[m.path,Buffer.from(m.base64,'base64')])),p.manifestSHA256).manifest.format,'reader-bundle-v1');
 });
+
+test('the authors block reads as names with single marks, affiliations and notes, without footnotemark labels or e-mail',()=>{
+ const note=(id,mark,role='footnotemark',body='')=>`<span id="${id}" class="ltx_note ltx_role_${role}"><sup class="ltx_note_mark">${mark}</sup><span class="ltx_note_outer"><span class="ltx_note_content"><sup class="ltx_note_mark">${mark}</sup><span class="ltx_note_type">${role}: </span>${body||`<span class="ltx_tag ltx_tag_note">${mark}</span>`}</span></span></span>`;
+ const authors=`<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname">Rafael Rafailov ${note('fx1','2')}</span>${note('id1','†','thanks','Equal contribution; more junior authors listed earlier.')}</span>`
+  +`<span class="ltx_author_before">  </span><span class="ltx_creator ltx_role_author"><span class="ltx_personname">Archit Sharma${note('fx2','1')}  ${note('fx3','2')}</span></span>`
+  +`<span class="ltx_author_before">  </span><span class="ltx_creator ltx_role_author"><span class="ltx_personname">${note('fx10','2')}  Stanford University ${note('fx11','3')}  CZ Biohub</span>`
+  +`<span class="ltx_author_notes"><span class="ltx_author_notes_content"><span class="ltx_contact ltx_role_email"><span class="ltx_contact_name">Email: </span><a href="mailto:"><span class="ltx_text">{rafailov}@cs.stanford.edu</span></a></span></span></span></span></div>`;
+ const bundle=build(source.replace('<div class="ltx_authors">A. Author</div>',authors+'<p>See <a href="#id1">the note</a>.</p>'));
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ const block=/<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1]??'';
+ assert.equal(block,'Rafael Rafailov<sup>2,†</sup>, Archit Sharma<sup>1,2</sup><br><sup>2</sup>Stanford University · <sup>3</sup>CZ Biohub<br><sup>†</sup> Equal contribution; more junior authors listed earlier.');
+ assert.ok(!/footnotemark|Email|stanford\.edu/.test(block));
+ const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const authorsBlock=checked.index.blocks.find(b=>html.includes(`id="${b.id}" `)&&html.includes(`class="reader-authors" data-reader-block="${b.id}"`)) ?? checked.index.blocks[1];
+ // Links to the notes resolve to the authors block.
+ assert.match(html,new RegExp(`href="#${authorsBlock.id}">the note</a>`));
+ assert.ok(checked.index.blocks.some(b=>b.text.startsWith('Rafael Rafailov')));
+});

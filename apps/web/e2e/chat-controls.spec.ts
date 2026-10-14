@@ -148,7 +148,7 @@ test('a saved question retains its settings through lost acknowledgement and rel
   await expect(page.getByRole('alert')).toContainText('question couldn’t be saved');
   expect((await evidence(request)).requests).toHaveLength(0);
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('A later draft must survive');
-  await expect(page.getByTestId('draft-status')).toContainText('Saved on this device.');
+  await expect(page.getByTestId('draft-status')).toContainText(/Saved (on this device|in this browser)\./);
   await page.reload(); await expect(page.getByTestId('reader-frame')).toBeVisible();
   if (!await page.getByTestId('chat-pane').isVisible()) await page.getByTestId('ask').click();
   await expect(page.getByTestId('chat-user')).toHaveText(/Question with an exact saved answer choice/);

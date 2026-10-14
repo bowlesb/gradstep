@@ -13,6 +13,14 @@ deleted). The repository review of 2026-10-13 (arXiv pacing, shared preparation,
 revisions, deleted PDF/Mathpix code) shipped in the same release. Commits: `7233641` (cutover), `dc040a9` (review),
 and the Agent v2 commit that follows this checkpoint.
 
+**Night, 2026-10-14 (owner testing build 35):** three chat reports — the authors list on all surfaces, "Back to where
+you were" missing after a reference or figure, and the chat snapping down while an answer streams — are handled in
+the commit after `e9601ab`: the arXiv compiler's `authorsBlock` and shared author rules on both surfaces, bridge
+hardening for Back's lifetime (the regression itself did not reproduce: see `docs/OWNER_FEEDBACK.md` row 2 and the new
+native journey `testHTMLPaperInPageLinksOfferBack`), and end-only transcript following on both clients. Deployment
+(browser Pages, TestFlight build 36) is recorded in `docs/IMPLEMENTATION_STATUS.md` ("Owner reports … night"). If the
+owner still reports a missing Back on build 36, ask for the paper's arXiv id and the exact link tapped.
+
 **Later on 2026-10-14 (owner awake and testing build 31):** the owner reported legacy library papers not opening and
 new papers failing with "Couldn't open this paper". Commit `c615af3` opens legacy arXiv items through the on-device
 HTML reader on every surface (server bundle as fallback, reasons and actions instead of a silent dead end, "Opens

@@ -482,6 +482,14 @@ before; Rename writes `renamed` (≤ 80 characters; an empty name is ignored).
   with Rename, account menu › Chat defaults, an e2e fixture serving the profile table; vitest 206, build and Playwright
   passed at the time, against the pre-merge web). It is not part of the branch's result; Codex may reuse or replace it.
 
+- **Transcript follow (both clients, 2026-10-14; owner report, build 35: scrolling up while an answer streams
+  snapped back down).** The transcript follows new text only while the reader is at its end. Their own scroll
+  decides: at the end (within 2 px/pt: `transcriptFollows`, `apps/web/src/lib/chat-follow.ts`; native
+  `TranscriptTable.gestureTolerance`) following is on, anywhere else it is off until they return to the end or use
+  "Latest message" / "Latest". The transcript's own scrolls (following a flush, "Latest") are marked and never read
+  as the reader's (web `programmatic`; native ignores layout restores while `userScrolling`). Layout and chrome
+  changes keep their 80 pt slack natively, because a keyboard or banner moving the readable area is not a choice.
+
 ### Deploy order
 
 1. Apply migration `202610080047_chat_profiles.sql` (additive): `python3 scripts/migrate-supabase.py staging`.

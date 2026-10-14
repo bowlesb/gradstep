@@ -3,6 +3,7 @@
 // selection actions) shrinks above it instead of being covered. Audio is fetched once per play through a single-use
 // grant, verified (length and SHA-256) and played from an in-memory Blob URL; nothing is kept after Stop or sign-out.
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { authorLine } from '../lib/authors';
 import { auth, BackendError } from '../lib/backend';
 import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
@@ -98,7 +99,7 @@ export function ListenView({ podcasts, player }: { podcasts: PodcastsModel; play
           return (
             <li key={e.releaseID} className={`feed-card podcast-card${current ? ' current' : ''}`} data-testid="podcast-card">
               <span className="feed-title" id={`episode-${e.releaseID}`}>{e.title}</span>
-              {e.authors.length > 0 && <div className="feed-authors">{e.authors.slice(0, 6).join(', ')}{e.authors.length > 6 ? ` +${e.authors.length - 6}` : ''}</div>}
+              {e.authors.length > 0 && <div className="feed-authors">{authorLine(e.authors)}</div>}
               <Badges episode={e} />
               <div className="feed-meta">
                 <span>{e.year ?? ''}</span><span aria-label={`Duration ${durationLabel(e.durationMs)}`}>{durationLabel(e.durationMs)}</span>

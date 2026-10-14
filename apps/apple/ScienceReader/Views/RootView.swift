@@ -583,8 +583,8 @@ struct ImportRow: View {
         // Design audit F6: title, then authors (secondary), then abstract and details (tertiary).
         VStack(alignment: .leading, spacing: 4) {
             Text(item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID)).font(.headline).fixedSize(horizontal: false, vertical: true)
-            if let authors = item.metadata?.authors, !authors.isEmpty {
-                Text(authors.joined(separator: ", ")).font(.subheadline).foregroundStyle(.secondary)
+            if let authors = LibraryFormat.shortAuthors(item.metadata?.authors ?? []) {
+                Text(authors).font(.subheadline).foregroundStyle(.secondary)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
             }
             if showAbstract, let abstract = item.metadata?.abstract, !abstract.isEmpty {
@@ -676,7 +676,7 @@ struct PaperRow: View {
                 if offlineStatus == .available { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
                 else if offlineStatus == .unavailable { Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary).accessibilityLabel("Downloaded copy unavailable") }
             }
-            if !paper.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Text(paper.authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
+            if let authors = LibraryFormat.shortAuthors(for: paper) { Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source

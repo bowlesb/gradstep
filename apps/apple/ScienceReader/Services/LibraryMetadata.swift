@@ -276,15 +276,23 @@ enum LibraryFormat {
         return words[index...].joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: ","))
     }
 
-    /// One author → the full name; two → "A, B"; more → "A, B +N" (family names).
+    /// One author → the full name; two or three → family names; more → three family names and "+N". The browser's
+    /// `compactAuthors` applies the same rule, so rows and columns read alike on every surface.
     static func shortAuthors(_ names: [String]) -> String? {
         let authors = names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        switch authors.count {
-        case 0: return nil
-        case 1: return authors[0]
-        case 2: return "\(familyName(authors[0])), \(familyName(authors[1]))"
-        default: return "\(familyName(authors[0])), \(familyName(authors[1])) +\(authors.count - 2)"
-        }
+        guard let first = authors.first else { return nil }
+        if authors.count == 1 { return first }
+        let shown = authors.prefix(3).map(familyName).joined(separator: ", ")
+        return authors.count > 3 ? "\(shown) +\(authors.count - 3)" : shown
+    }
+
+    /// Full names, `limit` at most, then "+N": cards with room (an expanded feed row, a podcast episode, the player's
+    /// "Paper by" line). The browser's `authorLine` is the same.
+    static func authorLine(_ names: [String], limit: Int = 6) -> String? {
+        let authors = names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !authors.isEmpty else { return nil }
+        let shown = authors.prefix(limit).joined(separator: ", ")
+        return authors.count > limit ? "\(shown) +\(authors.count - limit)" : shown
     }
 
     /// The short form used in the Authors column and detailed rows. Falls back to the joined

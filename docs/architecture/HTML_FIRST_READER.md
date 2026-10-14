@@ -367,6 +367,23 @@ such an item keeps its server document (no numbered local context). The library 
 arXiv paper not yet prepared on this device, and the reader never dead-ends on "download needed" without a reason
 and an action. Both clients (`ReaderModel.openLocalPaperIfNeeded`, `Reader.tsx` with `readingSource`).
 
+### Authors block — 2026-10-14 (owner request: "the authors list presented nicely on all surfaces")
+
+LaTeXML's `div.ltx_authors` prints every affiliation mark twice (`ltx_note_mark` in the text and again inside the
+note's content with a "footnotemark:" label and its tag), inlines "thanks:" notes and lists e-mail contacts; emitted
+as one paragraph it read "Rafael Rafailov 22footnotemark: 2 ††thanks: Equal contribution…". The compiler's
+`authorsBlock` now writes the one `p.reader-authors` block (same vocabulary, same block count, same index text
+position) as: each `ltx_creator`'s `ltx_personname` once with its marks as one superscript ("Rafailov<sup>2,†</sup>";
+a note beside the name, such as an equal-contribution dagger, marks the name); then, after a `<br>`, the affiliations
+("<sup>2</sup>Stanford University · <sup>3</sup>CZ Biohub"): a creator that starts with a mark, the lines after a
+`<br>` in a name, and `ltx_author_notes` contacts other than e-mail, de-duplicated; then each note with content
+("<sup>†</sup> Equal contribution…") on its own line. `ltx_role_email` contacts and `mailto:` links are left out.
+Math inside is converted as everywhere (the coverage check holds); every source id inside the block is bound to it,
+so `href="#id1"` to a note resolves. Without any `ltx_creator` the block is emitted as before. Test: `tests/backend/
+arxiv-html.test.ts` ("the authors block reads as names with single marks…"). Rows and cards on the surfaces use the
+shared author rules (`apps/web/src/lib/authors.ts`, native `LibraryFormat.shortAuthors` / `authorLine` /
+`firstAuthor`): compact "Family, Family, Family +N", full names up to six, "Family et al." bylines.
+
 ### Budget at cutover
 
 The incremental ceiling remains $100/month and the metered provider cap remains $25. The live October ledger

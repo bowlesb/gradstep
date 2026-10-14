@@ -1,4 +1,5 @@
 import { type CSSProperties, Fragment, useEffect, useRef, useState } from 'react';
+import { authorLine, firstAuthorLine } from '../lib/authors';
 import { createPortal } from 'react-dom';
 import { type DiscoveryResult, type FeedFeedback, type FeedSort, published, resultTopics } from '../lib/feed';
 import { defaultFeedColumns, FEED_COLUMNS, FEED_COLUMNS_KEY, type FeedColumn, parseFeedColumns } from '../lib/feed-columns';
@@ -12,7 +13,7 @@ interface Actions {
   feedbackBusy: boolean; feedbackState: Map<string, FeedFeedback>;
 }
 const address = (paper: DiscoveryResult) => `https://arxiv.org/abs/${paper.source_id}`;
-const authors = (paper: DiscoveryResult) => paper.authors.slice(0, 6).join(', ') + (paper.authors.length > 6 ? ` +${paper.authors.length - 6}` : '');
+const authors = (paper: DiscoveryResult) => authorLine(paper.authors);
 function Popularity({ paper }: { paper: DiscoveryResult }) {
   return <span className="feed-popularity" title="Upvotes on Hugging Face Papers" aria-label={paper.upvotes === null ? 'Popularity unknown' : `${paper.upvotes} upvotes on Hugging Face Papers`}>
     {paper.upvotes === null ? '—' : `▲ ${paper.upvotes.toLocaleString()}`}</span>;
@@ -157,7 +158,7 @@ export function FeedTable({ results, columns: settings, sort, setSort, actions, 
         <thead><tr>{header('Title', 'title', 'col-title')}{chosen.map(c => <Fragment key={c.key}>{header(c.label, SORT[c.key])}</Fragment>)}<th scope="col"><span className="visually-hidden">Actions</span></th></tr></thead>
         <tbody>{results.map(paper => <Fragment key={paper.source_id}>
           <tr data-testid="feed-row"><td className="col-title"><button className="title feed-expand" aria-expanded={actions.expanded.has(paper.source_id)} aria-controls={`feed-details-${paper.source_id}`} onClick={() => actions.toggle(paper.source_id)}>{paper.title}</button>
-            {paper.reason && <span className="feed-reason">{paper.reason}</span>}{paper.authors[0] && <span className="author">{paper.authors[0]}{paper.authors.length > 1 ? ' et al.' : ''}</span>}</td>
+            {paper.reason && <span className="feed-reason">{paper.reason}</span>}{paper.authors[0] && <span className="author">{firstAuthorLine(paper.authors)}</span>}</td>
             {chosen.map(c => <td key={c.key} className={`feed-col-${c.key}`}>{c.key === 'popularity' ? <Popularity paper={paper} /> : c.key === 'topic' ? <Topics paper={paper} />
               : c.key === 'published' ? published(paper) : c.key === 'authors' ? <span title={authors(paper)}>{authors(paper) || '—'}</span>
                 : c.key === 'arxiv' ? <a href={address(paper)} target="_blank" rel="noopener noreferrer">{paper.source_id}</a> : <p className="feed-abstract">{paper.abstract ?? '—'}</p>}</td>)}

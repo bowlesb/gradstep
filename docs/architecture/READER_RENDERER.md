@@ -44,7 +44,9 @@ citations when exactly one entry fits (below). Math, code, links, headings and t
 every block's text is unchanged. A tap scrolls to the
 entry (smooth unless Reduce Motion), highlights it briefly and shows a native Back that returns to the block-relative
 place left; Back disappears on return (by Back or by scrolling there), after scrolling two screens away (one before
-build 21's feedback), or on a Contents jump. While Back is shown the saved reading position stays at the place left.
+build 21's feedback), or on a Contents jump; since 2026-10-14 only the reader's own wheel, touch or key scrolling
+counts (`movedSinceJump`), and the landing place is taken once the page has stopped (up to 6 s), never mid-scroll.
+While Back is shown the saved reading position stays at the place left.
 Tapping an entry offers, without a title row (build 21), Open (arXiv ID, then DOI, then an `https` link), Discuss in
 chat (this paper's chat with `About “<entry>”: ` in the message box, focused, unsent — Quote in Chat's wording; a new
 conversation unless the paper's current chat is still empty), Add to library (the `add-reference` call) and Copy.
@@ -185,7 +187,8 @@ And there should also be a 'return to reading location' option in a sensible loc
 - **Back** ("Back to where you were", owner feedback build 21) is the one Back for every jump: citations, figures,
   the paper's own contents rows, Show in paper and Go to passage. It sits at the left of the A− / A+ row, its right
   edge kept clear of that control, above the tab bar ("Back" alone when the words don't fit). It now lasts until the
-  reader goes back, scrolls **two** screens from where the jump landed (was one), or scrolls back to the place left by
+  reader goes back, scrolls **two** screens from where the jump landed (was one; measured only after their own wheel,
+  touch or key scrolling since 2026-10-14, owner report build 35), or scrolls back to the place left by
   hand (then they have returned). The app's Contents sheet still ends it, as before.
 
 Measured (`node scripts/citation-harness.mjs`, same 55 papers; the harness checks every link's target independently:
