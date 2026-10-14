@@ -3210,8 +3210,11 @@ final class ReaderModel {
     private func bufferAnswer(_ generation: ChatGeneration, text: String) {
         chatStreamBuffer[generation.id] = text
         guard chatStreamFlushes.insert(generation.id).inserted else { return }
+        // Each flush re-renders the whole answer so far (Markdown and math), so a long answer is flushed less often:
+        // 50 ms at the start, 400 ms past 16,000 characters (owner report, build 31: scrolling while text arrives).
+        let interval = min(400, max(50, text.utf8.count / 40))
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await Task.sleep(for: .milliseconds(interval))
             guard let self else { return }
             self.chatStreamFlushes.remove(generation.id)
             guard self.ownsGeneration(generation), let latest = self.chatStreamBuffer[generation.id] else { return }

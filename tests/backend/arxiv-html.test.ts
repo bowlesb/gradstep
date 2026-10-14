@@ -125,6 +125,23 @@ test('a list item holding a table keeps the table (KAN, 2404.19756)',()=>{
  assert.match(new TextDecoder().decode(bundle.members.get('index.html')),/<li[^>]*>Compare:<table>/);
 });
 
+test('a caption-only figure after a lone graphic paragraph reads as the figure then its caption (2610.17288 Figure 1)',()=>{
+ const captioned=source.replace('<p id="p1">','<div class="ltx_para"><p class="ltx_p ltx_align_center"><span class="ltx_text ltx_inline-block"><img src="2601.01234v2/teaser.jpg" class="ltx_graphics" alt="[Uncaptioned image]"></span></p></div><figure class="ltx_figure"><figcaption class="ltx_caption"><span class="ltx_tag">Figure 1: </span>A teaser.</figcaption></figure><p id="p1">');
+ const bundle=composeArxivReader({source:utf8(captioned),sourceID:'2601.01234',revision:2,
+  images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}],[url+'/teaser.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]])});
+ const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const kinds=checked.index.blocks.map(b=>b.kind);
+ const figure=kinds.indexOf('figure');
+ assert.equal(checked.index.figures.length,2,'the teaser is a full figure');
+ assert.equal(checked.index.blocks[figure+1].kind,'paragraph');
+ assert.match(checked.index.blocks[figure+1].text,/^Figure 1: A teaser\.$/);
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ assert.match(html,/<p class="reader-caption"[^>]*>/);
+ assert.match(html,/<figure[^>]*>(?:(?!<\/figure>).)*<img alt="[^"]*" height="\d+" src="assets\/[a-f0-9]{64}\.jpg" width="\d+">/s,'the teaser is a full-size figure image, not a legend symbol');
+ assert.equal((html.match(/reader-inline-image/g)||[]).length,0,'no inline image class in this paper');
+ assert.ok(!kinds.includes('table')||kinds.filter(k=>k==='table').length===1,'the caption is not a table block');
+});
+
 test('unsafe MathML and inconsistent TeX are rejected rather than silently losing equations',()=>{
  for(const replacement of [math.replace('<mi>x</mi>','<mi href="https://evil.example">x</mi>'),math.replace('>x^2</annotation>','>x^3</annotation>'),
   math.replace('<msup>','<maction>').replace('</msup>','</maction>')])assert.throws(()=>build(source.replace(math,replacement)));

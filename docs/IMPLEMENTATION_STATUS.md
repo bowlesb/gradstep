@@ -28,6 +28,13 @@ in the working tree; the deployment state is in the last paragraph.
   the owner's eye. The `--appearance` and `--window-size` arguments and the `--wide-mode`, `--visual-ask`,
   `--visual-show-*` staging arguments were added to the fixture app for it.
 
+- **Build 31 screenshots (15:34 UTC), same morning:** a figure drawn 0.65 em tall (a graphic wrapped in a figure
+  paragraph was treated as a legend symbol; now the figure's full-size image, and a caption-only figure reads as its
+  caption), no "Back to where you were" after an in-page citation link in HTML papers (the bridge now jumps with Back
+  for every in-page link, on both surfaces, asserted by the browser journey), and poor scrolling while an answer
+  streams (flush interval now grows with the answer; the end-of-answer jump still needs the owner's eye). Rows in
+  [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md#build-31-2026-10-14-iphone-3-items-testflight-screenshots-15341536-utc).
+
 **Evidence (local, final tree):** fast suite passes (compiler freshness, backend 447 → the compiler tests grew from
 9 to 13, browser units 362); the owner's nine papers replay in Chromium **18 of 18** (every HTML compiles, verifies and
 renders; every PDF imports on the device); the pinned corpus replays **16 of 16** with DeepSeek-V2 v1 now a supported
@@ -38,7 +45,8 @@ LegacyArxivReaderTests (4 new), LibraryModelTests, PaperPassageTests and ArxivHT
 tests 23. The pinned lock gained DeepSeek-V2's six assets; no pinned HTML digest changed.
 
 **Deployment:** browser Pages **`4fdd4675`** (app.gradstep.ai) with the compiler and legacy reading; TestFlight **build 32**
-uploaded for iOS and Mac (one upload VALID on App Store Connect at the time of writing, the other processing); no Edge function or migration changed (the compiler
+uploaded for iOS and Mac (one upload VALID on App Store Connect at the time of writing, the other processing); the
+build-31 screenshot fixes went to Pages and **build 33** afterwards (handoff); no Edge function or migration changed (the compiler
 runs on the device and in tests only).
 
 ## Agent v2 on staging — 2026-10-14 (deployed)

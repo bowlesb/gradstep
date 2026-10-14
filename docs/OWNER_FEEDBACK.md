@@ -9,6 +9,16 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Build 31, 2026-10-14 (iPhone, 3 items, TestFlight screenshots 15:34–15:36 UTC)
+
+Screenshots: `.artifacts/feedback/build31/` (private, not committed). All three on the PhysCodeGym paper (2610.17288).
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "The figure is tiny" | Reader, Figure 1 | LaTeXML wraps a centred graphic as `figure > p > span > img`; the adapter treated any graphic inside a figure paragraph as a legend symbol (`reader-inline-image`, 0.65 em tall). A paragraph that only wraps the graphic is now the figure's full-size image; a caption-only figure after an unwrapped graphic reads as that figure's caption. Regression test in `tests/backend/arxiv-html.test.ts`. | Built 2026-10-14; browser deploy and build 33 |
+| 2 | "The back to where you were feature is gone" | Reader, after following "[55]" to the bibliography | The reader bridge offered Back only for citations it parsed itself (Mathpix-era text marks); the arXiv HTML reader's own `<a href="#…">` links (citations, "Fig. 1", "Cited by: §1") navigated natively with no Back. The bridge now jumps and offers Back for every in-page link on both surfaces (browser journey asserts it). | Same |
+| 3 | "The scrolling experience is poor both when new text is coming and when the text is done" | Chat, streaming answer | Each flush re-renders the whole answer so far (Markdown and math) every 50 ms; long answers churn the row and the scroll pin. Flushes now stretch from 50 ms to 400 ms as the answer grows. Not verified on a device: the remaining jump when the sealed answer, footer and follow-up chips replace the streaming row needs your eye on build 33; a tail-only streaming renderer is the next step if it still feels poor. | Partly built; needs device check |
+
 ## Chat report, 2026-10-14 (build 31): library papers and new papers not opening
 
 Owner (chat, not TestFlight): "papers that were already in my library don't work. Probably we need a better framing

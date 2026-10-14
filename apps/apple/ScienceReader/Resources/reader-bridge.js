@@ -1422,6 +1422,20 @@
     document.addEventListener('click',event => {
       const element = event.target instanceof Element ? event.target : event.target.parentElement;
       const cite = element?.closest('.sr-cite'), entry = cite && references.byID.get(cite.getAttribute('data-sr-cite'));
+      // The paper's own in-page links (arXiv HTML: "[55]" to its bibliography entry, "Fig. 1", "Cited by: §1"): the
+      // same jump and the same Back as a parsed citation (owner report, build 31: "Back to where you were is gone").
+      const anchor = !cite && element?.closest('a[href^="#"]');
+      if (anchor && !gesture?.moved && window.getSelection()?.isCollapsed) {
+        let id = ''; try { id = decodeURIComponent(anchor.getAttribute('href').slice(1)); } catch { id = ''; }
+        const target = id ? document.getElementById(id) : null;
+        if (target) {
+          gesture = null; event.preventDefault(); event.stopPropagation();
+          if (selectedEquation) { clearEquation(); post({type:'selection',selection:{manifest_sha256:manifest,parts:[]}}); }
+          const range = document.createRange(); range.selectNodeContents(target);
+          jumpToReference({id: 'anchor:' + id, range, heading: /^H[1-6]$/.test(target.tagName) ? target : null}, anchor);
+          return;
+        }
+      }
       // A figure, table or algorithm reference opens it (or goes to its caption).
       const figure = !entry && cite?.hasAttribute('data-sr-figure') && figureTargets.has(cite.getAttribute('data-sr-figure')) ? cite : null;
       // An entry of the paper's own contents goes to its section, with the same Back.

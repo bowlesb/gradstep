@@ -25,6 +25,12 @@ Connect when this was written, the second still processing. Owner acceptance of 
 `READER_CORPUS_SET=<set> node scripts/fetch-reader-corpus.mjs --on-this-device --update-lock` then
 `READER_CORPUS_SET=<set> npm run test:slow:corpus -- --project=chromium` ([TESTING.md](TESTING.md)).
 
+**Build 31 screenshots (2026-10-14 15:34 UTC):** tiny figure, missing Back after in-page citation links, poor streaming
+scroll; fixed in the compiler, the shared bridge and the native flush cadence (the scroll fix needs the owner's eye),
+shipped as Pages `PAGES33` and TestFlight build 33 (state below). Audits of the credit system and sync reliability
+were delivered in chat on 2026-10-14 (not yet acted on; findings in the chat transcript and summarized in the next
+handoff pass).
+
 **Before the next build:** run `node scripts/ux-review.mjs` and the native visual capture and read the sheets
 ([UX_REVIEW.md](UX_REVIEW.md)); after chat prompt or function changes, one `node scripts/chat-live-smoke.mjs
 --questions=2` run (paid, about $0.25). The owner's next request is an exploration, not code: a learning-guide

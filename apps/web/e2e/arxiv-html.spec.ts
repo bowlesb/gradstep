@@ -35,6 +35,11 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(frame.locator('math').first()).toBeVisible({timeout:20000});
  await expect(frame.locator('img').first()).toBeVisible();
  await expect(frame.locator('[data-reader-block]')).not.toHaveCount(0);
+ // The paper's own citation link ("[1]" to its bibliography) jumps with Back offered, and Back returns (build 31 report).
+ await frame.locator('a[href^="#b-"]').first().click();
+ await expect(page.getByTestId('citation-back')).toBeVisible();
+ await page.getByTestId('citation-back').click();
+ await expect(page.getByTestId('citation-back')).toBeHidden();
  expect(sourceRequests).toBe(2);expect(pdfRequests).toBe(0);expect(artifacts).toBe(0);
  if(!await page.getByTestId('chat-pane').isVisible())await page.getByTestId('ask').click();
  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Explain the authored equation.');

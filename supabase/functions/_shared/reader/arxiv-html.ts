@@ -291,6 +291,10 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         if (child.name === 'figcaption') {
           caption = el('figcaption', {}, children(child).flatMap(c => inline(c, id))); parts.push(caption);
         } else if (child.name === 'img' || child.name === 'object') parts.push(figureImage(child,id));
+        // A paragraph that only wraps the graphic (LaTeXML centres with p > span > img) is the figure's image, full
+        // size; a paragraph with words keeps its graphics inline as legend symbols (build 31 drew 2610.17288's
+        // teaser 0.65 em tall: "the figure is tiny").
+        else if (child.name === 'p' && loneImage(child)) parts.push(figureImage(elements(child, c => ['img','object','svg'].includes(c.name))[0], id));
         else if (child.name === 'p') parts.push(el('p', {}, children(child).flatMap(c => inline(c,id))));
         else if (['div','span'].includes(child.name)) children(child).forEach(visit);
         else parts.push(...inline(child,id));
@@ -342,6 +346,10 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         // Compound figures keep their panel order and captions as separate,
         // non-nested reader blocks. A reference to the group opens its first panel.
         output = children(n).flatMap(flow);
+      } else if (!tables.length && images.length === 0 && captions.length === 1) {
+        // A caption with no graphic of its own (LaTeXML's \\captionof after an unwrapped \\includegraphics, as in
+        // 2610.17288's Figure 1): the caption paragraph, right under the figure the paragraph before it became.
+        output = [block(n, 'p', 'paragraph', id => children(captions[0]).flatMap(c => inline(c, id)), { class: 'reader-caption' })];
       } else if (tables.length || images.length === 0) {
         output = [block(n, 'div', 'table', id => children(n).flatMap(c => tableContents(c, id)), { class: 'reader-table' })];
       } else output = [imageFigure(n)];
