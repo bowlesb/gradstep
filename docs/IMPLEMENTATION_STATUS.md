@@ -2,6 +2,41 @@
 
 Updated 2026-10-13 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Post-cutover maintenance — 2026-10-13, late (local only; nothing deployed)
+
+A repository review after the cutover found and fixed the following. All changes are in the working tree with the
+rest of the HTML-first work; **none is deployed**: native build 30, browser Pages `a3127547`, admin `91c1eb33`,
+migration 058 and Cloud Run `gradstep-pipeline-00033-2jw` are unchanged.
+
+- **Opening a paper was slow by design.** Every arXiv request waited three seconds, so a sixty-figure paper
+  (`2610.12978v1`) took about three minutes to prepare, on every browser reload. Both clients now space only the
+  HTML document request and load one paper's assets four at a time with no artificial delay, still bounded and
+  still honoring `Retry-After` (a pause over a minute is reported as busy at once). [Design](architecture/HTML_FIRST_READER.md#maintenance-after-cutover--2026-10-13-late-local-not-deployed).
+- **The browser could prepare the same paper twice** (reader and a paper question asked meanwhile). One
+  in-flight preparation per exact revision is now shared, with progress forwarded to every waiter.
+- **Go to passage broke after any renderer revision.** Native and browser refused anchors whose bundle digest
+  differed from the current compile (the browser silently); the v1 → v2 renderer bump already made every earlier
+  browser anchor unreachable. The digest now only decides whether the block hint applies; the quote cascade finds
+  the passage, and the "couldn't find" notice is reserved for a quote that is really absent.
+- **Dead PDF/OCR code removed.** Server: `pipeline.ts`, `reader-adapter.ts`, `pdf-uploads.ts`, `asset-upload.ts`,
+  the Mathpix HTTP client and the web PDF downloader, with their tests (the metadata pipeline owns its types; the
+  historical OCR identity stays for retained bundles). Browser: the chunked upload transport and PUT helper.
+  Native: `PaperAddingService`/`BackendClient` upload methods, tickets, chunk digests, back-off and the fixture's
+  upload script. A pre-cutover queued file is offered **Save on this device** instead of a retry that could never
+  succeed; the Simulator test covers both the refused and the saved outcomes.
+- Evidence (local): fast suite **443 backend + 356 browser unit tests** and compiler freshness pass in about
+  10 s; Swift Core **287 tests** pass; web and admin TypeScript, Deno Edge checks and the Node worker entry
+  type-check. Slow checks rerun for the touched areas: authored browser reader journeys on desktop Chromium plus
+  the Firefox compiler project, **6 pass** (13.5 s; the pinned-HTML journey still sees exactly two arXiv
+  requests and zero PDF/artifact requests); iPad Simulator **13 XCTest cases pass** (PDFUploadTests 6, including
+  the new refused-then-saved legacy-file case, and PaperPassageTests 7) alongside the two WebKit compiler
+  tests, 81 s including build. The real-source corpus and WebKit/phone browser projects were not rerun: no
+  adapter, validator, CSP or bridge contract changed.
+
+The working tree still holds the entire HTML-first cutover **uncommitted** (about 200 files, including the
+deployed migration 058). Committing it is the owner's call; the pre-review tree is saved as a patch in the
+session scratchpad, so the review's changes can be separated from the cutover if wanted.
+
 ## Fast/slow integration baseline — 2026-10-13 evening
 
 Owner-directed [fast/slow policy](TESTING.md) is implemented: `npm test` is the routine fast suite; browser journeys,

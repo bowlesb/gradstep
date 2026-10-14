@@ -462,22 +462,6 @@ export async function functionPost<T>(path: string, body: unknown, options: { ma
   return value as T;
 }
 
-/** An Edge function PUT with bounded binary input and a JSON receipt. Used by
- * the authenticated PDF chunk protocol; callers must supply a non-empty
- * Uint8Array and the function path must be relative to this backend. */
-export async function functionPutBytes<T>(path: string, bytes: Uint8Array, options: {
-  account: string; signal?: AbortSignal; maximum?: number; timeout?: number;
-}): Promise<T> {
-  if (bytes.byteLength < 1) throw new BackendError('invalid_upload');
-  const value = parse(await authorized(`functions/v1/${path}`, {
-    method: 'PUT', body: bytes as BodyInit, contentType: 'application/octet-stream',
-    account: options.account, signal: options.signal, maximum: options.maximum ?? 65_536,
-    timeout: options.timeout ?? 120_000,
-  }));
-  if (value === null) throw new BackendError('invalid_response');
-  return value as T;
-}
-
 // ---------- Support reports ----------
 
 /** Creates or replays one account-bound support report. The UUID makes a retry idempotent. */

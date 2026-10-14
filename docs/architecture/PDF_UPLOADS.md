@@ -4,7 +4,7 @@
 Choose/drop/Share, device download and failed-import recovery must never upload PDFs. The sessions, transports
 and deployed paths below describe the historical implementation; migration 058 and the HTTP 410 endpoint now prevent new use.
 [HTML-first reader](HTML_FIRST_READER.md) specifies local intake, server admission stops (including old clients),
-PDF-independent membership and compatibility gates. The server admission fences and device-only client intake are deployed; see implementation status for build evidence.
+PDF-independent membership and compatibility gates. The server admission fences and device-only client intake are deployed; see implementation status for build evidence. The server-side PDF download, upload-session, Mathpix client and asset-upload modules and their tests were removed from the repository on 2026-10-13 (late); only the metadata pipeline, retained-bundle delivery and the historical OCR identity remain in code.
 
 > **Status, 2026-10-09 UTC:** migration `202610070039_pdf_uploads.sql` is applied on staging; `add-paper`,
 > `upload-pdf`, the private `paper-uploads` bucket and the bounded worker transport are deployed. Scope-2 inventory

@@ -14,7 +14,6 @@ import { parseArxiv } from '../lib/arxiv';
 import { BackendError } from '../lib/backend';
 import { type Preparation } from '../lib/keys';
 import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/library';
-import { uploadPDF, type BrowserPDFKeys, type PDFUploadProgress } from '../lib/pdf-upload';
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
@@ -458,31 +457,24 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
 
 type AddKeys = Pick<Extract<Preparation, { kind: 'ready' }>, 'ring' | 'deviceID'>;
 
+/** Why a chosen file could not become a local paper, in the reader's words. */
 function pdfFailure(error: unknown): string {
   const code = error instanceof BackendError ? error.code : '';
   if (code === 'invalid_upload') return 'Choose a readable PDF file.';
   if (code === 'upload_too_large') return 'That PDF is larger than the 64 MB limit.';
-  if (code === 'insufficient_credits') return 'Add credits before uploading a paper.';
-  if (code === 'paper_owner_storage_capacity' || code === 'paper_storage_capacity') return 'Your paper storage is full. Remove an unused paper or contact support.';
-  if (code === 'upload_limit' || code === 'upload_receipt_capacity') return 'There are already several uploads in progress. Finish one before starting another.';
-  if (code === 'key_authority_required' || code === 'stale_key_epoch') return 'This browser’s library keys are unavailable. Approve or recover this browser, then try again.';
-  if (code === 'upload_mismatch') return 'The PDF changed while it was uploading. Choose it again and retry.';
-  if (code === 'upload_uncertain' || code === 'connection') return 'The upload was interrupted. Try again while this tab stays open; verified chunks will be reused.';
-  if (code === 'upload_expired') return 'This upload session expired. Choose the PDF again to start a fresh upload.';
-  if (code === 'upload_target_busy' || code === 'upload_revision_conflict') return 'This upload changed elsewhere. Refresh the library and try again.';
+  if (code === 'connection') return 'The file could not be read. Choose it again and retry.';
   return 'The PDF could not be opened on this device. Choose it again and try again.';
 }
 
 /** Add paper: an arXiv ID stays a library command; a DOI or any link goes to add-paper.
- * A selected PDF uses the same authenticated chunk/descriptor protocol as native. */
+ * A selected PDF is checked and kept on this device; only its encrypted membership syncs. */
 export function AddPaper({ open, onClose, library, account, keys, localPDFs }: { localPDFs:DevicePDFs; open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys }) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<AddOutcome | null>(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<PDFUploadProgress | null>(null);
-  const [uploadID, setUploadID] = useState<string | undefined>();
+  const [progress, setProgress] = useState<{ phase: 'checking' } | null>(null);
   const [awaitingObservation, setAwaitingObservation] = useState(false);
   const input = useRef<HTMLInputElement | null>(null);
   const request = useRef<AbortController | null>(null);
@@ -492,29 +484,25 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
     }
   }, [awaitingObservation, library.pending, onClose]);
   useEffect(() => () => request.current?.abort(), []);
-  const close = () => { if (busy) return; setIssue(null); setOutcome(null); setProgress(null); setFile(null); setUploadID(undefined); if (input.current) input.current.value = ''; onClose(); };
+  const close = () => { if (busy) return; setIssue(null); setOutcome(null); setProgress(null); setFile(null); if (input.current) input.current.value = ''; onClose(); };
   const choose = (next: File | null) => {
     if (!next) return;
-    setFile(next); setText(''); setIssue(null); setOutcome(null); setProgress(null); setUploadID(undefined);
+    setFile(next); setText(''); setIssue(null); setOutcome(null); setProgress(null);
   };
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || awaitingObservation || library.pending.has('add')) return;
     if (file) {
-
       const controller = new AbortController(); request.current = controller; setBusy(true); setIssue(null); setOutcome(null);
       try {
-        setProgress({phase:'checking',fraction:0});
+        setProgress({ phase: 'checking' });
         await localPDFs.add(file);
         if (controller.signal.aborted) return;
-        setOutcome({status:'added',message:'Added to your library. The PDF stays on this device; choose it again after reopening this tab.',link:null,finished:true});
-        setFile(null);setProgress(null);if(input.current)input.current.value='';
+        setOutcome({ status: 'added', message: 'Added to your library. The PDF stays on this device; choose it again after reopening this tab.', link: null, finished: true });
+        setFile(null); setProgress(null); if (input.current) input.current.value = '';
       } catch (error) {
-        if (!controller.signal.aborted) {
-          if (error instanceof BackendError && ['upload_expired', 'upload_unavailable', 'upload_id_conflict'].includes(error.code)) setUploadID(undefined);
-          setIssue(error instanceof Error && !(error instanceof BackendError) ? error.message : pdfFailure(error));
-        }
+        if (!controller.signal.aborted) setIssue(error instanceof Error && !(error instanceof BackendError) ? error.message : pdfFailure(error));
       }
       finally { if (!controller.signal.aborted) setBusy(false); }
       return;
@@ -544,14 +532,13 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
   }
   const adding = busy || awaitingObservation || library.pending.has('add');
   const selectedName = file?.name ?? null;
-  const progressText = progress ? progress.phase === 'checking' ? 'Checking PDF…' : progress.phase === 'starting' ? 'Saving private library entry…'
-    : progress.phase === 'uploading' ? 'Preparing PDF on this device…' : 'Adding PDF…' : null;
+  const progressText = progress ? 'Checking PDF…' : null;
   return (
     <Dialog open={open} onClose={close} title="Add paper">
       <form onSubmit={submit} noValidate>
         <h2>Add paper</h2>
         <label>arXiv ID, DOI or link
-          <input autoFocus value={text} readOnly={adding} onChange={e => { setText(e.target.value); if (file) { setFile(null); setUploadID(undefined); if (input.current) input.current.value = ''; } setOutcome(null); setIssue(null); }}
+          <input autoFocus value={text} readOnly={adding} onChange={e => { setText(e.target.value); if (file) { setFile(null); if (input.current) input.current.value = ''; } setOutcome(null); setIssue(null); }}
             placeholder="2305.18290, 10.48550/arXiv.2305.18290 or https://…" spellCheck={false} autoCapitalize="none" data-testid="arxiv-input" />
         </label>
         {issue && <p className="issue" role="alert">{issue}</p>}

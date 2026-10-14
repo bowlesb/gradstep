@@ -1,43 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadInventoried } from '../../supabase/functions/_shared/asset-upload.ts';
 import { boundedStorageDownload, deliverReaderMember, type ReaderDeliveryDeps } from '../../supabase/functions/_shared/reader-delivery.ts';
 import { sha256 } from '../../supabase/functions/_shared/http.ts';
-import type { PipelineDeps } from '../../supabase/functions/_shared/pipeline.ts';
 
-const claim = { p_paper_id: crypto.randomUUID(), p_claim_id: crypto.randomUUID(), p_generation: 1 };
+// Retained reader bundles are still delivered; nothing new is uploaded by the server.
 const bytes = new TextEncoder().encode('a safe member');
-
-test('physical writes require inventory then a single grant; lost acknowledgement never repeats the upload', async () => {
-  const events: string[] = []; let confirmations = 0;
-  const deps = { uuid: () => crypto.randomUUID(), sleep: async () => {},
-    rpc: async (name: string, args: Record<string, unknown>) => {
-      events.push(name);
-      if (name === 'worker_pipeline_asset_plan') return { upload_id: args.p_upload_id, objects: [{ id: crypto.randomUUID(), path: 'reader/hash/a.txt', verified: false }] };
-      if (name === 'worker_pipeline_asset_write') return { write: true, verified: false };
-      if (++confirmations < 3) throw new Error('lost acknowledgement');
-    }, storage: { upload: async () => { events.push('upload'); } },
-  } as unknown as PipelineDeps;
-  await uploadInventoried(deps, claim, 'reader', [{ path: 'reader/hash/a.txt', bytes, mediaType: 'text/plain' }]);
-  assert.deepEqual(events, ['worker_pipeline_asset_plan', 'worker_pipeline_asset_write', 'upload',
-    'worker_pipeline_asset_written', 'worker_pipeline_asset_written', 'worker_pipeline_asset_written']);
-});
-
-test('unresolved grant and failed upload preserve uncertainty instead of confirming absence', async () => {
-  for (const write of [false, true]) {
-    const events: string[] = [];
-    const deps = { uuid: () => crypto.randomUUID(), sleep: async () => {},
-      rpc: async (name: string, args: Record<string, unknown>) => {
-        events.push(name);
-        if (name === 'worker_pipeline_asset_plan') return { upload_id: args.p_upload_id, objects: [{ id: crypto.randomUUID(), path: 'reader/hash/a.txt', verified: false }] };
-        if (name === 'worker_pipeline_asset_write') return { write, verified: false };
-      }, storage: { upload: async () => { events.push('upload'); throw new Error('lost response'); } },
-    } as unknown as PipelineDeps;
-    await assert.rejects(uploadInventoried(deps, claim, 'reader', [{ path: 'reader/hash/a.txt', bytes, mediaType: 'text/plain' }]));
-    assert.equal(events.filter(e => e === 'upload').length, write ? 1 : 0);
-    assert.ok(!events.includes('worker_pipeline_asset_written'));
-  }
-});
 
 test('member redemption consumes authority before the one upstream GET; replay fetches nothing', async () => {
   const object = crypto.randomUUID(), token = 'a'.repeat(64), digest = await sha256(bytes);

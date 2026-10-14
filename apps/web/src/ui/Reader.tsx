@@ -210,7 +210,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     if (!passage || !bridgeReady || appliedPassage.current === passage.id) return;
     appliedPassage.current = passage.id;
     if (Date.now() - passage.at > 60_000) { onPassageHandled(); return; }
-    if (passage.anchor.manifestSHA256 && passage.anchor.manifestSHA256 !== bundle?.manifestSHA256) { onPassageHandled(); return; }
+    // A different compile of the same source (or another artifact) keeps the quote search: `same` only decides whether the block hint applies.
     command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256));
   }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled]);
   const quote = bundle && selection ? resolveQuote(bundle, selection) : null;

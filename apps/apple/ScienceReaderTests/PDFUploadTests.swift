@@ -52,62 +52,13 @@ final class PDFUploadTests: XCTestCase {
     // MARK: The queue
 
     private final class FakeService: PaperAddingService, @unchecked Sendable {
-        let lock = NSLock()
-        var begins: [(UUID, PDFUploadTarget)] = []
-        var sends = 0, finalizes: [(UUID, Int64)] = []
-        var chunked = false, descriptorRequired = false, descriptorRequests = 0
-        var chunkSends = 0, chunkDigests: [[String]] = [], chunkFinalizes: [(UUID, Int64, Int64)] = []
-        var chunkJob: PDFUploadJob?
-        var chunkStatus: PDFUploadTicket?
-        var beginResults: [Result<String, Error>] = []      // ticket state to return, or an error
-        var sendErrors: [Error] = []
-        var finalizeErrors: [Error] = []
         func addPaper(_ query: String) async throws -> AddPaperResult { throw BackendError.unavailable }
-        func beginUpload(_ job: PDFUploadJob) async throws -> PDFUploadTicket {
-            let next: Result<String, Error> = lock.withLock { begins.append((job.uploadID, job.target)); return beginResults.isEmpty ? .success("pending") : beginResults.removeFirst() }
-            let state = try next.get()
-            return PDFUploadTicket(upload_id: job.uploadID, state: state, path: "a/\(job.uploadID.uuidString.lowercased()).pdf", token: state == "pending" ? "t" : nil)
-        }
-        func beginUpload(_ job: PDFUploadJob, partSHA256: [String]) async throws -> PDFUploadTicket {
-            if !chunked { return try await beginUpload(job) }
-            lock.withLock { chunkDigests.append(partSHA256); chunkJob = job }
-            return PDFUploadTicket(upload_id: job.uploadID, state: "receiving", revision: 1, generation: 3,
-                                   byte_count: job.byteCount, chunk_bytes: PDFUploadCenter.chunkBytes, part_count: 1,
-                                   parts: [.init(index: 0, bytes: Int(job.byteCount), verified: false, attempts: 0, uncertain: 0)],
-                                   descriptor_required: descriptorRequired)
-        }
-        func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws {
-            let error: Error? = lock.withLock { sends += 1; return sendErrors.isEmpty ? nil : sendErrors.removeFirst() }
-            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
-            if let error { throw error }
-            progress(1)
-        }
-        func sendUpload(file: URL, ticket: PDFUploadTicket, progress: @escaping @Sendable (Double) -> Void) async throws {
-            guard ticket.isChunked else {
-                try await sendUpload(file: file, path: ticket.path ?? "", token: ticket.token ?? "", progress: progress); return
-            }
-            lock.withLock { chunkSends += 1 }; progress(1)
-        }
-        func uploadStatus(_ uploadID: UUID) async throws -> PDFUploadTicket {
-            guard chunked, let job = lock.withLock({ chunkJob }) else { throw BackendError.transport }
-            return chunkStatus ?? PDFUploadTicket(upload_id: job.uploadID, state: "receiving", revision: 2, generation: 3,
-                byte_count: job.byteCount, chunk_bytes: PDFUploadCenter.chunkBytes, part_count: 1,
-                parts: [.init(index: 0, bytes: Int(job.byteCount), verified: true, attempts: 1, uncertain: 0)])
-        }
-        func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws {
-            let error: Error? = lock.withLock { finalizes.append((uploadID, observedCursor)); return finalizeErrors.isEmpty ? nil : finalizeErrors.removeFirst() }
-            if let error { throw error }
-        }
-        func finalizeUpload(_ uploadID: UUID, generation: Int64, revision: Int64, observedCursor: Int64) async throws {
-            lock.withLock { chunkFinalizes.append((uploadID, generation, revision)); finalizes.append((uploadID, observedCursor)) }
-        }
-        func ensureDescriptor(for job: PDFUploadJob) async throws { lock.withLock { descriptorRequests += 1 } }
         func importSources(_ importID: UUID) async throws -> PDFImportSources { throw BackendError.unavailable }
     }
 
     private var clock = Date(timeIntervalSince1970: 1_791_201_600)
     private func center(_ store: PDFUploadStore) -> PDFUploadCenter {
-        PDFUploadCenter(store: store, now: { [unowned self] in self.clock }, sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
+        PDFUploadCenter(store: store, now: { [unowned self] in self.clock })
     }
     private func context(_ service: FakeService, account: UUID, cursor: Int64? = 9, added: @escaping @MainActor () -> Void = {}) -> PDFUploadCenter.Context {
         .init(service: service, accountID: account, deploymentID: "https://fixture.invalid", cursor: { cursor }, added: added)
@@ -132,14 +83,12 @@ final class PDFUploadTests: XCTestCase {
         let records = await local.records()
         XCTAssertEqual(records.count, 1)
         XCTAssertTrue(disk.load(deployment: "https://fixture.invalid", account: account).isEmpty)
-        XCTAssertEqual(service.begins.count, 0); XCTAssertEqual(service.sends, 0); XCTAssertEqual(service.finalizes.count, 0)
     }
     func testNoDeviceSinkCannotFallBackToUpload() async throws {
         let service = FakeService(), queue = center(PDFUploadStore(root: directory.appendingPathComponent("store")))
         queue.activate(context(service, account: UUID()))
         do { _ = try await queue.add(file: makePDF(), target: .newPaper); XCTFail("requires local sink") }
         catch BackendError.rejected(let code) { XCTAssertEqual(code, "pdf_device_only") }
-        XCTAssertTrue(service.begins.isEmpty); XCTAssertEqual(service.sends, 0)
     }
     func testLegacyPendingJobNeverResumesSending() async throws {
         let disk = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
@@ -151,8 +100,20 @@ final class PDFUploadTests: XCTestCase {
         queue.resume(); queue.retry(job.id)
         XCTAssertEqual(queue.jobs.first?.issueCode, "pdf_device_only")
         XCTAssertEqual(queue.jobs.first?.phase, .failed)
-        XCTAssertTrue(service.begins.isEmpty); XCTAssertEqual(service.sends, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        await settle(queue) { queue.jobs.first?.issue?.contains("couldn’t be saved") == true }
+        XCTAssertEqual(queue.jobs.count, 1)
+        // With this device's sink, the legacy file is saved locally and the stopped record is cleared.
+        let local = try DevicePaperStore(directory: directory.appendingPathComponent("legacy-encrypted"), accountID: account, localKey: ReaderCrypto.randomKey())
+        var ctx = context(service, account: account)
+        ctx.installLocal = { file, _, _ in _ = try await local.install(pdfAt: file, sourceID: "local:legacy", revision: 1) }
+        queue.activate(ctx)
+        queue.retry(job.id)
+        await settle(queue) { queue.jobs.isEmpty }
+        XCTAssertTrue(queue.jobs.isEmpty)
+        let saved = await local.records().count
+        XCTAssertEqual(saved, 1)
+        XCTAssertTrue(disk.load(deployment: "https://fixture.invalid", account: account).isEmpty)
     }
 
     func testLockedAndOverLimitPDFsAreRejectedLocally() throws {
@@ -199,7 +160,6 @@ final class PDFUploadTests: XCTestCase {
             }
             print("Local corpus PDF \(paper.key): \(checked.pages) pages, \(checked.byteCount) bytes, encrypted reopen and PDFKit render passed")
         }
-        XCTAssertTrue(queue.jobs.isEmpty); XCTAssertTrue(service.begins.isEmpty)
-        XCTAssertEqual(service.sends, 0); XCTAssertEqual(service.finalizes.count, 0)
+        XCTAssertTrue(queue.jobs.isEmpty)
     }
 }

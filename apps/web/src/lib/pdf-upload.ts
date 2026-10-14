@@ -1,70 +1,9 @@
-// Foreground browser PDF upload (docs/architecture/PDF_UPLOADS.md §2).
-//
-// This is intentionally the same authenticated, four-megabyte chunk protocol
-// as the native queue. It keeps the title out of upload admission, seals the
-// title in a library descriptor, refreshes the session revision after receipts,
-// and freezes only the exact verified parts. The browser does not claim an
-// offline/background queue yet: callers keep the File and the session id in
-// memory and may retry the same session while this page remains open.
-import { BackendError, functionPost, functionPutBytes, rpc } from './backend';
-import { isUUID, sha256Hex, toBytea } from './bytes';
-import { type KeyRing } from './wire';
-import { sealLibraryDescriptor, type LibraryDescriptorEnvelope } from './library-descriptor';
+// Local PDF file checks for the Add sheet and the device PDF membership (docs/architecture/HTML_FIRST_READER.md).
+// A chosen file is read and inspected only in this browser; nothing here sends bytes anywhere. The former
+// chunked upload protocol is gone: the server refuses PDF ingress (HTTP 410 `pdf_device_only`).
+import { BackendError } from './backend';
 
-export const PDF_CHUNK_BYTES = 4_194_304;
 export const MAX_PDF_BYTES = 67_108_864;
-export const MAX_PDF_PARTS = 16;
-
-export interface BrowserPDFKeys { ring: KeyRing; deviceID: string }
-export interface PDFUploadProgress { phase: 'checking' | 'starting' | 'uploading' | 'finishing'; fraction: number }
-export interface PDFUploadOptions {
-  account: string;
-  cursor: number;
-  keys: BrowserPDFKeys;
-  /** Reuse the exact session after a foreground transport failure. */
-  uploadID?: string;
-  signal?: AbortSignal;
-  onProgress?: (progress: PDFUploadProgress) => void;
-  /** Called immediately after admission, before any descriptor/chunk request. */
-  onSession?: (uploadID: string) => void;
-}
-export interface PDFUploadResult { uploadID: string; sourceID: string; state: string }
-
-interface UploadPart { index: number; bytes: number; verified: boolean; attempts: number; uncertain: number }
-interface UploadTicket {
-  upload_id: string; state: string; revision: number; generation: number; byte_count: number;
-  chunk_bytes: number; part_count: number; parts: UploadPart[]; descriptor_required: boolean; descriptor_ref: unknown;
-}
-interface Receipt { verified?: unknown; uncertain?: unknown }
-
-const states = new Set(['receiving', 'frozen', 'checking', 'consumed', 'finalized']);
-const integer = (value: unknown, minimum = 0): value is number => Number.isSafeInteger(value) && (value as number) >= minimum;
-function invalid(): never { throw new BackendError('invalid_response'); }
-function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(); return value as Record<string, unknown>; }
-
-/** Validate the server ticket before using any generation, revision or part path. */
-export function decodePDFUploadTicket(value: unknown): UploadTicket {
-  const v = object(value);
-  if (!isUUID(v.upload_id) || typeof v.state !== 'string' || !states.has(v.state)
-    || !integer(v.revision, 1) || !integer(v.generation, 1) || !integer(v.byte_count, 1)
-    || v.byte_count > MAX_PDF_BYTES || v.chunk_bytes !== PDF_CHUNK_BYTES
-    || !integer(v.part_count, 1) || v.part_count > MAX_PDF_PARTS || !Array.isArray(v.parts)
-    || v.parts.length !== v.part_count || typeof v.descriptor_required !== 'boolean') invalid();
-  const parts: UploadPart[] = [];
-  let total = 0;
-  for (let i = 0; i < v.parts.length; i++) {
-    const p = object(v.parts[i]);
-    if (p.index !== i || !integer(p.bytes, 1) || p.bytes > PDF_CHUNK_BYTES || typeof p.verified !== 'boolean'
-      || !integer(p.attempts) || !integer(p.uncertain)) invalid();
-    total += p.bytes as number;
-    parts.push({ index: i, bytes: p.bytes as number, verified: p.verified as boolean, attempts: p.attempts as number, uncertain: p.uncertain as number });
-  }
-  if (total !== v.byte_count) invalid();
-  if (v.descriptor_ref !== null && v.descriptor_ref !== undefined && (typeof v.descriptor_ref !== 'object' || Array.isArray(v.descriptor_ref))) invalid();
-  return { upload_id: v.upload_id.toLowerCase(), state: v.state, revision: v.revision as number, generation: v.generation as number,
-    byte_count: v.byte_count as number, chunk_bytes: v.chunk_bytes as number, part_count: v.part_count as number, parts,
-    descriptor_required: v.descriptor_required as boolean, descriptor_ref: v.descriptor_ref ?? null };
-}
 
 /** File checks shared by the Add sheet and tests. MIME is deliberately not trusted. */
 export async function readPDF(file: Blob & { name?: string }, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
@@ -84,34 +23,4 @@ export function titleForPDF(file: { name?: string }): { display_name: string; fi
   const filename = typeof file.name === 'string' && file.name.length > 0
     ? file.name.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 255) : undefined;
   return { display_name: displayName, ...(filename ? { filename } : {}) };
-}
-
-function descriptorResponse(value: unknown, account: string): void {
-  const v = object(value), result = object(v.result);
-  if (v.format !== 1 || typeof v.account_id !== 'string' || v.account_id.toLowerCase() !== account.toLowerCase()
-    || (result.status !== 'applied' && result.status !== 'revision_conflict')) invalid();
-}
-
-async function writeDescriptor(account: string, uploadID: string, file: { name?: string }, keys: BrowserPDFKeys, signal?: AbortSignal): Promise<void> {
-  const sourceID = `upload:${uploadID}`;
-  const binding = { accountID: account, sourceID, descriptorID: crypto.randomUUID(), revision: 1, mutationID: crypto.randomUUID(), deviceID: keys.deviceID };
-  let envelope: LibraryDescriptorEnvelope;
-  try { envelope = await sealLibraryDescriptor(titleForPDF(file), binding, keys.ring); }
-  catch (error) { if (error instanceof BackendError) throw error; throw new BackendError('key_authority_required'); }
-  const response = await rpc<unknown>('v1_put_library_descriptor', {
-    p_source_id: sourceID, p_expected_revision: 0, p_caller_device_id: keys.deviceID,
-    p_management_token: toBytea(keys.ring.managementToken), p_envelope: envelope,
-  }, { account, signal, maximum: 65_536 });
-  descriptorResponse(response, account);
-}
-
-async function status(account: string, uploadID: string, signal?: AbortSignal): Promise<UploadTicket> {
-  const value = await functionPost('upload-pdf', { action: 'status', upload_id: uploadID }, { account, signal, maximum: 65_536, timeout: 40_000 });
-  return decodePDFUploadTicket(value);
-}
-
-/** Upload one PDF. The server's idempotent session is exposed to the caller so
- * a network failure can resume without starting another admission. */
-export async function uploadPDF(_file: Blob & { name?: string }, _options: PDFUploadOptions): Promise<PDFUploadResult> {
-  throw new BackendError('pdf_device_only');
 }

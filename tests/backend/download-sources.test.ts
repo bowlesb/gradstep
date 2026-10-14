@@ -1,16 +1,10 @@
-// Web download patterns found on real hosts (survey 2026-10-07; docs/architecture/PIPELINE_RELIABILITY.md
-// "Self-healing downloads"): landing pages as repositories really write them, refusals told apart for
-// readers, bodies sniffed rather than trusted, PubMed Central through NLM's open data, location order.
+// Web source patterns found on real hosts (survey 2026-10-07): landing pages as repositories really write
+// them, refusals told apart for readers, PubMed Central open-data links, and download-location order. The
+// server records these locations for the reader's own device; it downloads no PDF itself.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDocument } from 'pdf-lib';
-import { downloadLocations, fetchFirstWebPDF, fetchWebPDF, landingPagePDF, openDataPDF, openPDFLocations, refusal, WebSourceError,
-  type ResolveHost } from '../../supabase/functions/_shared/web-source.ts';
-import { runPipeline, type PipelineDeps } from '../../supabase/functions/_shared/pipeline.ts';
+import { downloadLocations, landingPagePDF, openDataPDF, openPDFLocations, refusal } from '../../supabase/functions/_shared/web-source.ts';
 
-const permanent = (code: string) => (e: unknown) => e instanceof WebSourceError && e.permanent && e.code === code;
-const transient = (code: string) => (e: unknown) => e instanceof WebSourceError && !e.permanent && e.code === code;
-const resolve: ResolveHost = async () => ['93.184.215.14'];
 const page = (head: string, body = '') => `<!doctype html><html><head><title>Record</title>${head}</head><body>${body}</body></html>`;
 const href = (html: string, base: string) => landingPagePDF(html, new URL(base))?.href ?? null;
 
@@ -66,62 +60,6 @@ test('what a refusal means for the reader: sign-in or paywall, bot check, or no 
   assert.equal(refusal('', at, 400), 'download_failed');
 });
 
-test('downloads are sniffed, refusals classified, PubMed Central fetched from open data', async () => {
-  const doc = await PDFDocument.create(); doc.addPage(); const body = await doc.save();
-  const seen: string[] = [];
-  const fetcher = (async (url: string) => {
-    seen.push(url);
-    const { hostname, pathname } = new URL(url);
-    const html = (text: string, status = 200, headers: Record<string, string> = {}) => new Response(text, { status, headers: { 'content-type': 'text/html', ...headers } });
-    if (hostname === 'pmc-oa-opendata.s3.amazonaws.com') return pathname === '/PMC4103590.1/PMC4103590.1.pdf' ? new Response(body, { headers: { 'content-type': 'binary/octet-stream' } }) : new Response('NoSuchKey', { status: 404 });
-    if (pathname === '/pdf-as-html') return new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-    if (pathname === '/page-as-pdf') return new Response(page('<meta name="citation_pdf_url" content="/pdf-as-html">'), { headers: { 'content-type': 'application/pdf' } });
-    if (pathname === '/padded-page') return new Response(`﻿\n\n   \n${page('<meta name="citation_pdf_url" content="/pdf-as-html">')}`, { headers: { 'content-type': 'application/octet-stream' } });
-    if (pathname === '/big-page') return html(page('<meta name="citation_pdf_url" content="/pdf-as-html">', 'x'.repeat(2_000_000)));
-    if (pathname === '/cloudflare') return html('<title>Just a moment...</title>', 403, { 'cf-mitigated': 'challenge' });
-    if (pathname === '/aws-waf') return new Response(null, { status: 202, headers: { 'x-amzn-waf-action': 'challenge' } });
-    if (pathname === '/login') return new Response('', { status: 401 });
-    if (pathname === '/dspace-captcha') return html('<!DOCTYPE html><html lang="en"><head><title>Human Verification</title></head></html>', 405);
-    if (pathname === '/zip') return new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4, 5, 6]), { headers: { 'content-type': 'application/pdf' } });
-    if (pathname === '/gone') return new Response('', { status: 404 });
-    if (pathname === '/tls') throw new TypeError('fetch failed', { cause: Object.assign(new Error('unable to verify the first certificate'), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }) });
-    if (pathname === '/reset') throw new TypeError('fetch failed', { cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }) });
-    if (pathname === '/paywall') return html(page('', '<h1>Article</h1><p>Purchase this article or log in via your institution.</p>'));
-    // A sign-in round trip (Springer's cookie check, HighWire's implicit login) carries a long token.
-    if (pathname === '/round-trip') return new Response(null, { status: 303, headers: { location: `https://idp.repository.example.org/authorize?token=${'t'.repeat(1500)}` } });
-    if (hostname === 'idp.repository.example.org') return new Response(null, { status: 302, headers: { location: `${base}/pdf-as-html?error=cookies_not_supported` } });
-    throw new Error(`unexpected ${url}`);
-  }) as unknown as typeof fetch;
-  const base = 'https://repository.example.org';
-  const ok = async (path: string) => assert.deepEqual(await fetchWebPDF(fetcher, `${base}${path}`, 1024 * 1024, resolve), body, path);
-  await ok('/pdf-as-html');
-  await ok('/page-as-pdf');
-  await ok('/padded-page');
-  await ok('/big-page');
-  await ok('/round-trip');
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/pdf-as-html?${'q'.repeat(1500)}`, 1024 * 1024, resolve), permanent('download_failed'), 'stored locations stay short');
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/cloudflare`, 1024 * 1024, resolve), permanent('source_blocked'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/aws-waf`, 1024 * 1024, resolve), permanent('source_blocked'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/login`, 1024 * 1024, resolve), permanent('pdf_restricted'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/dspace-captcha`, 1024 * 1024, resolve), permanent('source_blocked'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/zip`, 1024 * 1024, resolve), permanent('not_pdf'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/gone`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/paywall`, 1024 * 1024, resolve), permanent('pdf_restricted'));
-  // An unverifiable certificate will not fix itself in a minute; a reset might.
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/tls`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/reset`, 1024 * 1024, resolve), transient('download_failed'));
-  // PubMed Central article pages and PDF links (browser-only) are fetched from NLM's open data.
-  seen.length = 0;
-  assert.deepEqual(await fetchWebPDF(fetcher, 'https://pmc.ncbi.nlm.nih.gov/articles/PMC4103590/pdf/btu170.pdf', 1024 * 1024, resolve), body);
-  assert.deepEqual(seen, ['https://pmc-oa-opendata.s3.amazonaws.com/PMC4103590.1/PMC4103590.1.pdf']);
-  for (const url of ['https://www.ncbi.nlm.nih.gov/pmc/articles/4103590', 'https://europepmc.org/articles/PMC4103590', 'https://europepmc.org/article/PMC/PMC4103590'])
-    assert.equal(openDataPDF(new URL(url))?.href, 'https://pmc-oa-opendata.s3.amazonaws.com/PMC4103590.1/PMC4103590.1.pdf', url);
-  assert.equal(openDataPDF(new URL('https://europepmc.org/abstract/MED/24695404')), null, 'a PubMed id is not a PMC id');
-  assert.equal(openDataPDF(new URL('https://pubmed.ncbi.nlm.nih.gov/24695404')), null);
-  // One location paywalled, one gone: the reader is told about the paywall.
-  await assert.rejects(fetchFirstWebPDF(fetcher, [`${base}/gone`, `${base}/paywall`], 1024 * 1024, resolve), permanent('pdf_restricted'));
-});
-
 test('download locations: open hosts first, PubMed Central through open data, repository records, challenged hosts last', () => {
   // MrBayes 3.2 (W2148698435): OUP challenges every non-browser request; PMC and eScholarship hold copies.
   const mrbayes = {
@@ -153,36 +91,9 @@ test('download locations: open hosts first, PubMed Central through open data, re
     'https://pmc-oa-opendata.s3.amazonaws.com/PMC3130465.1/PMC3130465.1.pdf', 'https://doi.org/10.5281/zenodo.19667963']);
   assert.deepEqual(downloadLocations({ locations: [{ pdf_url: 'https://arxiv.org/pdf/1101.0001', is_oa: true }] }), []);
   assert.deepEqual(downloadLocations(null), []);
-});
-
-test('the pipeline sweeps automatic retries and credit resumes before it claims, and never stops on those sweeps', async () => {
-  const run = async (enabled: boolean, sweep: () => unknown, resume: () => unknown = () => null, heal: () => unknown = () => null) => {
-    const calls: string[] = [];
-    const logs: string[] = [];
-    const deps = {
-      async rpc(name: string, params: Record<string, unknown>) {
-        calls.push(name);
-        if (name === 'worker_pipeline_policy') return { enabled, max_pdf_bytes: 1, max_ocr_pages: 1, renderer_version: 'v' };
-        if (name === 'worker_pipeline_auto_retry') { assert.deepEqual(params, { p_min_interval_seconds: 20 }); return sweep(); }
-        if (name === 'worker_pipeline_resume_credits') { assert.deepEqual(params, { p_min_interval_seconds: 10 }); return resume(); }
-        if (name === 'worker_pipeline_heal') { assert.deepEqual(params, { p_min_interval_seconds: 60 }); return heal(); }
-        return null;
-      },
-      log(event: string) { logs.push(event); }, uuid: () => '33333333-3333-4333-8333-333333333333', now: () => 0,
-    } as unknown as PipelineDeps;
-    await runPipeline(deps, 1e12);
-    return { calls, logs };
-  };
-  const swept = await run(true, () => ({ retried: 2, healed: 1, postponed: 0 }), () => ({ swept: true, resumed: 1, limited: 0 }),
-    () => ({ swept: true, scheduled: 1, stalled: 1 }));
-  assert.deepEqual(swept.calls, ['worker_pipeline_policy', 'worker_expire_stale_chat_operations', 'worker_asset_maintenance', 'worker_pipeline_auto_retry',
-    'worker_pipeline_resume_credits', 'worker_pipeline_heal', 'worker_pipeline_claim']);
-  assert.ok(swept.logs.includes('auto_retry') && swept.logs.includes('credit_resume') && swept.logs.includes('heal'));
-  const broken = await run(true, () => { throw new Error('function missing (027 not applied)'); }, () => { throw new Error('function missing (040 not applied)'); },
-    () => { throw new Error('function missing (041 not applied)'); });
-  assert.ok(broken.calls.includes('worker_pipeline_claim') && broken.logs.includes('auto_retry_failed') && broken.logs.includes('credit_resume_failed')
-    && broken.logs.includes('heal_failed'));
-  const off = await run(false, () => null);
-  assert.ok(!off.calls.some(name => ['worker_pipeline_auto_retry', 'worker_pipeline_resume_credits', 'worker_pipeline_heal'].includes(name)),
-    'nothing is retried, resumed or healed while the pipeline is off');
+  // PubMed Central article pages and PDF links are named through NLM's open data.
+  for (const url of ['https://www.ncbi.nlm.nih.gov/pmc/articles/4103590', 'https://europepmc.org/articles/PMC4103590', 'https://europepmc.org/article/PMC/PMC4103590'])
+    assert.equal(openDataPDF(new URL(url))?.href, 'https://pmc-oa-opendata.s3.amazonaws.com/PMC4103590.1/PMC4103590.1.pdf', url);
+  assert.equal(openDataPDF(new URL('https://europepmc.org/abstract/MED/24695404')), null, 'a PubMed id is not a PMC id');
+  assert.equal(openDataPDF(new URL('https://pubmed.ncbi.nlm.nih.gov/24695404')), null);
 });

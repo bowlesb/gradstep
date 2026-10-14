@@ -7,6 +7,13 @@ accepts explicit, ephemeral local reader context. Browser Pages `a3127547` and a
 Native **build 30 is VALID and IN_BETA_TESTING on iOS and Mac**, including the figure compatibility fix.
 The hosted DPO v3 journey passed with zero PDF/artifact requests, no provider spend and successful cleanup.
 
+**Repository review, 2026-10-13 late (local, not deployed):** arXiv asset acquisition is no longer spaced
+three seconds per request on either client (document requests still are); the browser shares one in-flight
+preparation per paper; Go to passage works across renderer revisions; the server/browser/native PDF-upload and
+Mathpix client code is deleted. Details and evidence: [implementation status](IMPLEMENTATION_STATUS.md#post-cutover-maintenance--2026-10-13-late-local-only-nothing-deployed).
+**The whole HTML-first cutover is still uncommitted in the working tree**; commit it before further work.
+Deploying the review's browser/native changes needs the usual slow checks and a new TestFlight build.
+
 **Test policy and new baseline:** `npm test` is fast (~10 s); slow browser/corpus/Simulator/database/hosted checks
 are explicit and reused until relevant changes or a problem warrant rerunning. Read [TESTING.md](TESTING.md).
 Eight local PDFs / 278 pages pass browser intake and native encrypted reopen/render. Six of eight HTML sources

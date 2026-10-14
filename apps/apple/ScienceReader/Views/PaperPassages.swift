@@ -128,10 +128,7 @@ extension ReaderModel {
     func passageJump(for paper: Paper) -> PaperPassageRequest? {
         guard var request = passageRequest, request.documentID == paper.id,
               Date().timeIntervalSince(request.requestedAt) < 60 else { return nil }
-        if request.anchor.manifestSHA256 != nil, paper.readerBundle != nil, !request.anchor.matches(paper) {
-            finishPassage(request.id, found: false)
-            return nil
-        }
+        // A different compile of the same source keeps the quote search; `sameArtifact` only decides whether the block hint applies.
         request.sameArtifact = request.anchor.matches(paper)
         return request
     }

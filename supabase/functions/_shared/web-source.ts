@@ -93,11 +93,6 @@ async function readCapped(body: ReadableStream<Uint8Array>, maximum: number): Pr
   return joined(parts, size);
 }
 
-/** Landing pages read for their PDF link are cut here (the link is declared in the head;
- * Zenodo's record page is ~200 KB, ScienceDirect's ~830 KB). Refusal pages are read less. */
-const LANDING_PAGE_BYTES = 1_500_000;
-const REFUSAL_PAGE_BYTES = 256 * 1024;
-
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i;
 
 /** A link a server or page declares, as a URL we may fetch: resolved against `base`, http
@@ -188,118 +183,6 @@ function joined(parts: Uint8Array[], size: number): Uint8Array {
     const take = part.subarray(0, size - offset); bytes.set(take, offset); offset += take.byteLength;
   }
   return bytes;
-}
-
-/** What a body is, from its first bytes (never its declared type: servers send PDFs as
- * text/html or octet-stream, and pages as application/pdf). Null until it can tell. */
-function sniff(head: Uint8Array, final: boolean): 'pdf' | 'page' | 'other' | null {
-  const text = new TextDecoder().decode(head);
-  if (text.startsWith('%PDF-')) return 'pdf';
-  const rest = text.replace(/^﻿/, '').trimStart();
-  if (rest.startsWith('<')) return 'page';
-  return rest.length >= 5 || final || head.byteLength >= 512 ? 'other' : null;
-}
-
-type Download = { kind: 'pdf'; bytes: Uint8Array } | { kind: 'page'; html: string } | { kind: 'other' };
-/** Reads a download: a PDF whole (refused past `maximum`), a web page up to `pageBytes` (for
- * its PDF link or its refusal), anything else not at all. */
-async function readDownload(body: ReadableStream<Uint8Array>, maximum: number, pageBytes = LANDING_PAGE_BYTES): Promise<Download> {
-  const reader = body.getReader(); const parts: Uint8Array[] = []; let size = 0; let kind: 'pdf' | 'page' | 'other' | null = null;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      parts.push(value); size += value.byteLength;
-      kind ??= sniff(joined(parts, Math.min(size, 512)), false);
-      if (kind === 'other') break;
-      if (kind === 'pdf' && size > maximum) throw new WebSourceError('too_large', true);
-      if (kind === 'page' && size >= pageBytes) break;
-    }
-  } catch (error) { void reader.cancel().catch(() => {}); throw error; }
-  if (kind !== 'pdf') void reader.cancel().catch(() => {});
-  kind ??= size ? sniff(joined(parts, Math.min(size, 512)), true) : 'other';
-  if (kind === 'pdf') return { kind, bytes: joined(parts, size) };
-  if (kind === 'page') return { kind, html: new TextDecoder().decode(joined(parts, Math.min(size, pageBytes))) };
-  return { kind: 'other' };
-}
-
-/** A certificate the runtime cannot verify (expired, self-signed, an incomplete chain):
- * retrying the same host soon will not help. */
-const tlsFailure = (error: unknown) => {
-  const cause = (error as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
-  return /CERT|SSL|TLS|UNABLE_TO_VERIFY|SELF_SIGNED|certificate/i.test(`${cause?.code ?? ''} ${cause?.message ?? ''}`);
-};
-
-/** One download, every redirect hop re-checked (URL and resolved addresses).
- * `budget` bounds the whole download (all hops and the body). A web page in place of the
- * PDF is followed once to the PDF it declares; otherwise it is classified (see `refusal`). */
-export async function fetchWebPDF(fetcher: typeof fetch, start: string, maximum: number, resolve?: ResolveHost,
-  budget: AbortSignal = AbortSignal.timeout(120_000)): Promise<Uint8Array> {
-  const first = publicHTTPS(start);
-  let current = first && (openDataPDF(first) ?? first), followedPage = false;
-  for (let hop = 0; hop < 7; hop++) {
-    // arXiv copies go through the arXiv path (and its pacing), never a web redirect.
-    if (!current || ARXIV_HOSTS.test(current.hostname)) throw new WebSourceError('download_failed', true);
-    if (budget.aborted) throw new WebSourceError('download_failed', false);
-    await checkHost(current, resolve);
-    let response: Response;
-    try {
-      response = await fetcher(current.href, { redirect: 'manual', headers: { accept: 'application/pdf, text/html;q=0.8, */*;q=0.5', 'user-agent': WEB_USER_AGENT },
-        signal: AbortSignal.any([budget, AbortSignal.timeout(60_000)]) });
-    } catch (error) { throw new WebSourceError('download_failed', tlsFailure(error)); }
-    const drop = () => void response.body?.cancel().catch(() => {});
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location'); drop();
-      current = location ? declaredURL(location, current, false, 4096) : null; continue;
-    }
-    if (response.status === 429 || response.status >= 500) { drop(); throw new WebSourceError('rate_limited', false); }
-    // Bot checks announced in headers (Cloudflare, AWS WAF, which also answers 202).
-    if (response.headers.get('cf-mitigated') === 'challenge' || response.headers.has('x-amzn-waf-action')) { drop(); throw new WebSourceError('source_blocked', true); }
-    if (response.status === 404 || response.status === 410) { drop(); throw new WebSourceError('download_failed', true); }
-    if (response.status >= 400) {
-      // A refusal: its page tells a sign-in or paywall from a bot check.
-      let html = '';
-      if (response.body) {
-        const page = await readDownload(response.body, maximum, REFUSAL_PAGE_BYTES).catch(() => null);
-        if (page?.kind === 'page') html = page.html;
-      }
-      throw new WebSourceError(refusal(html, current, response.status), true);
-    }
-    if (response.status !== 200 || !response.body) { drop(); throw new WebSourceError('download_failed', true); }
-    const declared = response.headers.get('content-length');
-    if (declared && Number(declared) > maximum) { drop(); throw new WebSourceError('too_large', true); }
-    let body: Download;
-    // A reset or timeout mid-body is transient: the next location (or a later attempt) may work.
-    try { body = await readDownload(response.body, maximum); }
-    catch (error) { throw error instanceof WebSourceError ? error : new WebSourceError('download_failed', false); }
-    if (body.kind === 'pdf') return body.bytes;
-    if (body.kind === 'other') throw new WebSourceError('not_pdf', true);
-    const next = followedPage ? null : landingPagePDF(body.html, current);
-    if (!next) throw new WebSourceError(refusal(body.html, current, 200), true);
-    followedPage = true; current = openDataPDF(next) ?? next;
-  }
-  throw new WebSourceError('download_failed', true);
-}
-
-/** When every location failed for good, the reason readers see: the most telling one. */
-const PERMANENT_RANK: Record<string, number> = { too_large: 5, pdf_restricted: 4, source_blocked: 3, not_pdf: 2, download_failed: 1 };
-
-/** Tries each location in order within one overall budget. Fails permanently only
- * if every location did; running out of budget is transient. */
-export async function fetchFirstWebPDF(fetcher: typeof fetch, urls: readonly string[], maximum: number, resolve?: ResolveHost,
-  budget: AbortSignal = AbortSignal.timeout(120_000)): Promise<{ bytes: Uint8Array; url: string }> {
-  let transient: WebSourceError | null = null, permanent: WebSourceError['code'] = 'download_failed';
-  for (const url of urls.slice(0, 3)) {
-    if (budget.aborted) { transient ??= new WebSourceError('download_failed', false); break; }
-    try { return { bytes: await fetchWebPDF(fetcher, url, maximum, resolve, budget), url }; }
-    catch (error) {
-      if (!(error instanceof WebSourceError)) throw error;
-      if (!error.permanent) transient ??= error;
-      else if ((PERMANENT_RANK[error.code] ?? 0) > (PERMANENT_RANK[permanent] ?? 0)) permanent = error.code;
-    }
-  }
-  if (transient) throw transient;
-  throw new WebSourceError(permanent, true);
 }
 
 /** The OpenAlex work behind a web source ID (`openalex:W…`). */

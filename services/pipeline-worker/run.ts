@@ -39,13 +39,14 @@ export interface RunResult { processed: number; ms: number }
 /** Works through due papers until none is due or the budget is spent. Tags papers whose metadata
  * has arrived after each one (a paper's tags are ready while it converts), and once more at the end. */
 export async function runOnce(make: () => MetadataDeps = deps, now: () => number = Date.now,
-  tagging: (() => TaggingDeps) | null = taggingDeps, sweepUploads = true): Promise<RunResult> {
+  tagging: (() => TaggingDeps) | null = taggingDeps): Promise<RunResult> {
   const started = now();
   let processed = 0;
   // Finish any account deletion left incomplete (cheap when none is).
   await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
   // Historical upload/provider attempts retain their liability. This worker
-  // never reads their PDFs to reconcile them or collects provider outputs.
+  // never reads their PDFs to reconcile them or collects provider outputs;
+  // the server no longer links any PDF, Storage or OCR code.
   const pipeline = make();
   let tagger: TaggingDeps | null = null;
   const tag = async (maxPapers: number) => {

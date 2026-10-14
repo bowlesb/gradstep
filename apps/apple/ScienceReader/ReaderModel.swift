@@ -2737,13 +2737,13 @@ final class ReaderModel {
         papers = papers.filter { !$0.isLocalPDF } + local
     }
 
-    /// The Add sheet's and uploads' network calls for the signed-in account (a script in UI fixtures).
+    /// The Add sheet's network calls for the signed-in account (a script in UI fixtures).
     var addingService: (any PaperAddingService)? {
         #if DEBUG && FIXTURE_HOST
         if let fixture = AddPaperFixture.service { return fixture }
         #endif
         guard let backend, let accountID else { return nil }
-        return BackendPaperAdding(backend: backend, accountID: accountID, deviceID: device?.deviceID, keyBundle: device?.bundle)
+        return BackendPaperAdding(backend: backend, accountID: accountID)
     }
 
     /// The Add sheet's lookup for anything but an arXiv ID: the server identifies it and queues it as

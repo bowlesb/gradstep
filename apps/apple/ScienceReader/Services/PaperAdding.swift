@@ -128,78 +128,19 @@ enum AddInput: Equatable, Sendable {
     }
 }
 
-/// The Add sheet's and uploads' network calls: the backend in the app, a script in UI fixtures.
+/// The Add sheet's network calls: the backend in the app, a script in UI fixtures. There is no upload
+/// transport: a chosen PDF is installed on this device through `PDFUploadCenter.Context.installLocal`.
 protocol PaperAddingService: Sendable {
     func addPaper(_ query: String) async throws -> AddPaperResult
-    func beginUpload(_ job: PDFUploadJob) async throws -> PDFUploadTicket
-    func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws
-    func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws
+    /// Links this device can try for a web import's PDF (`v1_import_pdf_sources`).
     func importSources(_ importID: UUID) async throws -> PDFImportSources
-
-    /// Chunked upload transport (039). The default implementations preserve the fixture and any
-    /// older injected service; the live backend overrides all three methods below.
-    func beginUpload(_ job: PDFUploadJob, partSHA256: [String]) async throws -> PDFUploadTicket
-    func sendUpload(file: URL, ticket: PDFUploadTicket, progress: @escaping @Sendable (Double) -> Void) async throws
-    func uploadStatus(_ uploadID: UUID) async throws -> PDFUploadTicket
-    func finalizeUpload(_ uploadID: UUID, generation: Int64, revision: Int64, observedCursor: Int64) async throws
-    func ensureDescriptor(for job: PDFUploadJob) async throws
-}
-
-extension PaperAddingService {
-    func beginUpload(_ job: PDFUploadJob, partSHA256: [String]) async throws -> PDFUploadTicket {
-        try await beginUpload(job)
-    }
-
-    func sendUpload(file: URL, ticket: PDFUploadTicket, progress: @escaping @Sendable (Double) -> Void) async throws {
-        guard let path = ticket.path, let token = ticket.token else { throw BackendError.transport }
-        try await sendUpload(file: file, path: path, token: token, progress: progress)
-    }
-
-    func uploadStatus(_ uploadID: UUID) async throws -> PDFUploadTicket {
-        throw BackendError.transport
-    }
-
-    func finalizeUpload(_ uploadID: UUID, generation: Int64, revision: Int64, observedCursor: Int64) async throws {
-        try await finalizeUpload(uploadID, observedCursor: observedCursor)
-    }
-
-    func ensureDescriptor(for job: PDFUploadJob) async throws { }
 }
 
 /// The signed-in account's backend.
 struct BackendPaperAdding: PaperAddingService {
     let backend: BackendClient
     let accountID: UUID
-    let deviceID: UUID?
-    let keyBundle: KeyBundle?
     func addPaper(_ query: String) async throws -> AddPaperResult { try await backend.addPaper(query, accountID: accountID) }
-    func beginUpload(_ job: PDFUploadJob) async throws -> PDFUploadTicket { try await backend.beginPDFUpload(job, accountID: accountID) }
-    func beginUpload(_ job: PDFUploadJob, partSHA256: [String]) async throws -> PDFUploadTicket {
-        try await backend.beginPDFUpload(job, partSHA256: partSHA256, accountID: accountID)
-    }
-    func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws {
-        try await backend.sendPDFUpload(file: file, path: path, token: token, accountID: accountID, progress: progress)
-    }
-    func sendUpload(file: URL, ticket: PDFUploadTicket, progress: @escaping @Sendable (Double) -> Void) async throws {
-        try await backend.sendPDFUpload(file: file, ticket: ticket, accountID: accountID, progress: progress)
-    }
-    func uploadStatus(_ uploadID: UUID) async throws -> PDFUploadTicket {
-        try await backend.pdfUploadStatus(uploadID, accountID: accountID)
-    }
-    func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws {
-        try await backend.finalizePDFUpload(uploadID, observedCursor: observedCursor, accountID: accountID)
-    }
-    func finalizeUpload(_ uploadID: UUID, generation: Int64, revision: Int64, observedCursor: Int64) async throws {
-        try await backend.finalizePDFUpload(uploadID, generation: generation, revision: revision, observedCursor: observedCursor, accountID: accountID)
-    }
-    func ensureDescriptor(for job: PDFUploadJob) async throws {
-        guard case .newPaper = job.target, let deviceID, let keyBundle else {
-            if case .newPaper = job.target { throw BackendError.rejected("key_authority_required") }
-            return
-        }
-        try await backend.putLibraryDescriptor(sourceID: "upload:\(job.uploadID.wire)", displayName: job.title,
-                                               filename: nil, accountID: accountID, deviceID: deviceID, keys: keyBundle)
-    }
     func importSources(_ importID: UUID) async throws -> PDFImportSources { try await backend.importPDFSources(importID, accountID: accountID) }
 }
 

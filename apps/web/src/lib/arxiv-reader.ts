@@ -3,84 +3,156 @@ import { verifyBundle, type VerifiedBundle } from './bundle';
 import { sourceReference, type SourcePaperReference } from './events';
 import { arxivPreparationMessage } from './arxiv-reader-error';
 export class ArxivReaderError extends Error {}
-let nextRequest = 0;
+
+/** Acquisition pacing. A paper's HTML document request is spaced like a new page visit; that page's
+ * own declared assets then load together, bounded, the way a browser loads the images of one page.
+ * A Retry-After from arXiv pauses every request from this page. */
+export const ARXIV_PACING = Object.freeze({ documentSpacingMs: 3000, assetConcurrency: 4, requestTimeoutMs: 90_000, busyLimitMs: 60_000 });
+export const ARXIV_LIMITS = Object.freeze({ sourceBytes: 2_097_152, assetBytes: 16_777_216, totalBytes: 33_554_432, assets: 512 });
+const BUSY = 'arXiv is busy. Try preparing this paper again later.';
+const UNAVAILABLE = 'HTML reader unavailable for this version. You can still download its PDF on this device.';
+const TOO_LARGE = 'This paper exceeds the device reader’s preparation limits.';
+const UNREACHABLE = 'Couldn’t retrieve this paper from arXiv. Check your connection and try again.';
+
+let nextDocumentRequest = 0;
+let busyUntil = 0;
+/** Fast-suite only: forget this page's pacing state. */
+export function resetArxivPacing(): void { nextDocumentRequest = 0; busyUntil = 0; }
+
 const abort = (signal: AbortSignal) => signal.throwIfAborted();
-const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve,reject) => {
- abort(signal); const stop = () => {clearTimeout(timer);reject(signal.reason);};
- const timer = setTimeout(() => {signal.removeEventListener('abort',stop);resolve();},Math.max(0,ms)); signal.addEventListener('abort',stop,{once:true});
+const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+ abort(signal); if (ms <= 0) { resolve(); return; }
+ const stop = () => { clearTimeout(timer); reject(signal.reason); };
+ const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, Math.max(0, ms)); signal.addEventListener('abort', stop, { once: true });
 });
-export const arxivHTMLURL = (ref: SourcePaperReference): string => {sourceReference(ref);return `https://arxiv.org/html/${ref.sourceID}v${ref.revision}`;};
+export const arxivHTMLURL = (ref: SourcePaperReference): string => { sourceReference(ref); return `https://arxiv.org/html/${ref.sourceID}v${ref.revision}`; };
 export function admitsArxivAsset(url: string, base: string): boolean {
- try { const u=new URL(url);return u.origin === 'https://arxiv.org' && !u.username && !u.password && !u.search && !u.hash &&
-  !/%/.test(url) && !url.includes('\\') && u.href === url && u.pathname.startsWith(new URL(base).pathname+'/') && /\.(png|jpe?g|svg)$/i.test(u.pathname); } catch {return false;}
+ try { const u = new URL(url); return u.origin === 'https://arxiv.org' && !u.username && !u.password && !u.search && !u.hash &&
+  !/%/.test(url) && !url.includes('\\') && u.href === url && u.pathname.startsWith(new URL(base).pathname + '/') && /\.(png|jpe?g|svg)$/i.test(u.pathname); } catch { return false; }
 }
-async function retrieve(url: string, maximum: number, html: boolean, parentSignal: AbortSignal): Promise<Bytes> {
- const signal=AbortSignal.any([parentSignal,AbortSignal.timeout(90000)]);
- const scheduled=Math.max(Date.now(),nextRequest);nextRequest=scheduled+3000;await wait(scheduled-Date.now(),signal);
+/** One bounded GET of an exact official URL. Exported for the fast suite. */
+export async function retrieveArxiv(url: string, maximum: number, html: boolean, parentSignal: AbortSignal): Promise<Bytes> {
+ abort(parentSignal);
+ const now = Date.now();
+ if (busyUntil - now > ARXIV_PACING.busyLimitMs) throw new ArxivReaderError(BUSY);
+ let scheduled = Math.max(now, busyUntil);
+ if (html) { scheduled = Math.max(scheduled, nextDocumentRequest); nextDocumentRequest = scheduled + ARXIV_PACING.documentSpacingMs; }
+ await wait(scheduled - now, parentSignal);
+ const signal = AbortSignal.any([parentSignal, AbortSignal.timeout(ARXIV_PACING.requestTimeoutMs)]);
  let response: Response;
- try { response=await fetch(url,{credentials:'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',signal}); }
- catch(error) {abort(signal);throw new ArxivReaderError('Couldn’t retrieve this paper from arXiv. Check your connection and try again.');}
- if ([429,503].includes(response.status)) {
-  const retry=response.headers.get('retry-after'),seconds=retry && /^\d+$/.test(retry)?Number(retry):Math.max(60,(Date.parse(retry??'')-Date.now())/1000 || 60);
-  nextRequest=Math.max(nextRequest,Date.now()+Math.min(86400,Math.max(3,seconds))*1000);
-  await response.body?.cancel();throw new ArxivReaderError('arXiv is busy. Try preparing this paper again later.');
+ try { response = await fetch(url, { credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal }); }
+ catch { abort(parentSignal); throw new ArxivReaderError(UNREACHABLE); }
+ if ([429, 503].includes(response.status)) {
+  const retry = response.headers.get('retry-after'), seconds = retry && /^\d+$/.test(retry) ? Number(retry) : Math.max(60, (Date.parse(retry ?? '') - Date.now()) / 1000 || 60);
+  busyUntil = Math.max(busyUntil, Date.now() + Math.min(86400, Math.max(3, seconds)) * 1000);
+  nextDocumentRequest = Math.max(nextDocumentRequest, busyUntil);
+  await response.body?.cancel(); throw new ArxivReaderError(BUSY);
  }
- const type=response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
- if (!response.ok || response.url !== url || !response.body || !(html?['text/html','application/xhtml+xml']:['image/png','image/jpeg','image/svg+xml']).includes(type??'')) {
-  await response.body?.cancel();throw new ArxivReaderError('HTML reader unavailable for this version. You can still download its PDF on this device.');
+ const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+ if (!response.ok || response.url !== url || !response.body || !(html ? ['text/html', 'application/xhtml+xml'] : ['image/png', 'image/jpeg', 'image/svg+xml']).includes(type ?? '')) {
+  await response.body?.cancel(); throw new ArxivReaderError(UNAVAILABLE);
  }
- if (Number(response.headers.get('content-length')??0)>maximum) {await response.body.cancel();throw new ArxivReaderError('This paper exceeds the device reader’s preparation limits.');}
- const reader=response.body.getReader(),chunks:Uint8Array[]=[];let size=0;
- try {while(true){abort(signal);const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>maximum)throw new ArxivReaderError('This paper exceeds the device reader’s preparation limits.');chunks.push(value);}}
- finally {await reader.cancel().catch(()=>{});}
- const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
+ if (Number(response.headers.get('content-length') ?? 0) > maximum) { await response.body.cancel(); throw new ArxivReaderError(TOO_LARGE); }
+ const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
+ try { while (true) { abort(signal); const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > maximum) throw new ArxivReaderError(TOO_LARGE); chunks.push(value); } }
+ finally { await reader.cancel().catch(() => {}); }
+ const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; } return bytes;
 }
-export async function prepareArxivReader(reference: SourcePaperReference, signal: AbortSignal, progress?: (n:number)=>void): Promise<VerifiedBundle> {
- const ref=sourceReference(reference),url=arxivHTMLURL(ref);
- const html=await retrieve(url,2097152,true,signal);abort(signal);
- const {default:compiler}=await import('virtual:arxiv-compiler');abort(signal);
- const frame=document.createElement('iframe');frame.hidden=true;frame.sandbox.add('allow-scripts');
- frame.srcdoc=`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${compiler.hash}'; img-src data:; connect-src 'none'; style-src 'none'; base-uri 'none'"><script>${compiler.script}</script>`;
- const loaded=new Promise<void>((resolve,reject)=> {frame.onload=()=>resolve();frame.onerror=()=>reject(new ArxivReaderError('The device compiler could not start.'));});
+/** The declared assets of one paper, in declaration order, at most `assetConcurrency` in flight and within
+ * `budget` bytes in total. One failure stops the others. Exported for the fast suite. */
+export async function fetchArxivAssets(urls: unknown, baseURL: string, budget: number, parentSignal: AbortSignal, progress?: (fraction: number) => void): Promise<{ url: string; base64: string }[]> {
+ if (!Array.isArray(urls) || urls.length > ARXIV_LIMITS.assets || new Set(urls).size !== urls.length || !urls.every(u => typeof u === 'string' && admitsArxivAsset(u, baseURL))) throw new ArxivReaderError('Invalid paper assets.');
+ const assets = urls as string[], inputs: { url: string; base64: string }[] = new Array(assets.length);
+ const local = new AbortController(), signal = AbortSignal.any([parentSignal, local.signal]);
+ let total = 0, done = 0, next = 0;
+ const worker = async () => {
+  while (next < assets.length) {
+   abort(signal);
+   const index = next++, url = assets[index];
+   const bytes = await retrieveArxiv(url, Math.min(ARXIV_LIMITS.assetBytes, budget - total), false, signal);
+   total += bytes.length; if (total > budget) throw new ArxivReaderError(TOO_LARGE);
+   inputs[index] = { url, base64: toBase64(bytes) }; done++; progress?.(done / (assets.length + 1));
+  }
+ };
+ try { await Promise.all(Array.from({ length: Math.min(ARXIV_PACING.assetConcurrency, assets.length) }, worker)); }
+ catch (error) { local.abort(error); throw error; }
+ return inputs;
+}
+
+interface Preparation { promise: Promise<VerifiedBundle>; controller: AbortController; waiters: number; progress: Set<(fraction: number) => void>; last?: number }
+/** One preparation per exact source revision at a time: the reader and a paper question asked meanwhile share the
+ * same acquisition and compilation. The shared work stops only when every caller has given up. Exported for the fast suite. */
+export function shareInflight<T extends Preparation>(registry: Map<string, T>, key: string, start: (signal: AbortSignal, progress: (fraction: number) => void) => Promise<VerifiedBundle>,
+ signal: AbortSignal, progress?: (fraction: number) => void): Promise<VerifiedBundle> {
+ abort(signal);
+ let entry = registry.get(key);
+ if (!entry) {
+  const controller = new AbortController(), listeners = new Set<(fraction: number) => void>();
+  const created = { controller, waiters: 0, progress: listeners } as T;
+  created.promise = start(controller.signal, fraction => { created.last = fraction; for (const listener of [...listeners]) listener(fraction); });
+  const forget = () => { if (registry.get(key) === created) registry.delete(key); };
+  created.promise.then(forget, forget);
+  registry.set(key, created); entry = created;
+ }
+ const shared = entry;
+ shared.waiters++; if (progress) { shared.progress.add(progress); if (shared.last !== undefined) progress(shared.last); }
+ return new Promise<VerifiedBundle>((resolve, reject) => {
+  let settled = false;
+  const leave = () => { if (settled) return; settled = true; shared.waiters--; if (progress) shared.progress.delete(progress); signal.removeEventListener('abort', onAbort); };
+  const onAbort = () => { leave(); if (shared.waiters === 0) shared.controller.abort(signal.reason); reject(signal.reason); };
+  signal.addEventListener('abort', onAbort, { once: true });
+  shared.promise.then(value => { leave(); resolve(value); }, error => { leave(); reject(error); });
+ });
+}
+const preparations = new Map<string, Preparation>();
+
+async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress: (fraction: number) => void): Promise<VerifiedBundle> {
+ const url = arxivHTMLURL(ref);
+ const html = await retrieveArxiv(url, ARXIV_LIMITS.sourceBytes, true, signal); abort(signal);
+ const { default: compiler } = await import('virtual:arxiv-compiler'); abort(signal);
+ const frame = document.createElement('iframe'); frame.hidden = true; frame.sandbox.add('allow-scripts');
+ frame.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${compiler.hash}'; img-src data:; connect-src 'none'; style-src 'none'; base-uri 'none'"><script>${compiler.script}</script>`;
+ const loaded = new Promise<void>((resolve, reject) => { frame.onload = () => resolve(); frame.onerror = () => reject(new ArxivReaderError('The device compiler could not start.')); });
  document.body.append(frame);
- const call = async (method:'assets'|'prepare',inputs?:{url:string;base64:string}[]):Promise<unknown> => {
+ const call = async (method: 'assets' | 'prepare', inputs?: { url: string; base64: string }[]): Promise<unknown> => {
   abort(signal);
-  return await new Promise((resolve,reject)=>{
-   const channel=new MessageChannel();let timer:ReturnType<typeof setTimeout>;
-   const cleanup=()=>{clearTimeout(timer);channel.port1.close();signal.removeEventListener('abort',stop);};
-   const stop=()=>{cleanup();reject(signal.reason);};
-   timer=setTimeout(()=>{cleanup();reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still download its PDF on this device.'));},90000);
-   signal.addEventListener('abort',stop,{once:true});
-   channel.port1.onmessage=e=>{cleanup();e.data?.ok?resolve(e.data.result):reject(new ArxivReaderError(arxivPreparationMessage(e.data?.failure)));};
-   frame.contentWindow!.postMessage({method,source:toBase64(html),sourceID:ref.sourceID,revision:ref.revision,inputs},'*',[channel.port2]);
+  return await new Promise((resolve, reject) => {
+   const channel = new MessageChannel(); let timer: ReturnType<typeof setTimeout>;
+   const cleanup = () => { clearTimeout(timer); channel.port1.close(); signal.removeEventListener('abort', stop); };
+   const stop = () => { cleanup(); reject(signal.reason); };
+   timer = setTimeout(() => { cleanup(); reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still download its PDF on this device.')); }, 90000);
+   signal.addEventListener('abort', stop, { once: true });
+   channel.port1.onmessage = e => { cleanup(); e.data?.ok ? resolve(e.data.result) : reject(new ArxivReaderError(arxivPreparationMessage(e.data?.failure))); };
+   frame.contentWindow!.postMessage({ method, source: toBase64(html), sourceID: ref.sourceID, revision: ref.revision, inputs }, '*', [channel.port2]);
   });
  };
  try {
-  await Promise.race([loaded,wait(15000,signal).then(()=>{throw new ArxivReaderError('The device compiler could not start.');})]);
-  const assets=await call('assets');if(!Array.isArray(assets)||assets.length>512||new Set(assets).size!==assets.length)throw new ArxivReaderError('Invalid paper assets.');
-  let total=html.length;const inputs:{url:string;base64:string}[]=[];
-  for(const [i,asset] of assets.entries()){
-   if(typeof asset!=='string'||!admitsArxivAsset(asset,url))throw new ArxivReaderError('Invalid paper assets.');
-   const bytes=await retrieve(asset,Math.min(16777216,33554432-total),false,signal);total+=bytes.length;inputs.push({url:asset,base64:toBase64(bytes)});progress?.((i+1)/(assets.length+1));
-  }
-  const p=await call('prepare',inputs) as {manifest:string;manifestSHA256:string;members:{path:string;base64:string}[]};
+  await Promise.race([loaded, wait(15000, signal).then(() => { throw new ArxivReaderError('The device compiler could not start.'); })]);
+  const assets = await call('assets');
+  const inputs = await fetchArxivAssets(assets, url, ARXIV_LIMITS.totalBytes - html.length, signal, progress);
+  const p = await call('prepare', inputs) as { manifest: string; manifestSHA256: string; members: { path: string; base64: string }[] };
   abort(signal);
-  if(!p||typeof p.manifest!=='string'||p.manifest.length>349528||!Array.isArray(p.members)||p.members.length>512)throw new ArxivReaderError('Invalid reader bundle.');
-  const members=new Map<string,Bytes>();total=0;
-  for(const m of p.members){if(typeof m.path!=='string'||typeof m.base64!=='string'||m.base64.length>22369624||members.has(m.path))throw new ArxivReaderError('Invalid reader bundle.');const bytes=fromBase64(m.base64);total+=bytes.length;if(total>33554432)throw new ArxivReaderError('Reader bundle is too large.');members.set(m.path,bytes);}
-  const bundle=await verifyBundle(fromBase64(p.manifest),p.manifestSHA256,members);
-  const provenance=JSON.parse(fromUtf8(members.get(bundle.manifest.source.provenance_path)!));
-  if(provenance.source.url!==url)throw new ArxivReaderError('Wrong source revision.');abort(signal);progress?.(1);return bundle;
- } finally {frame.remove();}
+  if (!p || typeof p.manifest !== 'string' || p.manifest.length > 349528 || !Array.isArray(p.members) || p.members.length > 512) throw new ArxivReaderError('Invalid reader bundle.');
+  const members = new Map<string, Bytes>(); let total = 0;
+  for (const m of p.members) { if (typeof m.path !== 'string' || typeof m.base64 !== 'string' || m.base64.length > 22369624 || members.has(m.path)) throw new ArxivReaderError('Invalid reader bundle.'); const bytes = fromBase64(m.base64); total += bytes.length; if (total > ARXIV_LIMITS.totalBytes) throw new ArxivReaderError('Reader bundle is too large.'); members.set(m.path, bytes); }
+  const bundle = await verifyBundle(fromBase64(p.manifest), p.manifestSHA256, members);
+  const provenance = JSON.parse(fromUtf8(members.get(bundle.manifest.source.provenance_path)!));
+  if (provenance.source.url !== url) throw new ArxivReaderError('Wrong source revision.'); abort(signal); progress(1); return bundle;
+ } finally { frame.remove(); }
 }
 
-export function localChatContext(ref:SourcePaperReference,bundle:VerifiedBundle):import('./chat').LocalPaperContext {
- const raw=bundle.contents.get(bundle.manifest.source.provenance_path);
- if(bundle.manifest.source.kind!=='arxiv-html'||!raw)throw new ArxivReaderError('Open this paper to prepare its HTML reader first.');
- const provenance=JSON.parse(fromUtf8(raw));
- if(provenance.source.url!==arxivHTMLURL(ref))throw new ArxivReaderError('The reader does not match this paper revision.');
- const text=bundle.index.blocks.map(b=>b.text).join('\n\n');
- if(!text.trim()||new TextEncoder().encode(text).length>2097152)throw new ArxivReaderError('This paper exceeds the chat context limit.');
- return {format:'reader-local-context-v1',membership_id:ref.membershipID,source:'arxiv',source_id:ref.sourceID,revision:ref.revision,
-  manifest_sha256:bundle.manifestSHA256,source_sha256:bundle.manifest.source.sha256,text};
+export function prepareArxivReader(reference: SourcePaperReference, signal: AbortSignal, progress?: (fraction: number) => void): Promise<VerifiedBundle> {
+ const ref = sourceReference(reference);
+ return shareInflight(preparations, `${ref.sourceID}v${ref.revision}`, (shared, report) => prepare(ref, shared, report), signal, progress);
+}
+
+export function localChatContext(ref: SourcePaperReference, bundle: VerifiedBundle): import('./chat').LocalPaperContext {
+ const raw = bundle.contents.get(bundle.manifest.source.provenance_path);
+ if (bundle.manifest.source.kind !== 'arxiv-html' || !raw) throw new ArxivReaderError('Open this paper to prepare its HTML reader first.');
+ const provenance = JSON.parse(fromUtf8(raw));
+ if (provenance.source.url !== arxivHTMLURL(ref)) throw new ArxivReaderError('The reader does not match this paper revision.');
+ const text = bundle.index.blocks.map(b => b.text).join('\n\n');
+ if (!text.trim() || new TextEncoder().encode(text).length > 2097152) throw new ArxivReaderError('This paper exceeds the chat context limit.');
+ return { format: 'reader-local-context-v1', membership_id: ref.membershipID, source: 'arxiv', source_id: ref.sourceID, revision: ref.revision,
+  manifest_sha256: bundle.manifestSHA256, source_sha256: bundle.manifest.source.sha256, text };
 }

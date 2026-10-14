@@ -86,7 +86,8 @@ enum PDFFileCheck {
     }
 }
 
-/// One queued upload, saved beside its file until the server has it.
+/// A queued upload record written by a build before the device-only cutover. It is decoded so the
+/// reader can save that file on this device or remove it; no build sends it.
 struct PDFUploadJob: Codable, Equatable, Identifiable, Sendable {
     enum Phase: String, Codable, Sendable { case waiting, uploading, finishing, failed }
     let id: UUID
@@ -108,95 +109,12 @@ struct PDFUploadJob: Codable, Equatable, Identifiable, Sendable {
     var observedCursor: Int64?
 }
 
-/// One server-admitted chunk. `uncertain` counts attempts whose physical write may have happened but
-/// whose acknowledgement was lost; those attempts remain liability until the server reconciles them.
-struct PDFUploadPart: Decodable, Equatable, Sendable {
-    let index: Int
-    let bytes: Int
-    let verified: Bool
-    let attempts: Int
-    let uncertain: Int
-}
-
-/// Ticket for sending the bytes. The optional `path`/`token` fields are retained only for the local
-/// fixture and for decoding a pre-chunk deployment; staging and production use the chunk fields.
-struct PDFUploadTicket: Decodable, Equatable, Sendable {
-    let upload_id: UUID
-    let state: String
-    let revision: Int64?
-    let generation: Int64?
-    let byte_count: Int64?
-    let chunk_bytes: Int?
-    let part_count: Int?
-    let parts: [PDFUploadPart]?
-    let descriptor_required: Bool?
-    let descriptor_ref: LibraryDescriptorReference?
-    let path: String?
-    let token: String?
-
-    init(upload_id: UUID, state: String, path: String? = nil, token: String? = nil,
-         revision: Int64? = nil, generation: Int64? = nil, byte_count: Int64? = nil,
-         chunk_bytes: Int? = nil, part_count: Int? = nil, parts: [PDFUploadPart]? = nil,
-         descriptor_required: Bool? = nil, descriptor_ref: LibraryDescriptorReference? = nil) {
-        self.upload_id = upload_id; self.state = state; self.revision = revision; self.generation = generation
-        self.byte_count = byte_count; self.chunk_bytes = chunk_bytes; self.part_count = part_count; self.parts = parts
-        self.descriptor_required = descriptor_required; self.descriptor_ref = descriptor_ref
-        self.path = path; self.token = token
-    }
-
-    var isChunked: Bool {
-        generation != nil && revision != nil && chunk_bytes != nil && part_count != nil && parts != nil
-    }
-}
-
-/// The begin request commits every part digest before the server admits any physical write. Hash one
-/// bounded chunk at a time so a maximum-size PDF never becomes a second in-memory copy.
-private func pdfUploadPartDigests(_ file: URL, byteCount: Int64) throws -> [String] {
-    let handle = try FileHandle(forReadingFrom: file)
-    defer { try? handle.close() }
-    var remaining = byteCount, result: [String] = []
-    while remaining > 0 {
-        let expected = Int(min(Int64(PDFUploadCenter.chunkBytes), remaining))
-        guard let bytes = try handle.read(upToCount: expected), bytes.count == expected else { throw BackendError.transport }
-        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-        result.append(digest); remaining -= Int64(expected)
-    }
-    guard remaining == 0, result.count <= 16 else { throw BackendError.transport }
-    return result
-}
-
 /// Links this device can try for a failed web import (`v1_import_pdf_sources`).
 struct PDFImportSources: Decodable, Equatable, Sendable {
     let import_id: UUID
     let source_id: String
     let title: String?
     let links: [String]
-}
-
-/// The backend's answers an upload can act on.
-enum PDFUploadFailure {
-    /// The reader must change something; the job stops with this message.
-    static func permanent(_ code: String) -> String? {
-        switch code {
-        case "upload_too_large": PDFFileProblem.tooLarge.message
-        case "upload_quota": "Your private storage is full. Remove uploaded papers you no longer need, then try again."
-        case "insufficient_credits": "Converting a PDF needs credits. Get credits, then try again."
-        case "upload_target_unavailable", "import_not_retryable": "This paper no longer takes a PDF. Add the PDF on its own instead."
-        case "key_authority_required": "Unlock this device's library before uploading a PDF."
-        case "library_descriptor_required": "This upload needs the device's library keys. Unlock the library, then try again."
-        case "invalid_upload": "This PDF couldn’t be sent."
-        default: nil
-        }
-    }
-    /// Waits worth naming (otherwise "Waiting for a connection").
-    static func waiting(_ code: String) -> String {
-        switch code {
-        case "upload_limit", "library_active_import_limit": "Waiting for other papers to finish"
-        case "upload_storage_full": "Uploads are paused for a while"
-        case "rate_limited", "request_rate_limit": "Waiting a moment before trying again"
-        default: "Waiting for a connection"
-        }
-    }
 }
 
 /// Files on disk, per deployment and account: `<root>/<deployment>/<account>/<job>/{job.json,paper.pdf}`.
@@ -259,9 +177,6 @@ struct PDFUploadStore: Sendable {
 /// The app's uploads: what the Library and Add sheet show, and the worker that sends them.
 @MainActor @Observable
 final class PDFUploadCenter {
-    /// Must stay in lockstep with `PDF_CHUNK_BYTES` in `_shared/pdf-uploads.ts` and migration 039.
-    nonisolated static let chunkBytes = 4_194_304
-
     struct Context {
         let service: any PaperAddingService
         let accountID: UUID
@@ -274,12 +189,12 @@ final class PDFUploadCenter {
         var installLocal: (@MainActor (URL, CheckedPDF, PDFUploadTarget) async throws -> Void)? = nil
     }
 
-    /// Reader-visible state of each queued upload, oldest first.
+    /// Legacy queued uploads found on this device, oldest first (every one is stopped).
     private var activationID = UUID()
     private(set) var jobs: [PDFUploadJob] = []
-    /// Bytes sent of the job being uploaded (0…1).
+    /// Retained for the banner API; no legacy job ever reports upload progress now.
     private(set) var progress: [UUID: Double] = [:]
-    /// The latest finished upload, for a short confirmation.
+    /// The latest file saved on this device, for a short confirmation.
     private(set) var notice: String?
     /// Asks the root view to present the document picker for this target.
     var pickRequest: PickRequest?
@@ -289,7 +204,7 @@ final class PDFUploadCenter {
     var sharedLink: String?
     /// Shared items being queued now (an inbox scan never queues one twice).
     @ObservationIgnored var sharedInFlight = Set<UUID>()
-    /// Downloads on this device in progress or stopped (device fallback), before their upload is queued.
+    /// Downloads on this device in progress or stopped (device fallback), before they are saved locally.
     private(set) var fetches: [DeviceFetch] = []
     /// This device's fetcher (a script in UI fixtures).
     @ObservationIgnored var fetcher: any DevicePDFFetching = DevicePDFFetcher()
@@ -311,24 +226,18 @@ final class PDFUploadCenter {
     }
 
     @ObservationIgnored private var context: Context?
-    @ObservationIgnored private var worker: Task<Void, Never>?
-    @ObservationIgnored private var wake: Task<Void, Never>?
     @ObservationIgnored private let store: PDFUploadStore?
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
-    /// Back-off between automatic attempts: 5 s, 30 s, 2 min, 10 min, then every 30 min.
-    static let backoff: [TimeInterval] = [5, 30, 120, 600, 1_800]
 
-    init(store: PDFUploadStore? = try? .standard(), now: @escaping () -> Date = Date.init,
-         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
-        self.store = store; self.now = now; self.sleep = sleep
+    init(store: PDFUploadStore? = try? .standard(), now: @escaping () -> Date = Date.init) {
+        self.store = store; self.now = now
     }
 
     var isActive: Bool { context != nil }
     var pending: [PDFUploadJob] { jobs.filter { $0.phase != .failed } }
     var failed: [PDFUploadJob] { jobs.filter { $0.phase == .failed } }
 
-    /// Starts (or restarts) the queue for one signed-in account; its unsent uploads resume.
+    /// Starts (or restarts) the queue for one signed-in account; its legacy queued files are listed as stopped.
     func activate(_ context: Context) {
         if let current = self.context, current.accountID == context.accountID, current.deploymentID == context.deploymentID {
             self.context = context; resume(); return
@@ -340,15 +249,14 @@ final class PDFUploadCenter {
         resume()
     }
 
-    /// Sign-out or account change: stop sending. The files stay for that account's next sign-in.
+    /// Sign-out or account change. Legacy files stay for that account's next sign-in.
     func deactivate() {
         activationID = UUID()
-        worker?.cancel(); worker = nil; wake?.cancel(); wake = nil
         context = nil; jobs = []; progress = [:]; notice = nil; pickRequest = nil; fetches = []; problem = nil; sharedLink = nil
     }
 
-    /// Device fallback: fetches the PDF over this device's network (the server's checks), then queues its
-    /// upload to `target`. Progress and a failure (with what to try next) show in the Library.
+    /// Device fallback: fetches the PDF over this device's network (the server's checks), then saves it on
+    /// this device for `target`. Progress and a failure (with what to try next) show in the Library.
     func downloadOnDevice(links: [URL], title: String?, target: PDFUploadTarget) async {
         guard let account = context?.accountID, !links.isEmpty else { return }
         let activation = activationID
@@ -376,7 +284,7 @@ final class PDFUploadCenter {
 
     func dismissFetch(_ id: UUID) { fetches.removeAll { $0.id == id } }
 
-    /// Checks and queues a PDF from Files, a drop, the share inbox or a device download.
+    /// Checks a PDF from Files, a drop, the share inbox or a device download and saves it on this device.
     @discardableResult
     func add(file: URL, title: String? = nil, fallbackTitle: String? = nil, target: PDFUploadTarget) async throws -> PDFUploadJob {
         guard let context else { throw BackendError.signInRequired }
@@ -393,9 +301,8 @@ final class PDFUploadCenter {
 
     }
 
-    /// Try waiting uploads now (foreground, network back, the reader's Try again).
+    /// Legacy queued uploads are never sent; each is shown stopped with its device-only choice.
     func resume() {
-        worker?.cancel(); worker = nil; wake?.cancel(); wake = nil
         for index in jobs.indices where jobs[index].phase != .failed {
             jobs[index].phase = .failed
             jobs[index].issue = "PDFs now stay on your device. Add this file again to save a local copy."
@@ -403,13 +310,24 @@ final class PDFUploadCenter {
         }
     }
 
+    /// A file queued by a build before the device-only cutover is saved on this device instead of being sent;
+    /// the stopped record is removed once the local copy exists.
     func retry(_ id: UUID) {
-        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
-        jobs[index].phase = .waiting; jobs[index].issue = nil; jobs[index].issueCode = nil; jobs[index].attempts = 0; jobs[index].nextAttemptAt = nil
-        persist(jobs[index]); resume()
+        guard let context, let store, let job = jobs.first(where: { $0.id == id }) else { return }
+        let file = store.file(job.id, deployment: context.deploymentID, account: job.accountID)
+        Task { [weak self] in
+            do {
+                _ = try await self?.add(file: file, title: job.title, target: job.target)
+                self?.remove(id)
+            } catch {
+                guard let self, let index = self.jobs.firstIndex(where: { $0.id == id }) else { return }
+                self.jobs[index].issue = (error as? PDFFileProblem)?.message
+                    ?? "This file couldn’t be saved on this device. Remove it and add the PDF again."
+            }
+        }
     }
 
-    /// Removes a stopped (or unwanted) upload and its local copy. A finalized upload is already in the library.
+    /// Removes a stopped legacy record and the file it queued.
     func remove(_ id: UUID) {
         guard let context, let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         let job = jobs.remove(at: index)
@@ -431,6 +349,3 @@ final class PDFUploadCenter {
 
 
 }
-
-private struct PDFUploadRestart: Error {}
-private struct PDFUploadWaitForLibrary: Error {}

@@ -204,8 +204,12 @@ context/retention contract before activation and cannot fall back to uploading a
   against the reader index and native admission fully decodes each image. Both directories are excluded from
   OS backup. The device compiler runs in an ephemeral WebKit context with no network access.
 - Direct HTML/asset acquisition uses only exact `https://arxiv.org/html/<id>v<revision>` identities and the
-  corresponding asset path. Cross-version/host redirects are refused. Requests are serialized/rate limited,
-  source and cumulative asset bytes are bounded, and failures leave any previously installed copy intact.
+  corresponding asset path. Cross-version/host redirects are refused. Pacing (revised 2026-10-13, late): a paper's
+  HTML document request is spaced three seconds from the previous document request on that client, like a new
+  page visit; the declared assets of that one paper then load with at most four in flight and no artificial
+  spacing, the way a browser loads one page's images. A `Retry-After` pauses every request on the client, and a
+  pause longer than a minute is reported as "busy" immediately. Source and cumulative asset bytes are bounded
+  (2 MiB source, 16 MiB per asset, 32 MiB in total), and failures leave any previously installed copy intact.
   Source SVGs are admitted as bounded, external-resource-free vectors and rasterized on the device; source SVG
   is never installed in a reader bundle. PDF acquisition remains independent.
 
@@ -311,6 +315,29 @@ failure. The sidebar's `2610.12978v1` additionally requires inline SVG legends a
 The v2 extension above is deployed in browser `16b9e4ce`, with all five real corpus papers passing Chromium,
 Firefox and WebKit. Specific finite error messages from `e9d6522a` remain; raw exceptions/source content are
 never sent as diagnostics. See the current implementation-status entry for hosted and native release evidence.
+
+### Maintenance after cutover — 2026-10-13, late (local, not deployed)
+
+- **Acquisition pacing.** The first cutover spaced *every* request three seconds apart, so a paper with sixty
+  figures took about three minutes to open in the browser on each reload and once per device natively. Both
+  clients now pace only document requests and load one paper's assets with bounded concurrency (above).
+- **One preparation per paper.** In the browser the reader and a paper question asked before the reader was
+  ready each started their own acquisition and compilation; `prepareArxivReader` now shares one in-flight
+  preparation per exact source revision, forwards progress to every waiter and stops only when all have left.
+- **Go to passage across compiles.** Both clients refused a saved passage whose anchor named a different bundle
+  digest, and the browser did so silently. The digest changes with every renderer/CSS revision (v1 → v2 happened
+  the same day) and a browser recompiles on every reload, so saved chats stopped navigating. The digest now only
+  decides whether the block hint applies; the existing quote cascade finds the passage, and "Couldn't find the
+  passage" appears only when the quote is genuinely absent.
+- **Code removal.** The server-side PDF pipeline (`pipeline.ts`), Mathpix HTTP client, upload-session module,
+  asset uploader, web PDF downloader and their tests are deleted; the metadata pipeline owns its own types, and
+  the historical OCR identity remains only so retained `mathpix-mmd` bundles stay verifiable. The browser's
+  chunked upload transport and the native `PaperAddingService` upload methods, `BackendClient` upload calls and
+  queue back-off are deleted. A native queue record written by a pre-cutover build is now offered **Save on this
+  device** (installs the queued file locally, then clears the record) instead of a retry that could never succeed.
+- Evidence: fast suite 443 backend + 356 browser unit tests and compiler freshness pass; Swift Core 287 tests
+  pass. Slow reader journeys and the iPad Simulator checks for the touched areas are recorded in
+  `IMPLEMENTATION_STATUS.md`. Nothing was deployed; native build 30 and browser Pages `a3127547` remain live.
 
 ### Budget at cutover
 

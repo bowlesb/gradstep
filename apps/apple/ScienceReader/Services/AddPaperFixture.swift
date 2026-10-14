@@ -34,15 +34,8 @@ enum AddPaperFixture {
     }
 }
 
-/// Answers like functions/v1/add-paper and functions/v1/upload-pdf would for the fixture's inputs.
+/// Answers like functions/v1/add-paper would for the fixture's inputs.
 final class ScriptedPaperAdding: PaperAddingService, @unchecked Sendable {
-    private let lock = NSLock()
-    private var finalized: [(job: PDFUploadJob, at: Date)] = []
-    private var begun: [UUID: PDFUploadJob] = [:]
-
-    /// The latest finalized upload (the fixture library shows it).
-    var lastFinalized: PDFUploadJob? { lock.withLock { finalized.last?.job } }
-
     func addPaper(_ query: String) async throws -> AddPaperResult {
         try await Task.sleep(for: .milliseconds(300))
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,27 +54,6 @@ final class ScriptedPaperAdding: PaperAddingService, @unchecked Sendable {
             return .init(status: "link_only", route: "link", paper: nil, link: AddPaperFixture.pdfLink, reason: nil, title: "A Workshop Draft on Sparse Attention")
         default:
             return .init(status: "not_found", route: "none", paper: nil, link: nil, reason: nil, title: nil)
-        }
-    }
-
-    func beginUpload(_ job: PDFUploadJob) async throws -> PDFUploadTicket {
-        try await Task.sleep(for: .milliseconds(200))
-        let done = lock.withLock { () -> Bool in begun[job.uploadID] = job; return finalized.contains { $0.job.uploadID == job.uploadID } }
-        return PDFUploadTicket(upload_id: job.uploadID, state: done ? "finalized" : "pending",
-                               path: "\(AddPaperFixture.accountID.wire)/\(job.uploadID.wire).pdf", token: done ? nil : "fixture-token")
-    }
-
-    func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws {
-        guard FileManager.default.fileExists(atPath: file.path), token == "fixture-token" else { throw BackendError.transport }
-        // Slow enough for a UI test to see the progress (about 3 s).
-        for step in 1...6 { try await Task.sleep(for: .milliseconds(500)); progress(Double(step) / 6) }
-    }
-
-    func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws {
-        try await Task.sleep(for: .milliseconds(200))
-        lock.withLock {
-            guard let job = begun[uploadID], !finalized.contains(where: { $0.job.uploadID == uploadID }) else { return }
-            finalized.append((job, Date()))
         }
     }
 
@@ -123,7 +95,7 @@ extension ReaderModel {
         guard let service = AddPaperFixture.service else { return }
         uploads.fetcher = FixturePDFFetcher()
         uploads.activate(.init(service: service, accountID: AddPaperFixture.accountID, deploymentID: "add-paper-fixture",
-            cursor: { 0 }, added: { [weak self] in self?.showFixtureUpload() }))
+            cursor: { 0 }, added: {}))
         // `--share-inbox-fixture`: what the Share extension would have saved — a PDF from Files and a link from Safari.
         if ProcessInfo.processInfo.arguments.contains("--share-inbox-fixture"), let inbox = Self.shareInbox {
             try? FileManager.default.removeItem(at: inbox.root)
@@ -131,31 +103,6 @@ extension ReaderModel {
             _ = try inbox.addLink(URL(string: AddPaperFixture.blockedLink)!, title: nil)
         }
         importSharedItems()
-    }
-
-    /// A finalized upload as the server would show it: a new paper converting, or the failed import running again.
-    private func showFixtureUpload() {
-        guard let job = AddPaperFixture.service?.lastFinalized else { return }
-        let title: String, id: UUID, source: String, sourceID: String, url: Any
-        switch job.target {
-        case .localPaper: return
-        case .importID(let importID, _):
-            id = importID; source = "web"; sourceID = importID == AddPaperFixture.blockedImport ? "openalex:W3100000001" : "openalex:W3100000002"
-            title = importID == AddPaperFixture.blockedImport ? "Deep Learning Scaling is Predictable, Empirically" : "Optuna: A Next-generation Hyperparameter Optimization Framework"
-            url = "https://openalex.org/works/" + sourceID.dropFirst("openalex:".count)
-        case .source(let web):
-            id = job.uploadID; source = "web"; sourceID = web; title = job.title; url = "https://openalex.org/works/" + web.dropFirst("openalex:".count)
-        case .newPaper:
-            id = job.uploadID; source = "upload"; sourceID = "upload:" + job.uploadID.wire; title = job.title; url = NSNull()
-        }
-        let value: [String: Any] = ["id": id.wire, "created_seq": 30, "state_seq": 30, "intent_revision": 2, "visible": true,
-            "phase": "acquiring", "source": source, "source_id": sourceID, "source_revision": 1, "metadata_id": UUID().wire, "version_id": UUID().wire,
-            "metadata": ["title": title, "authors": [], "categories": []] as [String: Any], "metadata_recorded_at": "2026-10-07T09:00:00Z",
-            "source_url": url, "error_code": NSNull(), "retryable": false, "progress": "downloading",
-            "progress_detail": ["step": "downloading", "percent": 12, "eta_seconds": 45, "pages": 1]]
-        guard let data = try? JSONSerialization.data(withJSONObject: value),
-              let record = try? JSONDecoder().decode(LibraryImportRecord.self, from: data) else { return }
-        insertFixtureImport(record)
     }
 }
 #endif

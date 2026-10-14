@@ -4,7 +4,7 @@
 adaptation and future on-device PDF models. No new PDF may be sent to Mathpix, including fallback for difficult
 PDFs. See [HTML-first reader](HTML_FIRST_READER.md). Runtime enforcement remains pending; existing paid attempts
 still need liability reconciliation without collecting or processing new PDF outputs. Statements below that
-Mathpix is required for the final reader are superseded.
+Mathpix is required for the final reader are superseded. The server-side PDF download, upload-session, Mathpix client and asset-upload modules and their tests were removed from the repository on 2026-10-13 (late); only the metadata pipeline, retained-bundle delivery and the historical OCR identity remain in code.
 
 > **2026-10-05:** The implemented, deployed flow is described in [PAPER_PIPELINE.md](PAPER_PIPELINE.md) (migration 014, Edge `paper-worker`). It replaces the quote/consent/`provider_attempts` design below with credit holds sized to a Mathpix `page_ranges` cap, a single submission grant per funded attempt, and explicit exits for every hold. The rest of this document is retained design background.
 

@@ -104,10 +104,9 @@ struct PDFUploadBanners: View {
             }
             ForEach(center.jobs) { job in
                 if job.phase == .failed {
-                    StatusBanner(tone: .problem, systemImage: "exclamationmark.triangle", message: "“\(job.title)”: \(job.issue ?? "Couldn’t upload this PDF.")",
+                    StatusBanner(tone: .problem, systemImage: "exclamationmark.triangle", message: "“\(job.title)”: \(job.issue ?? "This PDF couldn’t be saved on this device.")",
                                  actionsBelow: true, messageID: "upload.issue") {
-                        if job.issueCode == "insufficient_credits" { Button("Get credits") { model.showStore = true } }
-                        Button("Try again") { center.retry(job.id) }.accessibilityIdentifier("upload.retry")
+                        Button("Save on this device") { center.retry(job.id) }.accessibilityIdentifier("upload.retry")
                         Button("Remove", role: .destructive) { center.remove(job.id) }.accessibilityIdentifier("upload.remove")
                     }
                 } else {

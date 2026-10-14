@@ -93,7 +93,7 @@ class PipelineDeploymentTests(unittest.TestCase):
             shared = root / 'supabase/functions/_shared'; shared.mkdir(parents=True)
             for name in ('Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts'):
                 (worker / name).write_text('fixture')
-            (shared / 'pipeline.ts').write_text('fixture')
+            (shared / 'metadata-pipeline.ts').write_text('fixture')
             (shared / 'private.test.ts').write_text('test must not ship')
             (root / '.env.staging').write_text('secret-fixture')
             target = root / 'context'; target.mkdir()
@@ -101,7 +101,7 @@ class PipelineDeploymentTests(unittest.TestCase):
                 self.assertEqual(DEPLOY.context(), target)
             self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
                              ['Dockerfile', 'package-lock.json', 'package.json', 'podcast-encode.ts', 'podcast-run.ts', 'run.ts', 'server.ts',
-                              'supabase/functions/_shared/pipeline.ts'])
+                              'supabase/functions/_shared/metadata-pipeline.ts'])
             docker = (ROOT / 'services/pipeline-worker/Dockerfile').read_text()
             self.assertIn('COPY server.ts run.ts podcast-run.ts podcast-encode.ts ./services/pipeline-worker/', docker)
 

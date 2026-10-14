@@ -5,7 +5,7 @@ processed only on the user's device. The [HTML-first contract](HTML_FIRST_READER
 upload, OCR and publication flow below. These sections document the existing implementation, not authorization
 to continue that flow. Migration 058 and metadata-only worker `gradstep-pipeline-00033-2jw` enforce the cutover on staging; the native/browser adapters are implemented. Preserve metadata,
 exact source revisions, rights evidence, fencing and billing reconciliation; replace PDF-dependent membership,
-reader preparation and paper-chat context. No historical-data migration is requested.
+reader preparation and paper-chat context. No historical-data migration is requested. The server-side PDF download, upload-session, Mathpix client and asset-upload modules and their tests were removed from the repository on 2026-10-13 (late); only the metadata pipeline, retained-bundle delivery and the historical OCR identity remain in code.
 
 Status 2026-10-05: implemented in migration 014, `supabase/functions/_shared/pipeline.ts`,
 `paper-worker`, and `reader-artifact`. Replaces the unprovisioned Linux executor design
