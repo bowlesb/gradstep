@@ -420,8 +420,8 @@ test('v2 podcast lengths enforce their advertised word and audio windows; v1 rem
     shape: { duration: 'about five minutes', words: [650, 800] as [number, number], chapters: [4, 6] as [number, number], segments: [16, 28] as [number, number] },
     checker: { words: [450, 1000] as [number, number], chapters: [3, 8] as [number, number], segments: [8, 80] as [number, number], max_spoken_characters: 6000, min_evidenced: 5 },
   };
-  // Version 2 and later: the writer's range with the tolerance band (85% of the floor, 115% of the ceiling).
-  assert.deepEqual(podcastCheckerBounds(v2), { ...v2.checker, words: [552, 920] });
+  // Version 2 and later: the writer's range with the tolerance band (80% of the floor, 125% of the ceiling).
+  assert.deepEqual(podcastCheckerBounds(v2), { ...v2.checker, words: [520, 1000] });
   assert.deepEqual(podcastAudioBounds(v2, false), { minMs: 240_000, maxMs: 375_000 });
   assert.deepEqual(podcastAudioBounds({ ...v2, version: 1 }, false), { minMs: 120_000, maxMs: 660_000 });
   assert.deepEqual(podcastAudioBounds(v2, true), { minMs: 1_000, maxMs: 660_000 });

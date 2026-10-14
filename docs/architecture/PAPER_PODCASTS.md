@@ -1645,3 +1645,11 @@ started on the reply to a question that was gone. Three changes:
   draft's first turn, or a removed question left its reply standing, the worker runs the repair pass (the removed
   turns are rewritten in place from evidence) and checks again; a profile without the repair call refuses the episode
   (`dialogue_broken` in the recorded rules) rather than publish it mid-thought.
+
+
+### Word-range band widened (2026-10-14, evening)
+
+The verification seed after the opening fixes (job `21b4bcab`, Unsupervised Multimodal Reward Modeling, DeepSeek)
+cut no turn for markup and opened properly, but the draft's 930 words sat ten over the five-minute band's 920 ceiling
+and the trim pass returned the same 930 words, so the job failed. The band is now 80% of the floor to 125% of the
+ceiling (five minutes: 520–1,000 words; ten minutes: 1,080–2,063), still inside the profile's audio and character caps.

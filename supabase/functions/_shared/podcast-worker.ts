@@ -105,10 +105,11 @@ export const REVIEW_FRAMING_TOKENS = 1_000;
  * historical bounds because changing those would reinterpret existing jobs.
  */
 /** Version 2 and later keep the episode near its advertised length: the checker's word range is the writer's target
- * range with a tolerance band (85% of the floor to 115% of the ceiling; five minutes: 552–920 words), inside the
- * profile's hard audio and character caps. The band comes from the first DeepSeek seeds of 2026-10-14: 876 and
- * 604 words against 650–800, both fine for "about five minutes", both rejected by the exact range. */
-export const WORD_RANGE_TOLERANCE = Object.freeze({ floor: 0.85, ceiling: 1.15 });
+ * range with a tolerance band (80% of the floor to 125% of the ceiling; five minutes: 520–1,000 words), inside the
+ * profile's hard audio and character caps. The band comes from the DeepSeek seeds of 2026-10-14: 876, 604 and 930
+ * words against 650–800, all fine for "about five minutes", all rejected by tighter ranges (the 930-word draft came
+ * back from a trim pass unchanged and failed a 920 ceiling by ten words). */
+export const WORD_RANGE_TOLERANCE = Object.freeze({ floor: 0.8, ceiling: 1.25 });
 export function podcastCheckerBounds(spec: Pick<Spec, 'version' | 'shape' | 'checker'>): CheckerBounds {
   const configured = spec.checker ?? FIVE_MINUTE_BOUNDS;
   if (spec.version >= 2 && spec.shape) {
