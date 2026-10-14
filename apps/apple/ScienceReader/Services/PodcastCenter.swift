@@ -240,6 +240,15 @@ final class PodcastCenter {
     }
 
     /// Listen is offered for a synced library paper (the offline sample only has a fixture episode).
+    /// Why Listen cannot start for a paper the server has no podcast source for (owner report 2026-10-14: "not able to
+    /// create a podcast at all"). Episodes are written from the server's converted text; a paper read on this device
+    /// through the HTML reader has none, which is not the same as being outside the synced library.
+    static func noEpisodeSource(for paper: Paper) -> String {
+        if paper.sourceMembership != nil {
+            return "Episodes are made from a server copy of the paper. Papers read on this device don’t have one yet, so this paper can’t be made into an episode."
+        }
+        return "Listening needs this paper in your synced library."
+    }
     func canListen(to paper: Paper) -> Bool {
         #if DEBUG && FIXTURE_HOST
         if PodcastFixtureTransport.isEnabled { return true }
@@ -572,11 +581,11 @@ final class PodcastCenter {
             let itemID: UUID
             #if DEBUG && FIXTURE_HOST
             if PodcastFixtureTransport.isEnabled { itemID = paper.id } else {
-                guard let found = host?.podcastItemID(for: paper) else { notice = "Listening needs this paper in your synced library."; return }
+                guard let found = host?.podcastItemID(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
                 itemID = found
             }
             #else
-            guard let found = host?.podcastItemID(for: paper) else { notice = "Listening needs this paper in your synced library."; return }
+            guard let found = host?.podcastItemID(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
             itemID = found
             #endif
             do {

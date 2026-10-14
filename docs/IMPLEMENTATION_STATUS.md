@@ -43,6 +43,14 @@ html, or graph."
   the wide layout has no tab bar (pre-existing; the doc records them on the iPhone). Still open from the review:
   Listen's visibility on the paper and in lists, the reader's own episode list, play-before-download feedback,
   browser parity, the mini-player's Stop, and the Mac player capture's black title bar (likely a capture artefact).
+- **Podcasts cannot be created (owner, afternoon):** two causes, both recorded in
+  [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md#chat-report-2026-10-14-afternoon-i-was-not-able-to-create-a-podcast-at-all):
+  device-prepared papers have no server text to write from (the Listen notice now says so instead of blaming the
+  synced library), and every generation for legacy papers since 2026-10-09 has failed at the evidence checker's word
+  floor after removals (a bounded repair draft is being built). Episodes from the device's own numbered text are a
+  design change still to write up.
+- **Cheap provider (owner question):** no second provider exists; Haiku 5.5 is the cheap tier. What DeepSeek would
+  take, and why not for cost alone this month, is in [proposals/CHEAP_PROVIDER.md](proposals/CHEAP_PROVIDER.md).
 - **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
   answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
   numbered membership) for the `study-bar`/`study-sheet` captures.

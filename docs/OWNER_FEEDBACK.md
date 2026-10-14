@@ -9,6 +9,13 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat report, 2026-10-14 (afternoon): "I was not able to create a podcast at all"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | Could not create a podcast | Listen, any paper added since the HTML-first cutover | Episodes are written from the server's converted (Mathpix) text, found through the legacy library item, its render artifact and its OCR run. Papers prepared on the device have none of those rows, so the app finds no podcast item and said "Listening needs this paper in your synced library", which was misleading. Staging confirms nothing reached the quote in 36 hours. Copy now says episodes are made from a server copy that device-read papers don't have yet. Making episodes from the device's numbered text is a design change (quote, pin and worker), written up before building. | Copy fixed in the working tree; the device-text design is open |
+| 2 | Same, for papers that were in the library before the cutover | Generation | The last three jobs on staging (2026-10-09, two customer, one seed) all failed `script_evidence_rejected`: the reviewer accepted the script, the checker removed turns whose numbers were not in the evidence, and the rest fell under the length's word floor. Nothing was charged; about $0.35 of platform loss each. A bounded second draft (a `podcast_script_repair` route in profile v3) that rewrites the removed turns from quoted evidence is being built. | In progress |
+
 ## Build 31, 2026-10-14 (iPhone, 3 items, TestFlight screenshots 15:34–15:36 UTC)
 
 Screenshots: `.artifacts/feedback/build31/` (private, not committed). All three on the PhysCodeGym paper (2610.17288).
