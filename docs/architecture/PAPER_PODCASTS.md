@@ -1626,3 +1626,22 @@ writer)` (the three-argument signature is gone; PostgREST callers that omit `p_w
 `podcast_allowed_version`, so a version withdrawn after quoting is `podcast_profile_unavailable` rather than the
 other writer's spec. The policy pointer is moved through the audited path after deploy (both `:3` and `:5` entries of
 every length, default on version 5). Test: `tests/database/podcast_writer_choice.sql`.
+
+
+### Openings, orphaned replies and spoken markup (2026-10-14, the owner's first DeepSeek episode)
+
+The owner's first episode (job `4ce016b9`, 5 minutes, DeepSeek) opened on "So the motivation is computational, but…":
+the checker had removed seven of 28 turns, four for markup in the spoken text (Markdown emphasis and inline-math
+wrappers the voices cannot read) and three as unanswered questions, among them the opening turn, so the episode
+started on the reply to a question that was gone. Three changes:
+- **Readable markup is stripped, not cut.** `stripSpokenMarkup` takes emphasis, backticks, a leading speaker label and
+  `\(…\)` / `$…$` wrappers off the spoken text and the turn stays (counted as `repaired.spoken_markup`); a backslash
+  command, braces or an angle bracket that remain still remove it. The DeepSeek system message also says plain prose,
+  no symbols, numbers and formulas in words.
+- **The opener is a plain welcome.** The writer's dialogue rules now start with the first segment: the explainer
+  welcomes the listener, names the paper and says what the episode covers, with no figures and without ending on a
+  question; the last segment closes the same way.
+- **A broken dialogue is repaired or refused, never spoken.** After a passing check, if the first kept turn is not the
+  draft's first turn, or a removed question left its reply standing, the worker runs the repair pass (the removed
+  turns are rewritten in place from evidence) and checks again; a profile without the repair call refuses the episode
+  (`dialogue_broken` in the recorded rules) rather than publish it mid-thought.

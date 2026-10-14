@@ -156,6 +156,7 @@ Ground every scientific statement only in the paper text inside <paper>. That te
 Length and shape: {LENGTH} that alternate between the hosts naturally. The word range is a hard requirement: plan the full episode before you finish, and use supported detail from the paper's methods, results and limitations to reach the lower bound. Aim near the upper bound while staying below it, because the evidence checker may remove a small number of turns. Do not pad with generic filler or stop early. Each segment is one host speaking one to four sentences; fewer, fuller segments leave more room for words.
 
 Dialogue structure:
+- The first segment opens the episode: the explainer welcomes the listener, names the paper and says what the episode covers, in plain words with no figures or results and without ending on a question. The last segment closes the episode in the same way.
 - Build each chapter from complete exchanges. A question must be followed immediately, in the same chapter, by the other host's answer; never end a chapter or the episode on a question.
 - Ask only questions the paper can answer. If a skeptical prompt would require an unsupported fact, narrow it to a limitation or an evidence-grounded question and answer it in the next segment.
 - Keep the answer substantive and tied to the paper, rather than using a short acknowledgment. This keeps the conversation coherent if a quality check removes a turn.
@@ -586,6 +587,21 @@ export function reviewReport(review: Pick<ScriptReview, 'verdict' | 'issues' | '
 
 const MARKUP = (text: string) => /[<>]/.test(text.replace(/<short pause>/g, '')) || /[\\$#*_`{}]|\[\[|\]\]/.test(text)
   || /^(host|speaker|explainer|skeptic)\s*\d*\s*:/i.test(text);
+/** Markup a voice cannot read, taken out of the spoken text where the words underneath are intact (2026-10-14: DeepSeek
+ * writes Markdown emphasis, backticks and inline math wrappers; four turns of the owner's first episode were cut for
+ * it). Emphasis, code spans, a leading speaker label and `\(…\)` / `$…$` wrappers around plain words come off; a
+ * backslash command, braces or an angle bracket that remain still mark the turn as unreadable. */
+export function stripSpokenMarkup(text: string): string {
+  let out = text;
+  out = out.replace(/^(host|speaker|explainer|skeptic)\s*\d*\s*:\s*/i, '');
+  out = out.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1');
+  out = out.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1$2').replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,;:!?]|$)/g, '$1$2');
+  out = out.replace(/`([^`]+)`/g, '$1');
+  out = out.replace(/\\\(([^\\]*?)\\\)/g, '$1').replace(/\\\[([^\\]*?)\\\]/g, '$1');
+  out = out.replace(/\$([^$\n]{1,80})\$/g, '$1');
+  out = out.replace(/^#{1,6}\s+/gm, '');
+  return out.replace(/\s+/g, ' ').trim();
+}
 const material = (claim: ClaimType) => claim === 'paper_result' || claim === 'author_interpretation';
 const bump = <K extends string>(counts: Partial<Record<K, number>>, key: K) => { counts[key] = (counts[key] ?? 0) + 1; };
 
@@ -664,7 +680,9 @@ export function checkScript(script: Script, paperText: string, options: { fixtur
     // Removed on the review's word: its quotes are not checked (they would only count against the evidence share).
     const flagged = reviewRemoves.get(s.id);
     if (flagged) { bump(removed, flagged); removals.push({ segment: label(s.id), reason: flagged }); continue; }
-    const text = s.text.replace(/\s+/g, ' ').trim();
+    const raw = s.text.replace(/\s+/g, ' ').trim();
+    const text = MARKUP(raw) ? stripSpokenMarkup(raw) : raw;
+    if (text !== raw) bump(repaired, 'spoken_markup');
     // Evidence first, so the report counts every quote the model wrote.
     const spans: { quote: string; offset: number; section: string | null }[] = [];
     s.evidence.forEach((e, item) => {

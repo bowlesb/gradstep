@@ -6,7 +6,7 @@
 import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, FIVE_MINUTE_SHAPE, repairRequest,
   fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewReport, reviewRequest, scriptCost, scriptDocument,
   scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds, type CheckReport, type Script, type ScriptCallResult, type ScriptParams,
-  type ScriptProvider, type ScriptShape } from './podcast-script.ts';
+  type ScriptProvider, type ScriptShape, type CheckedSegment } from './podcast-script.ts';
 import { alignSegments, fitSpeech, fixtureAudio, joinChunks, parseWav, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
   SPEECH_SERVING_MAX_OUTPUT, type SpeechProvider, type SpeechResult, type Timing } from './podcast-speech.ts';
 
@@ -220,12 +220,18 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     // draft from the writer (the kept turns stay; the removed ones are rewritten against their own evidence), then the
     // checker runs again. Only profiles with the repair call (version 3) can; the first check is recorded either way.
     const repairCall = !fixture && !resumedSpeech ? spec.script.calls.find(c => c.route === 'podcast_script_repair') : undefined;
-    const direction = !checked.ok && repairCall ? repairable(checked, bounds) : null;
-    if (!checked.ok && repairCall && direction) {
-      await recordCheck(deps, fence, checked.report, log);
+    const broken = !fixture && !resumedSpeech && checked.ok && structurallyBroken(final, checked.report, checked.script.segments);
+    const direction = repairCall ? (!checked.ok ? repairable(checked, bounds) : broken ? 'short' : null) : null;
+    if (broken && !repairCall) {
+      await recordCheck(deps, fence, { ...checked.report, outcome: 'rejected', rules: [...(checked.report.rules ?? []), 'dialogue_broken'] }, log);
+      throw new Failure('script_evidence_rejected', true);
+    }
+    if (repairCall && direction) {
+      await recordCheck(deps, fence, broken ? { ...checked.report, rules: [...(checked.report.rules ?? []), 'dialogue_broken'] } : checked.report, log);
       const removals = checked.report.removals ?? [];
-      log('podcast_script_repairing', { words: checked.report.words ?? null, removed: removals.length, floor: bounds.words[0], ceiling: bounds.words[1], direction });
-      const params = repairRequest(paper, title, final, checked.kept, removals, repairCall.max_output_tokens, instructions, spec.script.model,
+      const kept = checked.ok ? checked.script.segments : checked.kept;
+      log('podcast_script_repairing', { words: checked.report.words ?? null, removed: removals.length, floor: bounds.words[0], ceiling: bounds.words[1], direction, broken });
+      const params = repairRequest(paper, title, final, kept, removals, repairCall.max_output_tokens, instructions, spec.script.model,
         { direction, words: bounds.words });
       const repaired = parseScript(await scriptCall(deps, fence, 'podcast_script_repair', params, repairCall.max_input_tokens,
         () => windowFor(staged ? STAGED_SCRIPT_RESERVE_MS : 180_000, SCRIPT_CALL_MS, repairCall.window_seconds), models, spec));
@@ -491,6 +497,20 @@ function repairable(checked: Extract<ReturnType<typeof checkScript>, { ok: false
   if (words < bounds.words[0] && (checked.report.segments?.removed ?? 0) > 0) return 'short';
   if (words > bounds.words[1]) return 'long';
   return null;
+}
+
+/** A check that passed but left the dialogue broken (owner, 2026-10-14: an episode opening on "So the motivation is
+ * computational, but…"): the opening turn was removed, or a removed question left its reply standing. One repair pass
+ * rewrites the removed turns in place; without the repair call the episode is refused rather than spoken mid-thought. */
+function structurallyBroken(script: Script, report: CheckReport, kept: CheckedSegment[]): boolean {
+  if (!kept.length) return false;
+  if (kept[0].id !== script.segments[0]?.id) return true;
+  const removedQuestions = (report.removals ?? []).filter(r => r.reason === 'unanswered_question').map(r => r.segment);
+  return removedQuestions.some(id => {
+    const at = script.segments.findIndex(s => s.id === id);
+    const next = script.segments[at + 1];
+    return !!next && kept.some(k => k.id === next.id);
+  });
 }
 
 /** The script provider the spec names (`script.provider`, 2026-10-14): `deepseek` from `scriptProviders`, else Anthropic. */

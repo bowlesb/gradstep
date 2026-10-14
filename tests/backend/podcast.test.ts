@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { writeFileSync } from 'node:fs';
-import { applyCorrections, checkScript, correctionLimit, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript, parseReview, parseScript, rejectPolicy, requestBytes, REVIEW_SCHEMA,
+import { applyCorrections, checkScript, stripSpokenMarkup, SCRIPT_INSTRUCTIONS, correctionLimit, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript, parseReview, parseScript, rejectPolicy, requestBytes, REVIEW_SCHEMA,
   reviewRequest, scriptCost, scriptDocument, type CheckReport, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
@@ -103,7 +103,8 @@ test('checker v3 accepts verbatim evidence, removes each unsupported claim on it
     ['s6', s => { s.segments[5].evidence[0].quote = 'Sparse routing gets 41.2 perplexity versus 43.9.'; }, 'evidence_missing'],
     ['s7', s => { s.segments[6].text = 'Throughput improves by 2.5x at equal compute.'; }, 'number_not_in_evidence'],
     ['s2', s => { s.segments[1].text = 'It is 99 percent better.'; }, 'unsupported_number'],
-    ['s1', s => { s.segments[0].text = 'Speaker 1: **hello** $x$'; }, 'markup'],
+    // Emphasis, a label and a dollar wrapper are stripped since 2026-10-14; angle brackets are markup a voice cannot read.
+    ['s1', s => { s.segments[0].text = 'Speaker 1: <b>hello</b> $x$'; }, 'markup'],
     // No heading marks or cross-block quotes: the quote is dropped and its claim goes with it.
     ['s6', s => { s.segments[5].evidence[0].quote = '## 4 Results Sparse routing reaches 41.2 perplexity'; }, 'evidence_missing'],
     ['s6', s => { s.segments[5].evidence[0].quote = 'at equal compute. We only evaluate English text'; }, 'evidence_missing'],
@@ -1376,4 +1377,44 @@ test('a spec naming deepseek routes the draft and the review to that provider at
   assert.ok(missing.names().includes('worker_podcast_fail'), 'no provider for the spec fails the job');
   assert.ok(JSON.stringify(missing.calls).includes('script_unavailable'));
   assert.ok(!missing.names().includes('worker_provider_attempt_finish'), 'nothing was attempted');
+});
+
+
+// Spoken markup (owner's first episode, 2026-10-14): emphasis, backticks, inline-math wrappers and a speaker label come
+// off the spoken text and the turn stays; a backslash command or braces still make the turn unreadable.
+test('readable markup is stripped from a turn instead of cutting it; real markup still removes', () => {
+  assert.equal(stripSpokenMarkup('Explainer: The **key** idea is `attention` with \\(d_k\\) and $O(n^2)$ cost.'), 'The key idea is attention with d_k and O(n^2) cost.');
+  assert.equal(stripSpokenMarkup('A *subtle* point, _really_.'), 'A subtle point, really.');
+  const script = goodScript(); script.review = { verdict: 'accept', issues: [], reasons: [] };
+  const first = script.segments[0];
+  first.text = `**${first.text}**`;
+  const result = checkScript(script, PAPER, { bounds: { ...FIVE_MINUTE_BOUNDS, words: [200, 1000] } });
+  assert.ok(result.ok, `emphasis alone no longer costs the turn: ${result.ok ? '' : JSON.stringify({ problems: result.problems, removals: result.report.removals, words: result.report.words })}`);
+  assert.equal(result.script.segments[0].text, goodScript().segments[0].text);
+  assert.equal(result.report.repaired?.spoken_markup, 1);
+  const broken = goodScript(); broken.review = { verdict: 'accept', issues: [], reasons: [] };
+  broken.segments[0].text = 'The loss is \\frac{a}{b} here.';
+  const cut = checkScript(broken, PAPER, { bounds: { ...FIVE_MINUTE_BOUNDS, words: [200, 1000] } });
+  assert.ok(cut.report.removals?.some(r => r.reason === 'markup'), 'a backslash command still cuts the turn');
+});
+
+test('the writer is told to open with a plain welcome and close the same way', () => {
+  assert.match(SCRIPT_INSTRUCTIONS, /first segment opens the episode: the explainer welcomes the listener/);
+  assert.match(SCRIPT_INSTRUCTIONS, /without ending on a question/);
+});
+
+// A check that passes but leaves the dialogue broken (the opener removed, or a reply left without its question): one
+// repair pass rewrites the removed turns; a profile without the repair call refuses the episode instead.
+test('a removed opening turn is repaired before the episode is spoken, or refused without the repair call', async () => {
+  const headless = goodScript(); delete headless.review;
+  headless.segments[0].text = 'Welcome to the episode about ' + 'x'.repeat(10) + '?';  // the opener as a question the next turn does not answer (same speaker)
+  headless.segments[1].speaker = headless.segments[0].speaker;
+  const whole = goodScript(); delete whole.review;
+  const repaired = harness({ spec: REPAIR_SPEC, scripts: [headless, ACCEPT, whole] });
+  assert.equal((await runPodcast(repaired.deps, Date.now() + 600_000)).failure, null, 'the repaired episode publishes');
+  assert.ok(repaired.calls.some(c => c.name === 'worker_podcast_attempt_begin' && c.params.p_route === 'podcast_script_repair'), 'the repair ran');
+  assert.ok(repaired.logs.some((l: any) => l.event === 'podcast_script_repairing' && l.broken === true));
+  const refused = harness({ scripts: [headless, ACCEPT] });
+  assert.equal((await runPodcast(refused.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected', 'no repair call: never spoken mid-thought');
+  assert.ok(!refused.names().includes('worker_podcast_speech_begin'));
 });

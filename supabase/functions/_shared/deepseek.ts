@@ -20,6 +20,8 @@ export function deepseekMessages(params: ScriptParams): { role: 'system' | 'user
   if (format?.type === 'json_schema' && format.schema) {
     system.push(`Respond with exactly one JSON object and nothing else, as compact JSON on one line (no indentation, no line breaks between keys: the output allowance counts every character). It must match this JSON schema:\n${JSON.stringify(format.schema)}`);
   } else system.push('Respond with exactly one compact JSON object on one line and nothing else.');
+  // DeepSeek writes notation into speech more than Claude does (four turns of the owner's first episode were cut for it).
+  system.push('Spoken text is plain prose for a voice: no Markdown, no asterisks, no backticks, no LaTeX, no dollar signs, no symbols; say numbers, variables and formulas in words.');
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [{ role: 'system', content: system.join('\n\n') }];
   for (const message of params.messages) {
     const content = typeof message.content === 'string' ? message.content
