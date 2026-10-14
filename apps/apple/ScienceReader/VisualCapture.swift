@@ -31,6 +31,17 @@ import UIKit
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
+        if arguments.contains("--visual-study") {
+            // Study (2026-10-14): the fixture's numbered paper, the opening turn, the reader's answer, the map bar.
+            // The numbered fixture paper's chat (the Reader split on the Mac and iPad, the Chat tab on the phone).
+            if let numbered = model.papers.first(where: { $0.sourceID == "2601.01234" }) { model.select(numbered) }
+            model.askAboutSelectedPaper()
+            await model.startStudy()
+            for _ in 0..<40 where model.isAnswering { try? await Task.sleep(for: .milliseconds(250)) }
+            model.chatInput = "A weighted sum of the values."
+            await model.sendMessage()
+            for _ in 0..<40 where model.isAnswering { try? await Task.sleep(for: .milliseconds(250)) }
+        }
         if arguments.contains("--visual-show-all-chats") { model.showAllChats = true }
         if arguments.contains("--visual-show-store") { model.showStore = true }
         if arguments.contains("--visual-show-signin") { model.openSignIn() }

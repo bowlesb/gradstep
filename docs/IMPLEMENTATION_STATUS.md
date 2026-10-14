@@ -2,6 +2,58 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Study tutor, audit fixes, native sync scheduler — 2026-10-14, midday (commit `bafae2d` and after; deployment noted below)
+
+Owner (chat): address the open audit items, look at the podcast feature, and "take a stab at an experimental feature
+that combines quizzes you and teaches you about a paper… adaptive… display [the mental model] in some type of flow,
+html, or graph."
+
+- **Study (experimental).** A paper chat with `action: "study"`: the tutor judges the reader's answer, then teaches
+  with `[¶N]` citations, verifies, goes deeper, moves to a related concept or returns to an earlier gap, one bold
+  question per turn; a forced Haiku 5.5 request updates the reader's knowledge map after each answer and the server
+  relays it as a `study` event; the clients send it back with every turn and keep it in memory only. Browser: "Study
+  this paper", a knowledge-map panel (Mermaid map, journey chips, concepts with state, note, links and ¶ buttons),
+  End study. Native: the same from the empty paper chat and the chat menu, a map bar above the message box with a
+  Map/Journey/Concepts sheet. Design record in [DECISIONS.md](DECISIONS.md#study-an-adaptive-tutor-on-one-paper-owner-asked-2026-10-14-agent-decisions-experimental-reversible),
+  contract in [CHAT.md](architecture/CHAT.md#study--2026-10-14-experimental-staging).
+- **Cost and credit audit** ([review](reviews/COST_CREDITS_AND_SYNC_AUDIT_20261014.md)): items 2, 4, 5, 6 and the
+  byte-counting part of 3 are built (migration 060: budget rows create themselves monthly, `worker_budget_health`
+  with a scheduled `budget.health` check, the stale sweep books no spend, `sync_page_too_large` for old builds;
+  failed answers charge nothing and say so); item 1 has a release tool (`pipeline-ops.py attempts|reconcile`); the
+  store copy no longer sells OCR pages. The smaller byte count for holds (item 3) went live in function 118 and was
+  **reverted in 121 the same hour**: a follow-up attempt's actual cost exceeded its per-attempt ceiling and paused
+  all paid work on staging for about eleven minutes (16:53–17:04 UTC); the switch was set back on at the same limit.
+  Still open: 3 in full (a real token count), 7 (refund reconciliation), 8 (audited grants RPC), 9 (spend history;
+  the podcast cap at balance is in the podcast pass), 10
+  ([SPENDING_CONTROLS.md](architecture/SPENDING_CONTROLS.md#budget-periods-failed-answers-and-the-stale-hold-sweep--2026-10-14-migration-060-staging)).
+- **Sync audit:** items 1, 2 (both surfaces), 3 (native 60 s scheduler with 15/60/300 s backoff, command drain,
+  named codes, acknowledgement tolerance), 4 (the browser keeps the storage-persistence answer and says "Saved in this
+  browser. It may clear this when space runs low." when declined) and 5 (honest copy for an unsupported journal) are
+  built; 6 (hosted two-device evidence on format 2) remains.
+- **Podcast UX:** a read-only review ranked eight improvements; the four obvious ones (pinned transport controls,
+  an end-of-generation notice with expected waits, the Create button and balance up front with lengths greyed above
+  the balance, persisted speed) are being built in a separate pass and will be recorded when verified.
+- **Test fixture:** OfflineModelTests no longer fetch a real arXiv paper (a 5 s timeout since c615af3; the fixture
+  answers arxiv.org in-process); the fixture host gains `--study-fixture` (the shared arXiv HTML fixture as a
+  numbered membership) for the `study-bar`/`study-sheet` captures.
+
+**Evidence (local):** backend 91 chat tests; web units 370 (37 files); browser journeys study, arxiv-html and
+chat-controls 11 pass on desktop, phone and WebKit (10 skipped by capability); database suite passes with
+`budget_period.sql` and `chat_study_quotes.sql`; Core `swift test` 294 in 38 suites; iPad Simulator
+ChatGenerationTests 34 (Study flow included), OfflineModelTests 15, SyncSchedulerTests 6, LegacyArxivReaderTests 4.
+Captures `.artifacts/visual/study/` (iPhone, iPad, Mac; light and dark): the map bar after one answer and the map
+sheet; the iPad sheet draws the map, the first phone sheet capture was taken before the renderer finished.
+
+**Deployment (2026-10-14, 16:53–17:10 UTC):** migrations **060** and **061** applied and verified on staging (the
+pre-migration backup attempt exceeded its 12-minute limit again, as before 059; the newest complete checkpoint is still
+2026-10-09); chat function **118 → 121 → 122** (121 restored the hold sizing after the pause above; 122 makes the map
+validator tolerant of one bad link or journey entry); browser Pages **`0a4c0f85`**. Migration 061 was found by the
+first live study turn: function 118 sent the three study quote keys and `worker_reserve_chat` (059) refused the key
+set as `invalid_request`. Live study smoke after 061 and the switch (`chat-live-smoke.mjs --study`, 17:05 UTC): three
+tutored turns on DPO v3, 4/4, 4/4 and 5/5 citations resolvable, maps after turns one and two (3 concepts, 3 links,
+focus and journey as the tutor's replies implied), the third turn's map update dropped by the strict validator (hence
+122), 31 credits in all. TestFlight: the native side waits for the podcast pass, then build 34.
+
 ## Owner report and the iPad/Mac audit — 2026-10-14, early morning (built; deployment noted below)
 
 Owner (chat, build 31): papers already in the library don't open; new papers still fail with "Couldn't open this

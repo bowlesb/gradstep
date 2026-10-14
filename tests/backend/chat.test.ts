@@ -869,15 +869,16 @@ test('the SDK adapter charges the input estimate when billing is uncertain befor
 });
 
 test('all prompt text and nested tool results use a conservative UTF-8 byte bound', async () => {
+  // Three per byte, so the estimate is one token per byte (a 2–3× margin; see promptCharacters for the 2026-10-14 pause).
   const { promptCharacters } = await import('../../supabase/functions/_shared/anthropic.ts');
   const params = (text: string) => ({ model: 'x', max_tokens: 1, messages: [{ role: 'user' as const, content: text }] });
   const base = promptCharacters(params(''));
-  assert.equal(promptCharacters(params('abc')) - base, 3);
-  assert.equal(promptCharacters(params('漢字')) - base, 6);
-  assert.equal(promptCharacters(params('é')) - base, 2);
+  assert.equal(promptCharacters(params('abc')) - base, 9);
+  assert.equal(promptCharacters(params('漢字')) - base, 18);
+  assert.equal(promptCharacters(params('é')) - base, 6);
   const nested = { ...params(''), messages: [{ role: 'user' as const,
     content: [{ type: 'tool_result' as const, tool_use_id: 's1', content: 'private-result'.repeat(50) }] }] };
-  assert.ok(promptCharacters(nested) >= new TextEncoder().encode('private-result'.repeat(50)).length);
+  assert.ok(promptCharacters(nested) >= 3 * new TextEncoder().encode('private-result'.repeat(50)).length);
 });
 
 test('Related searches the web by instruction; every answer logs counts only', async () => {
@@ -1766,9 +1767,6 @@ test('a Study turn is a paper action on numbered local context that carries a va
   for (const [label, change] of Object.entries({
     'no map': { study: undefined }, 'null map': { study: null }, 'map without links': { study: { concepts: [] } },
     'unknown state': { study: { ...sampleMap, concepts: [{ ...sampleMap.concepts[0], state: 'mastered' }] } },
-    'dangling link': { study: { ...sampleMap, links: [{ from: 'scaling', to: 'ghost', kind: 'related' }] } },
-    'journey off the map': { study: { ...sampleMap, journey: ['ghost'] } },
-    'label too long': { study: { ...sampleMap, concepts: [{ ...sampleMap.concepts[0], label: 'x'.repeat(81) }] } },
     'too many concepts': { study: { ...sampleMap, concepts: Array.from({ length: 61 }, (_, i) => ({ id: `c${i}`, label: 'c', state: 'known', paragraphs: [] })) } },
     'general mode': { mode: 'general', local_context: undefined },
     'server document': { document_id: documentID, local_context: undefined },
@@ -1781,17 +1779,21 @@ test('a Study turn is a paper action on numbered local context that carries a va
   assert.equal(validateChatRequest(studyBody({ selection: { quote: 'divide by sqrt(d_k)' } })).selection, 'divide by sqrt(d_k)');
 });
 
-test('the map validator keeps whole maps only: ids, states, links and journeys are checked, text is cleaned, notes optional', () => {
-  const map = studyMap({ ...sampleMap, concepts: [{ id: 'scaling', label: ' Scaled\u0000 dot-product ', state: 'known', paragraphs: [4, 3, 3, 0, 1e9], note: '' },
-    { id: 'softmax', label: 'Softmax', state: 'unknown', paragraphs: [] }], links: [...sampleMap.links, ...sampleMap.links, { from: 'softmax', to: 'softmax', kind: 'related' }], next: 'sideways' });
-  assert.equal(map, null, 'a self-link is rejected');
+test('the map validator survives one careless element: bad links, journey entries and self links are dropped, long text is cut, ids are slugged', () => {
   const cleaned = studyMap({ ...sampleMap, concepts: [{ id: 'scaling', label: ' Scaled\u0000 dot-product ', state: 'known', paragraphs: [4, 3, 3, 0, 1e9], note: '' },
-    { id: 'softmax', label: 'Softmax', state: 'unknown', paragraphs: [] }], links: [...sampleMap.links, ...sampleMap.links], focus: null, next: 'sideways' })!;
+    { id: 'softmax', label: 'Softmax', state: 'unknown', paragraphs: [] }], links: [...sampleMap.links, ...sampleMap.links, { from: 'softmax', to: 'softmax', kind: 'related' }], focus: null, next: 'sideways' })!;
   assert.deepEqual(cleaned.concepts[0], { id: 'scaling', label: 'Scaled dot-product', state: 'known', paragraphs: [3, 4] });
-  assert.equal(cleaned.links.length, 1, 'duplicate links collapse'); assert.equal(cleaned.focus, null); assert.equal(cleaned.next, 'calibrate', 'an unknown next step calibrates');
-  assert.equal(studyMap({ ...sampleMap, concepts: [...sampleMap.concepts, { id: 'scaling', label: 'dup', state: 'known', paragraphs: [] }] }), null, 'duplicate ids');
-  assert.equal(studyMap({ ...sampleMap, concepts: [{ id: 'Bad Id', label: 'x', state: 'known', paragraphs: [] }], links: [], journey: [], focus: null }), null);
+  assert.equal(cleaned.links.length, 1, 'duplicate links collapse and a self link is dropped'); assert.equal(cleaned.focus, null); assert.equal(cleaned.next, 'calibrate', 'an unknown next step calibrates');
+  assert.equal(studyMap({ ...sampleMap, concepts: [...sampleMap.concepts, { id: 'scaling', label: 'dup', state: 'known', paragraphs: [] }] })!.concepts.length, 2, 'a duplicate id keeps the first');
+  // A model's id in label form is slugged, and links and the journey written with that form still resolve.
+  const slugged = studyMap({ concepts: [{ id: 'Reference Model', label: 'Reference model', state: 'learning', paragraphs: [] }, { id: 'kl', label: 'KL penalty', state: 'unknown', paragraphs: [] }],
+    links: [{ from: 'Reference Model', to: 'kl', kind: 'related' }, { from: 'kl', to: 'ghost', kind: 'deeper' }], focus: 'Reference Model', journey: ['kl', 'ghost', 'Reference Model'], next: 'teach' })!;
+  assert.deepEqual(slugged.concepts.map(c => c.id), ['reference-model', 'kl']); assert.deepEqual(slugged.links, [{ from: 'reference-model', to: 'kl', kind: 'related' }]);
+  assert.equal(slugged.focus, 'reference-model'); assert.deepEqual(slugged.journey, ['kl', 'reference-model']);
+  assert.equal(studyMap({ ...sampleMap, concepts: [{ id: '---', label: 'x', state: 'known', paragraphs: [] }], links: [], journey: [], focus: null }), null, 'no usable id is fatal');
   assert.equal(studyMap({ ...sampleMap, focus: 'ghost' })!.focus, null, 'a focus off the map is dropped, not fatal');
+  const long = studyMap({ ...sampleMap, concepts: [{ ...sampleMap.concepts[0], label: 'L'.repeat(100), note: 'n'.repeat(200) }, sampleMap.concepts[1]] })!;
+  assert.equal([...long.concepts[0].label].length, 80); assert.ok(long.concepts[0].label.endsWith('…')); assert.equal([...long.concepts[0].note!].length, 160);
   assert.deepEqual(studyMap(EMPTY_STUDY_MAP), EMPTY_STUDY_MAP);
   // The model's largest possible map fits the request the hold is sized for.
   assert.ok(promptCharacters(STUDY_HOLD_PARAMS) > 16_000);

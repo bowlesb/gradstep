@@ -73,10 +73,12 @@ graph." This is the first slice, built to learn from; the product angle is still
 - **The map update** is a forced tool call to Claude Haiku 5.5 after the answer (`update_study_map`, like follow-ups):
   it reads the previous map, the reader's answer (the first turn is "none") and the tutor's reply, never the paper,
   and returns the whole updated map (states change only on evidence; the tutor's final question sets the focus and
-  extends the journey). The server validates it whole (`studyMap`: slugs, bounded labels and notes, known states and
-  kinds, links on the map without self links, journey on the map, at most 60 concepts / 120 links / 16 KiB) and
-  relays it once as SSE `study {map}` before `done`; an unusable or late (12 s) update leaves the client's map as it
-  was. Follow-up suggestions are refused beside a study (the tutor's question is the follow-up).
+  extends the journey). The server validates it (`studyMap`): the shape must be usable (concept arrays, at most 60
+  concepts / 120 links / 16 KiB, every concept with a usable id, label and state), while one careless element is
+  repaired rather than fatal (an id in label form is slugged, a link to an unknown concept, a self link, a duplicate
+  or a journey entry off the map is dropped, a long label or note is cut). The first live study on 2026-10-14 lost
+  its third map update to the strict version of this check, hence the tolerance. The map is relayed once as SSE
+  `study {map}` before `done`; an unusable or late (12 s) update leaves the client's map as it was. Follow-up suggestions are refused beside a study (the tutor's question is the follow-up).
 - **Cost:** the update request is held with the answer at its largest (`STUDY_HOLD_PARAMS`: a full map and both
   excerpts at their limits) and frozen in the quote (`study_model`, `study_max_tokens`, `study_ceiling_microusd`); a
   real update is about 1,500 input and 300 output Haiku tokens. `chat_answer` logs `study: written|unusable|failed|skipped`

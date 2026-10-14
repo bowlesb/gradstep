@@ -1189,8 +1189,11 @@ final class ReaderModel {
         }
         // The chat fixture answers into the same synthetic encrypted store.
         if ProcessInfo.processInfo.arguments.contains("--draft-fixture") || ChatFixtureTransport.isEnabled {
-            do { try await configureDurableDraftFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture")) }
-            catch { show(error) }
+            do {
+                try await configureDurableDraftFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture"))
+                // Study (2026-10-14): a numbered paper beside the sample, so the fixture transport can tutor.
+                if ProcessInfo.processInfo.arguments.contains("--study-fixture") { try configureStudyFixture() }
+            } catch { show(error) }
             return
         }
         if ProcessInfo.processInfo.arguments.contains("--workflow-fixture") {

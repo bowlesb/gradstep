@@ -20,42 +20,62 @@ export interface StudyLink { from: string; to: string; kind: typeof STUDY_LINKS[
 export interface StudyMap { concepts: StudyConcept[]; links: StudyLink[]; focus: string | null; journey: string[]; next: typeof STUDY_NEXT[number] }
 
 const ID = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+/** One line, control characters out, cut to the limit (a model writes long notes; a cut note beats a lost map). */
 const clean = (value: unknown, limit: number): string | null => {
   if (typeof value !== 'string') return null;
   const text = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim();
-  return text && [...text].length <= limit ? text : null;
+  if (!text) return null;
+  const scalars = [...text];
+  return scalars.length <= limit ? text : scalars.slice(0, limit - 1).join('').trimEnd() + '…';
+};
+/** A model's id may come back as the label ("Reference model") or with capitals: the slug of it. */
+const slug = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  if (ID.test(value)) return value;
+  const made = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return ID.test(made) ? made : null;
 };
 
-/** Validates a map from the client or the model (untrusted). Null when unusable; a map is either whole or absent. */
+/** Validates a map from the client or the model (untrusted). Null only when the shape is unusable (not an object,
+ * missing arrays, too many entries, a concept without a usable id, label or state); a link to an unknown concept, a
+ * journey entry off the map, a self link, a duplicate or an over-long note is dropped or cut, never fatal: the map
+ * (and the study) must survive one careless element from the model (live check 2026-10-14). */
 export function studyMap(input: unknown): StudyMap | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const m = input as Record<string, unknown>;
   if (!Array.isArray(m.concepts) || !Array.isArray(m.links)) return null;
   if (m.concepts.length > STUDY_MAP_LIMITS.concepts || m.links.length > STUDY_MAP_LIMITS.links) return null;
-  const concepts: StudyConcept[] = [], ids = new Set<string>();
+  const concepts: StudyConcept[] = [], ids = new Set<string>(), renamed = new Map<string, string>();
   for (const raw of m.concepts) {
     if (!raw || typeof raw !== 'object') return null;
     const c = raw as Record<string, unknown>;
-    const id = typeof c.id === 'string' && ID.test(c.id) ? c.id : null, label = clean(c.label, STUDY_MAP_LIMITS.label);
-    if (!id || !label || ids.has(id) || !STUDY_STATES.includes(c.state as StudyState)) return null;
-    const paragraphs = Array.isArray(c.paragraphs) ? c.paragraphs.filter(n => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 100_000) as number[] : [];
-    if (paragraphs.length > STUDY_MAP_LIMITS.paragraphs) return null;
+    const id = slug(c.id), label = clean(c.label, STUDY_MAP_LIMITS.label);
+    if (!id || !label || !STUDY_STATES.includes(c.state as StudyState)) return null;
+    if (ids.has(id)) continue;
+    if (typeof c.id === 'string' && c.id !== id) renamed.set(c.id, id);
+    const paragraphs = [...new Set((Array.isArray(c.paragraphs) ? c.paragraphs : []).filter(n => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 100_000) as number[])]
+      .sort((a, b) => a - b).slice(0, STUDY_MAP_LIMITS.paragraphs);
     const note = c.note === undefined || c.note === null ? undefined : clean(c.note, STUDY_MAP_LIMITS.note) ?? undefined;
-    ids.add(id); concepts.push({ id, label, state: c.state as StudyState, paragraphs: [...new Set(paragraphs)].sort((a, b) => a - b), ...(note ? { note } : {}) });
+    ids.add(id); concepts.push({ id, label, state: c.state as StudyState, paragraphs, ...(note ? { note } : {}) });
   }
+  const ref = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const id = renamed.get(value) ?? slug(value);
+    return id && ids.has(id) ? id : null;
+  };
   const links: StudyLink[] = [], seen = new Set<string>();
   for (const raw of m.links) {
-    if (!raw || typeof raw !== 'object') return null;
+    if (!raw || typeof raw !== 'object') continue;
     const l = raw as Record<string, unknown>;
-    if (typeof l.from !== 'string' || typeof l.to !== 'string' || !ids.has(l.from) || !ids.has(l.to) || l.from === l.to
-      || !STUDY_LINKS.includes(l.kind as StudyLink['kind'])) return null;
-    const key = `${l.from}>${l.to}`; if (seen.has(key)) continue;
-    seen.add(key); links.push({ from: l.from, to: l.to, kind: l.kind as StudyLink['kind'] });
+    const from = ref(l.from), to = ref(l.to);
+    if (!from || !to || from === to || !STUDY_LINKS.includes(l.kind as StudyLink['kind'])) continue;
+    const key = `${from}>${to}`; if (seen.has(key)) continue;
+    seen.add(key); links.push({ from, to, kind: l.kind as StudyLink['kind'] });
   }
-  const focus = m.focus === null || m.focus === undefined ? null : typeof m.focus === 'string' && ids.has(m.focus) ? m.focus : null;
-  if (!Array.isArray(m.journey) || m.journey.length > STUDY_MAP_LIMITS.journey || !m.journey.every(j => typeof j === 'string' && ids.has(j))) return null;
+  const focus = ref(m.focus);
+  const journey = (Array.isArray(m.journey) ? m.journey : []).map(ref).filter((j): j is string => j !== null).slice(-STUDY_MAP_LIMITS.journey);
   const next = STUDY_NEXT.includes(m.next as StudyMap['next']) ? m.next as StudyMap['next'] : 'calibrate';
-  const map: StudyMap = { concepts, links, focus, journey: m.journey as string[], next };
+  const map: StudyMap = { concepts, links, focus, journey, next };
   if (new TextEncoder().encode(JSON.stringify(map)).length > STUDY_MAP_LIMITS.bytes) return null;
   return map;
 }

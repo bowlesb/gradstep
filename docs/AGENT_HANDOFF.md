@@ -25,6 +25,17 @@ Connect when this was written, the second still processing. Owner acceptance of 
 `READER_CORPUS_SET=<set> node scripts/fetch-reader-corpus.mjs --on-this-device --update-lock` then
 `READER_CORPUS_SET=<set> npm run test:slow:corpus -- --project=chromium` ([TESTING.md](TESTING.md)).
 
+**Midday 2026-10-14 (commit `bafae2d` and the commits after it):** the Study tutor (experimental; server, browser,
+native), the cost-audit fixes with migration **060** (budget periods, health check, zero-cost failed answers, the
+stale sweep at zero, the sync fence code), the native sync scheduler and sync copy by code, the podcast UX pass and
+the offline fixture. Status and evidence in
+[Implementation status](IMPLEMENTATION_STATUS.md#study-tutor-audit-fixes-native-sync-scheduler--2026-10-14-midday-commit-bafae2d-and-after-deployment-noted-below);
+migrations **060 and 061** are applied, chat function **122** and Pages **`0a4c0f85`** are live, and the native side
+waits for the podcast pass before build 34. One incident to know: function 118's smaller hold estimate paused all paid
+work on staging for eleven minutes (a per-attempt ceiling overrun); 121 restored the margin and the switch was set
+back on at the same limit ([SPENDING_CONTROLS.md](architecture/SPENDING_CONTROLS.md#budget-periods-failed-answers-and-the-stale-hold-sweep--2026-10-14-migration-060-staging)).
+Exercise the tutor on staging with `node scripts/chat-live-smoke.mjs --study` (paid, about $0.30; verified 17:05 UTC).
+
 **Build 31 screenshots (2026-10-14 15:34 UTC):** tiny figure, missing Back after in-page citation links, poor streaming
 scroll; fixed in the compiler, the shared bridge and the native flush cadence (the scroll fix needs the owner's eye),
 shipped as Pages **`7bbf4a45`** and TestFlight build 33 (uploading when this was written). The credit-system and

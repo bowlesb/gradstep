@@ -27,6 +27,20 @@ extension ReaderModel {
         }
     }
 
+    /// Study (2026-10-14): a paper numbered on this device, so "Study this paper" is offered and the fixture transport
+    /// tutors. The shared arXiv HTML fixture (tests/fixtures/reader-arxiv/package.json) as a membership of this library.
+    func configureStudyFixture() throws {
+        guard let resources = Bundle.main.resourceURL else { return }
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: resources.appendingPathComponent("ReaderSamples/arxiv-fixture.json")))
+        let reference = try SourcePaperReference(membershipID: UUID(uuidString: "58000000-0000-4000-8000-000000000003")!, sourceID: "2601.01234", revision: 2)
+        var paper = Paper(id: reference.membershipID, title: "Authored HTML fixture", authors: "A. Author", year: 2026,
+                          abstract: "A short authored paper for the HTML reader.", keywords: ["cs.LG"], fileURL: nil, artifactID: nil)
+        paper.sourceID = "2601.01234"; paper.sourceRevision = 2; paper.sourceMembership = reference
+        let numbered = paper.displaying(bundle)
+        papers.append(numbered)
+        selectedPaper = numbered; chatPaperID = numbered.id; generalChat = false
+    }
+
     func configureWorkflowFixture() throws {
         openSample()
         guard let sample = selectedPaper else { return }
@@ -57,6 +71,7 @@ extension ReaderModel {
             try configureLibraryMetadataFixture(sample: sample)
         }
         if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
+        if ProcessInfo.processInfo.arguments.contains("--study-fixture") { try configureStudyFixture() }
         if AddPaperFixture.isEnabled { try configureAddPaperFixture() }
         tab = .library; wideMode = .library
         // Quick visual checks from the command line (`simctl launch … --start-tab=chat`): open on another tab.

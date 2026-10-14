@@ -1091,3 +1091,28 @@ Details and contract: [chat](architecture/CHAT.md#models-effort-and-length-2026-
 | UX | iOS/iPad: a capsule in the message box under the text, beside Send (Gemini's arrangement), opening "Answers in this chat"; Settings › Chat defaults; a quiet "Sonnet · Low · Standard" under answers. A chat keeps its newest answer's choice; selection actions carry the visible choice. |
 | Titles | Haiku 5.5 writes a 3–7 word topic title in parallel with the first answer, inside the same metered operation (≈ 0.02 credit), sent as an SSE `title` event, stored by the device as an encrypted conversation revision (`titleSource`). Untitled chats get one on their next question; no bulk generation. Rename everywhere; a generated title never replaces a renamed one. |
 | Web | Contract documented for Codex (owner moved web and Mac-only work to Codex on 2026-10-08); the integrated browser implementation is now deployed and its current status is in `BROWSER_READER.md`. The earlier branch commits (`338e628`, `c286bdf`) remain historical. |
+
+
+## Study: an adaptive tutor on one paper (owner asked 2026-10-14; agent decisions, experimental, reversible)
+
+Owner: "an experimental feature that combines quizzes you and teaches you about a paper… adaptive… display [the
+mental model] in some type of flow, html, or graph." Decisions taken to build a first slice to learn from
+([CHAT.md](architecture/CHAT.md#study--2026-10-14-experimental-staging)):
+
+- **A chat action, not a new product surface or storage.** `action: "study"` on an ordinary paper conversation; the
+  knowledge map (concepts with a state, links, focus, journey, next step) is the only new state and it travels with
+  each turn in memory. Nothing new is stored on the server, in encrypted history or in the browser, so the experiment
+  can be removed or redesigned without a migration or a sync-format change. The cost: the map is lost when the chat
+  is left or the app relaunches (the conversation itself stays). Open: whether a map should be kept with its
+  conversation (a sealed event kind, format 2) once the shape settles.
+- **Two requests per turn, like follow-ups.** The tutor answers; a forced Haiku 5.5 tool call updates the map from
+  the exchange (never the paper). One mechanism already proven for follow-ups; the map update is testable and cheap.
+  Open: a single-request design once the tutor's output format is stable.
+- **The tutor's protocol is fixed in the prompt** (judge, then exactly one step and one question; teach with
+  citations, verify, deeper, tangent, revisit) rather than learned; the next step is recorded on the map so the client
+  can show it and a later design can override it.
+- **Map rendering reuses the diagram renderer** (Mermaid flowchart, state classes, thick border for the focus) with a
+  journey list and a concept list beside it, instead of a new graph component.
+- **Not done:** persistence across sessions, a cross-paper model of the reader, quizzes with scoring, spaced
+  repetition, and any admin or analytics view. The proposal in
+  [proposals/LEARNING_GUIDE.md](proposals/LEARNING_GUIDE.md) remains the place for the product angle.

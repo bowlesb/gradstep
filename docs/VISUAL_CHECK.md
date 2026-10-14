@@ -15,7 +15,7 @@ longer than usual, one a minute into downloading, one failed), `library-columns`
 `library-import-progress`, `library-import-progress-help`, `library-import-progress-table` (imports at every step with
 percent and time left; the explainer sheet), `library-swipe`, `feed`, `feed-results` (the Feed's
 List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-scrolled` (part-way up, messages passing under the floating chrome), `chat-keyboard`,
-`chat-answer`, `chat-diagram`, `chat-diagram-failure` (invalid source after one repair, source collapsed),
+`chat-answer`, `chat-diagram`, `chat-diagram-failure` (invalid source after one repair, source collapsed), `study-bar` and `study-sheet` (Study, 2026-10-14: `--study-fixture` numbers the shared arXiv HTML fixture as a membership of the library; the scenario opens the paper's chat, starts the study, answers once; the sheet is the knowledge map; on the Mac `--visual-study` stages the bar),
 `chat-paper-menu` (the paper's other chats), `chat-paper-history` (This paper selected),
 `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,

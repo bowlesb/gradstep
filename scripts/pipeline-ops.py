@@ -57,6 +57,14 @@ sub.add_parser('status'); sub.add_parser('enable'); sub.add_parser('disable'); s
 b = sub.add_parser('budget'); b.add_argument('--usd', type=float, required=True); b.add_argument('--disable', action='store_true')
 g = sub.add_parser('grant'); g.add_argument('account'); g.add_argument('credits', type=int); g.add_argument('key')
 r = sub.add_parser('resolve'); r.add_argument('attempt'); r.add_argument('--job'); r.add_argument('--pages', type=int)
+# Cost audit 2026-10-14, item 1: provider attempts left `unknown` (a Stop, a deadline, a dropped stream) keep their whole
+# ceiling in the platform's reserved liability until an owner resolves them with the provider's actual cost.
+a = sub.add_parser('attempts', help='List provider attempts still unknown or admitted, oldest first'); a.add_argument('--hours', type=float, default=1.0)
+c = sub.add_parser('reconcile', help='Resolve one attempt at its actual provider cost (releases the rest of its ceiling)')
+c.add_argument('attempt'); c.add_argument('--actor', required=True, help='Owner account id (app_private.accounts.id) the adjustment is audited to')
+c.add_argument('--microusd', type=int, required=True, help='Actual provider cost in micro-USD (0 when the provider never started it)')
+c.add_argument('--evidence', required=True, help='Where the cost was read: a provider request id, message id or invoice line')
+c.add_argument('--reason', required=True); c.add_argument('--units', default='{}', help='Provider units as JSON (Tavily needs {"credits": n})')
 args = parser.parse_args()
 
 if args.command == 'status':
@@ -79,5 +87,14 @@ elif args.command == 'grant':
 elif args.command == 'resolve':
     if (args.job is None) == (args.pages is None): raise SystemExit('Pass exactly one of --job or --pages')
     print(rpc('worker_pipeline_resolve_uncertain', {'p_attempt_id': args.attempt, 'p_provider_job_id': args.job, 'p_pages_billed': args.pages}))
+elif args.command == 'attempts':
+    print(json.dumps(sql(f"""select coalesce(jsonb_agg(jsonb_build_object('id',a.id,'operation',a.operation_id,'account',a.account_id,'provider',a.provider,
+   'route',a.route,'model',a.model,'state',a.state,'ceiling_usd',a.ceiling_microusd/1e6,'actual_usd',a.actual_microusd/1e6,'request_id',a.provider_request_id,
+   'failure',a.failure_code,'age_minutes',round(extract(epoch from now()-a.created_at)/60)) order by a.created_at),'[]') as attempts
+ from app_private.provider_attempts a where a.state in ('unknown','admitted') and a.created_at<now()-interval '{float(args.hours)} hours'""")[0]['attempts'], indent=1, default=str))
+elif args.command == 'reconcile':
+    import uuid
+    print(rpc('worker_provider_attempt_reconcile', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()), 'p_attempt_id': args.attempt,
+        'p_actual_microusd': args.microusd, 'p_actual_units': json.loads(args.units), 'p_evidence_reference': args.evidence, 'p_reason': args.reason}))
 elif args.command == 'kick':
     print(http(env['SUPABASE_URL'] + '/functions/v1/paper-worker', {'x-pipeline-secret': env['PIPELINE_SECRET']}, {'reason': 'operator'}))

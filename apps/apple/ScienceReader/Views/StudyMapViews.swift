@@ -11,12 +11,10 @@ struct StudyMapBar: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "graduationcap").foregroundStyle(.tint).accessibilityHidden(true)
+            // Three short lines: the phone has no room for the summary beside the title.
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text("Knowledge map").font(.subheadline.weight(.semibold))
-                    Text(map.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        .accessibilityIdentifier("chat.study.summary")
-                }
+                Text("Knowledge map").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(map.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1).accessibilityIdentifier("chat.study.summary")
                 Text(nowText).font(.caption).foregroundStyle(.secondary).lineLimit(1).accessibilityIdentifier("chat.study.now")
             }
             Spacer(minLength: 4)

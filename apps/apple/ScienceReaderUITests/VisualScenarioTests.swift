@@ -137,6 +137,16 @@ final class VisualScenarioTests: XCTestCase {
                 self.ask(app, "Why scale by the square root of d_k?")
                 sleep(3); self.dismissKeyboard(app)
             },
+            // Study (2026-10-14): the knowledge-map bar after the opening question and one answer; the map sheet.
+            "study-bar": Scenario(arguments: Self.chatFixture + ["--workflow-fixture", "--study-fixture"]) { app in
+                self.study(app); sleep(1); self.dismissKeyboard(app)
+            },
+            "study-sheet": Scenario(arguments: Self.chatFixture + ["--workflow-fixture", "--study-fixture"]) { app in
+                self.study(app)
+                let view = app.buttons["chat.study.view"].firstMatch
+                XCTAssertTrue(view.waitForExistence(timeout: 5)); view.tap()
+                XCTAssertTrue(app.navigationBars["Knowledge map"].waitForExistence(timeout: 5)); sleep(8)
+            },
             "chat-diagram": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=diagram"]) { app in
                 self.ask(app, "Draw the attention computation")
                 let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
@@ -380,6 +390,27 @@ final class VisualScenarioTests: XCTestCase {
         XCTAssertTrue(citation.waitForExistence(timeout: 5)); citation.tap()
         XCTAssertTrue(app.buttons["reader.citation.back"].waitForExistence(timeout: 5))
         usleep(700_000) // the reference is still highlighted
+    }
+
+    /// Starts the fixture study from the paper chat's empty state and answers the tutor's first question.
+    private func study(_ app: XCUIApplication) {
+        // The paper's chat, from the paper itself (the fixture selects its numbered paper).
+        self.go(app, "paper")
+        let options = app.buttons["Paper options"].firstMatch
+        XCTAssertTrue(options.waitForExistence(timeout: 8)); options.tap()
+        let ask = app.buttons["Ask about this paper"].firstMatch
+        XCTAssertTrue(ask.waitForExistence(timeout: 5)); ask.tap()
+        let start = app.buttons["chat.study.start"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 8)); start.tap()
+        let bar = app.descendants(matching: .any).matching(identifier: "chat.study.bar").firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 10))
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText("A weighted sum of the values.")
+        app.buttons["chat.send"].tap()
+        let summary = app.staticTexts["chat.study.summary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10))
+        _ = app.staticTexts["chat.study.summary"].firstMatch.label
+        sleep(2)
     }
 
     private func ask(_ app: XCUIApplication, _ question: String) {

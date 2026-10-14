@@ -624,6 +624,14 @@ final class ChatGenerationTests: XCTestCase {
 
     /// The real check: the bundled Mermaid's parser in an off-screen web view.
     func testTheBundledMermaidParserChecksDiagrams() async throws {
+        // Study (2026-10-14): the knowledge map's flowchart (state classes, link styles, the focus border) is valid
+        // Mermaid for the bundled renderer, labels with Mermaid syntax characters included.
+        let map = StudyMap(concepts: [StudyMap.Concept(id: "scaling", label: "Scaled dot-product attention (QK^T)", state: .learning, paragraphs: [2]),
+            StudyMap.Concept(id: "softmax", label: "Softmax \"saturation\" [large logits]", state: .unknown, paragraphs: [2]), StudyMap.Concept(id: "end", label: "End of sequence", state: .verified, paragraphs: [])],
+            links: [StudyMap.Link(from: "softmax", to: "scaling", kind: .prerequisite), StudyMap.Link(from: "scaling", to: "end", kind: .deeper), StudyMap.Link(from: "end", to: "softmax", kind: .related)],
+            focus: "scaling", journey: ["scaling", "softmax"], next: .teach)
+        if case .invalid(let error) = await MermaidCheck.check(map.mermaid) { XCTFail("The knowledge map must draw: \(error)") }
+        if case .invalid(let error) = await MermaidCheck.check(StudyMap.empty.mermaid) { XCTFail("An empty map must draw: \(error)") }
         let valid = await MermaidCheck.check("flowchart TD\n A[\"Input (x)\"] --> B[Encoder]\n B --> C[Loss]")
         XCTAssertEqual(valid, .valid)
         let broken = await MermaidCheck.check("flowchart TD\n A[Input (x)] --> B[Encoder]")

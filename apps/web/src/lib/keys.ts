@@ -2,6 +2,7 @@
 // The algorithm is the native DeviceKeys (apps/apple/ScienceReader/Services/DeviceKeys.swift):
 // bootstrap, recovery with a self-approved enrollment, approval by another device (QR), and resumable pending enrollments.
 // Device private keys are non-extractable CryptoKeys; key bundles are never persisted.
+import { requestPersistence } from './persistence';
 import { type Bytes, fromBytea, randomBytes, toBytea, wireUUID } from './bytes';
 import { approvalPayload } from './approval';
 import { auth, config, rpc, BackendError, type AuthSnapshot } from './backend';
@@ -161,7 +162,7 @@ async function loadDevice(account: string, signal?: AbortSignal): Promise<Device
   // Advisory eviction protection may wait for a permission prompt (e.g. Firefox).
   // The committed key readback above is the admission gate; this optional prompt
   // must not hold the account's key-operation lock or stall sign-in.
-  try { void navigator.storage?.persist?.().catch(() => {}); } catch { /* not granted */ }
+  void requestPersistence();
   return persisted;
 }
 

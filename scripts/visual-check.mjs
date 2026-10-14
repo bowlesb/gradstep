@@ -71,6 +71,7 @@ const MAC_SCENARIOS = {
   'chat-credits': { args: [...chatFixture, '--chat-fixture-mode=insufficient_credits', '--visual-ask=Summarize the method'], delay: 8 },
   'chat-diagram': { args: [...chatFixture, '--chat-fixture-mode=diagram', '--visual-ask=Draw the attention computation'], delay: 10 },
   'chat-history-table': { args: [...historyFixture, '--visual-show-all-chats'] },
+  'study-bar': { args: [...chatFixture, '--workflow-fixture', '--study-fixture', '--visual-study'], delay: 10 },
   'store': { args: [...chatFixture, '--visual-show-store'] },
   'settings': { args: ['--workflow-fixture', '--start-tab=settings'] },
   'settings-account': { args: [...chatFixture, '--start-tab=settings'] },

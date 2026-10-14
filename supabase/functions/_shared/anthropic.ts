@@ -277,9 +277,14 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
 /** Prompt size in characters for the hold: the UTF-8 bytes of everything sent (estimateTokens divides by three; the
  * byte count already triples multi-byte text, and English prose runs about four bytes per token). Until 2026-10-14
  * this returned three times the bytes, so holds ran about 80× the actual cost and refused small balances. */
+/** The request's size for the hold and per-attempt ceilings: three "characters" per UTF-8 byte, so the estimate is
+ * one token per byte. Real prompts tokenize at 2–3 bytes per token (dense math and markup below 2.3): a 2–3× margin, on
+ * purpose. A bytes-only count was deployed on 2026-10-14 (chat function 118) and sized a follow-up attempt's ceiling
+ * at 242 micro-USD against 271 actual; that overrun paused every paid request on staging, so the margin returned the
+ * same hour. A real token count (the count-tokens endpoint) is the cost audit's open item 3. */
 export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): number {
   return new TextEncoder().encode(JSON.stringify({ system: params.system ?? [], messages: params.messages,
-    tools: params.tools ?? [] })).byteLength;
+    tools: params.tools ?? [] })).byteLength * 3;
 }
 
 export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected';

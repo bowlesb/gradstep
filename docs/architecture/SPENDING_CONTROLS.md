@@ -206,12 +206,25 @@ hold-sizing part of item 3:
   reached the provider at 0 credits and 0 micro-USD (it used to settle at the full ceiling and add it to
   `spent_microusd` for good). Staging's `spent` of $21.03 against $9.59 of recorded provider attempts predates this;
   it is not corrected retroactively.
+- **Unknown attempts have a release tool.** `scripts/pipeline-ops.py attempts [--hours N]` lists provider attempts
+  still `unknown` or `admitted` after N hours (id, operation, route, model, ceiling, request id, age) read-only;
+  `scripts/pipeline-ops.py reconcile <attempt> --actor <owner account id> --microusd <actual> --evidence <provider
+  request or message id> --reason <text>` resolves one through `worker_provider_attempt_reconcile` (owner-audited,
+  idempotent per request id), which releases the rest of its ceiling from the platform's reserved liability. Staging
+  had none older than an hour on 2026-10-14 17:00 UTC. Automatic resolution of aborted chat attempts from their
+  `message_start` usage is still open (audit item 1).
 - **Failed answers.** An answer the provider never started (no `message_start`: a 5xx, an overload, a dropped
   connection) charges the reader 0 credits; the `error` event carries `credits` and both clients show "No credits
   used". The provider attempt keeps the platform's liability until it is resolved (audit item 1, still open).
-- **Hold sizing.** `promptCharacters` now counts UTF-8 bytes once (it counted them three times), so the input part of
-  every chat hold is about a third of what it was; `FALLBACK_HOLD_FACTOR` and `HOLD_CAP_MINIMUM_CREDITS` are
-  unchanged (audit item 3's remaining work: a token count instead of bytes, and "needs N available" in the estimate).
+- **Hold sizing: tried and reverted the same hour.** Chat function 118 (16:53 UTC) counted prompt bytes once instead
+  of three times, a third of the earlier input estimate. At 16:57 the first live answer's follow-up attempt cost 271
+  micro-USD against a 242 micro-USD per-attempt ceiling (the real prompt tokenized at about 2.3 bytes per token, under
+  the ÷ 3 estimate), the overrun set October's `work_enabled` to false, and every paid request on staging answered
+  `platform_budget_exhausted` until 17:04, when the switch was set back on at the same $25 limit
+  (`pipeline-ops.py budget --usd 25`; nothing raised). Function 121 restored the one-token-per-byte estimate with
+  a note saying why; the per-attempt ceiling is sized from the same estimate as the hold, so any estimate below the
+  real count pauses the platform. Audit item 3 therefore stays open in full: a real token count (the count-tokens
+  endpoint) is the only safe way to shrink holds, and "needs N available" in the estimate is still to do.
 - **Sync fence.** `v2_pull_events` raises `sync_page_too_large` (which builds up to 27 render as an update notice)
   instead of `reader_update_required` (which they rendered as "try again") when a page holds a format-2 event.
 

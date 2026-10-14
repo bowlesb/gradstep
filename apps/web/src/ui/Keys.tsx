@@ -1,5 +1,6 @@
 // This browser becomes a device: new keys for an account without any; otherwise approval from another device (QR,
 // the primary path) or the recovery code.
+import { requestPersistence } from '../lib/persistence';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { BackendError } from '../lib/backend';
 import { StorageError, activateJournal, storage } from '../lib/idb';
@@ -85,7 +86,7 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
               const result = await activateJournal();
               if (signal.aborted) return;
               if (result === 'deferred') setIssue('Another Gradstep tab still has unsent work. Finish or copy it, then close that tab and try again.');
-              else { try { await navigator.storage?.persist?.(); } catch { /* browser may decline */ } onReady(view.ready); }
+              else { await requestPersistence(); onReady(view.ready); }
             } catch (error) { if (!signal.aborted) setIssue(message(error)); }
             finally { if (!signal.aborted) setBusy(false); }
           }}>{busy ? 'Preparing storage…' : 'Save drafts'}</button>

@@ -13,6 +13,7 @@ import { Diagram } from './Diagram';
 import { Icon } from './icons';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
+import { persistenceState, subscribePersistence } from '../lib/persistence';
 
 export function useChatUpdates(chat: ChatSession) {
   useSyncExternalStore(chat.subscribe, chat.getVersion);
@@ -57,6 +58,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
 }) {
   const historyVersion = useChatUpdates(chat);
   const workspace = useWorkspaceControls();
+  const persistence = useSyncExternalStore(subscribePersistence, persistenceState, persistenceState);
   const documentID = mode === 'paper' ? paper?.documentID ?? null : null;
   const c = chat.current(documentID);
   const branch = useMemo(() => chat.branch(c), [chat, c, c.head, c.conversationID, c.phase, historyVersion]);
@@ -129,7 +131,8 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       </select></label>}
     </div>
     {(chat.history.status !== 'ready' || chat.history.issue || chat.history.unsaved > 0) && <div className="chat-sync fine" role="status">
-      {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : chat.durable ? 'Saved on this device. Syncing encrypted history…' : 'Saving encrypted history… Keep this tab open.')}
+      {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : chat.durable ? 'Saved on this device. Syncing encrypted history…'
+        : chat.journalState === 'unsupported' ? 'This browser can’t keep chats between visits: they stay for this session and sync while this tab is open.' : 'Saving encrypted history… Keep this tab open.')}
       {chat.history.issue && <button className="link" onClick={() => void chat.history.sync().catch(() => {})}>Retry sync</button>}
     </div>}
     <div ref={viewport} className="chat-transcript" role="region" aria-label="Conversation" tabIndex={0} onScroll={() => {
@@ -186,7 +189,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
         // Only what the reader should act on: a stopped tab, a failed device save, or a draft that is not kept after a reload.
         const hint = retired ? 'This tab has stopped sending. Select your text to copy it.'
           : chat.durable ? (c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
-            : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : 'Saved on this device.')
+            : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : persistence === 'best-effort' ? 'Saved in this browser. It may clear this when space runs low.' : 'Saved on this device.')
           : 'Unsent drafts stay in this tab only and aren’t kept after a reload.';
         return hint ? <p className="fine draft-hint" data-testid="draft-status">{hint}</p> : null;
       })()}
