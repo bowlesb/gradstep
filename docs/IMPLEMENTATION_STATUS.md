@@ -37,8 +37,8 @@ chat journey now aborts arXiv so its legacy fixture item falls back to the serve
 LegacyArxivReaderTests (4 new), LibraryModelTests, PaperPassageTests and ArxivHTMLReaderTests; Swift Core chat
 tests 23. The pinned lock gained DeepSeek-V2's six assets; no pinned HTML digest changed.
 
-**Deployment:** browser Pages deployed after the commit (hash in the handoff); TestFlight build 32 uploaded for iOS and
-Mac after this section was written (state recorded in the handoff); no Edge function or migration changed (the compiler
+**Deployment:** browser Pages **`4fdd4675`** (app.gradstep.ai) with the compiler and legacy reading; TestFlight **build 32**
+uploaded for iOS and Mac (one upload VALID on App Store Connect at the time of writing, the other processing); no Edge function or migration changed (the compiler
 runs on the device and in tests only).
 
 ## Agent v2 on staging — 2026-10-14 (deployed)

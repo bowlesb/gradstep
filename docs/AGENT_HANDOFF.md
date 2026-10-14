@@ -13,6 +13,18 @@ deleted). The repository review of 2026-10-13 (arXiv pacing, shared preparation,
 revisions, deleted PDF/Mathpix code) shipped in the same release. Commits: `7233641` (cutover), `dc040a9` (review),
 and the Agent v2 commit that follows this checkpoint.
 
+**Later on 2026-10-14 (owner awake and testing build 31):** the owner reported legacy library papers not opening and
+new papers failing with "Couldn't open this paper". Commit `c615af3` opens legacy arXiv items through the on-device
+HTML reader on every surface (server bundle as fallback, reasons and actions instead of a silent dead end, "Opens
+from arXiv" in the library) and makes the compiler tolerate LaTeXML markers, inline graphics, TikZ pictures and
+tables in list items with a closing note (the owner's nine papers replay 18/18; pinned corpus 16/16; DeepSeek-V2 is
+now supported). Commit `ffbdcac` adds the Mac self-capture path and the
+[iPad/Mac audit](reviews/IPAD_MAC_AUDIT_20261014.md). Browser Pages **`4fdd4675`** carries both; TestFlight **build 32**
+(iOS and Mac) carries the native side: both uploads succeeded at 08:21 and 08:2x PDT; the first was VALID on App Store
+Connect when this was written, the second still processing. Owner acceptance of builds 31 and 32 is open. Reproduce a compile problem with
+`READER_CORPUS_SET=<set> node scripts/fetch-reader-corpus.mjs --on-this-device --update-lock` then
+`READER_CORPUS_SET=<set> npm run test:slow:corpus -- --project=chromium` ([TESTING.md](TESTING.md)).
+
 **Before the next build:** run `node scripts/ux-review.mjs` and the native visual capture and read the sheets
 ([UX_REVIEW.md](UX_REVIEW.md)); after chat prompt or function changes, one `node scripts/chat-live-smoke.mjs
 --questions=2` run (paid, about $0.25). The owner's next request is an exploration, not code: a learning-guide
