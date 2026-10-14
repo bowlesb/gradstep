@@ -156,7 +156,7 @@ def observe(api):
     for name, schedule in SCHEDULES.items():
         item = api(scheduler_url(name))
         if item.get('name') != f'projects/{PROJECT}/locations/{REGION}/jobs/{name}' \
-                or item.get('schedule') != schedule or item.get('timeZone') != 'Etc/UTC' or item.get('state') != 'ENABLED' \
+                or item.get('schedule') != schedule or item.get('timeZone') != 'Etc/UTC' or item.get('state') not in ('ENABLED', 'PAUSED') \
                 or item.get('httpTarget', {}).get('uri') != URL + ':run':
             fail('scheduler_configuration')
         # These fields change with ordinary scheduled executions; all config, payload, auth and update time stay bound.

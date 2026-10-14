@@ -19,6 +19,8 @@ interface Profile { renderer: string; source: string; images: string[]; equation
 const PROFILES: Profile[] = [
   { renderer: 'timestep-mmd-v1', source: 'authored-mmd', images: ['image/png'], equations: 512, figures: 128, blocks: 5000, headings: 500, indexBytes: 2_097_152, pixels: 16_000_000 },
   { renderer: 'timestep-mathpix-mathml-v1', source: 'mathpix-mmd', images: ['image/png', 'image/jpeg'], equations: 4000, figures: 256, blocks: 20_000, headings: 1000, indexBytes: 4_194_304, pixels: 64_000_000 },
+  { renderer: 'gradstep-arxiv-html-mathml-v1', source: 'arxiv-html', images: ['image/png', 'image/jpeg'], equations: 4000, figures: 256, blocks: 20_000, headings: 1000, indexBytes: 4_194_304, pixels: 64_000_000 },
+  { renderer: 'gradstep-arxiv-html-mathml-v2', source: 'arxiv-html', images: ['image/png', 'image/jpeg'], equations: 4000, figures: 256, blocks: 20_000, headings: 1000, indexBytes: 4_194_304, pixels: 64_000_000 },
 ];
 /** The frame bridge must admit every contents list accepted by the bundle verifier. */
 export const MAXIMUM_READER_HEADINGS = Math.max(...PROFILES.map(profile => profile.headings));
@@ -47,7 +49,7 @@ function validateManifest(m: Manifest): Profile {
     paths.add(member.path.toLowerCase());
     total += member.bytes;
     if (member.role === 'html' && member.bytes > 8_388_608) fail('manifest');
-    if (m.source.kind === 'mathpix-mmd' && member.role === 'provenance' && (member.bytes < 1 || member.bytes > 262_144)) fail('manifest');
+    if (['mathpix-mmd', 'arxiv-html'].includes(m.source.kind) && member.role === 'provenance' && (member.bytes < 1 || member.bytes > 262_144)) fail('manifest');
     if (member.role === 'image') {
       const w = member.width, h = member.height;
       if (!Number.isInteger(w) || !Number.isInteger(h) || w! < 1 || w! > 8192 || h! < 1 || h! > 8192 || w! * h! > 16_000_000) fail('manifest');
@@ -145,6 +147,56 @@ function validateProvenance(data: Bytes, manifest: Manifest, index: ReaderIndex)
   if (!sameSet(published, new Set(images.keys())) || !sameSet(referenced, published) || !index.figures.every(f => f.alt)) fail('resource');
 }
 
+function validateArxivProvenance(data: Bytes, manifest: Manifest, index: ReaderIndex): void {
+  if (data.length < 1 || data.length > 262_144) fail('resource');
+  const value = json(data, 'resource');
+  const object = (v: unknown, keys: string[]) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v) || canonicalJSON(Object.keys(v).sort()) !== canonicalJSON([...keys].sort())) fail('resource');
+    return v as Record<string, unknown>;
+  };
+  const extended = manifest.renderer.id === 'gradstep-arxiv-html-mathml-v2';
+  const root = object(value, ['format', 'source', 'renderer', 'image_inputs', ...extended ? ['inline_image_inputs'] : []]);
+  if (canonicalJSON(value) + '\n' !== fromUtf8(data) || root.format !== (extended ? 'arxiv-html-reader-provenance-v2' : 'arxiv-html-reader-provenance-v1')) fail('resource');
+  const source = object(root.source, ['arxiv_id', 'revision', 'url', 'bytes', 'sha256']);
+  if (typeof source.arxiv_id !== 'string' || !/^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/.test(source.arxiv_id)
+    || source.sha256 !== manifest.source.sha256) fail('resource');
+  integer(source.revision, 1, 2_147_483_647); integer(source.bytes, 1, 2_097_152);
+  if (source.url !== `https://arxiv.org/html/${source.arxiv_id}v${source.revision}`) fail('resource');
+  const assetURL = (value: unknown): value is string => {
+    if (typeof value !== 'string' || value.length > 2048) return false;
+    try {
+      const u = new URL(value);
+      return u.href === value && u.origin === 'https://arxiv.org' && !u.username && !u.password && !u.port && !u.search && !u.hash
+        && u.pathname.startsWith(new URL(source.url as string).pathname + '/') && !/%(?:2e|2f|5c)/i.test(u.pathname) && /\.(?:png|jpe?g|svg)$/i.test(u.pathname);
+    } catch { return false; }
+  };
+  const renderer = object(root.renderer, ['id', 'build_sha256']);
+  if (renderer.id !== manifest.renderer.id || renderer.build_sha256 !== manifest.renderer.build_sha256) fail('resource');
+  if (!Array.isArray(root.image_inputs) || root.image_inputs.length > 512) fail('resource');
+  const images = new Map(manifest.members.filter(x => x.role === 'image').map(x => [x.path, x]));
+  const published = new Set<string>();
+  if (extended && (!Array.isArray(root.inline_image_inputs) || root.inline_image_inputs.length + (root.image_inputs as unknown[]).length > 512)) fail('resource');
+  for (const [key, rows] of [['source_url',root.image_inputs], ...extended ? [['source_id',root.inline_image_inputs]] : []] as [string, unknown[]][]) {
+   let previous: string | null = null;
+   for (const raw of rows) {
+    const row = object(raw, [key, 'input_sha256', 'published_path', 'published_sha256', 'media_type', 'width', 'height']);
+    const suffix = ({ 'image/jpeg': 'jpg', 'image/png': 'png' } as Record<string, string>)[row.media_type as string];
+    const image = images.get(row.published_path as string);
+    const identity = row[key];
+    if (typeof identity !== 'string' || (key === 'source_url' ? !assetURL(identity) : !/^[A-Za-z_][A-Za-z0-9_.:-]{0,199}$/.test(identity) || row.media_type !== 'image/png')
+      || (previous !== null && !(previous < identity))
+      || !isDigest(row.input_sha256) || !isDigest(row.published_sha256) || !suffix || row.published_path !== `assets/${row.published_sha256}.${suffix}`
+      || !image || image.media_type !== row.media_type || image.sha256 !== row.published_sha256) fail('resource');
+    if (integer(row.width, 1, 8192) !== image!.width || integer(row.height, 1, 8192) !== image!.height) fail('resource');
+    previous = identity as string;
+    published.add(row.published_path as string);
+   }
+  }
+  const referenced = new Set(index.figures.flatMap(f => f.asset_paths));
+  const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every(x => b.has(x));
+  if (!sameSet(published, new Set(images.keys())) || !sameSet(referenced, published) || !index.figures.every(f => f.alt)) fail('resource');
+}
+
 export type ImageCheck = (bytes: Bytes, mediaType: string) => Promise<{ width: number; height: number }>;
 
 /** Decodes a raster fully (the native admission) and returns its pixel size. */
@@ -171,6 +223,7 @@ export async function verifyBundle(manifestBytes: Bytes, expectedSHA256: string,
   if (indexBytes.length > profile.indexBytes) fail('index');
   const index = json(indexBytes, 'index') as ReaderIndex;
   validateIndex(index, manifest, profile);
+  if (manifest.source.kind === 'arxiv-html') validateArxivProvenance(members.get(manifest.source.provenance_path)!, manifest, index);
   if (manifest.source.kind === 'mathpix-mmd') validateProvenance(members.get(manifest.source.provenance_path)!, manifest, index);
   for (const member of manifest.members.filter(m => m.role === 'image')) {
     const size = await imageCheck(members.get(member.path)!, member.media_type);

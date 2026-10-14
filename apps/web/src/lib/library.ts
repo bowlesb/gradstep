@@ -21,7 +21,7 @@ export interface Import {
   kind: 'import'; id: string; created_seq: number; state_seq: number; intent_revision: number; visible: boolean; phase: string; source: string;
   source_id: string; requested_revision?: number; source_revision?: number; metadata_id?: string; version_id?: string; metadata?: Metadata;
   metadata_recorded_at?: number; source_url: string; document_id?: string; library_item_id?: string; error_code?: string; retryable: boolean;
-  progress?: string; progress_detail?: ProgressDetail;
+  progress?: string; progress_detail?: ProgressDetail; archived?: boolean; user_tags?: string[];
 }
 export type Entry = Item | Import;
 
@@ -112,6 +112,7 @@ export function decodeEntry(raw: unknown): Entry {
       requested_revision: opt(e.requested_revision as number), source_revision: opt(e.source_revision as number), metadata_id: uuid(e.metadata_id, false),
       version_id: uuid(e.version_id, false), metadata: metadata(e.metadata), metadata_recorded_at: absent(e.metadata_recorded_at) ? undefined : timestamp(e.metadata_recorded_at),
       source_url: e.source_url as string, document_id: uuid(e.document_id, false), library_item_id: uuid(e.library_item_id, false),
+      archived: absent(e.archived) ? undefined : typeof e.archived === "boolean" ? e.archived : fail("entry"), user_tags: tagList(e.user_tags, 32),
       error_code: opt(e.error_code as string), retryable: e.retryable as boolean, progress: opt(e.progress as string), progress_detail: progressDetail(e.progress_detail),
     };
     validateImport(entry);
@@ -364,6 +365,7 @@ export class Reconciler {
 // ---------- Commands (operation-ID replay makes a resend exactly-once) ----------
 
 export type Command =
+  | { endpoint: 'v5_set_source_details'; p_dataset_epoch: string; p_import_id: string; p_archived: boolean; p_tags: string[]; p_expected_revision: number }
   | { endpoint: 'v2_begin_import'; p_source_id: string; p_requested_revision: number | null; p_observed_cursor: number }
   | { endpoint: 'v2_retry_import' | 'v2_cancel_import'; p_import_id: string; p_expected_revision: number }
   // expectedItemID is a local receipt binding, not an RPC parameter.
@@ -374,6 +376,7 @@ export type Command =
 export async function sendCommand(account: string, command: Command, operationID = crypto.randomUUID(), signal?: AbortSignal): Promise<CommandResponse> {
   // A caller changing its draft while a reply is delayed cannot change a replay's payload/binding.
   command = command.endpoint === 'v2_set_item_tags' ? { ...command, p_tags: [...command.p_tags], p_hidden_tags: [...command.p_hidden_tags] } : { ...command };
+  if (command.endpoint === 'v5_set_source_details') command = {...command,p_tags:[...command.p_tags]};
   const { endpoint, ...fields } = command;
   const params = 'expectedItemID' in fields ? (({ expectedItemID: _, ...wire }) => wire)(fields) : fields;
   if ('expectedItemID' in command && (!isUUID(command.expectedItemID) || !isUUID(command.p_document_id) || !revision(command.p_expected_revision))) fail('command_binding');
@@ -382,7 +385,9 @@ export async function sendCommand(account: string, command: Command, operationID
   // One automatic resend of the identical request after a lost reply; the server replays its receipt.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = decodeCommand(await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account, signal }));
+      const raw = await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account, signal });
+      if(command.endpoint === 'v5_set_source_details' && (raw as {dataset_epoch?:unknown})?.dataset_epoch !== command.p_dataset_epoch) fail('command_binding');
+      const response = decodeCommand(raw);
       if ('expectedItemID' in command) {
         const entry = response.entry, result = response.result;
         if (!entry || entry.kind !== 'item' || entry.id !== command.expectedItemID || entry.document_id !== command.p_document_id

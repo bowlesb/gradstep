@@ -1,6 +1,129 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 26 is VALID and available for internal iOS and Mac testing; build 27 is VALID for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `8820991e`, and the admin site is deployed.**
+Updated 2026-10-13 PDT. Earlier deployment checkpoints below are retained as history.
+
+## Fast/slow integration baseline — 2026-10-13 evening
+
+Owner-directed [fast/slow policy](TESTING.md) is implemented: `npm test` is the routine fast suite; browser journeys,
+real-source corpus, Simulator, database and hosted checks remain explicit slow commands. The runner saves source
+fingerprints, selections, durations and logs; `npm run test:status` reports prior evidence without rerunning it.
+Unchanged slow behavior does not need another run after unrelated edits.
+
+Verified baseline: **499 backend + 349 browser unit tests** and compiler freshness in **10.2 s**; **13 authored
+browser journeys pass / 3 WebKit key-capability skips** in **23.9 s**; **40 real-corpus checks pass / 8 WebKit
+account skips** in **145.7 s**; **6 native PDF + 2 WKWebView tests pass** on iPad Simulator in **75.1 s**.
+The corpus has eight PDFs / **278 pages**, up to **36.2 MB**. All eight pass Chromium and Firefox local intake
+and membership reload, plus native PDFKit checks, encrypted installation, exact-byte reopen and first/middle/last
+page rendering. PDF bytes never leave this development device. No paid providers were called.
+
+Across Chromium, Firefox and WebKit, **six HTML papers prepare and render successfully**; KAN v1 is explicitly
+unavailable because it exceeds the 64-million-image-pixel limit, and DeepSeek-V2 v1 contains an official source
+conversion error. These six expected-unavailability assertions across three engines are not successful reader
+conversions. No limits or completeness checks were weakened. [Exact revisions and evidence](verification/2026-10-13-reader-integration.md).
+
+The expanded Firefox journey found a real sign-in stall: awaiting optional `navigator.storage.persist()` held
+up key preparation while permission remained unanswered. Verified key storage/readback remains mandatory; the
+advisory permission request is now nonblocking. Four fast regressions cover pending, denied, rejected and throwing
+requests; all eight Firefox PDF journeys subsequently pass. Browser Pages **`a3127547`** is deployed; the live
+`app.gradstep.ai` index and both referenced JS/CSS assets match the tested build hashes with production CSP.
+Evidence: `.artifacts/reader-integration-hosted-assets.json` and `.artifacts/reader-integration-deploy.log`.
+Native remains build 30; backend/admin are unchanged. The native baseline was not needlessly rerun for this
+browser-only correction. Physical iPhone work stays paused. Budgets and provider spending are unchanged.
+
+## HTML figure compatibility fix — 2026-10-13 evening
+
+The screenshot identifies **Before They Can Solve**, `2610.10478v1`. Its failure was reproduced: a LaTeXML
+container includes several numbered image/caption pairs, and MuPDF SVG glyphs carry inert `data-text` annotations
+that were wrongly interpreted as CSS. **Learning Representations to Guide Pixel Diffusion Transformers**,
+`2610.12978v1`, visible next in the sidebar, also failed on inline SVG legends and MathML background colors.
+
+Browser Pages **`16b9e4ce`** implements renderer/provenance v2. It preserves each captioned panel, standalone images,
+legend prose and rasterized inline vector symbols; maps the finite LaTeXML background-color property to MathML;
+and strips only MuPDF's non-rendering glyph metadata before SVG admission. V1 bundles remain readable. External
+assets remain pinned to exact arXiv revisions; inline vectors are derived from the hashed HTML and receive separate
+provenance, never fabricated fetch URLs. Source scripts, unsafe SVG, external SVG resources and incomplete content
+remain rejected. Error categories from the earlier diagnostic release `e9d6522a` are retained.
+
+All five real papers (the original three plus these two) pass Chromium, Firefox and WebKit compilation (15/15),
+and their packages independently pass the Node validator. The reported paper has 247 blocks / 301 equations /
+12 figures; the second has 250 blocks / 262 equations / 29 figures, with all eight inline legend symbols retained.
+Regression checks pass: backend 499; browser 345; Core device-reader 5; iPad Simulator WebKit compiler 2;
+six production-CSP browser journeys, with one authenticated WebKit skip for its existing key-persistence gate.
+Hosted checks confirm both papers on the live site: the reported paper shows all 12 figures / 301 equations,
+and the second shows all 29 figures / 262 equations, nine inline images (eight SVG markers and one bitmap), with
+zero broken images. Selection actions pass and figure/caption/legend screenshots were visually inspected.
+The initial combined check stopped at a test assertion expecting eight rather than nine inline images; the
+corrected second-paper check passed. It fetched one HTML plus 60 image assets directly from arXiv, with zero
+PDF/artifact requests, provider attempts, usage or charges; both disposable accounts were successfully deleted.
+Evidence: `.artifacts/html-figures-hosted/` and `.artifacts/html-figures-second-hosted/`.
+The inert XML parser emits CSP style warnings; a targeted pixel check confirms admitted SVG style colors survive
+rasterization under the unchanged restrictive policy (red test pixel `[255,0,0,255]`). No script/network policy
+was relaxed, and there were no page exceptions. Other regression evidence is in `.artifacts/html-figures-*`.
+
+Native **build 30 is VALID and IN_BETA_TESTING for iOS and Mac**, confirmed at 2026-10-14 02:29:46 UTC.
+Build IDs: iOS `e9179467-4517-49ed-8109-09967b9b01b5`; Mac `578886dc-8bae-4164-ace1-ba298e485ab6`.
+Backend services are unchanged. No PDF acquisition or provider call was made for these checks. Physical iPhone work remains paused.
+
+## HTML-first/device-only PDF release — 2026-10-13
+
+**Staging backend and browser are live.** New imports stop at metadata; exact official arXiv HTML is fetched and
+compiled on the reader’s device. PDF choose/drop/Share/download paths stay on device. No server PDF upload,
+acquisition, OCR or Mathpix fallback is admitted. Existing page/navigation/selection and paper/general chat remain.
+A local model for difficult PDFs is future work. Historical server originals and conversions remain retained;
+no legacy migration, rerender or bulk deletion occurred.
+
+- Migration `202610130058` applied and its ledger hash verified. Uploads reject with HTTP 410 before reading PDF
+  bodies; original/OCR/render admission and legacy processing-job claims are fenced. New encrypted source-bound
+  events use envelope format 2 and `v3_pull_events`; older pull APIs require a reader update when they encounter it.
+- Cloud Run `gradstep-pipeline-00033-2jw` has 100% traffic, metadata-only code and no Mathpix environment secrets.
+  Edge `chat`, `paper-worker` and `upload-pdf` deployed. Cutover admission paused with zero pipeline claims,
+  unresolved provider attempts/liability and unfinished asset writes, then resumed after verification.
+- Browser `https://app.gradstep.ai`: Pages **`50ecbc01`**, following the functional release `a95696d2` and a help-copy
+  correction. Admin `https://admin.gradstep.ai`: Pages **`91c1eb33`**, with accurate metadata/device-reader status.
+- Native **build 29 is VALID and IN_BETA_TESTING on iOS and Mac**, confirmed by App Store Connect at
+  2026-10-14 00:45:46 UTC. It includes the corrected “How Gradstep works” explanation. Build 28 is the earlier
+  functional upload. iOS build ID `0824387c-2ee4-447b-ab1e-596c5f4e2dbd`; Mac build ID
+  `79b14c95-fd18-40e3-b24e-b562895fc5fa`. This is an internal TestFlight release, not public App Store release.
+  No physical iPhone was queried, installed, launched or tested.
+- Scheduled workflow image `sha256:44332d6d02360b00ac5bc66ed6df382a85bbed9d73669b4773ed80384cb04e8e`
+  removes the server PDF corpus. Its image-only refresh preserved IAM/configuration; schedules were paused for
+  replacement then restored. Historical PDF journey checks explicitly skip. The admin Reliability tab contains
+  the new upload-refusal, exact-version metadata, source archive/tag and replay checks.
+
+Verification: backend 497 tests; Core 286 tests; native app 410 tests with
+five optional skips and zero failures, followed by targeted iPad HTML/PDF/library checks; browser 343 unit tests
+and four desktop/phone production-CSP journeys. The first live probe found `/oai` missing from the metadata
+allowlist; the corrected worker and regression passed the final live run (4 checks including account cleanup).
+Deployment tooling has 39 passing tests and the image-only refresh has 6 passing tests.
+
+The hosted real-source check prepared **DPO v3** directly from arXiv: 261 MathML equations, eight source assets,
+selection actions and local-context paper-chat admission. Reload and a second isolated browser recovered the
+question from encrypted server history. Three HTML and 24 image requests, **zero PDF or server reader-artifact
+requests**, zero provider attempts/usage/charges, zero credit holds, and successful account deletion were observed.
+The database readback also recorded zero new PDF objects and Mathpix attempts since migration 058, with zero unfinished asset writes.
+A zero-credit refusal tested live admission; it does not establish a new successful paid-answer configuration.
+Auth used a real password session seeded for the disposable account; email/OAuth UI and physical-device approval
+were not re-tested. Evidence: `.artifacts/html-hosted/hosted-browser-zero-credit-summary.json`.
+
+Browser PDF bytes stay in the selected local file/tab; the encrypted membership survives reload, which asks for
+that file again. Browser reader bundles retain the existing bounded RAM cache; durable browser offline bundles
+are not claimed. Missing or unsupported official HTML remains a clear unavailable-reader result with local PDF
+access. Native originals and prepared bundles use separate encrypted, backup-excluded stores.
+
+Budget: October metered provider spend remains **$20.744201 / $25**, with **$0 reserved and $0 unresolved liability**
+after verification; this rollout’s live checks spent $0. The total incremental budget stays $100/month. No new
+subscription/service commitment was introduced. October overhead observations are missing for all eight ledger
+components (Tavily, domains, Supabase, Cloud Run, storage/egress, builds/registry, backups and web hosting), so the
+whole-month forecast is explicitly incomplete; those costs are unknown, not zero.
+
+The full codebase (1,163 source files plus Git history, refreshed after the figure compatibility fix) is copied to
+`192.168.1.32:/home/ben/science-reader-html-20261013`. Every source SHA-256 and `git fsck --full` verified;
+credentials, dependencies and build artifacts are excluded. The earlier `/home/ben/science-reader` checkout is
+preserved. The SSH machine runs no PDF-processing service.
+
+## Historical release checkpoint — 2026-10-09
+
+**Build 26 is VALID and available for internal iOS and Mac testing; build 27 is VALID for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `8820991e`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -87,8 +210,9 @@ classifies pre-change private rows as `legacy_private` for audit, and makes the 
 that path. Native now also has a migration-free, encrypted `DevicePaperStore`, a direct source-only download action,
 and a local PDF viewer; the store is bounded, account-fenced, crash-safe and covered by Core tests. The staging rights
 rollout is live. Approved-device transfer, reader-bundle installation,
-offline structured reading and local Mathpix processing remain gated as described in
+offline structured reading remain gated as described in
 [DEVICE_LOCAL_PAPERS](architecture/DEVICE_LOCAL_PAPERS.md).
+Local Mathpix processing is no longer planned under the 2026-10-13 decision.
 
 ## Data and cost explainer — 2026-10-09 UTC
 
@@ -117,10 +241,11 @@ owner's critical testing loop without changing Production grants.
 
 ## On-device paper processing research — 2026-10-09 UTC
 
-The current Mathpix conversion remains the quality reference. A research note now compares PDFKit/Vision, Tesseract,
+Historical research checkpoint, superseded in direction on 2026-10-13: the note compares PDFKit/Vision, Tesseract,
 pix2tex, Surya, Nougat, PaddleOCR and the DeepSeek-OCR family for a layered local path. No model is bundled or
 enabled from this research. The proposed order is PDF text extraction, on-device general OCR, then a licensed,
-quality-gated equation model with Mathpix fallback; see [ON_DEVICE_PAPER_PROCESSING_20261009](research/ON_DEVICE_PAPER_PROCESSING_20261009.md).
+quality-gated equation model; the former Mathpix fallback is no longer permitted. Initial structured reading now
+targets arXiv HTML. See [ON_DEVICE_PAPER_PROCESSING_20261009](research/ON_DEVICE_PAPER_PROCESSING_20261009.md).
 
 ## Current web/Mac candidate — 2026-10-09 UTC
 

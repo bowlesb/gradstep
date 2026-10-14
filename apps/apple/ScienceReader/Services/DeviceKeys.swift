@@ -346,7 +346,7 @@ final class CloudSync {
         while true {
             try Task.checkCancellation()
             let before = await store.cursor()
-            let response: Page = try await backend.rpc("v2_pull_events", params: Pull(p_after: before), accountID: device.accountID)
+            let response: Page = try await backend.rpc("v3_pull_events", params: Pull(p_after: before), accountID: device.accountID)
             try Task.checkCancellation()
             guard response.next_cursor == (response.events.last?.cursor ?? before),
                   !response.has_more || !response.events.isEmpty else { throw ReaderError.corruptData }

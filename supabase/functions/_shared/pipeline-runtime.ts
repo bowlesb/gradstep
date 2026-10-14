@@ -2,7 +2,9 @@
 // service-role RPC and Storage adapters.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { boundedStorageDownload } from './reader-delivery.ts';
-import { BUCKET, PipelineRPCError, type PipelineDeps } from './pipeline.ts';
+import { PipelineRPCError } from './pipeline-error.ts';
+import type { PipelineDeps } from './pipeline.ts';
+const BUCKET = 'paper-assets';
 
 /** An environment variable under Deno or Node. */
 export function runtimeEnv(name: string): string | undefined {

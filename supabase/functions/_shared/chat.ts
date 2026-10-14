@@ -16,7 +16,7 @@ import type Anthropic from '@anthropic-ai/sdk';
  * v1 (builds up to TestFlight 11) names only Anthropic's, so v1 answers never use Tavily. */
 export const CONSENT_VERSION = 'cloud-ai-v2';
 export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION];
-export const MAX_BODY_BYTES = 512 * 1024;
+export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_TURNS = 60;
 export const MAX_MESSAGE_BYTES = 200_000;
 export const MAX_SELECTION_SCALARS = 4_000;
@@ -41,6 +41,7 @@ export interface ChatRequest {
   consentVersion: string;
   mode: 'paper' | 'general';
   documentID: string | null;
+  localContext?: LocalPaperContext | null;
   turns: ChatTurn[];
   selection: string | null;
   /** Selection action needing server work beyond an answer: Ingest (add the cited paper),
@@ -54,6 +55,25 @@ export interface ChatRequest {
   choice: Choice | null;
   /** Also write a topic title for the conversation (chat-title.ts). */
   topicTitle: boolean;
+}
+
+export interface LocalPaperContext {
+  format: 'reader-local-context-v1'; membership_id: string; source: 'arxiv'; source_id: string; revision: number;
+  manifest_sha256: string; source_sha256: string; text: string;
+}
+
+function localPaperContext(input: unknown): LocalPaperContext {
+  const c = record(input);
+  onlyKeys(c, ['format', 'membership_id', 'source', 'source_id', 'revision', 'manifest_sha256', 'source_sha256', 'text']);
+  if (c.format !== 'reader-local-context-v1' || c.source !== 'arxiv' || typeof c.source_id !== 'string' ||
+    !/^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/.test(c.source_id) ||
+    !Number.isSafeInteger(c.revision) || (c.revision as number) < 1 || (c.revision as number) > 2147483647 ||
+    typeof c.manifest_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.manifest_sha256) ||
+    typeof c.source_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(c.source_sha256) ||
+    typeof c.text !== 'string' || !c.text.trim() || encoder.encode(c.text).length > MAX_PAPER_BYTES ||
+    /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(c.text)) invalid();
+  return { format: 'reader-local-context-v1', membership_id: id(c.membership_id), source: 'arxiv', source_id: c.source_id,
+    revision: c.revision as number, manifest_sha256: c.manifest_sha256, source_sha256: c.source_sha256, text: c.text };
 }
 
 export const CLIENT_CAPABILITIES = ['web_import'] as const;
@@ -82,14 +102,16 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title']);
   if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
   const consentVersion = body.consent_version;
   const mode = body.mode;
   if (mode !== 'paper' && mode !== 'general') invalid();
   const operationID = id(body.operation_id);
   let documentID: string | null = null;
-  if (mode === 'paper') documentID = id(body.document_id);
+  const localContext = body.local_context == null ? null : localPaperContext(body.local_context);
+  if (localContext && (mode !== 'paper' || body.document_id != null)) invalid();
+  if (mode === 'paper' && !localContext) documentID = id(body.document_id);
   else if (body.document_id !== undefined && body.document_id !== null) invalid();
   if (!Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > MAX_TURNS) invalid();
   let bytes = 0;
@@ -134,7 +156,8 @@ export function validateChatRequest(input: unknown): ChatRequest {
   const topicTitle = body.topic_title === true;
   // A diagram repair is its own small request: the default model, no title.
   if (action === 'diagram_fix' && (choice !== null || topicTitle)) invalid();
-  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle };
+  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle,
+    ...(localContext ? { localContext } : {}) };
 }
 
 /** Fixed key order: the reservation's request digest. */
@@ -148,6 +171,7 @@ export function canonicalRequest(request: ChatRequest): string {
     ...(request.capabilities.length ? { capabilities: request.capabilities } : {}),
     ...(request.choice ? { profile: { effort: request.choice.effort, length: request.choice.length, model: request.choice.model } } : {}),
     ...(request.topicTitle ? { topic_title: true } : {}),
+    ...(request.localContext ? { local_context: request.localContext } : {}),
   });
 }
 
@@ -428,7 +452,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (available !== null && available < minimum) throw new ChatFailure('insufficient_credits');
 
   let paper: PaperContext | null = null;
-  if (request.mode === 'paper') {
+  if (request.localContext) {
+    const local = request.localContext;
+    let membership: { title?: string };
+    try { membership = await deps.rpc('worker_local_chat_context', { p_account_id: deps.accountID,
+      p_membership_id: local.membership_id, p_source_id: local.source_id, p_revision: local.revision }) as typeof membership; }
+    catch (error) { throw new ChatFailure(reason(error) === 'document_unavailable' ? 'document_unavailable' : 'service_unavailable'); }
+    if (!membership || typeof membership.title !== 'string') throw new ChatFailure('document_unavailable');
+    paper = { title: membership.title, text: local.text };
+  } else if (request.mode === 'paper') {
     let context: PaperLocation;
     try { context = await deps.rpc('worker_chat_context', { p_account_id: deps.accountID, p_document_id: request.documentID }) as PaperLocation; }
     catch (error) { throw new ChatFailure(reason(error) === 'document_unavailable' ? 'document_unavailable' : 'service_unavailable'); }

@@ -1,5 +1,10 @@
 # Native offline reading bundles
 
+2026-10-13 next contract: [HTML-first reader](HTML_FIRST_READER.md) retains the encrypted installer, offline reader
+and interaction model but adds an arXiv HTML profile and a local bundle identity without server PDF dependencies.
+Every original stays on device. Existing authored/Mathpix verification below does not establish HTML support or
+the new local intake flow. Those additions now have Core and iPhone/iPad Simulator coverage and signed iOS/Catalyst archives; see HTML_FIRST_READER.md for exact evidence and limits.
+
 Status, 2026-10-04: **Core persistence and native installation/reopening are implemented and independently reviewed.** The encrypted install–terminate–relaunch journey passes on iPhone and iPad Simulators. It uses a Simulator-only Debug synthetic account/library fixture, the existing authored bundle and real encrypted SQLite storage. It does not invent membership for a real server account or exempt the sample from eligibility rules. Library, Paper, Contents, figures and chat retain their navigation. The current native suite has 210 passing tests, three expected live/device skips and no failures, including the later search, retention, authentication and restoration-projection regressions. Production artifact delivery, real-account offline acceptance and the final [Mathpix pipeline](MATHPIX_PIPELINE.md) remain separate gates.
 
 ## Build 14 → 15 cache upgrade (2026-10-07, local review)

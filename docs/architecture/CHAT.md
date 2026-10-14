@@ -1,5 +1,11 @@
 # Paid AI chat
 
+2026-10-13 direction: preserve all paper/general-chat interactions while adding a versioned local-context route
+for [HTML-first papers](HTML_FIRST_READER.md#paper-chat-and-other-derived-work). Its bounded text/TeX snapshot comes
+from the device's verified bundle; no PDF, server MMD object or fabricated document identity is required. Account
+authorization, explicit cloud-AI consent, encrypted history and server-side holds/settlement still apply. This
+route is deployed on staging with `reader-local-context-v1` and `worker_local_chat_context`. The `worker_chat_context`/Storage contract below remains only for historical document-backed papers.
+
 Status 2026-10-05: deployed to staging and verified live (API smoke and the Simulator journey: consent, streamed paid answer with typeset math, relaunch). Ingest verified live through the API (DPO passage citing PPO → arXiv 1707.06347 queued, 26 credits); its Simulator path is covered by unit tests only.
 
 ## Contract: `POST functions/v1/chat`

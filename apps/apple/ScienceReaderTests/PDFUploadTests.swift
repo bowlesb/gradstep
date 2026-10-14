@@ -1,11 +1,11 @@
 import Foundation
 import ScienceReaderCore
 import UIKit
+import PDFKit
 import XCTest
 @testable import ScienceReader
 
-/// PDF uploads on this device (docs/architecture/PDF_UPLOADS.md): the server's checks applied before
-/// sending, and the durable queue's begin → send → finalize with retries, expiry and replays.
+/// Device-only PDF admission, encrypted installation and the prohibition on legacy upload retries.
 @MainActor
 final class PDFUploadTests: XCTestCase {
     private var directory: URL!
@@ -27,7 +27,7 @@ final class PDFUploadTests: XCTestCase {
         return url
     }
 
-    func testFileCheckMatchesTheServer() throws {
+    func testDeviceChecksPDFBeforeLocalAdmission() throws {
         let url = try makePDF(pages: 3, title: "Sparse Attention, Revisited", name: "draft_v2.pdf")
         let checked = try PDFFileCheck.check(url)
         let bytes = try Data(contentsOf: url)
@@ -116,116 +116,90 @@ final class PDFUploadTests: XCTestCase {
         for _ in 0..<200 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
-    func testAnUploadIsSentFinalizedAndForgotten() async throws {
-        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
-        let queue = center(store); var added = 0
-        queue.activate(context(service, account: account, added: { added += 1 }))
-        let job = try await queue.add(file: try makePDF(title: "A paper"), target: .newPaper)
-        await settle(queue) { queue.jobs.isEmpty }
-        XCTAssertEqual(service.begins.map(\.0), [job.uploadID])
-        XCTAssertEqual(service.sends, 1)
-        XCTAssertEqual(service.finalizes.map(\.0), [job.uploadID]); XCTAssertEqual(service.finalizes.first?.1, 9)
-        XCTAssertEqual(added, 1)
-        XCTAssertEqual(queue.notice, "Added “A paper”. It’s being prepared to read.")
-        XCTAssertTrue(store.load(deployment: "https://fixture.invalid", account: account).isEmpty, "the local copy is deleted once the server has it")
-    }
-
-    func testFailuresWaitRetryOrStopAsTheServerSays() async throws {
-        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
-        let queue = center(store)
-        queue.activate(context(service, account: account))
-        // A dropped connection while sending: waits (5 s back-off), keeps the same upload ID.
-        service.sendErrors = [BackendError.transport]
-        let job = try await queue.add(file: try makePDF(), target: .importID(UUID(), revision: 2))
-        await settle(queue) { queue.jobs.first?.phase == .waiting && queue.jobs.first?.attempts == 1 }
-        XCTAssertEqual(queue.jobs.first?.issue, "Waiting for a connection")
-        XCTAssertEqual(queue.jobs.first?.nextAttemptAt, clock.addingTimeInterval(5))
-        clock = clock.addingTimeInterval(6); queue.resume()
-        await settle(queue) { queue.jobs.isEmpty }
-        XCTAssertEqual(Set(service.begins.map(\.0)), [job.uploadID], "retried under the same upload ID")
-        if case .importID = service.begins.first?.1 {} else { XCTFail("target kept") }
-
-        // A full private quota stops the upload with what to do; Try again starts it afresh.
-        service.beginResults = [.failure(BackendError.rejected("upload_quota"))]
-        let full = try await queue.add(file: try makePDF(name: "b.pdf"), target: .newPaper)
-        await settle(queue) { queue.jobs.first?.phase == .failed }
-        XCTAssertEqual(queue.jobs.first?.issueCode, "upload_quota")
-        XCTAssertTrue(queue.jobs.first?.issue?.contains("private storage is full") == true)
-        queue.retry(full.id)
-        await settle(queue) { queue.jobs.isEmpty }
-
-        // An expired session starts again under a new upload ID; a finalized one only finalizes (a replay).
-        service.beginResults = [.failure(BackendError.rejected("upload_expired")), .success("finalized")]
-        let expired = try await queue.add(file: try makePDF(name: "c.pdf"), target: .newPaper)
-        await settle(queue) { queue.jobs.isEmpty }
-        let ids = service.begins.suffix(2).map(\.0)
-        XCTAssertEqual(ids.first, expired.uploadID); XCTAssertNotEqual(ids.last, expired.uploadID)
-        XCTAssertEqual(service.finalizes.last?.0, ids.last)
-    }
-
-    func testFinalizeWaitsForTheLibraryAndKeepsItsCursor() async throws {
-        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
-        var cursor: Int64? = nil
-        let queue = center(store)
-        queue.activate(.init(service: service, accountID: account, deploymentID: "https://fixture.invalid", cursor: { cursor }, added: {}))
-        _ = try await queue.add(file: try makePDF(), target: .newPaper)
-        await settle(queue) { queue.jobs.first?.issue == "Waiting for your library" }
-        XCTAssertTrue(service.finalizes.isEmpty)
-        // A lost finalize answer is retried with the cursor first sent.
-        cursor = 4; service.finalizeErrors = [BackendError.transport]
-        clock = clock.addingTimeInterval(10); queue.resume()
-        await settle(queue) { queue.jobs.first?.attempts == 2 }
-        cursor = 8; clock = clock.addingTimeInterval(60); queue.resume()
-        await settle(queue) { queue.jobs.isEmpty }
-        XCTAssertEqual(service.finalizes.map(\.1), [4, 4])
-    }
-
-    func testChunkedUploadRefreshesRevisionBeforeFinalize() async throws {
-        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
-        service.chunked = true
-        let queue = center(store)
-        queue.activate(context(service, account: account))
-        let job = try await queue.add(file: try makePDF(), target: .newPaper)
-        // The status response represents the revision after the chunk receipt. It must be used for
-        // freeze/finalize; the begin revision (1) would be stale by the time the server sees it.
-        service.chunkStatus = PDFUploadTicket(upload_id: job.uploadID, state: "receiving", revision: 2, generation: 3,
-            byte_count: job.byteCount, chunk_bytes: PDFUploadCenter.chunkBytes, part_count: 1,
-            parts: [.init(index: 0, bytes: Int(job.byteCount), verified: true, attempts: 1, uncertain: 0)])
-        await settle(queue) { queue.jobs.isEmpty }
-        XCTAssertEqual(service.chunkSends, 1)
-        XCTAssertEqual(service.chunkDigests.count, 1)
-        XCTAssertEqual(service.chunkFinalizes.map(\.1), [3]); XCTAssertEqual(service.chunkFinalizes.map(\.2), [2])
-    }
-
-    func testChunkedPaperWritesItsDescriptorBeforeFinalize() async throws {
-        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService()
-        service.chunked = true; service.descriptorRequired = true
-        let queue = center(store)
-        queue.activate(context(service, account: UUID()))
-        _ = try await queue.add(file: try makePDF(title: "Private title"), target: .newPaper)
-        await settle(queue) { queue.jobs.isEmpty }
-        XCTAssertEqual(service.descriptorRequests, 1)
-        XCTAssertEqual(service.chunkSends, 1)
-        XCTAssertEqual(service.chunkFinalizes.count, 1)
-    }
-
-    func testUnsentUploadsSurviveARelaunchAndStayWithTheirAccount() async throws {
-        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService()
-        let first = UUID(), second = UUID()
-        service.sendErrors = [BackendError.transport]
-        let queue = center(store)
-        queue.activate(context(service, account: first))
-        let job = try await queue.add(file: try makePDF(), target: .newPaper)
-        await settle(queue) { queue.jobs.first?.phase == .waiting && queue.jobs.first?.attempts == 1 }
-        // Sign-out: nothing is sent under the next account.
-        queue.deactivate()
-        queue.activate(context(service, account: second))
+    func testChosenPDFCommitsOnlyToDeviceSink() async throws {
+        let disk = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
+        let local = try DevicePaperStore(directory: directory.appendingPathComponent("encrypted"), accountID: account, localKey: ReaderCrypto.randomKey())
+        let queue = center(disk)
+        var ctx = context(service, account: account)
+        ctx.installLocal = { file, checked, _ in
+            _ = try await local.install(pdfAt: file, sourceID: "local:fixture", revision: 1)
+            XCTAssertEqual(checked.pages, 2)
+        }
+        queue.activate(ctx)
+        _ = try await queue.add(file: makePDF(), target: .newPaper)
         XCTAssertTrue(queue.jobs.isEmpty)
-        // A new launch for the first account resumes its upload.
-        let relaunched = center(store)
-        relaunched.activate(context(service, account: first))
-        XCTAssertEqual(relaunched.jobs.map(\.id), [job.id])
-        await settle(relaunched) { relaunched.jobs.isEmpty }
-        XCTAssertEqual(service.finalizes.map(\.0), [job.uploadID])
+        XCTAssertTrue(queue.notice?.contains("on this device") == true)
+        let records = await local.records()
+        XCTAssertEqual(records.count, 1)
+        XCTAssertTrue(disk.load(deployment: "https://fixture.invalid", account: account).isEmpty)
+        XCTAssertEqual(service.begins.count, 0); XCTAssertEqual(service.sends, 0); XCTAssertEqual(service.finalizes.count, 0)
+    }
+    func testNoDeviceSinkCannotFallBackToUpload() async throws {
+        let service = FakeService(), queue = center(PDFUploadStore(root: directory.appendingPathComponent("store")))
+        queue.activate(context(service, account: UUID()))
+        do { _ = try await queue.add(file: makePDF(), target: .newPaper); XCTFail("requires local sink") }
+        catch BackendError.rejected(let code) { XCTAssertEqual(code, "pdf_device_only") }
+        XCTAssertTrue(service.begins.isEmpty); XCTAssertEqual(service.sends, 0)
+    }
+    func testLegacyPendingJobNeverResumesSending() async throws {
+        let disk = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
+        let file = try makePDF(), checked = try PDFFileCheck.check(file)
+        let job = PDFUploadJob(id: UUID(), uploadID: UUID(), accountID: account, createdAt: clock, title: checked.title,
+            sha256: checked.sha256, byteCount: checked.byteCount, target: .newPaper)
+        try disk.adopt(file, job: job, deployment: "https://fixture.invalid")
+        let queue = center(disk); queue.activate(context(service, account: account))
+        queue.resume(); queue.retry(job.id)
+        XCTAssertEqual(queue.jobs.first?.issueCode, "pdf_device_only")
+        XCTAssertEqual(queue.jobs.first?.phase, .failed)
+        XCTAssertTrue(service.begins.isEmpty); XCTAssertEqual(service.sends, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testLockedAndOverLimitPDFsAreRejectedLocally() throws {
+        let document = try XCTUnwrap(PDFDocument(url: makePDF()))
+        let locked = directory.appendingPathComponent("locked.pdf")
+        XCTAssertTrue(document.write(to: locked, withOptions: [.userPasswordOption: "test-only", .ownerPasswordOption: "test-owner"]))
+        XCTAssertThrowsError(try PDFFileCheck.check(locked)) { XCTAssertEqual($0 as? PDFFileProblem, .locked) }
+        XCTAssertEqual(try PDFFileCheck.check(makePDF(pages: 250)).pages, 250)
+        XCTAssertThrowsError(try PDFFileCheck.check(makePDF(pages: 251))) { XCTAssertEqual($0 as? PDFFileProblem, .tooManyPages) }
+    }
+
+    // Slow, opt-in downloaded corpus. Missing cache is explicit in ordinary native runs.
+    func testRealPDFCorpusChecksRendersEncryptsAndReopensWithoutUploads() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        struct Input: Decodable { let bytes: Int64; let sha256: String }
+        struct Paper: Decodable { let key: String; let pdf: Input }
+        struct Lock: Decodable { let papers: [Paper] }
+        let lock = try JSONDecoder().decode(Lock.self, from: Data(contentsOf: root.appendingPathComponent("tests/corpus/reader-lock.json")))
+        let cache = root.appendingPathComponent(".artifacts/reader-corpus")
+        guard lock.papers.allSatisfy({ FileManager.default.fileExists(atPath: cache.appendingPathComponent("\($0.key)/paper.pdf").path) }) else {
+            throw XCTSkip("Run npm run test:slow:fetch on this device first.")
+        }
+        let account = UUID(), key = ReaderCrypto.randomKey(), storeURL = directory.appendingPathComponent("corpus-store")
+        let local = try DevicePaperStore(directory: storeURL, accountID: account, localKey: key)
+        let service = FakeService(), queue = center(PDFUploadStore(root: directory.appendingPathComponent("unused-queue")))
+        var ctx = context(service, account: account)
+        ctx.installLocal = { file, _, _ in _ = try await local.install(pdfAt: file, sourceID: file.deletingLastPathComponent().lastPathComponent, revision: 1) }
+        queue.activate(ctx)
+        for paper in lock.papers {
+            let file = cache.appendingPathComponent("\(paper.key)/paper.pdf"), checked = try PDFFileCheck.check(file)
+            XCTAssertEqual(checked.sha256, paper.pdf.sha256, paper.key); XCTAssertEqual(checked.byteCount, paper.pdf.bytes, paper.key)
+            _ = try await queue.add(file: file, target: .newPaper)
+            let records = await local.records()
+            let record = try XCTUnwrap(records.first { $0.identity.sourceID == paper.key })
+            let reopened = try DevicePaperStore(directory: storeURL, accountID: account, localKey: key)
+            let bytes = try await reopened.read(record.identity)
+            XCTAssertEqual(bytes, try Data(contentsOf: file), paper.key)
+            let pdf = try XCTUnwrap(PDFDocument(data: bytes))
+            XCTAssertEqual(pdf.pageCount, checked.pages, paper.key)
+            for page in Set([0, checked.pages / 2, checked.pages - 1]) {
+                let image = try XCTUnwrap(pdf.page(at: page)).thumbnail(of: CGSize(width: 300, height: 400), for: .mediaBox)
+                XCTAssertGreaterThan(try XCTUnwrap(image.pngData()).count, 100, paper.key)
+            }
+            print("Local corpus PDF \(paper.key): \(checked.pages) pages, \(checked.byteCount) bytes, encrypted reopen and PDFKit render passed")
+        }
+        XCTAssertTrue(queue.jobs.isEmpty); XCTAssertTrue(service.begins.isEmpty)
+        XCTAssertEqual(service.sends, 0); XCTAssertEqual(service.finalizes.count, 0)
     }
 }

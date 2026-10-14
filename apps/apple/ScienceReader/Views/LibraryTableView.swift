@@ -415,6 +415,14 @@ struct LibraryRowActions: View {
         switch entry {
         case .paper(let paper):
             PodcastListenMenuRow(model: model, paper: paper)
+            if let item = model.sourceImport(for: paper) {
+                if model.localPaperAvailable(for: item) {
+                    Button("Open PDF", systemImage: "doc.text.magnifyingglass") { model.openLocalPaper(item) }
+                } else {
+                    Button("Download PDF on this device", systemImage: "arrow.down.circle") { model.downloadOnDevice(item) }
+                        .disabled(!model.hasLocalPaperStore)
+                }
+            }
             if !paper.isSample {
                 Button("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
                     .disabled(!model.canChangeLibrary)
@@ -442,8 +450,8 @@ struct LibraryRowActions: View {
                 Button("Download on this device", systemImage: "arrow.down.circle") { model.downloadOnDevice(item) }
                     .disabled(item.phase == .sourceOnly ? !model.hasLocalPaperStore : !model.uploads.isActive)
             }
-            if item.phase == .failed, item.canTakeUpload {
-                Button("Upload PDF…", systemImage: "doc.badge.plus") {
+            if (item.phase == .failed || item.phase == .sourceOnly), item.canTakeUpload {
+                Button("Add PDF on this device…", systemImage: "doc.badge.plus") {
                     model.uploads.pickRequest = .init(target: .importID(item.id, revision: item.intentRevision), title: item.metadata?.title)
                 }.disabled(!model.uploads.isActive)
             }

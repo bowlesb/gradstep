@@ -8,7 +8,7 @@
   python3 scripts/deploy-pipeline-worker.py readiness --project gradstep --expected-revision <paused-revision>
   python3 scripts/deploy-pipeline-worker.py activate --project gradstep --expected-revision <paused-revision> --evidence <manifest>
   python3 scripts/deploy-pipeline-worker.py cutover          # point staging's pg_cron/pg_net at the service
-  python3 scripts/deploy-pipeline-worker.py retry-failed --label <deploy>  # retry failed papers once (deploy does this)
+  python3 scripts/deploy-pipeline-worker.py retry-failed --label <deploy>  # legacy operator tool; never called by deploy
 
 Secrets come from .env.staging / .env.providers into Secret Manager (deploy) or the
 container environment (run); values are never printed. Deferred deploys do not
@@ -272,7 +272,7 @@ def main(argv=None):
         if args.defer_activation:
             print('Activation deferred: no retry or workflow checks; old invocations still require independent termination evidence')
         else:
-            retry_failed(label)
+            # HTML-first cutover never resumes legacy download, OCR or render jobs.
             if not args.skip_checks: workflow_checks()
     elif args.command == 'retry-failed':
         if not args.label: parser.error('--label is required (letters, digits, . _ : -)')

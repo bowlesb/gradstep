@@ -1,3 +1,5 @@
+import { localChatContext } from './arxiv-reader';
+import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
 // rebinds a task. When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md,
 // compatibility checkpoint): active answers stop through the existing partial-save path and drafts stay visible,
@@ -13,7 +15,7 @@ import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, makeRequest, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { isProfileChoice, isStandard, offers, parseProfileID, ProfileTableLoader, STANDARD_PROFILE, type ProfileChoice, type ProfileTable } from './chat-profiles';
 import { cancellation } from './cancellation';
-import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor } from './events';
+import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor, type SourcePaperReference } from './events';
 import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
@@ -77,6 +79,12 @@ export const browserLocks: Locks = {
 };
 
 export class ChatSession {
+  private sourcePapers = new Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>();
+  setSourcePapers(rows:Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>) { this.sourcePapers=rows; }
+  private reference(documentID:string|null):SourcePaperReference|undefined {
+    if(!documentID)return undefined;
+    return this.sourcePapers.get(documentID)?.reference ?? [...this.history.state.events.values()].find(e=>e.payload.paperReference?.membershipID===documentID)?.payload.paperReference;
+  }
   readonly composers = new Map<string, Composer>();
   readonly selected = new Map<string, string>();
   balance: { available: number; reserved: number } | null = null;
@@ -458,7 +466,7 @@ export class ChatSession {
         if (!turn) return;
         if (!turn.text.trim()) { await this.journal!.dropTurn(turn.id, turn); return; }
         await this.history.commit([{ id: turn.id, event: { kind: 'message', entityID: turn.entityID, parents: [this.history.resolve(turn.questionID)],
-          conversationID: turn.conversationID, documentID: turn.documentID ?? undefined, text: turn.text, role: 'assistant', status: 'interrupted', createdAt: turn.updatedAt } }],
+          conversationID: turn.conversationID, documentID: turn.documentID ?? undefined, paperReference:this.history.state.events.get(this.history.resolve(turn.questionID))?.payload.paperReference, text: turn.text, role: 'assistant', status: 'interrupted', createdAt: turn.updatedAt } }],
           { finishTurn: turn.id, recoveryTurn: turn });
         return;
       } catch (error) {
@@ -492,13 +500,13 @@ export class ChatSession {
     if (!c.conversationID) {
       c.conversationID = crypto.randomUUID();
       const root = crypto.randomUUID();
-      entries.push({ id: root, event: { kind: 'conversation', entityID: c.conversationID, parents: [], documentID: c.documentID ?? undefined,
+      entries.push({ id: root, event: { kind: 'conversation', entityID: c.conversationID, parents: [], documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID),
         text: [...text].slice(0, 100).join(''), anchor: anchor ?? c.anchor, createdAt: at } });
       c.head = root;
     } else c.head = branch!.head;
     const id = crypto.randomUUID();
     entries.push({ id, event: { kind: 'message', entityID: crypto.randomUUID(), parents: [c.head!], conversationID: c.conversationID,
-      documentID: c.documentID ?? undefined, text, role: 'user', status: 'complete', createdAt: at } });
+      documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID), text, role: 'user', status: 'complete', createdAt: at } });
     const requestedAnswer = { questionID: id, choice: { ...this.profileFor(c) } };
     c.question = { revision, id, entries, selection, action, profile: requestedAnswer.choice }; c.phase = 'saving'; c.issue = null; c.credits = null;
     this.publish();
@@ -621,6 +629,16 @@ export class ChatSession {
     if (table ? !offers(table, capturedProfile) : !isStandard(capturedProfile)) { c.phase = 'idle'; c.issue = 'profile_unavailable'; this.publish(); return; }
     const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action,
       table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {});
+    const reference=this.reference(c.documentID);
+    if(reference){
+      try {
+        const local=this.sourcePapers.get(reference.membershipID);
+        if(!local)throw new Error('local_reader_unavailable');
+        request.localContext=localChatContext(reference,await local.load());
+        request.documentID=null;
+      }catch{if(!this.signal.aborted){c.phase='idle';c.issue='local_reader_unavailable';this.publish();}return;}
+      if(this.signal.aborted || this.retiredStorage || !this.accepting)return;
+    }
     const answerID = crypto.randomUUID(), entityID = crypto.randomUUID(), conversationID = c.conversationID!;
     let turn: StoredTurn | null = null, releaseTurn: (() => void) | null = null;
     if (this.durable) {
@@ -685,7 +703,7 @@ export class ChatSession {
     c.progress = null; c.issue = result.issue; c.phase = 'finishing';
     if (result.status) {
       const answer: PrivateEvent = { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
-        documentID: c.documentID ?? undefined, text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() };
+        documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID), text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() };
       // Which model and profile answered, encrypted with the answer and shown under it.
       if (answeredBy.model) answer.model = answeredBy.model;
       if (answeredBy.profile) answer.profile = answeredBy.profile;

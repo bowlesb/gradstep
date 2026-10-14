@@ -14,8 +14,7 @@ struct PassageOrigin: Equatable {
 
     /// Nil for a paper without an immutable artifact (nothing to anchor to) or an empty quote.
     init?(scope: ReaderDocumentScope, selection: ReaderSelection, quote: String) {
-        guard let artifactID = scope.artifactID,
-              let anchor = TextAnchor.passage(artifactID: artifactID, selection: selection, quote: quote) else { return nil }
+        guard let anchor = TextAnchor.passage(artifactID: scope.artifactID, manifestSHA256: scope.artifactID == nil ? scope.manifestSHA256 : nil, selection: selection, quote: quote) else { return nil }
         documentID = scope.paperID; self.anchor = anchor
     }
 }
@@ -129,7 +128,11 @@ extension ReaderModel {
     func passageJump(for paper: Paper) -> PaperPassageRequest? {
         guard var request = passageRequest, request.documentID == paper.id,
               Date().timeIntervalSince(request.requestedAt) < 60 else { return nil }
-        request.sameArtifact = request.anchor.artifactID == paper.artifactID
+        if request.anchor.manifestSHA256 != nil, paper.readerBundle != nil, !request.anchor.matches(paper) {
+            finishPassage(request.id, found: false)
+            return nil
+        }
+        request.sameArtifact = request.anchor.matches(paper)
         return request
     }
 
@@ -149,7 +152,7 @@ extension ReaderModel {
         guard showsPassageMarks else { return [] }
         return conversationSummaries.compactMap { summary in
             guard summary.documentID == paper.id, let anchor = summary.anchor else { return nil }
-            return PaperMark(conversationID: summary.id, anchor: anchor, sameArtifact: anchor.artifactID == paper.artifactID)
+            return PaperMark(conversationID: summary.id, anchor: anchor, sameArtifact: anchor.matches(paper))
         }
     }
 
@@ -206,5 +209,12 @@ struct GoToPassageMenuRow: View {
             MenuRow("Go to passage", systemImage: "text.quote") { before(); model.goToPassage(id) }
                 .accessibilityIdentifier("chat.goToPassage")
         }
+    }
+}
+
+private extension TextAnchor {
+    func matches(_ paper: Paper) -> Bool {
+        if let manifestSHA256 { return manifestSHA256 == paper.readerBundle?.manifestSHA256 }
+        return artifactID != nil && artifactID == paper.artifactID
     }
 }

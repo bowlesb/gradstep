@@ -1,5 +1,5 @@
 // Encrypted history in the browser (docs/architecture/BROWSER_READER.md › Chat): the account's event log is pulled
-// with v2_pull_events and decrypted into memory; this browser's events are sealed with the current epoch and sent
+// with v3_pull_events and decrypted into memory; this browser's events are sealed with the current epoch and sent
 // with v1_append_event, keeping their ID and bytes across retries (as DeviceKeys.transfer does natively). Pages are
 // checked as EncryptedStore.ingest checks them (contiguous cursors, digests, decryption, valid payloads); a failure
 // stops at the last good page.
@@ -348,7 +348,7 @@ export class History {
     for (;;) {
       this.signal.throwIfAborted();
       const before = this.cursor;
-      const page = await rpc<Page>('v2_pull_events', { p_after: before, p_limit: PAGE }, { account: this.account, signal: this.signal, maximum: PAGE_BYTES });
+      const page = await rpc<Page>('v3_pull_events', { p_after: before, p_limit: PAGE }, { account: this.account, signal: this.signal, maximum: PAGE_BYTES });
       if (!page || !Array.isArray(page.events) || page.events.length > PAGE || typeof page.has_more !== 'boolean'
         || page.next_cursor !== (page.events.at(-1)?.cursor ?? before) || (page.has_more && !page.events.length)) throw new BackendError('invalid_response');
       const staged: AppliedEvent[] = [], seen = new Set<string>(), rows: { cursor: number; envelope: EventEnvelope }[] = [];

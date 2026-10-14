@@ -42,7 +42,7 @@ enum PDFUploadIntake {
     }
 }
 
-/// The document picker a Library row asks for (Upload PDF on an import that needs one).
+/// The document picker a Library row asks for (Add PDF on this device on an import that needs one).
 struct PDFUploadPresenter: ViewModifier {
     @Bindable var model: ReaderModel
 
@@ -92,7 +92,7 @@ struct PDFUploadBanners: View {
                 if let issue = fetch.issue {
                     StatusBanner(tone: .problem, systemImage: "exclamationmark.triangle", message: issue, actionsBelow: true, messageID: "device.issue") {
                         if let page = fetch.page { Link("Open in Safari", destination: page).accessibilityIdentifier("device.openPage") }
-                        Button("Upload PDF") { center.dismissFetch(fetch.id); center.pickRequest = .init(target: fetch.target, title: fetch.title) }
+                        Button("Add PDF on this device") { center.dismissFetch(fetch.id); center.pickRequest = .init(target: fetch.target, title: fetch.title) }
                             .accessibilityIdentifier("device.upload")
                         Button("OK") { center.dismissFetch(fetch.id) }
                     }

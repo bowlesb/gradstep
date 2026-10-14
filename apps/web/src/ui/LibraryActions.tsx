@@ -1,3 +1,6 @@
+import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
+import { isLibraryPaper } from '../lib/reader-paper';
+import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
 // One action surface per library view. Rows contain only a button; menus/dialogs are portaled
 // outside the scrolling table and identify their owning row for optional library windowing.
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -12,9 +15,9 @@ import './library-actions.css';
 
 type Library = ReturnType<typeof useLibrary>;
 type Action = 'menu' | 'tags' | 'archive' | 'remove';
-interface Selection { item: Item; trigger: HTMLButtonElement; region: Element | null; action: Action; last: boolean }
-type OpenMenu = (item: Item, trigger: HTMLButtonElement, last?: boolean) => void;
-const title = (item: Item) => item.metadata?.title ?? (item.source_id ? `arXiv ${item.source_id}` : 'Untitled paper');
+interface Selection { item: LibraryPaper; trigger: HTMLButtonElement; region: Element | null; action: Action; last: boolean }
+type OpenMenu = (item: LibraryPaper, trigger: HTMLButtonElement, last?: boolean) => void;
+const title = (item: LibraryPaper) => item.metadata?.title ?? (item.source_id ? `arXiv ${item.source_id}` : 'Untitled paper');
 
 export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void) {
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -22,7 +25,7 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
   const current = useRef(selection), latest = useRef(library), returnTo = useRef<Selection | null>(null);
   current.current = selection; latest.current = library;
   const open: OpenMenu = useCallback((item, trigger, last) => {
-    if (!item.visible || item.scope !== 'shared_catalog' || latest.current.pending.has(item.id)) return;
+    if (!item.visible || item.kind === 'item' && item.scope !== 'shared_catalog' || latest.current.pending.has(item.id)) return;
     if (last === undefined && current.current?.action === 'menu' && current.current.trigger === trigger) {
       setSelection(null); return;
     }
@@ -50,8 +53,8 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
 type Actions = ReturnType<typeof useLibraryActions>;
 
 /** Lightweight title-cell control. Never nest it inside the paper link. */
-export function PaperMenuButton({ item, busy, expanded, onOpen }: { item: Item; busy: boolean; expanded: boolean; onOpen: OpenMenu }) {
-  if (!item.visible || item.scope !== 'shared_catalog') return null;
+export function PaperMenuButton({ item, busy, expanded, onOpen }: { item: LibraryPaper; busy: boolean; expanded: boolean; onOpen: OpenMenu }) {
+  if (!item.visible || item.kind === 'item' && item.scope !== 'shared_catalog') return null;
   return <button type="button" className="paper-menu-button" aria-label={`Actions for ${title(item)}`} title="Paper actions" disabled={busy}
     aria-haspopup="menu" aria-expanded={expanded} onClick={event => { event.stopPropagation(); onOpen(item, event.currentTarget); }}
     onContextMenu={event => { event.preventDefault(); event.stopPropagation(); onOpen(item, event.currentTarget); }}
@@ -110,7 +113,11 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
       else { event.preventDefault(); actions.close(selection); }
     }
   };
-  return <div ref={ref} role="menu" aria-label="Paper actions" className="paper-action-menu" data-library-row-owner={`item:${selection.item.id}`} onKeyDown={move}>
+  return <div ref={ref} role="menu" aria-label="Paper actions" className="paper-action-menu" data-library-row-owner={`${selection.item.kind}:${selection.item.id}`} onKeyDown={move}>
+    {selection.item.kind === 'import' && <button type="button" role="menuitem" onClick={() => {
+      window.open(`https://arxiv.org/pdf/${selection.item.source_id}v${selection.item.source_revision}`, '_blank', 'noopener,noreferrer');
+      actions.close(selection);
+    }}>Open PDF on this device</button>}
     <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'tags')}>Edit tags…</button>
     <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'archive')}>{selection.item.archived ? 'Unarchive…' : 'Archive…'}</button>
     <button type="button" role="menuitem" className="remove-action" onClick={() => actions.choose(selection, 'remove')}>Remove from library…</button>
@@ -142,7 +149,7 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
   const changed = JSON.stringify(tags) !== JSON.stringify(effectiveTags(baseline));
   const dirty = editing && (changed || draft.trim().length > 0);
   const busy = sending || awaiting !== null || library.pending.has(baseline.id);
-  const current = library.entries.find((entry): entry is Item => entry.kind === 'item' && entry.id === baseline.id);
+  const current = library.entries.find((entry): entry is LibraryPaper => isLibraryPaper(entry) && entry.id === baseline.id);
   const available = current?.visible === true;
   const label = editing ? 'Edit tags' : archive ? (archiveTarget ? 'Archive paper' : 'Unarchive paper') : 'Remove paper';
   const verb = editing ? 'Save' : archive ? (archiveTarget ? 'Archive' : 'Unarchive') : 'Remove';
@@ -161,10 +168,10 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     return () => { alive.current = false; dialog.close(); };
   }, [editing]);
 
-  const observed = useCallback((response: CommandResponse) => {
+  const observed = useCallback((response: CommandResponse|null) => {
     if (!alive.current) return;
     setAwaiting(null); setSending(false); submitted.current = false;
-    if (response.result.status === 'revision_conflict') {
+    if (response?.result.status === 'revision_conflict') {
       setConflict(true);
       setIssue(editing ? conflictMessage : 'This paper changed since you opened it. Reload the current paper before trying again.');
     } else actions.close(selection, editing ? 'Tags saved.' : archive ? (archiveTarget ? 'Paper archived.' : 'Paper unarchived.') : 'Paper removed from your library.');

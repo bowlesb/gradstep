@@ -26,7 +26,7 @@ SUPABASE_PROJECT = 'coxhjvqpflgxkleydati'
 ORGANIZATION = 'mhiweqpcwyqtyorgqhla'
 SERVICE_NAME = f'projects/{PROJECT}/locations/{REGION}/services/{SERVICE}'
 SERVICE_URL = f'https://{SERVICE}-{PROJECT_NUMBER}.{REGION}.run.app'
-SECRET_NAMES = ('SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'MATHPIX_APP_ID', 'MATHPIX_APP_KEY',
+SECRET_NAMES = ('SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY',
                 'PIPELINE_SECRET', 'ANTHROPIC_API_KEY')
 REQUIRED_MIGRATIONS = {f'2026100700{number}' for number in range(34, 39)}
 EVIDENCE_KINDS = {'old_cloud_run_invocations_terminated', 'old_edge_invocations_terminated',

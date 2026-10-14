@@ -1,14 +1,30 @@
 import Foundation
 
 public struct PrivateEvent: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable { case conversation, message, note, position, diagram, tombstone }
+    public enum Kind: String, Codable, Sendable { case conversation, message, note, position, diagram, tombstone; case localPaper = "local_paper" }
     public enum Role: String, Codable, Sendable { case user, assistant }
     public enum TurnStatus: String, Codable, Sendable { case complete, interrupted }
     public let kind: Kind
     public let entityID: UUID
     public var parents: [UUID]
     public var conversationID: UUID?
-    public var documentID: UUID?
+    private var legacyDocumentID: UUID?
+    public private(set) var paperReference: SourcePaperReference?
+    /// Presentation identity only. Serialization preserves the explicit source
+    /// reference and never writes a membership UUID as a server document ID.
+    public var documentID: UUID? {
+        get { paperReference?.membershipID ?? legacyDocumentID }
+        set { legacyDocumentID = newValue; paperReference = nil }
+    }
+    private enum CodingKeys: String, CodingKey {
+        case kind, entityID, parents, conversationID, paperReference, text, role, status, anchor, createdAt, titleSource, model, profile
+        case legacyDocumentID = "documentID"
+    }
+    public mutating func bind(to reference: SourcePaperReference) throws {
+        try reference.validate()
+        guard documentID == nil || documentID == reference.membershipID else { throw ReaderError.invalidEvent }
+        legacyDocumentID = nil; paperReference = reference
+    }
     public var text: String?
     public var role: Role?
     public var status: TurnStatus?
@@ -29,9 +45,9 @@ public struct PrivateEvent: Codable, Equatable, Sendable {
     public init(kind: Kind, entityID: UUID = UUID(), parents: [UUID] = [], conversationID: UUID? = nil,
                 documentID: UUID? = nil, text: String? = nil, role: Role? = nil,
                 status: TurnStatus? = nil, anchor: TextAnchor? = nil, createdAt: Int64? = nil,
-                titleSource: String? = nil, model: String? = nil, profile: String? = nil) {
+                titleSource: String? = nil, model: String? = nil, profile: String? = nil, paperReference: SourcePaperReference? = nil) {
         self.kind = kind; self.entityID = entityID; self.parents = parents
-        self.conversationID = conversationID; self.documentID = documentID; self.text = text
+        self.conversationID = conversationID; self.legacyDocumentID = paperReference == nil ? documentID : nil; self.paperReference = paperReference; self.text = text
         self.role = role; self.status = status; self.anchor = anchor; self.createdAt = createdAt
         self.titleSource = titleSource; self.model = model; self.profile = profile
     }
@@ -50,6 +66,7 @@ public struct PrivateEvent: Codable, Equatable, Sendable {
     public var createdDate: Date? { createdAt.map { Date(timeIntervalSince1970: Double($0) / 1000) } }
 
     public func validate() throws {
+        if let paperReference { try paperReference.validate(); guard legacyDocumentID == nil else { throw ReaderError.invalidEvent } }
         guard parents.count <= 100, Set(parents).count == parents.count, (text?.utf8.count ?? 0) <= 200_000 else { throw ReaderError.invalidEvent }
         // Any device clock is accepted (display only); the bound keeps the value a representable date.
         if let createdAt { guard createdAt >= 0, createdAt < 253_402_300_800_000 else { throw ReaderError.invalidEvent } }
@@ -60,22 +77,28 @@ public struct PrivateEvent: Codable, Equatable, Sendable {
         if kind == .note || kind == .diagram || kind == .conversation { guard text != nil else { throw ReaderError.invalidEvent } }
         if kind == .position { guard documentID != nil, anchor != nil else { throw ReaderError.invalidEvent } }
         if let anchor { try anchor.validate() }
+        if kind == .localPaper { _ = try LocalPDFMembership.decode(self) }
     }
 }
 
 public struct TextAnchor: Codable, Equatable, Sendable {
-    public let artifactID: UUID
+    public let artifactID: UUID?
+    public let manifestSHA256: String?
     public let quote: String
     public let prefix: String
     public let suffix: String
     public let elementID: String?
     public let page: Int?
 
-    public init(artifactID: UUID, quote: String, prefix: String = "", suffix: String = "", elementID: String? = nil, page: Int? = nil) {
-        self.artifactID = artifactID; self.quote = quote; self.prefix = prefix; self.suffix = suffix; self.elementID = elementID; self.page = page
+    public init(artifactID: UUID? = nil, manifestSHA256: String? = nil, quote: String, prefix: String = "", suffix: String = "", elementID: String? = nil, page: Int? = nil) {
+        self.artifactID = artifactID; self.manifestSHA256 = manifestSHA256; self.quote = quote; self.prefix = prefix; self.suffix = suffix; self.elementID = elementID; self.page = page
     }
 
     func validate() throws {
+        guard (artifactID == nil) != (manifestSHA256 == nil) else { throw ReaderError.invalidEvent }
+        if let manifestSHA256 {
+            guard manifestSHA256.utf8.count == 64, manifestSHA256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw ReaderError.invalidEvent }
+        }
         guard quote.utf8.count <= 20_000, prefix.utf8.count <= 1000, suffix.utf8.count <= 1000,
               (elementID?.utf8.count ?? 0) <= 200, page == nil || (page! > 0 && page! <= 250) else { throw ReaderError.invalidEvent }
     }

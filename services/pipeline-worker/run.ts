@@ -4,13 +4,9 @@
 // the pipeline secret (never a customer token). Each call works through due papers, one
 // at a time, until none is due or the run budget is spent, and answers when it is done.
 import { parentPort, workerData } from 'node:worker_threads';
-import { resolve4, resolve6 } from 'node:dns/promises';
 import { randomUUID } from 'node:crypto';
-import { MathpixClient } from '../../supabase/functions/_shared/mathpix.ts';
-import { runPipeline, type PipelineDeps } from '../../supabase/functions/_shared/pipeline.ts';
-import { pipelineService, rpcAdapter, runtimeEnv, storageAdapter, uploadStorageAdapter } from '../../supabase/functions/_shared/pipeline-runtime.ts';
-import { renderReader } from '../../supabase/functions/_shared/reader-adapter.ts';
-import { reconcilePdfUploads, sweepPdfUploads } from '../../supabase/functions/_shared/pdf-uploads.ts';
+import { runMetadataPipeline, type MetadataDeps } from '../../supabase/functions/_shared/metadata-pipeline.ts';
+import { pipelineService, rpcAdapter, runtimeEnv } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 
@@ -23,26 +19,10 @@ export const TAG_DEADLINE_MS = 90_000;
 
 const log = (event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ event, ...fields }));
 
-/** A web PDF host's addresses (every one must be public; checked per redirect hop by the pipeline). */
-async function resolveHost(host: string): Promise<string[]> {
-  const answers = await Promise.allSettled([resolve4(host), resolve6(host)]);
-  const addresses = answers.flatMap(answer => answer.status === 'fulfilled' ? answer.value : []);
-  if (!addresses.length) throw new Error('dns_unresolved');
-  return addresses;
-}
-
-function deps(): PipelineDeps {
-  const service = pipelineService();
-  const appID = runtimeEnv('MATHPIX_APP_ID'), appKey = runtimeEnv('MATHPIX_APP_KEY');
-  if (!appID || !appKey) throw new Error('provider_credentials_unavailable');
-  return {
-    rpc: rpcAdapter(service), storage: storageAdapter(service), uploads: uploadStorageAdapter(service), fetch,
-    mathpix: new MathpixClient({ appID, appKey }), render: renderReader,
+function deps(): MetadataDeps {
+  return { rpc: rpcAdapter(pipelineService()), fetch,
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => Date.now(), uuid: () => randomUUID(),
-    log: (event, fields = {}) => log(event, fields),
-    resolveHost,
-    // No self-kick: this run keeps claiming due papers itself.
-  };
+    log: (event, fields = {}) => log(event, fields) };
 }
 
 /** Claude Haiku chooses catalog tags when the Anthropic key is configured; otherwise only the arXiv-category fallback runs. */
@@ -58,19 +38,14 @@ function taggingDeps(): TaggingDeps {
 export interface RunResult { processed: number; ms: number }
 /** Works through due papers until none is due or the budget is spent. Tags papers whose metadata
  * has arrived after each one (a paper's tags are ready while it converts), and once more at the end. */
-export async function runOnce(make: () => PipelineDeps = deps, now: () => number = Date.now,
+export async function runOnce(make: () => MetadataDeps = deps, now: () => number = Date.now,
   tagging: (() => TaggingDeps) | null = taggingDeps, sweepUploads = true): Promise<RunResult> {
   const started = now();
   let processed = 0;
   // Finish any account deletion left incomplete (cheap when none is).
   await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
-  if (sweepUploads) {
-    try {
-      const service = pipelineService();
-      await reconcilePdfUploads(rpcAdapter(service), (path, maximum, observed) => uploadStorageAdapter(service).download(path, maximum, observed), fields => log('pdf_uploads', fields));
-      await sweepPdfUploads(rpcAdapter(service), paths => uploadStorageAdapter(service).remove(paths), fields => log('pdf_uploads', fields));
-    } catch { log('pdf_uploads', { event: 'pdf_upload_sweep_failed' }); }
-  }
+  // Historical upload/provider attempts retain their liability. This worker
+  // never reads their PDFs to reconcile them or collects provider outputs.
   const pipeline = make();
   let tagger: TaggingDeps | null = null;
   const tag = async (maxPapers: number) => {
@@ -82,7 +57,7 @@ export async function runOnce(make: () => PipelineDeps = deps, now: () => number
     } catch (error) { log('tags_failed', { code: error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'unexpected' }); }
   };
   while (now() - started < RUN_BUDGET_MS) {
-    const result = await runPipeline(pipeline, now() + PAPER_DEADLINE_MS);
+    const result = await runMetadataPipeline(pipeline, now() + PAPER_DEADLINE_MS);
     if (!result.processed) break;
     processed += result.processed;
     await tag(3);

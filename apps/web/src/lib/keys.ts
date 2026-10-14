@@ -158,8 +158,10 @@ async function loadDevice(account: string, signal?: AbortSignal): Promise<Device
   const record: DeviceRecord = { ...identity, accountID: wireUUID(account), localKey, origin: config.url };
   signal?.throwIfAborted();
   const persisted = await persistDevice(account, record, signal);
-  // Ask the browser not to evict this origin's storage (keys live here). Best effort.
-  try { await navigator.storage?.persist?.(); } catch { /* not granted */ }
+  // Advisory eviction protection may wait for a permission prompt (e.g. Firefox).
+  // The committed key readback above is the admission gate; this optional prompt
+  // must not hold the account's key-operation lock or stall sign-in.
+  try { void navigator.storage?.persist?.().catch(() => {}); } catch { /* not granted */ }
   return persisted;
 }
 

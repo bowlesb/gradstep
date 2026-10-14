@@ -1,5 +1,11 @@
 # Shared paper podcasts: implementation contract proposal
 
+2026-10-13 input change: [HTML-first reader](HTML_FIRST_READER.md#paper-chat-and-other-derived-work) prohibits new
+PDF upload/acquisition/processing for podcasts as well as reading. Existing permitted catalog playback is separate.
+New generation must use eligible HTML-derived evidence; device-only text needs a reviewed context/retention
+contract before it can enter durable podcast jobs. Existing rights and spending limits remain. This design change
+has not modified or redeployed the podcast worker.
+
 2026-10-09. **V1 is deployed and the serving-limit-safe v2 profiles are live on staging.** The first two shared
 pilot episodes passed the catalog and delivery checks; private generation is enabled for all four bounded lengths.
 The current staging state supersedes the historical sequence below, which remains as an audit trail.

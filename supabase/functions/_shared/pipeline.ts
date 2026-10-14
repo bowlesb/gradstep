@@ -16,10 +16,8 @@ export const RAW_FORMAT = 'science-reader-mathpix-raw-v1';
 const MiB = 1024 * 1024;
 const URL_SUBMISSION_BYTES = 8 * MiB;
 
-export class PipelineRPCError extends Error {
-  readonly code: string;
-  constructor(code: string) { super(code); this.code = code; }
-}
+import { PipelineRPCError } from './pipeline-error.ts';
+export { PipelineRPCError } from './pipeline-error.ts';
 /** A failure that retrying cannot fix. `resume` names the stage a user retry restarts. */
 export class PermanentFailure extends Error {
   readonly code: string; readonly resume: string | null;

@@ -71,8 +71,8 @@ struct ImportPaperView: View {
                             Label("Choose a PDF…", systemImage: "doc.badge.plus")
                         }.disabled(saving).accessibilityIdentifier("add.choosePDF")
                     } header: { Text("PDF file") } footer: {
-                        Text(Platform.isLargeScreen ? "Or drop a PDF here. It’s converted for you alone and never shared."
-                             : "From Files. It’s converted for you alone and never shared.")
+                        Text(Platform.isLargeScreen ? "Or drop a PDF here. It stays on this device."
+                             : "From Files. It stays on this device.")
                     }
                 }
                 if model.librarySignInRequired && !canAdd {

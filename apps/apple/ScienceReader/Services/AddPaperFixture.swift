@@ -138,6 +138,7 @@ extension ReaderModel {
         guard let job = AddPaperFixture.service?.lastFinalized else { return }
         let title: String, id: UUID, source: String, sourceID: String, url: Any
         switch job.target {
+        case .localPaper: return
         case .importID(let importID, _):
             id = importID; source = "web"; sourceID = importID == AddPaperFixture.blockedImport ? "openalex:W3100000001" : "openalex:W3100000002"
             title = importID == AddPaperFixture.blockedImport ? "Deep Learning Scaling is Predictable, Empirically" : "Optuna: A Next-generation Hyperparameter Optimization Framework"

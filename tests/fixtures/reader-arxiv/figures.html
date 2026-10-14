@@ -1,0 +1,19 @@
+<!doctype html><html><body><article class="ltx_document">
+<h1>Figure compatibility fixture</h1>
+<p>See <a href="#multi">Figure 1</a> and <a href="#legend">Figure 3</a>.</p>
+<img id="standalone" src="2601.01234v2/figure.jpg" alt="Standalone illustration">
+<figure id="multi">
+ <div><img src="2601.01234v2/figure.jpg"></div>
+ <figcaption>Figure 1: First panel <math alttext="x^2"><msup><mi style="--ltx-bg-color:#E8F3F4;">x</mi><mn>2</mn></msup></math>.</figcaption>
+ <div><img src="2601.01234v2/figure.jpg"></div>
+ <figcaption>Figure 2: Second panel.</figcaption>
+</figure>
+<figure id="legend">
+ <img src="2601.01234v2/figure.jpg">
+ <div><span><svg id="legend-symbol" width="20" height="6" viewBox="0 0 20 6">
+  <defs><path id="glyph" d="M0 3L20 3" stroke="#16697A"></path></defs><use href="#glyph" data-text="@"></use>
+ </svg></span> Retained legend text.
+ <p>Second legend line <math alttext="y"><mi>y</mi></math>.</p></div>
+ <figcaption>Figure 3: Legend and illustration.</figcaption>
+</figure>
+</article></body></html>

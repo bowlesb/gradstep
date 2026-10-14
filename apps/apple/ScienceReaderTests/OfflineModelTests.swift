@@ -347,8 +347,9 @@ final class OfflineModelTests: XCTestCase {
         }
         XCTAssertNil(model.offlineCacheIssue)
         await model.waitForLibrarySearch()
-        XCTAssertEqual(model.papers.map(\.id), [first.document, second.document, optionalID])
-        XCTAssertEqual(model.libraryImports.map(\.id), [pendingID])
+        XCTAssertEqual(model.papers.map(\.id), [first.document, second.document, optionalID, pendingID])
+        XCTAssertTrue(model.libraryImports.isEmpty)
+        XCTAssertEqual(model.papers.last?.sourceMembership?.membershipID, pendingID)
         for projected in liveMapped {
             guard case .item(let item) = projected else { continue }
             let actual = try XCTUnwrap(model.papers.first { $0.id == item.paper.id })
@@ -367,7 +368,7 @@ final class OfflineModelTests: XCTestCase {
         XCTAssertNil(fallback.year); XCTAssertEqual(fallback.abstract, ""); XCTAssertTrue(fallback.keywords.isEmpty)
         XCTAssertNil(fallback.sourceReference); XCTAssertNil(fallback.artifactID)
         XCTAssertFalse(model.papers.contains { $0.id == removedID })
-        XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)", "paper/\(optionalID.wire)",
+        XCTAssertEqual(model.libraryRows.map(\.id), ["paper/\(pendingID.wire)", "paper/\(optionalID.wire)",
             "paper/\(second.document.wire)", "paper/\(first.document.wire)"], "Recent order spans pending imports and every restored paper")
 
         model.libraryQuery = "  東京 Zoë tailneedle 数学 2404.00001v1  "
@@ -375,13 +376,13 @@ final class OfflineModelTests: XCTestCase {
         XCTAssertEqual(model.libraryRows.map(\.id), ["paper/\(first.document.wire)"], "AND terms may match separate untruncated fields")
         model.libraryQuery = "PendingAuthor missing-tail cs.AI 2501.00001v2"
         await model.waitForLibrarySearch()
-        XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)"])
+        XCTAssertEqual(model.libraryRows.map(\.id), ["paper/\(pendingID.wire)"])
         model.libraryQuery = "tailneedle absent-token"
         await model.waitForLibrarySearch()
         XCTAssertTrue(model.libraryRows.isEmpty)
         model.libraryQuery = ""; model.librarySort = .title
         await model.waitForLibrarySearch()
-        XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)", "paper/\(second.document.wire)",
+        XCTAssertEqual(model.libraryRows.map(\.id), ["paper/\(pendingID.wire)", "paper/\(second.document.wire)",
             "paper/\(first.document.wire)", "paper/\(optionalID.wire)"])
         XCTAssertFalse(model.canChangeLibrary, "Projection remains cached presentation while live Auth is held")
         XCTAssertTrue(fixture.server.requests().allSatisfy { $0 == "token" })
@@ -896,7 +897,7 @@ private final class OfflineModelServer: @unchecked Sendable {
                     holdRefresh = false; pendingRefresh = request; refreshArrived.fulfill()
                 } else { request.respond(Data("{}".utf8), status: 503) }
             case "v1_key_state": request.respond(deviceEnvelopeAvailable ? keyState : recoveryState)
-            case "v2_pull_events":
+            case "v3_pull_events":
                 let after = (Self.fields(request.request)["p_after"] as? NSNumber)?.int64Value ?? 0
                 request.respond(OfflineModelCatalog.bytes(["events": [], "next_cursor": after, "has_more": false]))
             case "v1_acknowledge_cursor": request.respond(Data(), status: 204)

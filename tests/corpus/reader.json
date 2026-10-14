@@ -1,0 +1,82 @@
+{
+  "format": 1,
+  "papers": [
+    {
+      "id": "2305.18290",
+      "revision": 3,
+      "title": "Direct Preference Optimization",
+      "coverage": "equations, citations, SVG charts",
+      "counts": {
+        "blocks": 254,
+        "equations": 261,
+        "figures": 5
+      }
+    },
+    {
+      "id": "2312.00752",
+      "revision": 2,
+      "title": "Mamba",
+      "coverage": "long appendix, algorithms, tables",
+      "counts": {
+        "blocks": 566,
+        "equations": 558,
+        "figures": 15
+      }
+    },
+    {
+      "id": "2406.02528",
+      "revision": 7,
+      "title": "Scalable MatMul-free Language Modeling",
+      "coverage": "bitmap and vector figures",
+      "counts": {
+        "blocks": 268,
+        "equations": 367,
+        "figures": 9
+      }
+    },
+    {
+      "id": "2610.10478",
+      "revision": 1,
+      "title": "Before They Can Solve",
+      "coverage": "reported failure: multiple captions and MuPDF glyphs",
+      "counts": {
+        "blocks": 247,
+        "equations": 301,
+        "figures": 12
+      }
+    },
+    {
+      "id": "2610.12978",
+      "revision": 1,
+      "title": "Learning Representations to Guide Pixel Diffusion Transformers",
+      "coverage": "reported failure: inline vector legends, colored math, large image set",
+      "counts": {
+        "blocks": 250,
+        "equations": 262,
+        "figures": 29
+      }
+    },
+    {
+      "id": "2404.19756",
+      "revision": 1,
+      "title": "KAN: Kolmogorov-Arnold Networks",
+      "coverage": "math-heavy, long paper, large figures",
+      "expectedFailure": "limit",
+      "reason": "Device rasterization exceeds the fixed 64 million cumulative image pixel limit (image_total_limit). PDF remains local and readable; no partial HTML bundle is installed."
+    },
+    {
+      "id": "2405.04434",
+      "revision": 1,
+      "title": "DeepSeek-V2",
+      "coverage": "model report, tables, multi-panel figures",
+      "expectedFailure": "source-incomplete",
+      "reason": "Official exact-revision HTML has an ltx_ERROR undefined reportnumber node; the reader refuses an incomplete source."
+    },
+    {
+      "id": "2407.04620",
+      "revision": 1,
+      "title": "Learning to (Learn at Test Time)",
+      "coverage": "algorithms, nested figures, long derivations"
+    }
+  ]
+}

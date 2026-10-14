@@ -130,7 +130,7 @@ private final class LibraryModelServer: @unchecked Sendable {
                 handleCommand(request)
             case "v1_key_state":
                 privateCalls.append("key_state"); request.respond(keyState ?? Data("null".utf8))
-            case "v2_pull_events":
+            case "v3_pull_events":
                 privateCalls.append("pull")
                 let after = fields(request.request)["p_after"] as? Int ?? 0
                 let rows = privateEvents.filter { ($0["cursor"] as? Int ?? 0) > after }
@@ -400,6 +400,33 @@ final class LibraryModelTests: XCTestCase {
         try await capture(window, name: "Source-only result beside saved paper")
     }
 
+    func testLiveHTMLSelectionInstallsAndDisplaysThroughTheAccountModel() async throws {
+        guard ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_HTML"] == "1" else {
+            throw XCTSkip("Opt-in live official HTML on the Simulator only.")
+        }
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        await model.start()
+        var row = server.pending(state: 3, sourceOnly: true)
+        row["source_id"] = "2305.18290"; row["source_revision"] = 3
+        row["source_url"] = "https://arxiv.org/abs/2305.18290v3"
+        server.deliver(server.changes([row], through: 3))
+        await model.refreshLibrary()
+        let paper = try XCTUnwrap(model.papers.first { $0.sourceMembership != nil })
+        model.select(paper)
+        XCTAssertEqual(model.openingPaperID, paper.id)
+        let observation = LibraryModelObservation("The selected HTML reader is installed and displayed") {
+            model.selectedPaper?.readerBundle != nil || model.readerOpenIssue != nil
+        }
+        observation.observe()
+        await fulfillment(of: [observation.ready], timeout: 90)
+        observation.stop()
+        XCTAssertNil(model.readerOpenIssue)
+        XCTAssertEqual(model.selectedPaper?.readerBundle?.index.equations.count, 261)
+        XCTAssertNotNil(model.readerDocumentScope)
+        XCTAssertNil(model.openingPaperID)
+        XCTAssertEqual(model.offlineStatus(for: try XCTUnwrap(model.selectedPaper)), .available)
+    }
+
     private func capture(_ window: UIWindow, name: String) async throws {
         try await renderReady("Rendered rows for \(name)") {
             let host = window.rootViewController?.presentedViewController ?? window.rootViewController
@@ -517,8 +544,11 @@ final class LibraryModelTests: XCTestCase {
         server.deliver(server.changes([server.pending(state: 3, sourceOnly: true)], through: 3))
         await model.refreshLibrary()
         XCTAssertTrue(model.libraryHasSnapshot); XCTAssertNil(model.libraryIssue)
-        XCTAssertEqual(model.libraryImports.first?.phase, .sourceOnly)
-        XCTAssertNil(model.libraryImports.first?.documentID)
+        let source = try XCTUnwrap(model.papers.first { $0.sourceMembership != nil })
+        XCTAssertNil(source.artifactID)
+        XCTAssertNil(source.readerBundle)
+        XCTAssertTrue(source.canReadStructured)
+        XCTAssertTrue(model.libraryImports.isEmpty)
         model.libraryQuery = "Ada"
         await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 2, "Source-only metadata stays searchable beside the actual saved document")

@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "npm run test:fast",
+    "test:fast": "vitest run",
     "e2e": "playwright test"
   },
   "dependencies": {

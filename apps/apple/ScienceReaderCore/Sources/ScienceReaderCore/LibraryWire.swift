@@ -497,9 +497,12 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     /// A server-scheduled retry (027 downloads; 041 metadata/render). Presentation only: malformed values are ignored.
     public let autoRetryAt: LibraryTimestamp?
     public let descriptorReference: LibraryDescriptorReference?
+    public let archived: Bool?
+    public let userTags: [String]?
 
     private enum CodingKeys: String, CodingKey {
-        case id, visible, phase, source, metadata, retryable, progress
+        case id, visible, phase, source, metadata, retryable, progress, archived
+        case userTags = "user_tags"
         case createdSequence = "created_seq", stateSequence = "state_seq", intentRevision = "intent_revision"
         case sourceID = "source_id", requestedRevision = "requested_revision", sourceRevision = "source_revision"
         case metadataID = "metadata_id", versionID = "version_id", metadataRecordedAt = "metadata_recorded_at"
@@ -534,6 +537,8 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
         progressDetail = try c.decodeIfPresent(LibraryImportProgressDetail.self, forKey: .progressDetail)
         autoRetryAt = try? c.decodeIfPresent(LibraryTimestamp.self, forKey: .autoRetryAt)
         descriptorReference = try c.decodeIfPresent(LibraryDescriptorReference.self, forKey: .descriptorReference)
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived)
+        userTags = try c.decodeIfPresent([String].self, forKey: .userTags)
     }
 
     func validate() throws {
@@ -565,6 +570,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
             guard versionID != nil, sourceRevision != nil, metadata != nil, metadataRecordedAt != nil,
                   requestedRevision == nil || requestedRevision == sourceRevision else { throw LibraryProtocolError.invalidEntry }
         }
+        guard userTags.map({ PaperTags.isValid($0, limit: PaperTags.maximumOwnTags) }) ?? true else { throw LibraryProtocolError.invalidEntry }
         try metadata?.validate()
     }
     var omitsTombstoneSource: Bool { !visible && source == nil && sourceID == nil }

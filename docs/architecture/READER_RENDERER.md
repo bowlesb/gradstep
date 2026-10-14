@@ -1,5 +1,10 @@
 # Reader renderer (`timestep-mathpix-mathml-v1`)
 
+Current direction, 2026-10-13: retain this renderer/profile for historical verified bundles; new preparation uses
+the [arXiv HTML adapter](HTML_FIRST_READER.md#html-to-bundle-adapter). It keeps `reader-bundle-v1`/`reader-index-v1`
+and the bridge but adds `gradstep-arxiv-html-mathml-v1` / `arxiv-html` with honest HTML provenance and independent
+validation in each client. HTML must never be mislabeled as Mathpix output. The adapter is implemented and verified on native and browser clients. No new PDF/OCR work is authorized by the historical implementation description below.
+
 Status, 2026-10-05: deployed in the `paper-worker` Edge Function on staging; real conversions (DPO, LoRA, Mamba, Mistral, Adam, PPO) render, validate and open in the Simulator journey.
 
 ## Shape

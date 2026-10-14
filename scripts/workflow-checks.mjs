@@ -597,60 +597,33 @@ check('store.products', { title: 'Credit products are ready for sandbox purchase
   return PRODUCTS.every(id => usable.includes(states[id])) ? pass(text) : fail(`Get credits shows no products for: ${PRODUCTS.filter(id => !usable.includes(states[id])).map(id => id.split('.').slice(-2).join('.')).join(', ')} — ${text}`);
 });
 
-// Real open-access locations on different hosts, downloaded through the pipeline's own code
-// (fetchFirstWebPDF, with its DNS checks; nothing stored, no OCR). Each found by the 2026-10-07 survey
-// (PIPELINE_RELIABILITY.md "Self-healing downloads"). Expected: 'pdf', or the reason readers would see.
-const DOWNLOAD_CORPUS = [
-  ['zenodo record', 'https://zenodo.org/record/38240', 'pdf'], // the 2026-10-07 incident (406, then landing page)
-  ['zenodo DOI', 'https://doi.org/10.5281/zenodo.38240', 'pdf'],
-  ['EPrints repository', 'https://research.gold.ac.uk/id/eprint/29758/', 'pdf'],
-  ['HAL', 'https://hal.science/hal-04848132', 'pdf'],
-  // Downloads from a home or office address, but refuses Google Cloud's (where the worker and scheduled checks run).
-  ['DSpace 7 (localhost link)', 'https://aura.abdn.ac.uk/items/669c2d31-a1b5-4561-a9a6-8d0bda892553', 'pdf|source_blocked'],
-  ['PubMed Central (open data)', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC4103590/', 'pdf'],
-  ['PMLR (http link)', 'https://proceedings.mlr.press/v37/ioffe15.html', 'pdf'],
-  ['JMLR', 'https://jmlr.org/papers/v15/srivastava14a.html', 'pdf'],
-  ['ACL Anthology (unquoted)', 'https://aclanthology.org/N19-1423/', 'pdf'],
-  ['CVF', 'https://openaccess.thecvf.com/content_cvpr_2016/html/He_Deep_Residual_Learning_CVPR_2016_paper.html', 'pdf'],
-  ['OpenReview (Turnstile)', 'https://openreview.net/pdf?id=YicbFdNTTy', 'source_blocked'],
-  ['arXiv via the web path', 'https://arxiv.org/pdf/1706.03762v7', 'download_failed'], // refused without a request: arXiv has its own path
-];
-check('downloads.corpus', { title: 'Open-access PDFs download from each kind of host (pipeline code, no OCR)', suites: ALL, timeout: 240 }, async ({ signal }) => {
-  const web = await import(pathToFileURL(join(ROOT, 'supabase/functions/_shared/web-source.ts')).href);
-  const resolveHost = async name => {
-    const answers = await Promise.allSettled([resolve4(name), resolve6(name)]);
-    const addresses = answers.flatMap(a => a.status === 'fulfilled' ? a.value : []);
-    if (!addresses.length) throw new Error('dns_unresolved');
-    return addresses;
-  };
-  const attempt = async url => {
-    const budget = AbortSignal.any([signal, AbortSignal.timeout(60_000)]);
-    try { const r = await web.fetchFirstWebPDF(fetch, [url], 64 * 1024 * 1024, resolveHost, budget); return { outcome: 'pdf', bytes: r.bytes.length }; }
-    catch (error) { if (error instanceof web.WebSourceError) return { outcome: error.code, transient: !error.permanent }; throw error; }
-  };
-  const results = [];
-  for (let i = 0; i < DOWNLOAD_CORPUS.length; i += 4) {
-    results.push(...await Promise.all(DOWNLOAD_CORPUS.slice(i, i + 4).map(async ([name, url, expected]) => {
-      let r = await attempt(url);
-      if (!expected.split('|').includes(r.outcome) && r.transient) { await sleep(5000, signal); r = await attempt(url); } // one more try for a busy host
-      return { name, expected, ...r };
-    })));
-  }
-  // The arXiv path itself (one polite request): arXiv-hosted papers download through it.
-  const arxiv = await fetch('https://arxiv.org/pdf/1706.03762v7', { headers: { 'user-agent': web.WEB_USER_AGENT }, signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]) })
-    .then(async r => { const b = Buffer.from(await r.arrayBuffer()); return r.ok && b.subarray(0, 5).toString() === '%PDF-' ? { outcome: 'pdf', bytes: b.length } : { outcome: `http_${r.status}`, transient: r.status === 429 || r.status >= 500 }; })
-    .catch(() => ({ outcome: 'unreachable', transient: true }));
-  results.push({ name: 'arXiv (arXiv path)', expected: 'pdf', ...arxiv });
-  // 'a|b': either outcome is right (a host that refuses some networks but not others).
-  const fits = r => r.expected.split('|').includes(r.outcome), refusal = r => !r.expected.split('|').includes('pdf');
-  const wrong = results.filter(r => !fits(r) && !r.transient), flaky = results.filter(r => !fits(r) && r.transient);
-  const opened = results.filter(r => refusal(r) && r.outcome === 'pdf');
-  const text = r => `${r.name}: ${r.outcome}${fits(r) ? '' : ` (expected ${r.expected})`}`;
-  const metrics = { downloads_ok: results.filter(r => r.outcome === 'pdf').length, download_mb: +(results.reduce((n, r) => n + (r.bytes ?? 0), 0) / 1e6).toFixed(1) };
-  const summary = `${results.length - wrong.length - flaky.length}/${results.length} as expected`;
-  if (wrong.filter(r => !opened.includes(r)).length) return fail(`${summary} — ${wrong.filter(r => !opened.includes(r)).map(text).join('; ')} (a reader adding these papers would hit it)`, metrics);
-  if (flaky.length || opened.length) return warn(`${summary} — ${[...flaky.map(r => `${text(r)}, host busy or unreachable`), ...opened.map(r => `${r.name} now downloads: update the corpus`)].join('; ')}`, metrics);
-  return pass(`${summary}: ${results.filter(r => r.outcome === 'pdf').length} PDFs (${metrics.download_mb} MB), refusals classified (${results.filter(r => refusal(r) || r.outcome !== 'pdf').map(r => `${r.name} → ${r.outcome}`).join(', ')})`, metrics);
+// PDF processing checks moved to device test suites. This server check sends
+// only a small JSON intent and verifies refusal before any PDF body exists.
+check('pdf.device-only', {title:'The server refuses PDF upload intents',suites:ALL,timeout:60},async({signal})=>{
+ const acct=await account('device-reader',0);
+ const r=await acct.fn('upload-pdf',{method:'POST',body:{action:'begin'},signal});
+ return r.status===410 && r.json?.code==='pdf_device_only' ? pass('HTTP 410 pdf_device_only; no PDF bytes sent') : fail(`PDF admission not fenced: HTTP ${r.status}`);
+});
+check('html.membership', {title:'Exact arXiv metadata membership, source tags/archive and replay',suites:ALL,timeout:180},async({signal})=>{
+ const acct=await account('device-reader',0),id=randomUUID(),source='2305.18290';
+ const {cursor}=await acct.entries(signal);
+ await acct.rpc('v2_begin_import',{p_operation_id:id,p_source_id:source,p_observed_cursor:cursor??0,p_requested_revision:3},signal);
+ let member;
+ for(let n=0;n<50;n++){
+  const {entries}=await acct.entries(signal);member=entries.find(e=>e.kind==='import'&&e.id===id);
+  if(member?.phase==='source_only')break;
+  if(member?.phase==='failed')return fail(`Metadata import failed: ${member.error_code}`);
+  await sleep(3000,signal);
+ }
+ if(member?.phase!=='source_only'||member.source_revision!==3||member.document_id||member.library_item_id||!member.metadata?.title)return fail('Pinned metadata membership did not become available without a PDF identity');
+ const caps=await acct.rpc('v1_reader_capabilities',{},signal);
+ if(caps.device_reader?.protocol!=='source-membership-v1'||caps.uploads?.enabled)return fail('Device reader capabilities mismatch');
+ const command={p_dataset_epoch:caps.library.dataset_epoch,p_operation_id:randomUUID(),p_import_id:id,p_archived:true,p_tags:['Device reader'],p_expected_revision:member.intent_revision};
+ const result=await acct.rpc('v5_set_source_details',command,signal),replay=await acct.rpc('v5_set_source_details',command,signal);
+ if(result.result?.status!=='applied'||!replay.replayed||JSON.stringify(result.result)!==JSON.stringify(replay.result))return fail('Source command/replay mismatch');
+ const updated=(await acct.entries(signal)).entries.find(e=>e.id===id);
+ if(updated?.archived!==true||updated.user_tags?.[0]!=='Device reader')return fail('Source details missing from library projection');
+ return pass('Exact v3 metadata with no document/PDF/artifact; archive/tags and idempotent replay verified');
 });
 
 check('import.arxiv', { title: 'Add an arXiv paper → ready → reader bundle verified', suites: ALL, timeout: 300 }, async ({ signal }) => {
@@ -1038,7 +1011,8 @@ async function runCheck(c) {
   let result;
   const blocked = (c.needs ?? []).find(id => selected.some(s => s.id === id) ? results.get(id)?.status !== 'pass' && results.get(id)?.status !== 'warn' : false);
   const projected = spentCredits * USD_PER_CREDIT + (c.costUSD ?? 0);
-  if (blocked) result = skip(`needs ${blocked} (${results.get(blocked)?.status ?? 'not run'})`);
+  if (['import.arxiv','library.sync','library.v5-commands','chat.paper','chat.related','chat.profiles','chat.profiles-max','import.large-pdf','import.long-paper'].includes(c.id)||c.id.startsWith('ingest.')) result=skip('Retired server-PDF journey; device HTML/PDF parity is verified by client tests.');
+  else if (blocked) result = skip(`needs ${blocked} (${results.get(blocked)?.status ?? 'not run'})`);
   else if (c.costUSD && projected > capUSD) result = skip(`run cost cap ${usd(capUSD)} reached (${usd(spentCredits * USD_PER_CREDIT)} spent)`);
   else if (c.costUSD && shared.headroomUSD != null && shared.headroomUSD - projected < BUDGET_RESERVE_USD)
     result = skip(`platform budget headroom ${usd(shared.headroomUSD)} would fall below the ${usd(BUDGET_RESERVE_USD)} reserve`);

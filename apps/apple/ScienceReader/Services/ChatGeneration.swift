@@ -61,6 +61,7 @@ struct ChatAnswerTurn: Equatable, Sendable {
     var action: ChatAction? = nil
     /// The chat's model, effort and length when Send was pressed (2026-10-08); a retry asks with the same.
     var profile: ChatProfileChoice? = nil
+    var paperReference: SourcePaperReference? = nil
 }
 
 /// One in-flight answer. The assistant ID is allocated before streaming so the
@@ -91,7 +92,7 @@ struct ChatGeneration: Sendable {
     func event(text: String, status: PrivateEvent.TurnStatus, model: String? = nil, profile: String? = nil) -> PrivateEvent {
         PrivateEvent(kind: .message, entityID: assistantID, parents: [turn.userMessageID], conversationID: turn.conversationID,
                      documentID: turn.documentID, text: text, role: .assistant, status: status, createdAt: createdAt,
-                     model: model, profile: profile)
+                     model: model, profile: profile, paperReference: turn.paperReference)
     }
 }
 
@@ -100,6 +101,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
     let code: String
     var message: String {
         switch code {
+        case "local_reader_unavailable": "Open this paper to prepare its HTML reader on this device, then retry your question."
         case "consent_declined": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
         case "storage": "The answer couldn’t be saved on this device."
@@ -110,7 +112,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
     /// A kept answer whose diagram could not be stored is informational; asking
     /// again would be a new paid answer.
     var retryable: Bool {
-        code != "diagram_storage" && (["consent_declined", "consent_unsaved", "storage"].contains(code) || ChatFailureText.isRetryable(code))
+        code != "diagram_storage" && (["consent_declined", "consent_unsaved", "storage", "local_reader_unavailable"].contains(code) || ChatFailureText.isRetryable(code))
     }
     var actionTitle: String { code == "consent_declined" ? "Get answer" : "Try again" }
 }

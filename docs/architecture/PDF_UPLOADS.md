@@ -1,5 +1,11 @@
 # Adding any paper: identifiers, PDF uploads, device downloads, sharing
 
+**Superseded product direction, 2026-10-13:** all PDF intake now targets the user's local encrypted store.
+Choose/drop/Share, device download and failed-import recovery must never upload PDFs. The sessions, transports
+and deployed paths below describe the historical implementation; migration 058 and the HTTP 410 endpoint now prevent new use.
+[HTML-first reader](HTML_FIRST_READER.md) specifies local intake, server admission stops (including old clients),
+PDF-independent membership and compatibility gates. The server admission fences and device-only client intake are deployed; see implementation status for build evidence.
+
 > **Status, 2026-10-09 UTC:** migration `202610070039_pdf_uploads.sql` is applied on staging; `add-paper`,
 > `upload-pdf`, the private `paper-uploads` bucket and the bounded worker transport are deployed. Scope-2 inventory
 > completed with zero discrepancies and upload admission was enabled. Native epoch/descriptor/chunk adoption

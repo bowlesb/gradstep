@@ -138,8 +138,8 @@ function decodeEvent(plain: Bytes, ordinal: number): LoadedEvent {
   if (length > 1024 || plain.length < 4 + length + 28) damaged();
   let h: Record<string, unknown>;
   try { h = JSON.parse(fromUtf8(plain.subarray(4, 4 + length))) as Record<string, unknown>; } catch { return damaged(); }
-  if (!uuid(h.id) || !uuid(h.device) || !Number.isSafeInteger(h.epoch) || (h.epoch as number) <= 0 || h.format !== 1 || typeof h.local !== 'boolean') damaged();
-  return { ordinal, local: h.local as boolean, envelope: { id: h.id as string, deviceID: h.device as string, epoch: h.epoch as number, format: 1,
+  if (!uuid(h.id) || !uuid(h.device) || !Number.isSafeInteger(h.epoch) || (h.epoch as number) <= 0 || ![1, 2].includes(h.format as number) || typeof h.local !== 'boolean') damaged();
+  return { ordinal, local: h.local as boolean, envelope: { id: h.id as string, deviceID: h.device as string, epoch: h.epoch as number, format: h.format as number,
     ciphertext: plain.slice(4 + length) } };
 }
 function validDraft(d: StoredDraft, id: string): StoredDraft {

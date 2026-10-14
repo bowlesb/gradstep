@@ -1,5 +1,15 @@
 # Browser reader
 
+2026-10-13 owner direction: the [HTML-first/device-only PDF contract](HTML_FIRST_READER.md) supersedes server PDF
+upload/conversion paths in this document. Keep the current workspace and chat interactions. Implement the arXiv
+HTML profile, local bundle storage and versioned local-text chat; verify direct HTML/asset CORS before promising
+browser acquisition. A PDF upload/proxy is not a fallback. Deployed in Pages `a3127547`, including v2 grouped-figure and inline-vector compatibility fixes for `2610.10478v1` and `2610.12978v1`; v1 bundles remain readable. The hosted DPO v3 check verified direct HTML plus eight assets, math, selections, local-context chat admission and cross-browser encrypted history with no PDF/artifact request. The reported-paper hosted check and remaining native processing state are recorded in IMPLEMENTATION_STATUS.md. Durable browser offline bundles remain a later gate.
+
+The later `a3127547` release makes optional storage-persistence permission nonblocking after verified key
+write/readback, fixing Firefox sign-in. Fast regressions and all eight Firefox local-PDF journeys pass.
+[Fast/slow testing](../TESTING.md) records the baseline and selective rerun policy; no additional native release
+or backend change was needed.
+
 Status, 2026-10-09 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
 `a0b9d75a` from source `943486e` against staging.** It includes the reviewed Feed, library actions/columns,
 encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
@@ -306,11 +316,12 @@ tags and conversations, but it must either fetch the source again and prepare a 
 device transfer before it can open the paper offline. Clearing browser storage removes that local copy while leaving
 the synchronized metadata intact.
 
-There are two deliberate content paths:
+The table below records the pre-2026-10-13 rights-dependent implementation. Under the new design every PDF stays
+on device regardless of license; an eligible future HTML cache would require separate implementation/rights review.
 
 | Paper rights / source | Server behavior | Browser behavior |
 |---|---|---|
-| CC0, CC BY or an explicit server-storage permission | A versioned reader artifact may be retained and shared after the normal integrity and eligibility checks | Any approved device can download, verify and save it locally |
+| CC0, CC BY or an explicit server-storage permission (historical server path) | Existing permitted artifacts may remain; no new server PDF acquisition/processing under the new design | HTML/local content flow pending; existing verified artifact playback is separate |
 | Default, missing or uncertain arXiv license | Metadata and a versioned source link only; no server PDF, Mathpix bundle or podcast by default | The device retrieves the source and keeps its prepared copy locally; another device repeats retrieval/preparation or uses device transfer |
 | Publisher-restricted or user-uploaded PDF | Device-local unless the user has supplied permission for server storage | The browser shows “available on another device” or “download on this device” rather than pretending a server copy exists |
 

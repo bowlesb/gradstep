@@ -1573,3 +1573,30 @@ test('the answer names the model that served it, a fallback model when one ran',
   await runChat(odd.deps, paperBody(), odd.emit, new AbortController().signal);
   assert.equal((odd.events.at(-1)?.data as { model?: string }).model, undefined);
 });
+
+const localContext = { format: 'reader-local-context-v1', membership_id: documentID, source: 'arxiv', source_id: '2305.18290',
+  revision: 3, manifest_sha256: 'a'.repeat(64), source_sha256: 'b'.repeat(64), text: 'device-only-context-marker x^2' };
+test('local reader context is bounded, mutually exclusive with server documents, and bound into replay digest', () => {
+  const body = paperBody({ document_id: null, local_context: localContext });
+  const parsed = validateChatRequest(body);
+  assert.equal(parsed.documentID, null); assert.equal(parsed.localContext?.text, localContext.text);
+  for (const change of [{ mode: 'general' }, { document_id: documentID }, { local_context: { ...localContext, revision: 0 } },
+    { local_context: { ...localContext, text: 'x'.repeat(2*1024*1024+1) } }, { local_context: { ...localContext, pdf: 'bad' } }])
+    assert.throws(() => validateChatRequest({ ...body, ...change }));
+  assert.notEqual(canonicalRequest(parsed), canonicalRequest(validateChatRequest({ ...body, local_context: { ...localContext, text: 'changed' } })));
+});
+test('local-context paper chat authorizes membership before metering and never loads server paper bytes', async () => {
+  const h = harness({ script: { worker_local_chat_context: p => {
+    assert.equal(p.p_membership_id, documentID); assert.equal(p.p_revision, 3); return {title:'Local HTML paper'};
+  } } });
+  h.deps.loadPaper = async () => { throw Error('must not fetch a server paper'); };
+  await runChat(h.deps, paperBody({ document_id: null, local_context: localContext }), h.emit, new AbortController().signal);
+  assert.equal(h.generations(), 1);
+  assert.deepEqual(names(h.calls), ['worker_consume_request','worker_local_chat_context','worker_reserve_chat','worker_settle_operation','worker_record_provider_usage']);
+  assert.ok(!JSON.stringify([...h.calls,...h.logs,...h.answers]).includes(localContext.text));
+});
+test('another account or revision cannot use local context to bypass library authority', async () => {
+  const h = harness({ script: { worker_local_chat_context: () => {throw new RpcFailure('document_unavailable');} } });
+  await runChat(h.deps, paperBody({ document_id: null, local_context: localContext }), h.emit, new AbortController().signal);
+  assert.equal(h.generations(), 0); assert.ok(!names(h.calls).includes('worker_reserve_chat'));
+});

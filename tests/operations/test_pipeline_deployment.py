@@ -137,8 +137,8 @@ class PipelineActivationOrderTests(unittest.TestCase):
             DEPLOY.main(['deploy', '--project', 'gradstep', '--defer-activation'])
         self.assertEqual(events, [('deploy', {'deferred': True})])
 
-    def test_normal_cli_retains_order_and_skip_checks_does_not_bypass_deploy(self):
-        for extra, expected in [([], ['deploy', 'retry', 'checks']), (['--skip-checks'], ['deploy', 'retry'])]:
+    def test_normal_cli_never_retries_legacy_jobs_and_skip_checks_still_deploys(self):
+        for extra, expected in [([], ['deploy', 'checks']), (['--skip-checks'], ['deploy'])]:
             events = []
             with mock.patch.object(DEPLOY, 'deploy', side_effect=lambda p, r, **kw: events.append('deploy') or 'label'), \
                  mock.patch.object(DEPLOY, 'retry_failed', side_effect=lambda label: events.append('retry')), \

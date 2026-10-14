@@ -2,12 +2,17 @@
 
 Native iPhone/iPad research-paper reader with Supabase, reusable article conversions, private user libraries, metered AI, and an operator dashboard.
 
-Status, 2026-10-05: **first usable journey works on staging.** Adding an arXiv paper downloads it, converts it with Mathpix (paid, credit-held, budget-capped), renders an equation-aware MathML reader bundle, delivers it to the app's encrypted offline store, and answers paid questions with Claude Sonnet 5.5. The Ingest selection action adds a cited arXiv paper, and answers can include diagrams (stored encrypted, drawn on device). CC BY/CC0 conversions are shared across accounts; other papers convert privately per account. Real sign-in (Apple/Google/email delivery), subscriptions, TestFlight, admin hosting and the browser reader remain. See [implementation status](docs/IMPLEMENTATION_STATUS.md) and [paper pipeline](docs/architecture/PAPER_PIPELINE.md). The public name is being considered separately from the stable internal project/protocol names.
+Public name: **Gradstep**. Current direction, 2026-10-13: official arXiv HTML feeds the existing structured reader;
+every PDF is downloaded and processed only on the user's device. A future local model handles challenging PDFs,
+with no Mathpix fallback. See the [HTML-first architecture](docs/architecture/HTML_FIRST_READER.md).
+The HTML-first backend and browser are deployed on staging; native build 30 is valid and available for internal iOS and Mac testing. Historical server copies remain retained. The [implementation status](docs/IMPLEMENTATION_STATUS.md) records the latest verified releases and the
+remaining work. The [paper pipeline](docs/architecture/PAPER_PIPELINE.md) describes the historical server flow.
 
 ## Start here
 
 - [Agent takeover handoff](docs/AGENT_HANDOFF.md)
 - [Decisions and outstanding questions](docs/DECISIONS.md)
+- [arXiv HTML bundles and device-only PDFs](docs/architecture/HTML_FIRST_READER.md)
 - [Data model and invariants](docs/architecture/DATA_MODEL.md)
 - [Privacy, key custody, and synchronization](docs/architecture/PRIVACY_AND_SYNC.md)
 - [Encrypted wire contract](docs/architecture/ENCRYPTED_WIRE_FORMAT.md)
@@ -27,12 +32,15 @@ Use Node 24+, Xcode 26.4, Swift 6, and PostgreSQL client tools 18. Set `SCIENCE_
 
 ```sh
 npm ci
+npm ci --prefix apps/web
 npm test
 npm run build:admin
-npm run test:database
-swift test --package-path apps/apple/ScienceReaderCore
-node scripts/check-wire.mjs
 ```
+
+`npm test` is the **fast** default (backend + browser units and compiler freshness, about 10 seconds locally).
+Browser journeys, real-paper/PDF corpora, Simulator, database and hosted checks are **slow / opt-in**. Run them once
+for a baseline and selectively for related changes or reported issues; do not repeat them for unrelated edits.
+See [testing commands and saved evidence](docs/TESTING.md). `npm run test:status` shows previous run results.
 
 Hosted checks in `scripts/check-staging.py`, `check-support.mjs`, `check-native-support.mjs`, and `check-backup.mjs` create narrowly scoped synthetic staging data and remove it afterward. They do not send email or invoke paid providers. The browser support check expects the local admin server. Native tests use a signed simulator build (`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`) so they exercise the protected Keychain path. Physical-device file-protection checks are explicitly skipped in Simulator.
 

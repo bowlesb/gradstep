@@ -1,136 +1,98 @@
 # Device-local papers and reader bundles
 
-Status: design adopted with migration 051 (2026-10-09); the first native local-store checkpoint is implemented locally
-(2026-10-09). This is the delivery
-model for an arXiv version whose exact submitted license does not authorize our
-server to retain or serve the PDF or derived files. It deliberately keeps
-metadata and account state synchronized while keeping paper bytes on approved
-devices.
+Status: owner direction expanded 2026-10-13 to **every PDF**, regardless of source/license. The native encrypted
+arXiv source-only PDF store/viewer checkpoint was implemented locally on 2026-10-09. Universal local intake,
+arXiv HTML preparation, local bundle installation and server-side PDF prohibition are implemented and deployed on staging; native build 29 passed Apple processing and is in internal testing. Browser PDF bytes remain in the device file/tab; choosing the file again after reopening is explicit.
+The authoritative new contract is [HTML-first reader](HTML_FIRST_READER.md).
 
-The open-source/on-device processing investigation is recorded in
-[ON_DEVICE_PAPER_PROCESSING_20261009](../research/ON_DEVICE_PAPER_PROCESSING_20261009.md). It is a separate,
-quality-gated option; the current Mathpix path remains the quality reference.
+## Content boundary
 
-## What the server stores
+PDFs are downloaded, opened, stored and processed only on the user's device. This includes licensed arXiv papers,
+publisher PDFs and files supplied by choosing, dropping or sharing them into the app. No device download is
+followed by a server upload. No credential/token arrangement for Mathpix creates an exception to this decision.
+Initially, only official arXiv HTML is adapted to the structured reader. A future local model handles difficult
+PDFs; until it passes quality/device/license checks, the original remains locally viewable without cloud OCR.
 
-For every source-only import, Supabase may store:
+The default HTML path is also direct device acquisition and local adaptation. Server hosting of HTML or its
+derivatives still requires exact-version rights evidence and a separately reviewed implementation. The existing
+rights fields describe permission, not whether a PDF may be processed in the cloud. `rights_mode=shared` must not
+be used to exempt a PDF from the device-only rule.
 
-- the normalized arXiv identifier and requested/versioned revision;
-- title, authors, abstract, categories, publication dates and the observed
-  license URL;
-- the versioned abstract URL (`https://arxiv.org/abs/<id>v<revision>`);
-- encrypted account metadata such as tags, archive state and chat events; and
-- bounded operational state (`source_only`, `license_unverified`, timestamps,
-  retries and deletion tombstones).
+## What synchronizes
 
-It does not store the PDF, a PDF hash as a download authorization, Mathpix
-input/output, images, reader HTML, audio, podcast script, or a server-side
-reader artifact for that import. A hash may be computed transiently on a
-device for local integrity and AirDrop identity; it is not a permission grant
-and is not uploaded as a paper asset.
+The service may retain normalized source identity and exact revision, bibliographic metadata, license evidence,
+versioned source URLs, library membership/tags/removal state and the existing encrypted private-event streams.
+It does not receive PDFs or a background upload of their extracted text, images or derived bundles in the new flow.
+Local readiness, PDF hashes and installed bundle inventory stay on the device. Reading activity retains its
+existing device-local policy; this change does not add reading-position synchronization.
 
-The durable `pipeline_papers.rights_mode` is the audit field. `shared` is only
-the exact CC BY 4.0/CC0 evidence path, `private` is a web/reader-upload or
-separately evidenced private path, `source_only` is device retrieval, and
-`legacy_private` marks pre-051 arXiv conversions that need an operator rights
-review. The worker chooses this mode before download admission, so a source
-only row cannot accidentally reach Storage, OCR funding, or rendering.
+Explicit cloud paper chat remains a separate request: necessary bounded text/TeX and selected passages may be
+sent in request memory under the existing AI consent and server spending gates. That is not a plaintext sync or
+storage path. See [local-context chat](HTML_FIRST_READER.md#paper-chat-and-other-derived-work).
 
 ## Device flow
 
-1. The user adds a paper. The server resolves metadata and the exact revision,
-   then returns `source_only` plus the versioned source URL.
-2. The device opens the source link or explicitly chooses **Download on this
-   device**. The native client fetches the versioned arXiv page and follows its
-   declared PDF link (or the equivalent versioned PDF URL) with the existing
-   bounded HTTPS validator, checks the PDF header and size, and writes the bytes
-   to an encrypted local document store. It does not upload the bytes to
-   Supabase and does not use the server's PDF upload queue.
-3. The local document record is bound to `(account, source ID, exact
-   revision, sha256)` and to the local-store key. A later arXiv revision is a
-   new record; it never silently replaces the paper the reader was using.
-4. When a rights-cleared reader bundle exists locally, the existing bundle
-   verifier and `ReaderBundleCoordinator` install it beside the encrypted
-   original. If only the original PDF exists, the native PDF viewer offers
-   **Open PDF** on that device rather than pretending the structured reader is
-   ready.
-5. Tags, reading state and encrypted chats continue to sync through the normal
-   account protocol. They contain identifiers and encrypted content, never the
-   PDF or unencrypted extracted text.
+1. Add resolves metadata and an exact source revision. Membership must work without a server PDF/document row;
+   the new capability-versioned identity contract must be implemented before that is claimed to work.
+2. Fetch the official HTML for that revision and bounded assets, adapt them to the new `arxiv-html` bundle profile,
+   validate independently, then atomically install the encrypted bundle. Existing Contents, figures, selection,
+   equation Copy, references and paper chat remain the interface. Missing or unsupported HTML produces a clear
+   local/source availability state and never triggers remote PDF processing.
+3. Download an original directly to the device through the bounded HTTPS/PDF validator, or accept a local file
+   through choose/drop/Share. Encrypt it into the local paper store without passing through `PDFUploadQueue`.
+   Original and prepared-bundle availability are independent; neither requires the other to succeed.
+4. Bind each local object to the account and source/version (or an account-scoped random local-file identity), its
+   byte digest and the local-store key. A later arXiv revision is a new record and does not replace reading anchors.
+5. Another approved device synchronizes membership and encrypted private data, then retrieves the pinned source
+   itself or imports an authenticated approved-device package once transfer is implemented. Do not present another
+   device's local PDF as available here. Key recovery does not recreate a missing file.
 
-The native checkpoint uses a migration-free, file-backed `DevicePaperStore`
-beside the encrypted metadata store. Keeping large PDF ciphertext out of the
-SQLite journal avoids inflating sync checkpoints and WAL files while retaining
-the same account key and retirement fence. It does not overload the cloud
-library item (which requires a server document) or the existing temporary
-`PDFUploadQueue`, whose purpose is to upload a user-supplied PDF. The store
-has explicit open, delete, capacity and account-retirement operations, an
-authenticated manifest, atomic writes, orphan pruning, and a plaintext hash
-bound to the exact source revision. Its current native action is deliberately
-limited to direct source retrieval and local PDF viewing; reader-bundle
-installation, transfer, and local Mathpix processing remain separate gates.
+Browser direct acquisition needs a separate CORS proof; opening an arXiv tab does not prove that the browser app
+can read and bundle the response. No server PDF proxy is an acceptable workaround.
 
-## Approved-device transfer
+## Existing native checkpoint and required extension
 
-AirDrop is a local transfer of an encrypted package, not a second cloud copy.
-The sending device creates a bounded package containing the local paper
-record, encrypted PDF, and any verified reader bundle. It signs the package
-with the existing device key and wraps its content key to the approved
-recipient device. The recipient verifies account, source ID, exact revision,
-manifest and signature before importing into its own local store. A package
-never contains a reusable server token, Mathpix credential, or plaintext chat.
+`DevicePaperStore` is a migration-free, file-backed store beside encrypted metadata. Keeping large PDF ciphertext
+out of the SQLite journal avoids inflating sync checkpoints and WAL files. The checkpoint has an authenticated
+manifest, atomic writes, orphan pruning, bounds, blob integrity and account retirement fences. Its current native
+entry is **only** source-only arXiv retrieval and local PDF viewing. The failed-publisher download and chosen-file
+flows elsewhere still enter the upload queue; they must be rerouted before claiming all PDFs are local.
 
-The transfer UI must make the rights boundary clear: **Transfer to an approved
-device**. It must not be presented as public sharing, and it must not make a
-source-only paper appear in another account's library.
+Extend this store contract for arbitrary PDF identities and verified HTML bundles, retaining explicit open,
+delete, capacity, integrity and retirement operations. Keep protected transient plaintext lifetimes bounded and
+remove incomplete temporary files after cancellation/restart. Exclude local paper content from automatic
+OS/cloud backups, and verify browser eviction and native disk-full behavior. Reuse `ReaderBundleCoordinator`
+installation and the existing offline stores after removing their requirement for a server-original identity;
+never install fake document/approval references.
 
-## Mathpix boundary
+## Approved-device transfer (designed, not implemented)
 
-The current Mathpix integration uses a server-held credential and therefore
-cannot be called directly from an untrusted app. Sending a default-license PDF
-to that integration would still disclose the paper to our server/provider,
-even if the server deleted the bytes quickly. The source-only path therefore
-does not enable Mathpix processing until one of these separately reviewed
-routes exists:
+AirDrop/device transfer carries a bounded encrypted package with source identity, exact revision, the original
+if present and any verified bundle. Authenticate the sender and bind the package to the intended approved
+recipient/account, wrapping its content key with the device-key protocol. Verify signature, revision, all member
+hashes and limits before atomic installation. Include no reusable service token, provider credential or plaintext
+chat. Present this as transfer between the user's approved devices, not public sharing or account reassignment.
 
-- arXiv/copyright permission expressly covers contracted processing and the
-  short-lived relay, with retention/deletion and provider terms recorded; or
-- Mathpix offers an end-user credential/token model that keeps the request
-  under the user's authorization and does not expose our service secret.
+## Deletion and failures
 
-CC BY/CC0 papers and explicitly permitted publisher/user-uploaded PDFs may use
-the existing server pipeline and shared conversion cache. The entitlement,
-rights evidence, OCR operation and derived asset remain separate records so a
-rights change can quarantine an artifact without deleting a user's metadata.
+- Local removal deletes that device's original/bundle without pretending that cloud membership or another device's
+  files were erased. Removing library membership follows the normal tombstone/accepted-write rules and cleans up
+  associated local content without letting stale downloads reinstall it.
+- Account deletion/retirement invalidates pending work and clears local keys/blobs on each device when next opened.
+- Interrupted/failed acquisition retains any previously verified bundle and offers a bounded retry/source action;
+  it never falls back to an owner-private server import or remote OCR.
+- Offline reading uses complete verified local members with no network dependency. Browser storage eviction or a
+  lost original is reported honestly; recovery codes recover keys, not the absent paper bytes.
 
-## Deletion and failure rules
+## Verification gates
 
-- Removing a source-only import deletes the local PDF/bundle on that device
-  after the local-store transaction commits; the cloud tombstone removes only
-  metadata membership and encrypted references.
-- A failed direct download remains source-only with a retry/open-source action;
-  it is never converted into an owner-private server import automatically.
-- Account deletion erases the account's local key and local paper blobs on
-  each device when that device is next opened, and removes server metadata and
-  encrypted chat according to the existing deletion protocol.
-- Network loss leaves the local paper readable. A lost local key does not
-  cause the server to reconstruct or re-download a source-only PDF silently.
+Use the [coordinated cutover sequence](HTML_FIRST_READER.md#cutover-and-verification-sequence): HTML/asset and
+hostile-input adapter fixtures; native/Core/browser verifier agreement; encrypted install/offline reopen;
+source-version anchors and chat parity; all intake/retry routes; process-kill/disk-full/account fencing; browser
+CORS/quotas; and server traces proving no PDF acquisition/upload/processing or Mathpix calls, including old clients.
+Approved-device transfer and the future PDF model have their own authentication/quality gates. Physical iPhone
+work remains paused; Simulator and Catalyst verification may continue.
 
-## Rollout gates
-
-Before enabling the device-local action in a release, complete:
-
-1. local encrypted-paper store and blob integrity tests (the current store
-   checkpoint covers the format; process-kill and disk-full cases remain);
-2. source fetch, size/page limits, cancellation, process-kill and disk-full
-   tests on iPhone, iPad and Mac Catalyst;
-3. AirDrop package authentication and approved-device rotation tests;
-4. reader-bundle installation from local storage, including MathML/figure
-   validation and offline reopen; and
-5. an explicit provider/rights decision for any Mathpix processing of
-   source-only PDFs.
-
-Until the remaining gates pass, the source-only state is intentionally honest:
-metadata and the arXiv link are available everywhere, while the original PDF
-is available only on a device that explicitly downloaded it. It is not yet a
-multi-device server copy, a structured Mathpix reader, or an AirDrop transfer.
+No existing hosted files were migrated or deleted by this design change. The old deployed PDF/Mathpix paths and
+historical retained copies require the explicit cutover/retention work in the authoritative design; do not claim
+that the deployed app already implements this device-only contract.

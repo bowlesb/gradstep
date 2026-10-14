@@ -6,7 +6,8 @@ import { createPortal } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { BackendError, functionPost } from '../lib/backend';
 import { BundleError, type VerifiedBundle, loadBundle } from '../lib/bundle';
-import type { Item } from '../lib/library';
+import { type ReaderPaper, paperReference, readerCacheKey } from '../lib/reader-paper';
+import { prepareArxivReader, ArxivReaderError } from '../lib/arxiv-reader';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
 import { bridgeAnchor, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
 import type { TextAnchor } from '../lib/events';
@@ -23,7 +24,7 @@ export interface ReaderCommands { find: () => void; escape: () => boolean }
 const FONT_KEY = 'gradstep.reader.fontSize';
 const readFont = () => readStored(FONT_KEY, 18, v => typeof v === 'number' && v >= 13 && v <= 28);
 
-function publicationLine(item: Item): string | null {
+function publicationLine(item: ReaderPaper): string | null {
   const m = item.metadata, parts: string[] = [];
   const year = m?.published_at ? Number(m.published_at.slice(0, 4)) : null;
   if (year && year >= 1000 && year <= 9999) parts.push(String(year));
@@ -34,6 +35,7 @@ function publicationLine(item: Item): string | null {
 }
 
 function failure(error: unknown): string {
+  if (error instanceof ArxivReaderError) return error.message;
   if (error instanceof BackendError) {
     if (error.code === 'connection') return 'Couldn’t reach Gradstep. Check your connection and try again.';
     if (error.code === 'reader_not_ready' || error.code === 'item_unavailable' || error.code === 'reader_unavailable') return 'This paper isn’t ready to read yet.';
@@ -47,7 +49,7 @@ function failure(error: unknown): string {
   return 'Couldn’t open this paper. Try again.';
 }
 
-type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
+type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: ReaderPaper; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
   marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor) => void; onMarkedChat: (id: string) => void;
@@ -57,7 +59,7 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
 
 export function Reader(props: ReaderProps) {
   const { account, item } = props;
-  const identity = JSON.stringify([account, item.id, item.artifact_id, item.readiness, item.render_availability, item.render_availability_revision]);
+  const identity = readerCacheKey(account,item);
   return <PaperReader key={identity} cacheKey={identity} {...props} />;
 }
 
@@ -102,7 +104,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     if (cache.has(cacheKey)) { setBundle(cache.get(cacheKey)!); return; }
     const controller = new AbortController();
     setError(null); setLoaded(0);
-    loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); }).then(verified => {
+    (item.kind === 'import' ? prepareArxivReader(paperReference(item)!, controller.signal, setLoaded)
+      : loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); })).then(verified => {
       if (controller.signal.aborted) return;
       cache.set(cacheKey, verified);
       while (cache.size > 3) cache.delete(cache.keys().next().value!);
@@ -201,13 +204,14 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
 
-  const marksJSON = useMemo(() => JSON.stringify(marks.slice(0, 500).map(m => bridgeAnchor(m.id, m.anchor, item.artifact_id ?? undefined))), [marks, item.artifact_id]);
+  const marksJSON = useMemo(() => JSON.stringify(marks.slice(0, 500).map(m => bridgeAnchor(m.id, m.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256))), [marks, item.artifact_id, bundle?.manifestSHA256]);
   useEffect(() => { if (bridgeReady) command('setMarks', JSON.parse(marksJSON)); }, [bridgeReady, command, marksJSON]);
   useEffect(() => {
     if (!passage || !bridgeReady || appliedPassage.current === passage.id) return;
     appliedPassage.current = passage.id;
     if (Date.now() - passage.at > 60_000) { onPassageHandled(); return; }
-    command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined));
+    if (passage.anchor.manifestSHA256 && passage.anchor.manifestSHA256 !== bundle?.manifestSHA256) { onPassageHandled(); return; }
+    command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256));
   }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled]);
   const quote = bundle && selection ? resolveQuote(bundle, selection) : null;
 
@@ -221,7 +225,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     setActive(id);
     if (workspace && !workspace.left.inline) workspace.show('left', false);
   };
-  const referenceAnchor = (text: string, blockID?: string): TextAnchor => ({ artifactID: item.artifact_id ?? '', elementID: blockID, quote: text, prefix: '', suffix: '' });
+  const referenceAnchor = (text: string, blockID?: string): TextAnchor => ({ ...(item.artifact_id ? {artifactID:item.artifact_id} : {manifestSHA256:bundle!.manifestSHA256}), elementID: blockID, quote: text, prefix: '', suffix: '' });
   const discuss = onDiscuss ? (text: string, blockID?: string) => onDiscuss(text, referenceAnchor(text, blockID)) : undefined;
   const addReference = async (text: string, operationID: string = crypto.randomUUID()) => {
     referenceRequest.current?.abort();
@@ -290,9 +294,9 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           <div className="empty" role="status"><p>Opening the paper…</p>
             <progress max={1} value={loaded} aria-label="Downloading the paper" /></div>
         )}
-        {quote && selection && item.artifact_id && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
+        {quote && selection && bundle && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
           {SELECTION_ACTIONS.map(({ action, title }) => <button key={action} className="secondary small" onClick={() => {
-            const anchor = passageAnchor(item.artifact_id!, selection, quote);
+            const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
             if (anchor) { onSelection(action, quote, anchor); setSelection(null); command('clearSelection'); }
           }}>{title}</button>)}
         </div>}

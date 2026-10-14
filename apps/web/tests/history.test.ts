@@ -1,4 +1,4 @@
-// Encrypted history sync against an in-memory event log with the v1_append_event / v2_pull_events shapes.
+// Encrypted history sync against an in-memory event log with the v1_append_event / v3_pull_events shapes.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fromBytea, sha256, toBytea } from '../src/lib/bytes';
 
@@ -19,7 +19,7 @@ vi.mock('../src/lib/backend', async importOriginal => {
         server.log.push(row);
         return row.cursor;
       }
-      if (name === 'v2_pull_events') {
+      if (name === 'v3_pull_events') {
         const after = p.p_after as number, limit = p.p_limit as number;
         const events = server.log.filter(e => (e.cursor as number) > after).slice(0, limit).map(e => (server.corrupt ? { ...e, ciphertext_sha256: toBytea(new Uint8Array(32)) } : e));
         return { events, next_cursor: (events.at(-1)?.cursor as number | undefined) ?? after, has_more: server.log.filter(e => (e.cursor as number) > after).length > limit };

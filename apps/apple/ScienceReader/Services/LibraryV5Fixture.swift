@@ -100,7 +100,7 @@ final class LibraryV5FixtureServer: @unchecked Sendable {
             let input = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
             switch String(path.dropFirst("/rest/v1/rpc/".count)) {
             case "v1_key_state": return (200, keyState)
-            case "v2_pull_events":
+            case "v3_pull_events":
                 return (200, ["events": [Any](), "next_cursor": input["p_after"] as? Int ?? 0, "has_more": false])
             case "v1_acknowledge_cursor": return (204, NSNull())
             case "v1_reader_capabilities":

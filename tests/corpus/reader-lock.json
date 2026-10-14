@@ -1,0 +1,875 @@
+{
+  "format": 1,
+  "papers": [
+    {
+      "key": "2305.18290v3",
+      "html": {
+        "url": "https://arxiv.org/html/2305.18290v3",
+        "bytes": 411092,
+        "sha256": "46515bc6001158063f3da04695b1412099bc40b90c53f54bf1834581aefa15d1"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/dialogue_winrate_vs_steps.svg",
+          "bytes": 63177,
+          "sha256": "6570c50ff960a4562f78f1aced74b7e2d9986f181fcb3a8680cf78d45cd28650"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/dialogue_winrate_vs_temp.svg",
+          "bytes": 47364,
+          "sha256": "26bca32799ee23ed5da6e6ea163dc1fbfaeed7165c171faeee3f1849d96d31b4"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/dialogue_winrate_vs_temp_rerank.svg",
+          "bytes": 52997,
+          "sha256": "253fcdfb1b229f1e546a5acb8104e733110c260a575e9760ed6bfdbd4332aeae"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/figures/diagrams/teaser.png",
+          "bytes": 273473,
+          "sha256": "af51c080272561bcb736aef8b56c1ef220465f89b8ad3bf045014922941e89c4"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/figures/results/survey.png",
+          "bytes": 700456,
+          "sha256": "b38f72bc4c1e8d75ba8ce4202152d8fcc5f1cc4d60cc54b57cfcbb39eef3d7c3"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/frontier.svg",
+          "bytes": 274003,
+          "sha256": "9f53a779dd777883c5907f00802ec80af0fbb30b2a02ba341d60114565f9be34"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/tldr_rerank_vs_temp.svg",
+          "bytes": 47010,
+          "sha256": "6d784610db1c6239e45ece01dc26025fadbc6f3cbc3824d45688ec1ba01f575a"
+        },
+        {
+          "url": "https://arxiv.org/html/2305.18290v3/tldr_winrate_vs_temp.svg",
+          "bytes": 65376,
+          "sha256": "5396e85220a48b17b38cb3a07bd69833294202e425e87ea799e005a1fe085e63"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2305.18290v3",
+        "bytes": 1299212,
+        "sha256": "92cb3a2b71362acda98a789b03d88688fd33cf5fcf13f81d2b1de30ee7d3b67a"
+      }
+    },
+    {
+      "key": "2312.00752v2",
+      "html": {
+        "url": "https://arxiv.org/html/2312.00752v2",
+        "bytes": 668444,
+        "sha256": "b9e5cde2c3a013199d5ec0eed57160018329739ba343a015cbd6baea1b5a809b"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/architecture.svg",
+          "bytes": 66659,
+          "sha256": "b3e264a306798a4c518631be55247c6a4c3c60fdc8819b416b0dab12b3bdf6d0"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/copying.svg",
+          "bytes": 89920,
+          "sha256": "555785adcfd638cd35d7bc36b63e758f19df826d999d9d3bd70d83950057b253"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/dna_length.svg",
+          "bytes": 64077,
+          "sha256": "c6842f498bd2de6037f93baf4251b9d1042198bcab743d454cc4189212607836"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/dna_scaling.svg",
+          "bytes": 63709,
+          "sha256": "5bf0a2b1db686eb20ffc2c4fcc9347dc4bf714a293e32a2cb6db57be217d1bc3"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/induction.svg",
+          "bytes": 131215,
+          "sha256": "f1fb18944127b6a9dbfc9801d44b2f8af084e897a9c9e5c62326846ddde4e9a2"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/mamba_inference.svg",
+          "bytes": 64971,
+          "sha256": "ef12ebe2459117417364d3e9e2f8e439b0f180582cde7bda5449eaeb6da7dafc"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/pile_2k.svg",
+          "bytes": 82574,
+          "sha256": "2a992862ca73088fe1891240c98c9732f320764e39af6f15f4bd37120de55108"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/pile_2k_ablations_h3.svg",
+          "bytes": 56886,
+          "sha256": "80289310c232a790acbaa6003f0dc6e847a8e74d1312890c9122b6b47f231675"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/pile_2k_ablations_mamba.svg",
+          "bytes": 53922,
+          "sha256": "f572f193ae0fd6eabf048dbc4814212e7777156638d13f02fd0771a7ff7e62d1"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/pile_8k.svg",
+          "bytes": 79289,
+          "sha256": "882bb7aef32115025fee7f9e99b7c4697a85719f636e1641eeca4ae9ba293f70"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/selection.svg",
+          "bytes": 111028,
+          "sha256": "f7dc33b740a0a0b9925dd8a005c26c26f19629f82b6a5e4e122f9385b84a0c39"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/species.svg",
+          "bytes": 66791,
+          "sha256": "935c973848871f3769529da4d606f975e38c6d3f5da0cd84e47da0b7776d8d41"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/ssm_scan.svg",
+          "bytes": 57119,
+          "sha256": "cce33cb7833c3fd3ecde0c44ec9eadf2c3d986ebd402f8c3dca91ac4151a57cf"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/youtubemix.svg",
+          "bytes": 57873,
+          "sha256": "939986f8123c9da4502b96c538761005f21dd4ae081ada81eef31b72eb906b82"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/youtubemix_ablations.svg",
+          "bytes": 93071,
+          "sha256": "5194ccb14ff8465fc157bbf359144067ee916f14aef5940b4ac5deae1f4e97c9"
+        },
+        {
+          "url": "https://arxiv.org/html/2312.00752v2/youtubemix_ablations_center.svg",
+          "bytes": 81595,
+          "sha256": "aee02fccebbf50b00d4b108642c7c7274c5fd9f88d3003a22cc03a26518272ec"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2312.00752v2",
+        "bytes": 1168615,
+        "sha256": "adf70ed1803c85b1899dec3e21f3af0b124411439e8654b840ea65f7b9f52b2e"
+      }
+    },
+    {
+      "key": "2406.02528v7",
+      "html": {
+        "url": "https://arxiv.org/html/2406.02528v7",
+        "bytes": 405292,
+        "sha256": "2b1482bf082a766231248b5259c49993813b162b017a1468bed9d2fc7f065cb2"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/l2_1chip_power.svg",
+          "bytes": 68488,
+          "sha256": "c0b9678e86b39e30e6232f1e54ce6e52a8198aaec3f10e24eb90528ec0fff443"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/loihi-graph.png",
+          "bytes": 74687,
+          "sha256": "c075c98fb007736f701b0c61ce9194da4c7b59626cd6d21568ece86ce55a67f1"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/loihi_exec_modes.svg",
+          "bytes": 385458,
+          "sha256": "c87beb341b92d16f06407dd0baec9e8411e2d80e537c5e6bfbded0f45496ce75"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/loihi_systems.png",
+          "bytes": 66893,
+          "sha256": "18db28283c0969b6f2788648066978515ff560f575a28c79ec21fee0a84bed80"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/loss_plot.svg",
+          "bytes": 92074,
+          "sha256": "67ecc89c48c7cfdff4b7de4f624e80b4e303a4c325c76c992de777d69c62bc54"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/main.png",
+          "bytes": 283948,
+          "sha256": "28ee7289e20528e551b7e2102fb0e804f3b7f08d56ad51c363dd54bfc054c711"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/matrix_unit.drawio.svg",
+          "bytes": 78474,
+          "sha256": "1b4502b1e218e3b9f2800dc6cfb5260cd5b49b37d5e772914f23b8b8048a84e7"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/merge.svg",
+          "bytes": 423068,
+          "sha256": "4fa0900a173dd5e5fcb8597f0b18e5f1518a689f85fc9152fcf0018da0f68401"
+        },
+        {
+          "url": "https://arxiv.org/html/2406.02528v7/scaling_law.svg",
+          "bytes": 186301,
+          "sha256": "2dfb5495eb9c3729707619a02b4eb324011eecb49bb6b5fc550381dcc46f7d61"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2406.02528v7",
+        "bytes": 1414451,
+        "sha256": "5f3e6d97d02517dc237e3aff419b88e99de3b9a781d69b3a7a611ac0bb107190"
+      }
+    },
+    {
+      "key": "2610.10478v1",
+      "html": {
+        "url": "https://arxiv.org/html/2610.10478v1",
+        "bytes": 486746,
+        "sha256": "3a4b0cf495e2d5ff45a5c692c18559b0686079cf847b118ba93f931c22fc660b"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/base-model-bridge.svg",
+          "bytes": 264143,
+          "sha256": "7dc6c82c1653b09a51f2e37da632154b8ff1b9ad40f6c50389f753b5016f76f3"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/bpb-ablation-summary.svg",
+          "bytes": 89478,
+          "sha256": "007838e0ed92858b070294316ce25173a4584b189a9bd0423c9f3f72547fb5d1"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/decisive-bpb-scatter.svg",
+          "bytes": 166169,
+          "sha256": "69569780837c6f54799ae46a886befd457f674702697a817e5a9d8d0ce1475b7"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/deepswe-probe-scatter-swe-multilingual.svg",
+          "bytes": 202195,
+          "sha256": "674ba0ae0c957db9fcb317ea426110e93d9fad5de98dba0b6e2d2d0106f23fe6"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/deepswe-probe-scatter-swe-verified.svg",
+          "bytes": 192406,
+          "sha256": "6212e0d3b4f00ca1e0b468040cc710739de78d2d0a0939e3fe1eecd2a9c888aa"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/deepswe-probe-scatter-terminal.svg",
+          "bytes": 192204,
+          "sha256": "992b8ff0ea87a4b2604f52f29938f6ff4018c25d2328f8cde9fd74b0f9adcfd7"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/infra-pipeline.svg",
+          "bytes": 218689,
+          "sha256": "8d420fcb1a3a3defc93580b49d60eafbfc98b30be4b5272946bdfd38fd69ed1a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/mcq-ranking-comparison.svg",
+          "bytes": 169083,
+          "sha256": "2a28061557862a86e74f102898ed22e804f54286848825c06e8a3ee0b70d3b7c"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/new-figure1.png",
+          "bytes": 241209,
+          "sha256": "627918a0722612dfdc6d5e9af65a91014a23422fbf89586c45f0fe0c18e8daba"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/prefix-passk-comparison.svg",
+          "bytes": 204078,
+          "sha256": "4e182bdcf6fce2c518e9d6b86bac056b0cb8fb3f82f5dad3d4fca78e2051c670"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/swev-probe-scatter-swe-verified.svg",
+          "bytes": 193536,
+          "sha256": "43409e05e0958f334e645bea2921d87e5a5517c4e6401cc1626bdedf779ffcaf"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.10478v1/teaser.svg",
+          "bytes": 86841,
+          "sha256": "c0be50cfe829a4ce632a00882bee586d6f33d85139f651a0ddc75218ead3c9ed"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2610.10478v1",
+        "bytes": 1460372,
+        "sha256": "01b7bd54cfea6aad22df9ba7e82a462e8a391a0d64fb832be1ad0ea449920a61"
+      }
+    },
+    {
+      "key": "2610.12978v1",
+      "html": {
+        "url": "https://arxiv.org/html/2610.12978v1",
+        "bytes": 397425,
+        "sha256": "176443f3c365ed19af5edc85ad3effcb488266b0f0b16c65c676d541b01b7f88"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/1.png",
+          "bytes": 1374425,
+          "sha256": "ec7087d09f4e28daff9babf293077716132aa1f5d5528d7cf9ce22e33aa22362"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/10.svg",
+          "bytes": 67214,
+          "sha256": "a5154a72a9e32b9e86abcc3939a4a99ef6ae6040bdd7a1a0a33736fef1d00926"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/11.svg",
+          "bytes": 128520,
+          "sha256": "85160d6f746f9230103b50ffe715912f29c4cbf32ff54c432a9a60d0038fd4d0"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/12.png",
+          "bytes": 200484,
+          "sha256": "e40f2fc952944ad336b8fb622e598e2f13a72eaec18d836ecebb73dc05ecb0a9"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/13.svg",
+          "bytes": 70418,
+          "sha256": "c0cf83ec8ad05f6eb97b913c39d568d73051ed657f378574baba3a20cb2cff0a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/14.svg",
+          "bytes": 68742,
+          "sha256": "b8bae65a45a4fe027210b87b61fd73129da216d681373b83a885249cd8623c70"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/15.svg",
+          "bytes": 71061,
+          "sha256": "a759e0d99bcd68a4dc42879cf8ca95fad5adf9b8419e44a3bf70a0c077ad30cb"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/16.svg",
+          "bytes": 57945,
+          "sha256": "a810745cac3f02a7342e09881976913f2d6a91a71b33f61278add59984708a85"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/17.svg",
+          "bytes": 61720,
+          "sha256": "54dfae02321c987de69228c69f0ce82f3099a8b4644877d997624e0113981da4"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/18.svg",
+          "bytes": 59836,
+          "sha256": "9e0d513d5743a5f79123ae5d8fcbddaf6972ee0a9f1cdf4412f94351d09fc3b0"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/19.svg",
+          "bytes": 52878,
+          "sha256": "e11d20e16135af6f314a17cdaeccb009e2d736230d3a54740c7dc73a92913d11"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/2.svg",
+          "bytes": 217966,
+          "sha256": "250bb0185ac4748c9378bc138ae929a37599d55c6c90078c1d0ce1d8026bb7d3"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/20.svg",
+          "bytes": 63033,
+          "sha256": "a7c132c72201be55e60a87d19c408ac053f8f84260b6a2614cdc734de4898bf5"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/22.svg",
+          "bytes": 69138,
+          "sha256": "622a40323b2fd4836af73691ec0c36ed44d2aa992d6ddb0b3bb1742153467ad9"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/23.svg",
+          "bytes": 67501,
+          "sha256": "73e8d80fd8264d2eef24b0bbde602c86937aae53644a9d65708ad48508f72e07"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/24.svg",
+          "bytes": 70567,
+          "sha256": "54300af0f52e3d344eb59cf0a0452445a08afc8bb2ff1aeb51a8230fddd9ee63"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/27.png",
+          "bytes": 112859,
+          "sha256": "12cc6154db79cf1be71fd637d0d72b49edf127e6603ac92a192c420769c9cd3a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/28.svg",
+          "bytes": 66731,
+          "sha256": "5775d2911b939e4a07c1bdfd27c1a54ed1ee265d222c4452af8687879749f84a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/29.svg",
+          "bytes": 65079,
+          "sha256": "ea28bf41ad355b44b0f167e77ad5acdc2eba136b7c49eccaa236d21287fd3886"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/3.svg",
+          "bytes": 58516,
+          "sha256": "bf48cf93de04f065dd59bada9050018567d71f44b3195404547d18afcc3953be"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/30.svg",
+          "bytes": 69024,
+          "sha256": "16f01741107b1632518d630764098f3a66cd6f8d29bcd7f3ad93cf60793a2482"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/31.svg",
+          "bytes": 55842,
+          "sha256": "74e08b331178c7005675d188dc5526f0d23c92043171fa23b8ec91ec2d716452"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/32.png",
+          "bytes": 62420,
+          "sha256": "fd765fa03bc24f94a5bfa36c6706820941cac102abe7b272f74a79bb12db3f7d"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/33.svg",
+          "bytes": 71208,
+          "sha256": "e9a6b1f35a6f8d3f912e7535583563a04aab3ad3570ef8ec5d2b6f1ff6deb929"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/4.svg",
+          "bytes": 54776,
+          "sha256": "bf3cffc91dd05da9684265da87260342b8c07111be668e3d0a677b3bc029f66c"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/5.svg",
+          "bytes": 53150,
+          "sha256": "3ec5d0555f53d9e25e029a109fc6d9c27ccd1eaf885af10033ddea792b23bdb1"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/6.svg",
+          "bytes": 65584,
+          "sha256": "ec27c030e315fc4ac5883838669f0786ab841414de1360e70170dff4d4968f82"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/7.svg",
+          "bytes": 50831,
+          "sha256": "1cee3b55b9e0f9e13a1a2599a72ece0ded0c578867fed480f2843dc33be0d460"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/8.svg",
+          "bytes": 64952,
+          "sha256": "f3fb949f2314497c52b76312bfc10d663c23e329ec582c6e5c52ab2e500a8c3c"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/9.svg",
+          "bytes": 59583,
+          "sha256": "4d7a61dd0f7e516ea6fd99952ca7bc008d5e368cef576388fb15ca5af46261e9"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/01_seed1273554021.jpg",
+          "bytes": 36812,
+          "sha256": "9b154609076f32b8d8dd92d2901f0462a539416fa3bdb8399135237e8ac1b797"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/01_seed850429968.jpg",
+          "bytes": 140658,
+          "sha256": "0de286b83772f7cf9b8261197a73c7b1ef0494bc51ff3f4599f8df95270e3fb0"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/02_seed1419369367.jpg",
+          "bytes": 75423,
+          "sha256": "1b3e92de4a7252752ffccc62032f683e6dcb3ba2447cecb249b674a397837ce1"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/02_seed202637363.jpg",
+          "bytes": 86618,
+          "sha256": "0d8cfd846992b5ab474cd99d98a336779e005c643f858771f1493308ba01e1b8"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/03_seed1981133253.jpg",
+          "bytes": 143346,
+          "sha256": "129fbb585c8dbe519586d9a5c9b57b1aae4286c508dfb1a259415046cffd1556"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/03_seed419824125.jpg",
+          "bytes": 43562,
+          "sha256": "6207062172eb3e48d772ebc6d1561b59ebc8dff95b49199767822e3f9b9f3674"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/04_seed1204488197.jpg",
+          "bytes": 249337,
+          "sha256": "2f1df15b0a86e54fc515638a1d28ddf08f59ffd48d326ecaf6520b61742c7eca"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/04_seed1601262455.jpg",
+          "bytes": 85528,
+          "sha256": "64cd7fecfb7f30756faa2385ea1b0ea8eb56e90bb7cb2dbc7d2313fed268b1a2"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/05_seed1073097673.jpg",
+          "bytes": 152666,
+          "sha256": "684031377b16ac41fc8e2d46a4338e029c2a06bb7c7ff1c7df36179ec1d17942"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/05_seed1073180548.jpg",
+          "bytes": 68527,
+          "sha256": "789f8dfbe09ace1a1992622f9d577969e67db2916b4febdac34ca32ea82ef675"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/06_seed2139003576.jpg",
+          "bytes": 55960,
+          "sha256": "6e52a249747e0e30c8ccad6ec7348b48a9e7591392b83e4fdc76dd87ac4b0b07"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/06_seed723190418.jpg",
+          "bytes": 114728,
+          "sha256": "e33855bbb12aba922ecc74e6c3b6ee6e7c774edb2424a1c168ed129ee56a148f"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/07_seed1313055373.jpg",
+          "bytes": 70870,
+          "sha256": "54d5fdf6325040803be94c2045e4bfbfda444f03ae918812d303ba06ac879788"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/07_seed2118965034.jpg",
+          "bytes": 171523,
+          "sha256": "bc9fb2e56de11a3fed5aba016ad2b22876db80fcb12e2a89dc6f0e785e661faa"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/08_seed1558453075.jpg",
+          "bytes": 57693,
+          "sha256": "6ba592f5dad41aa4c7bccf7d1711762ae13f6ff2c1fc35ae7cc1575ab1987ccf"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/08_seed1880876449.jpg",
+          "bytes": 133131,
+          "sha256": "0c93ea4ae7f7dcc0f3e4c5bbe9cfb20cbe86ae893cd07851c738232482519e81"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/09_seed1236396470.jpg",
+          "bytes": 123713,
+          "sha256": "f44e1ed5814a348980331064aab805f0673daa993b8793fcba6195b910d5f0a6"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/Figure/09_seed2144723564.jpg",
+          "bytes": 51797,
+          "sha256": "6377b9ecd7067709ec686fc07eae7a5b5a6609cd69540ac1571a377ee684235a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_105.png",
+          "bytes": 491720,
+          "sha256": "85e26abb1e2ba6d3fba3e218b3a56d757389fbd31e527b09c4b26e67fef58c7b"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_263.png",
+          "bytes": 488899,
+          "sha256": "bd08d7f20894861c786c75cc9cd44df7050ac54a1b95efd77a5400f7d9a63b91"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_269.png",
+          "bytes": 442812,
+          "sha256": "f4126d81f263ffded150bcc356e342fe66e83a65455b9292e759d662c96ed231"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_282.png",
+          "bytes": 422023,
+          "sha256": "6066ab433d5ae38407b4b0b9f3d2c82ece5194ebc7a717f58ffccaaa2ae2114a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_291.png",
+          "bytes": 493952,
+          "sha256": "20b6dd821a04a69ca34b690dcddfa6323b65f992f17c62b38253e528aa86b89a"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_42.png",
+          "bytes": 441333,
+          "sha256": "7b11151c34e8a75d76651952a1750dec6973b95919ca075993b9006f724fd8f5"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_483.png",
+          "bytes": 416403,
+          "sha256": "f29f76cd404b95c31fa7a676ea5b86e83997dfb6693daf0dcc5e1becb2df4c6b"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_504.png",
+          "bytes": 426187,
+          "sha256": "27de97bf8458615e73fb1d9a65e4136d17dbef4efc0f0c750d23720da8ef3695"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_511.png",
+          "bytes": 427452,
+          "sha256": "bad8cf443b1503b485b2477537dbd0849ae9e694535843e0724a97335633931c"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_88.png",
+          "bytes": 476871,
+          "sha256": "29c10785ecfc73c21663de1e9642c92a6e1241fc5f3f14c31cdc52fce9ef4391"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_933.png",
+          "bytes": 473734,
+          "sha256": "6500caba577ae1dd544904c2e5ea7e497bd4bb1a31450e270cab6a442fa3de42"
+        },
+        {
+          "url": "https://arxiv.org/html/2610.12978v1/samples_949.png",
+          "bytes": 462382,
+          "sha256": "645c231e30b28c38f2b32b6d4bda099cef1f38f80ddab0beffa6c8e95761bca8"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2610.12978v1",
+        "bytes": 36220083,
+        "sha256": "2d7f1b10d1b674c44640439d8c1107a6e607f411ef8e736f2572428f75e9ed51"
+      }
+    },
+    {
+      "key": "2404.19756v1",
+      "html": {
+        "url": "https://arxiv.org/html/2404.19756v1",
+        "bytes": 719122,
+        "sha256": "95c46e4021c69200e9ff1b47620a6e74286daf9da580a8150a1803e5756894bb"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/PDE_results.svg",
+          "bytes": 268936,
+          "sha256": "56afa95d5429e9eaa923934b211b40a13d74e6d69059fa962163a4356de5178d"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/best_feynman_kan.png",
+          "bytes": 466734,
+          "sha256": "b2fd41cf0b3972569b8c96af259708ea04082a68dc045df369e6d62851ef8524"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/best_special_kan.png",
+          "bytes": 335013,
+          "sha256": "11e53aa9a869dd1fd64a907ce8b3de2a27ff01e6e040197a5603f416a89261f2"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/continual_learning.svg",
+          "bytes": 641296,
+          "sha256": "082ef9421c34263803e479c4419a9084722fbd4c038c5e07803813c51b232095"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/feynman_pf.svg",
+          "bytes": 393290,
+          "sha256": "0ca556fc8fb371db79aa9cefaa7986116d24f32d131a4bc639e2fddf13cb42e0"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/al_complex.png",
+          "bytes": 555379,
+          "sha256": "e23e257916fe067adaecd988401213cdecf5ec9bcad761da1e2d86f1847442fc"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/decision_tree.png",
+          "bytes": 566942,
+          "sha256": "e1f7d6aafc24ec2f858a49ded81cf968e9549411248ce57d7a717eb8793e5ce1"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/flowchart.png",
+          "bytes": 714503,
+          "sha256": "be3cfdc22298b428273cb2fc6afeaae4ea881ea1a2a84c0249603e04d8835b65"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/interpretability_hyperparameters.png",
+          "bytes": 866154,
+          "sha256": "7b8bd8e9d3892b20bee793f9a85bc7e7c08ff8a5c86d0ab8d420f3958da1b86f"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/interpretable_examples.png",
+          "bytes": 720215,
+          "sha256": "1f32ed887c9c64e6a25d55238a18d6a29ead94058dbb5d428f58ed87acf6aee9"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/knot_unsupervised.png",
+          "bytes": 1097660,
+          "sha256": "9ace4c03c5532c23de5eee52788df9d0cb1d17482bd31e41be58f3e7716b12ac"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/lan_interpretable_examples.png",
+          "bytes": 1253117,
+          "sha256": "266d38d7c9feb0a90f590fba70551ad1f84d68f35cbf9d1cde3701b254c57628"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/lan_toy_interpretability_evolution.png",
+          "bytes": 893404,
+          "sha256": "c574ce558bc5f5869a519253fd322518a6eb910f22060f407e90aab612199544"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/math.png",
+          "bytes": 793481,
+          "sha256": "08027c5dc7d865831e493c1a43c5954eb602a3cd81b0c3499d5d31f0c5ac2432"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/mosaic_results.png",
+          "bytes": 2031266,
+          "sha256": "ceaec8613f91d251f051b3a064b84c18229302f30e18d71aecb14993a0cddb65"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/siren.png",
+          "bytes": 460403,
+          "sha256": "1fca4126855698573a210cbe464fd27f3bd0abf5edc4c9cd8abcb533598396f4"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/spline_notation.png",
+          "bytes": 1058861,
+          "sha256": "10ae5849dc19c99284d78f64aa006c0355bdb215822e5b0110db1707c3aca6c7"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/sr.png",
+          "bytes": 809156,
+          "sha256": "d8f656b82a04cf84d9950fbce215cf926d30e6ace1c2f7e87463375b0428057e"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/figs/unsupervised_toy.png",
+          "bytes": 409779,
+          "sha256": "9bbccc5677eca18f11850d8910945359211844869a0c134aee251a3b1337179c"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/kan_mlp.png",
+          "bytes": 312307,
+          "sha256": "f0684db0f3460323d53f8587b979c5a6c5aab46bb379e6561de98e31aef0ede0"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/minimal_feynman_kan.png",
+          "bytes": 447126,
+          "sha256": "e16fdd065ae7f0adb420908d51b76f4cd11456ccfa913cc77b951a7e7d159557"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/minimal_special_kan.png",
+          "bytes": 402926,
+          "sha256": "ab93754073c321e0762bcda4ae1bfcc7279aa0a8b84ffd78d7dd25a040a5e6bd"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/model_scaling.svg",
+          "bytes": 448337,
+          "sha256": "ab3bbb6a711fde7e153f595dc6a7b3c24d63c9818331bbfe023b500853dff95e"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/model_scaling_toy.svg",
+          "bytes": 189329,
+          "sha256": "e97a2c6bdf433dfe1bbb52d4275839c1538eaab1bbe918a75f7ab6c85c3e8772"
+        },
+        {
+          "url": "https://arxiv.org/html/2404.19756v1/special_pf.svg",
+          "bytes": 835817,
+          "sha256": "20f6f14c0b36135872727d21aae674a9522ade41bd0bff901148f60ba4580a7f"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2404.19756v1",
+        "bytes": 12936964,
+        "sha256": "60ad4ccf034b54b38049042043f576098b45dd3e80df28a2f85001aed4466e91"
+      }
+    },
+    {
+      "key": "2405.04434v1",
+      "html": {
+        "url": "https://arxiv.org/html/2405.04434v1",
+        "bytes": 683715,
+        "sha256": "556e5f1c42a2657d763f0da1fdb42fcdc3cc36989fe868f2b94ad76621dfcf01"
+      },
+      "assets": [],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2405.04434v1",
+        "bytes": 1576608,
+        "sha256": "e930bb96dd1f0ecbe57b47b7a27141f8c165cd4a9de41b1cc2e46f54ec96e96b"
+      },
+      "acquisitionFailure": "arxiv_conversion_error"
+    },
+    {
+      "key": "2407.04620v1",
+      "html": {
+        "url": "https://arxiv.org/html/2407.04620v1",
+        "bytes": 473352,
+        "sha256": "639213adad858a5bd7ed8a34f3b2c25e9435b2de242d8dc56d8156aa5215e0b0"
+      },
+      "assets": [
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/backbone.svg",
+          "bytes": 177440,
+          "sha256": "08bf54b42c80fe2623035fda0d90c6682bc0048441b0de0a208702a8b158e188"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/books.svg",
+          "bytes": 133709,
+          "sha256": "1169dba088ee0150cc19f3f060151f62fea0b2c185047deb4042afccca501669"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/bs.svg",
+          "bytes": 85421,
+          "sha256": "15bfcfed964f48efe6e0ea7fe213bc438c7ae047308792e83c8c836de2189ebc"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/ctx.svg",
+          "bytes": 213054,
+          "sha256": "0e5e3743d3126de71e1537dca6d95be3126f6905860cc549c4f0af64069b4f7d"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/envelope.svg",
+          "bytes": 40733,
+          "sha256": "ae0c6e81a6e0cdd53d70c47551e7949039927e351dc92f27049c31aa6bd46c47"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/envelope_full.svg",
+          "bytes": 116113,
+          "sha256": "58e46e3bd88136f9a57f52263009503c7272e54793ac48537e7c7e53bf37c312"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/global.svg",
+          "bytes": 146314,
+          "sha256": "23f26843fb81bf56d3f6fb40801dee5c83db260203d800dcc6625bb62cd69aa7"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/inner-batch.svg",
+          "bytes": 157979,
+          "sha256": "f7e9cf424d9cdf1276d72150e50e6625d4c37e8b7904a970add26c22ff27c743"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/inner_loss.svg",
+          "bytes": 232779,
+          "sha256": "fd21b7cf3e98245bb8752c3081f12456d04d1b8ed11ae9b37ae0681c229c4ac0"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/inner_loss_full.svg",
+          "bytes": 890250,
+          "sha256": "966db30d8df5d7076b94e2477e56a6d017fa0dfa329d032a3f1e20ba4111c408"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/latency.svg",
+          "bytes": 44230,
+          "sha256": "e65c9c7b2fd203bad995ab8175f17b6cad989e722ad900e3ed768b6d8a847ce3"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/latency_full.svg",
+          "bytes": 102013,
+          "sha256": "5d4fe9e4dd45bddf970fd4cc058c4df0ca041f55702de607f3d0b35bc2f9f62b"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/local.svg",
+          "bytes": 137613,
+          "sha256": "d520dfb6c169e255bd584fbdc87656e9ed27bcd652ba81a7aaa1e641714bc39b"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/pile.svg",
+          "bytes": 129752,
+          "sha256": "c7ec846be5ffc7b01f43635f96fe5bfea15ab8ea757b63ec107139331280a2c1"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/scaling.svg",
+          "bytes": 293301,
+          "sha256": "bce91fdb2059f46144117c356203bf917aca1862c55ccad4535e9d14178b7f65"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/simple.svg",
+          "bytes": 159937,
+          "sha256": "85397fc4a68b5029c3d25b0eb83d74ab431ee7e109adc4bbf77a76b7fbead689"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/simple_teaser.svg",
+          "bytes": 185994,
+          "sha256": "e2378bac7dc7644108e1ecbed0df00b6069d25598025e49eef010744134e5eab"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/throughput_full.svg",
+          "bytes": 103222,
+          "sha256": "542dd95502266276c507bf2ee98c63ef20d0a4e3578b2e425da64a2b107c8957"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/token.svg",
+          "bytes": 52460,
+          "sha256": "d6bf328ad04bb5295f9480247ad7d4b9e616fb7f680ccca3838c2115758b013a"
+        },
+        {
+          "url": "https://arxiv.org/html/2407.04620v1/token_full.svg",
+          "bytes": 63681,
+          "sha256": "d03a9cf584443890ba2496d19c953960797b9b97533f5233900e2651b80f00d3"
+        }
+      ],
+      "pdf": {
+        "url": "https://arxiv.org/pdf/2407.04620v1",
+        "bytes": 1713478,
+        "sha256": "61a6cdb14891692fc42c827a9e7de2a953618f236803976389cb64da2b16b832"
+      }
+    }
+  ]
+}

@@ -4,12 +4,31 @@
 // JSONEncoder writes them). History persists exact encrypted envelopes through the browser journal.
 import { isUUID } from './bytes';
 
-export type EventKind = 'conversation' | 'message' | 'note' | 'position' | 'diagram' | 'tombstone';
+export type EventKind = 'conversation' | 'message' | 'note' | 'position' | 'diagram' | 'tombstone' | 'local_paper';
 export type Role = 'user' | 'assistant';
 export type TurnStatus = 'complete' | 'interrupted';
-export interface TextAnchor { artifactID: string; quote: string; prefix: string; suffix: string; elementID?: string; page?: number }
+export interface TextAnchor { artifactID?: string; manifestSHA256?: string; quote: string; prefix: string; suffix: string; elementID?: string; page?: number }
+export interface SourcePaperReference { format: 'source-membership-v1'; membershipID: string; source: 'arxiv'; sourceID: string; revision: number }
+export function sourceReference(value: unknown): SourcePaperReference {
+  const r = value as SourcePaperReference;
+  if (!r || r.format !== 'source-membership-v1' || !isUUID(r.membershipID) || r.source !== 'arxiv' ||
+    typeof r.sourceID !== 'string' || !/^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/.test(r.sourceID) ||
+    !Number.isSafeInteger(r.revision) || r.revision < 1 || r.revision > 2147483647) throw new EventError('invalid_event');
+  return {format:r.format,membershipID:r.membershipID.toLowerCase(),source:r.source,sourceID:r.sourceID,revision:r.revision};
+}
+export interface LocalPDFMembership { format: 'device-pdf-membership-v1'; title: string; pageCount: number; createdAt: number; archived: boolean; tags: string[] }
+export function localPDFMembership(e: PrivateEvent): LocalPDFMembership {
+  if (e.kind !== 'local_paper' || e.documentID || e.paperReference || !e.text) fail();
+  let m: LocalPDFMembership;
+  try { m = JSON.parse(e.text!); } catch { return fail(); }
+  if (!m || m.format !== 'device-pdf-membership-v1' || typeof m.title !== 'string' || utf8Bytes(m.title) < 1 || utf8Bytes(m.title) > 2000 ||
+    !Number.isInteger(m.pageCount) || m.pageCount < 1 || m.pageCount > 250 || !Number.isSafeInteger(m.createdAt) || m.createdAt < 0 || m.createdAt >= MAX_CREATED_AT ||
+    typeof m.archived !== 'boolean' || !Array.isArray(m.tags) || m.tags.length > 32 || m.tags.some(t => typeof t !== 'string' || utf8Bytes(t) < 1 || utf8Bytes(t) > 120)) fail();
+  return m;
+}
 export interface PrivateEvent {
   kind: EventKind; entityID: string; parents: string[]; conversationID?: string; documentID?: string; text?: string;
+  paperReference?: SourcePaperReference;
   role?: Role; status?: TurnStatus; anchor?: TextAnchor; createdAt?: number;
   /** A conversation revision's title origin (2026-10-08): `generated` or `renamed`; any string from a later build is kept. */
   titleSource?: string;
@@ -23,7 +42,7 @@ export interface AppliedEvent { id: string; deviceID: string; payload: PrivateEv
 
 export class EventError extends Error {}
 const fail = (code = 'invalid_event'): never => { throw new EventError(code); };
-const KINDS: readonly EventKind[] = ['conversation', 'message', 'note', 'position', 'diagram', 'tombstone'];
+const KINDS: readonly EventKind[] = ['conversation', 'message', 'note', 'position', 'diagram', 'tombstone', 'local_paper'];
 const utf8Bytes = (s: string) => new TextEncoder().encode(s).length;
 const absent = (v: unknown) => v === undefined || v === null;
 const uuid = (v: unknown): string => (isUUID(v) ? v.toLowerCase() : fail());
@@ -39,12 +58,14 @@ export function validateEvent(e: PrivateEvent): void {
   if (e.parents.length > 100 || new Set(e.parents).size !== e.parents.length || utf8Bytes(e.text ?? '') > 200_000) fail();
   if (e.createdAt !== undefined && !(Number.isSafeInteger(e.createdAt) && e.createdAt >= 0 && e.createdAt < MAX_CREATED_AT)) fail();
   for (const label of [e.titleSource, e.model, e.profile]) if (label !== undefined && (typeof label !== 'string' || utf8Bytes(label) > MAX_LABEL_BYTES)) fail();
+  if (e.paperReference && sourceReference(e.paperReference).membershipID !== e.documentID) fail();
+  if (e.kind === 'local_paper') localPDFMembership(e);
   if (e.kind === 'message' && (!e.conversationID || !e.role || !e.status || e.text === undefined)) fail();
   if ((e.kind === 'note' || e.kind === 'diagram' || e.kind === 'conversation') && e.text === undefined) fail();
   if (e.kind === 'position' && (!e.documentID || !e.anchor)) fail();
   if (e.anchor) {
     const a = e.anchor;
-    if (!isUUID(a.artifactID) || typeof a.quote !== 'string' || typeof a.prefix !== 'string' || typeof a.suffix !== 'string' || (a.elementID !== undefined && typeof a.elementID !== 'string')) fail();
+    if ((a.artifactID !== undefined) === (a.manifestSHA256 !== undefined) || (a.artifactID !== undefined && !isUUID(a.artifactID)) || (a.manifestSHA256 !== undefined && !/^[a-f0-9]{64}$/.test(a.manifestSHA256)) || typeof a.quote !== 'string' || typeof a.prefix !== 'string' || typeof a.suffix !== 'string' || (a.elementID !== undefined && typeof a.elementID !== 'string')) fail();
     if (utf8Bytes(a.quote) > 20_000 || utf8Bytes(a.prefix) > 1000 || utf8Bytes(a.suffix) > 1000 || utf8Bytes(a.elementID ?? '') > 200
       || (a.page !== undefined && !(Number.isInteger(a.page) && a.page > 0 && a.page <= 250))) fail();
   }
@@ -57,12 +78,14 @@ export function decodeEvent(value: unknown): PrivateEvent {
   const anchor = optional(v.anchor, raw => {
     const a = raw as Record<string, unknown>;
     if (!a || typeof a !== 'object' || Array.isArray(a)) fail();
-    return { artifactID: uuid(a.artifactID), quote: string(a.quote), prefix: string(a.prefix), suffix: string(a.suffix),
+    return { artifactID: optional(a.artifactID, uuid), manifestSHA256: optional(a.manifestSHA256, string), quote: string(a.quote), prefix: string(a.prefix), suffix: string(a.suffix),
       elementID: optional(a.elementID, string), page: optional(a.page, p => (Number.isSafeInteger(p) ? p as number : fail())) };
   });
+  const ref = optional(v.paperReference, sourceReference);
+  if (ref && !absent(v.documentID)) fail();
   const event: PrivateEvent = {
     kind: v.kind as EventKind, entityID: uuid(v.entityID), parents: (v.parents as unknown[]).map(uuid),
-    conversationID: optional(v.conversationID, uuid), documentID: optional(v.documentID, uuid), text: optional(v.text, string),
+    conversationID: optional(v.conversationID, uuid), documentID: ref?.membershipID ?? optional(v.documentID, uuid), paperReference: ref, text: optional(v.text, string),
     role: optional(v.role, r => (r === 'user' || r === 'assistant' ? r : fail())),
     status: optional(v.status, s => (s === 'complete' || s === 'interrupted' ? s : fail())),
     anchor, createdAt: optional(v.createdAt, t => (Number.isSafeInteger(t) ? t as number : fail())),
@@ -78,12 +101,15 @@ export function encodeEvent(e: PrivateEvent): Record<string, unknown> {
   validateEvent(e);
   const out: Record<string, unknown> = { kind: e.kind, entityID: upper(e.entityID), parents: e.parents.map(upper) };
   if (e.conversationID) out.conversationID = upper(e.conversationID);
-  if (e.documentID) out.documentID = upper(e.documentID);
+  if (e.paperReference) out.paperReference = {...e.paperReference, membershipID: upper(e.paperReference.membershipID)};
+  else if (e.documentID) out.documentID = upper(e.documentID);
   if (e.text !== undefined) out.text = e.text;
   if (e.role) out.role = e.role;
   if (e.status) out.status = e.status;
   if (e.anchor) {
-    const a = e.anchor, anchor: Record<string, unknown> = { artifactID: upper(a.artifactID), quote: a.quote, prefix: a.prefix, suffix: a.suffix };
+    const a = e.anchor, anchor: Record<string, unknown> = { quote: a.quote, prefix: a.prefix, suffix: a.suffix };
+    if (a.artifactID) anchor.artifactID = upper(a.artifactID);
+    if (a.manifestSHA256) anchor.manifestSHA256 = a.manifestSHA256;
     if (a.elementID !== undefined) anchor.elementID = a.elementID;
     if (a.page !== undefined) anchor.page = a.page;
     out.anchor = anchor;
@@ -283,6 +309,7 @@ export class PrivateState {
     const base = current[0], text = cleanTopicTitle(title);
     if (!base || !text) return null;
     const event: PrivateEvent = { kind: 'conversation', entityID: conversationID, parents: current.map(e => e.id), text, titleSource: source };
+    if (base.payload.paperReference) event.paperReference = base.payload.paperReference;
     if (base.payload.documentID) event.documentID = base.payload.documentID;
     if (base.payload.anchor) event.anchor = base.payload.anchor;
     if (base.payload.createdAt !== undefined) event.createdAt = base.payload.createdAt;

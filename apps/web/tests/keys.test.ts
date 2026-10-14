@@ -77,3 +77,22 @@ it('accepts a committed usable identity again without replacing it', async () =>
   expect(storage.record).toBe(saved);
   expect(rpc).toHaveBeenCalledTimes(2);
 });
+
+it.each(['pending', 'denied', 'rejected', 'throws'] as const)('an optional %s storage-persistence request cannot hold up verified key preparation', async outcome => {
+  const persist = vi.fn(() => {
+    if (outcome === 'throws') throw Error('permission unavailable');
+    if (outcome === 'rejected') return Promise.reject(Error('permission denied'));
+    if (outcome === 'pending') return new Promise<boolean>(() => {});
+    return Promise.resolve(false);
+  });
+  Object.assign(navigator, { storage: { persist } });
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    await expect(Promise.race([prepare(account), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('optional permission blocked sign-in')), 500); })]))
+      .resolves.toEqual({ kind: 'needs_new_keys' });
+  } finally { clearTimeout(timer!); }
+  expect(persist).toHaveBeenCalledTimes(1);
+  expect(storage.record?.privateKey.extractable).toBe(false);
+  expect(storage.record?.localKey.extractable).toBe(false);
+  expect(rpc).toHaveBeenCalledTimes(1);
+});

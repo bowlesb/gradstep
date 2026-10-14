@@ -60,6 +60,8 @@ if args.reader_issuer_fence_candidate:
     if fence.exists() or not pending.is_file():
         parser.error('Candidate mode requires only the pending 045 file; promoted migrations are tested normally.')
     migrations = sorted([*migrations, pending])
+cutover_migrations = migrations
+migrations = [p for p in migrations if p.name < '202610130058']
 tests = sorted((ROOT / 'tests/database').glob('test_*.sql'))
 checks = ['concurrency', 'upgrade', 'library_compact_upgrade', 'library_upload_visibility_upgrade', 'library_query_concurrency', 'library_v5_command_concurrency', 'provider_accounting_upgrade', 'provider_accounting_concurrency', 'pipeline_retry_concurrency', 'asset_accounting_concurrency', 'pdf_upload_concurrency', 'sandbox_allowance_concurrency', 'store_purchase_lock_concurrency', 'store_verification_concurrency', 'deployment_readiness', 'store_verifier_concurrency', 'credit_resume_concurrency', 'feed_concurrency', 'podcast_concurrency', 'podcast_worker_journey']
 phase([*migrations, *tests], checks)
@@ -70,3 +72,6 @@ if fence.is_file() or args.reader_issuer_fence_candidate:
     # Its role, rollback and multi-session checks own another disposable DB so
     # committed lifecycle fixtures do not alter unrelated suites' global counts.
     module('reader_issuer_fence').verify()
+
+# Retained legacy accounting is verified before the explicit runtime cutover.
+phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql'], [])

@@ -45,7 +45,7 @@ describe('frozen Swift-tested fixture (envelopes-v1.json)', () => {
     const other = '00000000-0000-4000-8000-000000000001';
     await expect(openEvent({ ...envelope, deviceID: other }, ring)).rejects.toThrow('corrupt_data');
     await expect(openEvent({ ...envelope, id: other }, ring)).rejects.toThrow('corrupt_data');
-    await expect(openEvent({ ...envelope, format: 2 }, ring)).rejects.toThrow('unsupported_format');
+    await expect(openEvent({ ...envelope, format: 3 }, ring)).rejects.toThrow('unsupported_format');
     await expect(openEvent(envelope, { ...ring, accountID: other })).rejects.toThrow('corrupt_data');
     const flipped = envelope.ciphertext.slice(); flipped[20] ^= 1;
     await expect(openEvent({ ...envelope, ciphertext: flipped }, ring)).rejects.toThrow('corrupt_data');

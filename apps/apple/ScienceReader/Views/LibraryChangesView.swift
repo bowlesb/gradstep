@@ -22,7 +22,7 @@ extension LocalLibraryCommand {
         case .cancelImport: "Cancel import"
         case .retryImport: "Retry import"
         case .setArchived(_, let archived, _): archived ? "Archive" : "Unarchive"
-        case .setTags: "Edit tags"
+        case .setTags, .setSourceDetails: "Edit paper"
         case nil:
             switch successor {
             case .cancelImport: "Cancel import"

@@ -29,12 +29,18 @@ function diagramScript(): { script: string; hash: string } {
   return { script, hash: 'sha256-' + createHash('sha256').update(script).digest('base64') };
 }
 
+function compilerScript(): { script: string; hash: string } {
+  const script = readFileSync(new URL('./public/arxiv-reader.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('./src/reader/arxiv-compiler-host.js', import.meta.url), 'utf8');
+  if (/<\/script|<!--/i.test(script)) throw new Error('Unsafe compiler script serialization');
+  return {script, hash: 'sha256-' + createHash('sha256').update(script).digest('base64')};
+}
+
 function headers(backend: string, auth: string, hash: string): Record<string, string> {
   const origins = [...new Set([backend, auth].filter(Boolean).map(value => new URL(value).origin))];
   return {
-    'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
-      `font-src 'self'`, `media-src blob:`, `connect-src ${origins.join(' ') || `'none'`}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
-      `frame-ancestors 'none'`, `object-src 'none'`, `worker-src 'none'`].join('; '),
+    'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}' '${compilerScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
+      `font-src 'self'`, `media-src blob:`, `connect-src https://arxiv.org ${origins.join(' ')}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
+      `frame-ancestors 'none'`, `object-src 'none'`, `worker-src 'self'`].join('; '),
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'X-Frame-Options': 'DENY',
@@ -48,8 +54,9 @@ function readerFrame(backend: string, auth: string): Plugin {
   const id = 'virtual:reader-frame', resolved = '\0' + id, diagram = 'virtual:diagram-frame';
   return {
     name: 'gradstep-reader-frame',
-    resolveId: source => (source === id ? resolved : source === diagram ? '\0' + diagram : null),
+    resolveId: source => (source === id ? resolved : source === diagram || source === 'virtual:arxiv-compiler' ? '\0' + source : null),
     load(source) {
+      if (source === '\0virtual:arxiv-compiler') return `export default ${JSON.stringify(compilerScript())};`;
       if (source === '\0' + diagram) return `export default ${JSON.stringify(diagramScript())};`;
       if (source !== resolved) return null;
       this.addWatchFile(fileURLToPath(BRIDGE)); this.addWatchFile(fileURLToPath(SHIM));

@@ -90,8 +90,15 @@ struct ReaderProfile: Sendable {
         imageTypes: ["image/png", "image/jpeg"], equations: 4000, figures: 256, blocks: 20_000, headings: 1000,
         indexBytes: 4_194_304, totalPixels: 64_000_000)
 
+    static let arxivHTML = ReaderProfile(rendererID: "gradstep-arxiv-html-mathml-v1", sourceKind: "arxiv-html",
+        imageTypes: ["image/png", "image/jpeg"], equations: 4000, figures: 256, blocks: 20_000, headings: 1000,
+        indexBytes: 4_194_304, totalPixels: 64_000_000)
+    static let arxivHTML2 = ReaderProfile(rendererID: "gradstep-arxiv-html-mathml-v2", sourceKind: "arxiv-html",
+        imageTypes: ["image/png", "image/jpeg"], equations: 4000, figures: 256, blocks: 20_000, headings: 1000,
+        indexBytes: 4_194_304, totalPixels: 64_000_000)
+
     static func matching(_ manifest: ReaderBundleManifest) -> ReaderProfile? {
-        [authored, mathpixMathML].first { $0.rendererID == manifest.renderer.id && $0.sourceKind == manifest.source.kind }
+        [authored, mathpixMathML, arxivHTML, arxivHTML2].first { $0.rendererID == manifest.renderer.id && $0.sourceKind == manifest.source.kind }
     }
 }
 
@@ -105,6 +112,10 @@ public struct VerifiedReaderBundle: Sendable {
     public let index: ReaderBundleIndex
     private let contents: [String: Data]
 
+    public var arxivSource: ArxivReaderSource? {
+        guard manifest.source.kind == "arxiv-html", let data = contents[manifest.source.provenancePath] else { return nil }
+        return try? ArxivReaderProvenance.validate(data, manifest: manifest, index: index)
+    }
     public var entryURL: URL { resourceURL(path: manifest.entrypoint) }
     private func resourceURL(path: String) -> URL {
         // All caller-visible member paths have already passed the ASCII policy.
@@ -154,6 +165,10 @@ public struct VerifiedReaderBundle: Sendable {
         if manifest.source.kind == "mathpix-mmd" {
             guard let provenance = frozen[manifest.source.provenancePath] else { throw ReaderBundleError.invalidResource }
             try MathpixReaderProvenance.validate(provenance, manifest: manifest, index: index)
+        }
+        if manifest.source.kind == "arxiv-html" {
+            guard let provenance = frozen[manifest.source.provenancePath] else { throw ReaderBundleError.invalidResource }
+            _ = try ArxivReaderProvenance.validate(provenance, manifest: manifest, index: index)
         }
         return Self(manifestSHA256: expectedSHA256, manifestData: data, manifest: manifest, index: index, contents: frozen)
     }
@@ -214,7 +229,7 @@ public struct VerifiedReaderBundle: Sendable {
             }
             total += member.bytes
             if member.role == "html", member.bytes > 8_388_608 { throw ReaderBundleError.invalidManifest }
-            if manifest.source.kind == "mathpix-mmd", member.role == "provenance",
+            if ["mathpix-mmd", "arxiv-html"].contains(manifest.source.kind), member.role == "provenance",
                !(1...262_144).contains(member.bytes) { throw ReaderBundleError.invalidManifest }
             if member.role == "image" {
                 guard let width = member.width, let height = member.height,

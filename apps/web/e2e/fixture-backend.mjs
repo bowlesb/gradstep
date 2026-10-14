@@ -203,7 +203,7 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
-  v2_pull_events: (id, a, p) => {
+  v3_pull_events: (id, a, p) => {
     const events = a.privateEvents.filter(e => e.cursor > p.p_after).slice(0, p.p_limit);
     return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: a.privateEvents.length > (events.at(-1)?.cursor ?? p.p_after) };
   },

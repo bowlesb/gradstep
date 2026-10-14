@@ -35,6 +35,14 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
     /// The reader's own tags and hidden catalog tags for a library item (migration 030); replaces both lists.
     case setTags(documentID: UUID, tags: [String], hiddenTags: [String], expectedRevision: Int64)
 
+    case setSourceDetails(importID: UUID, archived: Bool, tags: [String], expectedRevision: Int64)
+
+    public var sourceImportID: UUID? {
+        switch self {
+        case .cancelImport(let id, _), .retryImport(let id, _), .setSourceDetails(let id, _, _, _): id
+        default: nil
+        }
+    }
     func validate() throws {
         switch self {
         case .beginImport(let source, let revision, let cursor):
@@ -44,6 +52,8 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
             guard revision >= 0, revision < Int64.max else { throw LibraryCommandError.invalidMutation }
         case .cancelImport(_, let revision), .retryImport(_, let revision), .setArchived(_, _, let revision):
             guard revision > 0, revision < Int64.max else { throw LibraryCommandError.invalidMutation }
+        case .setSourceDetails(_, _, let tags, let revision):
+            guard revision > 0, revision < Int64.max, PaperTags.isValid(tags, limit: PaperTags.maximumOwnTags) else { throw LibraryCommandError.invalidMutation }
         case .setTags(_, let tags, let hidden, let revision):
             guard revision > 0, revision < Int64.max, PaperTags.isValid(tags, limit: PaperTags.maximumOwnTags),
                   PaperTags.isValid(hidden, limit: PaperTags.maximumHiddenTags) else { throw LibraryCommandError.invalidMutation }
@@ -54,7 +64,7 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
     public var itemDocument: UUID? {
         switch self {
         case .setMembership(let document, _, _, _), .setArchived(let document, _, _), .setTags(let document, _, _, _): document
-        case .beginImport, .cancelImport, .retryImport: nil
+        case .beginImport, .cancelImport, .retryImport, .setSourceDetails: nil
         }
     }
 
@@ -62,7 +72,7 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
         switch self {
         case .beginImport: 0
         case .setMembership(_, _, let value, _), .cancelImport(_, let value), .retryImport(_, let value), .setArchived(_, _, let value),
-             .setTags(_, _, _, let value): value
+             .setTags(_, _, _, let value), .setSourceDetails(_, _, _, let value): value
         }
     }
 
@@ -93,6 +103,10 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
         case .setArchived(let document, let archived, let revision):
             command = "set_item_archived"
             parameters["p_document_id"] = document.wire; parameters["p_archived"] = archived; parameters["p_expected_revision"] = revision
+        case .setSourceDetails(let id, let archived, let tags, let revision):
+            guard readContext.datasetEpoch != nil else { throw LibraryCommandError.contextMismatch }
+            command = "set_source_details"
+            parameters["p_import_id"] = id.wire; parameters["p_archived"] = archived; parameters["p_tags"] = tags; parameters["p_expected_revision"] = revision
         case .setTags(let document, let tags, let hidden, let revision):
             command = "set_item_tags"
             parameters["p_document_id"] = document.wire; parameters["p_tags"] = tags; parameters["p_hidden_tags"] = hidden
@@ -100,7 +114,7 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
         }
         let endpoint = family + command
         let body = try JSONSerialization.data(withJSONObject: parameters, options: [.sortedKeys, .withoutEscapingSlashes])
-        guard body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
+        guard body.count <= (sourceImportID == nil ? 2_048 : 8_192) else { throw LibraryCommandError.invalidMutation }
         let domain = Data("science-reader/library-request/v1\n\(scope.accountID.wire)\n\(scope.deploymentID)\n\(endpoint)\n".utf8)
         return FrozenLibraryRequest(operationID: operationID, endpoint: endpoint, body: body, digest: Data(SHA256.hash(data: domain + body)))
     }
@@ -473,6 +487,7 @@ struct LibraryCommandJournal: Equatable {
     private func sameTarget(_ value: LocalLibraryCommand, _ mutation: LibraryMutation) -> Bool {
         guard let other = value.mutation else { return false }
         if let a = other.itemDocument, let b = mutation.itemDocument { return a == b }
+        if let a = other.sourceImportID, let b = mutation.sourceImportID { return a == b }
         switch (other, mutation) {
         case let (.beginImport(a, ar, _), .beginImport(b, br, _)): return a == b && ar == br
         case let (.cancelImport(a, _), .cancelImport(b, _)), let (.cancelImport(a, _), .retryImport(b, _)),
@@ -507,7 +522,7 @@ struct LibraryCommandJournal: Equatable {
         let kind: LibraryEntryKind
         switch mutation {
         case .setMembership, .setArchived, .setTags: kind = .item
-        case .beginImport, .cancelImport, .retryImport: kind = .import
+        case .beginImport, .cancelImport, .retryImport, .setSourceDetails: kind = .import
         }
         guard result.kind == kind else { throw LibraryCommandError.invalidReceipt }
         if result.status == .applied {
@@ -520,7 +535,7 @@ struct LibraryCommandJournal: Equatable {
         switch mutation {
         case .beginImport:
             guard result.status == .applied, result.id == request.operationID else { throw LibraryCommandError.invalidReceipt }
-        case .cancelImport(let id, _), .retryImport(let id, _):
+        case .cancelImport(let id, _), .retryImport(let id, _), .setSourceDetails(let id, _, _, _):
             guard result.id == id, result.revision > 0 else { throw LibraryCommandError.invalidReceipt }
         case .setMembership, .setArchived, .setTags: break
         }
@@ -537,7 +552,7 @@ struct LibraryCommandJournal: Equatable {
         case let (.beginImport(source, revision, _), .import(imported)):
             guard imported.sourceID == source, imported.requestedRevision == revision,
                   imported.intentRevision >= response.result.revision else { throw LibraryCommandError.invalidReceipt }
-        case (.cancelImport, .import(let imported)), (.retryImport, .import(let imported)):
+        case (.cancelImport, .import(let imported)), (.retryImport, .import(let imported)), (.setSourceDetails, .import(let imported)):
             guard imported.intentRevision >= response.result.revision else { throw LibraryCommandError.invalidReceipt }
         default: throw LibraryCommandError.invalidReceipt
         }

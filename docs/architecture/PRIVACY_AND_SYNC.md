@@ -1,5 +1,11 @@
 # Privacy, key custody, and synchronization
 
+2026-10-13 owner direction: every PDF stays on the user's device, including its download and processing. Initial
+structured readers come from arXiv HTML; no Mathpix fallback. See [HTML-first reader](HTML_FIRST_READER.md) for local
+storage/backup exclusions, separate synced membership, version-bound anchors and ephemeral local-text chat input.
+Cloud chat still discloses necessary plaintext for an explicit request and is not claimed to run on device.
+Historical server PDF/Mathpix retention descriptions below do not override this new boundary. Migration 058 and the metadata-only worker enforce the staging cutover; historical retained copies are not deleted. See IMPLEMENTATION_STATUS.md for client releases and measured privacy evidence.
+
 Status: device-held keys approved; iPhone/iPad first, with the browser reader authorized afterward. Implementation and verification remain in progress. This is not a shipped privacy guarantee.
 
 ## Recommendation and alternatives

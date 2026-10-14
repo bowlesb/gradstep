@@ -1,6 +1,38 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-09. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-13. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## arXiv HTML first; every PDF stays on device (owner decided 2026-10-13)
+
+The owner changed the acquisition/processing design: PDFs are downloaded and processed only on the user's device;
+the initial structured-reader source is exclusively the official HTML version of an arXiv paper. A future local
+model replaces Mathpix for challenging PDFs. Preserve the existing reader arrangement, navigation, selection
+actions and paper/general-chat experience.
+
+This supersedes all earlier permission to acquire/upload/process PDFs on our servers, including CC0/CC BY,
+publisher and user-supplied PDFs, and the proposed Mathpix fallback. HTML absence must never start PDF OCR in the
+cloud. The rights gate remains applicable to HTML and derived content; changing format does not authorize hosting.
+Cloud chat remains an explicit metered request using necessary text; it is not a PDF processing fallback.
+
+The [HTML-first reader architecture](architecture/HTML_FIRST_READER.md) specifies the local adapter, new honest
+bundle provenance/profile, PDF-independent membership, local-context chat, browser acquisition gate, server-side
+enforcement and rollout tests. The adapter/location/protocol choices are engineering decisions; no new local model,
+deployment, legacy-data migration, deletion or budget increase is implied. **Implemented and deployed on staging on 2026-10-13:** migration 058, metadata-only worker, upload refusal and browser HTML reader. Native build 29 is VALID and IN_BETA_TESTING on iOS and Mac; exact evidence is in the release record. Historical server originals remain retained; this is not a data migration or deletion.
+
+The same-day v2 adapter extension preserves grouped captions and inline vector legends in real arXiv HTML;
+its new provenance accounts for inline images separately from fetched assets. Browser `16b9e4ce` is deployed,
+with native build 30 VALID and IN_BETA_TESTING on both Apple platforms. The device-only PDF and budget decisions are unchanged.
+
+The owner clarified the separate transfer request: copy the entire codebase, not a PDF, to `192.168.1.32` under
+the SSH user's home directory. Include current source and design changes; omit local credentials, dependency
+caches and generated build artifacts. This does not authorize a processing service or change NAS restrictions.
+
+## Fast and slow tests (owner decided 2026-10-13)
+
+Separate routine fast checks from slow integration/corpus work. Long checks can run once as a baseline and are
+rerun selectively when related behavior changes or an issue warrants it, rather than becoming a mandatory loop
+after every edit. Keep small regression cases fast, retain dated slow evidence, and distinguish a source's honest
+unavailable outcome from a successfully prepared reader. [Testing commands and scope](TESTING.md).
 
 ## Web framework (owner decided 2026-10-07)
 
@@ -35,8 +67,8 @@ hosted deployment follows from local fixture tests. See [Library v4](architectur
 | Price exploration | Benchmark $9.99/month and $19.99/month; final allowances follow measured workloads |
 | Operating budget | $100/month incremental Science Reader private-beta costs, excluding existing TextBrain charges |
 | Backend | Dedicated Supabase infrastructure with background processing as needed |
-| Shared articles | Reuse eligible article conversions across users to reduce Mathpix costs |
-| Equation-aware reader | Mathpix PDF parsing is required for the final structured text/equation/figure experience; opening an original PDF is an intermediate development capability, not completion of the reader |
+| Shared articles | Reuse only rights-eligible content; no shared server PDF acquisition or Mathpix conversion in the new design. Existing eligible bundles are historical assets, not a reason to resume PDF processing. |
+| Equation-aware reader | Initially adapt the exact arXiv HTML version to the existing verified reader bundle; all PDF handling stays on device. Future local models handle challenging PDFs. PDF viewing alone is not structured-reader completion. |
 | Private user data | Each person owns their library state, notes, highlights, and conversations |
 | Admin | Private usage/cost dashboard with spending and account controls |
 | Testing | Internal/admin app experience: screenshot, note, upload, replies, and fix-build tracking |
@@ -47,6 +79,8 @@ hosted deployment follows from local fixture tests. See [Library v4](architectur
 | Delivery quality | User explicitly prioritizes careful, maintainable implementation over speed; resolve structural issues and verify complete workflows before enabling them, without hacks or shortcuts |
 
 ## First usable journey direction — 2026-10-04
+
+Historical checkpoint: its server PDF and paid OCR direction is superseded by the 2026-10-13 decision above.
 
 The user transferred work to a new agent and chose, for the first overnight build:
 
@@ -62,6 +96,9 @@ The user transferred work to a new agent and chose, for the first overnight buil
 | Placeholder credit rate (agent decision, reversible) | `beta-credits-v1`: 1 credit ≈ $0.01 at 2× provider cost — 1 credit per OCR page; chat = ceil(provider µ$ / 5000). Subscription allowances remain undecided. |
 
 ## Commercial arXiv content gate — 2026-10-09 (owner review required)
+
+The rights restrictions below remain in force. The 2026-10-13 device-only PDF decision additionally removes server
+PDF/Mathpix processing even for rights-eligible papers; the historical shared-conversion allowance is not an exception.
 
 The official [arXiv API Terms of Use](https://info.arxiv.org/help/api/tou.html) prohibit storing and serving
 arXiv e-prints from our servers unless the copyright holder has given permission or the e-print's submitted
@@ -93,9 +130,10 @@ no routing or price policy changes follow from the rate comparison.
 
 ## On-device paper processing (research, reversible) — 2026-10-09
 
-Mathpix remains the quality reference for equation-aware conversion. The proposed local path is layered: PDFKit text
-and bounds, Apple's on-device Vision OCR for missing text, then a separately licensed and quality-gated equation model
-with Mathpix fallback. No open-source model is bundled or enabled from the initial investigation. A candidate must
+Superseded in direction on 2026-10-13: start with arXiv HTML; challenging PDF conversion is future on-device work
+with **no Mathpix fallback**. Previously captured Mathpix output may remain comparison evidence. The candidate local
+path is PDFKit text and bounds, on-device OCR where needed, then a separately licensed and quality-gated model.
+No open-source model is bundled or enabled from the initial investigation. A candidate must
 pass held-out equation/rendering, reading-order, figure/table, device performance, failure-recovery and commercial
 license checks. The full rationale and candidate inventory are in
 [ON_DEVICE_PAPER_PROCESSING_20261009](research/ON_DEVICE_PAPER_PROCESSING_20261009.md).

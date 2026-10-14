@@ -1,5 +1,11 @@
 # Design principles and patterns
 
+Content-source change, owner 2026-10-13: use official arXiv HTML to build the existing structured reader; every PDF
+is downloaded and processed only on the user's device. Preserve the page arrangement, navigation, selection
+actions and paper/general-chat behavior. Missing HTML gets a clear availability explanation and the existing
+source/local-PDF action, with no cloud OCR fallback. Implementation contract and status:
+[HTML-first reader](architecture/HTML_FIRST_READER.md). Staging implementation and verification are recorded there and in IMPLEMENTATION_STATUS.md.
+
 Owner principles (2026-10-05): well-considered margins; details and options tucked away until needed; visual
 hierarchy (primary large, secondary smaller); as much open space as possible — "like walking into a living room
 and seeing mostly open space, but have useful options tucked away"; and one uniform, well-thought-out way to reach

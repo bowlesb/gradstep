@@ -1,7 +1,11 @@
+import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
+import type { DevicePDFs } from './useDevicePDFs';
+import { type ReaderPaper } from '../lib/reader-paper';
+import { isUUID } from '../lib/bytes';
 // Account-scoped library state: one bounded pull at a time, import polling on the native
 // schedule, refresh on focus, and commands with operation-ID replay. Memory only.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { auth, BackendError } from '../lib/backend';
+import { auth, BackendError, rpc } from '../lib/backend';
 import { cancellation } from '../lib/cancellation';
 import { type Command, type CommandResponse, type Entry, type Import, type Item, CommandRefreshError, receiptFloor, Reconciler, sendCommand } from '../lib/library';
 import { editedTags } from '../lib/paper-tags';
@@ -9,7 +13,7 @@ import { type Mark, importStep, observe, pollDelay, retryingAutomatically } from
 
 export type LoadState = 'loading' | 'ready' | 'error';
 
-export function useLibrary(account: string) {
+export function useLibrary(account: string, devicePDFs?:DevicePDFs) {
   const reconciler = useRef(new Reconciler(account));
   const running = useRef<Promise<void> | null>(null);
   const lifetime = useRef<ReturnType<typeof cancellation> | null>(null);
@@ -152,15 +156,25 @@ export function useLibrary(account: string) {
   // separately reviewed v5 client and must not be enabled by adding a menu to generic Item rows.
   const itemCommand = useCallback((item: Item, request: Command) => !item.visible || item.scope !== 'shared_catalog'
     ? Promise.reject(new BackendError('item_unavailable')) : command(item.id, request), [command]);
-  const archive = useCallback((item: Item, archived: boolean) => itemCommand(item, { endpoint: 'v2_set_item_archived', expectedItemID: item.id,
-    p_document_id: item.document_id, p_archived: archived, p_expected_revision: item.membership_revision }), [itemCommand]);
-  const removePaper = useCallback((item: Item) => itemCommand(item, { endpoint: 'v2_set_library_item', expectedItemID: item.id,
-    p_document_id: item.document_id, p_present: false, p_expected_revision: item.membership_revision }), [itemCommand]);
-  const setTags = useCallback((item: Item, desired: string[]) => {
+  const sourceDetails = useCallback(async (item: ReaderPaper, archived: boolean, tags: string[]) => {
+    if (item.kind !== 'import' || !item.visible) throw new BackendError('item_unavailable');
+    const signal=lifetime.current?.signal;
+    const caps=await rpc<{account_id:string;library:{dataset_epoch:string};device_reader?:{protocol:string}}>('v1_reader_capabilities',{}, {account,signal});
+    if (signal?.aborted || caps.account_id !== account || caps.device_reader?.protocol !== 'source-membership-v1' || !isUUID(caps.library?.dataset_epoch)) throw new BackendError('reader_upgrade_required');
+    return command(item.id,{endpoint:'v5_set_source_details',p_dataset_epoch:caps.library.dataset_epoch,p_import_id:item.id,p_archived:archived,p_tags:tags,p_expected_revision:item.intent_revision});
+  },[account,command]);
+  const archive = useCallback((item: LibraryPaper, archived: boolean) => item.kind === 'local_pdf' ? devicePDFs!.mutate(item,{archived}) : item.kind === 'import' ? sourceDetails(item,archived,item.user_tags??[]) : itemCommand(item, { endpoint: 'v2_set_item_archived', expectedItemID: item.id,
+    p_document_id: item.document_id, p_archived: archived, p_expected_revision: item.membership_revision }), [itemCommand,sourceDetails,devicePDFs]);
+  const removePaper = useCallback((item: LibraryPaper) => item.kind === 'local_pdf' ? devicePDFs!.mutate(item,{remove:true}) : item.kind === 'import' ? command(item.id,{endpoint:'v2_cancel_import',p_import_id:item.id,p_expected_revision:item.intent_revision}) : itemCommand(item, { endpoint: 'v2_set_library_item', expectedItemID: item.id,
+    p_document_id: item.document_id, p_present: false, p_expected_revision: item.membership_revision }), [itemCommand,command,devicePDFs]);
+  const setTags = useCallback((item: LibraryPaper, desired: string[]) => {
+    if(item.kind==='local_pdf')return devicePDFs!.mutate(item,{tags:desired});
+    if (item.kind === 'import') return sourceDetails(item,item.archived===true,desired);
     const change = editedTags(item.tags ?? [], desired);
     return itemCommand(item, { endpoint: 'v2_set_item_tags', expectedItemID: item.id, p_document_id: item.document_id,
       p_tags: change.own, p_hidden_tags: change.hidden, p_expected_revision: item.membership_revision });
-  }, [itemCommand]);
+  }, [itemCommand,sourceDetails,devicePDFs]);
 
-  return { entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
+  const displayed:ClientEntry[]=useMemo(()=>[...entries,...(devicePDFs?.rows??[])],[entries,devicePDFs?.rows]);
+  return { entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
 }

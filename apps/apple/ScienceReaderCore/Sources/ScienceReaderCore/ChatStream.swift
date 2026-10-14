@@ -29,6 +29,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let operationID: UUID
     /// Nil for general chat; the paper's document ID for paper chat.
     public let documentID: UUID?
+    public let localContext: LocalPaperChatContext?
     public let turns: [ChatTurnInput]
     public let selection: String?
     /// Only sent with a selection.
@@ -43,7 +44,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     /// starts and ends with a user turn; empty turns are skipped.
     public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
                             action: ChatAction? = nil, profile: ChatProfileChoice = .standard,
-                            topicTitle: Bool = false) throws -> ChatGenerationRequest {
+                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
         guard last.text.utf8.count <= maximumMessageBytes else { throw ChatRequestError.questionTooLarge }
@@ -58,7 +59,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         let quote = selection.map { bounded($0, scalars: maximumSelectionScalars) }
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
-                                     action: quote == nil ? nil : action, profile: profile, topicTitle: topicTitle)
+                                     action: quote == nil ? nil : action, profile: profile, topicTitle: topicTitle, localContext: localContext)
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -75,8 +76,8 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     }
 
     private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?,
-                 profile: ChatProfileChoice, topicTitle: Bool) {
-        self.operationID = operationID; self.documentID = documentID; self.turns = turns; self.selection = selection; self.action = action
+                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil) {
+        self.operationID = operationID; self.documentID = localContext == nil ? documentID : nil; self.localContext = localContext; self.turns = turns; self.selection = selection; self.action = action
         self.profile = profile; self.topicTitle = topicTitle
     }
 
@@ -89,6 +90,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let consent_version: String
             let mode: String
             let document_id: String?
+            let local_context: LocalPaperChatContext?
             let messages: [Turn]
             let selection: Selection?
             let action: String?
@@ -98,7 +100,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let topic_title: Bool?
         }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
-            mode: documentID == nil ? "general" : "paper", document_id: documentID?.wire,
+            mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
             capabilities: action == .ingest ? ["web_import"] : nil, profile: profile == .standard ? nil : profile,
             topic_title: topicTitle ? true : nil))

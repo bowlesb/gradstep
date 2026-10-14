@@ -1,3 +1,7 @@
+import {useDevicePDFs} from './useDevicePDFs';
+import type {LibraryPaper} from '../lib/device-pdf';
+import { prepareArxivReader } from '../lib/arxiv-reader';
+import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey } from '../lib/reader-paper';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config } from '../lib/backend';
@@ -90,11 +94,12 @@ const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 
 
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
-  const library = useLibrary(account);
+  const chat = useChat(account, ready);
+  const devicePDFs=useDevicePDFs(chat);
+  const library = useLibrary(account,devicePDFs);
   // The reader has the same paper action surface as Library. Keeping a separate owner avoids
   // two portals competing when a library menu is still closing during navigation.
   const readerActions = useLibraryActions(library);
-  const chat = useChat(account, ready);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
@@ -138,6 +143,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [leaving, setLeaving] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [readerCache] = useState<ReaderCache>(() => new Map());
+  useEffect(()=>{
+    if(!chat)return;
+    chat.setSourcePapers(new Map(library.entries.filter(isSourcePaper).map(paper=>[paper.id,{reference:paperReference(paper)!,load:async()=>{
+      const key=readerCacheKey(account,paper),saved=readerCache.get(key);if(saved)return saved;
+      const bundle=await prepareArxivReader(paperReference(paper)!,chat.signal);chat.signal.throwIfAborted();
+      readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
+    }}])));
+  },[chat,library.entries,readerCache,account]);
   // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md).
   const [view, setView] = useState<LibraryQuery>(INITIAL_QUERY);
   const [railTab, setRailTab] = useState<'contents' | 'library'>('contents');
@@ -147,9 +160,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const readerCommands = useRef<ReaderCommands | null>(null);
-  const openPaper = useCallback((paper: Item, anchor?: TextAnchor) => navigate(`/paper/${paper.id}`, () => {
+  const openReader = useCallback((paper: ReaderPaper, anchor?: TextAnchor) => navigate(`/paper/${paper.id}`, () => {
     setLastPaper(paper.id);
-    setPassage(anchor ? { id: crypto.randomUUID(), documentID: paper.document_id, anchor, at: Date.now() } : null);
+    setPassage(anchor ? { id: crypto.randomUUID(), documentID: paperIdentity(paper), anchor, at: Date.now() } : null);
   }), [navigate]);
 
   useEffect(() => {
@@ -164,6 +177,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     return () => { live = false; if (saveTimer.current) clearTimeout(saveTimer.current); readerCache.clear(); };
   }, [account, ready.deviceID]);
 
+  const openPaper = useCallback((paper:LibraryPaper,anchor?:TextAnchor) => {
+    if(paper.kind==='local_pdf'){devicePDFs.open(paper);return Promise.resolve(true);}
+    return openReader(paper,anchor);
+  },[devicePDFs,openReader]);
   const record = useCallback((itemID: string, value: Activity) => {
     if (!activityLoaded || leaving) return;
     setActivity(previous => {
@@ -183,7 +200,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
   const paperID = match?.[1] ?? null;
   const route: Route = paperID ? 'paper' : path === '/feed' ? 'feed' : 'library';
-  const item = paperID ? library.entries.find((e): e is Item => e.kind === 'item' && e.id === paperID && e.visible) : undefined;
+  const item = paperID ? library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.id === paperID && e.visible) : undefined;
   useEffect(() => { if (path !== '/' && path !== '/feed' && !match) navigate('/'); }, [path, match, navigate]);
   useEffect(() => { if (paperID) setLastPaper(paperID); setOrphanPaper(null); setChatMode(paperID ? 'paper' : 'general'); }, [paperID]);
 
@@ -191,7 +208,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const latest = useRef({ ws, route, paperID });
   latest.current = { ws, route, paperID };
   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
-  const feed = useFeed(account, library.entries);
+  const feed = useFeed(account, library.serverEntries);
   const podcasts = usePodcasts(account);
   const player = usePodcastPlayer(account);
   const [listening, setListening] = useState(false);
@@ -267,12 +284,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     else { setRailTab('contents'); ws.show('left'); }
   };
   const railVisible = ws.left.open && ws.left.inline;
-  const paperContext = orphanPaper ?? (item?.document_id ? { documentID: item.document_id, title: item.metadata?.title ?? 'Paper', available: item.readiness === 'converted_ready' && item.render_availability === 'available' } : null);
-  const paperNames = useMemo(() => new Map(library.entries.filter((e): e is Item => e.kind === 'item' && e.visible).map(e => [e.document_id, e.metadata?.title ?? 'Paper'])), [library.entries]);
+  const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
+  const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
     if (!documentID) setChatMode('general');
     else {
-      const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === documentID);
+      const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === documentID);
       if (paper) { if (!await openPaper(paper, anchor)) return; setOrphanPaper(null); }
       else setOrphanPaper({ documentID, title: 'Paper no longer in library', available: false });
       setChatMode('paper');
@@ -283,32 +300,32 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     void openChatDocument(documentID, anchor);
   };
   const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor) => {
-    if (!chat || chat.storageRetired || !item?.document_id) return; // the storage notice explains why nothing is sent
+    if (!chat || chat.storageRetired || !item) return; // the storage notice explains why nothing is sent
     // The new conversation answers with the model, effort and length the chat pane shows right now.
     const visible = chat.current(chatMode === 'paper' && paperContext ? paperContext.documentID : null);
-    const composer = chat.newChat(item.document_id, chat.profileFor(visible));
+    const composer = chat.newChat(paperIdentity(item), chat.profileFor(visible));
     chat.edit(composer, selectionPrompt(action, quote)); setChatMode('paper'); ws.show('right');
     void chat.send(composer, quote, actionFor[action], anchor).then(() => { if (action === 'ingest') void library.refresh().catch(() => {}); });
   };
   const discuss = async (quote: string, anchor: TextAnchor): Promise<boolean> => {
-    if (!chat || chat.storageRetired || !item?.document_id) return false;
+    if (!chat || chat.storageRetired || !item) return false;
     const owner = auth.snapshot(), sourcePaper = item.id;
-    const composer = await chat.discuss(item.document_id, quote, anchor);
+    const composer = await chat.discuss(paperIdentity(item), quote, anchor);
     if (!composer || owner.signal.aborted || latest.current.paperID !== sourcePaper) return false;
     setChatMode('paper'); latest.current.ws.show('right');
     // The reader closes its modal only after this promise resolves. Focus on the next paint, when
     // the composer is no longer inert; never submit a provider request from Discuss.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (!owner.signal.aborted && latest.current.paperID === sourcePaper && chat.current(item.document_id).id === composer.id) {
+      if (!owner.signal.aborted && latest.current.paperID === sourcePaper && chat.current(paperIdentity(item)).id === composer.id) {
         document.querySelector<HTMLTextAreaElement>('.chat-composer textarea')?.focus();
       }
     }));
     return true;
   };
-  const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === item?.document_id && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, item?.document_id]);
+  const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined)]);
 
   const openPodcastEvidence = async (episode: Episode, evidence: Evidence): Promise<boolean | null> => {
-    const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === episode.documentID);
+    const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === episode.documentID);
     if (!paper) return false;
     return await openPaper(paper, evidenceAnchor(evidence)) ? true : null;
   };
@@ -342,7 +359,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
       : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
-        passage={passage?.documentID === item.document_id ? passage : null} onPassageHandled={() => setPassage(null)}
+        passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
@@ -404,8 +421,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
       {item && <LibraryActionSurface actions={readerActions} />}
       <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
-      <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
-      <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
+      {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
+      <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
+      <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
       {chat && <ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} />}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
       <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />

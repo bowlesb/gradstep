@@ -11,7 +11,7 @@ const appCommand = process.env.WEB_E2E_DEV === '1'
 
 export default defineConfig({
   testDir: 'e2e',
-  testIgnore: ['**/podcast-client.spec.ts'], // standalone audio harness uses podcast.playwright.config.ts
+  testIgnore: ['**/podcast-client.spec.ts','**/reader-corpus.spec.ts'], // opt-in standalone suites
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
@@ -23,6 +23,7 @@ export default defineConfig({
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 860 } } },
     { name: 'phone', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, isMobile: false, hasTouch: true } },
     { name: 'webkit', use: { ...devices['Desktop Safari'], viewport: { width: 1280, height: 860 } } },
+    { name: 'firefox-compiler', testMatch: '**/arxiv-compiler.spec.ts', use: { ...devices['Desktop Firefox'] } },
   ],
   webServer: [
     { command: `FIXTURE_PORT=${FIXTURE} node e2e/fixture-backend.mjs`, url: `http://127.0.0.1:${FIXTURE}/health`, reuseExistingServer: false },

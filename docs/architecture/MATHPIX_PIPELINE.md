@@ -1,5 +1,11 @@
 # Mathpix processing and durable reader artifacts
 
+**Historical implementation/design only, 2026-10-13:** the owner replaced Mathpix with initial arXiv HTML
+adaptation and future on-device PDF models. No new PDF may be sent to Mathpix, including fallback for difficult
+PDFs. See [HTML-first reader](HTML_FIRST_READER.md). Runtime enforcement remains pending; existing paid attempts
+still need liability reconciliation without collecting or processing new PDF outputs. Statements below that
+Mathpix is required for the final reader are superseded.
+
 > **2026-10-05:** The implemented, deployed flow is described in [PAPER_PIPELINE.md](PAPER_PIPELINE.md) (migration 014, Edge `paper-worker`). It replaces the quote/consent/`provider_attempts` design below with credit holds sized to a Mathpix `page_ranges` cap, a single submission grant per funded attempt, and explicit exits for every hold. The rest of this document is retained design background.
 
 Status, 2026-10-04: the transport and bounded archive-container adapters exist. The Edge-compatible renderer [`timestep-mathpix-mathml-v1`](READER_RENDERER.md) renders the retained real Mathpix capture of one CC BY 4.0 paper (arXiv 2305.18290) into a validated `reader-bundle-v1` with MathML equations and JPEG figures, and native Core admits it. That bundle replaces the earlier synthetic `timestep-mathpix-mmd-v1` pilot fixture, which was removed together with its renderer and native profile. The Simulator journey has not been rerun with the new fixture. No paid submission, deployed acquisition worker, quote/consent route, durable hosted result collector or reader-artifact publication is enabled. One real capture does not establish general OCR accuracy or compatibility. The final reader requires this pipeline; original PDF delivery alone does not complete it.

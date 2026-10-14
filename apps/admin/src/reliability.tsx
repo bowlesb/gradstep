@@ -23,7 +23,7 @@ const STAGE_ORDER = ['metadata', 'private_split', 'download', 'ocr_fund', 'ocr_s
 const STAGES: Record<string, string> = {
   metadata: 'Finding the paper', private_split: 'Preparing private copy', download: 'Downloading PDF', ocr_fund: 'Reserving credits',
   ocr_submit: 'Sending to Mathpix', ocr_wait: 'Mathpix converting', render: 'Rendering',
-  needs_credits: 'Waiting for credits', failed: 'Failed, awaiting retry', source_only: 'Source only', done: 'Done',
+  needs_credits: 'Waiting for credits', failed: 'Failed, awaiting retry', source_only: 'Metadata ready; reader on device', done: 'Done',
 };
 const KINDS: Record<string, string> = { crash: 'Worker crashed', import: 'Import failed', stage: 'Step failed' };
 
@@ -134,7 +134,7 @@ export function Reliability({ load, reloadKey }: { load: (days: number) => Promi
         <section className="panel" aria-labelledby="crashes-title"><h2 id="crashes-title">Worker crashes by step</h2>
           <BarList tone="crash" noun="crash" plural="crashes" empty="No worker crashes in this window."
             rows={Object.entries(view.metrics.crashes).map(([stage, n]) => ({ key: stage, label: stageName(stage), value: n }))} />
-          <p className="muted">A crash is a lease that expired while the worker held it. Three in the same step fail the import with Retry available; credit and Mathpix steps back off instead.</p>
+          <p className="muted">New imports stop at metadata; HTML readers and PDFs are prepared on the reader’s device. Earlier PDF/OCR stages remain visible as historical records. A crash records an expired worker lease.</p>
         </section>
       </div>
 

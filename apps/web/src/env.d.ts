@@ -5,3 +5,5 @@ declare module 'virtual:reader-frame' {
 }
 
 declare module 'virtual:diagram-frame' { const frame: { script: string; hash: string }; export default frame; }
+
+declare module 'virtual:arxiv-compiler' { const compiler: {script:string;hash:string}; export default compiler; }

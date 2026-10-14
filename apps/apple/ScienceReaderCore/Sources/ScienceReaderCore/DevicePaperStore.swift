@@ -22,7 +22,7 @@ public struct LocalPaperIdentity: Codable, Equatable, Hashable, Sendable {
     private static func validSourceID(_ value: String) -> Bool {
         (1...256).contains(value.utf8.count)
             && value.unicodeScalars.allSatisfy { scalar in
-                scalar.value >= 0x21 && scalar.value <= 0x7e && scalar != "/" && scalar != "\\"
+                scalar.value >= 0x21 && scalar.value <= 0x7e && scalar != "\\"
             }
     }
 }
@@ -152,6 +152,7 @@ public actor DevicePaperStore {
         guard try sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
             throw LocalPaperStoreError.invalidPDF
         }
+        guard let size = try sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= Self.maximumPaperBytes else { throw LocalPaperStoreError.tooLarge }
         let bytes: Data
         do { bytes = try Data(contentsOf: sourceURL, options: .mappedIfSafe) }
         catch { throw LocalPaperStoreError.storageUnavailable }

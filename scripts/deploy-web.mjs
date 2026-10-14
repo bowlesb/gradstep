@@ -61,7 +61,7 @@ export function validateClientOutput(root, directory, target, backend, env) {
   }
   const auth = env.VITE_AUTH_URL?.replace(/\/$/, '') || backend;
   let expectedConnect;
-  try { expectedConnect = [...new Set([new URL(backend).origin, new URL(auth).origin])].join(' '); }
+  try { expectedConnect = [...new Set([...(target === 'app' ? ['https://arxiv.org'] : []), new URL(backend).origin, new URL(auth).origin])].join(' '); }
   catch { fail('the configured auth URL is not an absolute URL'); }
   if (directives.get('connect-src') !== expectedConnect || directives.get('default-src') !== "'none'" || directives.get('frame-ancestors') !== "'none'"
     || headers.get('strict-transport-security') !== 'max-age=31536000' || headers.get('x-content-type-options') !== 'nosniff'

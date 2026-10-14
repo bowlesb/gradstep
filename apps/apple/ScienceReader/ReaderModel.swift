@@ -42,6 +42,8 @@ struct Paper: Identifiable, Sendable {
     var sourceID: String?
     var sourceRevision: Int?
     var readerBundle: VerifiedReaderBundle? = nil
+    var sourceMembership: SourcePaperReference? = nil
+    var isLocalPDF = false
     /// Individual author names when known (`authors` is their joined display form).
     var authorNames: [String] = []
     /// When this paper joined the library (the server's membership time).
@@ -163,6 +165,9 @@ final class ReaderModel {
     /// The server library still owns metadata and account membership; these
     /// records are intentionally local-only.
     private(set) var localPaperRecords: [LocalPaperRecord] = []
+    private(set) var localReaderRecords: [LocalReaderRecord] = []
+    @ObservationIgnored private var localReaderTask: Task<Void, Never>?
+    private var localReaderOpeningID: UUID?
     private(set) var localPaperDownloads: Set<UUID> = []
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
@@ -183,6 +188,7 @@ final class ReaderModel {
     func isArchived(_ paper: Paper) -> Bool {
         for command in libraryCommands.reversed() where command.isUnfinished {
             if case .setArchived(let document, let archived, _) = command.mutation, document == paper.id { return archived }
+            if case .setSourceDetails(let id, let archived, _, _) = command.mutation, id == paper.id { return archived }
         }
         return paper.archived
     }
@@ -549,16 +555,22 @@ final class ReaderModel {
     }
     /// Presents a source-only PDF from the encrypted device store. This does
     /// not create a cloud document or a server-side reader artifact.
+    func sourceImport(for paper: Paper) -> LibraryImportRecord? {
+        guard let reference = paper.sourceMembership else { return nil }
+        return completeLibrary?.imports.first { $0.id == reference.membershipID && $0.visible }
+    }
     func openLocalPaper(_ item: LibraryImportRecord) {
-        guard let sourceID = item.sourceID,
-              let revision = item.sourceRevision ?? item.requestedRevision,
+        guard let sourceID = item.sourceID, let revision = item.sourceRevision ?? item.requestedRevision else { return }
+        openLocalPDF(sourceID: sourceID, revision: revision, title: item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: sourceID))
+    }
+    func openLocalPDF(sourceID: String, revision: Int, title: String) {
+        guard
               let record = localPaperRecords.first(where: { $0.identity.sourceID == sourceID && $0.identity.revision == revision }),
               let store = localPersistence.localPaperStore else {
             error = "This paper is not available on this device. Download it first."
             return
         }
         let scope = readerSessionID
-        let title = item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: sourceID)
         Task { [weak self] in
             do {
                 let data = try await store.read(record.identity)
@@ -566,7 +578,7 @@ final class ReaderModel {
                 self.localPaperPresentation = LocalPaperPresentation(id: record.id, title: title, data: data)
             } catch {
                 guard let self, self.readerSessionID == scope else { return }
-                self.error = "The saved PDF could not be opened. Download it again from arXiv."
+                self.error = "The saved PDF could not be opened. Add or download the PDF again."
                 await self.refreshLocalPaperRecords()
             }
         }
@@ -920,7 +932,8 @@ final class ReaderModel {
         switch entry {
         case .paper(let paper):
             if openingPaperID == paper.id { return .active("Opening…") }
-            if !paper.canReadStructured { return .problem("Not converted") }
+            if paper.isLocalPDF { return .info(localPaperRecords.contains(where: { $0.identity.sourceID == paper.sourceID }) ? "PDF on this device" : "PDF needed on this device") }
+            if !paper.canReadStructured { return .problem("Reader unavailable") }
             switch offlineStatus(for: paper) {
             case .available: return .none
             case .unavailable: return .problem("Unavailable offline")
@@ -1459,6 +1472,7 @@ final class ReaderModel {
         let local = try await persistence.activate(url: directory.appendingPathComponent("private-state.enc"),
                                                   accountID: device.accountID, localKey: device.localStoreKey, keys: bundle)
         localPaperRecords = await persistence.localPaperStore?.records() ?? []
+        localReaderRecords = await persistence.localReaderStore?.records() ?? []
         localPaperDownloads = []
         let snapshot = await local.snapshot()
         let reading = await persistence.readingStore?.load() ?? []
@@ -1600,6 +1614,7 @@ final class ReaderModel {
         let oldBundles = readerBundles; readerBundles = nil
         oldBundles?.close()
         readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil; offlineCacheIssue = nil
+        localReaderTask?.cancel(); localReaderTask = nil; localReaderOpeningID = nil; localReaderRecords = []
         localPaperRecords = []; localPaperDownloads = []; localPaperPresentation = nil
         let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
@@ -1895,6 +1910,10 @@ final class ReaderModel {
     }
 
     func removePaper(_ paper: Paper) async {
+        if paper.isLocalPDF { await editLocalPDF(paper, remove: true); return }
+        if let ref = paper.sourceMembership, let item = completeLibrary?.imports.first(where: { $0.id == ref.membershipID }) {
+            await changeImport(item, retry: false); return
+        }
         guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
               let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
               let commands = libraryCommandCoordinator else { return }
@@ -1908,6 +1927,8 @@ final class ReaderModel {
 
     /// Archive or unarchive (migration 020): the item stays in the library and syncs across devices.
     func setArchived(_ paper: Paper, archived: Bool) async {
+        if paper.isLocalPDF { await editLocalPDF(paper, archived: archived); return }
+        if paper.sourceMembership != nil { if let issue = await editSourceDetails(paper, archived: archived, tags: paper.ownTags) { error = issue }; return }
         guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
               let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
               let commands = libraryCommandCoordinator else { return }
@@ -1927,6 +1948,7 @@ final class ReaderModel {
         let byIntent = Dictionary(libraryCommands.map { ($0.handle.intentID, $0) }, uniquingKeysWith: { first, _ in first })
         for command in libraryCommands.sorted(by: { $0.handle.localSequence < $1.handle.localSequence }) where command.isUnfinished {
             if case .setTags(let document, let own, let hidden, _) = command.mutation { edits[document] = (own, hidden) }
+            else if case .setSourceDetails(let id, _, let tags, _) = command.mutation { edits[id] = (tags, []) }
             else if command.mutation == nil, case .setTags(let own, let hidden) = command.successor,
                     let parent = command.predecessor.flatMap({ byIntent[$0.intentID] }), let document = parent.mutation?.itemDocument {
                 edits[document] = (own, hidden)
@@ -1971,6 +1993,8 @@ final class ReaderModel {
     /// Saves `desired` as the tags the reader sees for `paper` (catalog tags left out are hidden; the
     /// rest are their own). Nil on success, otherwise what to tell the reader.
     func saveTags(_ desired: [String], for paper: Paper) async -> String? {
+        if paper.isLocalPDF { await editLocalPDF(paper, tags: desired); return nil }
+        if paper.sourceMembership != nil { return await editSourceDetails(paper, archived: paper.archived, tags: desired) }
         guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
               let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
               let commands = libraryCommandCoordinator else { return "Tags can be changed once your library is up to date." }
@@ -1988,6 +2012,35 @@ final class ReaderModel {
             guard sessionID == scope, !(error is CancellationError) else { return nil }
             return (error as? LocalizedError)?.errorDescription ?? "Your tags couldn’t be saved. Try again."
         }
+    }
+
+    private func editSourceDetails(_ paper: Paper, archived: Bool, tags: [String]) async -> String? {
+        guard canChangeLibrary, let snapshot = completeLibrary, let commands = libraryCommandCoordinator,
+              let item = snapshot.imports.first(where: { $0.id == paper.sourceMembership?.membershipID && $0.visible }) else { return "Refresh your library and try again." }
+        do {
+            _ = try await commands.enqueue(.setSourceDetails(importID: item.id, archived: archived, tags: tags, expectedRevision: item.intentRevision),
+                display: String(paper.title.prefix(200)), observedIn: snapshot.observation.readContext)
+            return nil
+        } catch { return "This change couldn’t be saved. Let other changes finish, then try again." }
+    }
+
+    private func editLocalPDF(_ paper: Paper, remove: Bool = false, archived: Bool? = nil, tags: [String]? = nil) async {
+        guard let device, let store, let prior = privateState.revisions(for: paper.id).first,
+              var membership = try? LocalPDFMembership.decode(prior.payload) else { return }
+        let scope = sessionID, persistence = localPersistence
+        if let archived { membership.archived = archived }
+        if let tags { membership.tags = tags }
+        do {
+            let event = PrivateEvent(kind: remove ? .tombstone : .localPaper, entityID: paper.id, parents: [prior.id],
+                text: remove ? nil : try membership.text(), createdAt: PrivateEvent.timestamp(Date()))
+            _ = try await persistence.acceptWrite { try await $0.appendBatch([(id: UUID(), event: event)], deviceID: device.deviceID) }.value
+            if remove, let record = localPaperRecords.first(where: { $0.identity.sourceID == paper.sourceID }) {
+                _ = try await persistence.acceptLocalPaperWrite { try await $0.remove(record.identity) }.value
+            }
+            let snapshot = await store.snapshot()
+            guard sessionID == scope else { return }
+            publish(snapshot); await refreshLocalPaperRecords(); await synchronize()
+        } catch { if sessionID == scope { show(error) } }
     }
 
     /// Retry and Remove on an import can run (the row's buttons and menu).
@@ -2159,7 +2212,7 @@ final class ReaderModel {
         let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let tagEdits = pendingTagEdits
         let items = rows.compactMap { if case .item(let item) = $0 { return item }; return nil }
-        let next = items.map { item in
+        var next = items.map { item in
             let paper = item.paper
             // Only the selected binding may carry decoded bytes through a
             // metadata refresh. Other installed copies remain on disk.
@@ -2177,13 +2230,31 @@ final class ReaderModel {
             row.fileURL = file; row.readerBundle = file == nil ? nil : cached?.readerBundle
             return Self.withTagEdit(row, tagEdits[row.id])
         }
+        let sourceRows = rows.compactMap { row -> LibraryImportRecord? in
+            if case .imported(_, let item) = row, let item, item.visible, item.phase == .sourceOnly,
+               item.source == "arxiv", item.sourceRevision != nil, item.metadata != nil { return item }
+            return nil
+        }
+        for item in sourceRows {
+            guard let sourceID = item.sourceID, let revision = item.sourceRevision,
+                  let ref = try? SourcePaperReference(membershipID: item.id, sourceID: sourceID, revision: revision) else { continue }
+            let cached = previous[item.id]?.sourceMembership == ref ? previous[item.id]?.readerBundle : nil
+            let paper = Paper(id: item.id, title: item.metadata?.title ?? "Untitled paper",
+                authors: item.metadata?.authors.joined(separator: ", ") ?? "", year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
+                abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [], artifactID: nil,
+                sourceID: sourceID, sourceRevision: revision, readerBundle: cached, sourceMembership: ref,
+                authorNames: item.metadata?.authors ?? [], canReadStructured: true, archived: item.archived ?? false, venue: item.metadata?.venue, tags: item.userTags ?? [], ownTags: item.userTags ?? [], sourceURL: item.sourceURL)
+            next.append(Self.withTagEdit(paper.displaying(cached), tagEdits[paper.id]))
+        }
         let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
         // Samples have no server membership. Preserve the local sample
         // without letting it replace a real document-backed item.
         papers = next + samples
+        presentLocalPDFMemberships()
         presentedImportIDs = Set(rows.compactMap { if case .imported(let id, _) = $0 { return id }; return nil })
-        libraryImports = rows.compactMap { if case .imported(_, let item) = $0 { return item }; return nil }
+        libraryImports = rows.compactMap { if case .imported(_, let item) = $0, !sourceRows.contains(where: { $0.id == item?.id }) { return item }; return nil }
         libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.paper.id, $0.createdSequence) })
+        for item in sourceRows { libraryCreationSequences[item.id] = item.createdSequence }
         libraryHasSnapshot = true
         prefetchReaders()
         if let selectedPaper, !selectedPaper.isSample {
@@ -2204,6 +2275,13 @@ final class ReaderModel {
         guard let current = papers.first(where: {
             $0.id == paper.id && $0.artifactID == paper.artifactID && $0.isSample == paper.isSample
         }), current.isSample || accountID != nil else { return }
+        if current.isLocalPDF {
+            guard let sourceID = current.sourceID else { return }
+            if localPaperRecords.contains(where: { $0.identity.sourceID == sourceID }) {
+                openLocalPDF(sourceID: sourceID, revision: 1, title: current.title)
+            } else { uploads.pickRequest = .init(target: .localPaper(current.id), title: current.title) }
+            return
+        }
         selectedPaper = current; chatPaperID = current.id; tab = .paper
         if wideMode != .browse { wideMode = .reader }
         generalChat = false
@@ -2232,6 +2310,9 @@ final class ReaderModel {
         if let status = fixtureOfflineStatus[paper.id] { return status }
         #endif
         if paper.isSample { return paper.readerBundle == nil ? .none : .available }
+        if let source = paper.sourceMembership {
+            return localReaderRecords.contains { $0.identity.sourceID == source.sourceID && $0.identity.revision == source.revision } ? .available : .none
+        }
         guard accountID != nil, let coordinator = readerBundles,
               let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return .none }
         return coordinator.permits(installation) ? .available : .unavailable
@@ -2240,6 +2321,8 @@ final class ReaderModel {
     func retryOpeningSelectedPaper() { openLocalPaperIfNeeded() }
 
     private func openLocalPaperIfNeeded() {
+        if let paper = selectedPaper, paper.sourceMembership != nil { openHTMLReader(paper); return }
+        localReaderTask?.cancel(); localReaderTask = nil; localReaderOpeningID = nil
         if let paper = selectedPaper, !paper.isSample, let bundle = paper.readerBundle {
             let installed = readerBundles?.localCopy(documentID: paper.id, artifactID: paper.artifactID)
             if installed?.binding.manifestSHA256 != bundle.manifestSHA256 {
@@ -2302,6 +2385,49 @@ final class ReaderModel {
                 }
             }
         } catch { readerOpenIssue = "This downloaded copy couldn’t be opened." }
+    }
+
+    /// Opening a metadata membership prepares its exact official HTML on this
+    /// device, or reopens the authenticated local copy while offline.
+    private func openHTMLReader(_ paper: Paper) {
+        guard let ref = paper.sourceMembership else { return }
+        if paper.readerBundle != nil { return }
+        if localReaderOpeningID == paper.id { return }
+        localReaderTask?.cancel()
+        guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
+        let scope = sessionID, persistence = localPersistence
+        localReaderOpeningID = paper.id; openingPaperID = paper.id; readerOpenIssue = nil
+        localReaderTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.sessionID == scope, self.localReaderOpeningID == paper.id {
+                    self.localReaderOpeningID = nil; self.localReaderTask = nil; self.openingPaperID = nil
+                }
+            }
+            do {
+                let bundle: VerifiedReaderBundle
+                if let record = await store.record(sourceID: ref.sourceID, revision: ref.revision) {
+                    let reopened = try await store.read(record.identity)
+                    bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
+                } else {
+                    bundle = try await ArxivHTMLReader().prepare(ref.arxivSource)
+                    try Task.checkCancellation()
+                    guard self.sessionID == scope, self.papers.contains(where: { $0.sourceMembership == ref }) else { throw CancellationError() }
+                    let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }
+                    _ = try await commit.value
+                }
+                try Task.checkCancellation()
+                guard self.sessionID == scope, self.selectedPaper?.sourceMembership == ref else { return }
+                self.localReaderRecords = await store.records()
+                guard self.sessionID == scope, self.selectedPaper?.sourceMembership == ref else { return }
+                let displayed = paper.displaying(bundle)
+                self.papers = self.papers.map { $0.id == paper.id ? displayed : $0 }
+                self.selectedPaper = displayed
+            } catch {
+                guard self.sessionID == scope, self.localReaderOpeningID == paper.id, !(error is CancellationError) else { return }
+                self.readerOpenIssue = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device. Try again, or open its PDF."
+            }
+        }
     }
 
     /// A converted paper without a local copy downloads when opened (if the
@@ -2541,8 +2667,74 @@ final class ReaderModel {
                 guard let self, self.sessionID == scope else { return nil }
                 return self.completeLibrary?.committedCursor
             },
-            added: { [weak self] in Task { await self?.refreshLibrary() } }))
+            added: { [weak self] in Task { await self?.refreshLibrary() } },
+            installLocal: { [weak self] file, checked, target in
+                guard let self, self.sessionID == scope else { throw CancellationError() }
+                try await self.installLocalPDF(file, checked: checked, target: target)
+            }))
         importSharedItems()
+    }
+
+    private func installLocalPDF(_ file: URL, checked: CheckedPDF, target: PDFUploadTarget) async throws {
+        guard let device, let store else { throw ReaderError.storageUnavailable }
+        let scope = sessionID, id = UUID(), persistence = localPersistence
+        if case .localPaper(let paperID) = target {
+            guard let paper = papers.first(where: { $0.id == paperID && $0.isLocalPDF }),
+                  let prior = privateState.revisions(for: paperID).first,
+                  let membership = try? LocalPDFMembership.decode(prior.payload), membership.pageCount == checked.pages else { throw ReaderError.invalidEvent }
+            _ = try await persistence.acceptLocalPaperWrite {
+                try await $0.install(pdfAt: file, sourceID: LocalPDFMembership.sourceID(paperID), revision: 1, expectedSHA256: Data(hex: checked.sha256))
+            }.value
+            guard sessionID == scope else { throw CancellationError() }
+            await refreshLocalPaperRecords()
+            openLocalPDF(sourceID: LocalPDFMembership.sourceID(paperID), revision: 1, title: paper.title)
+            return
+        }
+        if case .importID(let importID, _) = target {
+            guard let item = completeLibrary?.imports.first(where: { $0.id == importID && $0.visible }),
+                  let sourceID = item.sourceID, let revision = item.sourceRevision ?? item.requestedRevision else { throw ReaderError.invalidEvent }
+            let write = try persistence.acceptLocalPaperWrite {
+                try await $0.install(pdfAt: file, sourceID: sourceID, revision: revision, expectedSHA256: Data(hex: checked.sha256))
+            }
+            _ = try await write.value
+            guard sessionID == scope else { return }
+            await refreshLocalPaperRecords()
+            return
+        }
+        let membership = try LocalPDFMembership(title: checked.title, pageCount: checked.pages, createdAt: PrivateEvent.timestamp(Date()))
+        let write = try persistence.acceptLocalPaperWrite { local in
+            try await local.install(pdfAt: file, sourceID: LocalPDFMembership.sourceID(id), revision: 1, expectedSHA256: Data(hex: checked.sha256))
+        }
+        let record = try await write.value
+        guard sessionID == scope else { throw CancellationError() }
+        do {
+            let event = PrivateEvent(kind: .localPaper, entityID: id, text: try membership.text(), createdAt: membership.createdAt)
+            let saved = try persistence.acceptWrite { try await $0.appendBatch([(id: UUID(), event: event)], deviceID: device.deviceID) }
+            _ = try await saved.value
+            guard sessionID == scope else { return }
+            localPaperRecords = await persistence.localPaperStore?.records() ?? []
+            let snapshot = await store.snapshot()
+            guard sessionID == scope else { return }
+            publish(snapshot)
+            Task { if self.sessionID == scope { await self.synchronize() } }
+        } catch {
+            _ = try? persistence.acceptLocalPaperWrite { try await $0.remove(record.identity) }
+            throw error
+        }
+    }
+
+    private func presentLocalPDFMemberships() {
+        var local: [Paper] = []
+        let ids = Set(privateState.events.values.filter { $0.payload.kind == .localPaper }.map { $0.payload.entityID })
+        for id in ids where !privateState.isDeleted(id) {
+            guard let event = privateState.revisions(for: id).first?.payload,
+                  let member = try? LocalPDFMembership.decode(event) else { continue }
+            local.append(Paper(id: id, title: member.title, authors: "", year: nil, abstract: "", keywords: [], artifactID: nil,
+                sourceID: LocalPDFMembership.sourceID(id), sourceRevision: 1, isLocalPDF: true,
+                addedAt: Date(timeIntervalSince1970: Double(member.createdAt) / 1000), pageCount: member.pageCount,
+                canReadStructured: false, archived: member.archived, tags: member.tags, ownTags: member.tags))
+        }
+        papers = papers.filter { !$0.isLocalPDF } + local
     }
 
     /// The Add sheet's and uploads' network calls for the signed-in account (a script in UI fixtures).
@@ -2707,7 +2899,12 @@ final class ReaderModel {
             events.append((submission.id, PrivateEvent(kind: .message, entityID: submission.id, parents: parents,
                 conversationID: submission.conversationID, documentID: documentID, text: submission.text, role: .user, status: .complete,
                 createdAt: createdAt)))
-            let batch = events
+            let reference = documentID.flatMap { id in papers.first(where: { $0.id == id })?.sourceMembership }
+            let batch = try events.map { entry in
+                var event = entry.event
+                if let reference { try event.bind(to: reference) }
+                return (id: entry.id, event: event)
+            }
             let committing = try persistence.acceptWrite { local in
                 try await local.commitDraftSubmission(batch, deviceID: device.deviceID,
                     consuming: DraftConsumption(draft: checkpoint, submissionID: submission.id))
@@ -2731,7 +2928,7 @@ final class ReaderModel {
             if let question = committed.envelopes.last?.id {
                 requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
                     composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
-                    userMessageID: question, selection: selection, action: pending?.action, profile: chosenProfile), state: snapshot.state)
+                    userMessageID: question, selection: selection, action: pending?.action, profile: chosenProfile, paperReference: reference), state: snapshot.state)
             }
         } catch {
             if sessionID == scope {
@@ -2787,7 +2984,16 @@ final class ReaderModel {
             chatConsentPrompt = ChatConsentPrompt(turn: turn)
             return
         }
-        startGeneration(turn, transport: transport, state: state ?? privateState)
+        if let reference = turn.paperReference,
+           let paper = papers.first(where: { $0.sourceMembership == reference }), paper.readerBundle == nil {
+            if selectedPaper?.id == paper.id { openHTMLReader(paper) }
+            let preparation = localReaderTask
+            Task { [weak self] in
+                await preparation?.value
+                guard let self, self.sessionID == turn.sessionID, self.chatGenerations[turn.composerID] == nil else { return }
+                self.startGeneration(turn, transport: transport, state: state ?? self.privateState)
+            }
+        } else { startGeneration(turn, transport: transport, state: state ?? privateState) }
     }
 
     func acceptChatConsent(_ prompt: ChatConsentPrompt) {
@@ -2827,7 +3033,7 @@ final class ReaderModel {
         guard !state.isDeleted(turn.conversationID),
               let branch = state.conversationBranch(turn.conversationID, through: turn.userMessageID), branch.complete,
               branch.messages.last?.payload.role == .user else {
-            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: "invalid_request")
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
         }
         let transcript = branch.messages.compactMap { message -> ChatTurnInput? in
@@ -2837,10 +3043,17 @@ final class ReaderModel {
         let request: ChatGenerationRequest
         let choices = requestChoices(for: turn, branch: branch.messages, state: state)
         do {
+            let localContext: LocalPaperChatContext?
+            if let reference = turn.paperReference {
+                guard let bundle = papers.first(where: { $0.sourceMembership == reference })?.readerBundle else {
+                    throw ChatTransportError.rejected("local_reader_unavailable")
+                }
+                localContext = try LocalPaperChatContext(reference: reference, bundle: bundle)
+            } else { localContext = nil }
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
-                                                     action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle)
+                                                     action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext)
         } catch {
-            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: "invalid_request")
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
         }
         var generation = ChatGeneration(turn: turn)
@@ -3007,7 +3220,7 @@ final class ReaderModel {
             let diagramID = UUID()
             batch.append((id: diagramID, event: PrivateEvent(kind: .diagram, entityID: diagramID, conversationID: generation.turn.conversationID,
                                                              documentID: generation.turn.documentID, text: diagram.encodedText(),
-                                                             createdAt: generation.createdAt)))
+                                                             createdAt: generation.createdAt, paperReference: generation.turn.paperReference)))
         }
         let entries = batch
         let envelopes: [EventEnvelope]
@@ -3406,6 +3619,7 @@ final class ReaderModel {
     func publish(_ snapshot: LocalStoreSnapshot) -> Bool {
         guard snapshot.generation >= publishedGeneration else { return false }
         publishedGeneration = snapshot.generation; publishedPendingCount = snapshot.pendingCount; privateState = snapshot.state
+        presentLocalPDFMemberships()
         return true
     }
 }
@@ -3617,6 +3831,7 @@ final class ReaderLocalPersistence {
     /// Device-local originals for source-only papers. These bytes never enter
     /// the cloud library journal or the PDF upload queue.
     private(set) var localPaperStore: DevicePaperStore?
+    private(set) var localReaderStore: DeviceReaderStore?
     /// Device-local reading activity, sealed beside the store under the same local-store key.
     private(set) var readingStore: ReadingActivityStore?
     private(set) var isActivating = false
@@ -3651,6 +3866,11 @@ final class ReaderLocalPersistence {
     func acceptLocalPaperWrite<Value: Sendable>(_ operation: @escaping @Sendable (DevicePaperStore) async throws -> Value) throws -> Task<Value, Error> {
         guard !isRetired, !isActivating, let localPaperStore else { throw ReaderError.storageUnavailable }
         return register { try await operation(localPaperStore) }
+    }
+
+    func acceptLocalReaderWrite<Value: Sendable>(_ operation: @escaping @Sendable (DeviceReaderStore) async throws -> Value) throws -> Task<Value, Error> {
+        guard !isRetired, !isActivating, let localReaderStore else { throw ReaderError.storageUnavailable }
+        return register { try await operation(localReaderStore) }
     }
 
     private func register<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) -> Task<Value, Error> {
@@ -3688,6 +3908,10 @@ final class ReaderLocalPersistence {
                 localPaperStore = try DevicePaperStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-papers", isDirectory: true),
                                                         accountID: accountID, localKey: localKey)
             }
+            if localReaderStore == nil {
+                localReaderStore = try DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-readers", isDirectory: true),
+                                                         accountID: accountID, localKey: localKey)
+            }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
@@ -3696,7 +3920,9 @@ final class ReaderLocalPersistence {
         let localPapers = try DevicePaperStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-papers", isDirectory: true),
                                                 accountID: accountID, localKey: localKey)
         self.accountID = accountID; self.localKey = localKey; storageURL = url.standardizedFileURL
-        store = opened; localPaperStore = localPapers
+        let localReaders = try DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-readers", isDirectory: true),
+                                                   accountID: accountID, localKey: localKey)
+        store = opened; localPaperStore = localPapers; localReaderStore = localReaders
         readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         return opened
     }

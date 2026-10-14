@@ -1,5 +1,11 @@
 # Data model and invariants
 
+2026-10-13 direction: [HTML-first reader](HTML_FIRST_READER.md#identity-persistence-and-synchronization) requires
+logical paper/version membership independent of a server PDF document, original object or OCR run. Local originals
+and prepared bundles are separate records; cloud availability cannot be inferred from local readiness. Design an
+additive, capability-versioned protocol before changing schema. The document/OCR identities below describe the
+current/historical server flow, not required fake rows for HTML. No data migration or schema change was made.
+
 Status: approved design direction, with migrations 001–009 applied to staging and protected by a migration hash ledger. Device-held keys are selected in [Decisions](../DECISIONS.md). Production is not provisioned. See [implementation evidence](../IMPLEMENTATION_STATUS.md) for the boundary between implemented contracts and planned behavior.
 
 The discovery/import review below was recorded on 2026-10-03. Migration 010 now implements the library/import foundation; the acquisition, paid processing and full reader workflow requirements remain future work unless explicitly verified below. Applied migrations 001–010 are immutable; design and test new additive migrations before changing staging.

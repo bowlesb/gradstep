@@ -10,13 +10,13 @@ public extension TextAnchor {
     /// The anchor a selection action writes on its new conversation: the artifact being read, the first block the
     /// selection touches, the quote exactly as asked about, and up to 32 characters of the paper's text on each
     /// side (whitespace collapsed). Nil when there is nothing to anchor or a value is out of bounds.
-    static func passage(artifactID: UUID, selection: ReaderSelection, quote: String) -> TextAnchor? {
+    static func passage(artifactID: UUID? = nil, manifestSHA256: String? = nil, selection: ReaderSelection, quote: String) -> TextAnchor? {
         let quote = quote.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !quote.isEmpty, quote.utf8.count <= 20_000 else { return nil }
         let element = selection.parts.first?.blockID
         let prefix = String(collapsed(selection.context?.prefix ?? "").suffix(contextCharacters))
         let suffix = String(collapsed(selection.context?.suffix ?? "").prefix(contextCharacters))
-        let anchor = TextAnchor(artifactID: artifactID, quote: quote,
+        let anchor = TextAnchor(artifactID: artifactID, manifestSHA256: manifestSHA256, quote: quote,
                                 prefix: prefix.utf8.count <= 1_000 ? prefix : "", suffix: suffix.utf8.count <= 1_000 ? suffix : "",
                                 elementID: element.flatMap { (1...200).contains($0.utf8.count) ? $0 : nil })
         return (try? anchor.validate()) == nil ? nil : anchor

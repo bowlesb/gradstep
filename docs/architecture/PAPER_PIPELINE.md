@@ -1,5 +1,12 @@
 # Paper pipeline (Edge)
 
+**Superseded direction, 2026-10-13:** new structured readers use official arXiv HTML; every PDF is acquired and
+processed only on the user's device. The [HTML-first contract](HTML_FIRST_READER.md) replaces the PDF download,
+upload, OCR and publication flow below. These sections document the existing implementation, not authorization
+to continue that flow. Migration 058 and metadata-only worker `gradstep-pipeline-00033-2jw` enforce the cutover on staging; the native/browser adapters are implemented. Preserve metadata,
+exact source revisions, rights evidence, fencing and billing reconciliation; replace PDF-dependent membership,
+reader preparation and paper-chat context. No historical-data migration is requested.
+
 Status 2026-10-05: implemented in migration 014, `supabase/functions/_shared/pipeline.ts`,
 `paper-worker`, and `reader-artifact`. Replaces the unprovisioned Linux executor design
 (012/013 candidates deleted; history in git before commit `39cc8ce`).

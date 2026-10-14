@@ -3,16 +3,11 @@ import Foundation
 import PDFKit
 import ScienceReaderCore
 
-// PDF uploads (docs/architecture/PDF_UPLOADS.md): a durable, per-account queue on this device. A PDF the
-// reader picks, drops, shares or downloads here is copied into the app's own storage first, checked the
-// way the server will check it, then sent: begin (the server checks size, quota and credits), the
-// authenticated chunks, finalize (the import appears in the library).
-// Every step is retry-safe: the upload ID is the operation ID, a lost answer is replayed, an expired
-// session starts again under a new ID, and unsent work resumes on the next launch or foreground. The
-// transport sends the server's fixed 4 MiB chunks through the authenticated upload function; it never
-// exposes a Storage credential to the reader.
+// Device-only PDF intake. Historical queue records are recognized and stopped;
+// chosen, dropped, shared and downloaded files are checked and installed locally.
+// No upload session, storage write or server conversion is requested.
 
-/// Why a file can't be uploaded, in the reader's words. Checked on this device the way the server checks.
+/// Why a file cannot be opened on this device.
 enum PDFFileProblem: Error, Equatable, Sendable {
     case notPDF, empty, tooLarge, tooManyPages, locked, unreadable
 
@@ -20,15 +15,15 @@ enum PDFFileProblem: Error, Equatable, Sendable {
         switch self {
         case .notPDF: "This file isn’t a PDF."
         case .empty: "This file is empty."
-        case .tooLarge: "This PDF is larger than 64 MB, the most Gradstep can convert."
-        case .tooManyPages: "This PDF has more than 250 pages, the most Gradstep can convert."
+        case .tooLarge: "This PDF is larger than 64 MB, the device reader’s current limit."
+        case .tooManyPages: "This PDF has more than 250 pages, the device reader’s current limit."
         case .locked: "This PDF is password-protected. Save a copy without the password, then add that."
         case .unreadable: "This PDF couldn’t be opened. It may be damaged."
         }
     }
 }
 
-/// A local PDF as the server will verify it: its exact size and SHA-256, its pages, and a title.
+/// A locally checked PDF: its exact size and SHA-256, its pages, and a title.
 struct CheckedPDF: Equatable, Sendable {
     let sha256: String
     let byteCount: Int64
@@ -41,7 +36,7 @@ enum PDFFileCheck {
     static let maximumPages = 250
     static let maximumTitle = 500
 
-    /// The same rules the worker applies: `%PDF-` first, at most 64 MiB, 1–250 pages, readable.
+    /// Device admission rules: `%PDF-` first, at most 64 MiB, 1–250 pages, readable.
     /// `preferred`: the paper's known title (it wins); `fallback`: a name to use when the PDF has no title of its own.
     static func check(_ url: URL, title preferred: String? = nil, fallback: String? = nil) throws -> CheckedPDF {
         let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
@@ -275,9 +270,12 @@ final class PDFUploadCenter {
         let cursor: @MainActor () -> Int64?
         /// A paper reached the library (refresh it).
         let added: @MainActor () -> Void
+        /// Device-only sink. No upload transport is used by a production client.
+        var installLocal: (@MainActor (URL, CheckedPDF, PDFUploadTarget) async throws -> Void)? = nil
     }
 
     /// Reader-visible state of each queued upload, oldest first.
+    private var activationID = UUID()
     private(set) var jobs: [PDFUploadJob] = []
     /// Bytes sent of the job being uploaded (0…1).
     private(set) var progress: [UUID: Double] = [:]
@@ -344,6 +342,7 @@ final class PDFUploadCenter {
 
     /// Sign-out or account change: stop sending. The files stay for that account's next sign-in.
     func deactivate() {
+        activationID = UUID()
         worker?.cancel(); worker = nil; wake?.cancel(); wake = nil
         context = nil; jobs = []; progress = [:]; notice = nil; pickRequest = nil; fetches = []; problem = nil; sharedLink = nil
     }
@@ -352,6 +351,7 @@ final class PDFUploadCenter {
     /// upload to `target`. Progress and a failure (with what to try next) show in the Library.
     func downloadOnDevice(links: [URL], title: String?, target: PDFUploadTarget) async {
         guard let account = context?.accountID, !links.isEmpty else { return }
+        let activation = activationID
         let fetch = DeviceFetch(id: UUID(), title: title ?? links[0].host() ?? "the paper", progress: 0, issue: nil, page: links.last, target: target)
         fetches.append(fetch)
         do {
@@ -362,13 +362,13 @@ final class PDFUploadCenter {
                 }
             }
             defer { try? FileManager.default.removeItem(at: pdf.file) }
-            guard context?.accountID == account else { return }
+            guard context?.accountID == account, activationID == activation else { return }
             try await add(file: pdf.file, title: title ?? pdf.title, target: target)
             fetches.removeAll { $0.id == fetch.id }
         } catch is CancellationError {
             fetches.removeAll { $0.id == fetch.id }
         } catch {
-            guard context?.accountID == account, let index = fetches.firstIndex(where: { $0.id == fetch.id }) else { return }
+            guard context?.accountID == account, activationID == activation, let index = fetches.firstIndex(where: { $0.id == fetch.id }) else { return }
             fetches[index].progress = nil
             fetches[index].issue = (error as? DeviceFetchError)?.message ?? (error as? PDFFileProblem)?.message ?? DeviceFetchError.failed.message
         }
@@ -379,23 +379,28 @@ final class PDFUploadCenter {
     /// Checks and queues a PDF from Files, a drop, the share inbox or a device download.
     @discardableResult
     func add(file: URL, title: String? = nil, fallbackTitle: String? = nil, target: PDFUploadTarget) async throws -> PDFUploadJob {
-        guard let context, let store else { throw BackendError.signInRequired }
+        guard let context else { throw BackendError.signInRequired }
+        let activation = activationID
         let checked = try await Task.detached(priority: .userInitiated) { try PDFFileCheck.check(file, title: title, fallback: fallbackTitle) }.value
-        guard self.context?.accountID == context.accountID else { throw CancellationError() }
-        let job = PDFUploadJob(id: UUID(), uploadID: UUID(), accountID: context.accountID, createdAt: now(), title: checked.title,
+        guard self.context?.accountID == context.accountID, activationID == activation else { throw CancellationError() }
+        guard let install = context.installLocal else { throw BackendError.rejected("pdf_device_only") }
+        try await install(file, checked, target)
+        guard self.context?.accountID == context.accountID, activationID == activation else { throw CancellationError() }
+        notice = "Saved “\(checked.title)” on this device."
+        context.added()
+        return PDFUploadJob(id: UUID(), uploadID: UUID(), accountID: context.accountID, createdAt: now(), title: checked.title,
                                sha256: checked.sha256, byteCount: checked.byteCount, target: target)
-        try await Task.detached(priority: .userInitiated) { try store.adopt(file, job: job, deployment: context.deploymentID) }.value
-        guard self.context?.accountID == context.accountID else { store.delete(job.id, deployment: context.deploymentID, account: job.accountID); throw CancellationError() }
-        jobs.append(job); notice = nil
-        resume()
-        return job
+
     }
 
     /// Try waiting uploads now (foreground, network back, the reader's Try again).
     func resume() {
-        guard context != nil, worker == nil else { return }
-        wake?.cancel(); wake = nil
-        worker = Task { [weak self] in await self?.drain(); self?.worker = nil; self?.scheduleWake() }
+        worker?.cancel(); worker = nil; wake?.cancel(); wake = nil
+        for index in jobs.indices where jobs[index].phase != .failed {
+            jobs[index].phase = .failed
+            jobs[index].issue = "PDFs now stay on your device. Add this file again to save a local copy."
+            jobs[index].issueCode = "pdf_device_only"
+        }
     }
 
     func retry(_ id: UUID) {
@@ -424,103 +429,7 @@ final class PDFUploadCenter {
         jobs[index] = job; persist(job)
     }
 
-    private func scheduleWake() {
-        guard context != nil else { return }
-        let due = jobs.filter { $0.phase == .waiting }.compactMap(\.nextAttemptAt).min()
-        guard let due else { return }
-        let delay = max(1, due.timeIntervalSince(now()))
-        wake = Task { [weak self, sleep] in
-            try? await sleep(.seconds(delay))
-            guard !Task.isCancelled else { return }
-            self?.wake = nil; self?.resume()
-        }
-    }
 
-    /// Sends due uploads one at a time, oldest first.
-    private func drain() async {
-        while let context, !Task.isCancelled,
-              let job = jobs.first(where: { $0.phase == .waiting && ($0.nextAttemptAt.map { $0 <= now() } ?? true) }) {
-            await send(job, context: context)
-        }
-    }
-
-    private func send(_ original: PDFUploadJob, context: Context) async {
-        guard let store else { return }
-        var job = original
-        job.phase = .uploading; job.issue = nil; job.issueCode = nil; update(job)
-        let file = store.file(job.id, deployment: context.deploymentID, account: job.accountID)
-        do {
-            let hashFile = file, hashByteCount = job.byteCount
-            let partDigests = try await Task.detached(priority: .userInitiated) {
-                try pdfUploadPartDigests(hashFile, byteCount: hashByteCount)
-            }.value
-            var ticket = try await context.service.beginUpload(job, partSHA256: partDigests)
-            guard self.context?.accountID == context.accountID else { return }
-            // A paper created from a device PDF has neutral catalog metadata, so its private title
-            // must be sealed before freeze. The upload session advertises this requirement and returns
-            // a descriptor reference after the operation has already been completed; that makes a lost
-            // descriptor acknowledgement replay-safe without persisting another plaintext title.
-            if ticket.descriptor_required == true && ticket.descriptor_ref == nil {
-                try await context.service.ensureDescriptor(for: job)
-                ticket = try await context.service.uploadStatus(job.uploadID)
-            }
-            switch ticket.state {
-            case "receiving":
-                progress[job.id] = 0
-                let id = job.id
-                try await context.service.sendUpload(file: file, ticket: ticket) { [weak self] fraction in
-                    Task { @MainActor in self?.progress[id] = fraction }
-                }
-            case "pending":
-                // Compatibility for an older injected fixture or pre-039 deployment. The live
-                // endpoint never returns this state, and its path/token are optional by design.
-                guard ticket.path != nil, ticket.token != nil else { throw BackendError.transport }
-                progress[job.id] = 0
-                let id = job.id
-                try await context.service.sendUpload(file: file, ticket: ticket) { [weak self] fraction in
-                    Task { @MainActor in self?.progress[id] = fraction }
-                }
-            case "frozen", "checking", "consumed", "finalized":
-                break // the server has it; finalize replays its answer
-            default:
-                // The session ended unfinished (expired): start again under a new upload ID.
-                throw PDFUploadRestart()
-            }
-            // Part receipts advance the server's revision. Read the exact current session before
-            // freezing it; using the begin revision would make every real multi-part upload fail
-            // with a revision conflict after the first verified chunk.
-            if ticket.isChunked { ticket = try await context.service.uploadStatus(job.uploadID) }
-            guard self.context?.accountID == context.accountID else { return }
-            job.phase = .finishing; update(job); progress[job.id] = nil
-            guard let cursor = job.observedCursor ?? context.cursor() else { throw PDFUploadWaitForLibrary() }
-            job.observedCursor = cursor; update(job)
-            if let generation = ticket.generation, let revision = ticket.revision {
-                try await context.service.finalizeUpload(job.uploadID, generation: generation, revision: revision, observedCursor: cursor)
-            } else {
-                try await context.service.finalizeUpload(job.uploadID, observedCursor: cursor)
-            }
-            guard self.context?.accountID == context.accountID else { return }
-            jobs.removeAll { $0.id == job.id }
-            store.delete(job.id, deployment: context.deploymentID, account: job.accountID)
-            notice = "Added “\(job.title)”. It’s being prepared to read."
-            context.added()
-        } catch {
-            guard self.context?.accountID == context.accountID, !(error is CancellationError) else { return }
-            progress[job.id] = nil
-            let code: String? = { if case BackendError.rejected(let code) = error { return code }; return nil }()
-            if error is PDFUploadRestart || code == "upload_expired" || code == "upload_id_conflict" {
-                job.uploadID = UUID(); job.observedCursor = nil; job.phase = .waiting; job.attempts = 0; job.nextAttemptAt = nil
-            } else if let code, let message = PDFUploadFailure.permanent(code) {
-                job.phase = .failed; job.issue = message; job.issueCode = code
-            } else {
-                job.attempts += 1
-                job.phase = .waiting
-                job.issue = error is PDFUploadWaitForLibrary ? "Waiting for your library" : PDFUploadFailure.waiting(code ?? "")
-                job.nextAttemptAt = now().addingTimeInterval(Self.backoff[min(job.attempts - 1, Self.backoff.count - 1)])
-            }
-            update(job)
-        }
-    }
 }
 
 private struct PDFUploadRestart: Error {}

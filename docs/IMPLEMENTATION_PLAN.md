@@ -1,8 +1,26 @@
 # Implementation sequence
 
-Status: product decisions approved; foundation implementation underway. No delivery milestone below is complete merely because its design exists.
+Status: direction revised 2026-10-13. No delivery milestone below is complete merely because its design exists.
+
+## Current next sequence — arXiv HTML and device-only PDFs
+
+The [HTML-first architecture](architecture/HTML_FIRST_READER.md#cutover-and-verification-sequence) supersedes the
+server PDF/OCR steps in the historical plan below. Steps 1–4 are implemented and deployed on staging; the browser path is deployed with its existing RAM-bundle policy, and the native clients passed internal release verification. The remaining work is durable browser offline bundles, wider device/HTML quality coverage, the future local PDF model and later public-release review. Original dependency order:
+
+1. Deterministic arXiv HTML adapter, honest bundle/profile provenance, source/asset validation and golden fixtures.
+2. PDF-independent membership/read protocol and native local storage/intake; existing reader and selection parity.
+3. Versioned local-context paper chat with unchanged encrypted history and server-enforced spending.
+4. Server-side PDF/upload/Mathpix admission stops and stale-worker fencing, including old-client requests and
+   outstanding provider-liability reconciliation; no bulk data migration or unrequested cleanup.
+5. Browser acquisition feasibility, profile/local-storage support and offline/chat parity.
+6. Coordinated rollout with zero-server-PDF network/storage evidence, privacy-copy updates and owner acceptance.
+
+Physical iPhone work remains paused. A local model for challenging PDFs follows as a separate quality/license/
+device-performance milestone. Initial missing-HTML cases retain a local original/source action without cloud OCR.
 
 ## Immediate usable-app checkpoint — 2026-10-04
+
+Historical plan; it does not authorize new server PDF or Mathpix work after the 2026-10-13 decision.
 
 The owner asked whether the project will reach a working app. Completion must be
 measured by one real journey, not the count of isolated proofs. Close the current

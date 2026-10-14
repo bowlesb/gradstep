@@ -16,7 +16,7 @@ const account = '11111111-2222-4333-8444-555555555555';
 const item: Item = { kind: 'item', id: 'aaaaaaaa-0000-4000-8000-000000000001', document_id: 'dddddddd-0000-4000-8000-000000000001', artifact_id: 'bbbbbbbb-0000-4000-8000-000000000001',
   created_seq: 1, state_seq: 1, membership_revision: 1, visible: true, added_at: 0, last_remove_seq: 0, scope: 'shared_catalog', page_count: 1, readiness: 'ready', render_availability: 'available', render_availability_revision: 1,
   metadata: { title: bundle.index.title, authors: [], categories: [] } };
-const cache = new Map([[JSON.stringify([account, item.id, item.artifact_id, item.readiness, item.render_availability, item.render_availability_revision]), bundle]]);
+const cache = new Map([[JSON.stringify([account, item.id, item.artifact_id, item.readiness, item.render_availability, item.render_availability_revision,item.source_id,item.source_revision]), bundle]]);
 function Host() {
   const commands = useRef<ReaderCommands | null>(null), [text, setText] = useState('Existing unsent draft'), [fail, setFail] = useState(false);
   return <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>

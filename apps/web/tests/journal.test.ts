@@ -19,7 +19,7 @@ vi.mock('../src/lib/backend', async original => {
       if (server.loseAck) { server.loseAck = false; throw new actual.BackendError('connection'); }
       return row.cursor;
     }
-    if (name === 'v2_pull_events') { const events = server.rows.filter(e => e.cursor > p.p_after).slice(0, p.p_limit); return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: false }; }
+    if (name === 'v3_pull_events') { const events = server.rows.filter(e => e.cursor > p.p_after).slice(0, p.p_limit); return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: false }; }
     if (name === 'v1_credit_balance') return { available: 100, reserved: 0 };
     return null;
   } };

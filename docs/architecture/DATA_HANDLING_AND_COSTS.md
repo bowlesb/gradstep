@@ -1,5 +1,10 @@
 # Data handling and cost explanation
 
+2026-10-13 verified staging direction: every PDF is downloaded/processed only on the device,
+initial structured preparation uses arXiv HTML without an OCR charge, and a future local model has no Mathpix
+fallback. Explicit paper chat still sends necessary text to cloud AI under the existing consent and metering.
+[HTML-first reader](HTML_FIRST_READER.md) defines the exact boundary. Native/browser explainers now describe the enforced boundary; historical usage and outstanding OCR reservations remain accounted for.
+
 Status: owner-requested product explanation, 2026-10-09. This document is the source for the short
 **How Gradstep works** screen in the native and browser clients. It is explanatory product copy, not a
 provider privacy guarantee or a substitute for the applicable privacy policy and paper licences.
@@ -8,16 +13,14 @@ provider privacy guarantee or a substitute for the applicable privacy policy and
 
 Gradstep separates local paper storage, encrypted synchronization and requested AI processing:
 
-- Library metadata, tags, reading state and encrypted chat events can sync through Supabase. Chat and note
+- Library metadata, tags and encrypted chat events can sync through Supabase. Chat and note
   content is encrypted before synchronization; device-held keys or the recovery code are needed to read it.
-- Paper files follow their source and rights. Default-license or uncertain arXiv papers use metadata, a
-  versioned link and a device-local retrieval/reading path by default. The server-side shared conversion path
-  is limited to an exact version with a rights basis (currently the implemented CC0/CC BY set, or separately
-  evidenced permission). User-uploaded and private papers remain account-scoped.
-- A user-requested equation-aware conversion sends the PDF or permitted processing asset to Mathpix. A paper
-  chat sends the question, selected passage, relevant conversation context and converted paper text to the
-  selected model provider. Encryption at rest and during synchronization does not mean the provider receives
-  ciphertext during the computation the user requested.
+- New PDF downloads, intake, viewing and processing happen only on the user's device. Exact official arXiv HTML
+  is compiled locally into the structured reader. Historical server copies remain retained; no data migration or
+  broad deletion occurred. Browser PDFs stay in the selected device file/tab and must be chosen again after reopening.
+- A paper chat sends the question, selected passage, conversation context and verified reader text to the chosen
+  cloud model under explicit consent. Stored-history encryption does not hide requested computation from that provider.
+- A future local PDF model is not installed yet. There is no Mathpix fallback or OCR charge for local HTML preparation.
 - Optional web search sends search queries to the configured search provider. Provider retention and handling
   follow that provider's terms; Gradstep does not promise zero provider retention.
 
@@ -28,8 +31,7 @@ quotes the expected and maximum usage and reserves a bounded amount. It settles 
 usage afterward. Operation identities make retries and lost responses idempotent, so one request is not charged
 twice because a network acknowledgement was lost.
 
-OCR, chat, search and podcasts have separate provider attempts, limits and accounting. Eligible shared OCR
-conversions and ready-made catalog podcasts avoid repeating provider work. Customer credit accounting, provider
+Chat, search and podcasts have separate provider attempts, limits and accounting. Ready-made catalog podcasts avoid repeating provider work. Historical OCR charges remain in the ledger. Customer credit accounting, provider
 expense, platform budgets and unresolved provider liability remain separate records. Account and platform gates
 stop a user, retry loop or provider outage from creating an unlimited bill.
 

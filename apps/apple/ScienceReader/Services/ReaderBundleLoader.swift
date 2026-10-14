@@ -25,7 +25,7 @@ enum ReaderBundleLoader {
         try admitImages(in: VerifiedReaderBundle.verify(manifest: manifest, expectedSHA256: expectedSHA256, members: members))
     }
 
-    private static func admitImages(in bundle: VerifiedReaderBundle) throws -> VerifiedReaderBundle {
+    static func admitImages(in bundle: VerifiedReaderBundle) throws -> VerifiedReaderBundle {
         // Metadata/header recognition alone is insufficient. Each raster first
         // passes its restricted structural profile, then is fully decoded while
         // the bundle still cannot be presented. The core manifest check has

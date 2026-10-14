@@ -1,3 +1,7 @@
+import type { DevicePDFs } from './useDevicePDFs';
+import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
+import { isLibraryPaper } from '../lib/reader-paper';
+import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
 // The library on a large screen (legacy LibraryView/PaperTable density, today's data): a dense,
 // full-width table — Title, Authors, Year, Tags, Added, Opened, Progress — with sortable headers,
 // the filters in the left rail (or as chips when the rail is hidden), live import progress with
@@ -43,7 +47,7 @@ export const commandError = (error: unknown) => {
 };
 
 const isReading = (a: Activity | undefined) => !!a && a.progress < 0.995;
-const authorList = (entry: Entry) => entry.metadata?.authors ?? [];
+const authorList = (entry: ClientEntry) => entry.metadata?.authors ?? [];
 const shortAuthors = (authors: string[]) => {
   const surname = (name: string) => name.trim().split(/\s+/).pop() ?? name;
   if (authors.length === 0) return '';
@@ -59,7 +63,7 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
   const seen = useRef(current);
   if (visible) seen.current = current;
   const activity = seen.current;
-  const [rowCache] = useState(() => new WeakMap<Entry, Row>());
+  const [rowCache] = useState(() => new WeakMap<ClientEntry, Row>());
   const all = useMemo(() => buildRows(library.entries, rowCache), [library.entries, rowCache]);
   const counts = useMemo(() => {
     const live = all.filter(r => !r.archived);
@@ -88,7 +92,7 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
       return [r.title, ...(m?.authors ?? []), ...r.tags, r.source, m?.venue ?? ''].some(s => s.toLowerCase().includes(needle));
     });
     const value = (r: Row): string | number => {
-      const a = r.entry.kind === 'item' ? activity.get(r.entry.id) : undefined;
+      const a = isReaderPaper(r.entry) ? activity.get(r.entry.id) : undefined;
       switch (sort.key) {
         case 'title': return r.title.toLowerCase();
         case 'authors': return (r.firstAuthor ?? '￿').toLowerCase();
@@ -242,7 +246,7 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
 
 export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
-  currentID: string | null; onOpen: (item: Item) => void; onAdd: () => void;
+  currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
@@ -340,7 +344,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
             </tr></thead>
             <LibraryRows rows={shown} scroller={scroller} header={tableHeader} viewport={model.viewport}
               query={JSON.stringify(view)} columns={columns} full={!model.windowed || printing} printing={printing} commands={rowCommands} showAll={showAll} render={(row, index, measure) => {
-                const a = row.entry.kind === 'item' ? activity.get(row.entry.id) : undefined;
+                const a = isReaderPaper(row.entry) ? activity.get(row.entry.id) : undefined;
                 return <PaperRow key={row.key} row={row} opened={a?.opened ?? null} progress={a ? a.progress : null} mark={library.marks.get(row.entry.id)}
                   busy={library.pending.has(row.entry.id)} current={row.entry.id === currentID} onOpen={onOpen} retry={library.retry} remove={library.remove} run={run}
                   onTag={setView} columns={columns} index={index} measure={measure} menuOpen={actions.menuItemID === row.entry.id} onMenu={actions.open} />;
@@ -353,7 +357,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
 }
 
 /** Only an active import row ticks. Ready papers and the table's query/sort state stay idle. */
-function useImportProgress(entry: Entry, mark?: Mark) {
+function useImportProgress(entry: ClientEntry, mark?: Mark) {
   const active = entry.kind === 'import' && !!(importStep(entry) || retryingAutomatically(entry));
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -377,19 +381,19 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
 
 const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu }: {
   row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean;
-  onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
+  onOpen: (item: LibraryPaper) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
   index: number; measure?: (element: HTMLTableRowElement | null) => void;
   menuOpen: boolean; onMenu: ReturnType<typeof useLibraryActions>['open'];
 }) {
   const entry = row.entry;
   const progress = useImportProgress(entry, mark);
-  const open = () => { if (row.readable && entry.kind === 'item') onOpen(entry); };
+  const open = () => { if (row.readable && isLibraryPaper(entry)) onOpen(entry); };
   const authors = authorList(entry);
   return (
     <tr ref={measure} data-index={index} data-row-key={row.key} aria-rowindex={index + 2}
       className={`${row.readable ? 'readable' : 'pending'}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
       <td className="col-title">
-        {entry.kind === 'item' && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
+        {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
         {!columns.includes('authors') && row.firstAuthor && <span className="author">{row.firstAuthor}{authors.length > 1 ? ' et al.' : ''}</span>}
@@ -422,7 +426,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
 
 /** Beside an open paper (the legacy Browse view): the same library, compact. */
 export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
-  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: Item) => void; query: string;
+  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string;
 }) {
   const list = useRef<HTMLUListElement>(null);
   const actions = useLibraryActions(model.library);
@@ -433,12 +437,12 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
       {query.trim() && <p className="fine compact-note">{model.shown.length} {model.shown.length === 1 ? 'match' : 'matches'} for “{query.trim()}”</p>}
       <ul ref={list} className="compact-list" aria-label="Library" onKeyDown={e => moveRowFocus(e, 'a.compact-link')}>
         {model.shown.map(row => {
-          const entry = row.entry, a = entry.kind === 'item' ? activity.get(entry.id) : undefined;
+          const entry = row.entry, a = isReaderPaper(entry) ? activity.get(entry.id) : undefined;
           const meta = [row.firstAuthor ? `${row.firstAuthor}${(entry.metadata?.authors.length ?? 0) > 1 ? ' et al.' : ''}` : null, row.year].filter(Boolean).join(' · ');
           return (
             <li key={row.key} className={entry.id === currentID ? 'current' : undefined}>
-              {entry.kind === 'item' && <PaperMenuButton item={entry} busy={model.library.pending.has(entry.id)} expanded={actions.menuItemID === entry.id} onOpen={actions.open} />}
-              {row.readable && entry.kind === 'item'
+              {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={model.library.pending.has(entry.id)} expanded={actions.menuItemID === entry.id} onOpen={actions.open} />}
+              {row.readable && isLibraryPaper(entry)
                 ? <a className="compact-link" href={`/paper/${entry.id}`} aria-current={entry.id === currentID ? 'page' : undefined}
                     onClick={e => { e.preventDefault(); onOpen(entry); }}><span className="compact-title">{row.title}</span><span className="compact-meta">{meta}</span>
                     {a && <progress className="accent mini" max={1} value={a.progress} aria-label={`${Math.round(a.progress * 100)}% read`} />}</a>
@@ -466,12 +470,12 @@ function pdfFailure(error: unknown): string {
   if (code === 'upload_uncertain' || code === 'connection') return 'The upload was interrupted. Try again while this tab stays open; verified chunks will be reused.';
   if (code === 'upload_expired') return 'This upload session expired. Choose the PDF again to start a fresh upload.';
   if (code === 'upload_target_busy' || code === 'upload_revision_conflict') return 'This upload changed elsewhere. Refresh the library and try again.';
-  return 'The PDF could not be uploaded. Try again.';
+  return 'The PDF could not be opened on this device. Choose it again and try again.';
 }
 
 /** Add paper: an arXiv ID stays a library command; a DOI or any link goes to add-paper.
  * A selected PDF uses the same authenticated chunk/descriptor protocol as native. */
-export function AddPaper({ open, onClose, library, account, keys }: { open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys }) {
+export function AddPaper({ open, onClose, library, account, keys, localPDFs }: { localPDFs:DevicePDFs; open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys }) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
@@ -498,20 +502,18 @@ export function AddPaper({ open, onClose, library, account, keys }: { open: bool
     event.preventDefault();
     if (busy || awaitingObservation || library.pending.has('add')) return;
     if (file) {
-      if (library.cursor === null) { setIssue('Wait for your library to load, then upload the PDF.'); return; }
+
       const controller = new AbortController(); request.current = controller; setBusy(true); setIssue(null); setOutcome(null);
       try {
-        const result = await uploadPDF(file, { account, cursor: library.cursor, keys: keys as BrowserPDFKeys, uploadID, signal: controller.signal,
-          onSession: setUploadID, onProgress: setProgress });
+        setProgress({phase:'checking',fraction:0});
+        await localPDFs.add(file);
         if (controller.signal.aborted) return;
-        library.refresh().catch(() => {});
-        setOutcome({ status: 'added', message: `Added “${file.name.replace(/\.pdf$/i, '') || 'the paper'}”. It’s being prepared to read.`, link: null, finished: true });
-        setFile(null); setUploadID(undefined); setProgress(null); if (input.current) input.current.value = '';
-        void result;
+        setOutcome({status:'added',message:'Added to your library. The PDF stays on this device; choose it again after reopening this tab.',link:null,finished:true});
+        setFile(null);setProgress(null);if(input.current)input.current.value='';
       } catch (error) {
         if (!controller.signal.aborted) {
           if (error instanceof BackendError && ['upload_expired', 'upload_unavailable', 'upload_id_conflict'].includes(error.code)) setUploadID(undefined);
-          setIssue(pdfFailure(error));
+          setIssue(error instanceof Error && !(error instanceof BackendError) ? error.message : pdfFailure(error));
         }
       }
       finally { if (!controller.signal.aborted) setBusy(false); }
@@ -542,8 +544,8 @@ export function AddPaper({ open, onClose, library, account, keys }: { open: bool
   }
   const adding = busy || awaitingObservation || library.pending.has('add');
   const selectedName = file?.name ?? null;
-  const progressText = progress ? progress.phase === 'checking' ? 'Checking PDF…' : progress.phase === 'starting' ? 'Starting secure upload…'
-    : progress.phase === 'uploading' ? `Uploading PDF · ${Math.round(progress.fraction * 100)}%` : 'Finishing upload…' : null;
+  const progressText = progress ? progress.phase === 'checking' ? 'Checking PDF…' : progress.phase === 'starting' ? 'Saving private library entry…'
+    : progress.phase === 'uploading' ? 'Preparing PDF on this device…' : 'Adding PDF…' : null;
   return (
     <Dialog open={open} onClose={close} title="Add paper">
       <form onSubmit={submit} noValidate>
@@ -566,10 +568,10 @@ export function AddPaper({ open, onClose, library, account, keys }: { open: bool
           {selectedName && <span className="pdf-upload-name" title={selectedName}>{selectedName}</span>}
         </div>
         {progressText && <p className="fine" role="status" aria-live="polite">{progressText}</p>}
-        <p className="fine">Add an arXiv ID, DOI or paper link, or upload a PDF you’re allowed to use. The PDF is sent over an authenticated connection for your private reader copy; its title is encrypted before it is synced.</p>
+        <p className="fine">Add an arXiv ID, DOI or paper link, or choose a PDF from this device. PDFs are opened and processed only here. Your library title and tags sync encrypted; the file stays on this device.</p>
         <div className="dialog-actions">
           <button type="button" className="secondary" onClick={close} disabled={busy}>{outcome?.finished ? 'Done' : 'Cancel'}</button>
-          <button type="submit" className="primary" disabled={adding || library.state !== 'ready' || (!text.trim() && !file)} data-testid="arxiv-add">{adding ? (file ? 'Uploading…' : 'Adding…') : file ? 'Upload PDF' : 'Add'}</button>
+          <button type="submit" className="primary" disabled={adding || library.state !== 'ready' || (!text.trim() && !file)} data-testid="arxiv-add">{adding ? (file ? 'Adding PDF…' : 'Adding…') : file ? 'Add PDF' : 'Add'}</button>
         </div>
       </form>
     </Dialog>

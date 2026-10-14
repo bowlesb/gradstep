@@ -25,7 +25,7 @@ import Testing
             try ReaderCrypto.open(EventEnvelope(id: encrypted.id, deviceID: device, epoch: 1, ciphertext: corrupt), keys: keys)
         }
         #expect(throws: ReaderError.unsupportedFormat) {
-            try ReaderCrypto.open(EventEnvelope(id: encrypted.id, deviceID: device, epoch: 1, format: 2, ciphertext: encrypted.ciphertext), keys: keys)
+            try ReaderCrypto.open(EventEnvelope(id: encrypted.id, deviceID: device, epoch: 1, format: 3, ciphertext: encrypted.ciphertext), keys: keys)
         }
     }
 

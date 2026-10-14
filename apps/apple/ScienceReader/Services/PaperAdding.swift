@@ -16,6 +16,7 @@ struct AddPaperResult: Decodable, Sendable, Equatable {
 /// import it supplies (device fallback), or a known paper that isn't openly available.
 enum PDFUploadTarget: Codable, Sendable, Equatable, Hashable {
     case newPaper
+    case localPaper(UUID)
     case importID(UUID, revision: Int64)
     case source(String)
 
@@ -31,7 +32,7 @@ enum PDFUploadTarget: Codable, Sendable, Equatable, Hashable {
 enum AddNextStep: Equatable, Sendable, Hashable {
     /// Choose the PDF from Files (or drop it); it attaches to `target`.
     case uploadPDF(target: PDFUploadTarget, title: String?)
-    /// Fetch the PDF over this device's own network, then upload it to `target`.
+    /// Fetch the PDF over this device's own network, then save it only on this device.
     case downloadOnDevice(link: URL, target: PDFUploadTarget, title: String?)
 
     var title: String {
@@ -90,7 +91,7 @@ struct AddOutcome: Equatable, Sendable {
             let name = title.map { "“\($0)”" } ?? "This link"
             return .init(kind: .linkOnly, message: "\(name) isn’t a paper we could identify, but it leads to a PDF. Download it on this device to add it.", steps: steps)
         case "not_found":
-            return .init(kind: .notFound, message: "Couldn’t find a paper for this. Check the ID or link, or upload the PDF.",
+            return .init(kind: .notFound, message: "Couldn’t find a paper for this. Check the ID or link, or add the PDF on this device.",
                          steps: [.uploadPDF(target: .newPaper, title: nil)])
         case "needs_update":
             return .init(kind: .needsUpdate, message: "\(named ?? "This paper") needs the latest version of Gradstep.")
@@ -218,8 +219,8 @@ extension LibraryImportRecord {
         if sourceID.range(of: #"^\d{4}\.\d{4,5}(v\d+)?$"#, options: .regularExpression) != nil {
             return source == "arxiv" && phase == .sourceOnly && sourceURL != nil
         }
-        return LibrarySource.isWebSourceID(sourceID) && phase == .failed
-            && [.sourceBlocked, .pdfRestricted, .sourceUnavailable, .downloadFailed, .notPDF, .rateLimited, .downloadRetrying].contains(errorCode)
+        return LibrarySource.isWebSourceID(sourceID) && (phase == .sourceOnly || phase == .failed)
+            && (phase == .sourceOnly || [.sourceBlocked, .pdfRestricted, .sourceUnavailable, .downloadFailed, .notPDF, .rateLimited, .downloadRetrying].contains(errorCode))
     }
 }
 
@@ -240,7 +241,7 @@ extension ReaderModel {
             let sources = try? await service.importSources(item.id)
             let links = (sources?.links ?? []).compactMap { URL(string: $0) }
             guard !links.isEmpty else {
-                uploads.problem = "There’s no link to try for this paper on this device. Upload the PDF instead."
+                uploads.problem = "There’s no link to try for this paper on this device. Choose a PDF from Files instead."
                 return
             }
             await uploads.downloadOnDevice(links: links, title: item.metadata?.title ?? sources?.title, target: target)

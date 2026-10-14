@@ -1,6 +1,8 @@
 # On-device paper processing feasibility
 
-Status: research only, 2026-10-09. This does not change the current Mathpix path or enable a new model.
+Status: candidate research from 2026-10-09; product direction superseded on 2026-10-13. The owner selected initial
+arXiv HTML adaptation and future device-only PDF processing, with no Mathpix fallback. No model has been selected,
+bundled or enabled. [Current architecture](../architecture/HTML_FIRST_READER.md).
 
 The product can reduce cloud processing and give users a stronger privacy option, but a full replacement for
 Mathpix is not ready to assume. Equation recognition, reading order, tables and figures are coupled problems. A
@@ -8,18 +10,17 @@ local system that produces readable plain text can still produce a reader that i
 
 ## Recommendation
 
-Keep Mathpix as the quality reference and build a layered local path behind explicit quality gates:
+Use retained Mathpix captures only as comparison evidence and build a layered local path behind quality gates:
 
 1. Use the PDF's existing text layer and layout wherever it is reliable.
 2. Use Apple's on-device Vision OCR for pages or regions with no usable text layer.
 3. Add a local equation model only for an identified equation crop, after its model/data license is cleared and its
    output passes rendering and semantic checks.
-4. Fall back to Mathpix for a full structured conversion when the local result is incomplete, ambiguous or below the
-   user's chosen quality level.
+4. When the local result is incomplete or ambiguous, keep the local original and report that structured preparation
+   is unavailable. Do not send the PDF to Mathpix or another remote processor.
 
-This gives a useful no-cloud preview and a private local option without silently presenting damaged mathematics as a
-finished reader. The full Mathpix conversion remains the "best equation quality" choice until a representative
-benchmark shows otherwise.
+Initially, only official arXiv HTML supplies the structured reader. The future PDF engine must pass a representative
+benchmark before its output is presented as a finished reader; local PDF viewing remains available meanwhile.
 
 ## What is practical on each surface
 
@@ -48,7 +49,7 @@ performance before any iPhone model is attempted.
 
 The browser can use the PDF text layer and perhaps small WASM OCR for a page, but a full neural scientific parser is
 too large and variable for a dependable default browser workflow. Browser processing should stay a later experiment;
-it should not hold up native local processing or the server reference path.
+it should not hold up native local processing or initial HTML adaptation.
 
 ## Candidate projects and licensing risks
 
@@ -81,11 +82,10 @@ Before a local engine can produce a normal reader bundle:
    an assumed ground truth.
 3. Measure on the oldest supported iPhone/iPad and a representative Apple-Silicon Mac: wall time per page, peak
    memory, battery/thermal impact, model download size, cancellation and recovery after termination.
-4. Validate every generated equation and HTML/MathML asset. If a page fails, preserve the PDF and mark that page or
-   paper as needing cloud preparation; never silently mix an unverified local page into a finished shared bundle.
+4. Validate every generated equation and HTML/MathML asset. If a page fails, preserve the PDF and mark structured
+   preparation as unavailable; never silently mix an unverified local page into a finished bundle.
 5. Record `engine`, `model_version`, `renderer_version`, source revision, confidence and validation warnings in the
-   local bundle. Local attempts spend no provider credits; a Mathpix fallback requires a new user-visible estimate and
-   bounded hold.
+   local bundle. Local attempts spend no provider credits; there is no Mathpix fallback.
 6. Audit all licenses and notices before shipping weights or a converted runtime. “Open source code” does not grant
    commercial rights to non-commercial model weights or training data.
 
@@ -100,9 +100,10 @@ Before a local engine can produce a normal reader bundle:
 - **Phase D:** offer local bundles and approved-device transfer through the existing AirDrop design. Rights remain
   unchanged: local processing avoids our server copy, but it does not create permission to publish or share a paper.
 
-The user-facing choice should be simple: **Private local preview** (no provider cost, may be less complete) and
-**Best equation quality** (Mathpix, with the displayed credit estimate). A successful local result can be upgraded
-later without deleting the original PDF or the user's notes.
+The former local-preview versus Mathpix choice is superseded. Keep the current reader experience using arXiv HTML;
+future successful local PDF preparation can add a verified bundle without deleting the original or changing the
+identity beneath the user's notes. The model candidate inventory above is dated research, not current license or
+performance verification.
 
 ## Sources
 

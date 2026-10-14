@@ -30,6 +30,20 @@ const headerSize: ImageCheck = async (bytes, type) => {
 };
 
 describe('verified reader bundle', () => {
+  it('admits the v2 inline-vector fixture and rejects changed inline provenance after rehashing', async () => {
+    const p=JSON.parse(readFileSync(new URL('../../../tests/fixtures/reader-arxiv/figures-package.json',import.meta.url),'utf8'));
+    const bytes=new Uint8Array(Buffer.from(p.manifest,'base64'));
+    const members=new Map<string,Uint8Array<ArrayBuffer>>(p.members.map((m:{path:string;base64:string})=>[m.path,new Uint8Array(Buffer.from(m.base64,'base64'))]));
+    expect((await verifyBundle(bytes,p.manifestSHA256,members,headerSize)).index.figures).toHaveLength(4);
+    const value=JSON.parse(new TextDecoder().decode(members.get('provenance.json')));
+    value.inline_image_inputs[0].source_id='https://example.test/source.svg';
+    const {canonicalJSON}=await import('../src/lib/bytes');
+    members.set('provenance.json',utf8(canonicalJSON(value)+'\n'));
+    const m=JSON.parse(new TextDecoder().decode(bytes));
+    for(const row of m.members){row.sha256=await sha256Hex(members.get(row.path)!);row.bytes=members.get(row.path)!.length;}
+    const changed=utf8(canonicalJSON(m)+'\n');
+    await expect(verifyBundle(changed,await sha256Hex(changed),members,headerSize)).rejects.toThrow('resource');
+  });
   it('admits the real sample bundle', async () => {
     expect(await sha256Hex(manifest())).toBe(SHA);
     const bundle = await verifyBundle(manifest(), SHA, files(), headerSize);

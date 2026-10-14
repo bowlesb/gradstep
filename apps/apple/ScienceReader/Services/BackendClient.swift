@@ -556,6 +556,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
         let body: Body
         switch job.target {
+        case .localPaper: throw ReaderError.invalidEvent
         case .newPaper:
             body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, target: "paper", title: job.title,
                         import_id: nil, expected_revision: nil, source_id: nil)
@@ -596,6 +597,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
         let body: Body
         switch job.target {
+        case .localPaper: throw ReaderError.invalidEvent
         case .newPaper:
             body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, part_sha256: partSHA256,
                         target: "paper", import_id: nil, expected_revision: nil, source_id: nil)

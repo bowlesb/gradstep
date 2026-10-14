@@ -1,12 +1,14 @@
+import type { ClientEntry, LibraryPaper, LocalPDFPaper } from './device-pdf';
 // What the library table shows for each entry: the native LibraryRowFacts, minus chats.
 import { tagsFromCategories } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
+import { isSourcePaper, type ReaderPaper } from './reader-paper';
 import type { Entry, Import, Item } from './library';
 import { type ImportAction, importAction, importStatus, importStep, retryingAutomatically } from './progress';
 
 const lower = (list: string[]) => new Set(list.map(t => t.toLowerCase()));
 
 /** What the reader sees: the catalog's tags minus those they removed, then their own (PaperTags.effective). */
-export function effectiveTags(item: Item): string[] {
+export function effectiveTags(item: LibraryPaper): string[] {
   const hidden = lower(item.hidden_tags ?? []), result: string[] = [];
   const add = (tag: string) => { if (!result.some(t => t.toLowerCase() === tag.toLowerCase())) result.push(tag); };
   for (const tag of item.tags ?? []) if (!hidden.has(tag.toLowerCase())) add(tag);
@@ -15,7 +17,7 @@ export function effectiveTags(item: Item): string[] {
 }
 
 export interface Row {
-  key: string; entry: Entry; title: string; firstAuthor: string | null; year: number | null; tags: string[]; added: number | null;
+  key: string; entry: ClientEntry; title: string; firstAuthor: string | null; year: number | null; tags: string[]; added: number | null;
   source: string; pages: number | null; readable: boolean; archived: boolean; status: { kind: 'none' | 'active' | 'info' | 'problem'; text: string } | null;
   action: ImportAction | null; failed: boolean;
 }
@@ -56,22 +58,22 @@ function importRow(entry: Import): Row {
   const failed = entry.phase === 'failed' && !retryingAutomatically(entry);
   return {
     key: 'import:' + entry.id, entry, title: m?.title ?? placeholder(entry.source_id), firstAuthor: m?.authors[0] ?? null, year: year(m?.published_at),
-    tags: tagsFromCategories(m?.categories ?? []), added: null, source: sourceLabel(entry.source_id), pages: null, readable: false, archived: false,
-    status: { kind: step || retryingAutomatically(entry) ? 'active' : failed || entry.phase === 'membership_conflict' ? 'problem' : 'info', text: importStatus(entry) },
-    action, failed,
+    tags: entry.user_tags ?? tagsFromCategories(m?.categories ?? []), added: null, source: sourceLabel(entry.source_id), pages: null, readable: isSourcePaper(entry), archived: entry.archived === true,
+    status: isSourcePaper(entry) ? null : { kind: step || retryingAutomatically(entry) ? 'active' : failed || entry.phase === 'membership_conflict' ? 'problem' : 'info', text: importStatus(entry) },
+    action: isSourcePaper(entry) ? null : action, failed,
   };
 }
 
 /** Visible items, and imports not yet resolved into a visible item. Reconciled entries are immutable;
  * a view-owned weak cache keeps unchanged row facts stable without retaining retired accounts/entries. */
-export function rows(entries: Iterable<Entry>, cache?: WeakMap<Entry, Row>): Row[] {
+export function rows(entries: Iterable<ClientEntry>, cache?: WeakMap<ClientEntry, Row>): Row[] {
   const all = [...entries], visibleItems = new Set(all.filter(e => e.kind === 'item' && e.visible).map(e => e.id));
   const out: Row[] = [];
   for (const e of all) {
     if (!e.visible) continue;
     if (e.kind === 'import' && e.library_item_id && visibleItems.has(e.library_item_id)) continue;
     let row = cache?.get(e);
-    if (!row) { row = e.kind === 'item' ? itemRow(e) : importRow(e); cache?.set(e, row); }
+    if (!row) { row = e.kind === 'local_pdf' ? {key:'local_pdf:'+e.id,entry:e,title:e.metadata.title,firstAuthor:null,year:null,tags:e.user_tags,added:e.added_at,source:'PDF on this device',pages:e.page_count,readable:true,archived:e.archived,status:{kind:'info',text:e.available?'PDF on this device':'Choose PDF on this device'},action:null,failed:false} : e.kind === 'item' ? itemRow(e) : importRow(e); cache?.set(e, row); }
     out.push(row);
   }
   return out;

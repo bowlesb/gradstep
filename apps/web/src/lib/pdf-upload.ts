@@ -112,49 +112,6 @@ async function status(account: string, uploadID: string, signal?: AbortSignal): 
 
 /** Upload one PDF. The server's idempotent session is exposed to the caller so
  * a network failure can resume without starting another admission. */
-export async function uploadPDF(file: Blob & { name?: string }, options: PDFUploadOptions): Promise<PDFUploadResult> {
-  if (!isUUID(options.account) || !integer(options.cursor) || !isUUID(options.keys.deviceID) || options.keys.ring.accountID.toLowerCase() !== options.account.toLowerCase()) invalid();
-  const report = (phase: PDFUploadProgress['phase'], fraction: number) => options.onProgress?.({ phase, fraction: Math.max(0, Math.min(1, fraction)) });
-  report('checking', 0);
-  const data = await readPDF(file, options.signal);
-  const partSHA256: string[] = [];
-  for (let offset = 0; offset < data.length; offset += PDF_CHUNK_BYTES) {
-    options.signal?.throwIfAborted();
-    partSHA256.push(await sha256Hex(data.subarray(offset, Math.min(offset + PDF_CHUNK_BYTES, data.length))));
-  }
-  if (partSHA256.length < 1 || partSHA256.length > MAX_PDF_PARTS) throw new BackendError('invalid_upload');
-  const uploadID = (options.uploadID ?? crypto.randomUUID()).toLowerCase();
-  if (!isUUID(uploadID)) invalid();
-  const digest = await sha256Hex(data);
-  report('starting', 0);
-  const body: Record<string, unknown> = { action: 'begin', upload_id: uploadID, sha256: digest, byte_count: data.length, part_sha256: partSHA256, target: 'paper' };
-  const initial = decodePDFUploadTicket(await functionPost('upload-pdf', body, { account: options.account, signal: options.signal, maximum: 65_536, timeout: 40_000 }));
-  if (initial.upload_id !== uploadID || initial.byte_count !== data.length || initial.part_count !== partSHA256.length) invalid();
-  options.onSession?.(uploadID);
-  let ticket = initial;
-  if (ticket.descriptor_required && ticket.descriptor_ref === null) {
-    await writeDescriptor(options.account, uploadID, file, options.keys, options.signal);
-    ticket = await status(options.account, uploadID, options.signal);
-  }
-  if (ticket.state === 'receiving') {
-    for (const part of ticket.parts) {
-      options.signal?.throwIfAborted();
-      const start = part.index * PDF_CHUNK_BYTES, bytes = data.subarray(start, start + part.bytes);
-      if (part.verified) { report('uploading', (start + bytes.length) / data.length); continue; }
-      const attemptID = crypto.randomUUID();
-      const path = `upload-pdf?upload_id=${uploadID}&generation=${ticket.generation}&part=${part.index}&attempt_id=${attemptID}`;
-      const receipt = object(await functionPutBytes<unknown>(path, bytes, { account: options.account, signal: options.signal, maximum: 65_536, timeout: 120_000 })) as Receipt;
-      if (receipt.verified !== true || receipt.uncertain === true) throw new BackendError('upload_uncertain');
-      report('uploading', (start + bytes.length) / data.length);
-    }
-    // Every positive part receipt advances revision. Never freeze with the begin revision.
-    ticket = await status(options.account, uploadID, options.signal);
-  }
-  if (ticket.state !== 'finalized' && ticket.state !== 'consumed') {
-    report('finishing', 0);
-    await functionPost('upload-pdf', { action: 'finalize', upload_id: uploadID, generation: ticket.generation,
-      revision: ticket.revision, observed_cursor: options.cursor }, { account: options.account, signal: options.signal, maximum: 262_144, timeout: 40_000 });
-    report('finishing', 1);
-  }
-  return { uploadID, sourceID: `upload:${uploadID}`, state: 'finalized' };
+export async function uploadPDF(_file: Blob & { name?: string }, _options: PDFUploadOptions): Promise<PDFUploadResult> {
+  throw new BackendError('pdf_device_only');
 }

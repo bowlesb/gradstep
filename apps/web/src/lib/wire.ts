@@ -97,15 +97,20 @@ export async function keyRing(bundle: KeyBundle): Promise<KeyRing> {
 }
 
 export interface EventEnvelope { id: string; deviceID: string; epoch: number; format: number; ciphertext: Bytes }
+const eventFormat = (payload: object): number => {
+  const p = payload as {kind?: string; paperReference?: unknown; anchor?: {manifestSHA256?: unknown}};
+  return p.kind === 'local_paper' || p.paperReference != null || p.anchor?.manifestSHA256 != null ? 2 : 1;
+};
 export async function sealEvent(payload: object, id: string, deviceID: string, ring: KeyRing, vector?: TestVector): Promise<EventEnvelope> {
   const key = ring.keys.get(ring.epoch);
   if (!key) throw new WireError('missing_key');
-  const ciphertext = await seal(key, utf8(canonicalJSON(payload)), eventAAD(ring.accountID, id, deviceID, ring.epoch), vector?.nonce);
+  const format = eventFormat(payload);
+  const ciphertext = await seal(key, utf8(canonicalJSON(payload)), eventAAD(ring.accountID, id, deviceID, ring.epoch, format), vector?.nonce);
   if (ciphertext.length > MAXIMUM_EVENT_BYTES) throw new WireError('invalid_event');
-  return { id, deviceID, epoch: ring.epoch, format: 1, ciphertext };
+  return { id, deviceID, epoch: ring.epoch, format, ciphertext };
 }
 export async function openEvent(envelope: EventEnvelope, ring: KeyRing): Promise<Record<string, unknown>> {
-  if (envelope.format !== 1) throw new WireError('unsupported_format');
+  if (![1, 2].includes(envelope.format)) throw new WireError('unsupported_format');
   if (envelope.ciphertext.length < 28 || envelope.ciphertext.length > MAXIMUM_EVENT_BYTES) throw new WireError('corrupt_data');
   const key = ring.keys.get(envelope.epoch);
   if (!key) throw new WireError('missing_key');
@@ -113,6 +118,7 @@ export async function openEvent(envelope: EventEnvelope, ring: KeyRing): Promise
   let value: unknown;
   try { value = JSON.parse(fromUtf8(plain)); } catch { throw new WireError('corrupt_data'); }
   if (!value || typeof value !== 'object' || Array.isArray(value) || typeof (value as { kind?: unknown }).kind !== 'string') throw new WireError('invalid_event');
+  if (envelope.format === 1 && eventFormat(value as object) !== 1) throw new WireError('unsupported_format');
   return value as Record<string, unknown>;
 }
 

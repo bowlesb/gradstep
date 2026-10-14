@@ -1,3 +1,4 @@
+import type { ClientEntry } from './device-pdf';
 // Matches ScienceReaderCore/PaperTags.swift and migration 030. Catalog tags are shared metadata;
 // the reader's additions and hidden catalog tags are revision-checked library fields, not chat events.
 import { TAG_VOCABULARY, tagsFromCategories } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
@@ -29,9 +30,9 @@ export function editedTags(catalog: readonly string[], desired: readonly string[
 }
 
 /** Other visible papers' own tags, most-used first (native ownTagsInLibrary). */
-export function ownTagsInLibrary(entries: readonly Entry[], excluding: string): string[] {
+export function ownTagsInLibrary(entries: readonly ClientEntry[], excluding: string): string[] {
   const counts = new Map<string, { name: string; count: number }>();
-  for (const item of entries) if (item.kind === 'item' && item.visible && item.id !== excluding) {
+  for (const item of entries) if (item.visible && item.id !== excluding) {
     const seen = new Set<string>();
     for (const tag of item.user_tags ?? []) {
       const key = tag.toLowerCase();

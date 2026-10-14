@@ -71,19 +71,21 @@ public enum ReaderCrypto {
 
     public static func seal(_ event: PrivateEvent, id: UUID, deviceID: UUID, keys: KeyBundle) throws -> EventEnvelope {
         try event.validate()
-        let aad = eventAAD(accountID: keys.accountID, id: id, deviceID: deviceID, epoch: keys.epoch, format: 1)
+        let format = event.kind == .localPaper || event.paperReference != nil || event.anchor?.manifestSHA256 != nil ? 2 : 1
+        let aad = eventAAD(accountID: keys.accountID, id: id, deviceID: deviceID, epoch: keys.epoch, format: format)
         let sealed = try AES.GCM.seal(encode(event), using: keys.key(for: keys.epoch), authenticating: aad)
         guard let bytes = sealed.combined, bytes.count <= 262_144 else { throw ReaderError.invalidEvent }
-        return EventEnvelope(id: id, deviceID: deviceID, epoch: keys.epoch, ciphertext: bytes)
+        return EventEnvelope(id: id, deviceID: deviceID, epoch: keys.epoch, format: format, ciphertext: bytes)
     }
 
     public static func open(_ envelope: EventEnvelope, keys: KeyBundle) throws -> PrivateEvent {
-        guard envelope.format == 1 else { throw ReaderError.unsupportedFormat }
+        guard [1, 2].contains(envelope.format) else { throw ReaderError.unsupportedFormat }
         guard envelope.ciphertext.count >= 28, envelope.ciphertext.count <= 262_144 else { throw ReaderError.corruptData }
         let aad = eventAAD(accountID: keys.accountID, id: envelope.id, deviceID: envelope.deviceID, epoch: envelope.epoch, format: envelope.format)
         let bytes = try AES.GCM.open(AES.GCM.SealedBox(combined: envelope.ciphertext), using: keys.key(for: envelope.epoch), authenticating: aad)
         let event = try JSONDecoder().decode(PrivateEvent.self, from: bytes)
         try event.validate()
+        if envelope.format == 1, event.kind == .localPaper || event.paperReference != nil || event.anchor?.manifestSHA256 != nil { throw ReaderError.unsupportedFormat }
         return event
     }
 

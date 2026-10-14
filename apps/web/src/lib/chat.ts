@@ -10,7 +10,9 @@ export const CONSENT_VERSION = 'cloud-ai-v2';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix';
 export interface ChatTurn { role: Role; text: string }
+export interface LocalPaperContext { format:'reader-local-context-v1';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
 export interface ChatRequest {
+  localContext?:LocalPaperContext;
   operationID: string; documentID: string | null; turns: ChatTurn[]; selection: string | null; action: ChatAction | null;
   /** Sent only when not the standard profile, so a default request stays exactly what servers before profiles accept. */
   profile: ProfileChoice;
@@ -44,9 +46,10 @@ export function makeRequest(operationID: string, documentID: string | null, tran
 }
 
 export function requestBody(r: ChatRequest): Record<string, unknown> {
-  const body: Record<string, unknown> = { operation_id: r.operationID, consent_version: CONSENT_VERSION, mode: r.documentID ? 'paper' : 'general',
+  const body: Record<string, unknown> = { operation_id: r.operationID, consent_version: CONSENT_VERSION, mode: r.documentID || r.localContext ? 'paper' : 'general',
     messages: r.turns.map(t => ({ role: t.role, text: t.text })) };
-  if (r.documentID) body.document_id = r.documentID;
+  if (r.localContext) body.local_context=r.localContext;
+  else if (r.documentID) body.document_id = r.documentID;
   if (r.selection) body.selection = { quote: r.selection };
   if (r.action) body.action = r.action;
   if (r.action === 'ingest') body.capabilities = ['web_import']; // Add paper may add an open-access web paper
@@ -204,6 +207,7 @@ export function failureText(code: string): string {
     case 'insufficient_credits': return 'Not enough credits for this answer. Your question is saved. Credits can be added in Gradstep on iPhone, iPad or Mac.';
     case 'platform_budget_exhausted': return 'AI answers are paused right now. Your papers and saved chats still work.';
     case 'rate_limited': return 'Too many requests right now. Try again in a moment.';
+    case 'local_reader_unavailable': return 'Open this paper to prepare its HTML reader on this device, then retry your question.';
     case 'document_unavailable': return 'This paper isn’t ready for questions yet. Try again after it finishes processing.';
     case 'provider_unavailable': return 'The AI service couldn’t finish this answer. Try again.';
     case 'refused': return 'This request can’t be answered. Try rephrasing your question.';
