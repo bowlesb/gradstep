@@ -421,6 +421,42 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Diagram source shown")
     }
 
+    /// Figure parts sit in the answer where it discusses each one (owner, 2026-10-15: "the crops should be inline, right
+    /// as the chat discusses each one"); under the answer, the whole figure with the parts outlined.
+    func testFigurePartsAreInlineWhereTheAnswerDiscussesThem() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_parts", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("What does Figure 1 show?")
+        app.buttons["chat.send"].tap()
+        let one = app.descendants(matching: .any)["chat.message.figurePart.1"], two = app.descendants(matching: .any)["chat.message.figurePart.2"]
+        XCTAssertTrue(one.waitForExistence(timeout: 15), "Part 1 is in the answer")
+        XCTAssertTrue(two.exists)
+        XCTAssertEqual(one.label, "Part 1: Left half")
+        // In reading order, between the paragraphs that discuss them.
+        let text = { (words: String) in app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", words)).firstMatch }
+        let opening = text("two halves"), left = text("sets up the question")
+        XCTAssertTrue(opening.exists && left.exists, "the answer's paragraphs around the parts")
+        XCTAssertLessThan(opening.frame.midY, one.frame.minY); XCTAssertLessThan(one.frame.maxY, left.frame.midY + 1)
+        XCTAssertLessThan(left.frame.midY, two.frame.minY)
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "[[part")).firstMatch.exists, "no marker is shown")
+        let whole = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.figureParts.")).firstMatch
+        XCTAssertTrue(whole.exists, "the whole figure under the answer")
+        XCTAssertLessThan(two.frame.maxY, whole.frame.minY)
+        capture(app, "Figure parts inline in the answer: the whole figure under it")
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        for _ in 0..<3 where one.frame.minY < 120 { app.swipeDown() }
+        capture(app, "Figure parts inline in the answer")
+        for _ in 0..<4 where !(whole.isHittable && app.windows.firstMatch.frame.insetBy(dx: 0, dy: 140).contains(CGPoint(x: whole.frame.midX, y: whole.frame.midY))) { app.swipeUp() }
+        whole.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["figureParts.part.2"].waitForExistence(timeout: 5), "the full view opens")
+    }
+
     func testAnAnswerDiagramOpensFromTheAnswerAndFromAllDiagrams() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

@@ -13,7 +13,7 @@ import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
-import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
+import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -773,7 +773,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       deps.log({ event: parts ? 'chat_figure_parts' : 'chat_figure_parts_invalid_input', operation_id: request.operationID });
       if (parts && !signal.aborted) {
         // Without prose of its own, the answer is the parts' notes (the reader always has the explanation in the chat).
-        if (!wroteText) emit({ event: 'delta', data: { text: `${parts.title}\n\n${parts.parts.map((p, i) => `${i + 1}. **${p.label}**: ${p.note}`).join('\n')}` } });
+        if (!wroteText) emit({ event: 'delta', data: { text: figurePartsFallbackText(parts) } });
         emit({ event: 'figure_parts', data: parts });
       }
     }

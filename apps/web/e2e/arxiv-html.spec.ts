@@ -73,15 +73,25 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  // answer's parts are cropped from it under the answer; a click shows the whole figure with the parts outlined.
  await page.getByRole('textbox',{name:'Message',exact:true}).fill('What does Figure 1 show?');
  await page.getByRole('button',{name:'Send',exact:true}).click();
- const parts=page.getByTestId('figure-parts');
- await expect(parts).toBeVisible();
+ await expect(page.getByTestId('figure-part-inline').first()).toBeVisible();
  const asked=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests[1];
  expect(asked.consent_version).toBe('cloud-ai-v3');
  expect(asked.figures).toHaveLength(1);
  expect(asked.figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg',caption:'Figure 1: A test figure.'});
  expect(asked.figures[0].data.startsWith('/9j/')).toBe(true);
- await expect(parts.locator('.figure-part-crop img')).toHaveCount(2);
- await parts.getByRole('button',{name:/2 parts/}).click();
+ // Each part's crop sits in the answer where it is discussed (2026-10-15); no marker is ever shown as text.
+ const answerWithParts=page.getByTestId('chat-assistant').last();
+ const inline=answerWithParts.getByTestId('figure-part-inline');
+ await expect(inline).toHaveCount(2);
+ await expect(inline.locator('.figure-part-crop img')).toHaveCount(2);
+ await expect(answerWithParts).not.toContainText('[[part');
+ const order=await answerWithParts.evaluate(el=>[...el.querySelectorAll('.answer-markdown p, [data-testid=figure-part-inline]')].map(n=>n.matches('[data-testid=figure-part-inline]')?'part':(n.textContent??'').slice(0,12)));
+ expect(order).toEqual(['Figure 1 has','part','The left hal','part','The right ha']);
+ const parts=answerWithParts.getByTestId('figure-parts-overview');
+ await expect(parts).toBeVisible();
+ await answerWithParts.evaluate(el=>el.scrollIntoView({block:'start'}));
+ await page.screenshot({path:`../../.artifacts/html-browser-figure-parts-inline-${test.info().project.name}.png`});
+ await parts.getByRole('button',{name:/2 parts outlined/}).click();
  const whole=page.getByRole('dialog',{name:'The figure, part by part'});
  await expect(whole.locator('.figure-part-outline')).toHaveCount(2);
  await expect(whole).toContainText('The left half of the figure.');
@@ -90,7 +100,7 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  // A figure question that names no number: the model asks for the figure it means, and the question goes again with it.
  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Break down the most complex figure into its parts');
  await page.getByRole('button',{name:'Send',exact:true}).click();
- await expect(page.getByTestId('figure-parts')).toHaveCount(2);
+ await expect(page.getByTestId('figure-parts-overview')).toHaveCount(2);
  const both=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests.slice(2);
  expect(both.map((r:{figures?:unknown[]})=>r.figures?.length??0)).toEqual([0,1]);
  expect(both[0].capabilities).toContain('figure_requests');

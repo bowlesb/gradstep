@@ -7,12 +7,14 @@ import ScienceReaderCore
 /// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|broken_diagram|sources|research`.
 /// `broken_diagram`: a diagram Mermaid can't parse, and a correction (`diagram_fix`) that still can't be.
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
+/// `figure_parts`: an answer about the sample's Figure 1 that marks where its two parts go, and the parts.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 /// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
 /// `--chat-fixture-no-profiles` behaves like a server without them.
 struct ChatFixtureTransport: ChatTransport {
     enum Mode: String, Sendable {
         case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, brokenDiagram = "broken_diagram", sources, research
+        case figureParts = "figure_parts"
     }
     let mode: Mode
 
@@ -27,6 +29,18 @@ struct ChatFixtureTransport: ChatTransport {
     static func launchConsentStore() -> any AuthenticationCredentialStore {
         MemoryCredentialStore(acceptsConsent: ProcessInfo.processInfo.arguments.contains("--chat-fixture-consented"))
     }
+
+    static let figurePartsAnswer = """
+    Figure 1 has two halves, read left to right.
+
+    [[part 1]]
+    The left half sets up the question the figure answers.
+
+    [[part 2]]
+    The right half shows the result.
+
+    This is a synthetic fixture answer; no AI request was made.
+    """
 
     static let answer = """
     Scaling by \\(1/\\sqrt{d_k}\\) keeps the dot products from growing with the key width, so the softmax stays in a range with useful gradients.
@@ -62,6 +76,19 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.done(stopReason: "end_turn", credits: 1, model: "claude-sonnet-5-5", profile: "diagram_fix"))
                         continuation.finish(); return
                     }
+                    if mode == .figureParts {
+                        try await Task.sleep(for: .milliseconds(300))
+                        for piece in Self.pieces(of: Self.figurePartsAnswer, size: 14) {
+                            continuation.yield(.delta(piece)); try await Task.sleep(for: .milliseconds(20))
+                        }
+                        if let figure = request.figures.first {
+                            continuation.yield(.figureParts(ChatFigureParts(figure: figure.id, paragraph: figure.paragraph, title: "The figure, part by part", parts: [
+                                .init(label: "Left half", box: [0, 0, 0.5, 1], note: "The left half of the figure."),
+                                .init(label: "Right half", box: [0.5, 0, 1, 1], note: "The right half of the figure.")])))
+                        }
+                        continuation.yield(.done(stopReason: "end_turn", credits: 3, model: "claude-sonnet-5-5", profile: request.profile.id))
+                        continuation.finish(); return
+                    }
                     switch mode {
                     case .insufficientCredits:
                         try await Task.sleep(for: .milliseconds(150))
@@ -70,7 +97,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research:
+                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts:
                         try await Task.sleep(for: .milliseconds(300))
                         // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
                         let cited = request.localContext != nil

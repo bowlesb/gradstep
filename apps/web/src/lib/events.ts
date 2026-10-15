@@ -1,4 +1,4 @@
-import { decodeStoredFigureParts } from './chat-figures';
+import { decodeStoredFigureParts, stripPartMarkers } from './chat-figures';
 // Private events (the decrypted payload of wire format 1) and the state they build — a port of
 // ScienceReaderCore/PrivateState.swift and ConversationSummary.swift. Payloads are decoded and validated
 // as Swift does; unknown keys are ignored, UUIDs are compared lowercase and written uppercase (as Swift's
@@ -345,7 +345,7 @@ export class PrivateState {
       out.push({ id, title: root.payload.text ?? '', titleSource: root.payload.titleSource, documentID: root.payload.documentID, messageCount: new Set(surviving.map(e => e.payload.entityID)).size,
         startedAt: rootTime ?? (times.length ? Math.min(...times) : undefined), lastUsedAt: all.length ? Math.max(...all) : undefined,
         lastArrival: Math.max(-1, ...[...revisions, ...surviving].map(e => arrival(e.id))), startArrival: Math.min(...revisions.map(e => arrival(e.id))),
-        latestAnswer: answer?.slice(0, 1000), questions, anchor: root.payload.anchor });
+        latestAnswer: answer ? stripPartMarkers(answer).slice(0, 1000) : undefined, questions, anchor: root.payload.anchor });
     }
     return out.sort((a, b) => (a.id < b.id ? -1 : 1));
   }

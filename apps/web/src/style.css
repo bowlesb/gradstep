@@ -603,3 +603,14 @@ progress.mini { height: 3px; margin-top: 4px; }
 .figure-parts-notes{padding-left:1.2em;display:flex;flex-direction:column;gap:12px}
 .figure-parts-notes li{display:flex;gap:12px;align-items:flex-start}
 .figure-parts-notes p{margin:4px 0 0}
+/* A part inline in an answer, where the answer discusses it (2026-10-15). */
+.answer-with-parts{display:flex;flex-direction:column;gap:6px}
+.figure-part-inline{margin:4px 0 8px;display:flex;flex-direction:column;gap:6px;max-width:100%}
+.figure-part-inline figcaption{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.92em}
+.figure-part-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:10px;background:var(--accent, #2563eb);color:#fff;font-size:12px;font-weight:700;padding:0 5px}
+.figure-part-inline .figure-part-crop{max-width:100%}
+/* Under it, the whole figure, small, with its parts outlined. */
+.figure-parts-overview-button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;background:none;border:0;padding:0;cursor:pointer;text-align:left;color:inherit}
+.figure-parts-overview .figure-parts-whole{margin:0;border:1px solid var(--border, rgba(128,128,128,.35));border-radius:6px;overflow:hidden}
+.figure-parts-overview .figure-part-outline{border-width:1.5px}
+.figure-parts-overview .figure-part-outline span{font-size:10px;padding:2px 4px}

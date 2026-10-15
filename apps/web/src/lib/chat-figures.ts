@@ -143,3 +143,35 @@ export async function chatFigureImages(question: string, selection: string | nul
   }
   return out;
 }
+
+// ---------- Where an answer's parts go (owner, 2026-10-15: "the crops should be inline") ----------
+// `[[part N]]` lines mark where part N's crop sits in the answer, as FigurePartMarkers does in the apps. A marker is
+// never shown as text: without its part the line is simply left out.
+const MARKER = /^[ \t]*\[\[\s*part\s*(\d{1,2})\s*\]\][ \t]*/i;
+export type PartSegment = { kind: 'text'; text: string } | { kind: 'part'; number: number };
+
+export const hasPartMarkers = (text: string): boolean => text.split('\n').some(line => MARKER.test(line));
+
+/** The answer in order: the text between markers and the parts they name (1…`parts`). */
+export function partSegments(text: string, parts: number): PartSegment[] {
+  const out: PartSegment[] = []; let buffer: string[] = [];
+  const flush = () => { const joined = buffer.join('\n').trim(); if (joined) out.push({ kind: 'text', text: joined }); buffer = []; };
+  for (const line of text.split('\n')) {
+    const m = MARKER.exec(line);
+    if (!m) { buffer.push(line); continue; }
+    flush();
+    const n = Number(m[1]);
+    if (n >= 1 && n <= parts) out.push({ kind: 'part', number: n });
+    const rest = line.slice(m[0].length);
+    if (rest.trim()) buffer.push(rest);
+  }
+  flush();
+  return out;
+}
+
+/** The text without its marker lines (and, while an answer streams, without a marker still arriving at its end). */
+export function stripPartMarkers(text: string, streaming = false): string {
+  const lines = text.split('\n').flatMap(line => { const m = MARKER.exec(line); if (!m) return [line]; const rest = line.slice(m[0].length); return rest.trim() ? [rest] : []; });
+  if (streaming && lines.length && lines[lines.length - 1].trim().startsWith('[[') && !lines[lines.length - 1].includes(']]')) lines.pop();
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}

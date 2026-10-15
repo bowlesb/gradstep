@@ -3346,6 +3346,14 @@ final class ReaderModel {
                     figureManifest = bundle.manifestSHA256
                 }
             } else { localContext = nil }
+            #if DEBUG && FIXTURE_HOST
+            // Journeys (`--chat-fixture-mode=figure_parts`): the sample paper's Figure 1 goes with the question, as a
+            // device-prepared paper's would, so its parts can be shown inline.
+            if figures.isEmpty, ChatFixtureTransport.isEnabled, ChatFixtureTransport.launchTransport().mode == .figureParts,
+               let bundle = (turn.documentID.flatMap { id in papers.first { $0.id == id } } ?? selectedPaper)?.readerBundle {
+                figures = ChatFigureFinder.images(question: "Figure 1", selection: nil, bundle: bundle); figureManifest = bundle.manifestSHA256
+            }
+            #endif
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
                                                      study: turn.study, visualAnswers: visualAnswers, figures: figures)

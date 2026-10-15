@@ -1,4 +1,4 @@
-import { decodeStoredFigureParts, storedPaths } from '../lib/chat-figures';
+import { decodeStoredFigureParts, hasPartMarkers, partSegments, storedPaths, stripPartMarkers } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -12,7 +12,7 @@ import { ProfileControl } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate } from './common';
 import { CopyButton } from './CopyButton';
-import { Diagram } from './Diagram';
+import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL } from './Diagram';
 import { Icon } from './icons';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
@@ -70,6 +70,11 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   const branches = useMemo(() => c.conversationID ? chat.history.state.conversationBranches(c.conversationID) : [], [chat, c.conversationID, historyVersion]);
   const [showFollowUps, setShowFollowUps] = useState(false);
   const diagrams = useMemo(() => chat.history.state.diagramsByMessage(), [chat, historyVersion]);
+  // An answer with figure parts whose text marks where they go shows them inline (and the whole figure under it).
+  const inlineParts = (entityID: string) => {
+    const d = diagrams.get(entityID), text = messages.find(m => m.payload.entityID === entityID)?.payload.text ?? '';
+    return d?.format === 'figure-parts-v1' && !!decodeStoredFigureParts(d.source) && hasPartMarkers(text);
+  };
   const [link, setLink] = useState<string | null>(null), [inputIssue, setInputIssue] = useState(false);
   const [renaming, setRenaming] = useState(false);
   useEffect(() => setRenaming(false), [c.id, c.conversationID]);
@@ -163,13 +168,15 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
         {studyOffered && <div className="study-offer"><button type="button" className="secondary small" data-testid="study-start" disabled={disabled} onClick={startStudy}>Study this paper</button>
           <p className="fine">A tutor asks one question at a time, teaches what you miss, and maps what you know. Experimental.</p></div>}</div>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
-        {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={m.payload.text ?? ''} label="Copy answer" /></div><Answer text={m.payload.text ?? ''} /></>}
+        {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
+          {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
+            : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}</>}
         {m.payload.status === 'interrupted' && <span className="fine interrupted">Answer interrupted</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
-        {diagrams.has(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />}
+        {diagrams.has(m.payload.entityID) && !inlineParts(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
-        <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
+        <Answer text={stripPartMarkers(displayText, true)} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
       {c.followUps && !composerBusy(c) && !c.answer && !c.issue && last?.payload.role === 'assistant' && <div className="follow-ups" role="group" aria-label="Suggested questions">
         {/* On request (owner, build 46: "they need to be upon request… take up too much space"). */}
         <button type="button" className="link small follow-ups-toggle" aria-expanded={showFollowUps} data-testid="follow-ups-toggle"
@@ -301,4 +308,25 @@ function AnswerDiagram({ diagram, image }: { diagram: { title: string; source: s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagram.format, diagram.source]);
   return <Diagram title={diagram.title} source={diagram.source} format={diagram.format} figureImage={figure} />;
+}
+
+/** An answer whose text marks where its figure's parts go (owner, 2026-10-15: "the crops should be inline, right as the
+ * chat discusses each one"): the text in pieces with each part's crop between them, and the whole figure under it. */
+function FigurePartsAnswer({ text, diagram, image }: { text: string; diagram: { title: string; source: string }; image: (manifest: string, paths: string[]) => Promise<Blob | null> }) {
+  const stored = decodeStoredFigureParts(diagram.source)!;
+  const [figure, setFigure] = useState<Blob | null>(null);
+  useEffect(() => {
+    let live = true;
+    void image(stored.manifestSHA256, storedPaths(stored)).then(blob => { if (live) setFigure(blob); });
+    return () => { live = false; };
+    // The image function is recreated each render; the stored parts decide what to load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram.source]);
+  const { url, size } = useFigureDataURL(figure);
+  return <>
+    <div className="answer-with-parts">{partSegments(text, stored.parts.length).map((segment, i) => segment.kind === 'text'
+      ? <Answer key={i} text={segment.text} />
+      : <FigurePartInline key={i} number={segment.number} part={stored.parts[segment.number - 1]} url={url} size={size} />)}</div>
+    <FigurePartsOverview title={diagram.title} stored={stored} url={url} size={size} />
+  </>;
 }

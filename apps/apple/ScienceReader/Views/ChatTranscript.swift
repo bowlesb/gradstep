@@ -116,9 +116,15 @@ private struct TranscriptMessage: View {
                     .accessibilityIdentifier("chat.message.thinking")
                 } else {
                     let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
-                    ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
-                                    speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)",
-                                    assistant: message.payload.role == .assistant, onQuote: quoteHandler, onCite: citeHandler)
+                    if let inline = inlineParts {
+                        // Each part's crop where the answer discusses it (owner, 2026-10-15: "the crops should be inline").
+                        InlineFigurePartsAnswer(source: message.payload.text ?? "", stored: inline.stored, image: inline.image, fontSize: fontSize,
+                                                identifier: "chat.message.text.\(message.id.wire)", onQuote: quoteHandler, onCite: citeHandler)
+                    } else {
+                        ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
+                                        speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)",
+                                        assistant: message.payload.role == .assistant, onQuote: quoteHandler, onCite: citeHandler)
+                    }
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
                     // What the server is doing between pieces of text; cleared when text resumes.
                     if streaming, let progress {
@@ -146,9 +152,13 @@ private struct TranscriptMessage: View {
                         .accessibilityLabel(Text(verbatim: "Answered with \(answeredBy)"))
                         .accessibilityIdentifier("chat.message.answeredBy.\(message.payload.entityID.wire)")
                 }
-                if let diagram, !streaming, diagram.isFigureParts, let model = papers?.model,
+                if let diagram, !streaming, diagram.isFigureParts, let inline = inlineParts {
+                    // The crops are in the answer; under it, the whole figure with its parts outlined (a tap opens them all).
+                    FigurePartsOverview(stored: inline.stored, image: inline.image, fontSize: fontSize) { openDiagram(diagram.id) }
+                        .accessibilityIdentifier("chat.message.figureParts.\(message.payload.entityID.wire)")
+                } else if let diagram, !streaming, diagram.isFigureParts, let model = papers?.model,
                    let stored = model.diagram(diagram.id).flatMap({ StoredFigureParts.decode($0.source) }) {
-                    // The figure's parts as part of the answer: each crop with its number and label; a tap opens them all.
+                    // An answer from before the inline crops (no markers): each crop with its number and label under it.
                     FigurePartsStrip(stored: stored, image: model.figureImage(manifest: stored.manifestSHA256, paths: stored.paths),
                                      fontSize: fontSize) { openDiagram(diagram.id) }
                         .accessibilityIdentifier("chat.message.figureParts.\(message.payload.entityID.wire)")
@@ -197,6 +207,15 @@ private struct TranscriptMessage: View {
         .padding(.horizontal, 16).padding(.top, first ? 16 : 0).padding(.bottom, last ? 24 : 20)
         .frame(maxWidth: 720).frame(maxWidth: .infinity)
         .accessibilityIdentifier("chat.message.\(message.id.wire)")
+    }
+
+    /// An answer with figure parts whose text marks where each part goes: the parts and the figure (nil on this device
+    /// when the paper isn't here; the crops then show their numbers and labels only).
+    private var inlineParts: (stored: StoredFigureParts, image: CGImage?)? {
+        guard !streaming, message.payload.role == .assistant, let diagram, diagram.isFigureParts, let model = papers?.model,
+              let stored = model.diagram(diagram.id).flatMap({ StoredFigureParts.decode($0.source) }),
+              FigurePartMarkers.hasMarkers(message.payload.text ?? "") else { return nil }
+        return (stored, model.figureImage(manifest: stored.manifestSHA256, paths: stored.paths))
     }
 
     /// Selected answer text and formulas: Quote in Chat, Explain, Define (not while streaming).

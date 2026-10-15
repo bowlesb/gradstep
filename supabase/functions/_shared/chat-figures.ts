@@ -50,11 +50,11 @@ export function figureBlocks(images: readonly FigureImage[]): Anthropic.Beta.Mes
 
 export const SHOW_FIGURE_PARTS_TOOL: Anthropic.Beta.Messages.BetaTool = {
   name: 'show_figure_parts',
-  description: 'Breaks a figure attached to the question into its parts: the reader sees each part cropped from the figure with your '
-    + 'note beside it. Use it only when a figure is attached (F1, F2…) and it has distinct parts worth reading one by one: panels, '
-    + 'stages of a pipeline, blocks of an architecture, regions of a plot, the legend. Boxes are fractions of the image: [left, top, '
-    + 'right, bottom], each from 0 to 1, tight around one part. 2 to 8 parts in reading order. Call it at most once, after your text; '
-    + 'never also call create_visual or create_diagram in the same answer.',
+  description: 'Breaks a figure attached to the question into its parts: the reader sees each part cropped from the figure, placed in '
+    + 'your text where a line [[part N]] stands (N counts the parts in the order you list them). Use it only when a figure is attached '
+    + '(F1, F2…) and it has distinct parts worth reading one by one: panels, stages of a pipeline, blocks of an architecture, regions of '
+    + 'a plot, the legend. Boxes are fractions of the image: [left, top, right, bottom], each from 0 to 1, tight around one part. 2 to 8 '
+    + 'parts in reading order. Call it at most once, after your text; never also call create_visual or create_diagram in the same answer.',
   input_schema: {
     type: 'object',
     properties: {
@@ -134,7 +134,14 @@ export function figureInstructions(images: readonly FigureImage[], parts: boolea
     + `(${images.map(i => i.id).join(', ')}) with ${images.length > 1 ? 'their captions and paragraph numbers' : 'its caption and paragraph number'}. `
     + 'Read the image itself: axes, legends, panels, arrows, labels and values; say what the figure shows, not only what the caption says, and '
     + 'cite the figure by its paragraph number.'
-    + (parts ? ' Write your explanation first, complete on its own: the figure\'s overall message and how its parts fit together. Then, '
-      + 'when the figure has distinct parts worth reading one by one, call show_figure_parts once; the reader sees each part cropped '
-      + 'beside your text, with your note.' : '');
+    + (parts ? ' Write your explanation first: the figure\'s overall message, then its parts one by one. When the figure has distinct '
+      + 'parts worth reading one by one, put a line [[part N]] on its own, alone, right before the paragraph about part N (N = 1, 2, … '
+      + 'in the order you will list them), then call show_figure_parts once with the parts in that order; the reader sees each part\'s '
+      + 'crop where its marker stands, so do not repeat a part\'s description in a separate list.' : '');
+}
+
+/** The answer when the model called show_figure_parts without prose of its own: each part's note under its marker, so
+ * the crops still sit beside their notes inline (the reader renders `[[part N]]` lines as the crop of part N). */
+export function figurePartsFallbackText(parts: FigureParts): string {
+  return `${parts.title}\n\n${parts.parts.map((p, i) => `[[part ${i + 1}]]\n**${p.label}**: ${p.note}`).join('\n\n')}`;
 }

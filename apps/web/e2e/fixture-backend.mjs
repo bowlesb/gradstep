@@ -471,7 +471,10 @@ createServer(async (request, response) => {
       event('done', { stop_reason: 'end_turn', credits: 1 }); return response.end();
     }
     event('status', { kind: body.action === 'related' ? 'searching' : 'reading', query: body.action === 'related' ? 'DPO related work' : undefined });
-    const text = 'The **objective** compares preferences [¶2].\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
+    const plain = 'The **objective** compares preferences [¶2].\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
+    // A question with a figure attached: the answer marks where each part goes (2026-10-15), as the live model writes it.
+    const text = body.figures?.length && (body.capabilities ?? []).includes('visual_answers')
+      ? 'Figure 1 has two halves.\n\n[[part 1]]\nThe left half of the figure sets up the question.\n\n[[part 2]]\nThe right half shows the result.' : plain;
     const chunks = text.match(mode === 'steady' ? /[\s\S]/g : /[\s\S]{1,24}/g);
     let index = 0;
     const tick = () => {

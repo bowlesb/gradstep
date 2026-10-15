@@ -672,3 +672,14 @@ passage that names one) carries that figure's image, so the model reads the figu
   JPEG on white with a canvas, the `figure_parts` event kept as the same `figure-parts-v1` JSON the apps write (so either
   surface shows the other's parts), crops under the answer and the whole figure with numbered outlines in a dialog.
   Images are shown as `data:` URLs (the page's image policy admits no `blob:`). Journey: `e2e/arxiv-html.spec.ts`.
+- **Crops inline, where the answer discusses each part** (2026-10-15, owner: "It should display sub figures at the
+  bottom the crops should be inline, right as the chat discusses each one"). The model writes a line `[[part N]]` on its
+  own right before the paragraph about part N, then calls `show_figure_parts` with the parts in that order; with no
+  prose of its own the fallback answer carries the same markers. The apps (`FigurePartMarkers`, `InlineFigurePartsAnswer`)
+  and the browser (`chat-figures.ts`, `Diagram.tsx`) show part N's crop with its number and label at its marker, and
+  the whole figure, small with the parts outlined and numbered, at the bottom (a tap opens it). A marker is never
+  text: it is left out while streaming (with a half-arrived one at the end), when copying, in previews, and when its
+  part does not exist. Answers saved before keep the strip of crops under the answer. Proof on staging: DPO's Figure 1,
+  `[[part 1]]` before the three RLHF steps and `[[part 2]]` before the DPO pipeline, 28 credits, 14.8 s. Journeys:
+  `WorkflowJourneyTests/testFigurePartsAreInlineWhereTheAnswerDiscussesThem` (`--chat-fixture-mode=figure_parts`) and
+  `e2e/arxiv-html.spec.ts` (text, part, text, part, text in order).

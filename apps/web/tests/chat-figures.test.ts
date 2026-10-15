@@ -49,3 +49,19 @@ describe('figures in chat (CHAT.md "Figures in chat")', () => {
     expect(requestBody(general).figures).toBeUndefined();
   });
 });
+
+import { hasPartMarkers, partSegments, stripPartMarkers } from '../src/lib/chat-figures';
+describe('where an answer\'s figure parts go', () => {
+  const answer = 'Figure 2 has two panels.\n\n[[part 1]]\nThe left panel plots reward.\n\n[[part 2]]\nThe right panel plots win rate.';
+  it('splits the answer at each part, as the apps do', () => {
+    expect(partSegments(answer, 2)).toEqual([{ kind: 'text', text: 'Figure 2 has two panels.' }, { kind: 'part', number: 1 },
+      { kind: 'text', text: 'The left panel plots reward.' }, { kind: 'part', number: 2 }, { kind: 'text', text: 'The right panel plots win rate.' }]);
+    expect(hasPartMarkers(answer)).toBe(true); expect(hasPartMarkers('Plain [[links]] stay.')).toBe(false);
+    expect(partSegments('Intro.\n[[Part 3]] Trailing words.\n[[part 1]]\nOne.', 2)).toEqual([{ kind: 'text', text: 'Intro.' },
+      { kind: 'text', text: 'Trailing words.' }, { kind: 'part', number: 1 }, { kind: 'text', text: 'One.' }]);
+  });
+  it('never shows a marker, nor half of one while streaming', () => {
+    expect(stripPartMarkers(answer)).toBe('Figure 2 has two panels.\n\nThe left panel plots reward.\n\nThe right panel plots win rate.');
+    expect(stripPartMarkers('Intro.\n\n[[par', true)).toBe('Intro.\n');
+  });
+});

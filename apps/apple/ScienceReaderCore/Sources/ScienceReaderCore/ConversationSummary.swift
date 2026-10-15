@@ -116,7 +116,8 @@ public enum ChatPreview {
     public static func plain(_ text: String, limit: Int = 160) -> String {
         var parts: [String] = []
         var length = 0
-        for block in ChatRichText.parse(String(text.prefix(ConversationSummary.answerPrefix))) {
+        // An answer's figure-part markers place crops; a preview never shows them.
+        for block in ChatRichText.parse(FigurePartMarkers.stripped(String(text.prefix(ConversationSummary.answerPrefix)), streaming: true)) {
             let inline: [ChatInline]
             var heading = false
             switch block {

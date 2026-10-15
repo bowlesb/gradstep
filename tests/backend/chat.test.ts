@@ -2024,13 +2024,15 @@ test('show_figure_parts: boxes within the image, tight enough, against an attach
   assert.match(system, /comes with the figure it refers to, attached as image \(F1\)/);
   assert.match(system, /call show_figure_parts once/);
   assert.match(system, /Write your explanation first/);
+  assert.match(system, /put a line \[\[part N\]\] on its own/, 'markers place the crops inline');
+  assert.match(sentParams!.tools!.find(t => t.name === 'show_figure_parts') ? JSON.stringify(sentParams!.tools) : '', /\[\[part N\]\]/);
 
   // Parts without prose: the answer is the parts' notes.
   const bare = harness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'show_figure_parts',
     input: { figure: 'F1', title: 'Pipeline', parts: [{ label: 'Left', box: [0, 0, 0.5, 1], note: 'The encoder.' }, { label: 'Right', box: [0.5, 0, 1, 1], note: 'The decoder.' }] } }] }) });
   await runChat(bare.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', figures: [figure()] }, bare.emit, new AbortController().signal);
   assert.deepEqual(bare.events.map(e => e.event), ['delta', 'figure_parts', 'done']);
-  assert.equal((bare.events[0].data as { text: string }).text, 'Pipeline\n\n1. **Left**: The encoder.\n2. **Right**: The decoder.');
+  assert.equal((bare.events[0].data as { text: string }).text, 'Pipeline\n\n[[part 1]]\n**Left**: The encoder.\n\n[[part 2]]\n**Right**: The decoder.');
 });
 
 test('look_at_figure: offered to devices that can answer it (consent v3), relayed as figure_request, never with a figure attached', async () => {

@@ -127,3 +127,99 @@ struct FigurePartsThumbnails: View {
         }
     }
 }
+
+/// An answer whose text marks where its figure's parts go: the text in pieces, each part's crop between them where the
+/// answer discusses it, with its number and label (the prose already says what it shows, so no note is repeated).
+/// Each piece of text keeps the answer's own rendering, selection actions and citations.
+struct InlineFigurePartsAnswer: View {
+    let source: String
+    let stored: StoredFigureParts
+    let image: CGImage?
+    let fontSize: Double
+    let identifier: String
+    var onQuote: ChatQuoteHandler?
+    var onCite: ChatCiteHandler?
+
+    var body: some View {
+        let segments = FigurePartMarkers.segments(ChatRichText.withoutAnswerLabel(source), parts: stored.parts.count)
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                switch segment {
+                case .text(let text):
+                    ChatMessageText(source: text, fontSize: fontSize, streaming: false, speaker: "Assistant",
+                                    identifier: index == 0 ? identifier : "\(identifier).\(index)", assistant: true, onQuote: onQuote, onCite: onCite)
+                case .part(let number):
+                    InlineFigurePart(number: number, part: stored.parts[number - 1], image: image, fontSize: fontSize)
+                }
+            }
+        }
+    }
+}
+
+/// One part, inline in an answer: its number and label, and its crop from the paper's figure at a readable width.
+struct InlineFigurePart: View {
+    let number: Int
+    let part: ChatFigureParts.Part
+    let image: CGImage?
+    let fontSize: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(number)").font(.system(size: fontSize * 0.74, weight: .bold)).foregroundStyle(.white)
+                    .frame(minWidth: 20, minHeight: 20).background(Circle().fill(Color.accentColor))
+                Text(part.label).font(.system(size: fontSize * 0.86, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+            }
+            if let image, let crop = FigurePartsView.crop(image, part.box) {
+                Image(decorative: crop, scale: 1).resizable().scaledToFit()
+                    .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
+                    .frame(maxWidth: 280, maxHeight: 280, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Part \(number): \(part.label)")
+        .accessibilityIdentifier("chat.message.figurePart.\(number)")
+    }
+}
+
+/// Under an answer with inline parts: the whole figure, small, with its parts outlined and numbered; a tap opens the
+/// full view with every part and note. Without the paper on this device, the title alone.
+struct FigurePartsOverview: View {
+    let stored: StoredFigureParts
+    let image: CGImage?
+    let fontSize: Double
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let image {
+                    Image(decorative: image, scale: 1).resizable().scaledToFit()
+                        .overlay { GeometryReader { proxy in
+                            ForEach(Array(stored.parts.enumerated()), id: \.offset) { index, part in
+                                let rect = CGRect(x: part.box[0] * proxy.size.width, y: part.box[1] * proxy.size.height,
+                                                  width: (part.box[2] - part.box[0]) * proxy.size.width, height: (part.box[3] - part.box[1]) * proxy.size.height)
+                                RoundedRectangle(cornerRadius: 3).stroke(Color.accentColor, lineWidth: 1.5)
+                                    .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
+                                Text("\(index + 1)").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                                    .padding(.horizontal, 4).padding(.vertical, 1).background(Capsule().fill(Color.accentColor))
+                                    .position(x: rect.minX + 9, y: rect.minY + 8)
+                            }
+                        } }
+                        .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.25)))
+                        .frame(maxWidth: 240, maxHeight: 160, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Label("\(stored.title) · whole figure", systemImage: "square.split.2x2").font(.system(size: fontSize * 0.8))
+                    .foregroundStyle(Color.accentColor).lineLimit(2)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Whole figure: \(stored.title), \(stored.parts.count) parts outlined")
+        .accessibilityHint("Opens each part with its explanation")
+    }
+}

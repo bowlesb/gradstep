@@ -37,7 +37,8 @@ struct ChatMessageText: View {
     var onCite: ChatCiteHandler?
 
     var body: some View {
-        let shown = assistant ? ChatRichText.withoutAnswerLabel(source) : source
+        // An answer's `[[part N]]` lines are where its figure crops go (the transcript places them); never shown as text.
+        let shown = assistant ? FigurePartMarkers.stripped(ChatRichText.withoutAnswerLabel(source), streaming: streaming) : source
         let blocks = ChatRichText.parse(shown, streaming: streaming)
         if blocks.contains(where: { if case .table = $0 { true } else { false } }) {
             ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, speaker: speaker, selectable: assistant, onQuote: onQuote, onCite: onCite)
