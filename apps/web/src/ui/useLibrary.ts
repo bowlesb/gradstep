@@ -10,6 +10,7 @@ import { cancellation } from '../lib/cancellation';
 import { type Command, type CommandResponse, type Entry, type Import, type Item, CommandRefreshError, receiptFloor, Reconciler, sendCommand } from '../lib/library';
 import { editedTags } from '../lib/paper-tags';
 import { type Mark, importStep, observe, pollDelay, retryingAutomatically } from '../lib/progress';
+import { backoffDelay, jittered, retryAfterMs } from '../lib/retry';
 
 export type LoadState = 'loading' | 'ready' | 'error';
 
@@ -76,17 +77,28 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs) {
     return task;
   }, [account, publish]);
 
+  // Consecutive failed pulls and the server's last requested wait: polls slow down while the server struggles and
+  // add jitter while it's healthy, so browsers don't come back in step (RESILIENCE.md fix 8).
+  const failures = useRef(0), serverWait = useRef<number | undefined>(undefined);
+  const pull = useCallback(() => refresh().then(() => { failures.current = 0; serverWait.current = undefined; },
+    error => { failures.current += 1; serverWait.current = retryAfterMs(error); throw error; }), [refresh]);
+  const nextDelay = useCallback((cadenceMs: number) => failures.current === 0 ? jittered(cadenceMs)
+    : backoffDelay(failures.current, Math.max(cadenceMs, 4_000), 300_000, serverWait.current), []);
+
   useEffect(() => {
     const owner = cancellation([auth.snapshot().signal]);
     lifetime.current = owner;
     running.current = null;
-    refresh().catch(() => {});
-    const focus = () => { if (document.visibilityState === 'visible') refresh().catch(() => {}); };
+    failures.current = 0;
+    pull().catch(() => {});
+    const focus = () => { if (document.visibilityState === 'visible') pull().catch(() => {}); };
     document.addEventListener('visibilitychange', focus);
     window.addEventListener('focus', focus);
-    const slow = setInterval(focus, 60_000);
-    return () => { owner.abort(); document.removeEventListener('visibilitychange', focus); window.removeEventListener('focus', focus); clearInterval(slow); };
-  }, [refresh]);
+    let slow: ReturnType<typeof setTimeout>;
+    const schedule = () => { slow = setTimeout(() => { focus(); schedule(); }, nextDelay(60_000)); };
+    schedule();
+    return () => { owner.abort(); document.removeEventListener('visibilitychange', focus); window.removeEventListener('focus', focus); clearTimeout(slow); };
+  }, [pull, nextDelay]);
 
   // Imports under way: poll fast at first, then slower (native importPollDelay).
   // Visible import rows own their clocks; ticking a progress bar must not render the whole library.
@@ -99,13 +111,13 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs) {
     const tick = () => {
       if (disposed) return;
       timer = setTimeout(async () => {
-        if (document.visibilityState === 'visible') await refresh().catch(() => {});
+        if (document.visibilityState === 'visible') await pull().catch(() => {});
         tick();
-      }, pollDelay((Date.now() - started) / 1000) * 1000);
+      }, nextDelay(pollDelay((Date.now() - started) / 1000) * 1000));
     };
     tick();
     return () => { disposed = true; clearTimeout(timer); };
-  }, [active, refresh]);
+  }, [active, pull, nextDelay]);
 
   const command = useCallback(async (key: string, request: Command) => {
     const owner = lifetime.current;

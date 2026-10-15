@@ -281,11 +281,35 @@ const memberFiles = () => {
   walk(''); return files;
 };
 
+// Faults (docs/architecture/RESILIENCE.md "Fault injection"): POST /__fault {path, kind, times?} makes requests whose
+// path starts with `path` fail as a struggling service does — kind 429 (with retry_after 30), 500/503, 'timeout' (the
+// connection drops) or 'malformed' (a broken body) — `times` times, or until /__reset.
+const faults = [];
+function injectedFault(url, request, response) {
+  const path = url.pathname.replace(/^\//, '');
+  const fault = faults.find(f => f.times > 0 && path.startsWith(f.path));
+  if (!fault) return false;
+  fault.times -= 1;
+  if (fault.kind === 'timeout') { setTimeout(() => request.socket.destroy(), 300); return true; }
+  if (fault.kind === 'malformed') { response.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); response.end('{"unexpected":'); return true; }
+  const status = Number(fault.kind);
+  response.writeHead(status, { ...cors, 'Content-Type': 'application/json', ...(status === 429 ? { 'Retry-After': '30', 'Access-Control-Expose-Headers': 'Retry-After' } : {}) });
+  response.end(JSON.stringify({ code: 'fault_injected', ...(status === 429 ? { retry_after: 30 } : {}) }));
+  return true;
+}
+
 createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${PORT}`);
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
-  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); faults.length = 0; seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__fault' && request.method === 'POST') {
+    const p = await read(request);
+    if (typeof p?.path !== 'string' || !['timeout', 'malformed', 429, 500, 503].includes(p.kind)) return send(response, 400, { error: 'invalid_fault' });
+    faults.push({ path: p.path.replace(/^\//, ''), kind: p.kind, times: Number.isInteger(p.times) && p.times > 0 ? p.times : Infinity });
+    return send(response, 200, { ok: true });
+  }
+  if (!url.pathname.startsWith('/__') && injectedFault(url, request, response)) return;
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;

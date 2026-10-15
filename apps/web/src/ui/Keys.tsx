@@ -6,12 +6,15 @@ import { BackendError } from '../lib/backend';
 import { StorageError, activateJournal, storage } from '../lib/idb';
 import { type Preparation, bootstrap, prepare, recoverWithCode } from '../lib/keys';
 import { WireError, generateBundle, generateRecoveryCode, recoveryCodeBytes } from '../lib/wire';
+import { backoffDelay, isTransient, retryAfterMs } from '../lib/retry';
 import { ApproveFromPhone } from './Approve';
 import { Brand } from './common';
 import { storageGuidance, useStorageLifecycle } from './StorageNotice';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
-type View = { kind: 'preparing' } | { kind: 'activation'; ready: Ready } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string; title?: string; reload?: boolean };
+type View = { kind: 'preparing' } | { kind: 'activation'; ready: Ready } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string; title?: string; reload?: boolean }
+  // Gradstep couldn't be reached at launch: retried by itself with back-off (RESILIENCE.md fix 3), never a dead end.
+  | { kind: 'offline'; retryAt: number; failures: number };
 
 function message(error: unknown): string {
   // Another tab changed or closed storage: say what to do, rather than blaming the browser's capabilities.
@@ -54,15 +57,27 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
   const approved = useCallback((result: Preparation) => route(result, lifetime.current!.signal), [route]);
   const approvalIssue = useCallback((error: unknown) => { if (!lifetime.current?.signal.aborted) setIssue(message(error)); }, []);
 
+  // Consecutive launch attempts that couldn't reach Gradstep; a success or a manual retry starts again.
+  const offlineFailures = useRef(0);
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
-    setView({ kind: 'preparing' }); setIssue(null);
-    prepare(account, controller.signal).then(result => route(result, controller.signal), error => {
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    setView(previous => previous.kind === 'offline' ? previous : { kind: 'preparing' }); setIssue(null);
+    prepare(account, controller.signal).then(result => { offlineFailures.current = 0; route(result, controller.signal); }, error => {
+      if (controller.signal.aborted) return;
+      if (isTransient(error)) {
+        // 1, 2, 4 s, then up to a minute, with jitter; the server's own wait wins.
+        const failures = ++offlineFailures.current;
+        const delay = backoffDelay(failures, 1_000, 60_000, retryAfterMs(error));
+        setView({ kind: 'offline', retryAt: Date.now() + delay, failures });
+        retry = setTimeout(() => setAttempt(a => a + 1), delay);
+        return;
+      }
       const guidance = storageGuidance(error);
-      if (!controller.signal.aborted) setView({ kind: 'failed', message: message(error), title: guidance?.title, reload: !!guidance?.reload });
+      setView({ kind: 'failed', message: message(error), title: guidance?.title, reload: !!guidance?.reload });
     });
-    return () => controller.abort();
+    return () => { controller.abort(); clearTimeout(retry); };
   }, [account, attempt, route]);
 
   return (
@@ -94,6 +109,7 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
         </>}
         {view.kind === 'preparing' && <><h1>Preparing this browser…</h1><div className="spinner" aria-label="Preparing" />
           {storageIssue === 'blocked' && <p className="issue" role="status">{storageGuidance(new StorageError('storage_blocked'))!.text}</p>}</>}
+        {view.kind === 'offline' && <Offline retryAt={view.retryAt} failures={view.failures} onRetry={() => setAttempt(a => a + 1)} />}
         {view.kind === 'failed' && <>
           <h1>{view.title ?? 'Couldn’t prepare this browser'}</h1>
           <p className="issue" role="alert">{view.message}</p>
@@ -125,6 +141,20 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
       </section>
     </main>
   );
+}
+
+/** Gradstep can't be reached right now: say so, count down to the next automatic try, and offer one now. */
+function Offline({ retryAt, failures, onRetry }: { retryAt: number; failures: number; onRetry: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const tick = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(tick); }, []);
+  const seconds = Math.max(0, Math.ceil((retryAt - now) / 1000));
+  return <div data-testid="launch-offline">
+    <h1>Can’t reach Gradstep</h1>
+    <p className="muted">Your library, chats and this browser’s keys are safe. {failures > 3
+      ? 'The service may be down for a moment; this page keeps trying by itself.' : 'Check your connection.'}</p>
+    <p role="status" aria-live="polite">{seconds > 0 ? `Trying again in ${seconds} s…` : 'Trying again…'}</p>
+    <button className="primary" onClick={onRetry} data-testid="launch-retry-now">Try now</button>
+  </div>;
 }
 
 function Recover({ email, busy, issue, onSubmit, onUsePhone }: { account: string; email: string | null; busy: boolean; issue: string | null;

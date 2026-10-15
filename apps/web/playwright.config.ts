@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 import { fixturePort as FIXTURE, appPort as APP } from './e2e/environment';
 // The reader, chat and library journeys, at tablet widths too.
-const TABLET_JOURNEYS = ['**/reader.spec.ts', '**/chat.spec.ts', '**/chat-controls.spec.ts', '**/library.spec.ts', '**/library-columns.spec.ts', '**/arxiv-html.spec.ts', '**/parity.spec.ts', '**/equation-view.spec.ts'];
+const TABLET_JOURNEYS = ['**/reader.spec.ts', '**/chat.spec.ts', '**/chat-controls.spec.ts', '**/library.spec.ts', '**/library-columns.spec.ts', '**/arxiv-html.spec.ts', '**/parity.spec.ts', '**/equation-view.spec.ts', '**/resilience.spec.ts'];
 const env = `VITE_SUPABASE_URL=http://127.0.0.1:${FIXTURE} VITE_AUTH_URL=http://localhost:${FIXTURE} VITE_SUPABASE_ANON_KEY=fixture-anon VITE_ENVIRONMENT=fixture`;
 // Use WEB_E2E_DEV=1 for targeted StrictMode lifecycle journeys (the security-header test requires production).
 const appCommand = process.env.WEB_E2E_DEV === '1'

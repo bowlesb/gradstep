@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BackendError, createSupportReport, getSupportThread, listSupportReports, reportImage, replyToSupportReport, setSupportReportStatus, uploadSupportImage, type SupportReportWire, type SupportThreadWire } from '../lib/backend';
 import { captureBrowserScreen, captureErrorMessage, disposeScreenshot, prepareScreenshot, type ScreenshotAttachment } from '../lib/support';
 import { formatDate, Dialog } from './common';
+import { faultSummary } from '../lib/faults';
 
 const WEB_VERSION = '0.1.0';
 
@@ -16,8 +17,10 @@ function issueMessage(error: unknown): string {
 }
 
 function screenLabel(): string {
-  const route = `${location.pathname}${location.pathname === '/' ? '' : location.search}`.slice(0, 72) || '/';
-  return `Browser ${route} · ${Math.max(1, Math.round(innerWidth))}×${Math.max(1, Math.round(innerHeight))}`.slice(0, 100);
+  const route = `${location.pathname}${location.pathname === '/' ? '' : location.search}`.slice(0, 48) || '/';
+  // Recent faults as codes only (lib/faults.ts), so a report says which part failed.
+  const faults = faultSummary(2);
+  return `Browser ${route} · ${Math.max(1, Math.round(innerWidth))}×${Math.max(1, Math.round(innerHeight))}${faults ? ` · ${faults}` : ''}`.slice(0, 100);
 }
 
 export function ReportDialog({ open, onClose, account, onSent }: { open: boolean; onClose: () => void; account: string; onSent?: () => void }) {

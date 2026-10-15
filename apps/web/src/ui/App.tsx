@@ -24,6 +24,7 @@ import { FeedRail, FeedView, useFeed } from './Feed';
 import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
+import { RegionBoundary } from './ErrorBoundary';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { readStored, type Route, type Theme, useTheme, writeStored } from './prefs';
@@ -148,6 +149,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [howGradstepWorks, setHowGradstepWorks] = useState(false);
   const [help, setHelp] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const report = useCallback(() => setReportOpen(true), []);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [chatDefaults, setChatDefaults] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -489,14 +491,25 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <button className="secondary small" onClick={() => setChats(true)}>Review drafts</button>
         <button className="icon-button" aria-label="Dismiss save notice" onClick={() => setNavigationIssue(false)}><Icon name="close" size={16} /></button>
       </div>}
+      {/* Each region fails on its own (RESILIENCE.md fix 2): a malformed answer, feed row or episode never blanks the page. */}
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
-        left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
-      {item && <LibraryActionSurface actions={readerActions} />}
-      <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
+        left={<RegionBoundary region="side" label="The side panel" compact resetKey={route} onReport={report}>{left}</RegionBoundary>}
+        center={<RegionBoundary region={route === 'paper' ? 'reader' : route === 'feed' ? (listening ? 'listen' : 'feed') : 'library'}
+          label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : 'The library'}
+          resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}`} onReport={report}>{center}</RegionBoundary>}
+        right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
+          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />
+        </RegionBoundary>} />
+      {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
+      <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
       {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
-      <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
-      <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
-      {chat && <ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} />}
+      <RegionBoundary region="add-paper" label="Add paper" compact resetKey={adding} onReport={report}>
+        <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
+      </RegionBoundary>
+      <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
+        <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
+      </RegionBoundary>
+      {chat && <RegionBoundary region="chat-defaults" label="Chat defaults" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
       <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">

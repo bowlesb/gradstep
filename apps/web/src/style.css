@@ -700,3 +700,12 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .reading-toggle.on { color: var(--accent); }
 @container center (max-width: 720px) { .reading-status { display: none; } }
 @media (prefers-reduced-motion: reduce) { .reader.reading .paper-toolbar, .reading-progress { transition: none; } }
+
+/* A region that failed on its own (RESILIENCE.md): a short notice in its place, the rest of the page untouched. */
+.region-fault { margin: 24px auto; max-width: 520px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.region-fault p { margin: 0 0 10px; }
+.region-fault.compact { margin: 8px; padding: 10px 12px; font-size: 13px; }
+/* Launch without our server: the browser keeps going and says so. */
+.offline-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; background: var(--accent-soft); color: var(--text); font-size: 13px; border-bottom: 1px solid var(--line); }
+.offline-banner .spacer { flex: 1; }
+.as-of { color: var(--muted); font-size: 12px; }

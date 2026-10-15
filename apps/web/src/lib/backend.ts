@@ -22,7 +22,18 @@ export type AuthIssue = 'invalid_email' | 'no_account' | 'rate_limited' | 'inval
   | 'oauth_cancelled' | 'oauth_invalid' | 'oauth_configuration';
 export class AuthError extends Error { constructor(readonly issue: AuthIssue, readonly retryAfter?: number) { super(issue); } }
 /** `code` is a known server code (e.g. `library_resync_required`, `key_authority_required`) or `request_failed`. */
-export class BackendError extends Error { constructor(readonly code: string, readonly status = 0) { super(code); } }
+/** Seconds from a `Retry-After` header (delta-seconds or an HTTP date) or a body's `retry_after`; bounded to an hour. */
+export function parseRetryAfter(header: string | null, body?: unknown, now = Date.now()): number | undefined {
+  if (typeof body === 'number' && Number.isFinite(body) && body >= 0) return Math.min(body, 3600);
+  const value = header?.trim();
+  if (!value) return undefined;
+  if (/^\d+(\.\d+)?$/.test(value)) return Math.min(Number(value), 3600);
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? undefined : Math.min(Math.max(0, (date - now) / 1000), 3600);
+}
+
+/** `retryAfter`: seconds the server asked us to wait (a 429's Retry-After or body `retry_after`), when it said. */
+export class BackendError extends Error { constructor(readonly code: string, readonly status = 0, readonly retryAfter?: number) { super(code); } }
 
 const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'stale_key_epoch', 'operation_id_conflict', 'request_rate_limit',
   'library_account_import_limit', 'library_environment_import_limit', 'library_active_import_limit', 'library_account_receipt_limit',
@@ -387,9 +398,12 @@ async function authorized(path: string, init: { method?: string; body?: BodyInit
   init.signal?.throwIfAborted();
   if (reply.status === 401) throw new BackendError('sign_in_required', 401);
   if (reply.status < 200 || reply.status >= 300) {
-    const v = parse(reply.body) as { code?: unknown; message?: unknown } | null;
+    const v = parse(reply.body) as { code?: unknown; message?: unknown; retry_after?: unknown } | null;
     const candidates = [v?.message, v?.code].filter((c): c is string => typeof c === 'string');
-    throw new BackendError(candidates.find(c => KNOWN.has(c)) ?? 'request_failed', reply.status);
+    const known = candidates.find(c => KNOWN.has(c));
+    // A busy server without a more specific code: "throttled", with its wait (RESILIENCE.md fix 9).
+    const wait = reply.status === 429 ? parseRetryAfter(reply.headers.get('retry-after'), v?.retry_after) : undefined;
+    throw new BackendError(known ?? (reply.status === 429 ? 'throttled' : 'request_failed'), reply.status, wait);
   }
   return reply.body;
 }

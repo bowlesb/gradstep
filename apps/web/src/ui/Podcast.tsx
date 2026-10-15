@@ -9,6 +9,7 @@ import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
 import { Dialog } from './common';
+import { asOf } from '../lib/retry';
 import './Podcast.css';
 import { useMedia } from './prefs';
 import { PodcastRequests, PodcastTrackingError } from '../lib/podcast-requests';
@@ -32,6 +33,8 @@ export function usePodcasts(account: string) {
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'failed' | 'unavailable'>('idle');
   const [next, setNext] = useState<string | null>(null);
+  // When the list shown was last loaded: a failed check keeps it, said as of then (RESILIENCE.md fix 10).
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const request = useRef<AbortController | null>(null);
   const load = useCallback((more = false) => {
     if (owner.signal.aborted || owner.session?.user.id !== account) return;
@@ -47,16 +50,16 @@ export function usePodcasts(account: string) {
         const known = new Set(previous.map(e => e.releaseID));
         return [...previous, ...catalog.episodes.filter(e => !known.has(e.releaseID))].slice(0, 500);
       });
-      setNext(catalog.next); setState('loaded');
+      setNext(catalog.next); setState('loaded'); setLoadedAt(Date.now());
     }, error => { if (!controller.signal.aborted && !owner.signal.aborted) setState(featureUnavailable(error) ? 'unavailable' : 'failed'); });
   }, [account, next, owner]);
   useEffect(() => {
-    const retire = () => { request.current?.abort(); setEpisodes([]); setCapabilities(null); setNext(null); setState('idle'); };
+    const retire = () => { request.current?.abort(); setEpisodes([]); setCapabilities(null); setNext(null); setState('idle'); setLoadedAt(null); };
     owner.signal.addEventListener('abort', retire, { once: true });
     if (owner.signal.aborted) retire();
     return () => { owner.signal.removeEventListener('abort', retire); retire(); };
   }, [owner]);
-  return { episodes, capabilities, state, next, load };
+  return { episodes, capabilities, state, next, load, loadedAt };
 }
 export type PodcastsModel = ReturnType<typeof usePodcasts>;
 
@@ -78,7 +81,7 @@ function Badges({ episode }: { episode: Episode }) {
 
 /** The Feed's Listen filter: ready shared episodes. Playing never adds a paper or starts a paid generation. */
 export function ListenView({ podcasts, player }: { podcasts: PodcastsModel; player: PlayerModel }) {
-  const { episodes, capabilities, state, next, load } = podcasts;
+  const { episodes, capabilities, state, next, load, loadedAt } = podcasts;
   useEffect(() => { if (state === 'idle') load(); }, [state, load]);
   if (state === 'loading' && !episodes.length) return <div className="empty"><div className="spinner" aria-label="Loading episodes" /></div>;
   if (state === 'failed' && !episodes.length) return (
@@ -92,6 +95,7 @@ export function ListenView({ podcasts, player }: { podcasts: PodcastsModel; play
     <>
       <div className="feed-status"><span>{episodes.length} {episodes.length === 1 ? 'episode' : 'episodes'} · AI-generated from each paper’s text</span>
         <button className="link small-link" onClick={() => load()} disabled={state === 'loading'}><Icon name="refresh" size={12} /> {state === 'loading' ? 'Checking…' : 'Check for new episodes'}</button></div>
+      {state === 'failed' && <p className="feed-note issue" role="status" data-testid="podcast-stale">Couldn’t check for new episodes. These are the episodes from {loadedAt ? asOf(loadedAt) : 'earlier'}.</p>}
       <ul className="feed-grid" data-testid="podcast-grid">
         {episodes.map(e => {
           const current = player.episode?.releaseID === e.releaseID;
