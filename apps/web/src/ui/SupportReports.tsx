@@ -134,13 +134,13 @@ export function ReportsDialog({ open, onClose, account }: { open: boolean; onClo
 function ReportThread({ thread, account, onBack, onRefresh }: { thread: SupportThreadWire; account: string; onBack: () => void; onRefresh: () => void }) {
   const [reply, setReply] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [images, setImages] = useState<Record<string, string>>({});
   useEffect(() => {
-    let live = true; const urls: string[] = [];
-    void Promise.all(thread.attachments.map(async attachment => { try { const bytes = await reportImage(attachment.id, account); const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' })); return [attachment.id, url] as const; } catch { return null; } })).then(values => {
-      const next = values.filter((value): value is readonly [string, string] => !!value);
-      if (live) { urls.push(...next.map(([, url]) => url)); setImages(Object.fromEntries(next)); }
-      else next.forEach(([, url]) => URL.revokeObjectURL(url));
+    // data: URLs: the page's image policy admits 'self' and data: only (vite.config.ts), never blob:.
+    let live = true;
+    const dataURL = (bytes: Uint8Array) => { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192)); return `data:image/png;base64,${btoa(s)}`; };
+    void Promise.all(thread.attachments.map(async attachment => { try { return [attachment.id, dataURL(new Uint8Array(await reportImage(attachment.id, account)))] as const; } catch { return null; } })).then(values => {
+      if (live) setImages(Object.fromEntries(values.filter((value): value is readonly [string, string] => !!value)));
     });
-    return () => { live = false; urls.forEach(URL.revokeObjectURL); };
+    return () => { live = false; };
   }, [thread, account]);
   const sendReply = async () => {
     const text = reply.trim(); if (!text || busy) return; setBusy(true); setError(null);

@@ -33,7 +33,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "sanitize-html": "2.18.0",
-    "saxes": "6.0.0"
+    "saxes": "6.0.0",
+    "temml": "0.11.11"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.63.0",

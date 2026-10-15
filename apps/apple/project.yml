@@ -35,6 +35,12 @@ targets:
       - path: ScienceReader/Resources/ReaderSamples
         type: folder
         buildPhase: resources
+      # The on-device PDF route's compiled models (docs/architecture/DEVICE_PDF_ROUTE.md; `node scripts/device-models.mjs`
+      # fills it, digests locked by device-models.lock.json). Not committed; the experiment hides itself without them.
+      - path: DeviceModels
+        type: folder
+        buildPhase: resources
+        optional: true
     # The app's Info.plist is generated from these properties (`xcodegen generate` rewrites ScienceReader/Info.plist).
     # UIBackgroundModes/audio: paper podcasts keep playing with the screen locked or in another app
     # (docs/architecture/PAPER_PODCASTS.md); the player only plays local, verified files.

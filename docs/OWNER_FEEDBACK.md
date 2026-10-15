@@ -15,6 +15,12 @@ fix below and adds clearer reader download-limit, interrupted-download and updat
 |---|---|---|---|---|
 | 1 | "Sending figures to model should be ok?" (after "the agent has the ability to break figures into cropped sub sections as part of the response and explain each component") | Chat | Yes, on the same terms as the text: the figure is part of the paper whose full text already goes to Anthropic, under the same retention terms, prepared on the device from arXiv's HTML (no PDF, nothing new fetched); about half a cent per figure. The one condition: the consent must say so, so it is v3 ("When you ask about a figure or table, its image from the paper") and readers are asked once more. Built: a question naming a figure sends its image; the model can break it into parts, shown as crops under the answer with a note each (CHAT.md "Figures in chat"). Proven live on DPO's Figure 1. | Built; build 47 (apps); the browser follows |
 
+## Chat request, 2026-10-15: "create a version of the on device model into the app knowing it won't always work"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | Put the on-device model in the app, knowing it won't always work, so we can try it and give feedback; evaluate it and prepare a message for the model-building agent | Reader (experimental) | The desktop's port kit, ported: Swift text layer, Core ML models, TypeScript converter (`docs/architecture/DEVICE_PDF_ROUTE.md`). A paper whose PDF is on the device: options › "Read with the on-device model"; the reading opens under a banner with Report and "Show the HTML reading". Evaluated on the eight fixtures (3 pass every gate, all verify); message: `docs/proposals/DEVICE_MODEL_FEEDBACK.md`. | Built; Simulator journey; build 49 |
+
 ## TestFlight, 2026-10-15 05:50–06:07 UTC (build 46, iPhone, 6 items)
 
 Screenshots: `.artifacts/feedback/` is not committed; the batch was read from App Store Connect.

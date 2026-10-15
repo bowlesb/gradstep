@@ -6,8 +6,10 @@ import { BackendError, functionStream } from './backend';
 import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
+import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 
-export const CONSENT_VERSION = 'cloud-ai-v2';
+// v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md).
+export const CONSENT_VERSION = 'cloud-ai-v3';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study';
 export interface ChatTurn { role: Role; text: string }
@@ -23,6 +25,8 @@ export interface ChatRequest {
   study?: StudyMap;
   /** The reader's "Visual answers" setting (chat defaults): false tells the server to answer in prose only. */
   visualAnswers?: boolean;
+  /** The figures the question names, from the open paper (consent v3); at most two. */
+  figures?: ChatFigureImage[];
 }
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
@@ -66,6 +70,10 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own).
   if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study') body.follow_ups = true;
   if (r.action === 'study') body.study = r.study ?? EMPTY_STUDY_MAP;
+  // Figures go only with a paper question, never with Add paper or a diagram repair (chat-figures.ts).
+  if (r.figures?.length && body.mode === 'paper' && r.action !== 'ingest' && r.action !== 'diagram_fix') {
+    body.figures = r.figures.map(f => ({ id: f.id, paragraph: f.paragraph, caption: f.caption, media_type: f.mediaType, data: f.data, width: f.width, height: f.height }));
+  }
   return body;
 }
 
@@ -83,6 +91,8 @@ export type StreamEvent =
   | { type: 'followups'; questions: string[] }
   /** Study: the updated knowledge map after a tutored answer (servers from 2026-10-14); kept with the open chat only. */
   | { type: 'study'; map: StudyMap }
+  /** The parts of an attached figure the answer explains (servers from 2026-10-15); kept as a figure-parts diagram. */
+  | { type: 'figure_parts'; parts: FigureParts }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string; credits?: number };
 
@@ -179,6 +189,11 @@ export class SSEParser {
         const questions = (Array.isArray(v?.questions) ? v.questions : []).filter((q): q is string => typeof q === 'string')
           .map(q => q.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim()).filter(q => q.length >= 3 && [...q].length <= 120).slice(0, 3);
         return questions.length ? { type: 'followups', questions } : null;
+      }
+      case 'figure_parts': {
+        // Informational: parts that are not usable are dropped, never fatal.
+        const parts = parseFigureParts(v);
+        return parts ? { type: 'figure_parts', parts } : null;
       }
       case 'study': {
         // A map that is not whole is dropped; the answer and the previous map are unaffected.

@@ -655,4 +655,8 @@ passage that names one) carries that figure's image, so the model reads the figu
   Walk me through each part of it."` on DPO: the answer read the figure's own details (the trophy marking the
   preferred response, the example prompt) and gave five parts with boxes that crop the right regions (rendered by
   `FigurePartsRenderingTests`). 5 credits with the paper cached.
-- **Not yet:** the browser keeps consent v2 and sends no figures; it shows the answer text but not the parts.
+- **Browser** (2026-10-15): the same rules (`apps/web/src/lib/chat-figures.ts`): consent v3 (readers who accepted v2
+  are asked once more, the dialog names figures), at most two named figures from the open paper's bundle prepared as
+  JPEG on white with a canvas, the `figure_parts` event kept as the same `figure-parts-v1` JSON the apps write (so either
+  surface shows the other's parts), crops under the answer and the whole figure with numbered outlines in a dialog.
+  Images are shown as `data:` URLs (the page's image policy admits no `blob:`). Journey: `e2e/arxiv-html.spec.ts`.

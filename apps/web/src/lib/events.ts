@@ -1,3 +1,4 @@
+import { decodeStoredFigureParts } from './chat-figures';
 // Private events (the decrypted payload of wire format 1) and the state they build — a port of
 // ScienceReaderCore/PrivateState.swift and ConversationSummary.swift. Payloads are decoded and validated
 // as Swift does; unknown keys are ignored, UUIDs are compared lowercase and written uppercase (as Swift's
@@ -366,12 +367,14 @@ export class PrivateState {
 // ---------- Diagrams (ChatDiagram.swift) ----------
 
 /** `html-v1` (2026-10-15): a visual answer, the server-sanitized HTML fragment the chat frame shows with no scripts. */
-export type DiagramFormat = 'mermaid-v1' | 'html-v1';
+/** `figure-parts-v1` (2026-10-15): an answer's figure parts (chat-figures.ts `StoredFigureParts`), never the image. */
+export type DiagramFormat = 'mermaid-v1' | 'html-v1' | 'figure-parts-v1';
 export interface ChatDiagram { title: string; source: string; messageID?: string; format?: DiagramFormat }
-const DIAGRAM_BYTES: Record<DiagramFormat, number> = { 'mermaid-v1': 16_000, 'html-v1': 24_000 };
+const DIAGRAM_BYTES: Record<DiagramFormat, number> = { 'mermaid-v1': 16_000, 'html-v1': 24_000, 'figure-parts-v1': 16_000 };
 export function makeDiagram(title: string, source: string, messageID?: string, format: DiagramFormat = 'mermaid-v1'): ChatDiagram | null {
   const t = title.trim();
   if (!t || [...t].length > 200 || !source.trim() || utf8Bytes(source) > DIAGRAM_BYTES[format]) return null;
+  if (format === 'figure-parts-v1' && !decodeStoredFigureParts(source)) return null;
   return format === 'mermaid-v1' ? { title: t, source, messageID } : { title: t, source, messageID, format };
 }
 /** Sorted keys, as Swift encodes it. */
@@ -383,7 +386,7 @@ export function decodeDiagram(text: string | undefined): ChatDiagram | null {
   if (!text || utf8Bytes(text) > 48_000) return null;
   try {
     const v = JSON.parse(text) as Record<string, unknown>;
-    if ((v.format !== 'mermaid-v1' && v.format !== 'html-v1') || typeof v.title !== 'string' || typeof v.source !== 'string') return null;
+    if ((v.format !== 'mermaid-v1' && v.format !== 'html-v1' && v.format !== 'figure-parts-v1') || typeof v.title !== 'string' || typeof v.source !== 'string') return null;
     if (!absent(v.messageID) && !isUUID(v.messageID)) return null;
     return makeDiagram(v.title, v.source, isUUID(v.messageID) ? v.messageID.toLowerCase() : undefined, v.format as DiagramFormat);
   } catch { return null; }

@@ -104,7 +104,8 @@ struct RootView: View {
         .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID).macSheetKeys() }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         .sheet(item: $model.localPaperPresentation) { presentation in
-            LocalPDFReaderView(presentation: presentation).macSheetKeys()
+            LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } })
+                .macSheetKeys()
         }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
@@ -1309,6 +1310,15 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings.autoDownload")
                 } header: { Text("Library") } footer: {
                     Text("A paper added from the Feed or by its arXiv id downloads and prepares on this device right away, so it opens at once. Off, a paper downloads when you open it or tap its cloud symbol.")
+                }
+                // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md): only in builds that carry it.
+                if DeviceModelEngine.available {
+                    Section {
+                        Toggle("On-device PDF reader", isOn: $model.deviceModelReader)
+                            .accessibilityIdentifier("settings.deviceModel")
+                    } header: { Text("Experimental") } footer: {
+                        Text("Reads a paper’s PDF on this device with Gradstep’s own models: layout, formulas and text, nothing sent anywhere. It takes minutes and can be wrong; formulas it is unsure of are shown as images of the page. Choose “Read with the on-device model” in a paper’s options, then report what you see.")
+                    }
                 }
                 Section("Reading") {
                     ThemePicker(selection: $model.appearance)

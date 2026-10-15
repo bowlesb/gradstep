@@ -97,8 +97,13 @@ struct ReaderProfile: Sendable {
         imageTypes: ["image/png", "image/jpeg"], equations: 4000, figures: 256, blocks: 20_000, headings: 1000,
         indexBytes: 4_194_304, totalPixels: 64_000_000)
 
+    /// The on-device PDF route (experimental): PNG crops only (figures at 150 dpi, unsure formulas at 216 dpi).
+    static let devicePDF = ReaderProfile(rendererID: "gradstep-device-pdf-mathml-v1", sourceKind: "device-pdf",
+        imageTypes: ["image/png"], equations: 4000, figures: 256, blocks: 20_000, headings: 1000,
+        indexBytes: 4_194_304, totalPixels: 64_000_000)
+
     static func matching(_ manifest: ReaderBundleManifest) -> ReaderProfile? {
-        [authored, mathpixMathML, arxivHTML, arxivHTML2].first { $0.rendererID == manifest.renderer.id && $0.sourceKind == manifest.source.kind }
+        [authored, mathpixMathML, arxivHTML, arxivHTML2, devicePDF].first { $0.rendererID == manifest.renderer.id && $0.sourceKind == manifest.source.kind }
     }
 }
 
@@ -115,6 +120,11 @@ public struct VerifiedReaderBundle: Sendable {
     public var arxivSource: ArxivReaderSource? {
         guard manifest.source.kind == "arxiv-html", let data = contents[manifest.source.provenancePath] else { return nil }
         return try? ArxivReaderProvenance.validate(data, manifest: manifest, index: index)
+    }
+    /// The PDF and library paper behind a bundle the on-device model made; nil for every other kind.
+    public var devicePDFSource: DevicePDFReaderSource? {
+        guard manifest.source.kind == "device-pdf", let data = contents[manifest.source.provenancePath] else { return nil }
+        return try? DevicePDFReaderProvenance.validate(data, manifest: manifest)
     }
     public var entryURL: URL { resourceURL(path: manifest.entrypoint) }
     private func resourceURL(path: String) -> URL {
@@ -169,6 +179,10 @@ public struct VerifiedReaderBundle: Sendable {
         if manifest.source.kind == "arxiv-html" {
             guard let provenance = frozen[manifest.source.provenancePath] else { throw ReaderBundleError.invalidResource }
             _ = try ArxivReaderProvenance.validate(provenance, manifest: manifest, index: index)
+        }
+        if manifest.source.kind == "device-pdf" {
+            guard let provenance = frozen[manifest.source.provenancePath] else { throw ReaderBundleError.invalidResource }
+            _ = try DevicePDFReaderProvenance.validate(provenance, manifest: manifest)
         }
         return Self(manifestSHA256: expectedSHA256, manifestData: data, manifest: manifest, index: index, contents: frozen)
     }

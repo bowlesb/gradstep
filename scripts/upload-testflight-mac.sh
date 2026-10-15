@@ -19,6 +19,10 @@ PROFILE_NAME="Gradstep Mac App Store"
 ARCHIVE=".artifacts/Gradstep-mac-$BUILD.xcarchive"
 AUTH="-authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticationKeyIssuerID $ASC_ISSUER_ID"
 mkdir -p .artifacts
+# The on-device PDF route's models (docs/architecture/DEVICE_PDF_ROUTE.md), as in upload-testflight.sh. An iOS upload
+# of the same build has just prepared them; checking again is cheap when they match the lock.
+[ -f apps/apple/DeviceModels/device-models.json ] || node scripts/device-models.mjs > ".artifacts/device-models-mac-$BUILD.log" 2>&1 || { echo "Device models not prepared"; exit 1; }
+(cd apps/apple && xcodegen generate > /dev/null)
 (cd apps/apple && xcodebuild archive -project ScienceReader.xcodeproj -scheme ScienceReader -configuration Internal \
   -destination 'generic/platform=macOS,variant=Mac Catalyst' -archivePath "../../$ARCHIVE" \
   -derivedDataPath ../../.artifacts/dd-archive-mac CURRENT_PROJECT_VERSION="$BUILD" -allowProvisioningUpdates $AUTH) \

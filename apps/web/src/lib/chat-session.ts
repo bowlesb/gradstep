@@ -1,4 +1,5 @@
 import { localChatContext } from './arxiv-reader';
+import { chatFigureImages, storedFigurePartsText, type FigureParts } from './chat-figures';
 import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
 // rebinds a task. When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md,
@@ -15,7 +16,7 @@ import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, makeRequest, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { isProfileChoice, isStandard, offers, parseProfileID, ProfileTableLoader, STANDARD_PROFILE, type ProfileChoice, type ProfileTable } from './chat-profiles';
 import { cancellation } from './cancellation';
-import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor, type SourcePaperReference, type DiagramFormat } from './events';
+import { cleanTopicTitle, encodeDiagram, makeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor, type SourcePaperReference, type DiagramFormat } from './events';
 import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
@@ -498,6 +499,17 @@ export class ChatSession {
 
   /** Study needs the paper numbered on this device (the HTML reader's bundle), as the server's tutor cites [¶N]. */
   canStudy(documentID: string | null): boolean { return !!documentID && this.sourcePapers.has(documentID); }
+  /** A figure's image from this chat's paper on this device, when its bundle is the one the parts were cut from. */
+  async figureImage(documentID: string | null, manifestSHA256: string, path: string): Promise<Blob | null> {
+    const local = documentID ? this.sourcePapers.get(documentID) : undefined;
+    if (!local) return null;
+    try {
+      const bundle = await local.load();
+      const bytes = bundle.manifestSHA256 === manifestSHA256 ? bundle.contents.get(path) : undefined;
+      const type = bundle.manifest.members.find(m => m.path === path)?.media_type;
+      return bytes && type ? new Blob([bytes as BlobPart], { type }) : null;
+    } catch { return null; }
+  }
   /** Starts (or restarts) a study in this chat: an empty map and the opening turn, sent as the reader's message. */
   startStudy(c: Composer, selection: string | null = null, anchor?: TextAnchor): Promise<void> {
     this.allowed();
@@ -655,12 +667,20 @@ export class ChatSession {
       { ...(table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {}), visualAnswers: readVisualAnswers() });
     if (question.action === 'study') request.study = c.study ?? { ...EMPTY_STUDY_MAP };
     const reference=this.reference(c.documentID);
+    let figureManifest:string|null=null;
     if(reference){
       try {
         const local=this.sourcePapers.get(reference.membershipID);
         if(!local)throw new Error('local_reader_unavailable');
-        request.localContext=localChatContext(reference,await local.load());
+        const bundle=await local.load();
+        request.localContext=localChatContext(reference,bundle);
         request.documentID=null;
+        // The figures the question names, from this paper's own images (consent v3 names them; CHAT.md).
+        if(question.action!=='ingest'&&question.action!=='diagram_fix'){
+          const asked=branch.messages.at(-1)?.payload.text??'';
+          const figures=await chatFigureImages(asked,question.selection,bundle);
+          if(figures.length){request.figures=figures;figureManifest=bundle.manifestSHA256;}
+        }
       }catch{if(!this.signal.aborted){c.phase='idle';c.issue='local_reader_unavailable';this.publish();}return;}
       if(this.signal.aborted || this.retiredStorage || !this.accepting)return;
     }
@@ -700,6 +720,7 @@ export class ChatSession {
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
     let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
+    let figureParts: FigureParts | null = null;
     try {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
         controller.signal.throwIfAborted();
@@ -713,6 +734,7 @@ export class ChatSession {
         else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
         else if (event.type === 'followups') followUps = event.questions;
         else if (event.type === 'study') nextMap = event.map;
+        else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();
@@ -725,6 +747,14 @@ export class ChatSession {
     // An externally retired login cannot write or expose text in its replacement. Its turn checkpoint stays on this
     // device and reopens as interrupted on the next sign-in; it is never re-requested.
     if (this.signal.aborted) { releaseTurn?.(); return; }
+    // The answer's figure parts are its drawing (the server sends at most one kind): the parts and where their image
+    // is in this paper's bundle, never the image (StoredFigureParts, as the apps keep it).
+    if (figureParts && figureManifest) {
+      const parts: FigureParts = figureParts, image = request.figures?.find(f => f.id === parts.figure);
+      const made = image ? makeDiagram(parts.title, storedFigurePartsText({ manifestSHA256: figureManifest, blockID: image.blockID,
+        assetPath: image.assetPath, paragraph: parts.paragraph, title: parts.title, parts: parts.parts }), undefined, 'figure-parts-v1') : null;
+      if (made) diagram = { title: made.title, source: made.source, format: 'figure-parts-v1' };
+    }
     // A valid diagram-only completion still needs an assistant event to attach the encrypted diagram to.
     if (!c.liveText.trim() && diagram && outcome.kind === 'completed' && ['end_turn', 'stop_sequence'].includes(outcome.stopReason)) c.liveText = diagram.title;
     const result = resolution(outcome, c.liveText);

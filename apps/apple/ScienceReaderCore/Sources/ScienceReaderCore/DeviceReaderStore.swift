@@ -20,7 +20,7 @@ public struct LocalReaderIdentity: Codable, Equatable, Hashable, Sendable {
     }
 
     private static func validSourceID(_ value: String) -> Bool {
-        (try? ArxivReaderSource(sourceID: value, revision: 1)) != nil
+        (try? ArxivReaderSource(sourceID: value, revision: 1)) != nil || DevicePDFPaper.isLocal(value)
     }
 }
 
@@ -143,8 +143,11 @@ public actor DeviceReaderStore {
     /// before installation; this layer rechecks the manifest, source and hashes.
     @discardableResult
     public func install(bundle: VerifiedReaderBundle, createdAt: Date = Date()) throws -> LocalReaderRecord {
-        guard let source = bundle.arxivSource else { throw LocalReaderStoreError.invalidBundle }
-        let sourceID = source.sourceID, revision = source.revision
+        // An arXiv HTML bundle names its source; one the on-device model made names the library paper its PDF
+        // belongs to (kept in a store of its own, `device-model-readers`, so the two never conflict).
+        let named: (sourceID: String, revision: Int)? = bundle.arxivSource.map { ($0.sourceID, $0.revision) }
+            ?? bundle.devicePDFSource?.paper.map { ($0.sourceID, $0.revision) }
+        guard let (sourceID, revision) = named else { throw LocalReaderStoreError.invalidBundle }
         let payload = try DeviceReaderPackage.encode(bundle)
         guard Int64(payload.count) <= Self.maximumReaderBytes else { throw LocalReaderStoreError.tooLarge }
         let digest = Data(SHA256.hash(data: payload))
@@ -204,7 +207,9 @@ public actor DeviceReaderStore {
             guard data.count == row.byteCount,
                   Data(SHA256.hash(data: data)) == identity.sha256 else { throw LocalReaderStoreError.corruptData }
             let bundle = try DeviceReaderPackage.decode(data)
-            guard let source = bundle.arxivSource, source.sourceID == identity.sourceID, source.revision == identity.revision else {
+            let named: (sourceID: String, revision: Int)? = bundle.arxivSource.map { ($0.sourceID, $0.revision) }
+                ?? bundle.devicePDFSource?.paper.map { ($0.sourceID, $0.revision) }
+            guard let source = named, source.sourceID == identity.sourceID, source.revision == identity.revision else {
                 throw LocalReaderStoreError.corruptData
             }
             return bundle

@@ -1,0 +1,25 @@
+{
+ "note": "Package digests of the device route models (scripts/device-models.mjs). Converter 0.1.0 port kit, 2026-10-14.",
+ "models": {
+  "layout": {
+   "export": "layout-fcos-v5-coreml",
+   "package": "layout.mlpackage",
+   "sha256": "724a95c5350b6d84994d5d2192d00c0daf52606d3b465118caed1eb532f8ef8a"
+  },
+  "tagger": {
+   "export": "inline-tagger-v4-coreml",
+   "package": "tagger.mlpackage",
+   "sha256": "516064d074f540bf1cb700a4fd52bbeacdeb6e5cf975c3c459ca5b4d8ff72121"
+  },
+  "encoder": {
+   "export": "texteller-ft-v4-coreml-int8",
+   "package": "encoder.mlpackage",
+   "sha256": "9b279b0908a40d3e2009c361494cf40b266d4c5562c99abc4fa6f6205934524b"
+  },
+  "decoder": {
+   "export": "texteller-ft-v4-coreml-int8",
+   "package": "decoder-step.mlpackage",
+   "sha256": "496cb753a538026821a1176987c44dde030b84eaa96a12d4a8f95578e7d82433"
+  }
+ }
+}

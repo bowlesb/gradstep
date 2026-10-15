@@ -45,4 +45,6 @@ test('a browser report includes a screenshot and can be reopened from My reports
   await page.getByRole('button', { name: /Add paper is disabled/ }).click();
   await expect(page.getByRole('heading', { name: 'Add paper is disabled' })).toBeVisible();
   await expect(page.getByAltText('Screenshot shared with support')).toBeVisible();
+  // It decodes (the page's image policy blocks blob: URLs; a blocked image still shows its alt text).
+  await expect.poll(() => page.getByAltText('Screenshot shared with support').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
 });

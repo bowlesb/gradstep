@@ -201,6 +201,17 @@ final class ReaderModel {
     /// Settings › Library (owner, build 44: "a setting that allows you to decide if you want to automatically download
     /// new papers"): a paper added here downloads and prepares on this device at once.
     var autoDownloadNewPapers = UserDefaults.standard.object(forKey: "library.autoDownload") as? Bool ?? true { didSet { UserDefaults.standard.set(autoDownloadNewPapers, forKey: "library.autoDownload") } }
+    /// The on-device PDF model (experimental; docs/architecture/DEVICE_PDF_ROUTE.md). On while it is being tested.
+    var deviceModelReader = UserDefaults.standard.object(forKey: "reader.deviceModel") as? Bool ?? true { didSet { UserDefaults.standard.set(deviceModelReader, forKey: "reader.deviceModel") } }
+    /// A reading by the on-device model in progress (one at a time).
+    var deviceModelRun: DeviceModelRun? = nil
+    /// Why the last model reading failed, in the reader's words.
+    var deviceModelIssue: String? = nil
+    /// Summaries of the model readings made this session (pages, time, formulas), by manifest digest.
+    var deviceModelSummaries: [String: DeviceModelSummary] = [:]
+    /// The HTML copy shown before a model reading took its place, to go back to.
+    @ObservationIgnored var deviceModelHTMLBundles: [UUID: VerifiedReaderBundle] = [:]
+    @ObservationIgnored var deviceModelTask: Task<Void, Never>? = nil
     /// The open paper is the copy an earlier version prepared because preparing it again failed (the reason).
     var readerFallbackNotice: String? = nil
     /// A newer copy of the open paper was prepared behind the page; "Reload" shows it.
@@ -577,7 +588,7 @@ final class ReaderModel {
     private var backend: BackendClient?
     private var keys: DeviceKeys?
     private var device: LocalDevice?
-    private var localPersistence = ReaderLocalPersistence()
+    private(set) var localPersistence = ReaderLocalPersistence()
     private var draftQueue: ReaderDraftQueue?
     private var pendingDraftCheckpoints: [UUID: ChatWorkspace.Checkpoint] = [:]
     private var draftsRestored = false
@@ -586,7 +597,7 @@ final class ReaderModel {
     private var sync: CloudSync?
     private var started = false
     private var workOwnership = ReaderWorkOwnership()
-    private var sessionID: UUID { workOwnership.accountSessionID }
+    var sessionID: UUID { workOwnership.accountSessionID }
     private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged(); podcasts.accountChanged() } } }
     private var publishedGeneration: Int64 = -1
     /// Encrypted changes on this device not yet synced (the Account page says how many).
@@ -4161,6 +4172,8 @@ final class ReaderLocalPersistence {
     /// the cloud library journal or the PDF upload queue.
     private(set) var localPaperStore: DevicePaperStore?
     private(set) var localReaderStore: DeviceReaderStore?
+    /// Readings the on-device model made (experimental), apart from the HTML copies so the two never conflict.
+    private(set) var modelReaderStore: DeviceReaderStore?
     /// Device-local reading activity, sealed beside the store under the same local-store key.
     private(set) var readingStore: ReadingActivityStore?
     private(set) var isActivating = false
@@ -4241,6 +4254,10 @@ final class ReaderLocalPersistence {
                 localReaderStore = try DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-readers", isDirectory: true),
                                                          accountID: accountID, localKey: localKey)
             }
+            if modelReaderStore == nil {
+                modelReaderStore = try? DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-model-readers", isDirectory: true),
+                                                          accountID: accountID, localKey: localKey)
+            }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
@@ -4252,6 +4269,8 @@ final class ReaderLocalPersistence {
         let localReaders = try DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-readers", isDirectory: true),
                                                    accountID: accountID, localKey: localKey)
         store = opened; localPaperStore = localPapers; localReaderStore = localReaders
+        modelReaderStore = try? DeviceReaderStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-model-readers", isDirectory: true),
+                                                  accountID: accountID, localKey: localKey)
         readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         return opened
     }

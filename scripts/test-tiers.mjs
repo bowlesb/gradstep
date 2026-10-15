@@ -22,6 +22,7 @@ if(tier==='status'){
 }
 const commands={
  fast:[['compiler freshness',process.execPath,['scripts/build-arxiv-compiler.mjs','--check'],root],
+  ['device PDF compiler freshness',process.execPath,['scripts/build-device-pdf-compiler.mjs','--check'],root],
   ['backend',process.execPath,['--test',...readdirSync('tests/backend').filter(p=>p.endsWith('.test.ts')).map(p=>'tests/backend/'+p)],root],
   ['browser units','npm',['run','test:fast'],root+'apps/web']],
  slow:[['reader journeys','npm',['run','e2e','--','arxiv-compiler.spec.ts','arxiv-html.spec.ts','device-pdf.spec.ts',...extra],root+'apps/web']],

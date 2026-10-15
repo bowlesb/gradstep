@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Dialog } from './common';
 import { CopyButton } from './CopyButton';
+import { decodeStoredFigureParts } from '../lib/chat-figures';
 
 /** The document a visual answer is shown in: no scripts, no network (chat-visual.ts `visualDocument`, kept alike). */
 export function visualDocument(html: string, dark: boolean): string {
@@ -25,9 +26,10 @@ export function Visual({ title, html }: { title: string; html: string }) {
     </Dialog></div>;
 }
 
-export function Diagram({ title, source, format }: { title: string; source: string; format?: 'mermaid-v1' | 'html-v1' }) {
+export function Diagram({ title, source, format, figureImage = null }: { title: string; source: string; format?: 'mermaid-v1' | 'html-v1' | 'figure-parts-v1'; figureImage?: Blob | null }) {
   const [open, setOpen] = useState(false);
   if (format === 'html-v1') return <Visual title={title} html={source} />;
+  if (format === 'figure-parts-v1') return <FigureParts title={title} source={source} image={figureImage} />;
   // The diagram itself in the answer (owner, build 46: "If you bothered to create a diagram please show it"); full size on request.
   return <div className="chat-diagram">
     <div className="diagram-inline"><DiagramFrame source={source} compact /></div>
@@ -75,4 +77,50 @@ export function DiagramFrame({ source, compact = false }: { source: string; comp
     {doc && <div ref={viewport} className="diagram-viewport" {...(compact ? {} : { tabIndex: 0, role: 'region', 'aria-label': 'Diagram viewport' })}>
       <iframe ref={frame} title="Diagram" className="diagram-frame" style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }} sandbox="allow-scripts" srcDoc={doc} onLoad={() => frame.current?.contentWindow?.postMessage({ gradstep: 'diagram', requestID, source, dark: (document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches)) }, '*')} />
     </div>}</>;
+}
+
+/** An answer's figure parts (CHAT.md "Figures in chat"): each part cropped from the paper's own figure with its
+ * number and label under the answer; a click opens the whole figure with the parts outlined and each crop's note.
+ * Without the paper on this device (`image` null), the notes alone. */
+export function FigureParts({ title, source, image }: { title: string; source: string; image: Blob | null }) {
+  const stored = decodeStoredFigureParts(source);
+  const [url, setURL] = useState<string | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!image) { setURL(null); return; }
+    // A data URL: the page's image policy admits 'self' and data: only (vite.config.ts), never blob:.
+    let live = true;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (!live || typeof reader.result !== 'string') return;
+      const made = reader.result; setURL(made);
+      const probe = new Image(); probe.onload = () => { if (live) setSize({ w: probe.naturalWidth, h: probe.naturalHeight }); }; probe.src = made;
+    };
+    reader.readAsDataURL(image);
+    return () => { live = false; };
+  }, [image]);
+  if (!stored) return null;
+  const crop = (box: [number, number, number, number], width: number) => {
+    if (!url || !size) return null;
+    // Fit within width × width (a tall part is not taller than it is wide here), never magnified past 3×.
+    const [l, t, r, b] = box, cw = (r - l) * size.w, ch = (b - t) * size.h, scale = Math.min(width / cw, width / ch, 3);
+    return <div className="figure-part-crop" style={{ width: Math.round(cw * scale), height: Math.round(ch * scale) }}>
+      <img src={url} alt="" style={{ width: size.w * scale, height: size.h * scale, transform: `translate(${-l * size.w * scale}px, ${-t * size.h * scale}px)` }} /></div>;
+  };
+  return <div className="figure-parts" data-testid="figure-parts">
+    <button type="button" className="figure-parts-strip" onClick={() => setOpen(true)} aria-label={`${title}: ${stored.parts.length} parts. Open the figure`}>
+      {stored.parts.map((p, i) => <span key={i} className="figure-part-thumb">
+        {crop(p.box, 120) ?? <span className="figure-part-number">{i + 1}</span>}
+        <span className="fine">{i + 1}. {p.label}</span></span>)}
+    </button>
+    <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Open figure</button></div>
+    <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
+      {url && size && <div className="figure-parts-whole" style={{ width: `min(100%, ${Math.max(360, size.w)}px)`, aspectRatio: `${size.w} / ${size.h}` }}>
+        <img src={url} alt={title} width={size.w} height={size.h} />
+        {stored.parts.map((p, i) => <span key={i} className="figure-part-outline" style={{ left: `${p.box[0] * 100}%`, top: `${p.box[1] * 100}%`,
+          width: `${(p.box[2] - p.box[0]) * 100}%`, height: `${(p.box[3] - p.box[1]) * 100}%` }}><span>{i + 1}</span></span>)}
+      </div>}
+      <ol className="figure-parts-notes">{stored.parts.map((p, i) => <li key={i}>{crop(p.box, 220)}<div><strong>{p.label}</strong><p>{p.note}</p></div></li>)}</ol>
+    </Dialog></div>;
 }

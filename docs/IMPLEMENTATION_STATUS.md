@@ -2,6 +2,35 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## The on-device PDF model in the app (experimental); figures in browser chat — 2026-10-15, ~08:00 UTC
+
+Owner: "create a version of the on device model into the app knowing it won't always work… prepare a message for the
+other model building agent." Design and status: [DEVICE_PDF_ROUTE.md](architecture/DEVICE_PDF_ROUTE.md); the message:
+[DEVICE_MODEL_FEEDBACK.md](proposals/DEVICE_MODEL_FEEDBACK.md).
+- **The route**: the desktop's frozen port kit (converter 0.1.0, layout-fcos-v5, texteller-ft-v4 int8, inline-tagger-v4)
+  as a Swift text layer equal to pdfplumber, the three Core ML models from Swift (equal to PyTorch on their samples),
+  and the converter rules in TypeScript (equal to the Python route given the same inputs) running in JavaScriptCore.
+  Output is this app's reader vocabulary (unsure formulas as page images, `reader-math-image`), verified by the same
+  Swift verifier as every bundle (`ReaderProfile.devicePDF`).
+- **Fixtures, end to end on this Mac**: 8/8 convert and verify; 3 pass every gate of the desktop's
+  `bundle_conformance.py`; 13 to 150 s a paper, the recogniser about 0.17 s a formula. Font smoothing off in page
+  renders was the largest single fix.
+- **App**: Settings › Experimental; "Read with the on-device model" in a paper's options (and an added PDF's view);
+  progress with Stop; the reading under its banner with Report and "Show the HTML reading"; readings kept per account
+  in `device-model-readers`. The models (365 MB, `scripts/device-models.mjs`, digests in `device-models.lock.json`) are
+  compiled into the app by both TestFlight scripts.
+- **Simulator**: the stateful recogniser does not load there; the route degrades to formulas as images and says so.
+- **Browser figures in chat**: consent v3, named figures sent from the open paper, the parts cropped under the answer
+  and outlined in the whole figure, stored as the apps' `figure-parts-v1`. Report screenshots in the browser now show
+  (the page's image policy blocked their `blob:` URLs; both use `data:` URLs).
+- **Converter**: `ARXIV_RENDERER_REVISION` 10 (the validator's device-PDF vocabulary is in the shared compiler).
+
+Evidence: `npm test` (with the device-PDF compiler freshness step and 15 converter tests); `swift test` in
+ScienceReaderCore (300 tests, including the text layer and host tests); browser journeys 24/24 (HTML paper with a
+figure question, compiler, chat, chat controls, study, support reports, device PDF, library); iPhone Simulator: 63
+unit tests including `DeviceModelRouteTests` (a generated paper to a verified, stored bundle; a fixture paper's first
+three pages in 12 s) and the journeys `DeviceModelJourneyTests` and `testHTMLPaperInPageLinksOfferBack`.
+
 ## Build 46 feedback: headers, diagrams in the answer, suggested questions on request, exact times, oversized images — 2026-10-15, ~07:30 UTC
 
 Six TestFlight items on build 46 (`docs/OWNER_FEEDBACK.md` "TestFlight, 2026-10-15 05:50–06:07 UTC").
@@ -22,6 +51,8 @@ study); iPhone Simulator: 72 unit tests (LibraryMetadata with the new date test,
 FigurePartsRendering, PaperWebView, PaperPassage, ImportProgress, ArxivHTMLReader) and the journeys for diagrams (now
 asserting the drawing in the answer and the folded questions), a broken diagram, chat controls and all seven reader
 navigation journeys. The reference journey still expected the build-43 dialog; it uses the edit menu now.
+
+Deployment (commit `8c4767b`): browser Pages **`91d5ffac`**; TestFlight **build 48** iOS and Mac both VALID (23:45 PDT).
 
 ## Visual answers in chat; the fresh-paper sweep's next refusals — 2026-10-15, ~06:00 UTC
 

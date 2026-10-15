@@ -11,7 +11,12 @@ function attr(node: DomNode, name: string): string | undefined { return node.att
 const indexText = (node: DomNode, maximum: number) => excerpt(normalizeSpace(domText(node)), maximum);
 const blank = (node: DomNode) => node.type === 'text' && !node.data.trim();
 
-export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<string, { width: number; height: number }>, extendedFigures = false): void {
+/** The on-device PDF converter's additions (docs/architecture/DEVICE_PDF_ROUTE.md), admitted only for its bundles:
+ * an unsure formula shown as its crop (`reader-math-image`, a style limited to em sizes) and footnote paragraphs. */
+const DEVICE_PDF_CLASSES = new Set(['reader-math-image', 'reader-footnote']);
+const MATH_IMAGE_STYLE = { inline: /^height:\d{1,3}(\.\d{1,3})?em;vertical-align:-?\d{1,3}(\.\d{1,3})?em$/, display: /^width:\d{1,3}(\.\d{1,3})?em$/ };
+
+export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<string, { width: number; height: number }>, extendedFigures = false, devicePDF = false): void {
   check(bytes.length <= LIMITS.htmlBytes, 'html_limit');
   const html = decodeUTF8(bytes, 'html_encoding');
   const prefix = htmlPrefix(index.title), suffix = HTML_SUFFIX;
@@ -48,7 +53,9 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
     }
     check(name === 'math' || name in HTML_ATTRIBUTES, 'html_tag');
     const inlineImage = extendedFigures && name === 'img' && attr(node,'class') === 'reader-inline-image';
-    if (phrasingOnly) check(PHRASING.has(name) || inlineImage, 'html_content_model');
+    const mathImage = devicePDF && name === 'img' && node.parent?.name === 'span' && attr(node.parent, 'data-reader-equation') !== undefined &&
+      (attr(node.parent, 'class') ?? '').split(' ').includes('reader-math-image');
+    if (phrasingOnly) check(PHRASING.has(name) || inlineImage || mathImage, 'html_content_model');
     if (name === 'math') {
       check(node.parent?.name === 'span' && attr(node.parent, 'data-reader-equation') !== undefined, 'math_context');
       for (const [key, value] of Object.entries(node.attribs)) check(mathAttributeIsSafe('math', key, value), 'math_attribute');
@@ -57,9 +64,9 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
     }
     const allowed = HTML_ATTRIBUTES[name];
     for (const [key, value] of Object.entries(node.attribs)) {
-      check((allowed.includes(key) || (inlineImage && key === 'class')) && !CONTROL.test(value) && value.length <= LIMITS.textBytes * 2, `html_attribute:${name}`);
+      check((allowed.includes(key) || (inlineImage && key === 'class') || (mathImage && key === 'style')) && !CONTROL.test(value) && value.length <= LIMITS.textBytes * 2, `html_attribute:${name}`);
       if (key === 'id') { check(idIsSafe(value) && !ids.has(value), 'dom_id'); ids.add(value); }
-      if (key === 'class') check(inlineImage || value.split(' ').every(item => CLASSES.has(item)), 'html_class');
+      if (key === 'class') check(inlineImage || value.split(' ').every(item => CLASSES.has(item) || (devicePDF && DEVICE_PDF_CLASSES.has(item))), 'html_class');
     }
     if (attr(node, 'data-reader-block') !== undefined) {
       check(attr(node, 'id') === attr(node, 'data-reader-block') && blockOf(node.parent!) === null, 'block_nesting');
@@ -83,6 +90,13 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
         return;
       }
       case 'img': {
+        if (mathImage) {
+          const image = images.get(attr(node, 'src') ?? '');
+          const display = (attr(node.parent!, 'class') ?? '').split(' ')[1] === 'reader-display';
+          check(image && attr(node, 'width') === String(image.width) && attr(node, 'height') === String(image.height) &&
+            (attr(node, 'alt') ?? '').trim().length > 0 && MATH_IMAGE_STYLE[display ? 'display' : 'inline'].test(attr(node, 'style') ?? ''), 'image_reference');
+          return;
+        }
         const image = images.get(attr(node, 'src') ?? '');
         check((inlineImage ? blockOf(node)?.name === 'figure' && node.parent?.name !== 'figure' : node.parent?.name === 'figure') && image && attr(node, 'width') === String(image.width) &&
           attr(node, 'height') === String(image.height) && (attr(node, 'alt') ?? '').trim().length > 0, 'image_reference');
@@ -124,8 +138,10 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
           const math = children.filter(child => child.name === 'math');
           check(names[0] === 'reader-equation' && (names[1] === 'reader-inline' || names[1] === 'reader-display') && attr(node, 'data-latex') !== undefined, 'equation_representation');
           const tagged = names.includes('reader-tagged'), fallback = names.includes('reader-math-fallback');
-          check(names.length === 2 + Number(tagged) + Number(fallback) && !(tagged && fallback), 'equation_representation');
-          if (fallback) check(children.length === 1 && children[0].type === 'text', 'equation_representation');
+          const picture = devicePDF && names.includes('reader-math-image');
+          check(names.length === 2 + Number(tagged) + Number(fallback) + Number(picture) && !(tagged && fallback) && !(picture && (tagged || fallback)), 'equation_representation');
+          if (picture) check(children.length === 1 && children[0].type === 'tag' && children[0].name === 'img', 'equation_representation');
+          else if (fallback) check(children.length === 1 && children[0].type === 'text', 'equation_representation');
           else {
             check(math.length === 1 && children[0] === math[0] && children.length === (tagged ? 2 : 1), 'equation_representation');
             check((attr(math[0], 'display') === 'block') === (names[1] === 'reader-display'), 'equation_representation');
@@ -139,7 +155,7 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
       }
       case 'p': {
         const names = attr(node, 'class');
-        check(names === undefined || ['reader-authors', 'reader-abstract', 'reader-caption'].includes(names), 'html_class');
+        check(names === undefined || ['reader-authors', 'reader-abstract', 'reader-caption'].includes(names) || (devicePDF && names === 'reader-footnote'), 'html_class');
         break;
       }
     }

@@ -431,7 +431,12 @@ createServer(async (request, response) => {
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
-    if (!body?.operation_id || body.consent_version !== 'cloud-ai-v2' || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    // Figures (chat-figures.ts): only under v3, only in a paper chat, at most three bounded JPEG/PNG images.
+    if (body.figures !== undefined && (body.consent_version !== 'cloud-ai-v3' || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
+      || body.figures.some(f => !/^F[1-3]$/.test(f.id) || !Number.isSafeInteger(f.paragraph) || !['image/jpeg', 'image/png'].includes(f.media_type) || typeof f.data !== 'string' || f.data.length < 16))) {
+      return send(response, 400, { code: 'invalid_figures' });
+    }
     // As chat.ts validates: a profile is exactly {model, effort, length} with known values; topic_title is a boolean.
     const p = body.profile;
     if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus'].includes(p.model)
@@ -470,6 +475,9 @@ createServer(async (request, response) => {
       if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
 click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
+      // A question with a figure attached: its parts, as show_figure_parts relays them.
+      if (body.figures?.length && (body.capabilities ?? []).includes('visual_answers')) event('figure_parts', { figure: body.figures[0].id, paragraph: body.figures[0].paragraph,
+        title: 'The figure, part by part', parts: [{ label: 'Left half', box: [0, 0, 0.5, 1], note: 'The left half of the figure.' }, { label: 'Right half', box: [0.5, 0, 1, 1], note: 'The right half.' }] });
       if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
       if (body.follow_ups === true) event('followups', { questions: ['How is β chosen?', 'What does the KL term do?'] });
       const profile = body.profile ? `${body.profile.model}-${body.profile.effort}-${body.profile.length}` : 'sonnet-low-standard';

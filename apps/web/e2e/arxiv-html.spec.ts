@@ -69,4 +69,22 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('How is β chosen?');
  expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(1);
  await page.screenshot({path:`../../.artifacts/html-browser-${test.info().project.name}.png`});
+ // Figures in chat (consent v3): a question naming Figure 1 carries that figure's image from the paper, and the
+ // answer's parts are cropped from it under the answer; a click shows the whole figure with the parts outlined.
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('What does Figure 1 show?');
+ await page.getByRole('button',{name:'Send',exact:true}).click();
+ const parts=page.getByTestId('figure-parts');
+ await expect(parts).toBeVisible();
+ const asked=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests[1];
+ expect(asked.consent_version).toBe('cloud-ai-v3');
+ expect(asked.figures).toHaveLength(1);
+ expect(asked.figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg',caption:'Figure 1: A test figure.'});
+ expect(asked.figures[0].data.startsWith('/9j/')).toBe(true);
+ await expect(parts.locator('.figure-part-crop img')).toHaveCount(2);
+ await parts.getByRole('button',{name:/2 parts/}).click();
+ const whole=page.getByRole('dialog',{name:'The figure, part by part'});
+ await expect(whole.locator('.figure-part-outline')).toHaveCount(2);
+ await expect(whole).toContainText('The left half of the figure.');
+ await page.screenshot({path:`../../.artifacts/html-browser-figure-parts-${test.info().project.name}.png`});
+ await whole.getByRole('button',{name:'Done'}).click();
 });

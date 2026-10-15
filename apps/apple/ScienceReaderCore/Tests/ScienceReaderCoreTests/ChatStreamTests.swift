@@ -14,10 +14,13 @@ import Testing
             ChatTurnInput(role: .user, text: "Why scale by it?")
         ], selection: "softmax(QK^T / sqrt(d_k))")
         let body = try object(request.encoded())
-        #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection", "follow_ups"])
+        // Visual answers are on by default, so the capability list is always sent (an empty list says off).
+        #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection", "follow_ups", "capabilities"])
+        #expect(body["capabilities"] as? [String] == ["visual_answers"])
         #expect(body["operation_id"] as? String == operation.wire)
         #expect(body["document_id"] as? String == document.wire)
-        #expect(body["consent_version"] as? String == "cloud-ai-v2")
+        // v3 (2026-10-15) names figures (CHAT.md "Figures in chat").
+        #expect(body["consent_version"] as? String == "cloud-ai-v3")
         #expect(body["mode"] as? String == "paper")
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages == [["role": "user", "text": "What is \\(d_k\\)?"], ["role": "assistant", "text": "The key width."],
@@ -31,11 +34,11 @@ import Testing
                                                            selection: "[12] Rafailov et al.", action: .ingest).encoded())
         #expect(ingest["action"] as? String == "ingest")
         // This build shows web papers, so Ingest may add them (server migration 019).
-        #expect(ingest["capabilities"] as? [String] == ["web_import"])
+        #expect(ingest["capabilities"] as? [String] == ["web_import", "visual_answers"])
         let unselected = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript, selection: " ", action: .ingest)
         #expect(unselected.action == nil)
         #expect(try object(unselected.encoded())["action"] == nil)
-        #expect(try object(unselected.encoded())["capabilities"] == nil)
+        #expect(try object(unselected.encoded())["capabilities"] as? [String] == ["visual_answers"], "no Add paper without a selection")
     }
 
     @Test func generalRequestOmitsDocumentAndSelection() throws {

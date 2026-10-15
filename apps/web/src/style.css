@@ -588,3 +588,18 @@ progress.mini { height: 3px; margin-top: 4px; }
 .podcast-writers legend { font-size: 12.5px; color: var(--muted); padding: 0 4px; }
 .podcast-writer { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; }
 .podcast-writer .fine { grid-column: 2; }
+
+/* Figures in chat (CHAT.md): the parts of a figure under the answer, and the whole figure with them outlined. */
+.figure-parts{margin-top:10px}
+.figure-parts-strip{display:flex;gap:10px;overflow-x:auto;padding:4px 0;background:none;border:0;cursor:pointer;text-align:left;width:100%}
+.figure-part-thumb{display:flex;flex-direction:column;gap:4px;flex:0 0 auto;max-width:130px}
+.figure-part-crop{overflow:hidden;border:1px solid var(--border, rgba(128,128,128,.35));border-radius:6px;background:#fff;position:relative}
+.figure-part-crop img{position:absolute;left:0;top:0;max-width:none}
+.figure-part-number{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;border:1px solid currentColor;opacity:.7}
+.figure-parts-whole{position:relative;display:block;max-width:100%;margin:0 auto 12px;background:#fff}
+.figure-parts-whole img{display:block;width:100%;height:100%;object-fit:fill}
+.figure-part-outline{position:absolute;border:2px solid var(--accent, #2563eb);border-radius:4px}
+.figure-part-outline span{position:absolute;left:-2px;top:-2px;background:var(--accent, #2563eb);color:#fff;font-size:12px;line-height:1;padding:3px 5px;border-radius:4px 0 4px 0}
+.figure-parts-notes{padding-left:1.2em;display:flex;flex-direction:column;gap:12px}
+.figure-parts-notes li{display:flex;gap:12px;align-items:flex-start}
+.figure-parts-notes p{margin:4px 0 0}

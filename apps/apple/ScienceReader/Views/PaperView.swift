@@ -262,7 +262,12 @@ struct PaperView: View {
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        if let notice = model.readerFallbackNotice, !readerFailed { fallbackNotice(notice) }
+                        if let run = model.deviceModelRun, run.paperID == paper.id { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() } }
+                        else if let issue = model.deviceModelIssue { DeviceModelIssueBar(issue: issue) { model.deviceModelIssue = nil } }
+                        else if model.isModelReading(paper), !readerFailed {
+                            DeviceModelBanner(summary: model.shownDeviceModelSummary, report: { model.beginReport() }, showHTML: { model.showHTMLReading() })
+                        }
+                        else if let notice = model.readerFallbackNotice, !readerFailed { fallbackNotice(notice) }
                         else if model.readerUpdateReady, !readerFailed { updateReadyBar }
                     }
                     // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
@@ -281,8 +286,10 @@ struct PaperView: View {
                         contents: { showContents = true },
                         back: citationBack && !readerFailed ? { citationBack = false; citationOrigin = ""; citationReturnID = UUID() } : nil,
                         selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) }))
-                } else if model.selectedPaper != nil {
-                    if model.openingPaperID == model.selectedPaper?.id {
+                } else if let selected = model.selectedPaper {
+                    if let run = model.deviceModelRun, run.paperID == selected.id {
+                        VStack { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() }.frame(maxWidth: 520); Spacer() }
+                    } else if model.openingPaperID == model.selectedPaper?.id {
                         // One fraction, two words (owner, 2026-10-15): "Downloading… 37%", then "Preparing… 94%".
                         if let fraction = model.openingProgress {
                             ProgressView(value: fraction) { Text("\(ArxivHTMLReader.phase(for: fraction)) \(Int((fraction * 100).rounded(.down)))%").monospacedDigit() }
@@ -295,7 +302,15 @@ struct PaperView: View {
                     } else if let issue = model.readerOpenIssue {
                         ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
                             description: { Text(issue) }
-                            actions: { Button("Try again") { model.retryOpeningSelectedPaper() } }
+                            actions: {
+                                Button("Try again") { model.retryOpeningSelectedPaper() }
+                                // The experiment, when this paper's PDF is on the device (docs/architecture/DEVICE_PDF_ROUTE.md).
+                                if model.canReadWithDeviceModel(selected) {
+                                    Button("Read the PDF with the on-device model (experimental)") { model.readWithDeviceModel(selected) }
+                                        .accessibilityIdentifier("deviceModel.tryFromIssue")
+                                }
+                                if let issue = model.deviceModelIssue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
+                            }
                     } else {
                         ContentUnavailableView { Label("Reading copy needed", systemImage: "arrow.down.document") }
                             description: { Text("This paper’s reading copy isn’t on this device yet.") }
@@ -338,6 +353,18 @@ struct PaperView: View {
                         if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {
                             MenuRow("Figures", systemImage: "photo.on.rectangle") { showFigures = true }
                                 .accessibilityIdentifier("paper.figures").disabled(readerFailed || loadingPaper)
+                        }
+                        // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md), when this paper's PDF is here.
+                        if let paper = model.selectedPaper, model.deviceModelAvailable, model.hasDeviceModelPDF(paper) {
+                            if model.isModelReading(paper) {
+                                MenuRow("Show the HTML reading", systemImage: "doc.richtext") { model.showHTMLReading() }
+                                    .accessibilityIdentifier("paper.htmlReading")
+                                MenuRow("Read again with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper, again: true) }
+                                    .disabled(model.deviceModelRun != nil)
+                            } else {
+                                MenuRow("Read with the on-device model", systemImage: "cpu") { model.readWithDeviceModel(paper) }
+                                    .disabled(model.deviceModelRun != nil).accessibilityIdentifier("paper.deviceModel")
+                            }
                         }
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
                         if let paper = model.selectedPaper { PodcastListenMenuRow(model: model, paper: paper) }
@@ -1114,6 +1141,8 @@ struct FigureWebView: View {
 /// or server document is invented for a source-only paper.
 struct LocalPDFReaderView: View {
     let presentation: LocalPaperPresentation
+    /// The experimental on-device model, when it can read this PDF (docs/architecture/DEVICE_PDF_ROUTE.md).
+    var readWithModel: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var showContents = false
     @State private var jump: PDFOutlineEntry? = nil
@@ -1130,6 +1159,13 @@ struct LocalPDFReaderView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button { showContents = true } label: { Image(GradstepSymbol.contents) }
                             .accessibilityLabel("Table of contents").accessibilityIdentifier("pdf.contents")
+                    }
+                    if let readWithModel {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                Button(action: readWithModel) { Label("Read with the on-device model (experimental)", systemImage: "cpu") }
+                            } label: { Image(systemName: "ellipsis") }.accessibilityLabel("PDF options").accessibilityIdentifier("pdf.options")
+                        }
                     }
                 }
                 .sheet(isPresented: $showContents) {

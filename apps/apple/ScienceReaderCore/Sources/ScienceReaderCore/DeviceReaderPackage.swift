@@ -23,11 +23,11 @@ public enum DeviceReaderPackage {
             members[member.path] = bytes
         }
         let bundle = try VerifiedReaderBundle.verify(manifest: manifest, expectedSHA256: payload.manifestSHA256, members: members)
-        guard bundle.arxivSource != nil else { throw ReaderBundleError.incompatibleFormat }
+        guard bundle.arxivSource != nil || bundle.devicePDFSource?.paper != nil else { throw ReaderBundleError.incompatibleFormat }
         return bundle
     }
     public static func encode(_ bundle: VerifiedReaderBundle) throws -> Data {
-        guard bundle.arxivSource != nil else { throw ReaderBundleError.incompatibleFormat }
+        guard bundle.arxivSource != nil || bundle.devicePDFSource?.paper != nil else { throw ReaderBundleError.incompatibleFormat }
         let payload = Payload(manifest: bundle.manifestData.base64EncodedString(), manifestSHA256: bundle.manifestSHA256,
             members: try bundle.manifest.members.map { member in
                 guard let data = bundle.data(for: member.path) else { throw ReaderBundleError.invalidResource }
