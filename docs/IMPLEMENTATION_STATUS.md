@@ -42,8 +42,8 @@ ArxivHTMLReaderTests, ArxivCompilerFailureTests, ReaderBundleLoaderTests, Legacy
 journey `ReaderNavigationTests/testHTMLPaperInPageLinksOfferBack` passed; browser reader journeys (arxiv-compiler,
 arxiv-html, device-pdf) passed in 19.5 s; sweep replay on the final compiler 0 fail / 2 warn / 3 without HTML.
 Deployment: browser Pages **`62b81784`** (02:55 UTC; the deployed compiler chunk carries the revision-4 converter);
-TestFlight **build 42** iOS and Mac uploaded 19:56 PDT (processing when written; the owner's 2610.15371 validates
-on this compiler: 480 blocks, 24 figures, 104 headings).
+TestFlight **build 42** iOS and Mac both VALID (19:57 PDT); the owner's 2610.15371 validates on this compiler
+(480 blocks, 24 figures, 104 headings).
 
 ## Stale bundles re-prepared, 8 MiB sources, the fresh-paper sweep, the rethink — 2026-10-15, ~03:00 UTC (commit `af9d9e5`)
 
