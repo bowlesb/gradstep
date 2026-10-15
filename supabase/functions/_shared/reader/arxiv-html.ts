@@ -11,7 +11,7 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
  * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 8;
+export const ARXIV_RENDERER_REVISION = 9;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;
@@ -295,6 +295,12 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     if (typeof last === 'string') { out[out.length - 1] = last.replace(/[\s,;:·]+$/, ''); if (!out[out.length - 1]) out.pop(); }
     return out;
   };
+  /** Emphasis around names and inside marks is left out (italic names in a title-page table, 1707.03017; italic
+   * marks, 2610.18072): a name is plain text with plain marks. */
+  const foldText = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const unwrap = (parts: Child[]): Child[] => parts.flatMap(part => typeof part === 'string' ? [part]
+    : isSup(part) ? [el('sup', {}, [plain(part.children)])]
+    : ['em', 'i', 'strong', 'b', 'u', 'span'].includes(part.name) ? unwrap(part.children) : [part]);
   const splitNames = (unit: Child[]): Child[][] => {
     if (unit.some(part => typeof part !== 'string')) return [unit];
     const text = plain(unit).replace(/^[A-Z][A-Za-z ]{1,30}:\s*/, '');
@@ -308,12 +314,18 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       if (plain(unit).replace(MARKS, '').trim()) (mode === 'affiliation' ? affiliations : names).push(unit);
       mode = null;
     };
+    // A mark right after a name's mark (two marks in a row: "Ethan Perez¹²" set as two `sup`, 1707.03017) is the same
+    // name's, not an affiliation's start.
+    let afterName = false;
     for (const part of parts) {
-      if (isBr(part)) { flush(); continue; }
+      if (isBr(part)) { flush(); afterName = false; continue; }
       if (isSup(part)) {
-        if (mode === 'name') { current.push(part); flush(); }
-        else { if (mode === 'affiliation') flush(); current.push(part); mode = 'affiliation'; }
+        if (mode === 'name') { current.push(part); flush(); afterName = true; continue; }
+        if (mode === null && afterName && names.length) { names[names.length - 1] = tidy([...names[names.length - 1], part]); continue; }
+        if (mode === 'affiliation') flush();
+        current.push(part); mode = 'affiliation';
       } else { if (mode === null) mode = 'name'; current.push(part); }
+      afterName = false;
     }
     flush();
     return { names: names.flatMap(unit => unit.some(isSup) ? [unit] : splitNames(unit)), affiliations };
@@ -403,6 +415,16 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         const keys: string[] = [];
         let name: Child[] | null = null;
         if (text && !startsWithMark) name = head; else if (text) keys.push(...addAffiliations(head));
+        // A name run together with its affiliations (no mark or break between them: "Jiantao Jiao NVIDIA University of
+        // Minnesota – Twin Cities University of California, Berkeley", 2610.10478): the library's name is the name and
+        // the rest one affiliation, before any comma could split the rest into names.
+        if (name && metadataAuthors.length) {
+          const words = normalizeSpace(name.filter(part => typeof part === 'string').join(' '));
+          const match = metadataAuthors.some(a => foldText(a) === foldText(words)) ? null
+            : metadataAuthors.find(a => foldText(words).startsWith(foldText(a) + ' '));
+          const rest = match ? normalizeSpace(words.slice(words.toLowerCase().indexOf(match.toLowerCase()) + match.length)).replace(/^[\s,;:–-]+/, '') : '';
+          if (match && rest.length >= 3) { name = [match, ...name.filter(isSup)]; keys.push(...addAffiliations([rest])); }
+        }
         // Several authors in one creator (a tabular's cells, names run together with their marks): each is one.
         const more: Child[][] = [];
         if (name) {
@@ -436,6 +458,12 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       }
       // An affiliation that is only punctuation (a template's "[", 2610.18356) says nothing.
       for (const [key, entry] of [...affiliations]) if (!/[\p{L}\p{N}]/u.test(plain(entry).replace(LEADING_MARKS, ''))) affiliations.delete(key);
+      for (const [key, entry] of [...affiliations]) {
+        const words = plain(entry).replace(LEADING_MARKS, '');
+        if (!/^(corresponding author|equal contribution|contributed equally|project lead)/i.test(words)) continue;
+        const mark = /^[\s]*([†‡*∗§¶‖])/.exec(plain(entry))?.[1] ?? '';
+        notes.push({ mark, body: [words.replace(/[\s,;:]+$/, '')] }); affiliations.delete(key);
+      }
       for (const c of creators) c.keys = c.keys.filter(key => affiliations.has(key));
       const named = creators.filter(c => c.name.length);
       // A name that was a graphic, or no name at all: the library's author metadata names them.
@@ -723,7 +751,8 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     const before = blocks.length;
     let output: OutNode[];
     if (n.name === 'h1') titleSeen = true;
-    if (/^h[1-6]$/.test(n.name)) output = [block(n, n.name, 'heading', id => children(n).flatMap(c => inline(c, id)))];
+    // A heading keeps no line breaks (LaTeX's \\ in a title, 2610.10478 on build 46: "Why is performance on a new line?").
+    if (/^h[1-6]$/.test(n.name)) output = [block(n, n.name, 'heading', id => children(n).flatMap(c => inline(c, id)).map(c => typeof c !== 'string' && c.name === 'br' ? ' ' : c))];
     else if (n.name === 'figure') {
       const insideSVG = (c: DomNode) => { for (let a = c.parent; a; a = a.parent) if (a.name === 'svg') return true; return false; };
       const tables = elements(n, c => c.name === 'table' && !insideSVG(c));
@@ -875,27 +904,55 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     for (const entry of blocks.filter(b => b.kind === 'paragraph' && b.node !== authors && fold(outText(b.node)) === listed)) remove(entry);
     // A custom title page (2610.14075: names with marks in a tabular, affiliation lines, a date line, "Corresponding
     // authors:" with e-mail) reads into the header: its names with their marks when they are the catalog's, its
-    // affiliations and notes under them; the date and e-mail lines go. A subtitle stays as the first paragraph.
+    // affiliations, notes and project page under them; the date, e-mail lines and a logo go. A subtitle stays. The
+    // scan runs to the first section, past the abstract (1707.03017 sets its authors in a table after the abstract),
+    // and reads tables cell by cell (build 46: LensErase's logo stopped it; FiLM's table stayed a table).
     const catalog = new Set(metadataAuthors.map(fold));
-    const parsedNames: Child[][] = [], affiliations: Child[][] = [], notes: { mark: string; body: Child[] }[] = [];
-    let kept = 0;
-    for (const node of top.slice(top.indexOf(authors) + 1, top.indexOf(authors) + 14)) {
-      if (node.name !== 'p' || node.attribs.class) break;
+    const parsedNames: Child[][] = [], affiliations: Child[][] = [], addresses: Child[][] = [], notes: { mark: string; body: Child[] }[] = [];
+    const splitNotes = (text: string): { mark: string; body: Child[] }[] => {
+      const found = [...text.replace(EMAIL, '').matchAll(/([∗*†‡§¶‖])\s*([^∗*†‡§¶‖]+)/g)]
+        .map(m => ({ mark: m[1], body: [m[2].replace(/\s+([.,;:])/g, '$1').replace(/[\s,;:]+$/, '').trim()] as Child[] })).filter(n => (n.body[0] as string).length > 0);
+      return found.length ? found : [{ mark: '', body: [text.replace(EMAIL, '').replace(/[\s,;:]+$/, '').trim()] }];
+    };
+    const isEmailOnly = (text: string) => text.length > 0 && !text.replace(EMAIL, '').replace(/[\s,;{}()]/g, '').length;
+    // One unit (a paragraph, or a table cell): true when it belongs to the header and was taken.
+    const take = (raw: Child[], text: string): boolean => {
+      const unit = unwrap(raw), run = parseRun(unit);
+      const matched = run.names.filter(name => catalog.has(fold(plain(name).replace(MARKS, '')))).length;
+      if (!text) return true;
+      if (isEmailOnly(text)) return true;
+      if (/\bdate:/i.test(text) || (/\b(19|20)\d{2}\b/.test(text) && text.length <= 60 && !/[.!?]$/.test(text) && !matched)) return true;
+      if (/corresponding author|equal contribution|contributed equally|project lead/i.test(text) && text.length <= 300) { notes.push(...splitNotes(text)); return true; }
+      if (/^(project page|project website|website|homepage|code|github)\s*:/i.test(text) && unit.some(part => typeof part !== 'string' && part.name === 'a')) { addresses.push(unit); return true; }
+      if (run.names.length >= 1 && matched * 2 >= run.names.length && matched >= 1) { parsedNames.push(...run.names); affiliations.push(...run.affiliations); return true; }
+      if (!run.names.length && run.affiliations.length) { affiliations.push(...run.affiliations); return true; }
+      return false;
+    };
+    let kept = 0, inAbstract = false;
+    for (const node of top.slice(top.indexOf(authors) + 1, top.indexOf(authors) + 24)) {
       const entry = blocks.find(b => b.node === node); if (!entry) break;
-      const text = normalizeSpace(outText(node)), run = parseRun(node.children);
-      const matched = run.names.filter(unit => catalog.has(fold(plain(unit).replace(MARKS, '')))).length;
-      if (/\bdate:/i.test(text) || (/\b(19|20)\d{2}\b/.test(text) && text.length <= 60 && !/[.!?]$/.test(text))) { remove(entry); continue; }
-      if (/corresponding author|equal contribution|contributed equally/i.test(text) && text.length <= 240) {
-        const mark = /^[†‡*§¶‖]/.exec(text)?.[0] ?? '';
-        notes.push({ mark, body: [text.replace(EMAIL, '').replace(/^[†‡*§¶‖\s]+/, '').replace(/\s+([.,;:])/g, '$1').replace(/[\s,;:]+$/, '')] });
-        remove(entry); continue;
+      const text = normalizeSpace(outText(node));
+      if (/^h[2-6]$/.test(node.name)) { if (fold(text) === 'abstract') { inAbstract = true; continue; } break; }
+      if (node.name === 'figure') {
+        // A logo (no caption) on the title page goes; a captioned figure (a teaser) stays and the scan goes on.
+        if (!node.children.some(c => typeof c !== 'string' && c.name === 'figcaption') && !inAbstract) { remove(entry); omittedGraphics += 1; }
+        continue;
       }
-      if (run.names.length >= 2 && matched * 2 >= run.names.length) { parsedNames.push(...run.names); affiliations.push(...run.affiliations); remove(entry); continue; }
-      if (!run.names.length && run.affiliations.length) { affiliations.push(...run.affiliations); remove(entry); continue; }
+      if (node.name === 'div' && node.attribs.class === 'reader-table') {
+        const cells: Child[][] = [];
+        const collect = (n: Child) => { if (typeof n === 'string') return; if (n.name === 'td' || n.name === 'th') { cells.push(n.children); return; } n.children.forEach(collect); };
+        collect(node);
+        const named = cells.filter(cell => parseRun(unwrap(cell)).names.some(name => catalog.has(fold(plain(name).replace(MARKS, ''))))).length;
+        if (named >= 1 && cells.every(cell => take(cell, normalizeSpace(plain(cell))))) { remove(entry); continue; }
+        if (++kept >= 3) break; else continue;
+      }
+      if (node.name !== 'p' || node.attribs.class) { if (inAbstract) continue; break; }
+      if (inAbstract && text.length > 300) continue;
+      if (take(node.children, text)) { remove(entry); continue; }
       if (++kept >= 3) break;
     }
-    if (parsedNames.length || affiliations.length || notes.length) {
-      authors.children = renderAuthors(parsedNames.length ? parsedNames : [[names]], affiliations, [], notes);
+    if (parsedNames.length || affiliations.length || notes.length || addresses.length) {
+      authors.children = renderAuthors(parsedNames.length ? parsedNames : [[names]], affiliations, addresses, notes);
     }
   }
   // A macro definition LaTeXML left as text ("[1]for each #1 do", 2610.18683: TeX parameter tokens never read in prose)

@@ -64,6 +64,7 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(cite).toHaveText('¶2');await cite.click();
  await expect(page.getByTestId('citation-back')).toBeVisible();
  // The answer's suggested follow-up fills the message box; nothing is sent until the reader does.
+ await page.getByTestId('follow-ups-toggle').click(); // on request (build 46)
  await page.getByTestId('follow-up').first().click();
  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('How is β chosen?');
  expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(1);

@@ -28,6 +28,20 @@ export function Dialog({ open, onClose, title, children, wide = false, className
 
 export const NOT_YET = 'Not yet available in the browser. Use Gradstep on iPhone, iPad or Mac for this for now.';
 
+/** The Library's Added and Opened columns, to the minute (owner, build 46): "11:02 PM" today, "Yest. 9:14 PM",
+ * "Mon 9:14 PM" within the week, "Sep 28, 9:14 PM" this year, "Sep 28, 2025" before (LibraryFormat.tableDate). */
+export function formatDateTime(ms: number | null | undefined, now = new Date()): string {
+  if (!ms) return '—';
+  const date = new Date(ms);
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(now) - day(date)) / 86_400_000);
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (days <= 0) return time;
+  if (days === 1) return `Yest. ${time}`;
+  if (days < 7) return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`;
+  if (date.getFullYear() !== now.getFullYear()) return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`;
+}
 export function formatDate(ms: number | null | undefined): string {
   if (!ms) return '—';
   const date = new Date(ms), now = new Date();

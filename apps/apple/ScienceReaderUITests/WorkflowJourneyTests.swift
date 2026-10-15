@@ -435,6 +435,18 @@ final class WorkflowJourneyTests: XCTestCase {
         let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 10))
         XCTAssertTrue(open.label.contains("Scaled dot-product attention"))
+        // The drawing is part of the answer (owner, build 46), not only a button: the preview grows the row.
+        let drawn = NSPredicate { _, _ in open.frame.height > 120 }
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: drawn, object: nil)], timeout: 15), .completed,
+                       "the diagram is drawn in the answer (\(open.frame))")
+        // Suggested questions wait behind one small control until asked for.
+        let suggested = app.buttons["chat.followUps.toggle"]
+        XCTAssertTrue(suggested.waitForExistence(timeout: 5))
+        XCTAssertTrue(suggested.label.contains("Suggested questions (2)"), suggested.label)
+        XCTAssertFalse(app.buttons["Why does the softmax saturate without the scaling?"].exists, "folded until asked for")
+        capture(app, "Diagram in the answer, questions folded")
+        suggested.tap()
+        XCTAssertTrue(app.buttons["Why does the softmax saturate without the scaling?"].waitForExistence(timeout: 5))
         open.tap()
         // Drawn on device by the bundled Mermaid; its SVG labels are readable text.
         let canvas = app.webViews.firstMatch

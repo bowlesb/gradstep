@@ -2,6 +2,27 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Build 46 feedback: headers, diagrams in the answer, suggested questions on request, exact times, oversized images — 2026-10-15, ~07:30 UTC
+
+Six TestFlight items on build 46 (`docs/OWNER_FEEDBACK.md` "TestFlight, 2026-10-15 05:50–06:07 UTC").
+- **Converter, `ARXIV_RENDERER_REVISION` 9.** The title-page fold (logo figures, author tables, notes split at their
+  marks, project-page lines), an author table after the abstract, line breaks in headings, a name run into the
+  affiliations split at the catalog's name, corresponding-author lines as notes. An image past the device's bounds
+  (16,384 px a side, 80 MP; `inspectImage(bytes, bounds)`) is left out of its figure and counted instead of refusing
+  the paper; `image_dimensions_exceeded` and `invalid_image` are in both apps' failure tables, and the category test
+  reads the image codes too.
+- **Chat.** Native: a Mermaid diagram is drawn in the answer from an offscreen render (`DiagramPreview`), an HTML
+  visual inline; a tap opens the full view. The suggested questions fold behind "Suggested questions (N)". Browser:
+  the diagram draws inline without zoom tools and "Full size" opens the dialog; the questions fold the same way.
+- **Library.** Added and Opened say the time (`LibraryFormat.tableDate`; the browser's `formatDateTime`).
+
+Evidence: fragment tests 42/42; device compile of 1904.01201v2 (3.5 MiB), 2610.18072v1, 2610.10478v1, 1707.03017v5;
+sweep replays 58 + 22 papers, 0 refusals; `npm test` passes; browser journeys 18/18 (chat, HTML paper, chat controls,
+study); iPhone Simulator: 72 unit tests (LibraryMetadata with the new date test, ChatVisual, ChatFigure,
+FigurePartsRendering, PaperWebView, PaperPassage, ImportProgress, ArxivHTMLReader) and the journeys for diagrams (now
+asserting the drawing in the answer and the folded questions), a broken diagram, chat controls and all seven reader
+navigation journeys. The reference journey still expected the build-43 dialog; it uses the edit menu now.
+
 ## Visual answers in chat; the fresh-paper sweep's next refusals — 2026-10-15, ~06:00 UTC
 
 - **Visual answers** (owner: "The chat needs a html tool… mermaid diagrams… an option for the users to disable";
@@ -35,7 +56,7 @@ answer and a full view with numbered outlines. Proof on staging with DPO's Figur
 Tests: backend chat 98; native ChatFigureTests, FigurePartsRenderingTests and the suites around them. The browser
 keeps v2 and shows the text only, for now.
 
-Evidence and deployment are recorded at the end of this section once build 47 is processed.
+Deployment (commit `191bfdf`): chat Edge function deployed; TestFlight **build 47** iOS and Mac both VALID (23:06 PDT).
 
 ## Build 44 feedback: Back says where, no Back from the top, the store conflict behind failed re-preparations, Adding…, auto-download setting, reference edit menu — 2026-10-15, ~06:30 UTC
 

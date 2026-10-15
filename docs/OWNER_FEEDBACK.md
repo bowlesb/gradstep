@@ -15,6 +15,19 @@ fix below and adds clearer reader download-limit, interrupted-download and updat
 |---|---|---|---|---|
 | 1 | "Sending figures to model should be ok?" (after "the agent has the ability to break figures into cropped sub sections as part of the response and explain each component") | Chat | Yes, on the same terms as the text: the figure is part of the paper whose full text already goes to Anthropic, under the same retention terms, prepared on the device from arXiv's HTML (no PDF, nothing new fetched); about half a cent per figure. The one condition: the consent must say so, so it is v3 ("When you ask about a figure or table, its image from the paper") and readers are asked once more. Built: a question naming a figure sends its image; the model can break it into parts, shown as crops under the answer with a note each (CHAT.md "Figures in chat"). Proven live on DPO's Figure 1. | Built; build 47 (apps); the browser follows |
 
+## TestFlight, 2026-10-15 05:50–06:07 UTC (build 46, iPhone, 6 items)
+
+Screenshots: `.artifacts/feedback/` is not committed; the batch was read from App Store Connect.
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "Not the nicest presentation" (LensErase title page: a logo figure, the abstract, a table of authors and notes run together) | Header | The title-page fold now skips a logo figure, reads past the abstract, reads an author table cell by cell, splits notes at their marks and keeps project-page lines as addresses; adjacent marks merge. | Built; fragment test; build 48 and the browser |
+| 2 | "If you bothered to create a diagram please show it. But I think the different questions don't need to be there… upon request… takes up to much space" | Chat | A Mermaid diagram is drawn in the answer (a picture rendered on the device; a tap opens it full size with zoom) and an HTML visual shows inline; the suggested questions sit behind one small "Suggested questions (N)" control. Browser: the diagram draws inline without zoom tools, "Full size" opens the dialog; the questions fold the same way. | Built; native and browser journeys; build 48 and the browser |
+| 3 | "Fail seems like author lists are ridiculously difficult ???" (FiLM, 1707.03017) | Header | The author table LaTeXML placed after the abstract folds into the header now. | Built; device compile; build 48 and the browser |
+| 4 | "Should say the exact time please" | Library table, Added and Opened | Today shows the time ("11:02 PM"), then "Yest. 9:14 PM", the weekday within a week, the date with the time this year, and the date with the year before that; the browser's table says the same. | Built; native unit test; build 48 and the browser |
+| 5 | "Why is performance on a new line ?" (2610.10478) | Header | A line break inside a title or heading is a space now; a name run into the affiliations is split at the catalog's name, and corresponding-author lines move to the notes. | Built; device compile; build 48 and the browser |
+| 6 | "Ended up here" (Habitat, 1904.01201v2: "Couldn't open this paper") | Device reader | One figure is 9,900 × 1,938 pixels, past the side limit, and the compiler refused the paper (`image_dimensions_exceeded`). Images are checked against the device's own bounds (16,384 px a side, 80 MP) and an image past them is left out of its figure, counted, instead of refusing the paper; both apps name the code. | Built; device compile 3.5 MiB; build 48 and the browser |
+
 ## TestFlight, 2026-10-15 04:32–04:40 UTC (build 44, iPhone, 6 items)
 
 | # | Owner said | Where | Cause / plan | Status |

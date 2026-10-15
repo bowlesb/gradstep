@@ -71,7 +71,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     /// At the default text size; grows with Dynamic Type.
     var width: CGFloat {
         switch self {
-        case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
+        case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 112; case .opened: 112; case .chats: 46
         case .progress: 100
         }
     }
@@ -235,9 +235,9 @@ struct LibraryTableCell: View {
         case .source: Text(facts.source ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle)
         case .pages: PaperTableText(text: facts.pages.map(String.init))
-        case .added: PaperTableText(text: facts.added.map { LibraryFormat.relativeDay($0) })
+        case .added: PaperTableText(text: facts.added.map { LibraryFormat.tableDate($0) })
         // "—" for a paper never opened on this device; imports have no reading activity.
-        case .opened: PaperTableText(text: facts.opened.map { LibraryFormat.relativeDay($0) } ?? (facts.paper == nil ? nil : "—"))
+        case .opened: PaperTableText(text: facts.opened.map { LibraryFormat.tableDate($0) } ?? (facts.paper == nil ? nil : "—"))
         // No chats is the usual case: left blank, so the counts stand out.
         case .chats: PaperTableText(text: facts.chats > 0 ? String(facts.chats) : nil)
         case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled, explain: explain)

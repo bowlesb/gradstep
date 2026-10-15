@@ -28,12 +28,16 @@ export function Visual({ title, html }: { title: string; html: string }) {
 export function Diagram({ title, source, format }: { title: string; source: string; format?: 'mermaid-v1' | 'html-v1' }) {
   const [open, setOpen] = useState(false);
   if (format === 'html-v1') return <Visual title={title} html={source} />;
-  return <div className="chat-diagram"><button className="secondary small" onClick={() => setOpen(true)}><span aria-hidden="true">◇</span> View diagram · {title}</button>
+  // The diagram itself in the answer (owner, build 46: "If you bothered to create a diagram please show it"); full size on request.
+  return <div className="chat-diagram">
+    <div className="diagram-inline"><DiagramFrame source={source} compact /></div>
+    <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Full size</button></div>
     <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
       <DiagramFrame source={source} /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>
     </Dialog></div>;
 }
-export function DiagramFrame({ source }: { source: string }) {
+/** `compact`: drawn in the answer, without zoom tools (they belong to Full size). */
+export function DiagramFrame({ source, compact = false }: { source: string; compact?: boolean }) {
   const [doc, setDoc] = useState<string | null>(null), [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [zoom, setZoom] = useState(1);
   const [requestID] = useState(() => crypto.randomUUID());
@@ -63,12 +67,12 @@ export function DiagramFrame({ source }: { source: string }) {
     return () => { live = false; clearTimeout(timer); window.removeEventListener('message', receive); };
   }, []);
   return <>{status === 'loading' && <p role="status">Drawing diagram…</p>}{status === 'failed' && <p role="alert">Couldn’t draw this diagram. Its source is available below.</p>}
-    {status === 'ready' && <div className="diagram-tools" role="group" aria-label="Diagram zoom">
+    {status === 'ready' && !compact && <div className="diagram-tools" role="group" aria-label="Diagram zoom">
       <button className="secondary small" aria-label="Zoom out diagram" disabled={zoom <= 1} onClick={() => setZoom(z => Math.max(1, z - 0.5))}>−</button>
       <button className="secondary small" onClick={() => setZoom(1)} aria-label="Fit diagram">Fit</button>
       <button className="secondary small" aria-label="Zoom in diagram" disabled={zoom >= 4} onClick={() => setZoom(z => Math.min(4, z + 0.5))}>+</button>
     </div>}
-    {doc && <div ref={viewport} className="diagram-viewport" tabIndex={0} role="region" aria-label="Diagram viewport">
+    {doc && <div ref={viewport} className="diagram-viewport" {...(compact ? {} : { tabIndex: 0, role: 'region', 'aria-label': 'Diagram viewport' })}>
       <iframe ref={frame} title="Diagram" className="diagram-frame" style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }} sandbox="allow-scripts" srcDoc={doc} onLoad={() => frame.current?.contentWindow?.postMessage({ gradstep: 'diagram', requestID, source, dark: (document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches)) }, '*')} />
     </div>}</>;
 }

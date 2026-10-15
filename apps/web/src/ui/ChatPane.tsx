@@ -66,6 +66,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   const summaries = useMemo(() => chat.history.state.conversationSummaries(), [chat, historyVersion]);
   const summary = summaries.find(s => s.id === c.conversationID);
   const branches = useMemo(() => c.conversationID ? chat.history.state.conversationBranches(c.conversationID) : [], [chat, c.conversationID, historyVersion]);
+  const [showFollowUps, setShowFollowUps] = useState(false);
   const diagrams = useMemo(() => chat.history.state.diagramsByMessage(), [chat, historyVersion]);
   const [link, setLink] = useState<string | null>(null), [inputIssue, setInputIssue] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -168,7 +169,10 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
         <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
       {c.followUps && !composerBusy(c) && !c.answer && !c.issue && last?.payload.role === 'assistant' && <div className="follow-ups" role="group" aria-label="Suggested questions">
-        {c.followUps.map(question => <button key={question} type="button" className="follow-up" data-testid="follow-up" disabled={disabled}
+        {/* On request (owner, build 46: "they need to be upon request… take up too much space"). */}
+        <button type="button" className="link small follow-ups-toggle" aria-expanded={showFollowUps} data-testid="follow-ups-toggle"
+          onClick={() => setShowFollowUps(v => !v)}>{showFollowUps ? 'Hide suggested questions' : `Suggested questions (${c.followUps.length})`}</button>
+        {showFollowUps && c.followUps.map(question => <button key={question} type="button" className="follow-up" data-testid="follow-up" disabled={disabled}
           onClick={() => { if (chat.edit(c, question)) field.current?.focus(); }}>{question}</button>)}</div>}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>

@@ -68,7 +68,7 @@ test('assistant answers and Mermaid diagrams can be copied by an explicit user a
   await page.getByTestId('copy-copy-answer').click();
   await expect(page.getByTestId('copy-copy-answer')).toHaveText('Copied');
   expect(await page.evaluate(() => (window as any).__copied)).toContain('preference');
-  await page.getByRole('button', { name: /View diagram/ }).click();
+  await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
   await page.getByText('Diagram source', { exact: true }).click();
   await page.getByRole('button', { name: 'Copy Mermaid', exact: true }).click();
   await expect(page.getByTestId('copy-copy-mermaid')).toHaveText('Copied');
@@ -98,13 +98,13 @@ test('selection tools and passage return keep the verified paper context', async
 
 for (const mode of ['diagram', 'unsafe_diagram', 'broken_diagram']) test(`opaque ${mode} under production CSP`, async ({ page, request }, info) => {
   test.skip(info.project.name !== 'desktop'); await request.post(`${API}/__chat-fixture`, { data: { mode } }); await login(page); await send(page, 'Draw a preference diagram', true);
-  await page.getByRole('button', { name: /View diagram/ }).click();
-  const frame = page.frameLocator('iframe[title=Diagram]');
+  await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
+  const frame = page.getByRole('dialog').frameLocator('iframe[title=Diagram]');
   if (mode === 'diagram') {
     await expect(frame.locator('#diagram svg')).toBeVisible();
     expect(await frame.locator('body').evaluate(() => { try { localStorage.getItem('x'); return true; } catch { return false; } })).toBe(false);
     await page.screenshot({ path: '../../.artifacts/web-chat/diagram.png' });
-  } else await expect(page.getByRole('alert')).toContainText('Couldn’t draw this diagram');
+  } else await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Couldn’t draw this diagram');
   await page.getByRole('button', { name: 'Done', exact: true }).click(); await expect(page.getByTestId('chat-assistant')).toBeVisible();
 });
 
@@ -145,8 +145,8 @@ test('opaque diagram blocks embedded media, source navigation and remote CSS', a
   await page.route('https://attacker.invalid/**', route => { network.push(route.request().url()); return route.abort(); });
   page.on('popup', popup => popups.push(popup.url()));
   await login(page); await send(page, 'A diagram with untrusted links', true);
-  await page.getByRole('button', { name: /View diagram/ }).click();
-  const frame = page.frameLocator('iframe[title=Diagram]'); await expect(frame.locator('#diagram svg')).toBeVisible();
+  await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
+  const frame = page.getByRole('dialog').frameLocator('iframe[title=Diagram]'); await expect(frame.locator('#diagram svg')).toBeVisible();
   await expect(frame.locator('#diagram image, #diagram foreignObject, #diagram script, #diagram [href], #diagram [*|href]')).toHaveCount(0);
   await frame.locator('#diagram svg').click();
   // Exercise the frame's network policy directly, even if a future Mermaid release emits remote CSS.
@@ -164,8 +164,8 @@ test('a tall diagram fits its viewport with every node visible on desktop and ph
   test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
   await request.post(`${API}/__chat-fixture`, { data: { mode: 'tall_diagram' } });
   await login(page); await send(page, 'Draw the complete gradient descent loop', true);
-  await page.getByRole('button', { name: /View diagram/ }).click();
-  const frame = page.frameLocator('iframe[title=Diagram]');
+  await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
+  const frame = page.getByRole('dialog').frameLocator('iframe[title=Diagram]');
   await expect(frame.locator('#diagram svg')).toBeVisible();
   const geometry = await frame.locator('body').evaluate(() => ({
     width: innerWidth, height: innerHeight,

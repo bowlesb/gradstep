@@ -18,7 +18,7 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, formatDate } from './common';
+import { Dialog, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { useLibraryColumns } from './prefs';
@@ -409,8 +409,8 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
         <button className="tag" key={t} onClick={e => { e.stopPropagation(); onTag(q => ({ ...q, tag: t })); }} title={`Show papers tagged “${t}”`}>{t}</button>))}</span>
         : <span className="faint">—</span>}</td>}
-      {columns.includes('added') && <td className="col-added">{formatDate(row.added)}</td>}
-      {columns.includes('opened') && <td className="col-opened">{formatDate(opened)}</td>}
+      {columns.includes('added') && <td className="col-added">{formatDateTime(row.added)}</td>}
+      {columns.includes('opened') && <td className="col-opened">{formatDateTime(opened)}</td>}
       {columns.includes('progress') && <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">

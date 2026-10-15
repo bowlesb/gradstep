@@ -5,15 +5,19 @@ const crcTable = new Uint32Array(256).map((_, n) => {
 });
 function crc32(data: Uint8Array) { let c = 0xffffffff; for (const b of data) c = crcTable[(c ^ b) & 255]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
 function invalid(): never { throw new PublicError(400, 'invalid_image'); }
-function size(width: number, height: number) {
-  if (width < 1 || height < 1 || width > 8192 || height > 8192 || width * height > 20_000_000) throw new PublicError(422, 'image_dimensions_exceeded');
+/** The largest image accepted: 8,192 px a side and 20 million pixels by default; a caller that scales what it reads
+ * (the device reader, which fits every figure to a pixel budget) may accept larger. */
+export interface ImageBounds { side: number; pixels: number }
+const DEFAULT_BOUNDS: ImageBounds = { side: 8192, pixels: 20_000_000 };
+function size(width: number, height: number, bounds: ImageBounds) {
+  if (width < 1 || height < 1 || width > bounds.side || height > bounds.side || width * height > bounds.pixels) throw new PublicError(422, 'image_dimensions_exceeded');
   return { width, height };
 }
 
 // Check bounded file structure before storage. This intentionally does not
 // inflate attacker-controlled pixels. Native clients decode and re-encode the
 // preview; reads are constrained image responses with nosniff and no-store.
-export function inspectImage(bytes: Uint8Array): { mediaType: 'image/png' | 'image/jpeg'; width: number; height: number } {
+export function inspectImage(bytes: Uint8Array, bounds: ImageBounds = DEFAULT_BOUNDS): { mediaType: 'image/png' | 'image/jpeg'; width: number; height: number } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length >= 33 && [137,80,78,71,13,10,26,10].every((b, i) => bytes[i] === b)) {
     let at = 8; let chunks = 0; let dataSeen = false; let dimensions: { width: number; height: number } | null = null;
@@ -25,7 +29,7 @@ export function inspectImage(bytes: Uint8Array): { mediaType: 'image/png' | 'ima
       if (chunks === 1 && name !== 'IHDR') invalid();
       if (name === 'IHDR') {
         if (chunks !== 1 || length !== 13) invalid();
-        dimensions = size(view.getUint32(at + 8), view.getUint32(at + 12));
+        dimensions = size(view.getUint32(at + 8), view.getUint32(at + 12), bounds);
         const depths: Record<number, number[]> = { 0:[1,2,4,8,16], 2:[8,16], 3:[1,2,4,8], 4:[8,16], 6:[8,16] };
         if (!depths[bytes[at + 17]!] ?.includes(bytes[at + 16]!) || bytes[at + 18] !== 0 || bytes[at + 19] !== 0 || bytes[at + 20]! > 1) invalid();
       }
@@ -52,7 +56,7 @@ export function inspectImage(bytes: Uint8Array): { mediaType: 'image/png' | 'ima
       if (length < 2 || at + length > bytes.length - 2) invalid();
       if ([0xc0,0xc1,0xc2].includes(marker)) {
         if (length < 8 || dimensions || length !== 8 + 3 * bytes[at + 7]!) invalid();
-        dimensions = size(view.getUint16(at + 5), view.getUint16(at + 3));
+        dimensions = size(view.getUint16(at + 5), view.getUint16(at + 3), bounds);
       }
       if (marker === 0xda) {
         if (!dimensions || length < 6) invalid();

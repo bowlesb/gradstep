@@ -102,7 +102,9 @@ async function raster(input: Uint8Array, svg: boolean, budget = PIXEL_CAP): Prom
   if (svg) {
     const image = svgImage(input); bytes = image.bytes; width = image.width; height = image.height; mediaType = 'image/svg+xml';
   } else {
-    const image = inspectImage(input); width = image.width; height = image.height; mediaType = image.mediaType;
+    // A figure larger than the reader keeps (Habitat's 9,900 × 1,938 plot, refused on build 46) is read and scaled
+    // to the budget below; only an absurd size is refused.
+    const image = inspectImage(input, { side: 16_384, pixels: 80_000_000 }); width = image.width; height = image.height; mediaType = image.mediaType;
     if (width * height <= budget) {
       try {
         const admitted = admitReaderImage(input);
@@ -111,7 +113,7 @@ async function raster(input: Uint8Array, svg: boolean, budget = PIXEL_CAP): Prom
       } catch { /* drawn below */ }
     }
   }
-  check(width * height <= LIMITS.imagePixels, 'image_dimensions');
+  if (svg) check(width * height <= LIMITS.imagePixels, 'image_dimensions');
   // Scaled down to the budget, never up; whole pixels, at least one.
   const scale = width * height > budget ? Math.sqrt(budget / (width * height)) : 1;
   const target = { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) };

@@ -11,6 +11,8 @@ for (const file of ['arxiv-html.ts', 'arxiv-bundle.ts', 'device-compiler.ts'])
   // The code is the last argument of a refusing helper (`check`, `boundedText`, …) or an Error's message; LaTeXML
   // class names (`ltx_…`) are never codes.
   for (const m of read(`supabase/functions/_shared/reader/${file}`).matchAll(/(?:\b(?:check|boundedText|decodeUTF8|decode64|integer|text)\([^;]*?, |Error\()'((?!ltx_)[a-z][a-z0-9]*_[a-z0-9_]+)'\)/g)) converterCodes.add(m[1]);
+// The shared image inspector refuses with its own public codes (images.ts), which the device compiler can surface.
+for (const m of read('supabase/functions/_shared/images.ts').matchAll(/PublicError\(\d+, '([a-z_]+)'\)/g)) converterCodes.add(m[1]);
 const host = read('apps/web/src/reader/arxiv-compiler-host.js');
 const browser = new Map<string, string>();
 for (const m of host.matchAll(/\[((?:'[a-z0-9_]+',?\s*)+)\]\.includes\(code\)[^;]*?return '([a-z-]+)'/g)) for (const code of m[1].match(/[a-z0-9_]+/g)!) browser.set(code, m[2]);

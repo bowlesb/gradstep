@@ -348,7 +348,8 @@ test('a custom title page (2610.15371): the catalog title heads it, its logo is 
  const bundle = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), authors: ['Ada Lovelace', 'Alan Turing'], title: 'A Sovereign Model' });
  const checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
  const blocks = checked.index.blocks.map(b => [b.kind, b.text]);
- assert.deepEqual(blocks.slice(0, 3), [['heading', 'A Sovereign Model'], ['paragraph', 'Ada Lovelace, Alan Turing'], ['paragraph', 'Core Team: Ada Lovelace, Alan Turing']], JSON.stringify(blocks.slice(0, 5)));
+ // The role line ("Core Team: …") names the catalog's authors: it folds into the header (build 46's title-page fold).
+ assert.deepEqual(blocks.slice(0, 3), [['heading', 'A Sovereign Model'], ['paragraph', 'Ada Lovelace, Alan Turing'], ['heading', '1 Introduction']], JSON.stringify(blocks.slice(0, 5)));
  assert.equal(checked.index.figures.length, 1, 'the fixture figure only; the logo is not one');
  assert.match(checked.index.blocks.at(-1)!.text, /left out 1 inline graphic/);
 });
@@ -453,4 +454,34 @@ test('a dropped paragraph takes its equations out of the index (2610.20570)', ()
  const text = source.replace('<p id="p1">', `<div class="ltx_para"><p class="ltx_p">[1]<span class="ltx_text ltx_font_bold">for each</span> #1 ${math} <span class="ltx_text ltx_font_bold">do</span></p></div><p id="p1">`);
  const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
  assert.equal(checked.index.equations.length, 2, 'the fixture\'s two equations only');
+});
+
+test('build 46 headers: a title keeps no line breaks; a logo before the author lines goes; an author table after the abstract folds in; a name run into its affiliations splits; notes split by mark', () => {
+ const title = source.replace('<h1>Authored HTML fixture</h1>', '<h1>Before They Can Solve:<br class="ltx_break">Predicting Performance</h1>');
+ const titled = new TextDecoder().decode(build(title).members.get('index.html'));
+ assert.match(titled, /<h1[^>]*>Before They Can Solve: Predicting Performance<\/h1>/);
+
+ const page = source.replace('<h1>Authored HTML fixture</h1><div class="ltx_authors">A. Author</div>', '<h1>Authored HTML fixture</h1>'
+  + '<figure class="ltx_figure"><img src="2601.01234v2/figure.jpg"></figure><div class="ltx_para"><p class="ltx_p"><span class="ltx_text ltx_font_italic">October 2026</span></p></div>'
+  + '<div class="ltx_para"><p class="ltx_p">Ada Lovelace<sup class="ltx_sup">1,∗</sup> Alan Turing<sup class="ltx_sup">2</sup></p></div>'
+  + '<div class="ltx_para"><p class="ltx_p"><sup class="ltx_sup">1</sup> Analytical Engines <sup class="ltx_sup">2</sup> Bletchley Park</p></div>'
+  + '<div class="ltx_para"><p class="ltx_p"><sup class="ltx_sup">∗</sup> Equal contribution. <sup class="ltx_sup">†</sup> Corresponding authors.</p></div>'
+  + '<div class="ltx_abstract"><h6 class="ltx_title">Abstract</h6><p class="ltx_p">We study engines.</p></div>'
+  + '<table class="ltx_tabular"><tr><td><span class="ltx_text ltx_font_italic">Grace Hopper<sup class="ltx_sup">3</sup><sup class="ltx_sup">4</sup></span></td></tr><tr><td><sup class="ltx_sup">3</sup>Navy <sup class="ltx_sup">4</sup>Yale</td></tr><tr><td>grace@navy.mil</td></tr></table>');
+ const bundle = composeArxivReader({ source: utf8(page), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), authors: ['Ada Lovelace', 'Alan Turing', 'Grace Hopper'] });
+ const html = new TextDecoder().decode(bundle.members.get('index.html'));
+ const header = /<p class="reader-authors"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1];
+ assert.match(header, /^Ada Lovelace<sup>1,∗<\/sup>, Alan Turing<sup>2<\/sup>, Grace Hopper<sup>3,4<\/sup> <span class="reader-affiliations">/, header);
+ assert.match(header, /Analytical Engines<br><sup>2<\/sup>Bletchley Park<br><sup>3<\/sup>Navy<br><sup>4<\/sup>Yale/);
+ assert.match(header, /<span class="reader-notes"><sup>∗<\/sup> Equal contribution\.<br><sup>†<\/sup> Corresponding authors\.<\/span>/);
+ const checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ assert.ok(!checked.index.blocks.some(b => /October 2026|navy\.mil|Grace Hopper3/.test(b.text) && !/^Ada Lovelace/.test(b.text)), JSON.stringify(checked.index.blocks.slice(0, 6).map(b => b.text)));
+ assert.equal(checked.index.figures.length, 1, 'the logo is gone; the fixture figure stays');
+
+ const runTogether = source.replace('<div class="ltx_authors">A. Author</div>', '<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname"><span class="ltx_text">Ada Lovelace</span> <span class="ltx_text">Analytical Engines</span><span class="ltx_text"> <span class="ltx_text">University of London, Kensington</span><br class="ltx_break"><span class="ltx_text"><sup class="ltx_sup">†</sup>Corresponding Author: ada@engines.org</span></span></span></span></div>');
+ const run = composeArxivReader({ source: utf8(runTogether), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), authors: ['Ada Lovelace'] });
+ const runHeader = /<p class="reader-authors"[^>]*>([\s\S]*?)<\/p>/.exec(new TextDecoder().decode(run.members.get('index.html')))![1];
+ assert.ok(runHeader.startsWith('Ada Lovelace'), runHeader);
+ assert.ok(!/Kensington<\/sup>|, Kensington/.test(runHeader.split('<span')[0]), 'the affiliation is not a name: ' + runHeader);
+ assert.match(runHeader, /<span class="reader-notes"><sup>†<\/sup> Corresponding Author<\/span>/, runHeader);
 });

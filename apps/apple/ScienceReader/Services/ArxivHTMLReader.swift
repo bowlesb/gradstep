@@ -27,9 +27,9 @@ enum ArxivCompilerFailure {
     static let categories: [(name: String, codes: [String])] = [
         ("source-incomplete", ["arxiv_conversion_error"]),
         ("source-unavailable", ["arxiv_article", "arxiv_identity"]),
-        ("limit", ["source_limit", "bundle_limit", "manifest_limit", "html_limit", "block_limit", "heading_limit", "image_limit", "image_total_limit", "image_dimensions", "svg_dimensions", "base64_limit"]),
+        ("limit", ["source_limit", "bundle_limit", "manifest_limit", "html_limit", "block_limit", "heading_limit", "image_limit", "image_total_limit", "image_dimensions", "image_dimensions_exceeded", "svg_dimensions", "base64_limit"]),
         ("math", ["arxiv_math_attribute", "arxiv_math_element", "arxiv_math_style", "arxiv_math_semantics", "arxiv_math_source", "arxiv_math_mismatch", "arxiv_math_empty", "arxiv_math_coverage", "arxiv_math_duplicate", "arxiv_equation"]),
-        ("figure", ["arxiv_asset_url", "arxiv_asset_type", "arxiv_inline_svg", "arxiv_asset", "arxiv_asset_set", "arxiv_asset_missing", "arxiv_asset_coverage", "image_decode", "image_timeout", "svg_attribute", "svg_doctype", "svg_element", "svg_fragment", "svg_id", "svg_invalid", "svg_resource", "svg_style"]),
+        ("figure", ["arxiv_asset_url", "arxiv_asset_type", "arxiv_inline_svg", "arxiv_asset", "arxiv_asset_set", "arxiv_asset_missing", "arxiv_asset_coverage", "image_decode", "image_timeout", "svg_attribute", "svg_doctype", "svg_element", "svg_fragment", "svg_id", "svg_invalid", "svg_resource", "svg_style", "invalid_image"]),
         ("reference", ["arxiv_duplicate_id", "arxiv_unresolved_fragment", "arxiv_fragment"]),
         ("formatting", ["arxiv_nested_content", "arxiv_list", "arxiv_table_span", "arxiv_caption", "arxiv_figure", "arxiv_node", "arxiv_title", "arxiv_block_text", "arxiv_alt"]),
     ]

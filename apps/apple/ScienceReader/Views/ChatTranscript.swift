@@ -96,6 +96,7 @@ private struct TranscriptMessage: View {
     let papers: ChatPaperContext?
     /// Follow-up questions the newest answer suggests (only on that answer, never while streaming).
     var followUps: [String] = []
+    @State private var showsFollowUps = false
     let first: Bool
     let last: Bool
 
@@ -151,6 +152,10 @@ private struct TranscriptMessage: View {
                     FigurePartsStrip(stored: stored, image: model.figureImage(manifest: stored.manifestSHA256, path: stored.assetPath),
                                      fontSize: fontSize) { openDiagram(diagram.id) }
                         .accessibilityIdentifier("chat.message.figureParts.\(message.payload.entityID.wire)")
+                } else if let diagram, !streaming, let model = papers?.model {
+                    // The diagram itself in the answer (owner, build 46: "If you bothered to create a diagram please show it").
+                    InlineDiagram(link: diagram, diagram: model.diagram(diagram.id), fontSize: fontSize) { openDiagram(diagram.id) }
+                        .accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
                 } else if let diagram, !streaming {
                     Button { openDiagram(diagram.id) } label: {
                         Label(diagram.isFigureParts ? "View figure parts: \(diagram.title)" : diagram.isHTML ? "View visual: \(diagram.title)" : "View diagram: \(diagram.title)",
@@ -159,14 +164,23 @@ private struct TranscriptMessage: View {
                     }
                     .buttonStyle(.bordered).accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
                 }
-                // One-tap follow-up questions (2026-10-14): each becomes the message; nothing is sent until the reader does.
+                // Follow-up questions (2026-10-14), on request (owner, build 46: "they need to be upon request… take up too
+                // much space"): one small control; open, each becomes the message; nothing is sent until the reader does.
                 if !followUps.isEmpty, !streaming, message.payload.role == .assistant, let model = papers?.model {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(followUps, id: \.self) { question in
-                            Button { model.useFollowUp(question) } label: {
-                                Text(verbatim: question).font(.system(size: fontSize * 0.86)).multilineTextAlignment(.leading).lineLimit(3)
+                        Button { withAnimation(.easeInOut(duration: 0.15)) { showsFollowUps.toggle() } } label: {
+                            Label(showsFollowUps ? "Hide suggested questions" : "Suggested questions (\(followUps.count))",
+                                  systemImage: showsFollowUps ? "chevron.up" : "text.bubble")
+                                .font(.system(size: fontSize * 0.78)).foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain).accessibilityIdentifier("chat.followUps.toggle")
+                        if showsFollowUps {
+                            ForEach(followUps, id: \.self) { question in
+                                Button { model.useFollowUp(question) } label: {
+                                    Text(verbatim: question).font(.system(size: fontSize * 0.82)).multilineTextAlignment(.leading).lineLimit(3)
+                                }
+                                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small).tint(.accentColor)
                             }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(.accentColor)
                         }
                     }
                     .padding(.top, 2)

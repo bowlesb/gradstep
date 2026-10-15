@@ -153,8 +153,8 @@ final class ReaderNavigationTests: XCTestCase {
     }
 
     /// "Reference at the top of the message isn't needed" and "Needs to be a discuss in chat button … you can
-    /// continue typing": the reference's actions have no title row; Discuss in chat opens this paper's chat with the
-    /// entry quoted in the message box and the keyboard up, nothing sent.
+    /// continue typing": a reference opens the native edit menu (build 44: no title row, Copy first); Discuss in chat
+    /// opens this paper's chat with the entry quoted in the message box and the keyboard up, nothing sent.
     func testReferenceActionsHaveNoTitleAndDiscussInChatQuotesTheEntry() throws {
         for appearance in ["light", "dark"] {
             let (app, web) = openDPO(appearance: appearance)
@@ -177,18 +177,10 @@ final class ReaderNavigationTests: XCTestCase {
             capture("Back to where you were after a citation (\(appearance))")
 
             entry.tap()
-            let discuss = app.buttons["Discuss in chat"]
-            XCTAssertTrue(discuss.waitForExistence(timeout: 5))
-            XCTAssertTrue(app.buttons["Open on arXiv"].exists); XCTAssertTrue(app.buttons["Add to library"].exists); XCTAssertTrue(app.buttons["Copy"].exists)
-            // The dialog keeps its title for VoiceOver only: nothing is drawn above the first action.
-            let first = app.buttons["Open on arXiv"]
-            let titled = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Reference")).allElementsBoundByIndex.filter {
-                $0.isHittable && $0.frame.maxY <= first.frame.minY + 2 && $0.frame.minY >= first.frame.minY - 90
-                    && $0.frame.midX > first.frame.minX && $0.frame.midX < first.frame.maxX
-            }
-            XCTAssertTrue(titled.isEmpty, "No title row above the actions: \(titled.map(\.label))")
-            capture("Reference actions without a title (\(appearance))")
-
+            XCTAssertTrue(app.editMenuItem("Copy").waitForExistence(timeout: 5), "A reference opens the edit menu, Copy first")
+            capture("Reference actions in the edit menu (\(appearance))")
+            let discuss = app.revealEditMenuItem("Discuss in chat")
+            XCTAssertTrue(discuss.exists, "Discuss in chat is one of the reference's actions")
             discuss.tap()
             let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
             XCTAssertTrue(composer.waitForExistence(timeout: 8), "This paper's chat opens")

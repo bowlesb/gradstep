@@ -318,6 +318,22 @@ enum LibraryFormat {
         return date.formatted(style.month(.abbreviated).day())
     }
 
+    /// The Library's Added and Opened columns, to the minute (owner, build 46: "Should say the exact time please"):
+    /// "11:02 PM" today, "Yest. 9:14 PM", "Mon 9:14 PM" within the week, "Sep 28, 9:14 PM" this year, "Sep 28, 2025" before.
+    static func tableDate(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let day = calendar.startOfDay(for: date), today = calendar.startOfDay(for: now)
+        let days = calendar.dateComponents([.day], from: day, to: today).day ?? 0
+        let style = Date.FormatStyle(locale: calendar.locale ?? .current, calendar: calendar, timeZone: calendar.timeZone)
+        let time = date.formatted(style.hour().minute())
+        if days <= 0 { return time }
+        if days == 1 { return "Yest. \(time)" }
+        if days < 7 { return "\(date.formatted(style.weekday(.abbreviated))) \(time)" }
+        if calendar.component(.year, from: date) != calendar.component(.year, from: now) {
+            return date.formatted(style.month(.abbreviated).day().year())
+        }
+        return "\(date.formatted(style.month(.abbreviated).day())), \(time)"
+    }
+
     /// In running text: "Opened today", "Added yesterday", "Added Mon", "Added Sep 28".
     static func relativeDayInSentence(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let text = relativeDay(date, now: now, calendar: calendar)

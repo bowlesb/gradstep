@@ -45,6 +45,17 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "He, Zhang, Ren +1")
     }
 
+    /// Owner, build 46: "Should say the exact time please".
+    func testTableDatesSayTheTime() {
+        let format = { (date: Date) in LibraryFormat.tableDate(date, now: self.now, calendar: self.calendar) }
+        let today = format(now - 3_600)
+        XCTAssertTrue(today.contains(":") && !today.contains("Today"), today)
+        XCTAssertTrue(format(now - day).hasPrefix("Yest. "), format(now - day))
+        XCTAssertTrue(format(now - 2 * day).hasPrefix("Sat "), format(now - 2 * day))
+        XCTAssertTrue(format(now - 7 * day).hasPrefix("Sep 28, "), format(now - 7 * day))
+        XCTAssertEqual(format(now - 372 * day), "Sep 28, 2025", "Earlier years: the date, no time")
+    }
+
     func testRelativeDays() {
         let format = { (date: Date) in LibraryFormat.relativeDay(date, now: self.now, calendar: self.calendar) }
         XCTAssertEqual(format(now - 3_600), "Today")
