@@ -15,6 +15,26 @@ enum ArxivHTMLError: Error, Sendable {
     }
 }
 
+/// The compiler this app ships (scripts/build-arxiv-compiler.mjs writes `arxiv-reader-build.json` beside it): a stored
+/// bundle whose manifest names another build was compiled by an older app and is prepared again when it is opened
+/// (ReaderModel.openHTMLReader; owner, build 40: a paper first opened on build 39 still showed the old author block).
+struct ArxivCompilerIdentity: Decodable, Sendable, Equatable {
+    let rendererID: String
+    let revision: Int
+    let buildSHA256: String
+    enum CodingKeys: String, CodingKey { case rendererID = "renderer_id", revision, buildSHA256 = "build_sha256" }
+
+    static let shipped: ArxivCompilerIdentity? = {
+        guard let url = Bundle.main.url(forResource: "arxiv-reader-build", withExtension: "json"), let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(ArxivCompilerIdentity.self, from: data)
+    }()
+    /// Whether this app's compiler made the bundle (true when the identity file is missing: never re-prepare blindly).
+    static func isCurrent(_ bundle: VerifiedReaderBundle) -> Bool {
+        guard let shipped else { return true }
+        return bundle.manifest.renderer.id == shipped.rendererID && bundle.manifest.renderer.buildSHA256 == shipped.buildSHA256
+    }
+}
+
 /// Acquisition pacing. A paper's HTML document request is spaced like a new page visit; that page's own
 /// declared assets then load together, bounded, the way a browser loads the images of one page. A
 /// Retry-After from arXiv pauses every request from this device.
@@ -23,9 +43,10 @@ enum ArxivAcquisitionPolicy {
     static let assetConcurrency = 4
     /// A longer pause is reported as "busy" immediately instead of holding the reader open.
     static let busyLimit: TimeInterval = 60
-    static let sourceBytes = 2_097_152
+    /// 8 MiB (was 2 MiB; owner, build 40: Apertus 1.5's 2.6 MB HTML was refused as over the limit).
+    static let sourceBytes = 8_388_608
     static let assetBytes = 16_777_216
-    static let totalBytes = 33_554_432
+    static let totalBytes = 41_943_040
     static let assets = 512
 }
 

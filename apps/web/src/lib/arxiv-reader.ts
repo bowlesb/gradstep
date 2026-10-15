@@ -9,7 +9,7 @@ export class ArxivReaderError extends Error {}
  * own declared assets then load together, bounded, the way a browser loads the images of one page.
  * A Retry-After from arXiv pauses every request from this page. */
 export const ARXIV_PACING = Object.freeze({ documentSpacingMs: 3000, assetConcurrency: 4, requestTimeoutMs: 90_000, busyLimitMs: 60_000 });
-export const ARXIV_LIMITS = Object.freeze({ sourceBytes: 2_097_152, assetBytes: 16_777_216, totalBytes: 33_554_432, assets: 512 });
+export const ARXIV_LIMITS = Object.freeze({ sourceBytes: 8_388_608, assetBytes: 16_777_216, totalBytes: 41_943_040, assets: 512 });
 const BUSY = 'arXiv is busy. Try preparing this paper again later.';
 const UNAVAILABLE = 'HTML reader unavailable for this version. You can still download its PDF on this device.';
 const TOO_LARGE = 'This paper exceeds the device reader’s preparation limits.';

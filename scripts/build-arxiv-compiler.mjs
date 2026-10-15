@@ -15,3 +15,12 @@ for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/
       throw Error(`Stale device compiler: ${path}. Run node scripts/build-arxiv-compiler.mjs.`);
   } else writeFileSync(root + path, result.outputFiles[0].contents);
 }
+// The renderer the native app ships, so it can tell a bundle compiled by an older app from its own
+// (ReaderModel.openHTMLReader re-prepares those): the same identity the bundle manifest carries.
+const { ARXIV_BUILD_SHA256 } = await import('../supabase/functions/_shared/reader/arxiv-bundle.ts');
+const { ARXIV_RENDERER_ID, ARXIV_RENDERER_REVISION } = await import('../supabase/functions/_shared/reader/arxiv-html.ts');
+const identity = JSON.stringify({ renderer_id: ARXIV_RENDERER_ID, revision: ARXIV_RENDERER_REVISION, build_sha256: ARXIV_BUILD_SHA256 }, null, 1) + '\n';
+const buildPath = 'apps/apple/ScienceReader/Resources/arxiv-reader-build.json';
+if (process.argv.includes('--check')) {
+  if (readFileSync(root + buildPath, 'utf8') !== identity) throw Error(`Stale device compiler identity: ${buildPath}. Run node scripts/build-arxiv-compiler.mjs.`);
+} else writeFileSync(root + buildPath, identity);

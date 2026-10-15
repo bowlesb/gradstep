@@ -46,3 +46,18 @@ import Testing
         return bundle
     }
 }
+
+@MainActor @Suite struct ArxivCompilerIdentityTests {
+    /// A bundle compiled by an older app is prepared again when opened (owner, build 40: a paper first opened on
+    /// build 39 kept its old header). The shipped identity file names this app's compiler; the committed fixture
+    /// package was compiled by an earlier revision.
+    @Test func shippedIdentityTellsOldBundlesFromThisCompilers() throws {
+        let shipped = try #require(ArxivCompilerIdentity.shipped)
+        #expect(shipped.rendererID == "gradstep-arxiv-html-mathml-v2")
+        #expect(shipped.revision >= 3)
+        #expect(shipped.buildSHA256.count == 64)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let old = try DeviceReaderPackage.decode(Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/package.json")))
+        #expect(!ArxivCompilerIdentity.isCurrent(old), "the committed fixture predates this compiler")
+    }
+}

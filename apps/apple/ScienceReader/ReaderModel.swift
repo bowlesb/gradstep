@@ -2458,7 +2458,27 @@ final class ReaderModel {
                 let bundle: VerifiedReaderBundle
                 if let record = await store.record(sourceID: source.sourceID, revision: source.revision) {
                     let reopened = try await store.read(record.identity)
-                    bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
+                    if ArxivCompilerIdentity.isCurrent(reopened) {
+                        bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
+                    } else {
+                        // Compiled by an older app: prepared again by this one and the old copy removed. Off the network
+                        // (or arXiv busy) the stored copy still reads; the next opening tries again.
+                        do {
+                            let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames)
+                            try Task.checkCancellation()
+                            guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
+                            let commit = try persistence.acceptLocalReaderWrite { store in
+                                try await store.install(bundle: fresh)
+                                if fresh.manifestSHA256 != record.identity.sha256.map({ String(format: "%02x", $0) }).joined() { try await store.remove(record.identity) }
+                            }
+                            _ = try await commit.value
+                            bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: fresh) }.value
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
+                        }
+                    }
                 } else {
                     bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames)
                     try Task.checkCancellation()

@@ -9,7 +9,9 @@ import type { ReaderIndex } from './render.ts';
 export const ARXIV_RENDERER_ID = 'gradstep-arxiv-html-mathml-v2';
 export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
-export const ARXIV_RENDERER_REVISION = 2;
+/** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
+ * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 3;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;

@@ -20,7 +20,8 @@ export const MATH_OPTIONS = Object.freeze({
 // Limits are sized for real papers (the DPO capture is a 116 KB MMD with 270
 // equations and four figures) while bounding hosted CPU/memory and native work.
 export const LIMITS = Object.freeze({
-  sourceBytes: 2 * 1024 * 1024,
+  // 8 MiB (was 2 MiB; owner, build 40: a 2.6 MB technical report, Apertus 1.5, was refused as over the limit).
+  sourceBytes: 8 * 1024 * 1024,
   archiveImages: 512,
   figures: 256,
   imagesPerFigure: 16,

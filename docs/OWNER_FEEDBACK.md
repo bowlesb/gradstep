@@ -9,6 +9,15 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat, 2026-10-15 (builds 39–40): "Authors list is still broken", "Second attempt to engage with the app", and the architecture concern
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "Authors list is still broken" (PRISM again, after the fix shipped) | Reader header | Not the compiler: the paper had been prepared on the device by the older build and the stored bundle was reopened as is; nothing invalidated it. The build now ships its compiler identity (`arxiv-reader-build.json`, written by the compiler build script), and a stored bundle whose manifest names another compiler is prepared again when opened (the stored copy still reads offline). Reading positions of re-prepared papers start over once. | Built; unit test; build 41 |
+| 2 | "Second attempt to engage with the app" (Apertus 1.5: "This paper exceeds the device reader's current preparation limits") | Reader | The HTML is 2.6 MB against a 2 MiB source cap chosen before real technical reports were measured. The cap is 8 MiB on the compiler and both apps (the paper compiles in 149 ms to 863 blocks, 791 KB of reader HTML). | Built; build 41 and the browser |
+| 3 | "Can you set up a test suite so you detect more of these issues proactively?" | Reader quality | `scripts/reader-sweep.mjs`: the newest papers in the categories the owner reads plus the staging library, compiled with the shipped compiler, checked for the header and structure invariants (title first, author block clean, abstract after the header, no date or punctuation lines, Contents present, markup leaks) and refusals. First run: 58 papers, 16 refused to compile — the real first-open failure rate — which drives the next item. | Built; run before every reader build (TESTING.md "Slow, reader sweep") |
+| 4 | "when the failures are this common, it means we've added too much complexity… it might be time for a rethink of what the architecture is, what the components are, how quality is assured for each" · "maybe you could ask for an audit by a subagent" | Reader pipeline | Agreed. `docs/proposals/READER_ARCHITECTURE_RETHINK.md` names the components, their real contracts and a quality gate each; its first step (refusals become degradations with a ledger, the header from catalog metadata, the sweep as the gate, measured limits, versioned store) is being applied. An independent audit of the converter was requested from a subagent with the code and the sweep evidence; its findings are recorded alongside the proposal when they arrive. | Proposal written; audit in progress; step 1 in progress |
+
 ## TestFlight screenshot, 2026-10-15 (build 39): Urbex's header (abstract before the title, "[ [", a date line)
 
 | # | Owner said | Where | Cause / plan | Status |
