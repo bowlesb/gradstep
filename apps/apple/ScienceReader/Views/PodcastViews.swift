@@ -64,6 +64,10 @@ struct PodcastListenView: View {
                             Button("Browse new papers") { center.listenSelected = false }.accessibilityIdentifier("podcast.browsePapers")
                         }
                     } else {
+                        if let stale = center.catalogStaleNote {
+                            StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "podcast.stale") { EmptyView() }
+                                .padding(.horizontal, DesignMetrics.margin).padding(.top, 6)
+                        }
                         list
                     }
                 }

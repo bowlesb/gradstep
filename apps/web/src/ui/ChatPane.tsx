@@ -17,6 +17,7 @@ import { Icon } from './icons';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
+import { asOf } from '../lib/retry';
 
 export function useChatUpdates(chat: ChatSession) {
   useSyncExternalStore(chat.subscribe, chat.getVersion);
@@ -206,7 +207,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       <div className="composer-footer"><div className="composer-meta">
         <ProfileControl table={table} choice={choice} defaultChoice={chat.defaultProfile} disabled={retired || composerBusy(c) || !!c.answer}
           onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />
-        <span className="fine composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}` : 'Uses credits'}</span></div>
+        <span className="fine composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : 'Uses credits'}</span></div>
         {c.phase === 'streaming' ? <button type="button" className="secondary small" onClick={() => chat.stop(c)}>Stop</button>
           : <button type="submit" className="primary small" disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}>{c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'}</button>}
       </div>

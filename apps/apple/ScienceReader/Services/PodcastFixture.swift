@@ -25,6 +25,10 @@ actor PodcastFixtureTransport: PodcastTransport {
     private let empty: Bool
     /// `--podcast-fixture-outcome-pending`: the previous private episode's provider outcome is unresolved (quote refused).
     private let outcomePending: Bool
+    /// `--podcast-fixture-catalog-fault=always|after-first` (RESILIENCE.md fault fixtures): the catalog fails every
+    /// time (as a server error), or after a first good page (as a busy server), to show the last-good list.
+    private let catalogFault: String?
+    private var catalogCalls = 0
     private var episodes: [UUID: (episode: PodcastEpisode, audio: Data)] = [:]
     private var jobs: [UUID: (itemID: UUID, steps: Int, releaseID: UUID?, length: PodcastLength)] = [:]
     private var quotes: [UUID: (itemID: UUID, length: PodcastLength)] = [:]
@@ -34,6 +38,7 @@ actor PodcastFixtureTransport: PodcastTransport {
             : arguments.contains("--podcast-fixture-generation=fail") ? .fails : .succeeds
         empty = arguments.contains("--podcast-fixture-empty")
         outcomePending = arguments.contains("--podcast-fixture-outcome-pending")
+        catalogFault = arguments.first { $0.hasPrefix("--podcast-fixture-catalog-fault=") }.map { String($0.dropFirst("--podcast-fixture-catalog-fault=".count)) }
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
     }
 
@@ -51,6 +56,9 @@ actor PodcastFixtureTransport: PodcastTransport {
 
     func catalog(after: String?, limit: Int) async throws -> PodcastCatalogPage {
         try await Task.sleep(for: .milliseconds(150))
+        catalogCalls += 1
+        if catalogFault == "always" { throw BackendError.rejected("request_failed") }
+        if catalogFault == "after-first", catalogCalls > 1 { throw BackendError.throttled(retryAfter: 30) }
         let order = Self.catalogSpecs.map(\.id)
         let shared = empty ? [] : order.compactMap { episodes[$0]?.episode }.filter { $0.scope == .shared }
         return PodcastCatalogPage(episodes: shared.map(\.summary), next: nil, capabilities: Self.capabilities)

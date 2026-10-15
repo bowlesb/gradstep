@@ -487,12 +487,20 @@ export class ChatSession {
     }
   }
 
+  /** When `balance` was read, and whether the latest read failed (shown "as of" then; RESILIENCE.md fix 10). */
+  balanceAt: number | null = null;
+  balanceStale = false;
   async refreshBalance() {
     try {
       const balance = await rpc<{ available: number; reserved: number }>('v1_credit_balance', {}, { account: this.account, signal: this.signal });
       if (this.signal.aborted) return;
-      if (Number.isSafeInteger(balance?.available) && balance.available >= 0 && Number.isSafeInteger(balance.reserved) && balance.reserved >= 0) { this.balance = balance; this.publish(); }
-    } catch { /* A failed balance read never becomes a fabricated zero or client spending authority. */ }
+      if (Number.isSafeInteger(balance?.available) && balance.available >= 0 && Number.isSafeInteger(balance.reserved) && balance.reserved >= 0) {
+        this.balance = balance; this.balanceAt = Date.now(); this.balanceStale = false; this.publish();
+      }
+    } catch {
+      // A failed balance read never becomes a fabricated zero or client spending authority: the last one stays, marked.
+      if (!this.signal.aborted && this.balance && !this.balanceStale) { this.balanceStale = true; this.publish(); }
+    }
   }
   // ---------- The equation view (EQUATION_VIEW.md) ----------
 

@@ -163,6 +163,8 @@ final class ReaderModel {
     private var importPollTask: Task<Void, Never>?
     private(set) var libraryRefreshing = false
     private(set) var libraryIssue: String?
+    /// The server's requested wait after a throttled library refresh, if it gave one; the import poll honours it.
+    @ObservationIgnored private(set) var libraryRetryAfter: TimeInterval?
     private(set) var libraryHasSnapshot = false
     private var libraryService: LibraryService?
     /// Sends device-read paper metadata for this account (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3), while the server asks.
@@ -1380,14 +1382,47 @@ final class ReaderModel {
             }
             do {
                 try await self.signedIn(user, client: client, scope: scope)
+                self.accountPreparationFailures = 0; self.accountPreparationRetry?.cancel(); self.accountPreparationRetry = nil
                 // Purchases made while signed out (or not yet confirmed) are reported now.
                 Task { await self.syncStoreTransactions() }
             }
             catch {
                 guard self.sessionID == scope, self.accountID == user.id else { return }
-                self.accountPreparationIssue = "Couldn’t prepare your private library. Your saved work is still on this device."
-                self.requestRecoveryPresentation()
+                // Not reaching the server is not a key problem (RESILIENCE.md fix 6): say so, keep the reader where they
+                // are and try again by itself; the recovery sheet is only for keys that need the reader.
+                if Self.isReachability(error) {
+                    self.accountPreparationFailures += 1
+                    self.accountPreparationIssue = "Couldn’t reach Gradstep to set up this device. Trying again automatically; your saved work is still on this device."
+                    self.scheduleAccountPreparationRetry(user, client: client, scope: scope, after: error)
+                } else {
+                    self.accountPreparationIssue = "Couldn’t prepare your private library. Your saved work is still on this device."
+                    self.requestRecoveryPresentation()
+                }
             }
+        }
+    }
+
+    /// The connection, a busy or failing server: retried with back-off. Key, storage and protocol errors are not.
+    static func isReachability(_ error: Error) -> Bool {
+        if let backend = error as? BackendError { return backend.isTransient }
+        if let url = error as? URLError { return url.code != .cancelled }
+        return false
+    }
+    @ObservationIgnored private var accountPreparationFailures = 0
+    @ObservationIgnored private var accountPreparationRetry: Task<Void, Never>?
+    /// Seconds before the next automatic attempt after `failures` network failures (tests shorten it).
+    @ObservationIgnored var accountPreparationRetryDelay: (Int, TimeInterval?) -> TimeInterval = { failures, wait in
+        RetryBackoff.delay(failures: failures, base: 5, cap: 300, retryAfter: wait)
+    }
+
+    private func scheduleAccountPreparationRetry(_ user: AuthSession.User, client: BackendClient, scope: UUID, after error: Error) {
+        accountPreparationRetry?.cancel()
+        let delay = accountPreparationRetryDelay(accountPreparationFailures, (error as? BackendError)?.retryAfter)
+        accountPreparationRetry = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.sessionID == scope, self.accountID == user.id,
+                  self.accountPreparationIssue != nil, self.accountPreparationTask == nil else { return }
+            self.beginAccountPreparation(user, client: client, scope: scope)
         }
     }
 
@@ -1629,7 +1664,7 @@ final class ReaderModel {
             guard workOwnership.owns(storeScope) else { return }
             publish(snapshot)
             guard workOwnership.owns(attempt) else { return }
-            syncIssue = nil; syncFailures = 0
+            syncIssue = nil; syncFailures = 0; syncRetryAfter = nil
             SessionTimeline.shared.record("sync", ["status": "synced", "pending": String(publishedPendingCount)])
             syncStatus = publishedPendingCount == 0 ? "Synced" : "\(publishedPendingCount) changes waiting to sync"
             if publishedPendingCount > 0 { Task { if self.workOwnership.owns(attempt) { await self.synchronize() } } }
@@ -1642,6 +1677,7 @@ final class ReaderModel {
             publish(snapshot)
             guard workOwnership.owns(attempt) else { return }
             syncFailures += 1
+            syncRetryAfter = (error as? BackendError)?.retryAfter
             // The timeline gets a code (ReaderError case, known server code, URLError number), never the copy.
             SessionTimeline.shared.record("sync", ["status": "failed", "code": SyncFailure.code(error)])
             syncStatus = "Saved on this device · Sync paused"
@@ -1716,6 +1752,7 @@ final class ReaderModel {
         authentication = nil; showSignIn = false
         accountPreparationTask?.cancel(); accountPreparationTask = nil
         accountPreparationIssue = nil; pendingRecoveryPresentation = nil
+        accountPreparationRetry?.cancel(); accountPreparationRetry = nil; accountPreparationFailures = 0
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
         librarySearchCandidates = []; libraryRowLookup = [:]; librarySearchCandidatePositions = [:]
         librarySearchSourceChanged()
@@ -1777,12 +1814,20 @@ final class ReaderModel {
         let scope = sessionID
         importPollTask = Task { [weak self] in
             let started = Date()
+            var failures = 0
             while !Task.isCancelled {
-                let delay = self?.importPollDelay(Date().timeIntervalSince(started)) ?? 4
+                // A healthy poll keeps its cadence (with a little jitter); a failing one slows down instead of asking
+                // a struggling server every second (RESILIENCE.md fix 8).
+                let cadence = self?.importPollDelay(Date().timeIntervalSince(started)) ?? 4
+                let delay = failures == 0 ? RetryBackoff.jittered(cadence)
+                    : RetryBackoff.delay(failures: failures, base: max(cadence, 4), cap: 300, retryAfter: self?.libraryRetryAfter)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard let self, !Task.isCancelled, self.sessionID == scope else { return }
                 guard self.libraryImports.contains(where: isActive), self.accountID != nil else { self.importPollTask = nil; return }
-                if !self.libraryRefreshing { await self.refreshLibrary() }
+                if !self.libraryRefreshing {
+                    await self.refreshLibrary()
+                    failures = self.libraryIssue == nil ? 0 : failures + 1
+                }
             }
         }
     }
@@ -1936,6 +1981,10 @@ final class ReaderModel {
     private(set) var feedSelection: FeedSelection?
     /// What the loaded results are.
     private(set) var feedShown: FeedSelection?
+    /// When the shown feed page was loaded, and a note when a later refresh of the same page failed: the page stays,
+    /// said as of then, instead of "Feed unavailable" (RESILIENCE.md fix 10).
+    private(set) var feedLoadedAt: Date?
+    private(set) var feedStaleNote: String?
 
     /// The Feed's chip: the reader's pick while it can be shown, else For you, else the first category.
     var currentFeedSelection: FeedSelection {
@@ -1975,11 +2024,17 @@ final class ReaderModel {
         if feedShown?.isPersonal != selection.isPersonal { feedSort = FeedTableColumn.defaultSort(personal: selection.isPersonal) }
         feedTask?.cancel(); feedGeneration += 1
         let generation = feedGeneration
+        // Refreshing the page already shown keeps it on screen; anything else shows the spinner.
+        let refreshingShown = feedShown == selection && feedState == .loaded && !feedResults.isEmpty
         #if DEBUG && FIXTURE_HOST
+        // `--feed-fixture-fault`: every refresh after the first fails, as an unavailable feed service would.
+        if ProcessInfo.processInfo.arguments.contains("--feed-fixture-fault"), refreshingShown, let loaded = feedLoadedAt {
+            feedStaleNote = "Couldn’t refresh. These are the papers from \(LastGood.phrase(loaded))."; return
+        }
         if let response = fixtureFeedResponse(selection) { showFeed(response, for: selection); return }
         #endif
         guard let backend, let accountID else { feedState = .failed("Sign in to see new papers."); return }
-        feedState = .loading
+        if !refreshingShown { feedState = .loading }
         let scope = sessionID
         feedTask = Task {
             do {
@@ -1995,6 +2050,10 @@ final class ReaderModel {
                     self.loadFeed()
                     return
                 }
+                if refreshingShown, let loaded = self.feedLoadedAt {
+                    self.feedStaleNote = "Couldn’t refresh. These are the papers from \(LastGood.phrase(loaded))."
+                    return
+                }
                 self.feedState = .failed("New papers aren’t available right now. Try again in a moment.")
             }
         }
@@ -2003,6 +2062,7 @@ final class ReaderModel {
     private func showFeed(_ response: DiscoveryResponse, for selection: FeedSelection) {
         feedPersonal.note(response.feed, for: selection)
         feedResults = response.results; feedShown = selection; feedState = .loaded
+        feedLoadedAt = Date(); feedStaleNote = nil
     }
 
     /// arXiv identifiers already in the library or being added.
@@ -2220,10 +2280,11 @@ final class ReaderModel {
             guard sessionID == scope, self.accountID == accountID, libraryService === service,
                   snapshot.scope == libraryScope else { return }
             publishLibrary(snapshot)
-            if libraryRefreshAttempt == attempt { libraryIssue = nil }
+            if libraryRefreshAttempt == attempt { libraryIssue = nil; libraryRetryAfter = nil }
         } catch {
             guard sessionID == scope, self.accountID == accountID, libraryService === service,
                   libraryRefreshAttempt == attempt, !(error is CancellationError) else { return }
+            libraryRetryAfter = (error as? BackendError)?.retryAfter
             libraryIssue = libraryHasSnapshot ? "Couldn’t refresh your library. Showing the last complete update." : "Couldn’t load your library."
         }
     }
@@ -3245,7 +3306,18 @@ final class ReaderModel {
 
     // MARK: - Cloud answers
 
-    var chatTransport: (any ChatTransport)? { chatTransportOverride ?? backend }
+    var chatTransport: (any ChatTransport)? {
+        (chatTransportOverride ?? backend).map { IdleBoundedChatTransport(base: $0, idle: chatIdleDeadline) }
+    }
+    /// How long an answer may send nothing before it ends as interrupted (the server pings every 15 s). Tests shorten it
+    /// (`--chat-idle-deadline=<seconds>`, Debug only).
+    @ObservationIgnored var chatIdleDeadline: Duration = {
+        #if DEBUG
+        if let value = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--chat-idle-deadline=") }),
+           let seconds = Double(value.dropFirst("--chat-idle-deadline=".count)), seconds > 0 { return .milliseconds(Int(seconds * 1000)) }
+        #endif
+        return .seconds(100)
+    }()
     /// Checks a diagram's Mermaid source before it is kept (tests substitute their own).
     @ObservationIgnored var diagramCheck: @MainActor (String) async -> MermaidCheck.Result = { await MermaidCheck.check($0) }
     /// An answer is streaming for the visible composer's question.
@@ -3563,6 +3635,8 @@ final class ReaderModel {
                 outcome = .failed(code: code)
             } catch BackendError.signInRequired {
                 outcome = .failed(code: "authentication_required")
+            } catch BackendError.throttled {
+                outcome = .failed(code: "rate_limited")
             } catch {
                 if !Task.isCancelled { outcome = .failed(code: "transport") }
             }
@@ -3759,16 +3833,20 @@ final class ReaderModel {
         }
     }
 
+    @ObservationIgnored private var creditBalanceAt: Date?
     func refreshCreditBalance() async {
         guard let transport = chatTransport, let accountID, device != nil else { return }
         let scope = sessionID
         do {
             let balance = try await transport.creditBalance(accountID: accountID)
             guard sessionID == scope, self.accountID == accountID else { return }
-            creditBalance = balance; creditBalanceIssue = nil
+            creditBalance = balance; creditBalanceIssue = nil; creditBalanceAt = Date()
         } catch {
             guard sessionID == scope, self.accountID == accountID else { return }
-            creditBalanceIssue = "Couldn’t load your credit balance. Try again later."
+            // The last balance stays, said as of then; never a made-up zero (RESILIENCE.md fix 10).
+            if creditBalance != nil, let at = creditBalanceAt {
+                creditBalanceIssue = "Couldn’t refresh your credit balance. Showing it as of \(LastGood.phrase(at))."
+            } else { creditBalanceIssue = "Couldn’t load your credit balance. Try again later." }
         }
     }
 
@@ -3844,6 +3922,8 @@ final class ReaderModel {
     }
     @ObservationIgnored private var syncSchedule: (id: UUID, task: Task<Void, Never>)?
     @ObservationIgnored private var syncFailures = 0
+    /// The server's requested wait after a throttled sync, if it gave one.
+    @ObservationIgnored private var syncRetryAfter: TimeInterval?
     @ObservationIgnored private var syncsInFlight = 0
     var isSyncScheduled: Bool { syncSchedule != nil }
 
@@ -3856,8 +3936,11 @@ final class ReaderModel {
         let id = UUID(), scope = sessionID
         syncSchedule = (id, Task { [weak self] in
             while !Task.isCancelled {
-                let delay = self.map { $0.syncScheduleDelay($0.syncFailures) } ?? .seconds(60)
-                try? await Task.sleep(for: delay)
+                let base = self.map { $0.syncScheduleDelay($0.syncFailures) } ?? .seconds(60)
+                // Spread devices out (±20 %) and never come back sooner than the server asked.
+                let parts = base.components
+                let seconds = max(RetryBackoff.jittered(Double(parts.seconds) + Double(parts.attoseconds) / 1e18), self?.syncRetryAfter ?? 0)
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 guard let self, !Task.isCancelled, self.sessionID == scope, self.syncSchedule?.id == id else { return }
                 guard self.sceneActive, self.sync != nil else { self.syncSchedule = nil; return }
                 await self.scheduledSync(scope: scope)

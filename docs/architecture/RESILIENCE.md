@@ -1,9 +1,30 @@
 # Resilience: a failing response costs one feature, never the app
 
-**Status: proposal, 2026-10-15; server side built the same day (fixes 4, 5 and 7, server `retry_after`, fault
-switches and the drill script; [as built](#server-side-as-built)), not yet deployed. Fix 1 and the owner decisions
-below are open.** Owner: "I don't want the entire app to break if a response starts failing; we need to think and
-plan carefully there."
+**Status, 2026-10-15: server side built and deployed to staging (fixes 4, 5 and 7, server `retry_after`, fault
+switches and the drill script; [as built](#server-side-as-built)); the first fault drill (Anthropic throttled on chat)
+passed 8 of 8 on staging. Client side built (below). Fix 1 and the owner decisions below are open.** Owner: "I don't
+want the entire app to break if a response starts failing; we need to think and plan carefully there."
+
+**Built on the clients (2026-10-15):**
+- **Browser:** an error boundary per region (reader, chat, library, feed, Listen, side panel, player, dialogs) with "…
+  hit a problem · Try again · Report it", a last-resort app boundary and `error`/`unhandledrejection` handlers that
+  record a code, never content (`lib/faults.ts`; reports carry the last two). Launch retries `v1_key_state` by itself
+  (1, 2, 4 s… up to a minute, jittered, the server's wait honoured) behind "Can't reach Gradstep · Trying again in N s ·
+  Try now" (fix 2, fix 3 except the last-session library). Library polls jitter while healthy and back off while
+  failing (fix 8). A 429 without a specific code is `throttled` and carries `Retry-After`/`retry_after` (fix 9).
+  Last-good, said "as of": the episode list and the credit balance (the feed already kept its page; chat profiles
+  keep their table).
+- **Apple apps:** `BackendError.throttled(retryAfter:)` for 429s without a specific code (fix 9); RPCs on their own
+  session bounded at 180 s, streams and downloads at 15 minutes (fix 11); a chat answer silent for 100 s ends as
+  interrupted (`IdleBoundedChatTransport`); first-device setup that can't reach Gradstep says so, retries by itself
+  and never opens the recovery sheet (fix 6); the import poll and sync jitter and back off, honouring the server's
+  wait (fix 8); last-good, said "as of": the feed page, the episode list and the credit balance (fix 10).
+- **Fault fixtures:** native `--chat-fixture-mode=throttled|overloaded|stall`, `--chat-idle-deadline=`,
+  `--backend-fault=<path>:<status>|timeout|malformed`, `--podcast-fixture-catalog-fault=always|after-first`,
+  `--feed-fixture-fault`; browser `POST /__fault {path, kind, times}` on the e2e fixture backend. Journeys:
+  `ResilienceJourneyTests` (8) and `e2e/resilience.spec.ts` (5 × desktop, phone, tablet, tablet-large).
+- **Not yet:** the browser's last-session library while offline needs the browser to reopen its keys without the
+  server (native does, from its cached device); that is a key-handling change for review, not a quiet addition.
 
 Scope: every external dependency and our own backend paths, on every surface — the shared Swift app (iPhone, iPad,
 Mac), the browser app, Edge functions, the Cloud Run worker and the admin. Findings cite `file:line` at `ef81285`.
