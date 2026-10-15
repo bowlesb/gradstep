@@ -3,7 +3,7 @@ import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
 import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type FocusEvent as ReactFocusEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
@@ -21,6 +21,7 @@ import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
 import { Brand, Dialog } from './common';
 import { FeedRail, FeedView, useFeed } from './Feed';
+import { PaperSearchView, usePaperSearch } from './PaperSearch';
 import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
@@ -94,7 +95,7 @@ function Unsupported() {
   );
 }
 
-const SHORTCUTS = [['/ or ⌘K', 'Search the library'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
+const SHORTCUTS = [['/ or ⌘K', 'Search the library or arXiv'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
   ['F', 'Reading mode (Esc leaves it)'], ['J K', 'Next or previous section'], ['Space', 'Page down in the paper (Shift: up)'],
   ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
 const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
@@ -204,6 +205,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const { theme, resolved, setTheme } = useTheme();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const search = useRef<HTMLInputElement>(null);
+  // Paper search beside the library search (native RootView: the Library / arXiv switch under the field while
+  // searching; PaperSearch.tsx). Each side keeps its own query, as native libraryQuery and discoveryQuery do.
+  const paperSearch = usePaperSearch(account);
+  const [searchExternal, setSearchExternal] = useState(false);
+  const [searchFocus, setSearchFocus] = useState(false);
+  const scope = useRef<HTMLDivElement>(null);
+  const pointerDown = useRef(false);
+  useEffect(() => {
+    const down = () => { pointerDown.current = true; }, up = () => { pointerDown.current = false; };
+    addEventListener('pointerdown', down, true); addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
+    return () => { removeEventListener('pointerdown', down, true); removeEventListener('pointerup', up, true); removeEventListener('pointercancel', up, true); };
+  }, []);
   const readerCommands = useRef<ReaderCommands | null>(null);
   const openReader = useCallback((paper: ReaderPaper, anchor?: TextAnchor) => navigate(`/paper/${paper.id}`, () => {
     setLastPaper(paper.id);
@@ -327,6 +340,31 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
   }
 
+  const searchText = searchExternal ? paperSearch.query : view.query;
+  const searching = searchFocus || !!searchText || searchExternal;
+  // Focus may move between the field and its switch without ending the search (native searchFocused). When a click
+  // elsewhere takes focus, the switch stays until that click has landed, so nothing moves under the pointer.
+  const inSearch = (node: Node | null) => !!node && (!!search.current?.contains(node) || !!scope.current?.contains(node));
+  const leaveSearch = (event: ReactFocusEvent) => {
+    if (inSearch(event.relatedTarget as Node | null)) return;
+    if (!pointerDown.current) { setSearchFocus(false); return; }
+    const settle = () => {
+      removeEventListener('pointerup', settle, true); removeEventListener('pointercancel', settle, true);
+      setTimeout(() => { if (!inSearch(document.activeElement)) setSearchFocus(false); }, 0);
+    };
+    addEventListener('pointerup', settle, true); addEventListener('pointercancel', settle, true);
+  };
+  const chooseScope = (external: boolean) => {
+    setSearchExternal(external);
+    if (external) {
+      if (route !== 'library') navigate('/');
+      // Switching with a query that wasn't searched yet searches it (native onChange of searchExternal).
+      if (paperSearch.state.kind === 'idle' && paperSearch.query.trim()) paperSearch.run();
+    }
+  };
+  const cancelSearch = () => {
+    setSearchExternal(false); setView(q => ({ ...q, query: '' })); paperSearch.setQuery(''); setSearchFocus(false); search.current?.blur();
+  };
   const query = (text: string) => {
     setView(q => ({ ...q, query: text }));
     // Beside a paper, the library search shows its results in the rail; from the Feed it returns to the library.
@@ -412,7 +450,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={next => { setSearchExternal(false); setView(next); }} />}</div>
     </>
   );
 
@@ -439,6 +477,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       onAdded={sourceID => { feedAdded.current.add(sourceID); }}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }}
       listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} /> }} />;
+  } else if (searchExternal) {
+    center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={sourceID => { feedAdded.current.add(sourceID); }}
+      onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
       currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
@@ -464,11 +505,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </nav>
         <div className="search-field">
           <Icon name="search" size={14} />
-          <input ref={search} type="search" placeholder="Search library" aria-label="Search library" value={view.query} data-testid="search"
-            onChange={e => query(e.target.value)}
+          <input ref={search} type="search" placeholder={searchExternal ? 'Search arXiv' : 'Search library'} aria-label={searchExternal ? 'Search arXiv' : 'Search library'}
+            value={searchText} data-testid="search" enterKeyHint={searchExternal ? 'search' : undefined}
+            onChange={e => { if (searchExternal) paperSearch.setQuery(e.target.value); else query(e.target.value); }}
+            onFocus={() => setSearchFocus(true)} onBlur={leaveSearch}
             onKeyDown={e => {
-              if (e.key === 'Escape') { if (view.query) { e.preventDefault(); query(''); } else e.currentTarget.blur(); }
-              if (e.key === 'ArrowDown') { const first = document.querySelector<HTMLElement>('#main a.title, .compact-list a'); if (first) { e.preventDefault(); first.focus(); } }
+              if (e.key === 'Enter' && searchExternal) { e.preventDefault(); if (route !== 'library') navigate('/'); paperSearch.run(); }
+              if (e.key === 'Escape') {
+                if (searchText) { e.preventDefault(); if (searchExternal) paperSearch.setQuery(''); else query(''); }
+                else if (searchExternal) { e.preventDefault(); cancelSearch(); }
+                else e.currentTarget.blur();
+              }
+              if (e.key === 'ArrowDown') { const first = document.querySelector<HTMLElement>('#main a.title, #main a.feed-title, .compact-list a'); if (first) { e.preventDefault(); first.focus(); } }
             }} />
           <kbd aria-hidden="true">/</kbd>
         </div>
@@ -483,6 +531,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
       </header>
+      {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
+        <span className="segmented" role="group" aria-label="Search">
+          {([false, true] as const).map(external => <button key={String(external)} className={`segment${searchExternal === external ? ' on' : ''}`} aria-pressed={searchExternal === external}
+            onMouseDown={e => e.preventDefault()} onClick={() => chooseScope(external)} data-testid={external ? 'search-scope-arxiv' : 'search-scope-library'}>
+            {external ? 'arXiv' : 'Library'}</button>)}
+        </span>
+        <button className="link small-link" onMouseDown={e => e.preventDefault()} onClick={cancelSearch} data-testid="search-cancel">Cancel</button>
+      </div>}
       <StorageNotice />
       {navigationIssue && <div className="storage-notice" role="alert" data-testid="navigation-save-issue">
         <span>Some chat edits couldn’t be saved on this device. They’re still available in All chats. Keep this tab open.</span>

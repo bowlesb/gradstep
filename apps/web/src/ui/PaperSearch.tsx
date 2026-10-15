@@ -1,0 +1,89 @@
+// Paper search beside the library search: native parity (RootView's Library / arXiv switch, DiscoveryList and
+// DiscoveryRow; owner, 2026-10-15: "If no downside shoot for parity"). The arXiv side searches from this browser
+// (DataCite, docs/architecture/ARXIV_DEVICE_ONLY.md §5.6) while the server's `device_search` capability is on, and
+// through the server's `discover?q=` otherwise, as the native app does. Results are the Feed's paper rows: Add, In
+// library (opens the paper) and the Downloading…/Preparing… percent after Add; Newest or Relevance order.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { browserSearch, DISCOVERY_ORDER_KEY, type DiscoveryOrder, orderDiscovery, searchPapers } from '../lib/device-search';
+import type { DiscoveryResult } from '../lib/feed';
+import { FeedCards } from './FeedResults';
+import { Icon } from './icons';
+import type { Library } from './Library';
+import { useStored } from './prefs';
+
+export type DiscoveryState = { kind: 'idle' } | { kind: 'searching' } | { kind: 'failed'; message: string } | { kind: 'results'; results: DiscoveryResult[] };
+const UNAVAILABLE = 'arXiv search isn’t available right now. Try again in a moment.';
+
+/** The search's query, state and order. The latest search owns the results; a failure is shown as one, never as an
+ * empty list (native runDiscovery). */
+export function usePaperSearch(account: string) {
+  const engine = useMemo(() => browserSearch(account), [account]);
+  const [query, setQuery] = useState('');
+  const [state, setState] = useState<DiscoveryState>({ kind: 'idle' });
+  const [order, setOrder] = useStored<DiscoveryOrder>(DISCOVERY_ORDER_KEY, 'newest', v => v === 'newest' || v === 'relevance');
+  const latest = useRef(query); latest.current = query;
+  const request = useRef<AbortController | null>(null);
+  const run = useCallback(() => {
+    const text = latest.current.trim();
+    request.current?.abort();
+    if (!text) { request.current = null; setState({ kind: 'idle' }); return; }
+    const controller = new AbortController(); request.current = controller;
+    setState({ kind: 'searching' });
+    searchPapers(account, engine, text, controller.signal).then(
+      results => { if (!controller.signal.aborted) setState({ kind: 'results', results }); },
+      () => { if (!controller.signal.aborted) setState({ kind: 'failed', message: UNAVAILABLE }); });
+  }, [account, engine]);
+  useEffect(() => () => request.current?.abort(), []);
+  return { query, setQuery, state, run, order, setOrder };
+}
+export type PaperSearch = ReturnType<typeof usePaperSearch>;
+
+export function PaperSearchView({ search, library, preparing, onAdded, onOpen }: { search: PaperSearch; library: Library;
+  preparing?: Map<string, number>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void }) {
+  const [adding, setAdding] = useState<string | null>(null);
+  const [issue, setIssue] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const inLibrary = useMemo(() => new Set(library.entries.filter(e => e.visible).map(e => e.source_id).filter((id): id is string => !!id)), [library.entries]);
+  const results = search.state.kind === 'results' ? search.state.results : null;
+  const shown = useMemo(() => results ? orderDiscovery(results, search.order) : [], [results, search.order]);
+  useEffect(() => { setIssue(null); setExpanded(new Set()); }, [results]);
+  const add = async (result: DiscoveryResult) => {
+    if (adding || library.pending.has('add')) return;
+    setAdding(result.source_id); setIssue(null);
+    try { await library.addArxiv(result.source_id, null); onAdded?.(result.source_id); }
+    catch { setIssue(`Couldn’t add “${result.title}”. Try again.`); }
+    finally { setAdding(null); }
+  };
+  const toggle = (source: string) => setExpanded(previous => { const next = new Set(previous); next.has(source) ? next.delete(source) : next.add(source); return next; });
+  const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
+    feedbackBusy: false, feedbackState: new Map(), preparing, open: onOpen };
+  let body;
+  switch (search.state.kind) {
+    case 'idle':
+      body = <div className="empty" data-testid="discover-idle"><Icon name="search" size={28} /><p><strong>Find papers</strong></p>
+        <p className="muted">Search arXiv by title, author, topic or ID, then add a paper to your library.</p></div>;
+      break;
+    case 'searching':
+      body = <div className="empty" role="status" data-testid="discover-searching"><div className="spinner" aria-hidden="true" /><p>Searching arXiv…</p></div>;
+      break;
+    case 'failed':
+      body = <div className="empty" role="alert" data-testid="discover-failed"><p><strong>Couldn’t search</strong></p><p className="muted">{search.state.message}</p>
+        <button className="secondary" onClick={search.run}>Try again</button></div>;
+      break;
+    case 'results':
+      body = shown.length === 0
+        ? <div className="empty" data-testid="discover-empty"><p><strong>No papers found</strong></p><p className="muted">Try fewer or different words, an author, or an arXiv ID.</p></div>
+        : <>
+          <div className="chips" role="toolbar" aria-label="Order">
+            {(['newest', 'relevance'] as const).map(order => <button key={order} className={`chip${search.order === order ? ' selected' : ''}`} aria-pressed={search.order === order}
+              onClick={() => search.setOrder(order)} data-testid={`discover-order-${order}`}>{order === 'newest' ? 'Newest' : 'Relevance'}</button>)}
+          </div>
+          {issue && <p className="issue banner" role="alert">{issue}</p>}
+          <FeedCards results={shown} actions={actions} unknownPopularity={false} />
+        </>;
+  }
+  return <section className="feed paper-search" aria-labelledby="paper-search-title" data-testid="paper-search">
+    <h1 id="paper-search-title" className="visually-hidden">Search arXiv</h1>
+    {body}
+  </section>;
+}

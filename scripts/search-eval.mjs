@@ -25,6 +25,9 @@ mkdirSync(cacheDir, { recursive: true });
 const args = process.argv.slice(2);
 const refresh = args.includes('--refresh'), offline = args.includes('--offline');
 const only = args.find(a => a.startsWith('--only='))?.slice(7);
+// `--without-known`: the same answers ordered without rule 6 (no citation counts, no most-cited list), to see what it adds.
+const withoutKnown = args.includes('--without-known');
+const variant = withoutKnown ? '-without-known' : '';
 const UA = 'Gradstep/0.1 (search evaluation, developer machine; +https://gradstep.ai; mailto:hello@gradstep.ai)';
 
 /** kind, the query, and the arXiv IDs a reader would expect near the top (any one counts). */
@@ -129,24 +132,28 @@ async function sharedEngine(engine, query) {
   if (!plan) return { results: [], requests: 0, latency: 0, explain: [] };
   const { requests, broad } = searchRequests(engine, plan);
   const lists = {}, timings = [];
-  const fetchOne = async request => {
-    const url = engine === 'datacite' ? `${request.url}${request.url.includes('?') ? '&' : '?'}mailto=hello%40gradstep.ai` : request.url;
-    const r = await get(url, { accept: engine === 'arxiv' ? 'application/atom+xml' : 'application/vnd.api+json' });
-    timings.push(r.ms);
+  const fetchOne = async (request, stage) => {
+    const url = request.source === 'datacite' ? `${request.url}${request.url.includes('?') ? '&' : '?'}mailto=hello%40gradstep.ai` : request.url;
+    const r = await get(url, { accept: request.source === 'arxiv' ? 'application/atom+xml' : 'application/vnd.api+json' });
+    timings.push({ ms: r.ms, source: request.source, stage });
     if (r.status === 404 && request.role === 'id') throw new SearchNotFound();
     if (r.status !== 200) throw new Error(`status ${r.status}`);
-    return parseSearchResponse(engine, r.body);
+    return parseSearchResponse(request.source, r.body);
   };
   for (const request of requests) {
-    try { lists[request.role] = await fetchOne(request); }
+    try { lists[request.role] = await fetchOne(request, 1); }
     catch (error) { lists[request.role] = []; if (!(error instanceof SearchNotFound)) console.warn(`  ${engine} ${request.role} failed: ${error.message}`); }
   }
   if (broad && (lists.relevance?.length ?? 0) < BROAD_BELOW) {
-    try { lists.broad = await fetchOne(broad); } catch (error) { console.warn(`  ${engine} broad failed: ${error.message}`); }
+    try { lists.broad = await fetchOne(broad, 2); } catch (error) { console.warn(`  ${engine} broad failed: ${error.message}`); }
   }
+  if (withoutKnown) { delete lists.cited; for (const role of Object.keys(lists)) lists[role] = lists[role].map(({ citations: _, ...r }) => r); }
   const ranked = explainSearch(plan, lists, 25);
-  // The device spaces arXiv request starts 3 s apart; the browser asks DataCite one request at a time.
-  const latency = timings.reduce((sum, ms, i) => sum + (engine === 'arxiv' && i < timings.length - 1 ? Math.max(ms, 3000) : ms), 0);
+  // Time to results: the first requests run together, except that arXiv request starts are 3 s apart; the broad request
+  // follows them.
+  const first = timings.filter(t => t.stage === 1), arxiv = first.filter(t => t.source === 'arxiv');
+  const arxivChain = arxiv.reduce((sum, t, i) => sum + (i < arxiv.length - 1 ? Math.max(t.ms, 3000) : t.ms), 0);
+  const latency = Math.max(arxivChain, ...first.filter(t => t.source !== 'arxiv').map(t => t.ms), 0) + timings.filter(t => t.stage === 2).reduce((sum, t) => sum + t.ms, 0);
   return { results: ranked.map(r => r.result), requests: timings.length, latency,
     explain: ranked.slice(0, 10).map(r => ({ id: r.result.source_id, score: Number(r.score.toFixed(4)), factors: r.factors })),
     raw: Object.fromEntries(Object.entries(lists).map(([role, list]) => [role, list.slice(0, 10).map(r => r.source_id)])) };
@@ -202,7 +209,7 @@ const summary = Object.fromEntries(names.map(name => {
       [kind, Number(mean(rows.filter(r => r.kind === kind).map(r => r.engines[name].relevance5)).toFixed(2))])),
   }];
 }));
-writeFileSync(`${out}/${date}.json`, JSON.stringify({ date, live_requests: liveRequests, summary, queries: rows }, null, 1) + '\n');
+writeFileSync(`${out}/${date}${variant}.json`, JSON.stringify({ date, live_requests: liveRequests, summary, queries: rows }, null, 1) + '\n');
 
 // --- the side-by-side report.
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -236,6 +243,6 @@ ${names.map(n => `<tr><td>${esc(label[n])}</td>${Object.values(summary[n]).map(v
 <div class="wrap"><table><tr><th>Query</th>${names.map(n => `<th>${esc(label[n])}</th>`).join('')}</tr>
 ${rows.map(row => `<tr><td class="q">${esc(row.q)}<span class="kind">${esc(row.kind)}</span></td>${names.map(n => cell(row, n)).join('')}</tr>`).join('\n')}
 </table></div></body></html>\n`;
-writeFileSync(`${out}/${date}.html`, html);
+writeFileSync(`${out}/${date}${variant}.html`, html);
 console.log(JSON.stringify(summary, null, 1));
-console.log(`live requests: ${liveRequests}; wrote ${out}/${date}.json and .html`);
+console.log(`live requests: ${liveRequests}; wrote ${out}/${date}${variant}.json and .html`);

@@ -1,0 +1,353 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/R8YR8K9+jq4cWL4Rw9jwJXpHqm4</id>
+  <title>arXiv Query: search_query=all:vision AND all:transformer&amp;id_list=&amp;start=0&amp;max_results=50</title>
+  <updated>2026-10-15T18:05:31Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:vision+AND+all:transformer&amp;start=0&amp;max_results=50&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>50</opensearch:itemsPerPage>
+  <opensearch:totalResults>34665</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2206.10552v2</id>
+    <title>Vicinity Vision Transformer</title>
+    <updated>2023-07-20T08:57:20Z</updated>
+    <link href="https://arxiv.org/abs/2206.10552v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2206.10552v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Vision transformers have shown great success on numerous computer vision tasks. However, its central component, softmax attention, prohibits vision transformers from scaling up to high-resolution images, due to both the computational complexity and memory footprint being quadratic. Although linear attention was introduced in natural language processing (NLP) tasks to mitigate a similar issue, directly applying existing linear attention to vision transformers may not lead to satisfactory results. We investigate this problem and find that computer vision tasks focus more on local information compared with NLP tasks. Based on this observation, we present a Vicinity Attention that introduces a locality bias to vision transformers with linear complexity. Specifically, for each image patch, we adjust its attention weight based on its 2D Manhattan distance measured by its neighbouring patches. In this case, the neighbouring patches will receive stronger attention than far-away patches. Moreover, since our Vicinity Attention requires the token length to be much larger than the feature dimension to show its efficiency advantages, we further propose a new Vicinity Vision Transformer (VVT) structure to reduce the feature dimension without degenerating the accuracy. We perform extensive experiments on the CIFAR100, ImageNet1K, and ADE20K datasets to validate the effectiveness of our method. Our method has a slower growth rate of GFlops than previous transformer-based and convolution-based networks when the input resolution increases. In particular, our approach achieves state-of-the-art image classification accuracy with 50% fewer parameters than previous methods.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-06-21T17:33:53Z</published>
+    <arxiv:comment>code: https://github.com/OpenNLPLab/Vicinity-Vision-Transformer</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Weixuan Sun</name>
+    </author>
+    <author>
+      <name>Zhen Qin</name>
+    </author>
+    <author>
+      <name>Hui Deng</name>
+    </author>
+    <author>
+      <name>Jianyuan Wang</name>
+    </author>
+    <author>
+      <name>Yi Zhang</name>
+    </author>
+    <author>
+      <name>Kaihao Zhang</name>
+    </author>
+    <author>
+      <name>Nick Barnes</name>
+    </author>
+    <author>
+      <name>Stan Birchfield</name>
+    </author>
+    <author>
+      <name>Lingpeng Kong</name>
+    </author>
+    <author>
+      <name>Yiran Zhong</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2108.01390v5</id>
+    <title>Evo-ViT: Slow-Fast Token Evolution for Dynamic Vision Transformer</title>
+    <updated>2021-12-06T15:28:49Z</updated>
+    <link href="https://arxiv.org/abs/2108.01390v5" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2108.01390v5" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Vision transformers (ViTs) have recently received explosive popularity, but the huge computational cost is still a severe issue. Since the computation complexity of ViT is quadratic with respect to the input sequence length, a mainstream paradigm for computation reduction is to reduce the number of tokens. Existing designs include structured spatial compression that uses a progressive shrinking pyramid to reduce the computations of large feature maps, and unstructured token pruning that dynamically drops redundant tokens. However, the limitation of existing token pruning lies in two folds: 1) the incomplete spatial structure caused by pruning is not compatible with structured spatial compression that is commonly used in modern deep-narrow transformers; 2) it usually requires a time-consuming pre-training procedure. To tackle the limitations and expand the applicable scenario of token pruning, we present Evo-ViT, a self-motivated slow-fast token evolution approach for vision transformers. Specifically, we conduct unstructured instance-wise token selection by taking advantage of the simple and effective global class attention that is native to vision transformers. Then, we propose to update the selected informative tokens and uninformative tokens with different computation paths, namely, slow-fast updating. Since slow-fast updating mechanism maintains the spatial structure and information flow, Evo-ViT can accelerate vanilla transformers of both flat and deep-narrow structures from the very beginning of the training process. Experimental results demonstrate that our method significantly reduces the computational cost of vision transformers while maintaining comparable performance on image classification.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2021-08-03T09:56:07Z</published>
+    <arxiv:comment>We propose a novel and effective design for dynamic vision transformer to achieve better computational efficiency. The code is available at https://github.com/YifanXu74/Evo-ViT</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Yifan Xu</name>
+    </author>
+    <author>
+      <name>Zhijie Zhang</name>
+    </author>
+    <author>
+      <name>Mengdan Zhang</name>
+    </author>
+    <author>
+      <name>Kekai Sheng</name>
+    </author>
+    <author>
+      <name>Ke Li</name>
+    </author>
+    <author>
+      <name>Weiming Dong</name>
+    </author>
+    <author>
+      <name>Liqing Zhang</name>
+    </author>
+    <author>
+      <name>Changsheng Xu</name>
+    </author>
+    <author>
+      <name>Xing Sun</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2202.10108v2</id>
+    <title>ViTAEv2: Vision Transformer Advanced by Exploring Inductive Bias for Image Recognition and Beyond</title>
+    <updated>2022-11-27T05:17:34Z</updated>
+    <link href="https://arxiv.org/abs/2202.10108v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2202.10108v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Vision transformers have shown great potential in various computer vision tasks owing to their strong capability to model long-range dependency using the self-attention mechanism. Nevertheless, they treat an image as a 1D sequence of visual tokens, lacking an intrinsic inductive bias (IB) in modeling local visual structures and dealing with scale variance, which is instead learned implicitly from large-scale training data with longer training schedules. In this paper, we propose a Vision Transformer Advanced by Exploring intrinsic IB from convolutions, i.e., ViTAE. Technically, ViTAE has several spatial pyramid reduction modules to downsample and embed the input image into tokens with rich multi-scale context using multiple convolutions with different dilation rates. In this way, it acquires an intrinsic scale invariance IB and can learn robust feature representation for objects at various scales. Moreover, in each transformer layer, ViTAE has a convolution block parallel to the multi-head self-attention module, whose features are fused and fed into the feed-forward network. Consequently, it has the intrinsic locality IB and is able to learn local features and global dependencies collaboratively. The proposed two kinds of cells are stacked in both isotropic and multi-stage manners to formulate two families of ViTAE models, i.e., the vanilla ViTAE and ViTAEv2. Experiments on the ImageNet dataset as well as downstream tasks on the MS COCO, ADE20K, and AP10K datasets validate the superiority of our models over the baseline transformer models and concurrent works. Besides, we scale up our ViTAE model to 644M parameters and obtain the state-of-the-art classification performance, i.e., 88.5% Top-1 classification accuracy on ImageNet validation set and the best 91.2% Top-1 accuracy on ImageNet real validation set, without using extra private data.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-02-21T10:40:05Z</published>
+    <arxiv:comment>An extended version of the Neurips paper "ViTAE: Vision Transformer Advanced by Exploring Intrinsic Inductive Bias". arXiv admin note: substantial text overlap with arXiv:2106.03348</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Qiming Zhang</name>
+    </author>
+    <author>
+      <name>Yufei Xu</name>
+    </author>
+    <author>
+      <name>Jing Zhang</name>
+    </author>
+    <author>
+      <name>Dacheng Tao</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2106.02277v1</id>
+    <title>Glance-and-Gaze Vision Transformer</title>
+    <updated>2021-06-04T06:13:47Z</updated>
+    <link href="https://arxiv.org/abs/2106.02277v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2106.02277v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Recently, there emerges a series of vision Transformers, which show superior performance with a more compact model size than conventional convolutional neural networks, thanks to the strong ability of Transformers to model long-range dependencies. However, the advantages of vision Transformers also come with a price: Self-attention, the core part of Transformer, has a quadratic complexity to the input sequence length. This leads to a dramatic increase of computation and memory cost with the increase of sequence length, thus introducing difficulties when applying Transformers to the vision tasks that require dense predictions based on high-resolution feature maps. In this paper, we propose a new vision Transformer, named Glance-and-Gaze Transformer (GG-Transformer), to address the aforementioned issues. It is motivated by the Glance and Gaze behavior of human beings when recognizing objects in natural scenes, with the ability to efficiently model both long-range dependencies and local context. In GG-Transformer, the Glance and Gaze behavior is realized by two parallel branches: The Glance branch is achieved by performing self-attention on the adaptively-dilated partitions of the input, which leads to a linear complexity while still enjoying a global receptive field; The Gaze branch is implemented by a simple depth-wise convolutional layer, which compensates local image context to the features obtained by the Glance mechanism. We empirically demonstrate our method achieves consistently superior performance over previous state-of-the-art Transformers on various vision tasks and benchmarks. The codes and models will be made available at https://github.com/yucornetto/GG-Transformer.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2021-06-04T06:13:47Z</published>
+    <arxiv:comment>codes and models will be made available at https://github.com/yucornetto/GG-Transformer</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Qihang Yu</name>
+    </author>
+    <author>
+      <name>Yingda Xia</name>
+    </author>
+    <author>
+      <name>Yutong Bai</name>
+    </author>
+    <author>
+      <name>Yongyi Lu</name>
+    </author>
+    <author>
+      <name>Alan Yuille</name>
+    </author>
+    <author>
+      <name>Wei Shen</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2402.04563v1</id>
+    <title>Attention Guided CAM: Visual Explanations of Vision Transformer Guided by Self-Attention</title>
+    <updated>2024-02-07T03:43:56Z</updated>
+    <link href="https://arxiv.org/abs/2402.04563v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2402.04563v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Vision Transformer(ViT) is one of the most widely used models in the computer vision field with its great performance on various tasks. In order to fully utilize the ViT-based architecture in various applications, proper visualization methods with a decent localization performance are necessary, but these methods employed in CNN-based models are still not available in ViT due to its unique structure. In this work, we propose an attention-guided visualization method applied to ViT that provides a high-level semantic explanation for its decision. Our method selectively aggregates the gradients directly propagated from the classification output to each self-attention, collecting the contribution of image features extracted from each location of the input image. These gradients are additionally guided by the normalized self-attention scores, which are the pairwise patch correlation scores. They are used to supplement the gradients on the patch-level context information efficiently detected by the self-attention mechanism. This approach of our method provides elaborate high-level semantic explanations with great localization performance only with the class labels. As a result, our method outperforms the previous leading explainability methods of ViT in the weakly-supervised localization task and presents great capability in capturing the full instances of the target class object. Meanwhile, our method provides a visualization that faithfully explains the model, which is demonstrated in the perturbation comparison test.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-02-07T03:43:56Z</published>
+    <arxiv:comment>AAAI2024. Code available at https://github.com/LeemSaebom/Attention-Guided-CAM-Visual-Explanations-of-Vision-Transformer-Guided-by-Self-Attention.git</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Saebom Leem</name>
+    </author>
+    <author>
+      <name>Hyunseok Seo</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/astro-ph/0606411v1</id>
+    <title>The Stellar Imager (SI) Vision Mission</title>
+    <updated>2006-06-16T19:05:51Z</updated>
+    <link href="https://arxiv.org/abs/astro-ph/0606411v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/astro-ph/0606411v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  The Stellar Imager (SI) is a UV-Optical, Space-Based Interferometer designed to enable 0.1 milli-arcsecond (mas) spectral imaging of stellar surfaces and of the Universe in general and asteroseismic imaging of stellar interiors. SI is identified as a "Flagship and Landmark Discovery Mission" in the 2005 Sun Solar System Connection (SSSC) Roadmap and as a candidate for a "Pathways to Life Observatory" in the Exploration of the Universe Division (EUD) Roadmap (May, 2005). SI will revolutionize our view of many dynamic astrophysical processes: its resolution will transform point sources into extended sources, and snapshots into evolving views. SI's science focuses on the role of magnetism in the Universe, particularly on magnetic activity on the surfaces of stars like the Sun. SI's prime goal is to enable long-term forecasting of solar activity and the space weather that it drives. SI will also revolutionize our understanding of the formation of planetary systems, of the habitability and climatology of distant planets, and of many magneto-hydrodynamically controlled processes in the Universe. The results of the SI "Vision Mission" Study are presented in this paper. Additional information on the SI mission concept and related technology development can be found at URL: http://hires.gsfc.nasa.gov/si/.</summary>
+    <category term="astro-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2006-06-16T19:05:51Z</published>
+    <arxiv:comment>12 pages, 3 figures, to appear in Proceedings SPIE Conf. 6268 (Orlando)</arxiv:comment>
+    <arxiv:primary_category term="astro-ph"/>
+    <author>
+      <name>Kenneth G. Carpenter</name>
+    </author>
+    <author>
+      <name>Carolus J. Schrijver</name>
+    </author>
+    <author>
+      <name>Margarita Karovska</name>
+    </author>
+    <author>
+      <name>SI Vision Mission Team</name>
+    </author>
+    <arxiv:doi>10.1117/12.669713</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1117/12.669713" title="doi"/></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2402.05964v2</id>
+    <title>A Survey on Transformer Compression</title>
+    <updated>2024-04-07T13:03:58Z</updated>
+    <link href="https://arxiv.org/abs/2402.05964v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2402.05964v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Transformer plays a vital role in the realms of natural language processing (NLP) and computer vision (CV), specially for constructing large language models (LLM) and large vision models (LVM). Model compression methods reduce the memory and computational cost of Transformer, which is a necessary step to implement large language/vision models on practical devices. Given the unique architecture of Transformer, featuring alternative attention and feedforward neural network (FFN) modules, specific compression techniques are usually required. The efficiency of these compression methods is also paramount, as retraining large models on the entire training dataset is usually impractical. This survey provides a comprehensive review of recent compression methods, with a specific focus on their application to Transformer-based models. The compression methods are primarily categorized into pruning, quantization, knowledge distillation, and efficient architecture design (Mamba, RetNet, RWKV, etc.). In each category, we discuss compression methods for both language and vision tasks, highlighting common underlying principles. Finally, we delve into the relation between various compression methods, and discuss further directions in this domain.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-02-05T12:16:28Z</published>
+    <arxiv:comment>Model Compression, Transformer, Large Language Model, Large Vision Model, LLM</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Yehui Tang</name>
+    </author>
+    <author>
+      <name>Yunhe Wang</name>
+    </author>
+    <author>
+      <name>Jianyuan Guo</name>
+    </author>
+    <author>
+      <name>Zhijun Tu</name>
+    </author>
+    <author>
+      <name>Kai Han</name>
+    </author>
+    <author>
+      <name>Hailin Hu</name>
+    </author>
+    <author>
+      <name>Dacheng Tao</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2504.08729v1</id>
+    <title>Steering CLIP's vision transformer with sparse autoencoders</title>
+    <updated>2025-04-11T17:56:09Z</updated>
+    <link href="https://arxiv.org/abs/2504.08729v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2504.08729v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>While vision models are highly capable, their internal mechanisms remain poorly understood -- a challenge which sparse autoencoders (SAEs) have helped address in language, but which remains underexplored in vision. We address this gap by training SAEs on CLIP's vision transformer and uncover key differences between vision and language processing, including distinct sparsity patterns for SAEs trained across layers and token types. We then provide the first systematic analysis on the steerability of CLIP's vision transformer by introducing metrics to quantify how precisely SAE features can be steered to affect the model's output. We find that 10-15\% of neurons and features are steerable, with SAEs providing thousands more steerable features than the base model. Through targeted suppression of SAE features, we then demonstrate improved performance on three vision disentanglement tasks (CelebA, Waterbirds, and typographic attacks), finding optimal disentanglement in middle model layers, and achieving state-of-the-art performance on defense against typographic attacks.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-04-11T17:56:09Z</published>
+    <arxiv:comment>8 pages, 7 figures. Accepted to the CVPR 2025 Workshop on Mechanistic Interpretability for Vision (MIV)</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Sonia Joseph</name>
+    </author>
+    <author>
+      <name>Praneet Suresh</name>
+    </author>
+    <author>
+      <name>Ethan Goldfarb</name>
+    </author>
+    <author>
+      <name>Lorenz Hufe</name>
+    </author>
+    <author>
+      <name>Yossi Gandelsman</name>
+    </author>
+    <author>
+      <name>Robert Graham</name>
+    </author>
+    <author>
+      <name>Danilo Bzdok</name>
+    </author>
+    <author>
+      <name>Wojciech Samek</name>
+    </author>
+    <author>
+      <name>Blake Aaron Richards</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2106.15183v3</id>
+    <title>Multi-Exit Vision Transformer for Dynamic Inference</title>
+    <updated>2021-10-22T12:54:28Z</updated>
+    <link href="https://arxiv.org/abs/2106.15183v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2106.15183v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Deep neural networks can be converted to multi-exit architectures by inserting early exit branches after some of their intermediate layers. This allows their inference process to become dynamic, which is useful for time critical IoT applications with stringent latency requirements, but with time-variant communication and computation resources. In particular, in edge computing systems and IoT networks where the exact computation time budget is variable and not known beforehand. Vision Transformer is a recently proposed architecture which has since found many applications across various domains of computer vision. In this work, we propose seven different architectures for early exit branches that can be used for dynamic inference in Vision Transformer backbones. Through extensive experiments involving both classification and regression problems, we show that each one of our proposed architectures could prove useful in the trade-off between accuracy and speed.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2021-06-29T09:01:13Z</published>
+    <arxiv:comment>Accepted by the 2021 British Machine Vision Conference (BMVC 2021)</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Arian Bakhtiarnia</name>
+    </author>
+    <author>
+      <name>Qi Zhang</name>
+    </author>
+    <author>
+      <name>Alexandros Iosifidis</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2201.00978v1</id>
+    <title>PyramidTNT: Improved Transformer-in-Transformer Baselines with Pyramid Architecture</title>
+    <updated>2022-01-04T04:56:57Z</updated>
+    <link href="https://arxiv.org/abs/2201.00978v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2201.00978v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Transformer networks have achieved great progress for computer vision tasks. Transformer-in-Transformer (TNT) architecture utilizes inner transformer and outer transformer to extract both local and global representations. In this work, we present new TNT baselines by introducing two advanced designs: 1) pyramid architecture, and 2) convolutional stem. The new "PyramidTNT" significantly improves the original TNT by establishing hierarchical representations. PyramidTNT achieves better performances than the previous state-of-the-art vision transformers such as Swin Transformer. We hope this new baseline will be helpful to the further research and application of vision transformer. Code will be available at https://github.com/huawei-noah/CV-Backbones/tree/master/tnt_pytorch.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-01-04T04:56:57Z</published>
+    <arxiv:comment>Tech Report. An extension of "Transformer in Transformer" (arXiv:2103.00112)</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Kai Han</name>
+    </author>
+    <author>
+      <name>Jianyuan Guo</name>
+    </author>
+    <author>
+      <name>Yehui Tang</name>
+    </author>
+    <author>
+      <name>Yunhe Wang</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2205.11397v5</id>
+    <title>Super Vision Transformer</title>
+    <updated>2023-07-19T08:25:37Z</updated>
+    <link href="https://arxiv.org/abs/2205.11397v5" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2205.11397v5" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We attempt to reduce the computational costs in vision transformers (ViTs), which increase quadratically in the token number. We present a novel training paradigm that trains only one ViT model at a time, but is capable of providing improved image recognition performance with various computational costs. Here, the trained ViT model, termed super vision transformer (SuperViT), is empowered with the versatile ability to solve incoming patches of multiple sizes as well as preserve informative tokens with multiple keeping rates (the ratio of keeping tokens) to achieve good hardware efficiency for inference, given that the available hardware resources often change from time to time. Experimental results on ImageNet demonstrate that our SuperViT can considerably reduce the computational costs of ViT models with even performance increase. For example, we reduce 2x FLOPs of DeiT-S while increasing the Top-1 accuracy by 0.2% and 0.7% for 1.5x reduction. Also, our SuperViT significantly outperforms existing studies on efficient vision transformers. For example, when consuming the same amount of FLOPs, our SuperViT surpasses the recent state-of-the-art (SOTA) EViT by 1.1% when using DeiT-S as their backbones. The project of this work is made publicly available at https://github.com/lmbxmu/SuperViT.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-05-23T15:42:12Z</published>
+    <arxiv:comment>Accepted by International Journal of Computer Vision (IJCV) in the year of 2023</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Mingbao Lin</name>
+    </author>
+    <author>
+      <name>Mengzhao Chen</name>
+    </author>
+    <author>
+      <name>Yuxin Zhang</name>
+    </author>
+    <author>
+      <name>Chunhua Shen</name>
+    </author>
+    <author>
+      <name>Rongrong Ji</name>
+    </author>
+    <author>
+      <name>Liujuan Cao</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2303.15105v1</id>
+    <title>Vision Transformer with Quadrangle Attention</title>
+    <updated>2023-03-27T11:13:50Z</updated>
+    <link href="https://arxiv.org/abs/2303.15105v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2303.15105v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Window-based attention has become a popular choice in vision transformers due to its superior performance, lower computational complexity, and less memory footprint. However, the design of hand-crafted windows, which is data-agnostic, constrains the flexibility of transformers to adapt to objects of varying sizes, shapes, and orientations. To address this issue, we propose a novel quadrangle attention (QA) method that extends the window-based attention to a general quadrangle formulation. Our method employs an end-to-end learnable quadrangle regression module that predicts a transformation matrix to transform default windows into target quadrangles for token sampling and attention calculation, enabling the network to model various targets with different shapes and orientations and capture rich context information. We integrate QA into plain and hierarchical vision transformers to create a new architecture named QFormer, which offers minor code modifications and negligible extra computational cost. Extensive experiments on public benchmarks demonstrate that QFormer outperforms existing representative vision transformers on various vision tasks, including classification, object detection, semantic segmentation, and pose estimation. The code will be made publicly available at \href{https://github.com/ViTAE-Transformer/QFormer}{QFormer}.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-03-27T11:13:50Z</published>
+    <arxiv:comment>15 pages, the extension of the ECCV 2022 paper (VSA: Learning Varied-Size Window Attention in Vision Transformers)</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Qiming Zhang</name>
+    </author>
+    <author>
+      <name>Jing Zhang</name>
+    </author>
+    <author>
+      <name>Yufei Xu</name>
+    </author>
+    <author>
+      <name>Dacheng Tao</name>
+    </author></entry>
+</feed>

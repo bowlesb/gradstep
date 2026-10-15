@@ -6,7 +6,7 @@
 // search whose requests the app makes itself (paced, identified, one at a time).
 import './jsc-text-encoder.ts';
 import { extractSourceMetadata, sourceMetadataFromAtom } from './arxiv/source-metadata.ts';
-import { arxivSearchRequests, BROAD_BELOW, parseArxivAtom, planSearch, rankSearch, type SearchResult, type SearchRole } from '../paper-search.ts';
+import { arxivSearchRequests, BROAD_BELOW, parseArxivAtom, parseSearchResponse, planSearch, rankSearch, type SearchResult, type SearchRole } from '../paper-search.ts';
 
 export function extract(html: string, sourceID: string, revision: number): string {
   if (typeof html !== 'string' || typeof sourceID !== 'string' || !Number.isSafeInteger(revision)) return 'null';
@@ -29,9 +29,10 @@ export function fromAtom(xml: string, sourceID: string, revision: number): strin
   }
 }
 
-/** The export API requests for a search, as JSON `{requests: [{role, url}], broad: {role, url} | null, broad_below}`, or
- * "null" for an empty query. The app makes `requests` in order, and `broad` only when the relevance answer has fewer
- * than `broad_below` entries (`searchCount`). */
+/** A search's requests, as JSON `{requests: [{role, url, source}], broad: {role, url, source} | null, broad_below}`, or
+ * "null" for an empty query. `source` is "arxiv" (the export API, through the device's paced queue) or "datacite". The
+ * app makes `requests` in order, and `broad` only when the relevance answer has fewer than `broad_below` entries
+ * (`searchCount`). */
 export function searchRequests(query: string): string {
   try {
     const plan = planSearch(query);
@@ -48,17 +49,19 @@ export function searchCount(xml: string): number {
   try { return parseArxivAtom(xml).length; } catch { return -1; }
 }
 
-/** The ordered results (the discover contract) from the answers the app received, `{role: atom}` as JSON. */
+/** The ordered results (the discover contract) from the answers the app received, `{role: body}` as JSON; each answer
+ * is read as its request's source gives it (Atom from arXiv, JSON from DataCite). */
 export function searchResults(query: string, responses: string): string {
   try {
     const plan = planSearch(query);
     const answers = JSON.parse(responses) as Record<string, unknown>;
     if (!plan || !answers || typeof answers !== 'object') return '[]';
+    const { requests, broad } = arxivSearchRequests(plan);
     const lists: Partial<Record<SearchRole, SearchResult[]>> = {};
-    for (const role of ['id', 'relevance', 'phrase', 'broad'] as const) {
-      const xml = answers[role];
-      if (typeof xml !== 'string') continue;
-      try { lists[role] = parseArxivAtom(xml); } catch { lists[role] = []; }
+    for (const request of [...requests, ...(broad ? [broad] : [])]) {
+      const body = answers[request.role];
+      if (typeof body !== 'string') continue;
+      try { lists[request.role] = parseSearchResponse(request.source, body); } catch { lists[request.role] = []; }
     }
     return JSON.stringify(rankSearch(plan, lists));
   } catch {

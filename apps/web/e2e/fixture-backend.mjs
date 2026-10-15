@@ -203,6 +203,11 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
+  // Only the device-search switch (migration 072), and only while a journey turns it on (__device-search).
+  v1_reader_capabilities: (id, a) => {
+    if (!a.deviceSearch) throw pg('capabilities_unavailable');
+    return { account_id: id, device_search: { enabled: true, format: 'device-search-v1' } };
+  },
   // Operator roles for the account menu's Operations dashboard link (ADMIN_HEALTH.md): fixture readers have none.
   v1_account_context: id => ({ account_id: id, protocol_version: 1, roles: [], operator_verified: false }),
   v3_pull_events: (id, a, p) => {
@@ -297,6 +302,12 @@ createServer(async (request, response) => {
     if (typeof p?.profiles === 'boolean') a.chatProfiles = p.profiles;
     return send(response, 200, { ok: true });
   }
+  if (url.pathname === '/__device-search' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
+    a.deviceSearch = p?.enabled === true; a.serverSearches = [];
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__search-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { server: a.serverSearches ?? [] }); }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
   if (url.pathname === '/__large-library' && request.method === 'POST') {
     const body = await read(request);
@@ -530,6 +541,18 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
   // Feed (discover?category=…): public sample metadata only.
   if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {
     if (url.searchParams.has('feed')) return send(response, 404, { code: 'feed_unavailable' });
+    // The server's search (discover?q=), used while device search is off.
+    if (url.searchParams.has('q')) {
+      const q = url.searchParams.get('q') ?? '';
+      (a.serverSearches ??= []).push(q);
+      if (/^broken/i.test(q)) return send(response, 503, { code: 'search_unavailable' });
+      if (/^nothing/i.test(q)) return send(response, 200, { results: [] });
+      return send(response, 200, { results: [
+        { source_id: '2305.18290', revision: 3, title: DPO.title, authors: DPO.authors, year: 2023, abstract: DPO.abstract, full_abstract: DPO.abstract, abstract_truncated: false, categories: DPO.categories, topics: ['Preference optimization'] },
+        { source_id: '2604.01001', revision: 7, title: 'Scaling sparse attention to long contexts', authors: ['Ada Example', 'Grace Sample'], year: 2026,
+          abstract: 'We study how sparse attention patterns scale with context length and compute budget.', categories: ['cs.LG'], topics: ['Efficient attention'] },
+      ] });
+    }
     const category = url.searchParams.get('category') ?? '';
     if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return send(response, 400, { code: 'invalid_category' });
     return send(response, 200, { results: [

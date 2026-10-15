@@ -102,6 +102,12 @@ kbd { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; border: 1px soli
 .search-field input { border: 0; background: transparent; padding: 0; min-height: 0; height: 100%; outline: none; color: var(--text); font-size: 13.5px; }
 .search-field input::placeholder { color: var(--faint); }
 .topbar-actions { display: flex; align-items: center; gap: 4px; }
+/* While searching, the Library / arXiv switch sits under the field (native RootView), with Cancel. */
+.search-scope { flex: none; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 6px 10px; background: var(--surface);
+  border-bottom: 1px solid var(--line); position: relative; z-index: 29; }
+.search-scope .segment { min-height: 28px; padding: 2px 16px; font-size: 13px; }
+@media (pointer: coarse), (max-width: 640px) { .search-scope .segment { min-height: 36px; } .search-scope .small-link { min-height: 36px; } }
+.paper-search > .chips { padding-top: 14px; }
 .add-button { display: inline-flex; align-items: center; gap: 6px; height: 32px; min-height: 32px; padding: 0 12px; margin-right: 4px; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 8px;
   color: var(--muted); border: 1px solid transparent; flex: none; }
