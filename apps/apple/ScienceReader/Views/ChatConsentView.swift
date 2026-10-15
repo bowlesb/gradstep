@@ -7,6 +7,16 @@ struct ChatConsentView: View {
     let prompt: ChatConsentPrompt
 
     var body: some View {
+        CloudConsentContent(accept: { model.acceptChatConsent(prompt) }, decline: { model.declineChatConsent(prompt) })
+    }
+}
+
+/// The consent's words and choice, shared by a chat's first question and the equation view (the same consent).
+struct CloudConsentContent: View {
+    let accept: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -28,10 +38,10 @@ struct ChatConsentView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
-                    Button { model.acceptChatConsent(prompt) } label: {
+                    Button(action: accept) {
                         ProminentLabel(title: "Continue", fullWidth: true)
                     }.buttonStyle(.borderedProminent).accessibilityIdentifier("chat.consent.accept")
-                    Button { model.declineChatConsent(prompt) } label: {
+                    Button(action: decline) {
                         Text("Not now").frame(maxWidth: .infinity, minHeight: 44)
                     }.accessibilityIdentifier("chat.consent.decline")
                 }
