@@ -646,3 +646,31 @@ progress.mini { height: 3px; margin-top: 4px; }
 .equation-link .source-address { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; font-size: 12.5px; }
 .equation-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: -20px; background: var(--surface); padding: 10px 0 0; border-top: 1px solid var(--line); }
 @media (max-width: 640px) { .dialog.equation-dialog { width: 100vw; border-radius: 0; border: 0; } .equation-symbols li { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+
+/* ---------- Line width and reading mode (docs/architecture/READING_MODE.md) ---------- */
+.line-width { display: inline-flex; margin: 0 2px; }
+.line-width-option { width: 28px; color: var(--faint); }
+.line-width-option.on { color: var(--accent); background: var(--accent-soft); }
+/* A phone-width paper column is the same at every measure. */
+@container center (max-width: 560px) { .line-width { display: none; } }
+.reader { position: relative; }
+/* Reading mode: the app's chrome steps aside; panels come back as slide-overs; the toolbar is a quiet bar. */
+.app.reading .topbar, .app.reading > .storage-notice, .app.reading .splitter, .app.reading .collapse-handle, .app.reading .podcast-dock { display: none; }
+.app.reading .pane { position: absolute; top: 0; bottom: 0; z-index: 30; box-shadow: var(--pop); }
+.app.reading .pane-left { left: 0; width: min(340px, 86vw) !important; border-right: 1px solid var(--line); }
+.app.reading .pane-right { right: 0; width: min(440px, 92vw) !important; border-left: 1px solid var(--line); }
+.reader.reading .paper-toolbar { position: absolute; top: 0; left: 0; right: 0; z-index: 15; height: 48px; padding: 0 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  transition: opacity .2s ease, transform .2s ease; }
+.reader.reading.bar-hidden .paper-toolbar { opacity: 0; transform: translateY(-100%); pointer-events: none; }
+/* The chat over the paper keeps the bar (and its Chat button) clear of it. */
+.app.reading:has(.pane-right) .reader.reading .paper-toolbar, .app.reading:has(.pane-right) .reading-hotzone { right: min(440px, 92vw); }
+.reader.reading .paper-toolbar:focus-within { opacity: 1; transform: none; pointer-events: auto; }
+.reader.reading .find-bar { position: absolute; top: 48px; left: 0; right: 0; z-index: 15; }
+.reading-hotzone { position: absolute; top: 0; left: 0; right: 0; height: 28px; z-index: 14; }
+.reading-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); opacity: .65; transform-origin: 0 50%; z-index: 16; pointer-events: none; transition: transform .2s linear; }
+.reading-status { flex: 0 1 auto; min-width: 0; max-width: 38ch; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reading-percent { margin-left: 8px; font-variant-numeric: tabular-nums; color: var(--faint); }
+.reading-toggle.on { color: var(--accent); }
+@container center (max-width: 720px) { .reading-status { display: none; } }
+@media (prefers-reduced-motion: reduce) { .reader.reading .paper-toolbar, .reading-progress { transition: none; } }

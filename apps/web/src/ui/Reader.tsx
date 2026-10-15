@@ -20,12 +20,13 @@ import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 import { useWorkspaceControls } from './Shell';
 import type { EquationHost } from './EquationView';
+import { LINE_WIDTH_KEY, LineWidthControl, readLineWidth, type ReadingMode } from './ReadingMode';
 
 // The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
 const EquationView = lazy(() => import('./EquationView'));
 
 export type ReaderCache = Map<string, VerifiedBundle>; // owned by one signed-in session, memory only
-export interface ReaderCommands { find: () => void; escape: () => boolean }
+export interface ReaderCommands { find: () => void; escape: () => boolean; /** The next (1) or previous (-1) section. */ section?: (delta: number) => void }
 const FONT_KEY = 'gradstep.reader.fontSize';
 const readFont = () => readStored(FONT_KEY, 18, v => typeof v === 'number' && v >= 13 && v <= 28);
 
@@ -62,6 +63,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
   equations?: EquationHost;
+  /** Reading mode (READING_MODE.md): the toolbar becomes a quiet bar over the paper. */
+  reading?: ReadingMode;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -72,7 +75,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, reading }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -99,12 +102,17 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [found, setFound] = useState<{ count: number; index: number } | null>(null);
   const [findFocus, setFindFocus] = useState(0);
   const [font, setFont] = useState(readFont);
+  const [lineWidth, setLineWidth] = useState(readLineWidth);
+  // Reading mode: how far through the paper (whole percent) and whether the quiet bar shows.
+  const [progress, setProgress] = useState(0);
+  const [barShown, setBarShown] = useState(false);
+  const barTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const findField = useRef<HTMLInputElement>(null);
   const frameReady = useRef(false);
   const title = item.metadata?.title ?? 'Paper';
   const paperLine = publicationLine(item), paperTags = JSON.stringify(effectiveTags(item));
-  const [initialPresentation] = useState(() => ({ paperLine, paperTags, fontSize: font, theme }));
+  const [initialPresentation] = useState(() => ({ paperLine, paperTags, fontSize: font, theme, lineWidth }));
   const appliedPresentation = useRef(initialPresentation);
 
   useEffect(() => { document.title = `${title} · Gradstep`; return () => { document.title = 'Gradstep'; }; }, [title]);
@@ -130,7 +138,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   // One document per bundle. Live presentation changes use the shared native bridge, preserving
   // the reading place, DOM selection and citation-return state instead of navigating the frame.
   const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine: initialPresentation.paperLine,
-    paperTags: JSON.parse(initialPresentation.paperTags) as string[], fontSize: initialPresentation.fontSize, theme: initialPresentation.theme }) : null, [bundle, initialPresentation]);
+    paperTags: JSON.parse(initialPresentation.paperTags) as string[], fontSize: initialPresentation.fontSize, theme: initialPresentation.theme,
+    lineWidth: initialPresentation.lineWidth }) : null, [bundle, initialPresentation]);
   // Where each heading sits in the bundle's block order, for the current section.
   const headingBlocks = useMemo(() => {
     const blocks = new Map(bundle?.index.blocks.map((b, i) => [b.id, i]) ?? []);
@@ -148,8 +157,9 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     if (previous.paperTags !== paperTags) command('paperTags', JSON.parse(paperTags));
     if (previous.fontSize !== font) command('fontSize', font);
     if (previous.theme !== theme) command('theme', theme);
-    appliedPresentation.current = { paperLine, paperTags, fontSize: font, theme };
-  }, [command, paperLine, paperTags, font, theme]);
+    if (previous.lineWidth !== lineWidth) command('lineWidth', lineWidth);
+    appliedPresentation.current = { paperLine, paperTags, fontSize: font, theme, lineWidth };
+  }, [command, paperLine, paperTags, font, theme, lineWidth]);
 
   useEffect(applyPresentation, [applyPresentation]);
 
@@ -160,6 +170,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     commands.current = {
       find: openFind,
       escape: () => { if (finding) { closeFind(); return true; } return false; },
+      section: delta => sectionStep.current(delta),
     };
     return () => { commands.current = null; };
   }, [commands, openFind, closeFind, finding]);
@@ -192,6 +203,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           // App owns debounced, ordered encrypted persistence independently of this in-memory update.
           const { block, fraction, height, y } = message;
           onActivity(item.id, { opened: now, progress: message.progress, location: { block, fraction, height, y }, manifest: bundle?.manifestSHA256 });
+          setProgress(Math.round(message.progress * 100));
           let current: string | null = null;
           for (const h of headingBlocks) { if (h.block <= block) current = h.id; else break; }
           setActive(current);
@@ -232,6 +244,34 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled, bundle]);
   const quote = bundle && selection ? resolveQuote(bundle, selection) : null;
 
+  const changeLineWidth = (next: typeof lineWidth) => { setLineWidth(next); writeStored(LINE_WIDTH_KEY, next); };
+  // J / K and the bar's arrows: the next or previous section from the one being read.
+  const sectionStep = useRef((_delta: number) => {});
+  sectionStep.current = delta => {
+    if (!headings.length) return;
+    const at = headings.findIndex(h => h.id === active);
+    const next = headings[Math.max(0, Math.min(headings.length - 1, at < 0 ? 0 : at + delta))];
+    if (next && next.id !== active) jump(next.id);
+  };
+  // The quiet bar: shown on entering (so it can be found), near the top edge, with keyboard focus inside it, and
+  // while Back or Find is offered; otherwise it steps aside after a moment.
+  const showBar = useCallback((hold = 0) => {
+    if (barTimer.current) clearTimeout(barTimer.current);
+    setBarShown(true);
+    if (hold) barTimer.current = setTimeout(() => setBarShown(false), hold);
+  }, []);
+  const hideBarSoon = useCallback(() => {
+    if (barTimer.current) clearTimeout(barTimer.current);
+    barTimer.current = setTimeout(() => setBarShown(false), 1200);
+  }, []);
+  useEffect(() => {
+    if (!reading?.on) { setBarShown(false); return; }
+    showBar(2500);
+    // The paper takes the keyboard: Space, arrows and Page keys scroll it at once.
+    const t = setTimeout(() => { frame.current?.focus(); frame.current?.contentWindow?.focus(); }, 50);
+    return () => clearTimeout(t);
+  }, [reading?.on, showBar]);
+  useEffect(() => () => { if (barTimer.current) clearTimeout(barTimer.current); }, []);
   const changeFont = (delta: number) => {
     const next = Math.min(28, Math.max(13, font + delta));
     setFont(next); writeStored(FONT_KEY, next);
@@ -273,11 +313,16 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const contentsShown = !!workspace?.left.open && !!contentsSlot;
 
   return (
-    <div className="reader" data-theme-frame={theme}>
-      <header className="paper-toolbar">
+    <div className={`reader${reading?.on ? ' reading' : ''}${reading?.on && !(barShown || back || finding) ? ' bar-hidden' : ''}`} data-theme-frame={theme}>
+      {reading?.on && <div className="reading-progress" style={{ transform: `scaleX(${progress / 100})` }} aria-hidden="true" />}
+      {reading?.on && <div className="reading-hotzone" onMouseEnter={() => showBar()} onMouseLeave={hideBarSoon} aria-hidden="true" />}
+      <header className="paper-toolbar" onMouseEnter={reading?.on ? () => showBar() : undefined} onMouseLeave={reading?.on ? hideBarSoon : undefined}
+        onFocus={reading?.on ? () => showBar() : undefined} onBlur={reading?.on ? hideBarSoon : undefined}>
         <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={onContents} disabled={!headings.length} data-testid="contents"
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
+        {reading?.on && <span className="reading-status" aria-live="off" data-testid="reading-status">
+          {headings.find(h => h.id === active)?.title ?? ''}<span className="reading-percent">{progress}%</span></span>}
         <div className="reader-actions">
           {paperMenu}
           {listenAction}
@@ -289,6 +334,10 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             <button className="icon-button text-size" onClick={() => changeFont(-1)} aria-label="Smaller text" title="Smaller text" disabled={font <= 13}><span className="a-small">A</span></button>
             <button className="icon-button text-size" onClick={() => changeFont(1)} aria-label="Larger text" title="Larger text" disabled={font >= 28}><span className="a-large">A</span></button>
           </span>
+          <LineWidthControl value={lineWidth} onChange={changeLineWidth} />
+          <button className={`icon-button reading-toggle${reading?.on ? ' on' : ''}`} onClick={() => reading?.toggle()} disabled={!reading || !srcdoc}
+            aria-pressed={!!reading?.on} data-testid="reading-mode" aria-label={reading?.on ? 'Exit reading mode' : 'Reading mode'}
+            title={reading?.on ? 'Exit reading mode (Esc)' : 'Reading mode (F)'}><Icon name={reading?.on ? 'close' : 'book'} /></button>
           <button className={`tool-button${workspace?.right.open ? ' on' : ''}`} onClick={() => workspace?.toggle('right')} aria-pressed={!!workspace?.right.open}
             data-testid="ask" title="Chat ( ] )"><Icon name="chat" /><span>Chat</span></button>
         </div>

@@ -297,6 +297,8 @@ struct MacWindowConfiguration: UIViewRepresentable {
     let model: ReaderModel
     let mode: WideMode
     let settingsShown: Bool
+    /// Reading mode: the window's toolbar steps aside with the rest of the chrome (READING_MODE.md).
+    var reading = false
 
     func makeCoordinator() -> MacToolbarController { MacToolbarController(model: model) }
 
@@ -310,6 +312,7 @@ struct MacWindowConfiguration: UIViewRepresentable {
 
     func updateUIView(_ view: WindowHookView, context: Context) {
         context.coordinator.update(mode: mode, settingsShown: settingsShown)
+        context.coordinator.showToolbar(!reading)
     }
 }
 
@@ -378,6 +381,12 @@ final class WindowHookView: UIView {
             scene.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
         }
         update(mode: model.wideMode, settingsShown: model.tab == .settings)
+    }
+
+    /// Reading mode hides the toolbar (the quiet bar over the paper has its controls); leaving it brings it back.
+    func showToolbar(_ visible: Bool) {
+        guard let toolbar = scene?.titlebar?.toolbar, toolbar.isVisible != visible else { return }
+        toolbar.isVisible = visible
     }
 
     func windowResized(to size: CGSize) {

@@ -234,6 +234,10 @@ struct RootView: View {
     private func wideLayout(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             // On the Mac the view switch and Settings are in the window's toolbar (MacWindowConfiguration).
+            // Reading mode (READING_MODE.md) is the paper alone: no view switch, panes or docked player.
+            if model.readingMode && model.tab != .settings {
+                ReadingModeView(model: model)
+            } else {
             if !Platform.isMac {
                 HStack {
                     // The app's mark (∇ and its amber point), not a stock symbol.
@@ -266,10 +270,14 @@ struct RootView: View {
                 Divider()
                 PodcastMiniPlayer(model: model, wide: true).padding(.vertical, 6).frame(maxWidth: .infinity)
             }
+            }
         }
+        .environment(\.wideReader, true)
         .onChange(of: model.wideMode) { _, mode in model.showWideMode(mode) }
+        // A narrow window (an iPad split) has no reading mode: it ends rather than hide everything.
+        .onDisappear { model.exitReadingMode() }
         #if targetEnvironment(macCatalyst)
-        .background(MacWindowConfiguration(model: model, mode: model.wideMode, settingsShown: model.tab == .settings))
+        .background(MacWindowConfiguration(model: model, mode: model.wideMode, settingsShown: model.tab == .settings, reading: model.readingMode))
         #endif
     }
 }

@@ -83,10 +83,25 @@ struct GradstepCommands: Commands {
                 Button(model.wideMode == .browse ? "Hide Library Beside Paper" : "Show Library Beside Paper") {
                     model.showWideMode(model.wideMode == .browse ? .reader : .browse)
                 }.keyboardShortcut("s", modifiers: [.command, .control])
-                Button(model.readerChatHidden ? "Show Chat Beside Paper" : "Hide Chat Beside Paper") {
-                    model.readerChatHidden.toggle()
+                // In reading mode the chat slides over the paper instead (READING_MODE.md).
+                Button(model.readingMode ? (model.readingChatShown ? "Hide Chat" : "Show Chat Over Paper")
+                       : model.readerChatHidden ? "Show Chat Beside Paper" : "Hide Chat Beside Paper") {
+                    if model.readingMode { model.readingChatShown.toggle() } else { model.readerChatHidden.toggle() }
                 }.keyboardShortcut("h", modifiers: [.command, .control])
-                    .disabled(model.wideMode != .reader || model.tab == .settings)
+                    .disabled(!model.readingMode && (model.wideMode != .reader || model.tab == .settings))
+            }
+            // Reading mode and the paper's line width (READING_MODE.md). ⇧⌘R as Safari's Reader; the system's Enter Full
+            // Screen (⌃⌘F) stays as it is.
+            Section {
+                Button(model.readingMode ? "Exit Reading Mode" : "Enter Reading Mode") { model.toggleReadingMode() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(!model.readingMode && !model.canEnterReadingMode)
+                Menu("Line Width") {
+                    ForEach(Array(ReaderLineWidth.allCases.enumerated()), id: \.offset) { index, width in
+                        Toggle(width.menuTitle, isOn: Binding(get: { model.paperLineWidth == width }, set: { if $0 { model.paperLineWidth = width } }))
+                            .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .control])
+                    }
+                }
             }
             Section {
                 Picker("Library As", selection: $model.libraryLayout) {
@@ -134,6 +149,11 @@ struct GradstepCommands: Commands {
             Button(paper?.back == nil ? "Back to Reading Position" : paper?.backTitle ?? "Back to Reading Position") { paper?.back?() }
                 .keyboardShortcut("[").disabled(paper?.back == nil)
             Button("Dismiss Back") { paper?.dismissBack?() }.disabled(paper?.dismissBack == nil)
+            // J / K in the paper do the same.
+            Button("Next Section") { model.stepSection(1) }.keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(model.selectedPaper?.readerBundle == nil)
+            Button("Previous Section") { model.stepSection(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(model.selectedPaper?.readerBundle == nil)
             Divider()
             Menu("Ask About Selection") {
                 ForEach(Array(SelectionAction.allCases.enumerated()), id: \.offset) { index, action in
