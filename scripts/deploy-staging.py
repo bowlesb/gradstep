@@ -137,7 +137,9 @@ def deploy(args):
     web_search = args.chat_web_search or ('on' if config.get('chat_web_search') else 'off')
     function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                         {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
-                        {'name': 'CHAT_WEB_SEARCH', 'value': web_search}]
+                        {'name': 'CHAT_WEB_SEARCH', 'value': web_search},
+                        # Fault drills (docs/architecture/RESILIENCE.md): test accounts only; never set for production.
+                        {'name': 'FAULT_INJECTION', 'value': 'on' if config.get('fault_injection') and args.environment == 'staging' else 'off'}]
     if env.get('FEED_REFRESH_SECRET'):
         function_secrets.append({'name': 'FEED_REFRESH_SECRET', 'value': env['FEED_REFRESH_SECRET']})
     # App Store purchases: which Apple environments this deployment accepts (staging:

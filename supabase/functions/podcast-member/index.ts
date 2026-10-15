@@ -3,6 +3,7 @@ import { installEgressGuard } from '../_shared/egress.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { podcastError } from '../_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../_shared/podcast-delivery.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
@@ -29,6 +30,6 @@ Deno.serve(async request => {
     }, headers);
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
 });

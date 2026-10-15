@@ -4,6 +4,7 @@
 // the pipeline secret (never a customer token). Each call works through due papers, one
 // at a time, until none is due or the run budget is spent, and answers when it is done.
 import { installEgressGuard } from '../../supabase/functions/_shared/egress.ts';
+import { installProviderHealth } from '../../supabase/functions/_shared/provider-health.ts';
 import { parentPort, workerData } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { runMetadataPipeline, type MetadataDeps } from '../../supabase/functions/_shared/metadata-pipeline.ts';
@@ -12,6 +13,8 @@ import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-
 import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 // No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('pipeline-worker/run');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('pipeline-worker/run', pipelineService);
 
 /** Stop claiming new papers after this soft budget; the parent enforces a hard whole-run deadline. */
 export const RUN_BUDGET_MS = 480_000;

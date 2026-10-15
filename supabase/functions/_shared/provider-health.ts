@@ -1,0 +1,276 @@
+// Provider health (docs/architecture/RESILIENCE.md, migration 073): every request a server makes to an outside provider
+// is classified (ok, throttled, overloaded, server error, timeout, transport, rejected) and counted per hour for the
+// admin's Health tab; a provider failing steadily trips a breaker shared through the database, so further calls fail
+// fast with an ordinary 429 (never billed, Retry-After set) instead of piling on; and, for drills only, a test account
+// can be made to see a provider throttled or failing (FAULT_INJECTION=on, never production).
+//
+// Installed on a realm's global fetch next to the egress guard, so every provider call is seen, whatever library makes
+// it. Counts only: never a URL path, query, body, header value or account. Self-contained (no SDK imports): the Edge
+// functions and the Cloud Run worker share it.
+
+export const PROVIDERS = ['anthropic', 'deepseek', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface'] as const;
+export type ProviderName = typeof PROVIDERS[number];
+export type HealthOutcome = 'ok' | 'throttled' | 'overloaded' | 'server_error' | 'timeout' | 'transport' | 'rejected' | 'breaker_open';
+export type FaultMode = 'throttle' | 'overload' | 'error' | 'timeout' | 'malformed';
+/** `drill`: a fault drill's synthetic answer, counted apart and never moving the breaker. */
+export interface HealthEvent { provider: ProviderName; route: string; outcome: HealthOutcome; latencyMs: number; retryAfterS: number | null; drill?: boolean }
+export interface BreakerView { provider: ProviderName; state: 'closed' | 'open' | 'half_open'; reopenAt: number | null }
+/** Records one call; resolves with the provider's breaker as the database sees it (or null). Must never throw. */
+export type HealthRecorder = (event: HealthEvent) => Promise<BreakerView | null>;
+export interface ActiveFault { provider: string; route: string | null; mode: FaultMode; rate: number }
+/** The account's active faults (only consulted where FAULT_INJECTION=on). */
+export type FaultSource = (account: string) => Promise<ActiveFault[]>;
+
+/** Hosts we call, by provider. A host not listed passes through untouched (our own database, storage, arXiv's guard). */
+const HOSTS: [string, ProviderName][] = [
+  ['api.anthropic.com', 'anthropic'], ['api.deepseek.com', 'deepseek'], ['aiplatform.googleapis.com', 'google'],
+  ['api.tavily.com', 'tavily'], ['api.crossref.org', 'crossref'], ['api.datacite.org', 'datacite'],
+  ['api.openalex.org', 'openalex'], ['huggingface.co', 'huggingface'],
+];
+export function providerForHost(host: string): ProviderName | null {
+  const name = host.toLowerCase().replace(/\.+$/, '');
+  for (const [suffix, provider] of HOSTS) if (name === suffix || name.endsWith(`.${suffix}`)) return provider;
+  return null;
+}
+
+export function classifyStatus(status: number): HealthOutcome {
+  if (status < 400) return 'ok';
+  if (status === 429) return 'throttled';
+  if (status === 503 || status === 529) return 'overloaded';
+  if (status === 408 || status === 504) return 'timeout';
+  if (status >= 500) return 'server_error';
+  return 'rejected';
+}
+
+/** A thrown fetch error: a timeout (the request's own deadline) or a transport failure. */
+export function classifyError(error: unknown): 'timeout' | 'transport' {
+  const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
+  return name === 'TimeoutError' ? 'timeout' : 'transport';
+}
+
+/** Retry-After in seconds (delta or HTTP date), bounded to a day; null when absent or unreadable. */
+export function retryAfterSeconds(value: string | null | undefined, now = Date.now()): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (/^\d{1,9}$/.test(trimmed)) return Math.min(86_400, Number(trimmed));
+  const at = Date.parse(trimmed);
+  return Number.isFinite(at) ? Math.min(86_400, Math.max(0, Math.ceil((at - now) / 1000))) : null;
+}
+
+/** Route names for the table: the function or worker that called (`pipeline-worker/podcast` → `pipeline_worker_podcast`). */
+export function routeName(caller: string): string {
+  const name = caller.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
+  return /^[a-z]/.test(name) ? name : 'server';
+}
+
+// ---------------------------------------------------------------------------
+// Breakers: this realm's view of the shared state, refreshed by every recorded call
+// ---------------------------------------------------------------------------
+/** A probe whose answer never came back (its recording failed) stops blocking the next one after this long. */
+const PROBE_MS = 30_000;
+interface Known { state: BreakerView['state']; reopenAt: number | null; probingSince: number | null }
+const known = new Map<ProviderName, Known>();
+/** A recorded call's answer: the provider's breaker now. A new state or cool-off ends this realm's probe. */
+export function noteBreaker(view: BreakerView | null): void {
+  if (!view || !(PROVIDERS as readonly string[]).includes(view.provider)) return;
+  const previous = known.get(view.provider);
+  const same = previous && previous.state === view.state && previous.reopenAt === view.reopenAt;
+  known.set(view.provider, { state: view.state, reopenAt: view.reopenAt, probingSince: same ? previous.probingSince : null });
+}
+/** Whether a call may go now. Open: no, until the cool-off ends; then one probe from this realm at a time. */
+export function breakerVerdict(provider: ProviderName, now: number): { allow: true; probe: boolean } | { allow: false; retryAfterS: number } {
+  const state = known.get(provider);
+  if (!state || state.state === 'closed') return { allow: true, probe: false };
+  if (state.reopenAt !== null && now < state.reopenAt) return { allow: false, retryAfterS: Math.max(1, Math.ceil((state.reopenAt - now) / 1000)) };
+  if (state.probingSince !== null && now - state.probingSince < PROBE_MS) return { allow: false, retryAfterS: 5 };
+  state.probingSince = now;
+  return { allow: true, probe: true };
+}
+/** Tests only. */
+export function resetBreakers(): void { known.clear(); }
+
+// ---------------------------------------------------------------------------
+// Synthetic answers: what a failing provider (or our breaker) looks like to the caller
+// ---------------------------------------------------------------------------
+/** The provider's own error shape, so its SDK classifies it exactly as a real one. A breaker's answer is a 429: refused
+ * before any processing, never billed, with Retry-After set to the cool-off. */
+export function syntheticResponse(provider: ProviderName, mode: Exclude<FaultMode, 'timeout'> | 'breaker', retryAfterS: number): Response {
+  const status = mode === 'throttle' || mode === 'breaker' ? 429 : mode === 'overload' ? (provider === 'anthropic' ? 529 : 503) : mode === 'error' ? 500 : 200;
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'retry-after': String(retryAfterS),
+    'x-gradstep-synthetic': mode === 'breaker' ? 'breaker-open' : `fault-${mode}` };
+  if (mode === 'malformed') return new Response('{"malformed', { status, headers });
+  const type = status === 429 ? 'rate_limit_error' : status === 529 ? 'overloaded_error' : status === 503 ? 'overloaded_error' : 'api_error';
+  const message = mode === 'breaker' ? 'Gradstep paused calls to this provider after repeated failures.' : `Gradstep fault drill: ${mode}.`;
+  const body = provider === 'anthropic' ? { type: 'error', error: { type, message } } : { error: { code: status, status: type, message } };
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+// ---------------------------------------------------------------------------
+// The fetch wrapper
+// ---------------------------------------------------------------------------
+type Fetch = typeof fetch;
+export interface ProviderFetchOptions {
+  route: string;
+  record?: HealthRecorder;
+  /** The account a request is for (fault drills only); a getter so one wrapper can follow a worker's current job. */
+  account?: () => string | null;
+  faults?: FaultSource;
+  /** FAULT_INJECTION=on (staging and local only). */
+  faultsEnabled?: () => boolean;
+  now?: () => number;
+  random?: () => number;
+  /** Keeps a recording alive after the response (Edge: EdgeRuntime.waitUntil). */
+  keepAlive?: (promise: Promise<unknown>) => void;
+}
+
+function host(input: unknown): string | null {
+  let href: string;
+  if (typeof input === 'string') href = input;
+  else if (input instanceof URL) href = input.href;
+  else if (input && typeof input === 'object' && typeof (input as { url?: unknown }).url === 'string') href = (input as { url: string }).url;
+  else return null;
+  try { const url = new URL(href); return url.protocol === 'https:' || url.protocol === 'http:' ? url.hostname : null; } catch { return null; }
+}
+
+export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetch {
+  const now = options.now ?? Date.now, random = options.random ?? Math.random;
+  const route = routeName(options.route);
+  const record = (event: HealthEvent) => {
+    if (!options.record) return;
+    const pending = options.record(event).then(noteBreaker, () => undefined);
+    options.keepAlive?.(pending);
+  };
+  const wrapped = async (input: Parameters<Fetch>[0], init?: Parameters<Fetch>[1]): Promise<Response> => {
+    const name = host(input);
+    const provider = name ? providerForHost(name) : null;
+    if (!provider) return inner(input, init);
+    const started = now();
+    // 1. Drills: a fault set for this test account (the database checks the account again).
+    const account = options.account?.() ?? null;
+    if (account && options.faults && options.faultsEnabled?.()) {
+      let faults: ActiveFault[] = [];
+      try { faults = await options.faults(account); } catch { faults = []; }
+      const fault = faults.find(f => f.provider === provider && (f.route === null || f.route === route));
+      if (fault && random() < fault.rate) {
+        if (fault.mode === 'timeout') {
+          record({ provider, route, outcome: 'timeout', latencyMs: now() - started, retryAfterS: null, drill: true });
+          throw new DOMException('Gradstep fault drill: timeout.', 'TimeoutError');
+        }
+        const response = syntheticResponse(provider, fault.mode, 5);
+        record({ provider, route, outcome: fault.mode === 'malformed' ? 'ok' : classifyStatus(response.status), latencyMs: now() - started, retryAfterS: 5, drill: true });
+        return response;
+      }
+    }
+    // 2. The breaker: an open provider is answered here, at once, as a 429 with its cool-off.
+    const verdict = breakerVerdict(provider, now());
+    if (!verdict.allow) {
+      record({ provider, route, outcome: 'breaker_open', latencyMs: 0, retryAfterS: verdict.retryAfterS });
+      return syntheticResponse(provider, 'breaker', verdict.retryAfterS);
+    }
+    let response: Response;
+    try { response = await inner(input, init); }
+    catch (error) {
+      const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      const reason = signal?.aborted ? (signal.reason as { name?: unknown } | undefined) : undefined;
+      // The caller giving up (the reader left) says nothing about the provider; its own deadline does.
+      if (!signal?.aborted || (reason && reason.name === 'TimeoutError')) {
+        record({ provider, route, outcome: signal?.aborted ? 'timeout' : classifyError(error), latencyMs: now() - started, retryAfterS: null });
+      } else if (verdict.probe) { const state = known.get(provider); if (state) state.probingSince = null; }
+      throw error;
+    }
+    record({ provider, route, outcome: classifyStatus(response.status), latencyMs: now() - started,
+      retryAfterS: retryAfterSeconds(response.headers.get('retry-after'), now()) });
+    return response;
+  };
+  return wrapped as Fetch;
+}
+
+// ---------------------------------------------------------------------------
+// Wiring: the database recorder, the fault source, and the realm-wide install
+// ---------------------------------------------------------------------------
+export interface HealthRpc { rpc(name: string, params: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }> }
+
+function breakerFrom(value: unknown): BreakerView | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as { provider?: unknown; state?: unknown; reopen_at?: unknown };
+  if (typeof row.provider !== 'string' || !['closed', 'open', 'half_open'].includes(row.state as string)) return null;
+  const reopenAt = typeof row.reopen_at === 'string' ? Date.parse(row.reopen_at) : NaN;
+  return { provider: row.provider as ProviderName, state: row.state as BreakerView['state'], reopenAt: Number.isFinite(reopenAt) ? reopenAt : null };
+}
+
+/** worker_provider_health over a service client, bounded; never throws. */
+export function rpcRecorder(client: HealthRpc, timeoutMs = 3_000): HealthRecorder {
+  return async event => {
+    try {
+      const call = Promise.resolve(client.rpc('worker_provider_health', { p_provider: event.provider, p_route: event.route, p_outcome: event.outcome,
+        p_latency_ms: Math.max(0, Math.round(event.latencyMs)), p_retry_after_s: event.retryAfterS, ...(event.drill ? { p_drill: true } : {}) }));
+      const result = await Promise.race([call, new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs))]);
+      return result && !result.error ? breakerFrom(result.data) : null;
+    } catch { return null; }
+  };
+}
+
+/** The open breakers at start, so a fresh instance doesn't rediscover an outage on its own. */
+export async function loadBreakers(client: HealthRpc): Promise<void> {
+  try {
+    const { data, error } = await client.rpc('worker_provider_breakers', {});
+    if (!error && Array.isArray(data)) for (const row of data) noteBreaker(breakerFrom(row));
+  } catch { /* closed by default */ }
+}
+
+/** worker_fault_injection_active, cached 15 s per account. */
+export function rpcFaultSource(client: HealthRpc, now: () => number = Date.now): FaultSource {
+  const cache = new Map<string, { at: number; faults: ActiveFault[] }>();
+  return async account => {
+    const hit = cache.get(account);
+    if (hit && now() - hit.at < 15_000) return hit.faults;
+    let faults: ActiveFault[] = [];
+    try {
+      const { data, error } = await client.rpc('worker_fault_injection_active', { p_account: account });
+      if (!error && Array.isArray(data)) faults = data.filter((f): f is ActiveFault => !!f && typeof f === 'object'
+        && typeof (f as ActiveFault).provider === 'string' && ['throttle', 'overload', 'error', 'timeout', 'malformed'].includes((f as ActiveFault).mode))
+        .map(f => ({ provider: f.provider, route: typeof f.route === 'string' ? f.route : null, mode: f.mode, rate: Number(f.rate) > 0 ? Math.min(1, Number(f.rate)) : 1 }));
+    } catch { faults = []; }
+    cache.set(account, { at: now(), faults });
+    return faults;
+  };
+}
+
+const env = (name: string): string | undefined => {
+  const g = globalThis as { Deno?: { env?: { get?: (n: string) => string | undefined } }; process?: { env?: Record<string, string | undefined> } };
+  try { return g.Deno?.env?.get?.(name) ?? g.process?.env?.[name]; } catch { return undefined; }
+};
+export const faultInjectionEnabled = (): boolean => env('FAULT_INJECTION') === 'on';
+const keepAlive = (promise: Promise<unknown>) => {
+  try { (globalThis as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime?.waitUntil(promise); } catch { /* not an Edge runtime */ }
+};
+
+const INSTALLED = Symbol.for('gradstep.provider.health');
+const BASE = Symbol.for('gradstep.provider.base');
+type Realm = Record<PropertyKey, unknown> & { fetch: Fetch };
+
+/** Installs the wrapper on this realm's global fetch (after the egress guard). Idempotent. */
+export function installProviderHealth(caller: string, client: () => HealthRpc | null): void {
+  const g = globalThis as unknown as Realm;
+  if (g[INSTALLED]) return;
+  const inner = g.fetch.bind(globalThis);
+  g[BASE] = inner;
+  let service: HealthRpc | null | undefined;
+  const get = () => { if (service === undefined) { try { service = client(); } catch { service = null; } } return service; };
+  g.fetch = providerFetch(inner, { route: caller, keepAlive,
+    record: event => { const s = get(); return s ? rpcRecorder(s)(event) : Promise.resolve(null); } });
+  g[INSTALLED] = caller;
+}
+
+/** A fetch for one account's provider calls (fault drills reach only that account). Built on the realm's fetch beneath
+ * the installed wrapper, so a call is recorded once. */
+export function accountProviderFetch(caller: string, account: () => string | null, client: () => HealthRpc | null): Fetch {
+  const g = globalThis as unknown as Realm;
+  const inner = (g[BASE] as Fetch | undefined) ?? g.fetch.bind(globalThis);
+  let service: HealthRpc | null | undefined;
+  const get = () => { if (service === undefined) { try { service = client(); } catch { service = null; } } return service; };
+  let faults: FaultSource | null = null;
+  return providerFetch(inner, { route: caller, account, keepAlive, faultsEnabled: faultInjectionEnabled,
+    faults: async id => { const s = get(); if (!s) return []; faults ??= rpcFaultSource(s); return faults(id); },
+    record: event => { const s = get(); return s ? rpcRecorder(s)(event) : Promise.resolve(null); } });
+}

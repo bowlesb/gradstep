@@ -2,6 +2,7 @@
 import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('upload-pdf');
 Deno.serve(async request => {
@@ -15,6 +16,6 @@ Deno.serve(async request => {
     return Response.json({ code: 'pdf_device_only' }, { status: 410, headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(401, 'unauthorized');
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
 });

@@ -5,6 +5,7 @@
 import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, readBounded } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { MAX_SYNC_TRANSACTIONS, REJECTED_DATA, storeConfig, storeRecordingCode, syncTransactions } from '../_shared/store-purchases.ts';
 import { configuredStoreGoogleIdentity } from '../_shared/store-google-auth.ts';
 import { createStoreRecordTransport, privateStorePolicy, storeBoundedOperation, STORE_REQUEST_BUDGET_MS } from '../_shared/store-verifier-transport.ts';
@@ -83,6 +84,6 @@ Deno.serve(async request => {
     return Response.json({ results }, { headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Budget, Health as HealthData } from './backend';
+import { providerName } from './provider-hours';
 import { BarList, ChartFrame, clock, columnPath, COUNT_STEPS, dayLong, formatDay, humanize, Legend, linePath, MARGIN, niceTicks, percent, plural, runs,
   Stat, timeScale, Tooltip, useDayCursor, useWidth, XAxis, YGrid } from './charts';
 
@@ -104,6 +105,24 @@ export function Health({ load, budget, reloadKey, days, onDays }: {
         </section>
       </div>
 
+      {data.providers && <section className="panel" aria-labelledby="provider-errors-title">
+        <div className="chart-heading"><div><h2 id="provider-errors-title">Provider errors</h2><p className="muted">Calls to outside providers that failed (overloaded, 5xx,
+          timeouts, dropped connections) or were throttled (429s), per day. Each failure costs one feature, never the app; the hour-by-hour table is on Reliability.</p></div>
+          <Legend items={view.errorProviders.map(p => ({ tone: providerTone(p), label: providerName(p) }))} /></div>
+        <DailyBars name="Provider errors" compact days={view.people} series={view.errorProviders.map(p => ({ key: p, tone: providerTone(p), label: `${providerName(p)} errors`,
+          values: data.providers!.daily.map(d => (d.by_provider[p]?.failed ?? 0) + (d.by_provider[p]?.throttled ?? 0)) }))} empty="No provider errors in this window." />
+        {data.providers.last_hour.length > 0 && <ul className="provider-hour" aria-label="Last hour by provider">{data.providers.last_hour.map(r => {
+          const errors = r.failed + r.throttled, open = data.providers!.breakers.find(b => b.provider === r.provider);
+          return <li key={r.provider} className={open ? 'open' : r.calls >= 20 && errors / r.calls >= 0.05 ? 'bad' : undefined}>
+            <strong>{providerName(r.provider)}</strong>
+            <span>{r.calls.toLocaleString()} calls in the last hour</span>
+            <span>{errors ? `${percent(errors / r.calls)} failed or throttled` : 'no errors'}</span>
+            <span>{r.latency_ms_avg == null ? '' : `${(r.latency_ms_avg / 1000).toFixed(1)} s average`}</span>
+            {open && <span className="badge warning">Paused · {open.state === 'half_open' ? 'testing' : 'cooling off'}</span>}
+          </li>;
+        })}</ul>}
+      </section>}
+
       <h2 className="group-title">What it costs</h2>
       <div className="metrics headline">
         <Stat label="This month" value={usd(data.money.month_to_date_microusd)} note={budget ? `of ${usd(budget.limit_microusd, 0)} provider budget` : 'Provider usage'} />
@@ -150,8 +169,22 @@ function derive(data: HealthData, budget: Budget | null) {
     const top = Object.entries(data.reliability.podcast_failure_codes).sort((a, b) => b[1] - a[1])[0];
     attention.push({ tone: 'warning', text: `${data.reliability.podcasts_failed} of ${data.use.podcasts_started} podcast episodes failed${top ? `, most often “${codeName(top[0])}”` : ''}.` });
   }
+  // Outside providers (RESILIENCE.md): a breaker open now, or 5 % or more of the last hour's calls failing (with 20 or more calls).
+  for (const breaker of data.providers?.breakers ?? []) {
+    attention.push({ tone: 'warning', text: `${providerName(breaker.provider)} kept failing, so calls to it are paused${breaker.reopen_at && breaker.state === 'open'
+      ? ` until ${clock.format(new Date(breaker.reopen_at))}` : ' while one test call checks it'}; only the features that use it are affected.` });
+  }
+  for (const r of data.providers?.last_hour ?? []) {
+    const errors = r.failed + r.throttled;
+    if (r.calls >= 20 && errors / r.calls >= 0.05 && !data.providers!.breakers.some(b => b.provider === r.provider)) {
+      attention.push({ tone: 'warning', text: `${percent(errors / r.calls)} of ${r.calls.toLocaleString()} calls to ${providerName(r.provider)} failed or were throttled in the last hour.` });
+    }
+  }
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
-  return { people: data.people.daily, forecast, perActive, perActiveMonth, cacheShare: cacheTotal ? cache.read_tokens / cacheTotal : null, providers, attention };
+  const errorTotals = new Map<string, number>();
+  for (const day of data.providers?.daily ?? []) for (const [p, n] of Object.entries(day.by_provider)) errorTotals.set(p, (errorTotals.get(p) ?? 0) + n.failed + n.throttled);
+  const errorProviders = [...errorTotals].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  return { people: data.people.daily, forecast, perActive, perActiveMonth, cacheShare: cacheTotal ? cache.read_tokens / cacheTotal : null, providers, errorProviders, attention };
 }
 
 function Attention({ items }: { items: Item[] }) {

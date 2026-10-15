@@ -2,11 +2,14 @@
 // trigger via pg_net; authenticated with a dedicated shared secret, never a
 // customer token. Returns immediately and works in the background.
 import { installEgressGuard } from '../_shared/egress.ts';
+import { installProviderHealth } from '../_shared/provider-health.ts';
 import { runMetadataPipeline, type MetadataDeps } from '../_shared/metadata-pipeline.ts';
 import { pipelineService, rpcAdapter } from '../_shared/pipeline-runtime.ts';
 import { sweepAccountDeletions } from '../_shared/account-deletion.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('paper-worker');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('paper-worker', pipelineService);
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 

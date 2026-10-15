@@ -48,6 +48,8 @@ export function cors(request: Request): Record<string, string> {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
     'Access-Control-Max-Age': '600',
+    // A browser may read when to ask again (RESILIENCE.md, fix 6).
+    'Access-Control-Expose-Headers': 'Retry-After',
     'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
   };
 }

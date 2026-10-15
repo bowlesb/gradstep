@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import type { Budget, Health as HealthData, PipelineMetrics } from './backend';
+import type { Budget, Health as HealthData, PipelineMetrics, ProviderHour } from './backend';
+import { ProviderHours } from './provider-hours';
 import { Health } from './health';
 import { Accounts, type AccountList, type AccountsApi, type AdminAccount, type AccountSort } from './accounts';
 import { Reliability } from './reliability';
@@ -93,10 +94,27 @@ export function ReliabilityFixture() {
   const [reloads, setReloads] = useState(0);
   const empty = new URLSearchParams(location.search).get('state') === 'empty';
   const load = useCallback((days: number) => new Promise<PipelineMetrics>(resolve => setTimeout(() => resolve(empty ? emptyMetrics(days) : fixtureMetrics(days)), 120)), [empty]);
+  const loadHours = useCallback(() => new Promise<ProviderHour[]>(resolve => setTimeout(() => resolve(providerHoursFixture(empty)), 120)), [empty]);
   return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Reliability" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Reliability load={load} reloadKey={reloads} />
+    <ProviderHours load={loadHours} reloadKey={reloads} />
   </Shell>;
+}
+
+/** Reliability's hourly provider table (RESILIENCE.md): two days, Google's voices throttled in the newest hours. */
+function providerHoursFixture(empty: boolean): ProviderHour[] {
+  if (empty) return [];
+  const now = Date.now(), rows: ProviderHour[] = [];
+  for (let h = 0; h < 48; h++) {
+    const hour = new Date(Math.floor(now / 3_600_000 - h) * 3_600_000).toISOString();
+    const busy = h < 2;
+    rows.push({ hour, provider: 'anthropic', calls: 380 - h * 3, ok: 376 - h * 3, throttled: 2, failed: h === 30 ? 24 : 2, rejected: 0, breaker_open: 0,
+      latency_ms_avg: 2_300, latency_ms_max: 41_000, retry_after_max_s: h === 30 ? 20 : null });
+    rows.push({ hour, provider: 'google', calls: 31, ok: busy ? 18 : 31, throttled: busy ? 7 : 0, failed: 0, rejected: 0, breaker_open: busy ? 6 : 0,
+      latency_ms_avg: 21_000, latency_ms_max: 74_000, retry_after_max_s: busy ? 60 : null });
+  }
+  return rows;
 }
 
 export function PurchasesFixture() {
@@ -284,6 +302,19 @@ function healthFixture(days: number, state: string | null): HealthData {
       credits_consumed: sum(window, r => r.chats * 5 + r.podcasts * 40), credits_granted: sum(window, r => r.signups * 500),
       chat_cache: empty ? { read_tokens: 0, write_tokens: 0, input_tokens: 0 } : { read_tokens: 61_000_000, write_tokens: 19_000_000, input_tokens: 8_000_000 },
       daily: window.map(r => ({ day: r.day, microusd: Math.round(cost(r)), by_provider: r.by_provider, credits_consumed: r.chats * 5 + r.podcasts * 40 })) },
+    // Outside providers (RESILIENCE.md): a steady trickle of throttling, one bad Anthropic day, and (unless quiet) Google's
+    // voices throttled in the last hour with their breaker open.
+    providers: {
+      daily: window.map((r, k) => ({ day: r.day, by_provider: empty ? {} as Record<string, never> : {
+        anthropic: { calls: r.chats * 3, failed: quiet ? 0 : Math.round(r.chats * (k === window.length - 4 ? 0.06 : 0.004)), throttled: quiet ? 0 : Math.round(r.chats * 0.002), breaker_open: 0 },
+        google: { calls: r.podcasts * 2, failed: 0, throttled: quiet || k < window.length - 1 ? 0 : Math.round(r.podcasts * 0.4), breaker_open: quiet || k < window.length - 1 ? 0 : 6 },
+        crossref: { calls: Math.round(r.papers * 0.2), failed: quiet ? 0 : Math.round(r.papers * 0.002), throttled: 0, breaker_open: 0 } } })),
+      last_hour: empty ? [] : [
+        { provider: 'anthropic', calls: 412, failed: quiet ? 0 : 3, throttled: quiet ? 0 : 2, breaker_open: 0, latency_ms_avg: 2_400 },
+        { provider: 'crossref', calls: 38, failed: 0, throttled: 0, breaker_open: 0, latency_ms_avg: 310 },
+        { provider: 'google', calls: quiet ? 9 : 31, failed: 0, throttled: quiet ? 0 : 7, breaker_open: quiet ? 0 : 6, latency_ms_avg: 21_000 }],
+      breakers: quiet || empty ? [] : [{ provider: 'google', state: 'open', reopen_at: new Date(Date.now() + 120_000).toISOString() }],
+    },
   };
 }
 

@@ -190,6 +190,16 @@ dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba
 .scale-rows>div{display:flex;flex-direction:column;gap:4px;border:1px solid #edf0f5;border-radius:9px;padding:14px}
 .scale-rows strong{font-size:22px;letter-spacing:-.03em}
 .scale-rows .bad{color:#b33a3a;font-size:12px;font-weight:600}
+/* Provider errors (RESILIENCE.md): the last hour per provider under the chart; Reliability's hourly table. */
+.provider-hour{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.provider-hour li{display:grid;grid-template-columns:minmax(110px,160px) repeat(3,minmax(0,1fr)) auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid #edf0f5;border-radius:8px}
+.provider-hour li.bad{border-color:#f1d5a3;background:#fff8ea}.provider-hour li.open{border-color:#f3c0c0;background:#fff3f3}
+.provider-hour span{color:#6b7283}.provider-hour .badge{text-transform:none}
+.table-scroll{overflow-x:auto}.provider-hours table{margin-top:8px;font-variant-numeric:tabular-nums}.provider-hours td,.provider-hours th{white-space:nowrap}
+.provider-hours tr.bad-row td{background:#fff8ea}
+@media(max-width:650px){.provider-hour li{grid-template-columns:1fr 1fr;}}
+@media(prefers-color-scheme:dark){.provider-hour li{border-color:#272a37}.provider-hour li.bad,.provider-hours tr.bad-row td{background:#2a2112;border-color:#5a4318}
+.provider-hour li.open{background:#2a1618;border-color:#5c2a2c}.provider-hour span{color:#8a91a5}}
 @media(max-width:1000px){.metrics.headline{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.mini-stats{grid-template-columns:1fr 1fr 1fr;gap:6px}.scale-rows{grid-template-columns:1fr}.health .metric small{font-size:11px}}
 @media(prefers-color-scheme:dark){

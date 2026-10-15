@@ -4,11 +4,14 @@
 // answers 202, and finishes the fetch in the background under the claim's lease. The same run reads
 // Hugging Face Papers upvotes for the pool (feed-signals.ts, migration 046) before releasing the claim.
 import { installEgressGuard } from '../_shared/egress.ts';
+import { installProviderHealth } from '../_shared/provider-health.ts';
 import { rpc, serviceClient } from '../_shared/backend.ts';
 import { runRefresh, sameSecret, type PoolItem, type RefreshClaim, type RefreshStatus } from '../_shared/feed-pool.ts';
 import { runSignals, type SignalDayStatus, type SignalPlan, type Upvote } from '../_shared/feed-signals.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('feed-refresh');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('feed-refresh', serviceClient);
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 

@@ -1,7 +1,9 @@
 # Resilience: a failing response costs one feature, never the app
 
-**Status: proposal, 2026-10-15.** Nothing here is built yet. Owner: "I don't want the entire app to break if a
-response starts failing; we need to think and plan carefully there."
+**Status: proposal, 2026-10-15; server side built the same day (fixes 4, 5 and 7, server `retry_after`, fault
+switches and the drill script; [as built](#server-side-as-built)), not yet deployed. Fix 1 and the owner decisions
+below are open.** Owner: "I don't want the entire app to break if a response starts failing; we need to think and
+plan carefully there."
 
 Scope: every external dependency and our own backend paths, on every surface — the shared Swift app (iPhone, iPad,
 Mac), the browser app, Edge functions, the Cloud Run worker and the admin. Findings cite `file:line` at `ef81285`.
@@ -247,6 +249,85 @@ reader (`429` with `Retry-After`, `403`).
 9. **Breakers** on top of the telemetry (fix 5, second half) — M.
 10. **Fault-injection switches, drill script and the must-stay-usable journeys** — M, ~1–2 days.
 11. **Last-good caches** (fix 10) — M.
+
+## Server side as built
+
+Migration `202610150073_provider_resilience.sql`; tests `tests/database/provider_resilience.sql`,
+`tests/backend/provider-health.test.ts`, and additions to `chat.test.ts` and `podcast.test.ts`. Where it differs from
+the proposal above, the reason is given.
+
+**Telemetry.** `app_private.provider_health_hours` as proposed, written only by `worker_provider_health` (service role;
+returns that provider's breaker; never raises; 90 days kept). Latency is kept as total and maximum per hour (an
+average and a worst case), not p50/p95: an hourly upsert can't keep percentiles without storing samples.
+`_shared/provider-health.ts` records every request to a known provider host (Anthropic, DeepSeek, Google's
+`aiplatform` speech, Tavily, Crossref, DataCite, OpenAlex, Hugging Face) exactly once: `installProviderHealth` wraps the
+realm's `fetch` in chat, discover, add-paper, add-reference, feed-refresh and paper-worker and in the Cloud Run worker
+(pipeline and podcast runs); `accountProviderFetch` carries the reader's account for the chat's Anthropic and Tavily
+calls and the podcast's Anthropic, DeepSeek and speech calls (the only calls a drill can reach). Nothing about the
+request is recorded beyond provider, route, outcome, latency and Retry-After. `v1_admin_health` gains `providers`
+(daily failed/throttled/paused per provider, the last hour, open breakers) and `v1_admin_provider_hours(p_hours)` feeds
+Reliability's hour-by-hour table. Health shows a "Provider errors" chart under "Is it working?" and three Attention
+rules: a breaker open now, ≥ 5 % failed or throttled in the last hour with ≥ 20 calls, and the existing
+`work_enabled` rule.
+
+**Breakers** (`app_private.provider_breakers`, one row per provider, shared by every instance). Five failures
+(`throttled`, `overloaded`, `server_error`, `timeout`, `transport`), each within 60 s of the previous, open it for
+30 s; each reopening doubles the cool-off to at most 5 min; any `ok` closes it. After the cool-off it is half-open:
+each instance lets one probe through per 30 s. `rejected` (our request's fault) and `breaker_open` never count. While
+open the wrapper answers at once with a synthetic 429 (`Retry-After` = the remaining cool-off,
+`x-gradstep-synthetic: breaker-open`), so every caller's existing 429 handling applies: nothing billed, the chat says
+`provider_unavailable` with `retry_after`, a podcast requeues. Instances learn the state from each recorded call's
+reply and, at start, from `worker_provider_breakers()`.
+
+**Chat retry (fix 7).** `retryOnceWhenBusy` in `anthropic.ts`: one more try, same model, only when the first ended
+before any message started with a 429 or 529; it waits the provider's `Retry-After` when that is at most 5 s, else
+1–3 s jittered, and gives up at once when the wait would be longer or the reader left. Each attempt has its own grant
+(`admittedAnthropic`): a 429 settles at zero, a 529 keeps the platform's liability rule unchanged, and the reader is
+charged only for the answer that runs. The bound is 5 s rather than the proposed 3 s so a breaker's or a drill's 5 s
+`Retry-After` is honoured. The "busy, retrying" status line is a client change left to the client work.
+
+**Podcast requeue (fix 4).** `worker_podcast_requeue` parks a job whose script or speech stage was refused with
+`http_429` (`rejected`: the provider says it did nothing), with `retry_at` after 1, 5, 15 and 60 minutes (×0.8–1.2
+jitter); a fifth refusal fails as before (`retries_exhausted`). It requeues only when every refused attempt is
+`rejected`, and only when the job's paid work can resume from its saved state (`podcast_resume_state`), so nothing
+already paid is bought twice. A 503 or a timeout is recorded `unknown` (the provider may have done and billed the
+work) and keeps today's liability handling: re-sending it could pay twice and grow the operation's liability toward
+the overrun pause (fix 1). `worker_podcast_claim` skips jobs before their `retry_at`; pg_cron
+`science-reader-podcast-retries` kicks the worker each minute while a requeued job is due.
+
+**Our own `retry_after`.** Chat error events carry `retry_after` (seconds) for `rate_limited` (60),
+`provider_unavailable` (the provider's Retry-After, else 10) and `service_unavailable` (10). Every function's JSON 429
+or 503 sends a `Retry-After` header and `retry_after` (`errorResponse` in `_shared/http.ts`; the header is exposed to
+browsers through CORS).
+
+### Fault drills
+
+**Switches.** `app_private.fault_injection` rows (account, provider, route or all, mode `throttle | overload | error |
+timeout | malformed`, rate, until — at most 60 minutes ahead; cleared rows are kept). The database refuses a row for
+any account that is not an open `@example.invalid` or `@example.test` account, and checks again on every read
+(`worker_fault_injection_active`). The functions read the table only when `FAULT_INJECTION=on`, which
+`deploy-staging.py` sets only for the staging environment with `fault_injection: true` in `infra/staging.json` (there
+is no production configuration, and the flag defaults off) — the environment check the proposal named
+`SCIENCE_READER_ENVIRONMENT`. Operators set one with `v1_admin_fault_injection_set` (owner with MFA, audited as
+`fault_injection_set`); scripts with the service-role `worker_fault_injection_set` / `worker_fault_injection_clear`.
+A synthetic answer never reaches the provider, is recorded under the route `drill` (left out of the admin views) and
+never moves the shared breaker, so a drill on one test account can't pause a provider for everyone.
+
+**`scripts/fault-drill.mjs`** (staging only): checks `FAULT_INJECTION` is on (management API digest), makes a
+disposable `gradstep-check-drill-…@example.invalid` account with 50 credits, sets the fault, asks the general chat for
+one word, and checks: an `error` event, not an answer; `provider_unavailable` with `retry_after` (throttle and
+overload); nothing charged and nothing held; the library still loads; the expected `drill` rows in the telemetry
+(two for a throttle: the first call and the one retry). It then clears the fault, waits out the functions' 15 s
+fault cache, checks a real answer arrives (about $0.005), and deletes the account through `account-delete`. Modes
+other than `throttle` on Anthropic need `--allow-liability`: the ledger can't tell a synthetic 529, 500, timeout or
+unreadable answer from a real one, so each leaves an unknown liability on the drill's operation.
+
+Wired today: Anthropic on chat. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
+worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn't pass it yet); search and add-paper
+(their provider calls carry no account yet).
+
+**First drill.** After migration 073 and the functions are deployed to staging:
+`node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5`.
 
 ## Owner decisions
 

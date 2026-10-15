@@ -1,7 +1,9 @@
 import { installEgressGuard } from '../_shared/egress.ts';
+import { accountProviderFetch, installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
-import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
+import { createAnthropicClient, retryOnceWhenBusy, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
@@ -9,6 +11,8 @@ import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.
 import { publishedProfiles } from '../_shared/chat-profiles.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('chat');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('chat', serviceClient);
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -34,7 +38,7 @@ Deno.serve(async request => {
     service = serviceClient();
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
   // Started before the body is read and awaited only when search is decided (time to first text).
   const providerPolicy = Promise.resolve(service.rpc('worker_provider_spending_policy', {}))
@@ -43,7 +47,10 @@ Deno.serve(async request => {
   try { body = await readChatBody(request); } catch { body = null; }
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY'), tavilyKey = Deno.env.get('TAVILY_API_KEY');
-  const client = apiKey ? createAnthropicClient({ apiKey }) : null;
+  // This account's provider calls: counted, failed fast while a breaker is open, and reachable by a fault drill only
+  // when the account is a test account (docs/architecture/RESILIENCE.md).
+  const providerFetch = accountProviderFetch('chat', () => accountID, () => service);
+  const client = apiKey ? createAnthropicClient({ apiKey, fetch: providerFetch }) : null;
   const rpc: ChatDependencies['rpc'] = async (name, params) => {
     const { data, error } = await service.rpc(name, params);
     // A database exception carries a SQLSTATE; a fetch failure does not and
@@ -56,8 +63,8 @@ Deno.serve(async request => {
   // here so case differences cannot create a second attempt namespace.
   const rawID = body && typeof body === 'object' ? (body as { operation_id?: unknown }).operation_id : null;
   const spending = { accountID, operationID: typeof rawID === 'string' ? rawID.toLowerCase() : '', rpc, sha256Hex: sha256, log };
-  const search = tavilyKey ? admittedTavily(spending, 'chat_search', fetch, tavilyKey) : null;
-  const finder = paperFinder(service, user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', fetch, tavilyKey) : undefined);
+  const search = tavilyKey ? admittedTavily(spending, 'chat_search', providerFetch, tavilyKey) : null;
+  const finder = paperFinder(service, user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined);
   const deps: ChatDependencies = {
     accountID,
     rpc,
@@ -66,7 +73,8 @@ Deno.serve(async request => {
       if (error || !data || data.size > MAX_PAPER_BYTES || (expectedBytes !== undefined && data.size !== expectedBytes)) return null;
       return new Uint8Array(await data.arrayBuffer());
     },
-    generate: client ? admittedAnthropic(spending, (params, options) => streamChat(client, params, options)) : null,
+    // One more try, inside the same answer, when Anthropic refused it as busy before starting (fix 7).
+    generate: client ? retryOnceWhenBusy(admittedAnthropic(spending, (params, options) => streamChat(client, params, options)), { log }) : null,
     sha256Hex: sha256,
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
     // RPC readiness cannot stand in for an enforceable native-search quote.
