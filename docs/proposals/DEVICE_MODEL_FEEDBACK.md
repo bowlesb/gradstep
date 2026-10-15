@@ -45,7 +45,9 @@ and the tokenizer's `clean_up_tokenization_spaces: true` must be applied on deco
    float32 at the input, 2 × 38.6 MB) into every step. Make the cross-attention keys and values part of the state
    (written once per crop by a prefill function of a multifunction model, or an encoder that writes the decoder's
    state), or at least accept float16 inputs. If a step falls to ~2 ms, a display crop goes from ~650 ms to ~150 ms
-   and a typical paper (700 inline, 100 display) from ~3 minutes to under one.
+   and a typical paper (700 inline, 100 display) from ~3 minutes to under one. Supporting evidence from the app:
+   two crops decoded at once on the same models take 31.5 s where one at a time takes 46.7 s (2610.04747v1, 316
+   formulas, identical output), so the step is waiting, not computing. The app now decodes two at a time.
 2. **The stateful decoder never reaches the Neural Engine** (load failure above). If the ANE matters for phone
    battery and heat, an export the ANE accepts (a fixed-shape KV cache passed in and out, or the ANE's own state
    rules) is the experiment; otherwise state that CPU_AND_GPU is the target and drop ALL (49 s first load).

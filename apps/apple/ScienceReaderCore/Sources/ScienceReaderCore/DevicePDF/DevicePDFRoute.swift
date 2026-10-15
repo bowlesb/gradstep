@@ -14,6 +14,8 @@ public final class DevicePDFRoute {
         public var revision: Int?
         public var trace: Bool
         public var maxPages: Int
+        /// Crops recognised at once (2 by default; 1 is the reference's one-at-a-time order, same results).
+        public var recogniserConcurrency = 2
         /// Evaluation only: each page's layout detections and canvas scale as the converter receives them.
         public var observeDetections: (@Sendable (Int, [DevicePDFModels.Detection], Double) -> Void)?
         public init(title: String? = nil, sourceID: String? = nil, revision: Int? = nil, trace: Bool = false, maxPages: Int = 0,
@@ -119,25 +121,38 @@ public final class DevicePDFRoute {
             return out
         }
         let recogniseBlock: @convention(block) (JSValue) -> Any = { crops in
-            var out: [Any] = []
             let count = Int(crops.objectForKeyedSubscript("length")?.toInt32() ?? 0)
             // Without a recogniser every formula stays unread: the converter shows each as its image.
             if self.models.recogniserIssue != nil { return [Any](repeating: NSNull(), count: count) }
+            // The crops first (the page images are this thread's), then the recognitions `recogniserConcurrency` at a
+            // time: a decoder step is mostly fixed overhead, so two crops in flight nearly halve the wall time.
+            var images: [CGImage?] = []
             for i in 0..<count {
-                progress(.formulas(done: i, of: count))
                 guard let crop = crops.objectAtIndexedSubscript(i), let page = crop.objectForKeyedSubscript("page")?.toNumber()?.intValue,
                       let rect = (crop.objectForKeyedSubscript("rect")?.toArray() as? [NSNumber])?.map(\.intValue), rect.count == 4,
-                      let image = page150(page) else { out.append(NSNull()); continue }
-                let pasted = DevicePDFRaster.crop(image, rect, margin: 8)
-                guard let cg = DevicePDFRaster.cgImage(pasted) else { out.append(NSNull()); continue }
-                do {
-                    let r = try timed("equations") { try self.models.recognise(crop: cg) }
-                    out.append(["latex": r.latex, "probs": r.probabilities])
-                } catch { out.append(NSNull()) }
-                formulasDone += 1
+                      let image = page150(page) else { images.append(nil); continue }
+                images.append(DevicePDFRaster.cgImage(DevicePDFRaster.crop(image, rect, margin: 8)))
             }
-            progress(.formulas(done: count, of: count))
-            return out
+            final class Results: @unchecked Sendable {
+                let lock = NSLock(); var rows: [Any]; var done = 0
+                init(_ n: Int) { rows = [Any](repeating: NSNull(), count: n) }
+            }
+            let results = Results(count), models = self.models, report = progress
+            let start = DispatchTime.now().uptimeNanoseconds
+            DispatchQueue.concurrentPerform(iterations: max(1, min(options.recogniserConcurrency, count))) { worker in
+                var i = worker
+                while i < count {
+                    if let cg = images[i], let r = try? models.recognise(crop: cg) {
+                        results.lock.lock(); results.rows[i] = ["latex": r.latex, "probs": r.probabilities] as [String: Any]; results.lock.unlock()
+                    }
+                    results.lock.lock(); results.done += 1; let done = results.done; results.lock.unlock()
+                    report(.formulas(done: done, of: count))
+                    i += max(1, min(options.recogniserConcurrency, count))
+                }
+            }
+            timings["equations", default: 0] += Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+            formulasDone += results.rows.filter { !($0 is NSNull) }.count
+            return results.rows
         }
         let imageBlock: @convention(block) (JSValue) -> Any = { request in
             // Any resolution: figures past the image budget are asked for at 150 × f dpi.

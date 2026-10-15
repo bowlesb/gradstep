@@ -87,6 +87,8 @@ Built and running on this Mac and in the iOS Simulator; not yet tried on an iPho
   meet every conformance gate (one only fails the script's table check on a paper without tables), the rest are
   close (block match 0.86 to 0.98). Page renders turn font smoothing off: macOS's stem thickening made the
   recogniser read regular letters as bold and the layout split paragraphs (worst paper 0.87 → 0.97 blocks).
+- **Recognition two at a time**: each page's crops are decoded two at once (`recogniserConcurrency`), the same output
+  in two thirds of the time (2610.04747v1: 46.7 s → 31.5 s); three in flight gains little more.
 - **iOS Simulator**: the stateful recogniser does not load ("Network translation error"); the route reads the paper
   without it (formulas as page images) and the banner says the formula model can't run on this device. A real
   fixture paper's first three pages take 12 s there.

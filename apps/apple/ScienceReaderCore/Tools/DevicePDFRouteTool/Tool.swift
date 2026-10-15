@@ -19,7 +19,7 @@ struct Tool {
         guard let models = option("--models"), let compiler = option("--compiler") else {
             FileHandle.standardError.write(Data("usage: DevicePDFRouteTool <pdf> <out> --models <dir> --compiler <js> [--trace]\n".utf8)); exit(2)
         }
-        let detectionsPath = option("--detections")
+        let detectionsPath = option("--detections"), concurrency = Int(option("--concurrency") ?? "2") ?? 2
         let title = option("--title"), maxPages = Int(option("--max-pages") ?? "0") ?? 0, trace = flag("--trace")
         func units(_ name: String?, _ fallback: MLUnits) -> MLUnits { name.flatMap(MLUnits.init(rawValue:)) ?? fallback }
         let layoutUnits = units(option("--layout"), .ne), recogniserUnits = units(option("--recogniser"), .gpu), taggerUnits = units(option("--tagger"), .cpu)
@@ -43,7 +43,7 @@ struct Tool {
                 if let data = try? JSONSerialization.data(withJSONObject: object) { lines.text += String(decoding: data, as: UTF8.self) + "\n" }
             }
         }
-        let output = try route.convert(pdf: data, name: pdf.lastPathComponent, options: .init(title: title, trace: trace, maxPages: maxPages, observeDetections: observe), progress: { stage in
+        let output = try route.convert(pdf: data, name: pdf.lastPathComponent, options: { var o = DevicePDFRoute.Options(title: title, trace: trace, maxPages: maxPages, observeDetections: observe); o.recogniserConcurrency = concurrency; return o }(), progress: { stage in
             switch stage {
             case .layout(let page, let of): if page == of || page % 10 == 0 { FileHandle.standardError.write(Data("layout \(page)/\(of)\n".utf8)) }
             case .reading(let done, let of): FileHandle.standardError.write(Data("read \(done)/\(of)\n".utf8)); lastFormulaReport = 0
