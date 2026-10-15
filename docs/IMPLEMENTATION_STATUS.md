@@ -2,6 +2,26 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Visual answers in chat; the fresh-paper sweep's next refusals — 2026-10-15, ~06:00 UTC
+
+- **Visual answers** (owner: "The chat needs a html tool… mermaid diagrams… an option for the users to disable";
+  CHAT.md "Visual answers"): `create_visual` beside `create_diagram`; the server sanitizes the HTML fragment
+  (`chat-visual.ts`) and relays it as the `visual` event; the apps keep it as a `diagram` event of format `html-v1`
+  and show it in a scriptless WKWebView ("View visual"), the browser inline in a sandboxed frame; the "Visual
+  answers" setting (Settings › Chat; Chat defaults in the browser) sends the `visual_answers` capability or an empty
+  list, and off, the model answers in prose with neither tool. Proof on staging: a pipeline question answered with a
+  2.3 KB visual, a flow question with a Mermaid diagram (`scripts/chat-live-smoke.mjs --question=…`). Tests: backend
+  95, native ChatVisualTests, browser chat tests. Figure crops stay proposed.
+- **Sweep.** The 25 newest cs.LG/cs.CL/cs.CV/cs.AI papers (22 with HTML) refused three; all three degrade now: a
+  graphic that is not one of the paper's assets (page chrome, an empty `src`) is left out and counted; several
+  captions in one figure read as its caption and paragraphs; images past the figure's limit are left out and counted;
+  pictures without an id are named; stray HTML inside a picture is dropped; a dropped block's equations leave the
+  index; math in the date line is accounted for. `ARXIV_RENDERER_REVISION` **8**. The sweep carries a silent-loss
+  ledger (`--ledger`: source figures, tables, algorithms, tabulars and listings against the reader's) with `losses`
+  warnings, and names the ancestors of math a coverage refusal could not place. Both corpora replay with 0 refusals.
+
+Evidence and deployment are recorded at the end of this section once build 45 is processed.
+
 ## Build 43 feedback: unresolved citations, math colours, table pictures, the passage highlight, stored copies open at once — 2026-10-15, ~05:00 UTC
 
 Nine TestFlight items on build 43 (`docs/OWNER_FEEDBACK.md` "TestFlight, 2026-10-15 04:04–04:11 UTC"), all on one

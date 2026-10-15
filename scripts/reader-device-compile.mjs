@@ -26,7 +26,9 @@ for (const key of IDS) {
   if (!existsSync(sourcePath)) { console.log(`${key}: no cached source (run the sweep with --ids=${key} first)`); failed++; continue; }
   const source64 = readFileSync(sourcePath).toString('base64');
   const options = { authors: [], title: arg('title', 'Untitled') };
-  const urls = await page.evaluate(([s, i, r, o]) => GradstepArxivReader.assets(s, i, r, o), [source64, id, revision, options]);
+  let urls;
+  try { urls = await page.evaluate(([s, i, r, o]) => GradstepArxivReader.assets(s, i, r, o), [source64, id, revision, options]); }
+  catch (e) { console.log(`FAIL ${key}: ${/ReaderRenderError: ([a-z_]+)/.exec(e.message)?.[1] ?? e.message.slice(0, 80)} (planning)`); failed++; continue; }
   const dir = `${ROOT}.artifacts/reader-sweep/assets/${key}`; mkdirSync(dir, { recursive: true });
   const inputs = [];
   for (const url of urls) {

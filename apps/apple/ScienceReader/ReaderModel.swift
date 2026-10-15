@@ -311,6 +311,9 @@ final class ReaderModel {
     /// Passage-linked conversations (Views/PaperPassages.swift): underline passages with chats (Settings › Reading),
     /// a Go to passage waiting for the reader, and the chats offered when a tap lands on several marks.
     var showsPassageMarks = UserDefaults.standard.object(forKey: "reader.passageMarks") as? Bool ?? true { didSet { UserDefaults.standard.set(showsPassageMarks, forKey: "reader.passageMarks") } }
+    /// Visual answers (Settings › Chat; docs/proposals/CHAT_TOOLS.md): diagrams and drawn explanations beside answers.
+    /// Off, the server is told so and answers in prose.
+    var visualAnswers = UserDefaults.standard.object(forKey: "chat.visualAnswers") as? Bool ?? true { didSet { UserDefaults.standard.set(visualAnswers, forKey: "chat.visualAnswers") } }
     var passageRequest: PaperPassageRequest?
     var passageChoices: [UUID]?
     var message = ""
@@ -3286,7 +3289,7 @@ final class ReaderModel {
             } else { localContext = nil }
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
-                                                     study: turn.study)
+                                                     study: turn.study, visualAnswers: visualAnswers)
         } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
@@ -3309,7 +3312,7 @@ final class ReaderModel {
 
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
-        var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?
+        var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?, visual: (title: String, html: String)?
         var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
@@ -3325,6 +3328,7 @@ final class ReaderModel {
                     bufferAnswer(generation, text: text)
                 case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
+                case .visual(let title, let html): visual = (title, html)
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
@@ -3356,7 +3360,7 @@ final class ReaderModel {
         }
         var labelled = generation
         labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
-        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, title: title, followUps: followUps,
+        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, visual: visual, title: title, followUps: followUps,
                                study: studyMap, failedCredits: failedCredits)
     }
 
@@ -3409,6 +3413,7 @@ final class ReaderModel {
 
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
                                   choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
+                                  visual: (title: String, html: String)? = nil,
                                   title: String? = nil, followUps: [String]? = nil, study: StudyMap? = nil, failedCredits: Int? = nil) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
@@ -3416,7 +3421,12 @@ final class ReaderModel {
             // Show exactly the sealed text before the row changes ownership.
             chatStreamingText[generation.id] = text
             // A diagram is kept only with a complete answer, in the same batch.
-            let drawn = status == .complete ? diagram.flatMap { ChatDiagram(title: $0.title, source: $0.source, messageID: generation.assistantID) } : nil
+            // A visual (HTML) or a diagram (Mermaid), kept only with a complete answer, in the same batch; the server
+            // sends at most one of them.
+            let drawn = status == .complete
+                ? visual.flatMap { ChatDiagram(title: $0.title, source: $0.html, messageID: generation.assistantID, format: ChatDiagram.htmlFormat) }
+                    ?? diagram.flatMap { ChatDiagram(title: $0.title, source: $0.source, messageID: generation.assistantID) }
+                : nil
             do {
                 // A topic title is kept only with a complete answer, in the same batch.
                 let kept = try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn,

@@ -43,12 +43,16 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let topicTitle: Bool
     /// Study: the knowledge map so far (an empty map first); present exactly when the action is `study`.
     public let study: StudyMap?
+    /// The reader's "Visual answers" setting: with it the server may draw diagrams and HTML visuals (sent as the
+    /// `visual_answers` capability; an empty list says it is off).
+    public let visualAnswers: Bool
 
     /// Keeps the newest turns that fit the server bounds. The context always
     /// starts and ends with a user turn; empty turns are skipped.
     public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
                             action: ChatAction? = nil, profile: ChatProfileChoice = .standard,
-                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil) throws -> ChatGenerationRequest {
+                            topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil,
+                            visualAnswers: Bool = true) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
         guard last.text.utf8.count <= maximumMessageBytes else { throw ChatRequestError.questionTooLarge }
@@ -66,7 +70,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         let kept_action = action == .study || quote != nil ? action : nil
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
                                      action: kept_action, profile: profile, topicTitle: topicTitle, localContext: localContext,
-                                     study: kept_action == .study ? study ?? .empty : nil)
+                                     study: kept_action == .study ? study ?? .empty : nil, visualAnswers: visualAnswers)
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -83,9 +87,9 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     }
 
     private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?,
-                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil) {
+                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil, visualAnswers: Bool = true) {
         self.operationID = operationID; self.documentID = localContext == nil ? documentID : nil; self.localContext = localContext; self.turns = turns; self.selection = selection; self.action = action
-        self.profile = profile; self.topicTitle = topicTitle; self.study = study
+        self.profile = profile; self.topicTitle = topicTitle; self.study = study; self.visualAnswers = visualAnswers
     }
 
     public func encoded() throws -> Data {
@@ -113,9 +117,15 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
-            capabilities: action == .ingest ? ["web_import"] : nil, profile: profile == .standard ? nil : profile,
+            capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers), profile: profile == .standard ? nil : profile,
             topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest || action == .study ? nil : true,
             study: action == .study ? study ?? .empty : nil))
+    }
+
+    /// Always a list: an empty one tells the server the reader turned visual answers off (builds before the setting
+    /// sent nothing and still get diagrams).
+    public static func capabilities(action: ChatAction?, visualAnswers: Bool) -> [String] {
+        (action == .ingest ? ["web_import"] : []) + (visualAnswers ? ["visual_answers"] : [])
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {
@@ -130,6 +140,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case delta(String)
     /// A diagram the answer drew (sent before `done`).
     case diagram(title: String, source: String)
+    /// A visual answer (an HTML fragment the server sanitized), kept like a diagram.
+    case visual(title: String, html: String)
     /// What the server is doing between pieces of text (searching, adding a paper).
     case status(ChatProgress)
     /// The conversation's topic title (asked for with `topicTitle`), sent before `done`.
@@ -264,6 +276,12 @@ public struct ChatSSEParser: Sendable {
             guard let diagram = try? JSONDecoder().decode(Diagram.self, from: payload),
                   ChatDiagram(title: diagram.title, source: diagram.source, messageID: nil) != nil else { throw ChatStreamError.malformed }
             return .diagram(title: diagram.title, source: diagram.source)
+        case "visual":
+            // Informational: a visual that is not usable is dropped, never fatal (builds before it ignore the event).
+            struct Visual: Decodable { let title: String; let html: String }
+            guard let visual = try? JSONDecoder().decode(Visual.self, from: payload),
+                  ChatDiagram(title: visual.title, source: visual.html, messageID: nil, format: ChatDiagram.htmlFormat) != nil else { return nil }
+            return .visual(title: visual.title, html: visual.html)
         case "status":
             // Informational only: an unknown kind or a malformed status is ignored, never fatal.
             struct Status: Decodable { let kind: String; let query: String? }

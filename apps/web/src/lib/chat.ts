@@ -21,6 +21,8 @@ export interface ChatRequest {
   topicTitle: boolean;
   /** Study: the knowledge map so far (lib/study.ts); sent with every `study` turn, an empty map first. */
   study?: StudyMap;
+  /** The reader's "Visual answers" setting (chat defaults): false tells the server to answer in prose only. */
+  visualAnswers?: boolean;
 }
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
@@ -28,7 +30,7 @@ const scalars = (s: string, limit: number) => { const all = [...s]; return all.l
 
 /** The newest turns that fit the server bounds, starting and ending with a user turn (ChatGenerationRequest.make). */
 export function makeRequest(operationID: string, documentID: string | null, transcript: ChatTurn[], selection: string | null, action: ChatAction | null = null,
-  options: { profile?: ProfileChoice; topicTitle?: boolean } = {}): ChatRequest {
+  options: { profile?: ProfileChoice; topicTitle?: boolean; visualAnswers?: boolean } = {}): ChatRequest {
   const usable = transcript.filter(t => t.text.trim());
   const last = usable.at(-1);
   if (!last || last.role !== 'user') throw new BackendError('invalid_request');
@@ -46,7 +48,7 @@ export function makeRequest(operationID: string, documentID: string | null, tran
   const kept_quote = quote && quote.trim() ? quote : null;
   // Every selection action needs its quote; Study acts on the paper (a quote only starts it on a passage).
   return { operationID, documentID, turns: kept, selection: kept_quote, action: action === 'study' || kept_quote ? action : null,
-    profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, topicTitle: action !== 'diagram_fix' && options.topicTitle === true };
+    profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, topicTitle: action !== 'diagram_fix' && options.topicTitle === true, visualAnswers: options.visualAnswers ?? true };
 }
 
 export function requestBody(r: ChatRequest): Record<string, unknown> {
@@ -56,7 +58,9 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   else if (r.documentID) body.document_id = r.documentID;
   if (r.selection) body.selection = { quote: r.selection };
   if (r.action) body.action = r.action;
-  if (r.action === 'ingest') body.capabilities = ['web_import']; // Add paper may add an open-access web paper
+  // Add paper may add an open-access web paper; visual answers (diagrams, drawn explanations) unless the reader turned
+  // them off — always a list, so an empty one says "off" (servers before the setting ignore unknown values).
+  body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers'])];
   if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
   if (r.action !== 'diagram_fix' && r.topicTitle) body.topic_title = true;
   // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own).
@@ -71,6 +75,8 @@ export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_p
 export interface Progress { kind: ProgressKind; query?: string }
 export type StreamEvent =
   | { type: 'delta'; text: string } | { type: 'diagram'; title: string; source: string } | { type: 'status'; progress: Progress }
+  /** A visual answer (servers from 2026-10-15): a sanitized HTML fragment, kept like a diagram (format html-v1). */
+  | { type: 'visual'; title: string; html: string }
   /** The conversation's topic title (asked for with topicTitle), sent before `done`. */
   | { type: 'title'; text: string }
   /** Follow-up questions the answer suggested (servers from 2026-10-14); shown as one-tap suggestions, never saved. */
@@ -150,6 +156,11 @@ export class SSEParser {
       case 'diagram': {
         const title = typeof v?.title === 'string' ? v.title.trim() : '', source = typeof v?.source === 'string' ? v.source : '';
         return title && [...title].length <= 200 && source.trim() && bytes(source) <= 16_000 ? { type: 'diagram', title, source } : bad();
+      }
+      case 'visual': {
+        // Informational: a visual that is not usable is dropped, never fatal.
+        const title = typeof v?.title === 'string' ? v.title.trim() : '', html = typeof v?.html === 'string' ? v.html : '';
+        return title && [...title].length <= 200 && html.trim() && bytes(html) <= 24_000 ? { type: 'visual', title, html } : null;
       }
       case 'status': {
         // Informational: unknown kinds or malformed statuses are ignored, never fatal.

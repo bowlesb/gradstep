@@ -2,8 +2,32 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Dialog } from './common';
 import { CopyButton } from './CopyButton';
 
-export function Diagram({ title, source }: { title: string; source: string }) {
+/** The document a visual answer is shown in: no scripts, no network (chat-visual.ts `visualDocument`, kept alike). */
+export function visualDocument(html: string, dark: boolean): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
+    + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`
+    + `<style>:root{color-scheme:${dark ? 'dark' : 'light'}}html,body{margin:0;padding:0}body{padding:16px;font:15px/1.45 system-ui,sans-serif;background:${dark ? '#17171a' : '#fff'};color:${dark ? '#e6e6ea' : '#1b1b1f'};overflow-wrap:anywhere}`
+    + `table{border-collapse:collapse;max-width:100%}td,th{border:1px solid rgba(128,128,128,.45);padding:4px 8px;vertical-align:top}th{text-align:left}svg{max-width:100%;height:auto}`
+    + `pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}pre{white-space:pre-wrap}h1,h2,h3{line-height:1.25}h1{font-size:1.35em}h2{font-size:1.2em}h3{font-size:1.05em}img,iframe,object,embed,video{display:none !important}</style>`
+    + `</head><body>${html}</body></html>`;
+}
+
+/** A visual answer inline under the answer: a sandboxed frame without scripts; "Full size" opens it in a dialog. */
+export function Visual({ title, html }: { title: string; html: string }) {
   const [open, setOpen] = useState(false);
+  const dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+  const doc = visualDocument(html, dark);
+  return <div className="chat-visual" data-testid="chat-visual">
+    <iframe title={title} className="visual-frame" sandbox="" srcDoc={doc} />
+    <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Full size</button></div>
+    <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
+      <iframe title={title} className="visual-frame visual-frame-large" sandbox="" srcDoc={doc} />
+    </Dialog></div>;
+}
+
+export function Diagram({ title, source, format }: { title: string; source: string; format?: 'mermaid-v1' | 'html-v1' }) {
+  const [open, setOpen] = useState(false);
+  if (format === 'html-v1') return <Visual title={title} html={source} />;
   return <div className="chat-diagram"><button className="secondary small" onClick={() => setOpen(true)}><span aria-hidden="true">◇</span> View diagram · {title}</button>
     <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
       <DiagramFrame source={source} /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>

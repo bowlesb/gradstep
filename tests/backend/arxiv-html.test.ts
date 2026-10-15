@@ -414,3 +414,43 @@ test('a table drawn as a TikZ picture is the figure\'s own image; a picture besi
  const figure = /<figure[^>]*>[\s\S]*?Table 11[\s\S]*?<\/figure>/.exec(html)![0];
  assert.ok(/<img [^>]*src="assets\/[a-f0-9]{64}\.png"/.test(figure) && !/reader-inline-image/.test(figure), figure.slice(0, 400));
 });
+
+test('a graphic that is not one of the paper\'s assets (page chrome, an empty src) is left out and counted, never a refusal (2610.20570)', () => {
+ const text = source.replace('<p id="p1">', '<figure id="S9.F1" class="ltx_figure"><img src="/static/base/1.0.1/images/funders/simons-foundation.png"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 9: Funded.</figcaption></figure><div class="ltx_para"><p class="ltx_p">Smiley <img src="" class="ltx_graphics"> bones.</p></div><p id="p1">');
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const figure = checked.index.figures.find(f => /Funded/.test(f.caption))!;
+ assert.equal(figure.asset_paths.length, 1, 'the paper\'s own image stays');
+ assert.ok(checked.index.blocks.some(b => b.text === 'Smiley bones.'));
+ assert.match(checked.index.blocks.at(-1)!.text, /left out 2 inline graphics/);
+});
+
+test('several captions in one figure read as its caption and paragraphs; images past the figure limit are left out and counted (2610.20608, 2610.20584)', () => {
+ const sub = (n) => `<span class="ltx_inline-block"><img src="2601.01234v2/figure.jpg"><figcaption>(${n}) panel ${n}</figcaption></span>`;
+ const grid = Array.from({ length: 20 }, () => '<img src="2601.01234v2/figure.jpg">').join('');
+ const text = source.replace('<p id="p1">', `<figure id="S9.F1" class="ltx_figure">${sub('a')}${sub('b')}<figcaption>Figure 9: Two panels.</figcaption></figure><figure id="S9.F2" class="ltx_figure">${grid}<figcaption>Figure 10: A grid.</figcaption></figure><p id="p1">`);
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const two = checked.index.figures.find(f => /Two panels/.test(f.caption))!, grid10 = checked.index.figures.find(f => /A grid/.test(f.caption))!;
+ assert.ok(two && grid10, JSON.stringify(checked.index.figures.map(f => f.caption)));
+ const html = new TextDecoder().decode(bundle.members.get('index.html'));
+ assert.match(html, /<p>\(a\) panel a<\/p>/, 'a sub-caption is a paragraph inside the figure');
+ assert.equal((html.match(/<img /g) || []).length, 1 + 2 + 16, 'the fixture figure, two panels, sixteen of twenty');
+ assert.match(checked.index.blocks.at(-1)!.text, /left out 4 inline graphics/);
+});
+
+test('math inside the date line goes with the date line (2610.20570: a coverage refusal)', () => {
+ const text = source.replace('<h1>Authored HTML fixture</h1>', `<h1>Authored HTML fixture</h1><div class="ltx_dates">(October ${math} 2026)</div>`);
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ assert.ok(!checked.index.blocks.some(b => /October/.test(b.text)), 'the date line is gone');
+});
+
+test('a picture without an id is named and referenced like any other (2610.20584)', () => {
+ const text = source.replace('<p id="p1">', '<figure id="S9.F3" class="ltx_figure"><svg class="ltx_picture" viewBox="0 0 10 10" width="10" height="10"><rect width="4" height="4"/></svg><figcaption>Figure 9: Unnamed.</figcaption></figure><p id="p1">');
+ const inline = arxivInlineImages(text, url);
+ assert.deepEqual([...inline.keys()], ['#srpic1']);
+});
+
+test('a dropped paragraph takes its equations out of the index (2610.20570)', () => {
+ const text = source.replace('<p id="p1">', `<div class="ltx_para"><p class="ltx_p">[1]<span class="ltx_text ltx_font_bold">for each</span> #1 ${math} <span class="ltx_text ltx_font_bold">do</span></p></div><p id="p1">`);
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ assert.equal(checked.index.equations.length, 2, 'the fixture\'s two equations only');
+});

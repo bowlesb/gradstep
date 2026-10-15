@@ -147,7 +147,8 @@ private struct TranscriptMessage: View {
                 }
                 if let diagram, !streaming {
                     Button { openDiagram(diagram.id) } label: {
-                        Label("View diagram: \(diagram.title)", systemImage: "square.stack.3d.up").font(.system(size: fontSize * 0.88)).lineLimit(2)
+                        Label(diagram.isHTML ? "View visual: \(diagram.title)" : "View diagram: \(diagram.title)",
+                              systemImage: diagram.isHTML ? "rectangle.and.text.magnifyingglass" : "square.stack.3d.up").font(.system(size: fontSize * 0.88)).lineLimit(2)
                     }
                     .buttonStyle(.bordered).accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
                 }

@@ -13,6 +13,7 @@ import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
 import { ChatDefaultsDialog } from './ChatProfile';
+import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
 import type { ChatSession } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
@@ -461,7 +462,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 
 function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolean; onClose: () => void }) {
   useChatUpdates(chat);
-  return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />;
+  const [visualAnswers, setVisualAnswers] = useState(() => readVisualAnswers());
+  return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
 function AccountMenu({ email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;

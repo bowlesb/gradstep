@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
+  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
@@ -145,7 +145,7 @@ test('ingest requests carry only add_paper; other requests carry only create_dia
   const plain = chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: [CREATE_DIAGRAM_TOOL] });
   assert.deepEqual(plain.tools, [CREATE_DIAGRAM_TOOL]);
   const plainSystem = (plain.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text;
-  assert.match(plainSystem, /explicitly asks for a diagram/); assert.doesNotMatch(plainSystem, /add_paper/);
+  assert.match(plainSystem, /call create_diagram once/); assert.match(plainSystem, /call create_visual once/); assert.doesNotMatch(plainSystem, /add_paper/);
   const none = chatRequestParams({ instructions: chatInstructions('general'), paper: null, turns, selection: null });
   assert.equal(none.tools, undefined);
   // The hold covers the tool definition too.
@@ -171,7 +171,7 @@ test('a drawn diagram is relayed once, before done, and never stored or logged a
     return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 'DPO', mermaid: 'flowchart LR\n x --> y' } }] });
   } });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(tools, [CREATE_DIAGRAM_TOOL]);
+  assert.deepEqual(tools, [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL]);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'diagram', 'done']);
   assert.deepEqual(h.events[1].data, { title: 'DPO', source: 'flowchart LR\n x --> y' });
   assert.equal((h.events[2].data as { stop_reason: string }).stop_reason, 'end_turn');
@@ -385,7 +385,7 @@ test('web search is offered only when the server enables it, and never on Ingest
   await runChat(on.deps, paperBody(), on.emit, new AbortController().signal);
   const ingest = harness({ generate: capture('c') }); ingest.deps.webSearch = true;
   await runChat(ingest.deps, ingestBody(), ingest.emit, new AbortController().signal);
-  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL], [CREATE_DIAGRAM_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
+  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL], [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
   // Every request completed (a fractional bigint amount once failed the reservation).
   for (const run of [off, on, ingest]) assert.equal(run.events.at(-1)?.event, 'done', JSON.stringify(run.events.at(-1)));
   assert.ok(Number.isSafeInteger(webSearchHoldMicrousd(39_657)));
@@ -940,7 +940,7 @@ test('Tavily searches run between rounds as search results (not citable: no cach
   const runs = searching(h, [found]);
   await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
   assert.deepEqual(runs, [{ query: 'IPO preference optimization', academic: true }]);
-  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'search_web'], 'Tavily, not Anthropic search');
+  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'create_visual', 'search_web'], 'Tavily, not Anthropic search');
   // Round two: the first round's content, then the results as search results (citations off) with a cache breakpoint.
   const [assistant, results] = sent[1].messages.slice(-2) as { role: string; content: Record<string, unknown>[] }[];
   assert.equal(assistant.role, 'assistant'); assert.equal(assistant.content[1].id, 'toolu_s1');
@@ -978,7 +978,7 @@ test('readers who consented to v1 (Anthropic only), and a paused or exhausted Ta
     const h = harness({ generate: async (params, stream) => { tools = ((params as unknown as Sent).tools ?? []).map(t => t.name!); stream.onText('a'); return completeOutcome(); } });
     const runs = searching(h, [], ready);
     await runChat(h.deps, body, h.emit, new AbortController().signal);
-    assert.deepEqual(tools, ['create_diagram', 'web_search']); assert.equal(runs.length, 0);
+    assert.deepEqual(tools, ['create_diagram', 'create_visual', 'web_search']); assert.equal(runs.length, 0);
     assert.equal(h.answers[0].search_provider, 'anthropic');
   }
   // Ingest never searches.
@@ -1208,7 +1208,7 @@ test('Why it matters uses only the paper: no search tool, even with Tavily ready
   const h = harness({ generate: async (params, stream) => { sent = params as unknown as Sent; stream.onText('It regularizes.'); return completeOutcome(); } });
   const runs = searching(h, []);
   await runChat(h.deps, quoted, h.emit, new AbortController().signal);
-  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram']);
+  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram', 'create_visual']);
   assert.equal(runs.length, 0);
   // No search allowance in the hold either.
   const held = Number(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
@@ -1324,7 +1324,7 @@ test('time to first feedback: Related says it is searching before the paper load
 test('the paper is cached with the shared instructions; a selection action\'s own instructions follow it', () => {
   const turns = [{ role: 'user' as const, text: 'q' }];
   const paper = { title: 'T', text: paperText };
-  const request = (action: 'related' | 'relevance' | null, search: boolean, tools = [CREATE_DIAGRAM_TOOL]) => {
+  const request = (action: 'related' | 'relevance' | null, search: boolean, tools = [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL]) => {
     const parts = chatInstructionParts('paper', action, search);
     return chatRequestParams({ instructions: parts.shared, actionInstructions: parts.action, paper, turns, selection: 'DPO', tools });
   };
@@ -1818,7 +1818,7 @@ test('Study: the tutor sees the map after the paper, the map request runs after 
   assert.match(system, /one step per turn/); assert.match(system, /<study_map>\{"concepts":\[\{"id":"scaling"/);
   assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('<study_map>'), 'the map follows the paper');
   assert.ok(!/Length:|Answer length/i.test(system.slice(system.indexOf('<study_map>'))), 'no profile length after the map');
-  assert.deepEqual(answer.tools?.map(t => t.name), ['create_diagram']);
+  assert.deepEqual(answer.tools?.map(t => t.name), ['create_diagram', 'create_visual']);
   // The map request: previous map, the reader's answer, the tutor's reply; never the paper.
   const update = sent[1];
   assert.equal(update.max_tokens, STUDY_MAX_TOKENS); assert.deepEqual(update.tools, [UPDATE_STUDY_MAP_TOOL]); assert.deepEqual(update.tool_choice, { type: 'tool', name: 'update_study_map' });
@@ -1879,4 +1879,84 @@ test('Study: the first turn is no answer; unusable, failed or slow map requests 
   searching.deps.webSearch = true; searching.deps.nativeSearch = true;
   await runChat(searching.deps, studyBody(), searching.emit, new AbortController().signal);
   assert.equal(searching.answers[0].web_search_offered, false);
+});
+
+import { sanitizeVisual, visualDocument, visualRequest } from '../../supabase/functions/_shared/chat-visual.ts';
+
+test('visual answers: the sanitizer keeps structure, tables and inline SVG, drops images and foreign references, refuses script', () => {
+  const fragment = '<h2 style="color:#333">Pipeline</h2><p>Three <b>steps</b>:</p><ol><li>Sample</li><li>Score</li></ol>'
+    + '<table><tr><th colspan="2">Model</th></tr><tr><td style="background:#eef">GRPO</td><td>80.8</td></tr></table>'
+    + '<svg viewBox="0 0 200 60" width="100%"><defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z"/></marker></defs>'
+    + '<rect x="2" y="10" width="60" height="30" rx="4" fill="#dde"/><text x="32" y="30" text-anchor="middle" font-size="10">Policy</text><line x1="62" y1="25" x2="120" y2="25" stroke="#333" marker-end="url(#arrow)"/></svg>'
+    + '<img src="https://evil.example/x.png"><a href="https://arxiv.org/abs/1">paper</a><a href="javascript:alert(1)">bad</a><font color="red">old</font>'
+    + '<style>.k{font-weight:bold} td{padding:2px}</style>';
+  const out = sanitizeVisual(fragment)!;
+  assert.ok(out, 'sanitized');
+  assert.match(out, /<h2 style="color:#333">Pipeline<\/h2>/);
+  assert.match(out, /<th colspan="2">Model<\/th>/);
+  assert.match(out, /<svg viewBox="0 0 200 60" width="100%">/, 'SVG attribute case kept');
+  assert.match(out, /<marker id="arrow" markerHeight="6" markerWidth="6" orient="auto" refX="5" refY="3">/);
+  assert.match(out, /marker-end="url\(#arrow\)"/);
+  assert.ok(!/<img|evil\.example/.test(out), 'images are left out');
+  assert.match(out, /<a href="https:\/\/arxiv\.org\/abs\/1" rel="noopener noreferrer" target="_blank">paper<\/a>/);
+  assert.ok(!/javascript:/.test(out) && /bad/.test(out), 'a script link keeps its words, loses its href');
+  assert.ok(!/<font/.test(out) && /old/.test(out), 'an unknown element is unwrapped');
+  assert.match(out, /<style>\.k\{font-weight:bold\} td\{padding:2px\}<\/style>/, 'safe CSS stays as written');
+  for (const bad of ['<script>alert(1)</script><p>x</p>', '<p onclick="x()">x</p>', '<iframe src="https://a"></iframe>', '<svg><image href="https://a/b.png"/></svg>',
+    '<svg><foreignObject><div>x</div></foreignObject></svg>', '', '   ', '<img src="a.png">', '<p>x</p>'.repeat(5_000), '<!doctype html><p>x</p>']) {
+    assert.equal(sanitizeVisual(bad), null, bad.slice(0, 40));
+  }
+  assert.equal(sanitizeVisual('<p style="background:url(https://a/b)">x</p>'), '<p>x</p>', 'an unsafe style attribute goes');
+  assert.equal(sanitizeVisual('<style>@import "x"; p{}</style><p>y</p>'), '<p>y</p>', 'an unsafe style element goes');
+  assert.equal(sanitizeVisual('<svg><use href="https://a/b#c"/><rect width="4" height="4"/></svg>'), '<svg><use></use><rect height="4" width="4"></rect></svg>', 'only fragment references');
+});
+
+test('create_visual input is a bounded, sanitized fragment; the device document wraps it without scripts or network', () => {
+  assert.deepEqual(visualRequest({ title: ' Training\n loop ', html: '<p>a</p>\r\n' }), { title: 'Training loop', html: '<p>a</p>' });
+  for (const bad of [null, 'x', {}, { title: 'x' }, { html: '<p>x</p>' }, { title: '', html: '<p>x</p>' }, { title: 'x', html: '<script>1</script>' },
+    { title: 'x'.repeat(121), html: '<p>x</p>' }, { title: 'x', html: '<p>' + 'y'.repeat(16_001) + '</p>' }, { title: 'x', html: '<p>x</p>', extra: 1 }]) {
+    assert.equal(visualRequest(bad), null, JSON.stringify(bad).slice(0, 50));
+  }
+  const page = visualDocument('<p>hi</p>', { dark: true, fontSize: 18 });
+  assert.match(page, /Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'/);
+  assert.ok(!/<script/.test(page) && page.endsWith('<body><p>hi</p></body></html>'));
+  assert.match(page, /color-scheme:dark/);
+});
+
+test('visual answers follow the capability: offered with it, with diagrams; neither without it; both for builds that name no capabilities', () => {
+  const turns = [{ role: 'user' as const, text: 'How does the training loop flow?' }];
+  const on = validateChatRequest({ ...paperBody(), capabilities: ['visual_answers'] });
+  assert.equal(on.visuals, true);
+  assert.equal(validateChatRequest({ ...paperBody(), capabilities: [] }).visuals, false, 'a build with the setting off sends an empty list');
+  assert.equal(validateChatRequest(paperBody()).visuals, true, 'an older build says nothing');
+  const offered = chatInstructionParts('paper', null, false, { visuals: true }).shared, withheld = chatInstructionParts('paper', null, false, { visuals: false }).shared;
+  assert.match(offered, /call create_visual once/); assert.match(offered, /create_diagram once/);
+  assert.match(withheld, /turned visual answers off/); assert.doesNotMatch(withheld, /create_visual|create_diagram/);
+  const params = chatRequestParams({ instructions: offered, paper: { title: 'T', text: paperText }, turns, selection: null, tools: [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL] });
+  assert.deepEqual(params.tools, [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL]);
+});
+
+test('a visual is relayed once, sanitized, before done; an invalid one is logged and dropped; a build with visuals off gets no visual tool', async () => {
+  let tools: unknown;
+  const h = harness({ generate: async (params, stream) => {
+    tools = (params as { tools?: unknown }).tools;
+    stream.onText('Here is the loop.');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_visual', input: { title: 'Loop', html: '<p onmouseover="x">no</p>' } }] });
+  } });
+  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+  assert.deepEqual((tools as { name: string }[]).map(t => t.name), ['create_diagram', 'create_visual']);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'done'], 'the handler attribute refuses the visual');
+  assert.deepEqual(h.logs, [{ event: 'chat_visual_invalid_input', operation_id: operation }]);
+
+  const good = harness({ generate: async (_p, stream) => { stream.onText('Steps:');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_visual', input: { title: 'Loop', html: '<ol><li>a</li></ol><img src="x.png">' } }] }); } });
+  await runChat(good.deps, paperBody(), good.emit, new AbortController().signal);
+  assert.deepEqual(good.events.map(e => e.event), ['delta', 'visual', 'done']);
+  assert.deepEqual(good.events[1].data, { title: 'Loop', html: '<ol><li>a</li></ol>' });
+  assert.deepEqual(good.logs, [{ event: 'chat_visual', operation_id: operation }]);
+
+  let offTools: unknown;
+  const off = harness({ generate: async (params, stream) => { offTools = (params as { tools?: unknown }).tools; stream.onText('Prose only.'); return completeOutcome({ stopReason: 'end_turn' }); } });
+  await runChat(off.deps, { ...paperBody(), capabilities: [] }, off.emit, new AbortController().signal);
+  assert.equal(offTools, undefined, 'no tools at all when visuals are off and search is not on');
 });

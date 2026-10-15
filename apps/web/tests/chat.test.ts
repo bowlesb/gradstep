@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SSEParser, chatTitle, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText } from '../src/lib/chat';
 import { renderMarkdown } from '../src/lib/markdown';
-import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, type PrivateEvent } from '../src/lib/events';
+import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, makeDiagram, type PrivateEvent } from '../src/lib/events';
 
 const fixture = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/envelopes-v1.json', import.meta.url), 'utf8'));
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -77,7 +77,10 @@ describe('chat requests and streams', () => {
     expect(requestBody(bounded)).toMatchObject({ consent_version: 'cloud-ai-v2', mode: 'general' });
     expect(requestBody(bounded)).not.toHaveProperty('document_id');
     expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], 'a passage', 'ingest'))).toMatchObject({ mode: 'paper', document_id: D,
-      selection: { quote: 'a passage' }, action: 'ingest', capabilities: ['web_import'] });
+      selection: { quote: 'a passage' }, action: 'ingest', capabilities: ['web_import', 'visual_answers'] });
+    // Visual answers (2026-10-15): always a list, so an empty one says the reader turned them off.
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null)).capabilities).toEqual(['visual_answers']);
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null, null, { visualAnswers: false })).capabilities).toEqual([]);
     expect(() => makeRequest('op', null, [{ role: 'assistant', text: 'x' }], null)).toThrow();
   });
   it('parses deltas across chunk boundaries, ignores pings and unknown events, and refuses malformed known ones', () => {
@@ -155,5 +158,20 @@ describe('rendering boundaries', () => {
   it('rejects credential-bearing, control-character and data links', async () => {
     const { safeLink } = await import('../src/lib/markdown');
     for (const url of ['https://good.example@bad.example', 'data:text/html,x', 'java\nscript:alert(1)', '/relative', 'https://x.test/\n']) expect(safeLink(url)).toBeNull();
+  });
+});
+
+
+describe('visual answers', () => {
+  it('parses a visual event, drops an unusable one, and keeps the HTML format through the diagram encoding', () => {
+    const parser = new SSEParser();
+    const events = parser.consume(new TextEncoder().encode('event: visual\ndata: {"title":"Loop","html":"<ol><li>a</li></ol>"}\n\nevent: visual\ndata: {"title":"","html":"<p>x</p>"}\n\nevent: done\ndata: {"stop_reason":"end_turn","credits":3}\n\n'));
+    expect(events).toEqual([{ type: 'visual', title: 'Loop', html: '<ol><li>a</li></ol>' }, { type: 'done', stopReason: 'end_turn', credits: 3 }]);
+    const visual = makeDiagram('Loop', '<ol><li>a</li></ol>', 'aaaaaaaa-0000-4000-8000-000000000001', 'html-v1')!;
+    expect(encodeDiagram(visual)).toBe('{"format":"html-v1","messageID":"AAAAAAAA-0000-4000-8000-000000000001","source":"<ol><li>a</li></ol>","title":"Loop"}');
+    expect(decodeDiagram(encodeDiagram(visual))).toEqual(visual);
+    expect(decodeDiagram('{"format":"svg-v9","source":"x","title":"T"}')).toBeNull();
+    expect(makeDiagram('x', 'y'.repeat(16_001), undefined, 'mermaid-v1')).toBeNull();
+    expect(makeDiagram('x', 'y'.repeat(16_001), undefined, 'html-v1')).not.toBeNull();
   });
 });

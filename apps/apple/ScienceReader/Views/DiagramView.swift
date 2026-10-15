@@ -27,7 +27,10 @@ struct DiagramDetail: View {
 
     var body: some View {
         Group {
-            if failed {
+            if diagram.isHTML {
+                HTMLVisualWebView(html: diagram.source, dark: colorScheme == .dark).id(colorScheme)
+                    .accessibilityIdentifier("visual.canvas")
+            } else if failed {
                 // Checked (and sent back once) before it was kept, so this is rare: say so plainly; the source is there
                 // for the curious, collapsed.
                 ScrollView {
@@ -50,6 +53,43 @@ struct DiagramDetail: View {
             }
         }
         .navigationTitle(diagram.title).navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// A visual answer: the server-sanitized HTML fragment in a page of its own, with no scripts, no network and no
+/// navigation (chat-visual.ts `visualDocument`; the same policy as the diagram page).
+struct HTMLVisualWebView: UIViewRepresentable {
+    let html: String
+    let dark: Bool
+
+    static func document(_ html: String, dark: Bool, fontSize: Double) -> String {
+        let size = Int(min(26, max(12, fontSize)))
+        return """
+        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=4">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+        <style>:root{color-scheme:\(dark ? "dark" : "light dark")}html,body{margin:0;padding:0}body{padding:16px;font:\(size)px/1.45 -apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;overflow-wrap:anywhere}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid rgba(128,128,128,.45);padding:4px 8px;vertical-align:top}th{text-align:left}svg{max-width:100%;height:auto}pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}pre{white-space:pre-wrap}h1,h2,h3{line-height:1.25}h1{font-size:1.35em}h2{font-size:1.2em}h3{font-size:1.05em}img,iframe,object,embed,video{display:none !important}</style>
+        </head><body>\(html)</body></html>
+        """
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = context.coordinator
+        view.isOpaque = false; view.backgroundColor = .clear
+        view.loadHTMLString(Self.document(html, dark: dark, fontSize: UIFont.preferredFont(forTextStyle: .body).pointSize), baseURL: nil)
+        return view
+    }
+    func updateUIView(_ view: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        // The page itself loads; nothing it links to does (a link in a visual stays a link in name only).
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            decisionHandler(action.navigationType == .other && action.request.url?.scheme == "about" ? .allow : .cancel)
+        }
     }
 }
 

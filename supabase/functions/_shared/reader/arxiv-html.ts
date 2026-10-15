@@ -11,7 +11,7 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
  * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 7;
+export const ARXIV_RENDERER_REVISION = 8;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;
@@ -53,6 +53,12 @@ function article(source: string): { root: DomNode; dropped: number } {
   // Each marker stays as an empty span that names its macro (`data-reader-macro`); the reader never prints it, and a
   // title page a template left in pieces can be read by macro (templatePreamble below).
   for (const n of errors) { n.attribs = { ...(n.attribs ?? {}), 'data-reader-macro': normalizeSpace(textContent(n)).slice(0, 64) }; n.children = []; }
+  // A picture LaTeXML left without an id (2610.20584: 56 such pictures, refused `arxiv_inline_svg`) gets one, in
+  // document order, so the compile and the picture serialization name it alike.
+  let unnamed = 0;
+  for (const svg of elements(papers[0], c => c.name === 'svg' && !nearest(c, 'svg') && typeof c.attribs?.id !== 'string')) {
+    unnamed += 1; svg.attribs = { ...(svg.attribs ?? {}), id: `srpic${unnamed}` };
+  }
   return { root: papers[0], dropped: errors.length };
 }
 
@@ -80,7 +86,7 @@ export function arxivInlineImages(source: string, sourceURL: string, options: Ar
     if (typeof id !== 'string' || !wanted.has(id)) continue;
     check(/^[A-Za-z_][A-Za-z0-9_.:-]{0,199}$/.test(id) && !nearest(n, 'svg') && !nearest(n, 'math'), 'arxiv_inline_svg');
     check(!n.attribs.xmlns || n.attribs.xmlns === 'http://www.w3.org/2000/svg', 'arxiv_inline_svg');
-    const xml = serialize(svgTextLabels(withSharedDefinitions(root, { ...n, attribs: { ...n.attribs, xmlns: 'http://www.w3.org/2000/svg' } })));
+    const xml = serialize(svgOnly(svgTextLabels(withSharedDefinitions(root, { ...n, attribs: { ...n.attribs, xmlns: 'http://www.w3.org/2000/svg' } }))));
     result.set('#' + id, xml);
   }
   check(result.size === wanted.size, 'arxiv_inline_svg');
@@ -121,6 +127,16 @@ function withSharedDefinitions(root: DomNode, picture: DomNode): DomNode {
   return missing.size ? prune(withDefs) : withDefs;
 }
 
+/** Only SVG elements leave with a picture: HTML the parser left inside one (a figure and its table inside a TikZ box,
+ * 2610.20570, refused `svg_invalid` on the device) is dropped, and so is any `foreignObject` the label pass did not
+ * turn into text. The device's own admission lists the same elements. */
+const SVG_ELEMENTS = new Set(['svg','g','defs','path','rect','circle','ellipse','line','polyline','polygon','text','tspan','textPath','use',
+  'symbol','clipPath','mask','linearGradient','radialGradient','stop','pattern','title','desc','style','metadata','marker']);
+function svgOnly(n: DomNode): DomNode {
+  if (n.type !== 'tag') return n;
+  return { ...n, children: (n.children ?? []).filter(c => c.type !== 'tag' || SVG_ELEMENTS.has(c.name)).map(svgOnly) };
+}
+
 /** LaTeXML draws TikZ node labels as `foreignObject` HTML, which the device SVG admission refuses. Each label becomes
  * SVG text centred in the label's box (its flip undone), so the diagram keeps its words; placement is best effort. */
 function svgTextLabels(n: DomNode): DomNode {
@@ -143,6 +159,8 @@ export interface ArxivConvertOptions {
   authors?: readonly string[];
   /** The catalog's title, used when the HTML has no `h1`. */
   title?: string;
+  /** Diagnostics: the `math` elements no block accounted for, before `arxiv_math_coverage` refuses (the sweep). */
+  onUncoveredMath?: (uncovered: DomNode[]) => void;
 }
 export function convertArxivHTML(source: string, sourceURL: string, resolveImage: (url: string) => HTMLImage, options: ArxivConvertOptions = {}): {
   index: ReaderIndex; html: string; imageURLs: string[];
@@ -155,6 +173,14 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   const digest = sha256Hex(utf8(`${ARXIV_RENDERER_REVISION}\n${source}`)).slice(0, 12);
   const blocks: { id: string; kind: string; node: OutNode }[] = [], top: OutNode[] = [];
   let omittedGraphics = 0;
+  // A graphic that is not one of the paper's own assets (arXiv's page chrome inside the article, an empty `src`:
+  // 2610.20570, refused `arxiv_asset_url` on the fresh-paper sweep) is left out and counted, never a refusal.
+  for (const graphic of elements(root, c => c.name === 'img' || c.name === 'object')) {
+    const reference = graphic.attribs?.[graphic.name === 'img' ? 'src' : 'data'] ?? '';
+    let own = false; try { arxivAssetURL(reference, sourceURL); own = true; } catch { own = false; }
+    if (own || !graphic.parent) continue;
+    graphic.parent.children = graphic.parent.children.filter(c => c !== graphic); omittedGraphics += 1;
+  }
   const isMarker = (n: DomNode) => n.type === 'tag' && n.attribs?.['data-reader-macro'] !== undefined;
   // A title page LaTeXML could not convert (a custom report template whose macros it does not know, 2610.18356):
   // the abstract, the affiliations and the contribution notes it carried are kept for the header; the rest (a logo
@@ -575,8 +601,11 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       elements(n, child => child !== n && child.name === 'table').length) return children(n).flatMap(c => tableContents(c, owner));
     return inline(n, owner);
   }
-  function figureImage(n: DomNode, owner: string, inlineImage = false): OutNode {
+  function figureImage(n: DomNode, owner: string, inlineImage = false): Child {
     bind(n, owner);
+    // A grid past the figure's image limit (112 thumbnails in a tabular, 2610.20584): the first ones stay, the rest
+    // are left out and counted, never a refusal.
+    if ((figureImages.get(owner)?.length ?? 0) >= LIMITS.imagesPerFigure) { omittedGraphics += 1; for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m); return ''; }
     // Math drawn inside an inline SVG picture (a TikZ node's foreignObject) travels with the picture, not as an equation.
     if (n.name === 'svg') for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m);
     check(n.name !== 'object' || n.attribs.type === 'image/svg+xml', 'arxiv_asset_type');
@@ -591,9 +620,11 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   }
   function imageFigure(n: DomNode): OutNode {
     const images = elements(n, c => ['img','object','svg'].includes(c.name));
-    check(images.length >= 1 && images.length <= LIMITS.imagesPerFigure && figures.length < LIMITS.figures, 'arxiv_figure');
+    check(images.length >= 1 && figures.length < LIMITS.figures, 'arxiv_figure');
+    // Several captions (sub-captions inside spans, 2610.20608): the figure's own is a direct child or the last one;
+    // the others read as paragraphs inside the figure.
     const captions = elements(n, c => c.name === 'figcaption');
-    check(captions.length <= 1, 'arxiv_caption');
+    const mainCaption = children(n).find(c => c.name === 'figcaption') ?? captions[captions.length - 1];
     return block(n, 'figure', 'figure', id => {
       const imageNodes: OutNode[] = []; figureImages.set(id, imageNodes);
       let caption: OutNode | null = null;
@@ -604,13 +635,15 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         if (child.type === 'comment' || active.has(child.name)) return;
         bind(child, id);
         if (child.name === 'figcaption') {
-          caption = el('figcaption', {}, children(child).flatMap(c => inline(c, id))); parts.push(caption);
+          if (child === mainCaption) { caption = el('figcaption', {}, children(child).flatMap(c => inline(c, id))); parts.push(caption); }
+          else parts.push(el('p', {}, children(child).flatMap(c => inline(c, id))));
         } else if (child.name === 'img' || child.name === 'object') parts.push(figureImage(child,id));
         // A picture beside words is a legend symbol, inline; a picture on its own (a table drawn as TikZ, 2610.18683's
         // Table 11, shown 0.65 em tall on build 43) is the figure's image.
         else if (child.name === 'svg') {
           const wrapper = child.parent && child.parent !== n ? child.parent : null;
-          if (wrapper && normalizeSpace(textContent(wrapper)).length > 0) parts.push(...inline(child, id)); else parts.push(figureImage(child, id));
+          const words = wrapper ? normalizeSpace(children(wrapper).filter(c => c !== child).map(textContent).join(' ')).length > 0 : false;
+          if (words) parts.push(...inline(child, id)); else parts.push(figureImage(child, id));
         }
         // A paragraph that only wraps the graphic (LaTeXML centres with p > span > img) is the figure's image, full
         // size; a paragraph with words keeps its graphics inline as legend symbols (build 31 drew 2610.17288's
@@ -674,7 +707,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     check(n.type === 'tag', 'arxiv_node');
     if (isMarker(n)) { bind(n, blocks[blocks.length - 1]?.id ?? ''); return []; }
     // The date line under the header (the paper line already says the year and the arXiv revision).
-    if (has(n, 'ltx_dates')) return [];
+    if (has(n, 'ltx_dates')) { for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m); return []; }
     // Publication notes under the title (a revision date, a venue line, a DOI and ISBN: 2610.07591, 2610.19855) are
     // catalog data, not the paper; the author block follows the title.
     if (has(n, 'ltx_pubnotes')) { for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m); return []; }
@@ -815,6 +848,10 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   const remove = (entry: { id: string; node: OutNode }) => {
     const at = blocks.indexOf(entry); if (at >= 0) blocks.splice(at, 1);
     const index = top.indexOf(entry.node); if (index >= 0) top.splice(index, 1);
+    // Its equations and figures leave the index with it (2610.20570: three equations in a dropped macro paragraph
+    // stayed listed, refused `index_identity`).
+    for (let i = equations.length - 1; i >= 0; i -= 1) if (equations[i].block_id === entry.id) equations.splice(i, 1);
+    for (let i = figures.length - 1; i >= 0; i -= 1) if (figures[i].block_id === entry.id) figures.splice(i, 1);
   };
   // Front matter first: a figure or a venue line LaTeXML placed before the title (DDPM's samples, SGAnalog's
   // "AI for Chip Design") follows the title, the authors and the abstract instead (sweep, 2026-10-15).
@@ -886,7 +923,10 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       [`Note: arXiv’s HTML conversion of this version left out ${parts.join(' and ')}. The PDF is complete.`]);
     blocks.push({ id, kind: 'paragraph', node: note }); top.push(note);
   }
-  check(new Set([...usedMath, ...skippedMath]).size === elements(root, n => n.name === 'math').length, 'arxiv_math_coverage');
+  const covered = new Set([...usedMath, ...skippedMath]);
+  const uncovered = elements(root, n => n.name === 'math').filter(m => !covered.has(m));
+  if (uncovered.length && options.onUncoveredMath) options.onUncoveredMath(uncovered);
+  check(uncovered.length === 0, 'arxiv_math_coverage');
   for (const entry of blocks) if (entry.kind === 'figure') entry.node.attribs['data-reader-figure'] = entry.id;
   for (const link of links) {
     const id = aliases.get(link.target); check(id, 'arxiv_unresolved_fragment'); link.node.attribs.href = `#${id}`;

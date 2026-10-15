@@ -179,6 +179,26 @@ export const CREATE_DIAGRAM_TOOL: Anthropic.Beta.Messages.BetaTool = {
   },
 };
 
+/** Visual answers (chat-visual.ts): one HTML fragment beside an answer, sanitized by the server and drawn by the
+ * device in a frame with no scripts and no network. */
+export const CREATE_VISUAL_TOOL: Anthropic.Beta.Messages.BetaTool = {
+  name: 'create_visual',
+  description: 'Shows a visual beside your answer, read on a phone: a flow chart or pipeline drawn as inline SVG, a timeline, a '
+    + 'decision tree, a comparison table, annotated steps. Use it when a picture or a structured layout explains the point better '
+    + 'than prose, and keep the written answer complete on its own. Self-contained HTML fragment: headings, paragraphs, lists, '
+    + 'tables, inline CSS or one <style> element, and inline SVG (shapes, lines, text; arrows with markers). No scripts, no images, '
+    + 'no external resources, links to https only. Under 12,000 bytes; narrow vertical layouts; relative font sizes. Call it at '
+    + 'most once, after your text; never also call create_diagram in the same answer.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'A short title (under 80 characters).' },
+      html: { type: 'string', description: 'The HTML fragment (no <html>, <head> or <body>).' },
+    },
+    required: ['title', 'html'],
+  },
+};
+
 /** Web search in chat: Tavily (`search_web`, a client tool the server runs) when
  * the reader's consent names it, Anthropic's server-side search as the backup
  * (docs/architecture/CHAT.md). Off unless the server enables it; at most three

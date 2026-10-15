@@ -20,6 +20,8 @@ const QUESTIONS = Number(process.argv.find(a => a.startsWith('--questions='))?.s
 // --study: a tutored conversation instead (chat-study.ts): the opening turn, a partly right answer, a "don't know"; the
 // map after each turn is printed (counts, states, next step). About three Sonnet answers plus three Haiku map updates.
 const STUDY = process.argv.includes('--study');
+/** `--question=…` asks this instead of the built-in first question (e.g. one that invites a visual answer). */
+const QUESTION = process.argv.find(a => a.startsWith('--question='))?.slice(11) ?? null;
 const INDEX = process.argv.find(a => a.startsWith('--index='))?.slice(8) ?? `${ROOT}/.artifacts/bundles/ecbc0a04588f/reader.json`;
 const dotenv = path => Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
   .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^(['"])(.*)\1$/, '$2')]; }));
@@ -92,7 +94,7 @@ try {
   const ask = async question => {
     turns.push({ role: 'user', text: question });
     const body = { operation_id: randomUUID(), consent_version: 'cloud-ai-v2', mode: 'paper', local_context, messages: turns, topic_title: turns.length === 1,
-      ...(STUDY ? { action: 'study', study: studyMap } : { follow_ups: true }) };
+      capabilities: ['visual_answers'], ...(STUDY ? { action: 'study', study: studyMap } : { follow_ups: true }) };
     const started = Date.now();
     const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
       apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
@@ -109,6 +111,7 @@ try {
       if (name === 'text' || name === 'delta') { if (!first) first = Date.now(); answer += payload.text ?? payload.delta ?? ''; }
       else if (name === 'followups') followUps = payload.questions ?? [];
       else if (name === 'study') { studyMap = payload.map; log(`study map: ${studyMap.concepts.length} concepts ${JSON.stringify(studyMap.concepts.map(c => `${c.label}:${c.state}`))} links ${studyMap.links.length} focus ${studyMap.focus} next ${studyMap.next} journey ${studyMap.journey.join('>')}`); }
+      else if (name === 'visual') log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`);
       else if (name === 'done') done = payload;
       else log(`event ${name} ${JSON.stringify(payload).slice(0, 300)}`);
     };
@@ -133,7 +136,7 @@ try {
     await ask('I think the reference model is the model you start from, and the loss compares how much more likely the chosen answer is than the rejected one under the policy versus the reference.');
     await ask('I’m not sure what beta does. Is it a learning rate?');
   } else {
-    await ask('Why does the DPO objective need a reference model, and which equation defines the loss?');
+    await ask(QUESTION ?? 'Why does the DPO objective need a reference model, and which equation defines the loss?');
     if (QUESTIONS >= 2 && followUps.length) await ask(followUps[0]);
   }
   const after = await rpc('v1_credit_balance', {}, token);

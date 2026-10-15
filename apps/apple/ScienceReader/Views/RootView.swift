@@ -1295,8 +1295,10 @@ struct SettingsView: View {
                             LabeledContent("Chat defaults", value: ChatProfileText.summary(model.chatDefaultProfile, table: model.chatProfileTable))
                         }
                         .accessibilityIdentifier("settings.chatDefaults")
+                        Toggle("Visual answers", isOn: $model.visualAnswers)
+                            .accessibilityIdentifier("settings.visualAnswers")
                     } footer: {
-                        Text("The model, effort and length new chats start with. A chat can change them in its message box.")
+                        Text("The model, effort and length new chats start with. A chat can change them in its message box. Visual answers let the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
                     }
                 }
                 Section("Reading") {

@@ -15,7 +15,7 @@ import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, makeRequest, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { isProfileChoice, isStandard, offers, parseProfileID, ProfileTableLoader, STANDARD_PROFILE, type ProfileChoice, type ProfileTable } from './chat-profiles';
 import { cancellation } from './cancellation';
-import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor, type SourcePaperReference } from './events';
+import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor, type SourcePaperReference, type DiagramFormat } from './events';
 import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
@@ -65,6 +65,10 @@ interface Dependencies {
   readDefault: () => ProfileChoice | null; writeDefault: (choice: ProfileChoice) => void;
 }
 const DEFAULT_KEY = 'gradstep.chat-defaults.v1';
+/** The "Visual answers" setting (chat defaults): per browser, on unless turned off. */
+export const VISUAL_ANSWERS_KEY = 'gradstep.chat-visual-answers.v1';
+export function readVisualAnswers(): boolean { try { return localStorage.getItem(VISUAL_ANSWERS_KEY) !== 'false'; } catch { return true; } }
+export function writeVisualAnswers(on: boolean) { try { localStorage.setItem(VISUAL_ANSWERS_KEY, on ? 'true' : 'false'); } catch { /* per-browser convenience */ } }
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 const scope = (documentID: string | null) => documentID ?? 'general';
 const busy = (c: Composer) => c.phase === 'saving' || c.phase === 'streaming' || c.phase === 'finishing';
@@ -648,7 +652,7 @@ export class ChatSession {
     if (this.retiredStorage || !this.accepting) { c.phase = 'idle'; this.publish(); return; }
     if (table ? !offers(table, capturedProfile) : !isStandard(capturedProfile)) { c.phase = 'idle'; c.issue = 'profile_unavailable'; this.publish(); return; }
     const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action,
-      table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {});
+      { ...(table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {}), visualAnswers: readVisualAnswers() });
     if (question.action === 'study') request.study = c.study ?? { ...EMPTY_STUDY_MAP };
     const reference=this.reference(c.documentID);
     if(reference){
@@ -682,7 +686,7 @@ export class ChatSession {
     this.streams.set(c.id, controller);
     this.starting.delete(c.id);
     c.liveID = entityID; c.liveText = ''; c.phase = 'streaming'; c.issue = null; c.progress = null; this.publish();
-    let outcome: Outcome = { kind: 'failed', code: 'transport' }, diagram: { title: string; source: string } | null = null;
+    let outcome: Outcome = { kind: 'failed', code: 'transport' }, diagram: { title: string; source: string; format?: DiagramFormat } | null = null;
     let lastCheckpoint = performance.now(), lastCheckpointDate = turn?.updatedAt ?? Date.now(), checkpointing: Promise<void> = Promise.resolve(), checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     const checkpointTurn = (force = false) => {
       if (!turn) return;
@@ -704,7 +708,8 @@ export class ChatSession {
           if (bytes(next) > 200_000) { c.liveText = boundedText(next); outcome = { kind: 'failed', code: 'answer_too_large' }; break; }
           c.liveText = next; c.progress = null; checkpointTurn();
         } else if (event.type === 'status') c.progress = event.progress;
-        else if (event.type === 'diagram') diagram = event;
+        else if (event.type === 'diagram') diagram = { title: event.title, source: event.source };
+        else if (event.type === 'visual') diagram = { title: event.title, source: event.html, format: 'html-v1' };
         else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
         else if (event.type === 'followups') followUps = event.questions;
         else if (event.type === 'study') nextMap = event.map;

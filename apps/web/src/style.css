@@ -493,6 +493,10 @@ progress.mini { height: 3px; margin-top: 4px; }
 .diagram-source-tools { display: flex; justify-content: flex-end; margin: 8px 0 -2px; }
 .diagram-viewport { width: 100%; height: 55dvh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .diagram-frame { display: block; max-width: none; border: 0; }
+.chat-visual { margin: 10px 0 4px; }
+.visual-frame { display: block; width: 100%; height: 360px; border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: 10px; background: transparent; }
+.visual-frame-large { height: 75vh; }
+.visual-tools { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 4px; }
 
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; } .dialog-heading h2 { margin: 0; }
 .history-heading-actions { display: flex; align-items: center; gap: 12px; }

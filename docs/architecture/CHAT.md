@@ -597,3 +597,35 @@ Changes (server only; deployed with 040):
 Not changed: the model's thinking before round 1's text and Tavily's ~3.5 s are now the largest parts. Options for
 later, each needing a measured check: show thinking progress (`thinking.display: "updates"` notes as status lines;
 app work), a shorter search allowance for Related, or a per-search time limit.
+
+## Visual answers — 2026-10-15 (owner: "The chat needs a html tool… mermaid diagrams… an option for the users to disable")
+
+Beside an answer the model may show one visual: a Mermaid diagram (`create_diagram`, as before) or an HTML fragment
+(`create_visual`): a flow chart or pipeline drawn as inline SVG, a timeline, a decision tree, a comparison table,
+annotated steps. The written answer stays complete on its own; the model is told to call at most one of the two.
+
+- **Server** (`supabase/functions/_shared/chat-visual.ts`): the fragment is untrusted. `sanitizeVisual` keeps a finite
+  vocabulary (structure, text, lists, tables, `<style>` and inline CSS without external references, inline SVG shapes
+  and markers with fragment references only, links to https only), drops images and media quietly, and refuses the
+  whole visual on anything script-like (`script`, `iframe`, `object`, handler attributes, `javascript:` URLs). Input
+  at most 16 KB (the tool asks for under 12 KB so a Standard answer fits), output at most 24 KB. The sanitized
+  fragment is relayed once as the SSE event `visual {title, html}` before `done` (`chat_visual` /
+  `chat_visual_invalid_input` in the logs; never the text). Builds before the event ignore it.
+- **Setting.** "Visual answers" (Settings › Chat on the apps; Chat defaults in the browser), per device, on by default.
+  The request's `capabilities` list carries `visual_answers` when on and is sent empty when off; a request that names
+  no capabilities at all (builds before the setting) still gets diagrams. Off, the model is told to answer in prose and
+  neither tool is offered.
+- **Storage.** The device keeps a visual as a `diagram` event with `format: "html-v1"` (`ChatDiagram`; browser
+  `makeDiagram`), encrypted like a Mermaid diagram; builds that know only `mermaid-v1` ignore it rather than fail.
+- **Rendering.** iPhone, iPad and Mac: `HTMLVisualWebView`, a WKWebView with content JavaScript off, a non-persistent
+  store, a page of its own with CSP `default-src 'none'; style-src 'unsafe-inline'`, navigation cancelled; opened from
+  the answer's "View visual" button and listed under All diagrams. Browser: an inline `<iframe sandbox="">` (no
+  scripts) with the same document, and "Full size" in a dialog.
+- **Cost.** The tool's schema is part of the prompt the hold already counts; the fragment is output tokens within the
+  profile's allowance; drawing costs nothing. No new accounting.
+- **Proof.** `node scripts/chat-live-smoke.mjs --question="…as a visual…"` (about $0.25): on 2026-10-15 the model
+  answered a pipeline question with a 2.3 KB visual (`style div h3 span`) relayed as `visual` and a flow question with
+  a Mermaid diagram. Tests: `tests/backend/chat.test.ts` (sanitizer, request validation, capability gating, relay),
+  `ChatVisualTests` (native format, request capability, page policy), `apps/web/tests/chat.test.ts` (event, format).
+
+Not built: figure crops (`docs/proposals/CHAT_TOOLS.md`), which need a consent for sending figures to the model.

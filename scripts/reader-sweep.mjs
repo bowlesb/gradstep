@@ -132,7 +132,20 @@ function checks(paper, out, html) {
   const note = /left out (\d+) unsupported command/.exec(html);
   if (note && Number(note[1]) > 50) warn('dropped_commands', `${note[1]} unsupported commands`);
   else if (note) info('dropped_commands', `${note[1]} unsupported commands`);
-  if (/<figure/.test(html) === false && out.index.figures.length === 0 && /class="ltx_figure"/.test(paper.source ?? '')) warn('figures', 'source has figures, reader has none');
+  // Silent-loss ledger (audit 2026-10-15): what the source holds against what the reader shows. Figures with a
+  // tabular and algorithms become table blocks, so the kinds are compared loosely; a kind the source has twice or
+  // more and the reader not at all is a warning. `--ledger` prints the counts for every paper.
+  const src = paper.source ?? '';
+  const count = re => (src.match(re) || []).length;
+  const sourceFigures = count(/<figure[^>]*class="ltx_figure(?: |")/g), sourceTables = count(/<figure[^>]*class="ltx_table(?: |")/g);
+  const sourceAlgorithms = count(/ltx_float_algorithm/g), sourceListings = count(/class="ltx_listing(?: |")/g);
+  const sourceTabulars = count(/<table[^>]*class="ltx_tabular/g) + count(/<span[^>]*class="ltx_tabular/g);
+  const readerFigures = out.index.figures.length, readerTables = blocks.filter(b => b.kind === 'table').length, readerCode = blocks.filter(b => b.kind === 'code').length;
+  info('ledger', `source ${sourceFigures} figures, ${sourceTables} tables, ${sourceAlgorithms} algorithms, ${sourceTabulars} tabulars, ${sourceListings} listings → reader ${readerFigures} figures, ${readerTables} tables, ${readerCode} code`);
+  if (sourceFigures >= 2 && readerFigures === 0) warn('losses', `${sourceFigures} figures in the source, none in the reader`);
+  if (sourceTables + sourceAlgorithms >= 2 && readerTables === 0) warn('losses', `${sourceTables + sourceAlgorithms} tables or algorithms in the source, none in the reader`);
+  if (sourceListings >= 2 && readerCode + readerTables === 0) warn('losses', `${sourceListings} listings in the source, none in the reader`);
+  if (sourceFigures + sourceTables >= 4 && readerFigures + readerTables < (sourceFigures + sourceTables) / 2) warn('losses', `${sourceFigures + sourceTables} figures and tables in the source, ${readerFigures + readerTables} in the reader`);
   return f;
 }
 
@@ -154,15 +167,18 @@ for (const paper of papers) {
   if (!source) { row.findings.push({ check: 'html', severity: 'unavailable', detail: `no HTML (${status}); the app offers the PDF` }); results.push(row); continue; }
   if (Buffer.byteLength(source) > 8_388_608) { row.findings.push({ check: 'limit', severity: 'fail', detail: `${Buffer.byteLength(source)} bytes of HTML, over the device source limit` }); results.push(row); continue; }
   try {
-    const out = convertArxivHTML(source, arxivHTMLURL(paper.id, paper.revision), stub, { authors: paper.authors, title: paper.title });
+    const out = convertArxivHTML(source, arxivHTMLURL(paper.id, paper.revision), stub, { authors: paper.authors, title: paper.title,
+      // Where math the converter did not account for sits (its ancestors' classes), so a coverage refusal names its cause.
+      onUncoveredMath: uncovered => { row.uncoveredMath = uncovered.slice(0, 5).map(m => { const chain = []; for (let p = m.parent; p && chain.length < 6; p = p.parent) chain.push(`${p.name}${p.attribs?.class ? '.' + p.attribs.class.split(' ').slice(0, 2).join('.') : ''}`); return chain.join(' < '); }); } });
     row.blocks = out.index.blocks.slice(0, 5).map(b => `${b.kind}: ${b.text.slice(0, 70)}`);
     row.findings = checks({ ...paper, source }, out, out.html);
   } catch (e) {
-    row.findings.push({ check: 'compile', severity: /^arxiv_article$/.test(e.message) ? 'unavailable' : 'fail', detail: e.message });
+    row.findings.push({ check: 'compile', severity: /^arxiv_article$/.test(e.message) ? 'unavailable' : 'fail', detail: e.message + (row.uncoveredMath ? ` (math under: ${row.uncoveredMath.join(' | ')})` : '') });
   }
   results.push(row);
   const worst = row.findings.some(x => x.severity === 'fail') ? 'FAIL' : row.findings.some(x => x.severity === 'warn') ? 'warn' : row.findings.some(x => x.severity === 'unavailable') ? 'n/a ' : 'ok  ';
-  console.log(`${worst} ${key.padEnd(14)} ${paper.title.slice(0, 60)}${row.findings.length ? '\n     ' + row.findings.map(x => `${x.severity}:${x.check} ${x.detail}`).join('\n     ') : ''}`);
+  const shown = row.findings.filter(x => x.check !== 'ledger' || process.argv.includes('--ledger'));
+  console.log(`${worst} ${key.padEnd(14)} ${paper.title.slice(0, 60)}${shown.length ? '\n     ' + shown.map(x => `${x.severity}:${x.check} ${x.detail}`).join('\n     ') : ''}`);
 }
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const report = join(DIR, `sweep-${stamp}.json`);

@@ -2,7 +2,7 @@
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
-  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION,
+  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
   webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
@@ -12,6 +12,7 @@ import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequest
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
+import { visualRequest } from './chat-visual.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -53,6 +54,8 @@ export interface ChatRequest {
   action: ChatAction | null;
   /** Client features: 'web_import' = the app shows web (non-arXiv) library entries. */
   capabilities: string[];
+  /** Diagrams and HTML visuals may be drawn (the reader's "Visual answers" setting; on when a build says nothing). */
+  visuals: boolean;
   /** The reader's model, effort and length (chat-profiles.ts); null = the default profile (today's request). */
   choice: Choice | null;
   /** Also write a topic title for the conversation (chat-title.ts). */
@@ -87,7 +90,10 @@ function localPaperContext(input: unknown): LocalPaperContext {
     revision: c.revision as number, manifest_sha256: c.manifest_sha256, source_sha256: c.source_sha256, text: c.text };
 }
 
-export const CLIENT_CAPABILITIES = ['web_import'] as const;
+/** 'web_import' = the app shows web (non-arXiv) library entries; 'visual_answers' = the app draws HTML visuals and
+ * Mermaid diagrams and the reader has them on. A request that names no capabilities at all (builds before the
+ * setting) still gets diagrams. */
+export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers'] as const;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study';
 const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study'];
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
@@ -183,7 +189,8 @@ export function validateChatRequest(input: unknown): ChatRequest {
   if (action === 'ingest' && followUps) invalid();
   // The tutor ends every turn with its own question: no follow-up suggestions beside it.
   if (action === 'study' && followUps) invalid();
-  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, choice, topicTitle, followUps,
+  const visuals = body.capabilities === undefined || body.capabilities === null || capabilities.includes('visual_answers');
+  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, choice, topicTitle, followUps,
     ...(localContext ? { localContext } : {}), ...(study ? { study } : {}) };
 }
 
@@ -265,10 +272,16 @@ const MERMAID_RULES = `Mermaid syntax rules (a diagram that breaks them cannot b
 - Node IDs are short plain words without spaces (A, enc1, loss); never use "end" as an ID.
 - Keep labels short; one statement per line.`;
 
-const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
+const DIAGRAM_INSTRUCTIONS = `When the reader asks for a diagram or flowchart, or a boxes-and-arrows graph with short labels is clearly the best explanation: write your explanation first, then call create_diagram once with Mermaid source.
 Never write Mermaid, SVG or HTML diagram markup in the answer text.
 Diagrams are read on a phone: prefer top-to-bottom layouts (flowchart TD), short node labels, and at most about 12 nodes.
 ${MERMAID_RULES}`;
+
+/** Visual answers (chat-visual.ts): richer layouts than a Mermaid graph, drawn by the device from a sanitized fragment. */
+const VISUAL_INSTRUCTIONS = `When a visual would explain the point better than prose — how a method flows step by step, how components connect, a timeline, a decision tree, or a side-by-side comparison with highlights — write your explanation first, then call create_visual once with a self-contained HTML fragment. Keep the written answer complete on its own; the visual supplements it. Use create_visual for annotated steps, comparison tables and drawn diagrams with labels (inline SVG: rects, lines, paths, text, arrows with markers); use create_diagram instead when a plain boxes-and-arrows graph is the natural form. Never call both in one answer, and never put HTML, SVG or Mermaid in the answer text.
+Visual rules: no scripts, no images, no external resources or fonts, links to https only; one <style> element or inline styles; narrow vertical layouts for a phone (an SVG with a viewBox and width="100%"); relative font sizes; plain system colours that read in light and dark modes (avoid pure white or black backgrounds); under 12,000 bytes.`;
+
+const NO_VISUAL_INSTRUCTIONS = `The reader has turned visual answers off: answer in prose, with Markdown tables when they help; never draw diagrams or HTML.`;
 
 // The device checks each diagram with the bundled Mermaid before showing it; one that fails is sent back once.
 const DIAGRAM_FIX_INSTRUCTIONS = `You draw diagrams for Gradstep, an app for reading machine-learning papers. The reader's app could not draw a Mermaid diagram from an earlier answer. The message gives its title, the error Mermaid reported and its source.
@@ -285,13 +298,16 @@ export interface InstructionOptions {
   citations?: boolean;
   /** Study: the reader's knowledge map for this turn (chat-study.ts); sent after the paper like an action's own text. */
   studyMap?: StudyMap;
+  /** Diagrams and HTML visuals may be drawn (default true; the reader's "Visual answers" setting). */
+  visuals?: boolean;
 }
 export function chatInstructionParts(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false, options: InstructionOptions = {}): { shared: string; action: string | null } {
   if (action === 'diagram_fix') return { shared: DIAGRAM_FIX_INSTRUCTIONS, action: null };
   // Why it matters never searches (its request carries no search tool either).
   const search = webSearch && action !== 'relevance';
+  const visuals = options.visuals ?? true;
   const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
-    : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
+    : `${visuals ? `${DIAGRAM_INSTRUCTIONS}\n\n${VISUAL_INSTRUCTIONS}` : NO_VISUAL_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
   const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS
     : action === 'study' ? `${STUDY_INSTRUCTIONS}\n\n${studyMapForPrompt(options.studyMap ?? EMPTY_STUDY_MAP)}` : null;
   const paper = mode === 'paper' ? `${PAPER_INSTRUCTIONS}${options.citations ? `\n\n${CITATION_INSTRUCTIONS}` : ''}` : GENERAL_INSTRUCTIONS;
@@ -375,6 +391,8 @@ export const INGEST_DEADLINE_MS = 45_000;
 
 export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'diagram'; data: { title: string; source: string } }
+  /** A visual answer (chat-visual.ts), sent once before `done`; builds that predate it ignore unknown events. */
+  | { event: 'visual'; data: { title: string; html: string } }
   /** Progress while the server searches or adds a paper. Builds that predate it ignore unknown events. */
   | { event: 'status'; data: ChatStatus }
   /** The conversation's topic title (requested with `topic_title`), sent once before `done`; never logged or stored. */
@@ -489,14 +507,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const profile = resolveProfile(request.choice);
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
-    { citations: request.localContext?.format === 'reader-local-context-v2', ...(request.study ? { studyMap: request.study } : {}) });
+    { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
   // A Study turn has its own length (one step, one question); the profile's length would contradict it.
   const trailing = [instructions.action, repair || study ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens,
     model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
-      : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
+      : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL] : []),
+        ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const held = balance ? await balance : null;
   const available = held?.ok ? held.value : null;
   if (deps.availableCredits && (available === null || !Number.isSafeInteger(available) || available < 0)) throw new ChatFailure('service_unavailable');
@@ -723,6 +742,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         // The device keeps a diagram only with a non-empty answer (a repair replaces one; it needs no text).
         if (!wroteText && !repair) emit({ event: 'delta', data: { text: `Diagram: “${diagram.title}”` } });
         emit({ event: 'diagram', data: diagram });
+      }
+    }
+    // Visual: one sanitized HTML fragment, relayed once like a diagram; the device keeps it encrypted (format html-v1).
+    const shown = request.action !== 'ingest' && request.action !== 'diagram_fix' && request.visuals ? outcome.toolCalls?.find(c => c.name === 'create_visual') : undefined;
+    if (shown) {
+      const visual = visualRequest(shown.input);
+      deps.log({ event: visual ? 'chat_visual' : 'chat_visual_invalid_input', operation_id: request.operationID });
+      if (visual && !signal.aborted) {
+        if (!wroteText) emit({ event: 'delta', data: { text: `Visual: “${visual.title}”` } });
+        emit({ event: 'visual', data: visual });
       }
     }
     // Follow-up questions: relayed once, never stored (chat-follow-ups.ts; counted in chat_answer).

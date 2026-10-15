@@ -37,4 +37,9 @@ figures into cropped sub sections as part of the response and explain each compo
 
 ## Order
 
-Setting and HTML answers first (one week), figure crops after the image-sending consent is designed.
+Setting and HTML answers first, figure crops after the image-sending consent is designed.
+
+## Status (2026-10-15)
+
+Items 1–3 are built and deployed (`docs/architecture/CHAT.md` "Visual answers"; build 45 and the browser). Item 4,
+figure crops, is not: it needs the "Send figures to the model" consent designed first.

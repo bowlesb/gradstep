@@ -93,13 +93,16 @@ export function ProfileControl({ table, choice, defaultChoice, onChange, onMakeD
 }
 
 /** Account menu › Chat defaults: the choice new chats start with in this browser. */
-export function ChatDefaultsDialog({ open, onClose, table, choice, onChange, onRetry }: {
+export function ChatDefaultsDialog({ open, onClose, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers }: {
   open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; onChange: (choice: ProfileChoice) => void; onRetry: () => Promise<void>;
+  visualAnswers?: boolean; onVisualAnswers?: (on: boolean) => void;
 }) {
   return <Dialog open={open} onClose={onClose} title="Chat defaults">
     <h2>Chat defaults</h2>
     <p className="muted">New chats in this browser start with these. Each chat can change them from its message box; a chat keeps the choice its answers used.</p>
     <ProfilePicker table={table} choice={choice} onChange={onChange} autoFocus />
+    {onVisualAnswers && <label className="check-row"><input type="checkbox" checked={visualAnswers ?? true} onChange={e => onVisualAnswers(e.target.checked)} data-testid="visual-answers" />
+      <span>Visual answers <span className="fine">— diagrams and drawn explanations beside answers; off, the assistant answers in prose</span></span></label>}
     {!table && <RetryOptions onRetry={onRetry} />}
     {table && offers(table, STANDARD_PROFILE) && !sameProfile(choice, STANDARD_PROFILE) && <button type="button" className="link small" onClick={() => onChange({ ...STANDARD_PROFILE })}>Reset to Sonnet · Low · Standard</button>}
     <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>

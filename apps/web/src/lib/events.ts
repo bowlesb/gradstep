@@ -350,14 +350,14 @@ export class PrivateState {
   }
 
   /** Saved diagrams (mermaid-v1 JSON in `text`) by the assistant message that drew them. */
-  diagramsByMessage(): Map<string, { id: string; title: string; source: string }> {
-    const out = new Map<string, { id: string; title: string; source: string }>();
+  diagramsByMessage(): Map<string, { id: string; title: string; source: string; format: DiagramFormat }> {
+    const out = new Map<string, { id: string; title: string; source: string; format: DiagramFormat }>();
     const ids = new Set([...this.events.values()].filter(e => e.payload.kind === 'diagram').map(e => e.payload.entityID));
     for (const id of [...ids].sort()) {
       const event = this.revisions(id)[0];
       if (!event || (event.payload.conversationID && this.isDeleted(event.payload.conversationID))) continue;
       const diagram = decodeDiagram(event.payload.text);
-      if (diagram?.messageID && !out.has(diagram.messageID)) out.set(diagram.messageID, { id, title: diagram.title, source: diagram.source });
+      if (diagram?.messageID && !out.has(diagram.messageID)) out.set(diagram.messageID, { id, title: diagram.title, source: diagram.source, format: diagram.format ?? 'mermaid-v1' });
     }
     return out;
   }
@@ -365,23 +365,26 @@ export class PrivateState {
 
 // ---------- Diagrams (ChatDiagram.swift) ----------
 
-export interface ChatDiagram { title: string; source: string; messageID?: string }
-export function makeDiagram(title: string, source: string, messageID?: string): ChatDiagram | null {
+/** `html-v1` (2026-10-15): a visual answer, the server-sanitized HTML fragment the chat frame shows with no scripts. */
+export type DiagramFormat = 'mermaid-v1' | 'html-v1';
+export interface ChatDiagram { title: string; source: string; messageID?: string; format?: DiagramFormat }
+const DIAGRAM_BYTES: Record<DiagramFormat, number> = { 'mermaid-v1': 16_000, 'html-v1': 24_000 };
+export function makeDiagram(title: string, source: string, messageID?: string, format: DiagramFormat = 'mermaid-v1'): ChatDiagram | null {
   const t = title.trim();
-  if (!t || [...t].length > 200 || !source.trim() || utf8Bytes(source) > 16_000) return null;
-  return { title: t, source, messageID };
+  if (!t || [...t].length > 200 || !source.trim() || utf8Bytes(source) > DIAGRAM_BYTES[format]) return null;
+  return format === 'mermaid-v1' ? { title: t, source, messageID } : { title: t, source, messageID, format };
 }
 /** Sorted keys, as Swift encodes it. */
 export function encodeDiagram(d: ChatDiagram): string {
-  return JSON.stringify(d.messageID ? { format: 'mermaid-v1', messageID: upper(d.messageID), source: d.source, title: d.title }
-    : { format: 'mermaid-v1', source: d.source, title: d.title });
+  const format = d.format ?? 'mermaid-v1';
+  return JSON.stringify(d.messageID ? { format, messageID: upper(d.messageID), source: d.source, title: d.title } : { format, source: d.source, title: d.title });
 }
 export function decodeDiagram(text: string | undefined): ChatDiagram | null {
-  if (!text || utf8Bytes(text) > 32_000) return null;
+  if (!text || utf8Bytes(text) > 48_000) return null;
   try {
     const v = JSON.parse(text) as Record<string, unknown>;
-    if (v.format !== 'mermaid-v1' || typeof v.title !== 'string' || typeof v.source !== 'string') return null;
+    if ((v.format !== 'mermaid-v1' && v.format !== 'html-v1') || typeof v.title !== 'string' || typeof v.source !== 'string') return null;
     if (!absent(v.messageID) && !isUUID(v.messageID)) return null;
-    return makeDiagram(v.title, v.source, isUUID(v.messageID) ? v.messageID.toLowerCase() : undefined);
+    return makeDiagram(v.title, v.source, isUUID(v.messageID) ? v.messageID.toLowerCase() : undefined, v.format as DiagramFormat);
   } catch { return null; }
 }
