@@ -13,7 +13,7 @@ export const HF_PAGE = 100;
 export const HF_PAGES_PER_DAY = 2;
 export const HF_SPACING_MS = 1_000;
 export const MAX_UPVOTES = 1_000_000;
-const USER_AGENT = 'ScienceReader/0.1 (research paper reader)';
+const USER_AGENT = 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)';
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const ARXIV = /^\d{4}\.\d{4,5}$/;
 

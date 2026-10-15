@@ -257,9 +257,14 @@ struct GradstepInfoView: View {
             } header: { Text("What a normal month can cover") }
 
             Section {
-                Text("Current chat answers use Anthropic's Claude models: Haiku is the fast, lower-cost choice for simpler work, Sonnet is the default balance of quality and cost, and Opus is reserved for harder reasoning. A future local model will handle challenging PDFs; it is not available yet. There is no Mathpix fallback; search and speech use separate providers when enabled. The server enforces the available profiles and records the model that actually answered, including an approved fallback.")
-                Text("A lower-priced model is not automatically a safe replacement for scientific reading. Before adding a provider such as DeepSeek, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.")
+                Text("Current chat answers use Anthropic's Claude models: Haiku is the fast, lower-cost choice for simpler work, Sonnet is the default balance of quality and cost, and Opus is reserved for harder reasoning. An experimental on-device model can read a PDF on this device (Settings › Experimental); nothing leaves the device for it. There is no Mathpix fallback; search and speech use separate providers when enabled. The server enforces the available profiles and records the model that actually answered, including an approved fallback.")
+                Text("Podcast scripts can be written by DeepSeek instead of Claude when you choose it for an episode; chat uses Claude only. A lower-priced model is not automatically a safe replacement for scientific reading: before using one anywhere, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.")
             } header: { Text("Models and providers") }
+
+            Section {
+                Text("Your device downloads each paper's official HTML version from arXiv and prepares it here; paper links go to the exact version on arXiv, and each paper keeps its authors' license.")
+                Text(ArxivAcknowledgement.statement)
+            } header: { Text("arXiv") }
 
             Section {
                 Text("You choose the chat profile and answer length, and you can leave web search off. Each request is bounded before it runs, and the app shows what was charged afterward. If a paper or answer behaves unexpectedly, Report this screen so we can inspect the workflow and its accounting record.")
@@ -270,4 +275,10 @@ struct GradstepInfoView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .navigationTitle("How Gradstep works").navigationBarTitleDisplayMode(.inline)
     }
+}
+
+/// arXiv's required acknowledgement for products that use its API or data (API Access page and brand guidelines,
+/// docs/architecture/ARXIV_DEVICE_ONLY.md §7), shown in How Gradstep works and Acknowledgements.
+enum ArxivAcknowledgement {
+    static let statement = "Thank you to arXiv for use of its open access interoperability. This product was not reviewed or approved by, nor does it necessarily express or reflect the policies or opinions of, arXiv."
 }

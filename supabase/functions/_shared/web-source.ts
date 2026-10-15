@@ -3,7 +3,7 @@
 // paper's metadata and PDF locations; those locations are third-party data, so
 // every hop of every download is checked here. Deno and Node compatible.
 
-export const WEB_USER_AGENT = 'ScienceReader/0.1 (research paper reader; mailto:support@sciencereader.invalid)';
+export const WEB_USER_AGENT = 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)';
 const MiB = 1024 * 1024;
 
 /** `permanent`: retrying the same request now cannot help (the next location is tried; the

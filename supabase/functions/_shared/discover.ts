@@ -408,7 +408,7 @@ export async function searchArxiv(urls: readonly string[], fetcher: typeof fetch
     if (index > 0) await pause(reserved.spacing_ms ?? 3000);
     const timeout = AbortSignal.timeout(20_000);
     const response = await fetcher(url, { redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers: { accept: 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+      headers: { accept: 'application/atom+xml', 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' } });
     if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('search_unavailable'); }
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.length > 6 * 1024 * 1024) throw new Error('search_unavailable');

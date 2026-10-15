@@ -93,7 +93,7 @@ Deno.serve(async request => {
     if (openAlex.length) {
       const fetchJSON = async (url: string) => {
         const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10_000),
-          headers: { accept: 'application/json', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+          headers: { accept: 'application/json', 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' } });
         if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error('openalex_unavailable'); }
         return JSON.parse(new TextDecoder().decode(await readBounded(response, 4 * 1024 * 1024)));
       };
@@ -118,7 +118,7 @@ Deno.serve(async request => {
       if (index > 0) await new Promise(resolve => setTimeout(resolve, slot.spacing_ms ?? 3000));
       try {
         const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000),
-          headers: { accept: recent ? 'application/rss+xml' : 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+          headers: { accept: recent ? 'application/rss+xml' : 'application/atom+xml', 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' } });
         if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error(`arxiv_${response.status}`); }
         const bytes = await readBounded(response, recent ? 4 * 1024 * 1024 : 1024 * 1024);
         lists.push(recent ? parseArxivRSS(bytes, 25, fullAbstracts) : parseArxivSearch(bytes, fullAbstracts));

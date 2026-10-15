@@ -23,7 +23,7 @@ export interface RefreshOutcome { status: RefreshStatus; items: number; inserted
 const CATEGORY = /^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/;
 export const POOL_MAX_BYTES = 16 * 1024 * 1024;
 export const POOL_BATCH = 400;
-const USER_AGENT = 'ScienceReader/0.1 (research paper reader)';
+const USER_AGENT = 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)';
 
 /** One combined listing for all the pool's categories (arXiv joins categories with "+"). */
 export function poolFeedURL(categories: readonly string[]): string {

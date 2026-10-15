@@ -1682,17 +1682,21 @@ struct AcknowledgementsView: View {
         ("SwiftMath", "Native math typesetting in chat answers.", "MIT License · © 2023 Computer Inspirations"),
         ("Latin Modern Math", "Math font used for chat formulas (bundled by SwiftMath).", "GUST Font License"),
         ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
-        ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to make readable versions of papers, equations included. Each readable version carries these notices.", "MIT / Apache 2.0"),
-        ("arXiv", "Paper metadata and PDFs. Papers keep their authors' licenses; shared conversions are limited to CC BY and CC0.", "arXiv API terms"),
-        ("OpenAlex", "Search ranking, and finding open-access copies of papers that aren't on arXiv (converted privately for you).", "CC0 data"),
+        ("htmlparser2, Temml", "Prepare a paper's arXiv HTML for the reader on this device, and typeset formulas the on-device model reads. Each reading carries these notices.", "MIT License"),
+        ("arXiv", "Papers' official HTML versions, downloaded by this device, and their metadata. Papers keep their authors' licenses; shared episodes are limited to CC BY and CC0 papers.", "arXiv API terms"),
+        ("OpenAlex", "Search ranking and details of papers that aren't on arXiv.", "CC0 data"),
     ]
     var body: some View {
-        List(items, id: \.0) { item in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.0).font(.headline)
-                Text(item.1).font(.subheadline)
-                Text(item.2).font(.caption).foregroundStyle(.secondary)
-            }.padding(.vertical, 2)
+        List {
+            ForEach(items, id: \.0) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.0).font(.headline)
+                    Text(item.1).font(.subheadline)
+                    Text(item.2).font(.caption).foregroundStyle(.secondary)
+                }.padding(.vertical, 2)
+            }
+            Section { Text(ArxivAcknowledgement.statement).font(.footnote).foregroundStyle(.secondary) }
+                .accessibilityIdentifier("acknowledgements.arxiv")
         }.navigationTitle("Acknowledgements").navigationBarTitleDisplayMode(.inline)
     }
 }

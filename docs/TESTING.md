@@ -10,7 +10,7 @@ Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/we
 
 | Tier | Command | Scope |
 |---|---|---|
-| Fast, default | `npm test` or `npm run test:fast` | Backend contracts, browser units, authored bundle/crypto fixtures, compiled device-reader freshness, web deploy gates (`tests/operations/web-deployment.test.mjs`). No browsers, downloads, databases, Simulator, credentials or paid calls. |
+| Fast, default | `npm test` or `npm run test:fast` | Backend contracts, browser units, authored bundle/crypto fixtures, compiled device-reader freshness, web deploy gates and the arXiv acknowledgement/User-Agent check (`tests/operations/`). No browsers, downloads, databases, Simulator, credentials or paid calls. |
 | Fast, targeted | `node --test tests/backend/arxiv-html.test.ts` or `npm run test:fast --prefix apps/web -- tests/bundle.test.ts` | Exactly the selected files. `test:backend` alone runs all backend contracts. |
 | Paid, chat visual | `node scripts/chat-live-smoke.mjs --question="…as a visual I can read on my phone"` | The live chat on staging with a question that invites a visual answer; prints the `visual` event's title, size and elements (about $0.25). Run after a change to the visual tool, its sanitizer or the chat prompt. |
 | Paid, chat figure | `node scripts/chat-live-smoke.mjs --figure=1 --question="What does Figure 1 show? Walk me through each part of it."` | The live chat on staging with DPO's Figure 1 attached under consent v3; prints the attachment, the `figure_parts` boxes and the answer (about $0.25 uncached). Run after a change to figures, the parts tool or the consent. |

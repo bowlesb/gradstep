@@ -51,7 +51,7 @@ export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: nu
     let response: Response;
     // Unreachable (reset, timeout, DNS): transient, and named so a download that keeps failing says so.
     try {
-      response = await fetcher(current.href, { redirect: 'manual', headers: { accept, 'user-agent': 'ScienceReader/0.1 (research paper reader; mailto:support@sciencereader.invalid)' },
+      response = await fetcher(current.href, { redirect: 'manual', headers: { accept, 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' },
         signal: AbortSignal.timeout(60_000) });
     } catch (error) { throw new Error('source_unavailable', { cause: { endpoint: current.hostname, reason: error instanceof Error ? error.name : 'fetch' } }); }
     if ([301, 302, 303, 307, 308].includes(response.status)) {

@@ -184,10 +184,10 @@ final class PaperWebViewTests: XCTestCase {
         <h2>  A heading without an ID  </h2>
         <h2 id="duplicate">Ambiguous heading</h2><p id="duplicate">Duplicate source ID</p>
         <a id="intro-link" href="#paper-introduction">Back to introduction</a>
-        <div style="height:1500px"></div>
+        <div style="height:150vh"></div>
         <h2 id="equation-section">Equations</h2>
         <p>Equation references and section links retain their original destination.</p>
-        <div style="height:1000px"></div>
+        <div style="height:150vh"></div>
         """
         let harness = try Harness(document: document,
                                   jump: PaperJumpRequest(locationKey: "fixture-artifact", headingID: "equation-section"))
@@ -716,7 +716,8 @@ final class PaperWebViewTests: XCTestCase {
     func testFigureTableAndAlgorithmReferencesLinkOnlyToTheirLabelledElement() async throws {
         let text = "Consider the task in Fig. 1. As Figure 3(b) and Figs. 2 and 3 show, Tables 1–2 and Algorithm 1 summarize it; "
             + "Table 4 is printed twice, Figure 9 is not in the paper, and figure 5 is only a caption."
-        let filler = (0..<10).map { index in
+        // Enough filler to scroll on any screen (an iPad's window is taller than ten short paragraphs).
+        let filler = (0..<40).map { index in
             "<p data-reader-block=\"b-f\(index)\" id=\"b-f\(index)\">Filler \(index) keeps the last caption away from the reference. "
                 + String(repeating: "Words fill the line here. ", count: 10) + "</p>"
         }.joined(separator: "\n")

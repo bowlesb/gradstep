@@ -29,7 +29,7 @@ export function paperFinder(service: SupabaseClient, user: SupabaseClient,
       if (!find) return null;
       try {
         const response = await fetcher(find, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-          headers: { accept: 'application/json', 'user-agent': 'Gradstep/0.1 (research paper reader)' } });
+          headers: { accept: 'application/json', 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' } });
         if (!response.ok) { void response.body?.cancel().catch(() => {}); return null; }
         answered = true;
         // A paper's preprint and journal versions are often separate works: prefer one
