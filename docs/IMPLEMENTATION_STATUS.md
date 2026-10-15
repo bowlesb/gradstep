@@ -22,6 +22,8 @@ Evidence: `npm test`; the equivalence script; browser suite on desktop 100 % (la
 chat, HTML paper, compiler); Simulator: 63 unit tests, `LibraryLayoutTests` (5 journeys including the tag chip),
 `ReaderNavigationTests` (two), `DeviceModelJourneyTests`.
 
+Deployment (commits `32f23a5`, `c559093`): browser Pages **`33f2a79a`**; TestFlight **build 51** iOS and Mac VALID (02:07 and 02:13 PDT).
+
 ## The on-device PDF model in the app (experimental); figures in browser chat — 2026-10-15, ~08:00 UTC
 
 Owner: "create a version of the on device model into the app knowing it won't always work… prepare a message for the
@@ -50,6 +52,10 @@ ScienceReaderCore (300 tests, including the text layer and host tests); browser 
 figure question, compiler, chat, chat controls, study, support reports, device PDF, library); iPhone Simulator: 63
 unit tests including `DeviceModelRouteTests` (a generated paper to a verified, stored bundle; a fixture paper's first
 three pages in 12 s) and the journeys `DeviceModelJourneyTests` and `testHTMLPaperInPageLinksOfferBack`.
+
+Deployment (commit `ff555dd`, then `79bbbae`/`82794ce`): browser Pages **`d284d86f`**; TestFlight **build 49** iOS and
+Mac VALID (01:02 and 01:07 PDT) with the models (348 MB in the app); **build 50** (two crops at once, screen kept on)
+iOS and Mac VALID (01:14, 01:20 PDT). Not yet tried on an iPhone: TestFlight is the owner's test.
 
 ## Build 46 feedback: headers, diagrams in the answer, suggested questions on request, exact times, oversized images — 2026-10-15, ~07:30 UTC
 
