@@ -2,6 +2,20 @@
 
 Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Resilience, journey triage, device-only groundwork — 2026-10-15, ~20:45 UTC
+
+- **TestFlight 55** iOS (13:37 PDT) and Mac (13:42 PDT) both VALID, built from a clean checkout of `a8ad34a`.
+- **Resilience** (RESILIENCE.md): server side on staging (provider-health telemetry and Health chart, breakers, one
+  chat retry before the first token, podcast requeue on 429, retry_after, fault injection for test accounts); the
+  first drill (Anthropic throttled on chat) passed 8/8. Client side in browser and apps (per-region error boundaries,
+  launch auto-retry, throttled errors with the server's wait, polls with back-off and jitter, bounded native request
+  times, last-good feed/episodes/credits). Overspend containment and three charging/fallback questions await the owner.
+- **Journey triage**: all 30 iPad failures pass or skip with a reason; full iPad and iPhone suites clean; three product
+  fixes. Browser: 263 journeys on desktop, phone and both tablets; native 457 unit tests.
+- **arXiv device-only** (ARXIV_DEVICE_ONLY.md): egress guard live in report mode; device metadata, DataCite client and
+  device search without OpenAlex merged and deployed, all switched off; search evaluation favours the new path.
+- **Web deploys** publish in two phases (the browser was briefly blank after a deploy; the cause is fixed and proven).
+
 ## Equation view, parity, reading mode, arXiv step 0 — 2026-10-15, ~17:10 UTC
 
 - **TestFlight 54** iOS (09:59 PDT) and Mac (10:05 PDT) both VALID, built from a clean checkout of `1938621`; browser
