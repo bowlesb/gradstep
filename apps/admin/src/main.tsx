@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
-import { attachmentImage, backend, environment, rpc, type AccountContext, type Health as HealthData, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
+import { attachmentImage, backend, environment, rpc, type AccountContext, type Health as HealthData, type Overview, type ProviderHour, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import { Reliability } from './reliability';
 import { Health, HEALTH_WINDOWS } from './health';
+import { ProviderHours } from './provider-hours';
 import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
 import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
@@ -14,6 +15,7 @@ import './style.css';
 
 const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
 const loadHealth = (days: number) => rpc<HealthData>('v1_admin_health', { p_days: days });
+const loadProviderHours = (hours: number) => rpc<ProviderHour[]>('v1_admin_provider_hours', { p_hours: hours });
 const loadChecks = () => rpc<WorkflowChecks>('v1_admin_workflow_checks', { p_days: 14 });
 const purchasesApi: PurchasesApi = {
   list: (filter, reference) => rpc<PurchaseObservations>('v1_admin_store_verifications', { p_filter: filter, p_reference: reference }),
@@ -118,7 +120,7 @@ function App() {
       </>}
       {tab === 'Spending' && owner && <Spending key={account.account_id} ownerID={account.account_id} reloadKey={reloads} />}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
-      {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /></>}
+      {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /><ProviderHours load={loadProviderHours} reloadKey={reloads} /></>}
       {tab === 'Accounts' && owner && <Accounts key={account.account_id} api={accountsApi} reloadKey={reloads} />}
       {tab === 'Purchases' && owner && <Purchases key={account.account_id} api={purchasesApi} reloadKey={reloads} />}
       {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}

@@ -429,7 +429,7 @@ test('v2 podcast lengths enforce their advertised word and audio windows; v1 rem
 
 function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' | 'private'; script?: Partial<ScriptProvider>; speech?: SpeechProvider | null;
   failRpc?: (name: string, n: number) => Error | null; uploadFails?: 'lost_but_written' | 'missing'; scripts?: (Script | ReviewCorrections)[]; claimed?: boolean;
-  spec?: Record<string, unknown>; resume?: Record<string, unknown> | null; speechRefused?: boolean } = {}) {
+  spec?: Record<string, unknown>; resume?: Record<string, unknown> | null; speechRefused?: boolean; requeue?: Record<string, unknown> } = {}) {
   const calls: { name: string; params: Record<string, unknown> }[] = [], logs: unknown[] = [], uploads = new Map<string, Uint8Array>();
   let n = 0, attempts = 0, claimed = false;
   // Model outputs in call order: the draft, then the review's correction set.
@@ -471,6 +471,7 @@ function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' |
         case 'worker_podcast_asset_written': return null as T;
         case 'worker_podcast_publish': return { state: 'ready', canceled: false, release: { release_id: 'rel', state: 'pending_review' } } as T;
         case 'worker_podcast_fail': return { state: 'failed' } as T;
+        case 'worker_podcast_requeue': return (options.requeue ?? { requeued: true, state: 'queued', retry_at: '2026-10-15T20:00:00Z', retry: 1 }) as T;
         case 'worker_podcast_checked': return { recorded: true } as T;
       }
       throw new Error('unexpected_rpc');
@@ -1449,4 +1450,47 @@ test('checker strips a paragraph marker from an evidence quote before verifying 
   assert.equal(stripParagraphMarker('¶12 The reward only supervises the final answer.'), 'The reward only supervises the final answer.');
   assert.equal(stripParagraphMarker(' ¶3The reward'), 'The reward');
   assert.equal(stripParagraphMarker('The reward ¶12 stays'), 'The reward ¶12 stays');
+});
+
+// Resilience (docs/architecture/RESILIENCE.md, migration 073): a provider's 429 (refused before any processing, never
+// billed) requeues the job with a back-off instead of failing it; anything else fails as before.
+const refusedScript = (failure: string) => async (): Promise<ScriptCallResult> => ({ state: 'rejected', requestID: null, model: null, stopReason: null,
+  text: null, usage: null, failure });
+test('a 429 from the script provider requeues the job; the refused attempt is recorded at zero', async () => {
+  const h = harness({ script: { generate: refusedScript('http_429') } });
+  const result = await runPodcast(h.deps, Date.now() + 600_000);
+  assert.deepEqual(result, { processed: 1, recovered: 0, state: 'queued', failure: null });
+  const requeue = h.calls.find(c => c.name === 'worker_podcast_requeue')!;
+  assert.equal(requeue.params.p_failure, 'script_rejected');
+  assert.ok(!h.names().includes('worker_podcast_fail'), 'not failed');
+  const finish = h.calls.find(c => c.name === 'worker_provider_attempt_finish')!;
+  assert.deepEqual([finish.params.p_state, finish.params.p_actual_microusd, finish.params.p_failure_code], ['rejected', 0, 'http_429']);
+  assert.ok(h.logs.some(l => (l as { event: string }).event === 'podcast_requeued'));
+});
+test('a 400 still fails; a requeue the database refuses (paid work at stake, an unknown outcome) fails as before', async () => {
+  const bad = harness({ script: { generate: refusedScript('http_400') } });
+  await runPodcast(bad.deps, Date.now() + 600_000);
+  assert.ok(!bad.names().includes('worker_podcast_requeue'), 'a 400 is not transient');
+  assert.equal(bad.calls.at(-1)!.name, 'worker_podcast_fail'); assert.equal(bad.calls.at(-1)!.params.p_failure, 'script_rejected');
+  const refused = harness({ script: { generate: refusedScript('http_429') }, requeue: { requeued: false, reason: 'not_resumable' } });
+  const result = await runPodcast(refused.deps, Date.now() + 600_000);
+  assert.equal(result.state, 'failed');
+  assert.deepEqual(refused.names().slice(-2), ['worker_podcast_requeue', 'worker_podcast_fail']);
+  assert.ok(refused.logs.some(l => (l as { event: string; reason?: string }).event === 'podcast_requeue_refused'));
+});
+test('a 429 from the voices requeues too; a mix with a 5xx (perhaps billed) never does', async () => {
+  const speech = (failures: string[]) => {
+    let i = 0;
+    return { generate: async (): Promise<SpeechResult> => { const failure = failures[i++ % failures.length];
+      return failure === 'ok' ? { state: 'succeeded', requestID: 'r', model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio: tone(150, [20, 40, 60, 80, 100, 120]),
+        mimeType: 'audio/wav', usage: { text_input_tokens: 1500, audio_output_tokens: 3750 }, failure: null }
+        : { state: failure === 'http_503' ? 'unknown' : 'rejected', requestID: null, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure }; } };
+  };
+  const busy = harness({ speech: speech(['http_429']) });
+  await runPodcast(busy.deps, Date.now() + 600_000);
+  assert.equal(busy.calls.find(c => c.name === 'worker_podcast_requeue')?.params.p_failure, 'speech_rejected');
+  const down = harness({ speech: speech(['http_503']) });
+  await runPodcast(down.deps, Date.now() + 600_000);
+  assert.ok(!down.names().includes('worker_podcast_requeue'), 'an unknown outcome keeps its liability and fails');
+  assert.equal(down.calls.at(-1)!.params.p_failure, 'speech_outcome_unknown');
 });

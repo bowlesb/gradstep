@@ -3,14 +3,18 @@
 // credits here. Answers within ~25 s with an outcome and, when our servers can't fetch the paper,
 // the link the reader's own device can try (see _shared/add-paper.ts).
 import { installEgressGuard } from '../_shared/egress.ts';
+import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
 import { addPaper } from '../_shared/add-paper.ts';
 import { MAX_INPUT_CHARS } from '../_shared/identify.ts';
 import { edgeResolveHost } from '../_shared/edge-dns.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('add-paper');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('add-paper', serviceClient);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUDGET_MS = 25_000;
@@ -53,6 +57,6 @@ Deno.serve(async request => {
     return reply(200, outcome);
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
-    return reply(failure.status, { code: failure.code });
+    return errorResponse(failure, headers);
   }
 });

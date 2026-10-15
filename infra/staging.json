@@ -87,5 +87,6 @@
   "podcast_speech": {
     "service_account": "gradstep-podcast-speech@gradstep.iam.gserviceaccount.com",
     "project": "gradstep"
-  }
+  },
+  "fault_injection": true
 }

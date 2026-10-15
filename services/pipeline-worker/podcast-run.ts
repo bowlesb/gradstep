@@ -3,6 +3,7 @@
 // hard deadline as the paper pipeline and awaits it before replying: no detached
 // work under request-based billing. One job (or one stage of a staged job) per request.
 import { installEgressGuard } from '../../supabase/functions/_shared/egress.ts';
+import { accountProviderFetch, installProviderHealth } from '../../supabase/functions/_shared/provider-health.ts';
 import { parentPort, workerData } from 'node:worker_threads';
 import { createHash, randomUUID } from 'node:crypto';
 import { createAnthropicClient } from '../../supabase/functions/_shared/anthropic.ts';
@@ -15,6 +16,8 @@ import { runPodcast, type PodcastDeps, type PodcastRunResult } from '../../supab
 import { ffmpegEncoder } from './podcast-encode.ts';
 // No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('pipeline-worker/podcast');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('pipeline-worker/podcast', pipelineService);
 
 /** Leaves time for recording a failure before the parent's 840 s hard limit. */
 export const PODCAST_BUDGET_MS = 780_000;
@@ -24,15 +27,18 @@ const log = (event: string, fields: Record<string, unknown> = {}) => console.log
 export function podcastDeps(): PodcastDeps & { generated: boolean } {
   const service = pipelineService();
   const url = runtimeEnv('SUPABASE_URL'), key = runtimeEnv('SUPABASE_SERVICE_ROLE_KEY');
+  // The claimed job's owner: a fault drill (FAULT_INJECTION=on, a test account only) reaches this job's provider calls.
+  let owner: string | null = null;
+  const providerFetch = accountProviderFetch('pipeline-worker/podcast', () => owner, () => service);
   if (!url || !key) throw new Error('service_unavailable');
   const anthropicKey = runtimeEnv('ANTHROPIC_API_KEY');
   const speechAccount = runtimeEnv('PODCAST_SPEECH_SERVICE_ACCOUNT'), project = runtimeEnv('PODCAST_GCP_PROJECT') ?? 'gradstep';
   // Each call's own window (AbortSignal) bounds it: up to 680 s for a staged twenty-minute draft, inside this request's budget.
-  const script = anthropicKey ? anthropicScriptProvider(createAnthropicClient({ apiKey: anthropicKey, maxRetries: 0, timeout: PODCAST_BUDGET_MS })) : null;
+  const script = anthropicKey ? anthropicScriptProvider(createAnthropicClient({ apiKey: anthropicKey, maxRetries: 0, timeout: PODCAST_BUDGET_MS, fetch: providerFetch })) : null;
   // DeepSeek (2026-10-14): the version-4 profiles' script provider; a profile without its key fails script_unavailable.
   const deepseekKey = runtimeEnv('DEEPSEEK_API_KEY');
-  const deepseek = deepseekKey ? deepseekScriptProvider({ apiKey: deepseekKey }) : null;
-  const speech = speechAccount ? vertexSpeechProvider({ project, tokens: impersonatedTokenSource(speechAccount), timeoutMs: PODCAST_BUDGET_MS }) : null;
+  const deepseek = deepseekKey ? deepseekScriptProvider({ apiKey: deepseekKey, fetch: providerFetch }) : null;
+  const speech = speechAccount ? vertexSpeechProvider({ project, tokens: impersonatedTokenSource(speechAccount), timeoutMs: PODCAST_BUDGET_MS, fetch: providerFetch }) : null;
   return {
     generated: !!(script && speech),
     rpc: rpcAdapter(service),
@@ -46,6 +52,7 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
       },
     },
     script, speech, encoder: ffmpegEncoder(),
+    onClaim: claim => { owner = claim.owner_id; },
     sha256Hex: async bytes => createHash('sha256').update(bytes).digest('hex'),
     uuid: () => randomUUID(), now: () => Date.now(),
     log: (event, fields = {}) => log(event, fields),

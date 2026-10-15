@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
+import { BUSY_RETRY_MAX_MS, retryOnceWhenBusy } from '../../supabase/functions/_shared/anthropic.ts';
 import {
   ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
@@ -461,7 +462,7 @@ test('unavailable or clearly insufficient credits stop before paper context auth
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
     assert.equal(downloads, 0);
     assert.ok(!h.calls.some(call => ['worker_chat_context', 'worker_reserve_chat'].includes(call.name)));
-    assert.deepEqual(h.events.at(-1), { event: 'error', data: { code: available === null ? 'service_unavailable' : 'insufficient_credits' } });
+    assert.deepEqual(h.events.at(-1), { event: 'error', data: available === null ? { code: 'service_unavailable', retry_after: 10 } : { code: 'insufficient_credits' } });
   }
 });
 
@@ -639,7 +640,7 @@ test('a provider error mid-stream settles once and reports provider_unavailable'
   assert.equal(h.calls.filter(c => c.name === 'worker_settle_operation').length, 1);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'error']);
   // Mid-stream (message_start seen): the reader pays the estimated usage and is told so.
-  assert.deepEqual(h.events[1].data, { code: 'provider_unavailable', credits: 1 });
+  assert.deepEqual(h.events[1].data, { code: 'provider_unavailable', credits: 1, retry_after: 10 });
 });
 
 test('a thrown provider failure is settled as uncertain input, never left reserved', async () => {
@@ -648,7 +649,7 @@ test('a thrown provider failure is settled as uncertain input, never left reserv
   const settles = h.calls.filter(c => c.name === 'worker_settle_operation');
   assert.equal(settles.length, 1); assert.ok(Number(settles[0].params.p_actual_microusd) > 0);
   // Never started: nothing charged to the reader (the attempt keeps the platform's liability).
-  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable', credits: 0 } }]);
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable', credits: 0, retry_after: 10 } }]);
 });
 
 test('a replayed operation never calls the provider or settles again', async () => {
@@ -669,18 +670,18 @@ test('reservation failures map to stable codes without provider calls or settlem
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
     assert.equal(h.generations(), 0);
     assert.ok(!names(h.calls).includes('worker_settle_operation'));
-    assert.deepEqual(h.events, [{ event: 'error', data: { code } }]);
+    assert.deepEqual(h.events, [{ event: 'error', data: { code, ...(code === 'rate_limited' ? { retry_after: 60 } : code === 'service_unavailable' ? { retry_after: 10 } : {}) } }]);
   }
   const ambiguous = harness({ script: { worker_reserve_chat: () => { throw new Error('transport'); } } });
   await runChat(ambiguous.deps, paperBody(), ambiguous.emit, new AbortController().signal);
-  assert.deepEqual(ambiguous.events, [{ event: 'error', data: { code: 'service_unavailable' } }]);
+  assert.deepEqual(ambiguous.events, [{ event: 'error', data: { code: 'service_unavailable', retry_after: 10 } }]);
   assert.deepEqual(ambiguous.logs, [{ event: 'chat_reserve_uncertain', operation_id: operation }]);
 });
 
 test('rate limits, missing papers and invalid bodies stop before any hold', async () => {
   const limited = harness({ script: { worker_consume_request: () => { throw new RpcFailure('request_rate_limit'); } } });
   await runChat(limited.deps, paperBody(), limited.emit, new AbortController().signal);
-  assert.deepEqual(limited.events, [{ event: 'error', data: { code: 'rate_limited' } }]);
+  assert.deepEqual(limited.events, [{ event: 'error', data: { code: 'rate_limited', retry_after: 60 } }]);
   const unavailable = harness({ script: { worker_chat_context: () => { throw new RpcFailure('document_unavailable'); } } });
   await runChat(unavailable.deps, paperBody(), unavailable.emit, new AbortController().signal);
   assert.deepEqual(unavailable.events, [{ event: 'error', data: { code: 'document_unavailable' } }]);
@@ -696,7 +697,7 @@ test('rate limits, missing papers and invalid bodies stop before any hold', asyn
   assert.deepEqual(names(invalid.calls), ['worker_consume_request']);
   const unconfigured = harness({ generate: null });
   await runChat(unconfigured.deps, generalBody(), unconfigured.emit, new AbortController().signal);
-  assert.deepEqual(unconfigured.events, [{ event: 'error', data: { code: 'provider_unavailable' } }]);
+  assert.deepEqual(unconfigured.events, [{ event: 'error', data: { code: 'provider_unavailable', retry_after: 10 } }]);
   assert.ok(!names(unconfigured.calls).includes('worker_reserve_chat'));
 });
 
@@ -739,7 +740,7 @@ test('the server deadline aborts generation and reports provider_unavailable', a
   }))) });
   h.deps.deadlineMs = 5;
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable', credits: 0 } }]);
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'provider_unavailable', credits: 0, retry_after: 10 } }]);
   assert.deepEqual(h.calls.find(c => c.name === 'worker_settle_operation')!.params, { p_account_id: account, p_id: operation, p_actual_credits: 0, p_actual_microusd: 0 });
 });
 
@@ -1321,7 +1322,7 @@ test('time to first feedback: Related says it is searching before the paper load
   // A rate-limited request is still reported as such, whatever its body.
   const limited = harness({ script: { worker_consume_request: () => { throw new RpcFailure('request_rate_limit'); } } });
   await runChat(limited.deps, { not: 'a request' }, limited.emit, new AbortController().signal);
-  assert.deepEqual(limited.events, [{ event: 'error', data: { code: 'rate_limited' } }]);
+  assert.deepEqual(limited.events, [{ event: 'error', data: { code: 'rate_limited', retry_after: 60 } }]);
 });
 
 test('the paper is cached with the shared instructions; a selection action\'s own instructions follow it', () => {
@@ -2119,4 +2120,47 @@ test('symbols are held back, checked and relayed once; a made-up paragraph becom
   await runChat(background.deps, equationBody({ action: 'equation_background' }), background.emit, new AbortController().signal);
   assert.deepEqual(background.events.map(e => e.event), ['delta', 'delta', 'done']);
   assert.equal(equationSymbols('no json here', 3), null); assert.equal(paragraphCount(equationContext.text), 3);
+});
+
+// Resilience (docs/architecture/RESILIENCE.md, fixes 6 and 7): one more try when Anthropic refused an answer as busy
+// before starting it, and the reader told how long to wait when it still can't run.
+const refusedBefore = (changes: Partial<ProviderOutcome>): ProviderOutcome => ({ status: 'failed', failure: 'provider_error', messageID: null, model: null,
+  stopReason: null, refusalCategory: null, attempts: [], exact: true, ...changes });
+test('busy (429) or overloaded (529) before the answer starts: one more try after Retry-After, within 5 s; nothing else retries', async () => {
+  const run = async (outcomes: ProviderOutcome[], aborted = false) => {
+    const waits: number[] = []; let calls = 0;
+    const controller = new AbortController(); if (aborted) controller.abort();
+    const generate = retryOnceWhenBusy(async () => outcomes[Math.min(calls++, outcomes.length - 1)],
+      { sleep: async ms => { waits.push(ms); }, random: () => 0.5 });
+    const outcome = await generate(params(), { signal: controller.signal, onText: () => {}, inputEstimateTokens: 1 });
+    return { outcome, calls, waits };
+  };
+  const busy = await run([refusedBefore({ httpStatus: 429, retryAfterMs: 1_500 }), completeOutcome()]);
+  assert.deepEqual([busy.outcome.status, busy.calls, busy.waits], ['complete', 2, [1_500]]);
+  const overloaded = await run([refusedBefore({ httpStatus: 529, retryAfterMs: null }), completeOutcome()]);
+  assert.deepEqual([overloaded.calls, overloaded.waits], [2, [2_000]], 'no Retry-After: 1–3 s');
+  const twice = await run([refusedBefore({ httpStatus: 429, retryAfterMs: 500 })]);
+  assert.deepEqual([twice.calls, twice.waits], [2, [500]], 'once only');
+  for (const [label, first] of Object.entries({
+    'a long Retry-After (a breaker cool-off)': refusedBefore({ httpStatus: 429, retryAfterMs: BUSY_RETRY_MAX_MS + 1 }),
+    'a 500': refusedBefore({ httpStatus: 500 }),
+    'after the first token': refusedBefore({ httpStatus: 529, messageID: 'msg_x' }),
+    'a refusal of the request itself': refusedBefore({ httpStatus: 400, failure: 'provider_rejected' }),
+  })) assert.equal((await run([first, completeOutcome()])).calls, 1, label);
+  assert.equal((await run([refusedBefore({ httpStatus: 429, retryAfterMs: 100 }), completeOutcome()], true)).calls, 1, 'not after the reader left');
+});
+test('the SDK adapter reports a refusal\'s HTTP status and Retry-After, unbilled', async () => {
+  const client = createAnthropicClient({ apiKey: 'test-key', maxRetries: 0, fetch: (async () => new Response(
+    JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }),
+    { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '2' } })) as typeof fetch });
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 777 });
+  assert.deepEqual([outcome.status, outcome.httpStatus, outcome.retryAfterMs, outcome.attempts.length], ['failed', 429, 2_000, 0]);
+});
+test('an answer that can\'t run says how long to wait (the provider\'s Retry-After, else a default)', async () => {
+  const waited = harness({ generate: async () => refusedBefore({ httpStatus: 429, retryAfterMs: 30_000 }) });
+  await runChat(waited.deps, paperBody(), waited.emit, new AbortController().signal);
+  assert.deepEqual(waited.events.find(e => e.event === 'error')?.data, { code: 'provider_unavailable', credits: 0, retry_after: 30 });
+  const plain = harness({ generate: async () => refusedBefore({}) });
+  await runChat(plain.deps, paperBody(), plain.emit, new AbortController().signal);
+  assert.equal((plain.events.find(e => e.event === 'error')?.data as { retry_after?: number }).retry_after, 10);
 });

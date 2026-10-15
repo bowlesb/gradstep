@@ -14,7 +14,7 @@ import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKEN
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
-import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount } from './chat-equation.ts';
+import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -423,10 +423,12 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   /** Follow-up questions the answer suggested (2026-10-14), sent once before `done`; never logged or stored. */
   | { event: 'followups'; data: { questions: string[] } }
   | { event: 'study'; data: { map: StudyMap } }
+  /** The equation view's checked symbols (EQUATION_VIEW.md). */
+  | { event: 'equation'; data: EquationSymbols }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile. */
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string } }
   /** `credits` (2026-10-14): what a failed answer still cost the reader (0 when the provider never started it). */
-  | { event: 'error'; data: { code: ChatErrorCode; credits?: number } };
+  | { event: 'error'; data: { code: ChatErrorCode; credits?: number; retry_after?: number } };
 
 export function sseFrame(message: ChatEvent): string {
   return `event: ${message.event}\ndata: ${JSON.stringify(message.data)}\n\n`;
@@ -486,7 +488,8 @@ export async function runChat(deps: ChatDependencies, body: unknown, emit: (even
   } catch (error) {
     const code = error instanceof ChatFailure ? error.code : 'service_unavailable';
     if (!(error instanceof ChatFailure)) deps.log({ event: 'chat_unexpected_failure' });
-    if (!signal.aborted) emit({ event: 'error', data: { code } });
+    const wait = RETRY_AFTER_SECONDS[code];
+    if (!signal.aborted) emit({ event: 'error', data: { code, ...(wait ? { retry_after: wait } : {}) } });
   }
 }
 
@@ -826,8 +829,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       profile: repair ? 'diagram_fix' : profile.id } });
     return;
   }
-  emit({ event: 'error', data: { code: 'provider_unavailable', credits } });
+  // How long the reader should wait: the provider's own Retry-After (or our breaker's cool-off), else a short default.
+  const retryAfter = outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS.provider_unavailable;
+  emit({ event: 'error', data: { code: 'provider_unavailable', credits, retry_after: retryAfter } });
 }
+
+/** Seconds a client should wait before asking again, by error (Resilience, fix 6); absent where waiting won't help. */
+export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rate_limited: 60, provider_unavailable: 10, service_unavailable: 10 };
 
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,

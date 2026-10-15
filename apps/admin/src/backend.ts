@@ -151,4 +151,14 @@ export interface Health {
   money: { month_to_date_microusd: number; window_microusd: number; by_provider: Record<string, number>; credits_consumed: number; credits_granted: number;
     chat_cache: { read_tokens: number; write_tokens: number; input_tokens: number };
     daily: { day: string; microusd: number; by_provider: Record<string, number>; credits_consumed: number }[] };
+  /** Migration 073 (RESILIENCE.md): outside providers' failures per day, the last hour, and breakers open now. Absent on older servers. */
+  providers?: {
+    daily: { day: string; by_provider: Record<string, { calls: number; failed: number; throttled: number; breaker_open: number }> }[];
+    last_hour: { provider: string; calls: number; failed: number; throttled: number; breaker_open: number; latency_ms_avg: number | null }[];
+    breakers: { provider: string; state: 'open' | 'half_open'; reopen_at: string | null }[];
+  };
 }
+
+/** v1_admin_provider_hours (migration 073): one row per hour and provider. */
+export interface ProviderHour { hour: string; provider: string; calls: number; ok: number; throttled: number; failed: number; rejected: number;
+  breaker_open: number; latency_ms_avg: number | null; latency_ms_max: number | null; retry_after_max_s: number | null }

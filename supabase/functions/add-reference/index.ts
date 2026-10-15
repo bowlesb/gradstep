@@ -2,14 +2,18 @@
 // (arXiv id, DOI, Crossref's citation matcher, OpenAlex) and queues it with the caller's own
 // import, like the app's Add. No credits. Answers within ~25 s with a plain outcome the app shows.
 import { installEgressGuard } from '../_shared/egress.ts';
+import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
 import { MAX_REFERENCE_CHARS, resolveReference } from '../_shared/reference.ts';
 import { RpcFailure } from '../_shared/chat.ts';
 import { referenceLookupSpending } from '../_shared/provider-spending.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('add-reference');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('add-reference', serviceClient);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUDGET_MS = 25_000;
@@ -67,6 +71,6 @@ Deno.serve(async request => {
       kind: paper.kind ?? 'arxiv', host: paper.host ?? null, link: paper.link ?? null } : null });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
-    return reply(failure.status, { code: failure.code });
+    return errorResponse(failure, headers);
   }
 });

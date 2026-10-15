@@ -327,6 +327,9 @@ export interface ProviderOutcome {
   status: 'complete' | 'failed';
   failure: ProviderFailure | null;
   messageID: string | null;
+  /** The HTTP status of a provider error response (429, 529…), and its Retry-After: what a retry or the reader waits. */
+  httpStatus?: number | null;
+  retryAfterMs?: number | null;
   /** Provider transport request ID for support/reconciliation; never content. */
   requestID?: string | null;
   model: string | null;
@@ -470,8 +473,42 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     // or timeout can follow processing: retain uncertainty, even before start.
     if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)) {
       const rejected = [400, 401, 403, 404, 413, 422, 429].includes(error.status);
-      return partial(error.status >= 500 || error.status === 429 ? 'provider_error' : 'provider_rejected', !rejected);
+      const outcome = partial(error.status >= 500 || error.status === 429 ? 'provider_error' : 'provider_rejected', !rejected);
+      return { ...outcome, httpStatus: error.status, retryAfterMs: retryAfterMs(error.headers) };
     }
     return partial('provider_error', true);
   }
+}
+
+/** Retry-After from an SDK error's headers (seconds or an HTTP date), in milliseconds; null when absent. */
+function retryAfterMs(headers: unknown): number | null {
+  let value: string | null | undefined;
+  try { value = headers instanceof Headers ? headers.get('retry-after') : (headers as Record<string, string> | undefined)?.['retry-after']; } catch { value = null; }
+  if (!value) return null;
+  if (/^\d{1,6}$/.test(value.trim())) return Number(value.trim()) * 1000;
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+
+/** The longest wait worth a retry inside one answer; a longer Retry-After (or a breaker's cool-off) goes to the reader. */
+export const BUSY_RETRY_MAX_MS = 5_000;
+/** One more try when the provider refused the request before starting it, as busy (429) or overloaded (529): after its
+ * Retry-After (or 1–3 s), at most 5 s, never after the first token. The refused try started nothing: it admitted and
+ * settled its own grant (zero for a 429; a 529's kept as a liability by the platform), and the reader is charged only
+ * for the answer that runs, as for any answer. Resilience (docs/architecture/RESILIENCE.md, fix 7). */
+export function retryOnceWhenBusy<O extends { signal: AbortSignal }>(
+  generate: (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: O) => Promise<ProviderOutcome>,
+  deps: { sleep?: (ms: number) => Promise<void>; random?: () => number; log?: (entry: Record<string, string | number | boolean | null>) => void } = {}) {
+  const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms))), random = deps.random ?? Math.random;
+  return async (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: O): Promise<ProviderOutcome> => {
+    const first = await generate(params, options);
+    const busy = first.status === 'failed' && !first.messageID && (first.httpStatus === 429 || first.httpStatus === 529);
+    if (!busy || options.signal.aborted) return first;
+    const wait = first.retryAfterMs ?? 1_000 + random() * 2_000;
+    if (wait > BUSY_RETRY_MAX_MS) return first;
+    deps.log?.({ event: 'provider_busy_retry', status: first.httpStatus ?? null, wait_ms: Math.round(wait) });
+    await sleep(Math.max(250, wait));
+    if (options.signal.aborted) return first;
+    return generate(params, options);
+  };
 }

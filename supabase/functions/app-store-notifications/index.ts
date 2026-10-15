@@ -5,6 +5,7 @@
 import { installEgressGuard } from '../_shared/egress.ts';
 import { serviceClient } from '../_shared/backend.ts';
 import { PublicError, readBounded } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { handleNotification, REJECTED_DATA, storeConfig } from '../_shared/store-purchases.ts';
 import { configuredStoreGoogleIdentity } from '../_shared/store-google-auth.ts';
 import { createStoreRecordTransport, privateStorePolicy, STORE_REQUEST_BUDGET_MS } from '../_shared/store-verifier-transport.ts';
@@ -59,6 +60,6 @@ Deno.serve(async request => {
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
     if (!(error instanceof PublicError)) console.warn(JSON.stringify({ function: 'app-store-notifications', event: 'failed' }));
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
 });

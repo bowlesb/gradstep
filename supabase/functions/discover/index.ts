@@ -11,8 +11,10 @@
 // Every result carries `topics` (specific first; keyword rules, no model) and pool-served results
 // `upvotes` (Hugging Face Papers, recorded by the pool refresh; null when unknown).
 import { installEgressGuard } from '../_shared/egress.ts';
+import { installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { readBounded } from '../_shared/feed-pool.ts';
 import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mergeDiscovery, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs,
   orderByRanking, parseArxivRSS, parseArxivSearch, rankOpenAlex, type DiscoveryResult, type RankedWork } from '../_shared/discover.ts';
@@ -23,6 +25,8 @@ import { DataCiteError, dataciteGet } from '../_shared/datacite.ts';
 import { runSearch, SearchNotFound } from '../_shared/paper-search.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('discover');
+// Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
+installProviderHealth('discover', serviceClient);
 
 type ServiceClient = ReturnType<typeof serviceClient>;
 /** Pool abstracts and upvotes for the papers shown; null when the pool cannot answer (results keep theirs). */
@@ -177,6 +181,6 @@ Deno.serve(async request => {
     return Response.json({ results, ...(forYou ? { feed: { for_you: true } } : {}) }, { headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'search_unavailable');
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
 });

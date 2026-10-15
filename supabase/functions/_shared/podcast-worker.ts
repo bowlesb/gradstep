@@ -33,6 +33,8 @@ export interface PodcastDeps {
   uuid(): string;
   now(): number;
   log(event: string, fields?: Record<string, string | number | boolean | null>): void;
+  /** The claimed job (its owner scopes a provider fault drill to a test account). */
+  onClaim?(claim: { job_id: string; owner_id: string | null }): void;
 }
 
 interface Spec {
@@ -66,6 +68,11 @@ class Failure extends Error {
 }
 /** Not enough of this request is left for the next paid call: hand the job back at its last safe point. */
 class Park extends Error { constructor() { super('request_deadline'); } }
+/** A provider refused every call of a stage with a 429 (too many requests: never processed, never billed). The job is
+ * requeued with a back-off when the database agrees nothing paid would be lost (migration 073); otherwise it fails. */
+class Transient extends Failure { constructor(code: 'script_rejected' | 'speech_rejected') { super(code, false); } }
+/** Provider failures that are refusals to come back later, not problems with the request. */
+const TRANSIENT = new Set(['http_429']);
 const FENCE = new Set(['stale_podcast_claim', 'podcast_epoch_changed', 'podcast_job_unavailable']);
 const code = (error: unknown) => error instanceof Error && /^[a-z][a-z0-9_]{0,63}$/.test(error.message) ? error.message : 'unexpected';
 
@@ -83,6 +90,7 @@ export async function runPodcast(deps: PodcastDeps, deadline: number, options: {
     // Without every provider credential, generated jobs stay queued (never claimed into a failure).
     const claim = await deps.rpc<Claim>('worker_podcast_claim', { p_claim_id: deps.uuid(), p_generated: options.generated });
     if (claim?.claimed) {
+      deps.onClaim?.({ job_id: claim.job_id, owner_id: claim.owner_id ?? null });
       const outcome = await runJob(deps, claim, deadline);
       return { processed: 1, recovered, ...outcome };
     }
@@ -289,7 +297,9 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
           result.state === 'succeeded' ? { ...result.usage!, ...(result.audio ? { audio_ms: estimateMs(result.audio) } : {}) } : {}, result.failure);
       }
       if (results.some(r => r.state === 'unknown')) throw new Failure('speech_outcome_unknown', false);
-      if (results.some(r => r.state === 'rejected')) throw new Failure('speech_rejected', false);
+      if (results.some(r => r.state === 'rejected')) {
+        throw results.every(r => r.state !== 'rejected' || TRANSIENT.has(r.failure ?? '')) ? new Transient('speech_rejected') : new Failure('speech_rejected', false);
+      }
       if (results.some(r => r.finishReason !== 'STOP' || !r.audio || !/^audio\/(wav|x-wav|l16)/.test(r.mimeType ?? ''))) throw new Failure('speech_incomplete', true);
       models.speech = results[0].model;
       if (results.some(r => r.model !== models.speech)) throw new Failure('speech_model_changed', true);
@@ -380,6 +390,18 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       } catch (inner) {
         if (FENCE.has(code(inner))) return { state: null, failure: code(inner) };
         error = new Failure('deadline_before_paid_call', false);
+      }
+    }
+    if (error instanceof Transient) {
+      try {
+        const requeued = await deps.rpc<{ requeued: boolean; state?: string; retry_at?: string; reason?: string; canceled?: boolean }>('worker_podcast_requeue',
+          { ...fence, p_failure: error.message });
+        if (requeued?.requeued) { log('podcast_requeued', { code: error.message, state: requeued.state ?? null, retry_at: requeued.retry_at ?? null }); return { state: requeued.state ?? null, failure: null }; }
+        if (requeued?.canceled) return { state: requeued.state ?? 'canceled', failure: 'canceled_by_owner' };
+        log('podcast_requeue_refused', { code: error.message, reason: requeued?.reason ?? null });
+      } catch (inner) {
+        if (FENCE.has(code(inner))) return { state: null, failure: code(inner) };
+        log('podcast_requeue_unavailable', { code: code(inner) });
       }
     }
     const failure = error instanceof Failure ? error : new Failure(code(error), false);
@@ -537,7 +559,7 @@ async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, rou
   const cost = result.state === 'succeeded' ? scriptCost(result) : null;
   await finishAttempt(deps, admission, result.state, result.requestID, result.state === 'rejected' ? 0 : cost?.microusd ?? null, cost?.units ?? {}, result.failure);
   if (result.state === 'unknown') throw new Failure('script_outcome_unknown', false);
-  if (result.state === 'rejected') throw new Failure('script_rejected', false);
+  if (result.state === 'rejected') throw TRANSIENT.has(result.failure ?? '') ? new Transient('script_rejected') : new Failure('script_rejected', false);
   if (result.model?.replace(/-\d{8}$/, '') !== params.model) throw new Failure('script_model_changed', true);
   if (result.stopReason !== 'end_turn') throw new Failure(result.stopReason === 'refusal' ? 'script_refused' : 'script_incomplete', true);
   return result.text;

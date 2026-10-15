@@ -4,6 +4,7 @@
 import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256, uuid } from '../_shared/http.ts';
+import { errorResponse } from '../_shared/retry-after.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('reader-artifact');
@@ -71,6 +72,6 @@ Deno.serve(async request => {
     return new Response(body, { headers: { ...headers, 'Content-Type': 'application/json' } });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
-    return Response.json({ code: failure.code }, { status: failure.status, headers });
+    return errorResponse(failure, headers);
   }
 });
