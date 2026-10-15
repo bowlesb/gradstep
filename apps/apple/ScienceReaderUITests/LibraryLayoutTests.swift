@@ -315,7 +315,8 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Get credits"].waitForExistence(timeout: 5), "The row opens Get credits")
         app.navigationBars["Get credits"].buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Get credits"].waitForNonExistence(timeout: 5))
-        for _ in 0..<4 where !cell(sample, in: app).exists { app.swipeDown() }
+        // Back to the top: a row scrolled past still exists above the visible area, so wait for it to be tappable.
+        for _ in 0..<6 where !(cell(sample, in: app).exists && cell(sample, in: app).isHittable && cell(sample, in: app).frame.minY > 0) { app.swipeDown() }
 
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(header("Opened", in: app).waitForExistence(timeout: 5), "Landscape adds the dates and chats")
@@ -323,7 +324,12 @@ final class LibraryLayoutTests: XCTestCase {
         attach(app, "Phone landscape table")
         tapHeader("Opened", in: app)
         assertAbove(cell(sample, in: app), cell(attention, in: app), "Opened: most recent first")
-        cell(sample, in: app).tap()
+        // The first row opens the paper. In landscape its element can report a frame above the window while it is in
+        // view (Simulator), so it is opened back in portrait, where the sort holds.
+        XCUIDevice.shared.orientation = .portrait
+        let first = cell(sample, in: app)
+        for _ in 0..<3 where !(first.exists && first.isHittable) { app.swipeDown() }
+        first.tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
     }
 
@@ -361,5 +367,42 @@ final class LibraryLayoutTests: XCTestCase {
         attach(app, "Feed table abstract")
         row("2610.01234").tap()
         XCTAssertTrue(abstract.waitForNonExistence(timeout: 5))
+    }
+
+    /// A tag chip in a row filters the Library by that tag; the same chip again shows all papers (owner-approved
+    /// follow-up, 2026-10-07).
+    func testTappingATagChipFiltersTheLibraryByIt() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = launch(["--library-layout=table", "--library-columns=tags"])
+        // The chips are left out of accessibility (the row reads its tags; the Tags menu filters by voice), so they are
+        // tapped where they are drawn.
+        func tapDrawn(_ element: XCUIElement) { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        let chip = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.tagChip.")).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "Rows show their tags as chips")
+        // On a phone the Tags column may start past the edge: drag the row's columns sideways.
+        func reveal(_ element: XCUIElement) {
+            let window = app.windows.firstMatch, row = cell(attention, in: app)
+            for _ in 0..<4 where !window.frame.insetBy(dx: 8, dy: 8).contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
+                // Along a row on screen: a cell past the edge reports no useful position of its own.
+                let y = row.frame.midY / window.frame.height
+                window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: y))
+                    .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: y)))
+            }
+        }
+        reveal(chip)
+        let tag = String(chip.identifier.dropFirst("library.tagChip.".count))
+        let tagMenu = filter("tags", in: app)
+        XCTAssertEqual(tagMenu.label, "Tags")
+        tapDrawn(chip)
+        XCTAssertTrue(NSPredicate(format: "label == %@", "Tag: \(tag)").evaluate(with: tagMenu) || tagMenu.label == "Tag: \(tag)", "Filtered by \(tag): \(tagMenu.label)")
+        let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Filtered by a tapped tag"; attachment.lifetime = .keepAlways; add(attachment)
+        // Every row left carries the tag.
+        let chips = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", "library.tagChip.\(tag)"))
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.table.paper/"))
+        XCTAssertGreaterThan(chips.count, 0)
+        XCTAssertLessThanOrEqual(rows.count, chips.count * 8, "rows and their cells")
+        reveal(chips.firstMatch)
+        tapDrawn(chips.firstMatch)
+        XCTAssertEqual(tagMenu.label, "Tags", "The same chip again shows all papers")
     }
 }

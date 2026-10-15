@@ -25,7 +25,9 @@ import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
-import { type Route, type Theme, useTheme } from './prefs';
+import { readStored, type Route, type Theme, useTheme, writeStored } from './prefs';
+/** The Library's filter and tag, remembered between visits (per browser, a convenience only). */
+const LIBRARY_FILTER_KEY = 'gradstep.library.filter', LIBRARY_TAG_KEY = 'gradstep.library.tag';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
@@ -152,8 +154,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
     }}])));
   },[chat,library.entries,readerCache,account]);
-  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md).
-  const [view, setView] = useState<LibraryQuery>(INITIAL_QUERY);
+  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter and the tag are
+  // remembered between visits too, as the apps remember them (owner-approved follow-up, 2026-10-07).
+  const [view, setViewState] = useState<LibraryQuery>(() => ({ ...INITIAL_QUERY,
+    filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)),
+    tag: readStored<string>(LIBRARY_TAG_KEY, '', v => typeof v === 'string' && v.length <= 200) }));
+  const setView = useCallback((next: LibraryQuery | ((q: LibraryQuery) => LibraryQuery)) => setViewState(previous => {
+    const value = typeof next === 'function' ? next(previous) : next;
+    if (value.filter !== previous.filter) writeStored(LIBRARY_FILTER_KEY, value.filter);
+    if (value.tag !== previous.tag) writeStored(LIBRARY_TAG_KEY, value.tag);
+    return value;
+  }), []);
   const [railTab, setRailTab] = useState<'contents' | 'library'>('contents');
   const [contentsSlot, setContentsSlot] = useState<HTMLElement | null>(null);
   const [lastPaper, setLastPaper] = useState<string | null>(null);

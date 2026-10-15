@@ -27,6 +27,8 @@ const message = (page: Page) => page.getByRole('textbox', { name: 'Message', exa
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`${scheme}: sign-in, library, reader and the chat states`, async ({ page, request }, info) => {
+    // Legacy fixture papers try their official arXiv HTML first; the review reads the fixture bundle (no test reaches arXiv).
+    await page.route('https://arxiv.org/**', route => route.abort());
     await request.post(`${API}/__reset`);
     await page.emulateMedia({ colorScheme: scheme });
     const name = (screen: string) => `${scheme}-${screen}`;
@@ -49,6 +51,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.getByTestId('chat-streaming')).toContainText('objective');
     await shot(page, name('chat-streaming'), info);
     await expect(page.getByTestId('chat-assistant')).toBeVisible({ timeout: 60_000 });
+    await page.getByTestId('follow-ups-toggle').click(); // suggested questions open on request (build 46)
     await expect(page.getByTestId('follow-up').first()).toBeVisible();
     await shot(page, name('chat-answer'), info);
     await page.getByTestId('chat-assistant').locator('.cite').first().click();

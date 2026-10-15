@@ -107,7 +107,7 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   // Hiding the progress column cannot hide failure/retry states.
   await expect(table.getByText('Couldn’t download this paper')).toBeVisible();
   await table.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(table.getByText(/Reading equations and figures/)).toBeVisible({ timeout: 8_000 });
+  await expect(table.getByText(/Preparing…/).first()).toBeVisible({ timeout: 8_000 }); // two words and a percentage (2026-10-15)
   await expect(table.getByRole('link', { name: 'A retried paper' })).toBeVisible({ timeout: 15_000 });
   await picker.click();
   await dialog.getByRole('button', { name: 'Reset', exact: true }).click();

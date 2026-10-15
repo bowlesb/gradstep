@@ -71,7 +71,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     /// At the default text size; grows with Dynamic Type.
     var width: CGFloat {
         switch self {
-        case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 112; case .opened: 112; case .chats: 46
+        case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
         case .progress: 100
         }
     }
@@ -151,9 +151,13 @@ struct LibraryPaperTable<Top: View>: View {
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
+                                        filterTag: { tag in model.libraryTagFilter = model.libraryTagFilter == tag ? nil : tag },
                                         act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
                    },
-                   cellIsControl: { item, column in column == LibraryTableColumn.progress.rawValue && (item.facts.importAction != nil || item.facts.importProgress != nil) },
+                   cellIsControl: { item, column in
+                       (column == LibraryTableColumn.progress.rawValue && (item.facts.importAction != nil || item.facts.importProgress != nil))
+                           || (column == LibraryTableColumn.tags.rawValue && !item.facts.tags.isEmpty)
+                   },
                    spoken: { item, column in LibraryTableColumn(rawValue: column)?.spoken(item) },
                    primaryAction: { action(for: $0) },
                    menu: { LibraryRowActions(model: model, entry: $0.entry, inTable: true) },
@@ -222,6 +226,8 @@ struct LibraryTableCell: View {
     let item: LibraryTableItem
     let column: LibraryTableColumn?
     var highlightedTag: String? = nil
+    /// Filters the Library by a tapped tag chip (again: back to all).
+    var filterTag: ((String) -> Void)? = nil
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
     var explain: (() -> Void)? = nil
@@ -231,13 +237,13 @@ struct LibraryTableCell: View {
         switch column {
         case .year: PaperTableText(text: facts.year.map(String.init))
         case .venue: Text(facts.paper?.venue ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
-        case .tags: PaperTableChips(tags: Array(facts.tags.prefix(4)), highlighted: highlightedTag)
+        case .tags: PaperTableChips(tags: Array(facts.tags.prefix(4)), highlighted: highlightedTag, onTap: filterTag)
         case .source: Text(facts.source ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle)
         case .pages: PaperTableText(text: facts.pages.map(String.init))
-        case .added: PaperTableText(text: facts.added.map { LibraryFormat.tableDate($0) })
+        case .added: PaperTableDate(date: facts.added)
         // "—" for a paper never opened on this device; imports have no reading activity.
-        case .opened: PaperTableText(text: facts.opened.map { LibraryFormat.tableDate($0) } ?? (facts.paper == nil ? nil : "—"))
+        case .opened: PaperTableDate(date: facts.opened, placeholder: facts.paper == nil ? nil : "—")
         // No chats is the usual case: left blank, so the counts stand out.
         case .chats: PaperTableText(text: facts.chats > 0 ? String(facts.chats) : nil)
         case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled, explain: explain)

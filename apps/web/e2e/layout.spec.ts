@@ -10,7 +10,8 @@ const shot = (page: Page, name: string) => page.screenshot({ path: `${shots}${na
 function watch(page: Page) {
   const problems: string[] = [];
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|422)/.test(m.text())
-    && !(m.text().includes('404') && m.location().url.includes('/functions/v1/discover?'))) problems.push(m.text()); });
+    && !(m.text().includes('404') && m.location().url.includes('/functions/v1/discover?'))
+    && !m.location().url.startsWith('https://arxiv.org/')) problems.push(m.text()); }); // arXiv is blocked on purpose
   page.on('pageerror', e => problems.push(String(e)));
   return problems;
 }
@@ -27,7 +28,11 @@ async function signIn(page: Page) {
 }
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
 
-test.beforeEach(async ({ request }) => { await request.post(`${FIXTURE}/__reset`); });
+test.beforeEach(async ({ request, page }) => {
+  await request.post(`${FIXTURE}/__reset`);
+  // Legacy fixture papers try their official arXiv HTML first; these journeys read the fixture bundle (no test reaches arXiv).
+  await page.route('https://arxiv.org/**', route => route.abort());
+});
 
 for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
   for (const scheme of ['light', 'dark'] as const) {

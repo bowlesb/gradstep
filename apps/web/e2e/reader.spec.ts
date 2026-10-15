@@ -9,7 +9,9 @@ const shots = '../../.artifacts/web-e2e/';
 function watch(page: Page) {
   const problems: string[] = [];
   page.on('console', message => {
-    if (message.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|422)/.test(message.text())) problems.push(message.text());
+    // arXiv is unreachable on purpose (see beforeEach): its blocked requests are expected, not problems.
+    if (message.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|422)/.test(message.text())
+      && !message.location().url.startsWith('https://arxiv.org/')) problems.push(message.text());
   });
   page.on('pageerror', error => problems.push(String(error)));
   return problems;
@@ -43,7 +45,12 @@ async function holdReadingSave(page: Page) {
   });
 }
 
-test.beforeEach(async ({ request }) => { await request.post(`${FIXTURE}/__reset`); });
+test.beforeEach(async ({ request, page }) => {
+  await request.post(`${FIXTURE}/__reset`);
+  // The fixture papers are legacy arXiv items: the reader tries their official HTML first (2026-10-14) and falls back to
+  // the server bundle these journeys read when arXiv is unreachable, which they make it (no test reaches arXiv).
+  await page.route('https://arxiv.org/**', route => route.abort());
+});
 
 test('returning reader: recovery code, library, retry, add paper, read, sign out and back', async ({ page }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
@@ -81,7 +88,7 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await page.getByTestId('arxiv-input').fill('https://arxiv.org/abs/1706.03762');
   await page.getByTestId('arxiv-add').click();
   await expect(page.getByTestId('import-progress').first()).toBeVisible();
-  await expect(table.getByText(/Reading equations and figures \(page 6 of 15\)/)).toBeVisible({ timeout: 8_000 });
+  await expect(table.getByText(/Preparing…/).first()).toBeVisible({ timeout: 8_000 }); // two words and a percentage (2026-10-15)
   await shot(page, 'import-progress');
   await expect(table.getByRole('link', { name: 'Attention Is All You Need' })).toBeVisible({ timeout: 15_000 });
 
@@ -473,7 +480,8 @@ test('security headers and a refused foreign script', async ({ page, request }) 
   const response = await request.get('/');
   const csp = response.headers()['content-security-policy'];
   expect(csp).toContain("default-src 'none'");
-  expect(csp).toContain(`connect-src ${FIXTURE}`);
+  // The device fetches the official arXiv HTML itself (HTML-first reader), and nothing else beyond the backend.
+  expect(csp).toContain(`connect-src https://arxiv.org ${FIXTURE}`);
   expect(csp).toContain("frame-ancestors 'none'");
   expect(response.headers()['x-content-type-options']).toBe('nosniff');
   await page.goto('/');

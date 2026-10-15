@@ -2,6 +2,26 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## The arXiv converter in components; Library tag chips and remembered filters; stale journeys repaired — 2026-10-15, ~09:30 UTC
+
+- **Converter split** (READER_ARCHITECTURE_RETHINK.md step 2): `arxiv-html.ts` keeps the API and the order of the
+  passes; the components live in `reader/arxiv/`. `scripts/arxiv-converter-equivalence.mjs` proves a restructuring
+  changes nothing (113 cached sources, 210 runs, all identical). `ARXIV_RENDERER_REVISION` 11.
+- **Library** (owner-approved follow-ups of 2026-10-07): a tag chip in a row filters the Library by its tag (again:
+  all papers); the filter and the tag are remembered between launches (native and browser). Dates in the table are
+  the day with the time under it at the old width: build 46's one-line form no longer fit a phone in portrait.
+- **On-device model**: two crops recognised at once (two thirds of the time); the screen stays on during a reading and
+  iPhone and iPad say to keep the app open.
+- **Journeys repaired**: the browser's reader, layout and UX-review journeys reached the real arXiv since the
+  HTML-first change (legacy fixture papers try their official HTML first) and read its HTML instead of the fixture;
+  they block arXiv now, as the chat journeys do. Two journeys expected progress wording from before "Preparing…", one
+  the suggested questions without their toggle; the native reference and landscape table journeys were updated for
+  the edit menu and a Simulator frame quirk.
+
+Evidence: `npm test`; the equivalence script; browser suite on desktop 100 % (layout, reader, UX review, Library,
+chat, HTML paper, compiler); Simulator: 63 unit tests, `LibraryLayoutTests` (5 journeys including the tag chip),
+`ReaderNavigationTests` (two), `DeviceModelJourneyTests`.
+
 ## The on-device PDF model in the app (experimental); figures in browser chat — 2026-10-15, ~08:00 UTC
 
 Owner: "create a version of the on device model into the app knowing it won't always work… prepare a message for the

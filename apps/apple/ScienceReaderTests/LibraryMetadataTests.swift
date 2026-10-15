@@ -54,6 +54,12 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertTrue(format(now - 2 * day).hasPrefix("Sat "), format(now - 2 * day))
         XCTAssertTrue(format(now - 7 * day).hasPrefix("Sep 28, "), format(now - 7 * day))
         XCTAssertEqual(format(now - 372 * day), "Sep 28, 2025", "Earlier years: the date, no time")
+        // The table's two-line form: the day, the time under it; earlier years without a time.
+        let lines = { (date: Date) in LibraryFormat.tableDateLines(date, now: self.now, calendar: self.calendar) }
+        XCTAssertEqual(lines(now - 3_600).day, "Today"); XCTAssertNotNil(lines(now - 3_600).time)
+        XCTAssertEqual(lines(now - day).day, "Yest.")
+        XCTAssertEqual(lines(now - 7 * day).day, "Sep 28"); XCTAssertNotNil(lines(now - 7 * day).time)
+        XCTAssertNil(lines(now - 372 * day).time)
     }
 
     func testRelativeDays() {

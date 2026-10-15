@@ -334,6 +334,20 @@ enum LibraryFormat {
         return "\(date.formatted(style.month(.abbreviated).day())), \(time)"
     }
 
+    /// The same in a narrow column, on two lines: the day as `relativeDay` says it ("Yest." for Yesterday) and the time
+    /// under it; earlier years have no time (build 46's one-line form no longer fit a phone's portrait table).
+    static func tableDateLines(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> (day: String, time: String?) {
+        let day = calendar.startOfDay(for: date), today = calendar.startOfDay(for: now)
+        let days = calendar.dateComponents([.day], from: day, to: today).day ?? 0
+        let style = Date.FormatStyle(locale: calendar.locale ?? .current, calendar: calendar, timeZone: calendar.timeZone)
+        let time = date.formatted(style.hour().minute())
+        if calendar.component(.year, from: date) != calendar.component(.year, from: now), days >= 7 {
+            return (relativeDay(date, now: now, calendar: calendar), nil)
+        }
+        let label = days == 1 ? "Yest." : relativeDay(date, now: now, calendar: calendar)
+        return (label, time)
+    }
+
     /// In running text: "Opened today", "Added yesterday", "Added Mon", "Added Sep 28".
     static func relativeDayInSentence(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let text = relativeDay(date, now: now, calendar: calendar)

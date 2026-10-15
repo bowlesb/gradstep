@@ -236,8 +236,17 @@ final class ReaderModel {
     #endif
     /// The Library's quick filter (All, Unread, Reading, Failed, Archived) and tag filter. Not persisted, like the
     /// sort: each launch starts with All.
-    var libraryFilter = LibraryFilter.all { didSet { if libraryFilter != oldValue { librarySearchSourceChanged() } } }
-    var libraryTagFilter: String? { didSet { if libraryTagFilter != oldValue { librarySearchSourceChanged() } } }
+    // Remembered between launches (owner-approved follow-up, 2026-10-07).
+    var libraryFilter = LibraryFilter(rawValue: UserDefaults.standard.string(forKey: "library.filter") ?? "") ?? .all {
+        didSet { if libraryFilter != oldValue { UserDefaults.standard.set(libraryFilter.rawValue, forKey: "library.filter"); librarySearchSourceChanged() } }
+    }
+    var libraryTagFilter: String? = UserDefaults.standard.string(forKey: "library.tagFilter") {
+        didSet {
+            guard libraryTagFilter != oldValue else { return }
+            if let libraryTagFilter { UserDefaults.standard.set(libraryTagFilter, forKey: "library.tagFilter") } else { UserDefaults.standard.removeObject(forKey: "library.tagFilter") }
+            librarySearchSourceChanged()
+        }
+    }
     var libraryFiltered: Bool { libraryFilter != .all || libraryTagFilter != nil }
     /// The table's columns, per width class (Library options › Columns).
     var libraryColumns = LibraryColumnSettings.load(from: .standard) { didSet { libraryColumns.save(to: .standard) } }

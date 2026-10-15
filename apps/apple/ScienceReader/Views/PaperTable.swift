@@ -585,6 +585,24 @@ struct PaperTableTitleCell: View {
 }
 
 /// A plain value cell: secondary text on one line, digits aligned; nothing for an unknown value.
+/// A date in a narrow column: the day, and the time under it (`LibraryFormat.tableDateLines`).
+struct PaperTableDate: View {
+    let date: Date?
+    var placeholder: String? = nil
+    var body: some View {
+        if let date {
+            let lines = LibraryFormat.tableDateLines(date)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(lines.day).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                if let time = lines.time { Text(time).font(.caption).foregroundStyle(.secondary).monospacedDigit().lineLimit(1) }
+            }
+            .accessibilityElement(children: .combine)
+        } else {
+            PaperTableText(text: placeholder)
+        }
+    }
+}
+
 struct PaperTableText: View {
     let text: String?
     var body: some View {
@@ -597,14 +615,23 @@ struct PaperTableText: View {
 struct PaperTableChips: View {
     let tags: [String]
     var highlighted: String? = nil
+    /// A tap on a chip filters the Library by that tag (owner-approved follow-up, 2026-10-07); nil: chips are labels.
+    var onTap: ((String) -> Void)? = nil
     var body: some View {
         PaperTableChipFlow(spacing: 4, lineSpacing: 4, maxLines: 2) {
             ForEach(tags, id: \.self) { tag in
                 let on = tag == highlighted
-                Text(tag).font(.caption.weight(on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
+                let chip = Text(tag).font(.caption.weight(on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
                     .foregroundStyle(on ? Color.accentColor : Color.secondary)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(on ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+                if let onTap {
+                    Button { onTap(tag) } label: { chip }.buttonStyle(.plain)
+                        .accessibilityIdentifier("library.tagChip.\(tag)")
+                        #if targetEnvironment(macCatalyst)
+                        .help(on ? "Show all papers" : "Show papers tagged \(tag)")
+                        #endif
+                } else { chip }
             }
         }
         .clipped()
