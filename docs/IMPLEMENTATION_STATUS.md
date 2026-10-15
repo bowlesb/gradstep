@@ -27,6 +27,8 @@ Nine TestFlight items on build 42 and four chat messages within an hour (`docs/O
 - **The reader says why.** A stored copy shown because re-preparation failed carries a notice with the reason and
   Try again (`readerFallbackNotice`, `reprepareSelectedPaper`). "Back to chat" after a chat citation opened the paper.
 - **Chat.** A selection question carries the passage's paragraph marker ("[¶24]"), both surfaces; titles drop it.
+- **Leaked commands.** Size and style commands LaTeXML leaves in running text (`\scriptsize①`, the owner's 03:17
+  screenshot) are left out. `ARXIV_RENDERER_REVISION` **6**.
 - **Proposals.** `docs/proposals/CHAT_TOOLS.md` (HTML answers, Mermaid, a "Visual answers" setting, figure crops).
 
 Evidence and deployment are recorded at the end of this section once the tests and build 43 are done.

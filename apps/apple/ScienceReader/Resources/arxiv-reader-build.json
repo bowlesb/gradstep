@@ -1,6 +1,6 @@
 {
  "renderer_id": "gradstep-arxiv-html-mathml-v2",
- "revision": 5,
- "build_sha256": "80b4326dbe194f6260c587f0278ba8e15bf7178323d0e1f8c76430ce2bd8aa6d",
- "code_sha256": "46be42dd6fc1513634251267be2b6232dad0aa6c8b15a5a9f84cc899002ac4a4"
+ "revision": 6,
+ "build_sha256": "fc7a4102535af6a664ce979e91ec9b96462eed9c1469f3a6ba07d42bc138ea16",
+ "code_sha256": "1b73be85511c91e35de5c95f9c5126fe54969698affcc7807d286867c2ee9153"
 }

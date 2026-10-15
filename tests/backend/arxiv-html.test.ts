@@ -379,3 +379,11 @@ test('an inline picture carries the pattern the page defined elsewhere; a refere
  assert.match(xml, /<pattern [^>]*id="pgfpat3"/, 'the shared pattern travels with the picture');
  assert.ok(!xml.includes('#nowhere'), 'the dangling reference is left out');
 });
+
+test('a size command LaTeXML left in a caption is no word of the paper (2610.14075: "\\scriptsize①")', () => {
+ const text = source.replace('<p id="p1">', '<figure id="S9.F7" class="ltx_figure"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 1: Overview. \\scriptsize① The design crosses FoV. \\scriptsize② Each rollout is scored.</figcaption></figure><p id="p1">');
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const caption = checked.index.figures.find(f => /Overview/.test(f.caption))!.caption;
+ assert.equal(caption, 'Figure 1: Overview. ① The design crosses FoV. ② Each rollout is scored.');
+ assert.ok(!new TextDecoder().decode(bundle.members.get('index.html')).includes('scriptsize'));
+});

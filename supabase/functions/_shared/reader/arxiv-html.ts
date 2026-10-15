@@ -11,7 +11,7 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
  * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 5;
+export const ARXIV_RENDERER_REVISION = 6;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;
@@ -458,8 +458,11 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     return el('span', { id, 'data-reader-equation': id, 'data-latex': latex,
       class: `reader-equation ${display ? 'reader-display' : 'reader-inline'}` }, [math]);
   }
+  // A size or style command LaTeXML left in running text ("\\scriptsize①" in 2610.14075's Figure 1 caption, build 42:
+  // "I see \\scriptsize") is no word of the paper.
+  const LEAKED_MACRO = /\\(?:scriptsize|footnotesize|small|tiny|large|Large|LARGE|huge|Huge|normalsize|bfseries|itshape|rmfamily|sffamily|ttfamily|bf|it|rm|sf|tt|em|centering|raggedright|raggedleft|noindent|boldmath|unboldmath|relax)(?![A-Za-z])\s?/g;
   function inline(n: DomNode, owner: string, inAnchor = false, forceDisplay = false): Child[] {
-    if (n.type === 'text') return [n.data];
+    if (n.type === 'text') return [n.data.replace(LEAKED_MACRO, '')];
     if (n.type === 'comment') return [];
     check(n.type === 'tag' || active.has(n.name), 'arxiv_node');
     if (active.has(n.name)) return [];
