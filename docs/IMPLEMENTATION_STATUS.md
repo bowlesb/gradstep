@@ -22,8 +22,8 @@ survive closing the app; Contents for older PDFs; whether a device holds a paper
 Evidence (local): backend tests (arxiv, metadata-pipeline, pipeline-worker: 27); browser types and units (374);
 iPhone Simulator `LibraryMetadataTests`, the Library table journey and the offline reader journey. Deployment
 (2026-10-15 PDT): pipeline worker revision **00041** (GetRecord 200 in the image) and `paper-worker` at ~00:56 UTC;
-two of the three stuck imports completed on their next retry (00:57 and 00:59 UTC, records from the Atom API), the
-third due at 01:04; browser Pages **`ff4f6b0c`**; TestFlight **build 39** iOS uploaded 18:0x PDT (Mac following).
+all three stuck imports completed on their next retry (00:57, 00:59 and 01:05 UTC, records from the Atom API);
+browser Pages **`ff4f6b0c`**; TestFlight **build 39** iOS and Mac VALID (17:59 and 18:03 PDT).
 Commit `238d435`. The server asks arXiv only for metadata (Atom API, OAI-PMH); every paper's content is fetched by
 the device — the owner's question is answered in OWNER_FEEDBACK.md row 5.
 
