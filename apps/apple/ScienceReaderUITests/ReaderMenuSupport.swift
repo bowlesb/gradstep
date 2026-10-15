@@ -38,7 +38,8 @@ extension XCUIApplication {
     func show(_ place: String) {
         let tab = buttons["tab.\(place)"]
         if tab.waitForExistence(timeout: 2) { tab.tap(); return }
-        let modes = segmentedControls.buttons
+        // The wide layout's mode control by its identifier: the Library's search switch also has a "Library" segment.
+        let modes = segmentedControls["wide.mode"].buttons
         switch place {
         case "feed": modes["Feed"].tap()
         case "library": modes["Library"].tap()
@@ -50,5 +51,26 @@ extension XCUIApplication {
         case "settings": (buttons["Settings"].exists ? buttons["Settings"] : buttons["settings.open"]).tap()
         default: XCTFail("No place named \(place)")
         }
+    }
+}
+
+extension XCUIApplication {
+    /// Settings' Theme control (Reading section). Settings is a lazy list: since the Library and Experimental sections
+    /// were added (2026-10-15) the Reading section starts below an iPhone's first screen, so scroll until it exists.
+    func settingsTheme() -> XCUIElement {
+        let theme = segmentedControls["settings.theme"]
+        for _ in 0..<6 where !theme.waitForExistence(timeout: 1) { swipeUp() }
+        return theme
+    }
+}
+
+extension XCUIApplication {
+    /// Back to the paper from its chat: the chat's Return to paper on a phone; in the wide layout the paper is beside
+    /// the chat, so leave for another view and come back to Reader (the reader restores its place either way).
+    func returnToPaper() {
+        let back = buttons["chat.returnToPaper"]
+        if back.waitForExistence(timeout: 2) { back.tap(); return }
+        segmentedControls["wide.mode"].buttons["Library"].tap()
+        segmentedControls["wide.mode"].buttons["Reader"].tap()
     }
 }

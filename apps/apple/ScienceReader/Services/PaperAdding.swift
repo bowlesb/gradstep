@@ -37,7 +37,8 @@ enum AddNextStep: Equatable, Sendable, Hashable {
 
     var title: String {
         switch self {
-        case .uploadPDF: "Upload the PDF…"
+        // Nothing is uploaded: the PDF stays on this device (2026-10-13).
+        case .uploadPDF: "Add the PDF…"
         case .downloadOnDevice: "Download on this device"
         }
     }

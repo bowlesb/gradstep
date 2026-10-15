@@ -107,8 +107,12 @@ final class DevicePDFFetcherTests: XCTestCase {
         let upload = try record(source: "upload", sourceID: "upload:31000000-0000-4000-8000-0000000000a1", url: nil, error: "upload_failed")
         XCTAssertEqual(LibraryImportAction.available(for: upload, retrying: false), .uploadPDF)
         XCTAssertFalse(upload.canDownloadOnDevice)
+        // Its PDF saved on this device (PDFs stay on the device, so the import stays failed): open it, don't fetch it again.
+        XCTAssertEqual(LibraryImportAction.available(for: try web("source_blocked"), retrying: false, localPaperAvailable: true), .openLocalPDF)
+        XCTAssertEqual(LibraryImportAction.available(for: upload, retrying: false, localPaperAvailable: true), .openLocalPDF)
         let arxiv = try record(source: "arxiv", sourceID: "2305.18290", url: "https://arxiv.org/abs/2305.18290", error: "source_blocked")
         XCTAssertEqual(LibraryImportAction.available(for: arxiv, retrying: false), .retry, "arXiv papers always come from arXiv")
+        XCTAssertEqual(LibraryImportAction.available(for: arxiv, retrying: false, localPaperAvailable: true), .retry, "… a local copy changes nothing there")
         XCTAssertFalse(arxiv.canTakeUpload)
 
         var sourceOnly: [String: Any] = ["id": UUID().wire, "created_seq": 2, "state_seq": 2, "intent_revision": 1,

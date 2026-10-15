@@ -4309,6 +4309,22 @@ extension ReaderModel {
         return try? JSONDecoder().decode(DiscoveryResponse.self, from: data)
     }
 
+    /// Add-paper fixture: a chosen PDF saved on this device as `installLocalPDF` would (device-only PDFs, 2026-10-13),
+    /// without an encrypted store: a new local paper in the Library, or the local copy of a failed import.
+    func installFixtureLocalPDF(_ checked: CheckedPDF, target: PDFUploadTarget) throws {
+        if case .importID(let importID, _) = target {
+            guard let item = libraryImports.first(where: { $0.id == importID }), let sourceID = item.sourceID,
+                  let revision = item.sourceRevision ?? item.requestedRevision else { throw ReaderError.invalidEvent }
+            guard let digest = Data(hex: checked.sha256) else { throw ReaderError.invalidEvent }
+            localPaperRecords.append(try LocalPaperRecord(id: UUID(), identity: LocalPaperIdentity(sourceID: sourceID, revision: revision, sha256: digest),
+                                                          byteCount: checked.byteCount, createdAt: Date(), sealedSHA256: digest))
+            return
+        }
+        var paper = Paper(id: UUID(), title: checked.title, authors: "", year: nil, abstract: "", keywords: [], fileURL: nil, artifactID: nil)
+        paper.isLocalPDF = true; paper.sourceID = LocalPDFMembership.sourceID(paper.id); paper.addedAt = Date()
+        papers.insert(paper, at: 0)
+    }
+
     /// Add-paper fixture: an import the scripted upload service created or retried (replaces one with the same ID).
     func insertFixtureImport(_ record: LibraryImportRecord) {
         fixtureImportChanges = true

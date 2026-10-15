@@ -95,7 +95,9 @@ extension ReaderModel {
         guard let service = AddPaperFixture.service else { return }
         uploads.fetcher = FixturePDFFetcher()
         uploads.activate(.init(service: service, accountID: AddPaperFixture.accountID, deploymentID: "add-paper-fixture",
-            cursor: { 0 }, added: {}))
+            cursor: { 0 }, added: {},
+            // PDFs stay on this device (2026-10-13): a chosen, shared or downloaded PDF is saved here, never sent.
+            installLocal: { [weak self] _, checked, target in try self?.installFixtureLocalPDF(checked, target: target) }))
         // `--share-inbox-fixture`: what the Share extension would have saved — a PDF from Files and a link from Safari.
         if ProcessInfo.processInfo.arguments.contains("--share-inbox-fixture"), let inbox = Self.shareInbox {
             try? FileManager.default.removeItem(at: inbox.root)

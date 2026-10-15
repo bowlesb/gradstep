@@ -27,14 +27,21 @@ final class AddPaperFlowTests: XCTestCase {
         }
     }
 
-    /// Replaces the field's text: Select All from the edit menu (a tap puts the caret mid-text).
+    /// Replaces the field's text: Select All from the edit menu (a tap puts the caret mid-text). An iPad's long press
+    /// shows no edit menu here: the caret goes to the end of these short links instead, and every character is deleted.
     private func replace(_ field: XCUIElement, with text: String, in app: XCUIApplication) {
         field.tap()
         if let current = field.value as? String, !current.isEmpty, current != field.placeholderValue {
-            field.press(forDuration: 1.2)
             let selectAll = app.menuItems["Select All"].exists ? app.menuItems["Select All"] : app.buttons["Select All"]
-            if selectAll.waitForExistence(timeout: 3) { selectAll.tap() }
-            field.typeText(XCUIKeyboardKey.delete.rawValue)
+            field.press(forDuration: 1.2)
+            if selectAll.waitForExistence(timeout: 3) {
+                selectAll.tap()
+                field.typeText(XCUIKeyboardKey.delete.rawValue)
+            } else {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
+            }
+            XCTAssertTrue(((field.value as? String) ?? "").isEmpty || field.value as? String == field.placeholderValue, "The old text is gone")
         }
         field.typeText(text)
     }
@@ -69,26 +76,24 @@ final class AddPaperFlowTests: XCTestCase {
         XCTAssertTrue(closed)
     }
 
-    /// Add › Choose a PDF (the fixture picks a sample PDF for the system picker): the Library shows the
-    /// upload's progress, then the paper as an import with the PDF's own title.
+    /// Add › Choose a PDF (the fixture picks a sample PDF for the system picker): PDFs stay on this device (2026-10-13),
+    /// so it is saved here, never sent: the sheet closes, the Library says so and lists it under the PDF's own title.
     func testUploadAPDFFromFiles() {
         let app = launch(["--visual-show-import"])
         XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 10))
         save("add-sheet")
         app.buttons["add.choosePDF"].tap()
-        XCTAssertTrue(app.navigationBars["Add a paper"].waitForNonExistence(timeout: 5), "the sheet closes once the PDF is queued")
-        let status = app.staticTexts["upload.status"]
-        if !status.waitForExistence(timeout: 5) { save("upload-debug"); print(app.debugDescription) }
-        XCTAssertTrue(status.exists)
-        XCTAssertTrue(status.label.contains("Sparse Attention, Revisited"), status.label)
-        save("upload-progress")
-        XCTAssertTrue(app.staticTexts["upload.notice"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Sparse Attention, Revisited: A Workshop Draft"].waitForExistence(timeout: 5), "the uploaded paper is in the library")
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForNonExistence(timeout: 5), "the sheet closes once the PDF is saved")
+        let notice = app.staticTexts["upload.notice"]
+        if !notice.waitForExistence(timeout: 5) { save("upload-debug"); print(app.debugDescription) }
+        XCTAssertEqual(notice.label, "Saved “Sparse Attention, Revisited: A Workshop Draft” on this device.")
+        XCTAssertFalse(app.staticTexts["upload.status"].exists, "Nothing is uploaded")
+        XCTAssertTrue(app.staticTexts["Sparse Attention, Revisited: A Workshop Draft"].waitForExistence(timeout: 5), "the PDF is in the library")
         save("upload-added")
     }
 
-    /// Device fallback: a website that blocked our servers; this device downloads the PDF and uploads it to
-    /// the same import, which runs again.
+    /// Device fallback: a website that blocked our servers; this device downloads the PDF and keeps it here (PDFs
+    /// stay on the device since 2026-10-13): the import then offers Open PDF instead of the download.
     func testDownloadOnThisDeviceForABlockedImport() {
         let app = launch()
         let filter = app.buttons["library.filter.failed"]
@@ -102,7 +107,9 @@ final class AddPaperFlowTests: XCTestCase {
         XCTAssertTrue(status.label.contains("on this device"), status.label)
         save("device-download-progress")
         XCTAssertTrue(app.staticTexts["upload.notice"].waitForExistence(timeout: 15))
-        XCTAssertTrue(download.waitForNonExistence(timeout: 5), "the import is running again")
+        XCTAssertTrue(app.staticTexts["upload.notice"].label.hasSuffix("on this device."), app.staticTexts["upload.notice"].label)
+        XCTAssertTrue(download.waitForNonExistence(timeout: 5), "the PDF is here: no download offered again")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == %@", "Open PDF")).firstMatch.waitForExistence(timeout: 5), "the saved PDF opens")
         save("device-download-added")
     }
 
@@ -124,8 +131,8 @@ final class AddPaperFlowTests: XCTestCase {
         save("device-download-blocked")
     }
 
-    /// Share › Gradstep: the extension saved a PDF and a link (fixture inbox); on launch the PDF is uploaded and
-    /// the link opens Add, already looked up.
+    /// Share › Gradstep: the extension saved a PDF and a link (fixture inbox); on launch the PDF is saved on this
+    /// device and the link opens Add, already looked up.
     func testSharedItemsAreAddedOnLaunch() {
         let app = launch(["--share-inbox-fixture"])
         XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 10), "the shared link opens Add")
@@ -134,7 +141,10 @@ final class AddPaperFlowTests: XCTestCase {
         XCTAssertTrue(outcome.label.contains("blocked the download"), outcome.label)
         save("share-link-outcome")
         app.buttons["Cancel"].tap()
-        XCTAssertTrue(app.staticTexts["upload.notice"].waitForExistence(timeout: 15), "the shared PDF was uploaded")
+        // Saved on this device at launch, before the Add sheet even opened (its six-second notice may be gone by now):
+        // the Library lists it under the PDF's own title.
+        XCTAssertTrue(app.staticTexts["Sparse Attention, Revisited: A Workshop Draft"].waitForExistence(timeout: 15), "the shared PDF is saved on this device")
+        XCTAssertFalse(app.staticTexts["upload.status"].exists, "Nothing is uploaded")
         save("share-pdf-added")
     }
 
@@ -152,9 +162,10 @@ final class AddPaperFlowTests: XCTestCase {
         let notice = app.staticTexts["upload.notice"]
         if !notice.waitForExistence(timeout: 10) { save("upload-closed-debug"); print(app.debugDescription) }
         XCTAssertTrue(notice.exists)
-        // The failed import in the library also offers it inline (Upload PDF).
+        XCTAssertTrue(notice.label.hasSuffix("on this device."), notice.label)
+        // The failed import in the library also offers it inline (Add PDF: it stays on this device).
         app.buttons["library.filter.failed"].tap()
-        let row = app.buttons.matching(NSPredicate(format: "label == %@", "Upload PDF")).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "label == %@", "Add PDF")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         save("library-upload-action")
     }

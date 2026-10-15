@@ -27,16 +27,13 @@ final class LibraryWritesTests: XCTestCase {
                                "--feed-columns=topic,published,authors,arxiv"]
         app.launch()
 
-        // The signed-in library (v5) has loaded its saved paper.
-        let library = app.buttons["tab.library"]
-        XCTAssertTrue(library.waitForExistence(timeout: 30))
-        library.tap()
+        // The signed-in library (v5) has loaded its saved paper. The tab bar on a phone, the mode control on a wide iPad.
+        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 30) || app.segmentedControls["wide.mode"].buttons["Library"].exists)
+        app.show("library")
         let saved = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Attention Is All You Need")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 30), "The v5 baseline reached the Library")
 
-        let feed = app.buttons["tab.feed"]
-        XCTAssertTrue(feed.waitForExistence(timeout: 5))
-        feed.tap()
+        app.show("feed")
         let add = app.buttons["discover.add.2610.01234"]
         XCTAssertTrue(add.waitForExistence(timeout: 20), "The Feed lists the fixture's papers")
         XCTAssertTrue(wait(add, "isEnabled == true"), "Feed Add is enabled under the upload-capable library")
@@ -56,7 +53,7 @@ final class LibraryWritesTests: XCTestCase {
         XCTAssertTrue(wait(add, "exists == false"))
         save(app, "library-v5-feed-in-library")
 
-        library.tap()
+        app.show("library")
         // List rows expose their title as a child; table rows combine it into the
         // row's label. Query the visible title independently of that accessibility
         // grouping so the journey works with either saved layout preference.

@@ -47,7 +47,7 @@ final class VisualScenarioTests: XCTestCase {
             // the iPad's narrow Browse column.
             "library-table": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { _ in sleep(1) },
             "library-table-browse": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
-                if app.segmentedControls.buttons["Browse"].exists { app.segmentedControls.buttons["Browse"].tap() }
+                if app.segmentedControls["wide.mode"].buttons["Browse"].exists { app.segmentedControls["wide.mode"].buttons["Browse"].tap() }
                 sleep(2)
             },
             "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
@@ -326,7 +326,7 @@ final class VisualScenarioTests: XCTestCase {
         #else
         switch tab {
         case "settings": app.buttons["Settings"].tap()
-        case "chat": app.segmentedControls.buttons["Reader"].tap()
+        case "chat": app.segmentedControls["wide.mode"].buttons["Reader"].tap()
         default: app.segmentedControls.buttons[tab.capitalized].tap()
         }
         #endif
@@ -415,7 +415,7 @@ final class VisualScenarioTests: XCTestCase {
 
     private func ask(_ app: XCUIApplication, _ question: String) {
         // The wide iPad layout has no tab bar; its general chat is a segment.
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -424,7 +424,7 @@ final class VisualScenarioTests: XCTestCase {
 
     /// Opens All chats from the chat's top bar, after leaving an unsent general draft when one is given.
     private func openHistory(_ app: XCUIApplication, draft: String? = nil) {
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
         if let draft {
             if app.buttons["chat.context"].exists, app.buttons["chat.context"].value as? String != "General chat" {
                 app.buttons["chat.context"].tap()

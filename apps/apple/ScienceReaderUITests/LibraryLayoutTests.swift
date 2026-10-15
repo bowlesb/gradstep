@@ -134,15 +134,18 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
         cell(sample, in: app).tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
-        app.segmentedControls.buttons["Library"].tap()
+        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
+        app.segmentedControls["wide.mode"].buttons["Library"].tap()
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
 
         // Portrait (11": 834 pt) keeps the table, without the Tags column.
         XCUIDevice.shared.orientation = .portrait
         XCTAssertTrue(header("Opened", in: app).waitForExistence(timeout: 5), "Portrait iPad keeps the table")
         XCTAssertTrue(header("Tags", in: app).exists, "Chosen Tags remains available by scrolling sideways")
-        XCTAssertFalse(onScreen(header("Tags", in: app), in: app), "Tags starts past the edge at this width")
+        // Past the edge on an 11-inch iPad (834 pt); a 13-inch iPad's portrait (1032 pt) has room for it.
+        if app.windows.firstMatch.frame.width < 900 {
+            XCTAssertFalse(onScreen(header("Tags", in: app), in: app), "Tags starts past the edge at this width")
+        }
         attach(app, "Library table (iPad portrait)")
         choose("List", in: app)
         XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 5))
@@ -341,7 +344,7 @@ final class LibraryLayoutTests: XCTestCase {
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]
         app.launch()
         if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.show("feed") }
-        else { app.segmentedControls.buttons["Feed"].tap() }
+        else { app.segmentedControls["wide.mode"].buttons["Feed"].tap() }
         XCTAssertTrue(app.buttons["Feed options"].waitForExistence(timeout: 5))
         app.buttons["Feed options"].tap()
         let viewAs = app.buttons["View as"].firstMatch

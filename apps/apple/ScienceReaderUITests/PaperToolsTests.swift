@@ -49,6 +49,8 @@ final class PaperToolsTests: XCTestCase {
     func testFindInPaperGoesToAMatchAndKeepsThatReadingPlace() throws {
         let app = openSample()
         let web = app.webViews.firstMatch
+        // The tab bar (iPhone, a narrow iPad) or the wide layout's mode control (a 13-inch iPad, the Mac).
+        let narrow = app.buttons["tab.chat"].exists
         app.buttons["Paper options"].tap()
         app.buttons.matching(identifier: "paper.find").firstMatch.tap()
         let result = app.staticTexts["find.resultLabel"]
@@ -62,7 +64,7 @@ final class PaperToolsTests: XCTestCase {
 
         app.buttons["find.doneButton"].tap()
         XCTAssertTrue(app.buttons["find.doneButton"].waitForNonExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["tab.chat"].waitForExistence(timeout: 5), "The tab bar returns with the keyboard gone")
+        if narrow { XCTAssertTrue(app.buttons["tab.chat"].waitForExistence(timeout: 5), "The tab bar returns with the keyboard gone") }
         sleep(1) // the page settles at its full height
         // The list item with the match (WebKit reports it as a group with the item's text). Queried once the bar has
         // closed: while find highlights the page, WebKit's accessibility elements can't be resolved.
@@ -75,9 +77,9 @@ final class PaperToolsTests: XCTestCase {
         let offset = found.frame.minY - web.frame.minY
         capture(app, "Find closed: the page stays at the match")
 
-        // The found place is where reading resumes.
+        // The found place is where reading resumes: after the chat tab (narrow), or another view (wide).
         app.show("chat")
-        app.buttons["chat.returnToPaper"].tap()
+        app.returnToPaper()
         XCTAssertTrue(wait { found.exists && abs(found.frame.minY - web.frame.minY - offset) < 6 },
                       "Returns to the found place (\(offset) → \(found.frame.minY - web.frame.minY))")
     }
@@ -97,6 +99,8 @@ final class PaperToolsTests: XCTestCase {
     func testFindBarDockedAfterSearchKeepsTheTabBarAndPageInPlace() throws {
         for variant in chromeVariants {
             let app = openSample(variant.arguments, appearance: variant.appearance)
+            // The floating tab bar is the narrow layout's (iPhone, a narrow iPad); the wide layout has none.
+            if !app.buttons["tab.paper"].exists { app.terminate(); throw XCTSkip("The floating tab bar exists only in the narrow layout") }
             let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
             let home = (tab: tab.frame, web: web.frame)
             app.buttons["Paper options"].tap()
@@ -128,6 +132,8 @@ final class PaperToolsTests: XCTestCase {
     func testKeyboardFrameLeftWithNothingThereKeepsTheReaderInPlace() throws {
         for variant in chromeVariants {
             let app = openSample(["--find-bar-gone"] + variant.arguments, appearance: variant.appearance)
+            // The floating tab bar is the narrow layout's (iPhone, a narrow iPad); the wide layout has none.
+            if !app.buttons["tab.paper"].exists { app.terminate(); throw XCTSkip("The floating tab bar exists only in the narrow layout") }
             let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
             let home = (tab: tab.frame, web: web.frame)
             app.buttons["Paper options"].tap()
@@ -249,8 +255,8 @@ final class PaperToolsTests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape")
         let web = app.webViews.firstMatch, composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
-        XCTAssertTrue(app.segmentedControls.buttons["Reader"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
+        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
         XCTAssertTrue(composer.waitForExistence(timeout: 5), "Chat beside the paper by default")
         let paperWidth = web.frame.width
         assertChatTitleFits(app)
@@ -292,17 +298,17 @@ final class PaperToolsTests: XCTestCase {
         // Browse and the persisted split width; the hidden full-width paper above remains valid in both layouts.
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape again")
-        XCTAssertTrue(app.segmentedControls.buttons["Browse"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Browse"].waitForExistence(timeout: 5))
 
         // Browse keeps the library beside the paper and has no chat column to hide.
-        app.segmentedControls.buttons["Browse"].tap()
+        app.segmentedControls["wide.mode"].buttons["Browse"].tap()
         XCTAssertTrue(app.searchFields["library.search"].waitForExistence(timeout: 5))
         app.buttons["Paper options"].tap()
         XCTAssertTrue(app.buttons["paper.find"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["paper.chatColumn"].exists)
         app.buttons["paper.find"].tap() // closes the menu
         app.buttons["find.doneButton"].tap()
-        app.segmentedControls.buttons["Reader"].tap()
+        app.segmentedControls["wide.mode"].buttons["Reader"].tap()
         XCTAssertTrue(app.buttons["paper.showChat"].waitForExistence(timeout: 5))
 
         // The choice is kept on this device.

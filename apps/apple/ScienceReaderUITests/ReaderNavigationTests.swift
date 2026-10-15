@@ -34,9 +34,9 @@ final class ReaderNavigationTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--study-fixture"]
         app.launch()
-        // The fixture selects the HTML paper; on a phone it is read on the Paper tab.
-        let paperTab = app.buttons["tab.paper"]
-        if paperTab.waitForExistence(timeout: 10) { paperTab.tap() }
+        // The fixture selects the HTML paper: read on the Paper tab on a phone, in Reader in the wide layout.
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        app.show("paper")
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "The study fixture opens the HTML paper")
         let back = app.buttons["reader.citation.back"]
@@ -279,9 +279,9 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertTrue(app.segmentedControls.firstMatch.waitForExistence(timeout: 5))
         app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
+        XCTAssertTrue(app.segmentedControls["wide.mode"].buttons["Reader"].isSelected)
         let reader = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); reader.name = "iPad reader and chat"; reader.lifetime = .keepAlways; add(reader)
-        app.segmentedControls.buttons["Browse"].tap()
+        app.segmentedControls["wide.mode"].buttons["Browse"].tap()
         XCTAssertTrue(app.searchFields["library.search"].exists)
         XCTAssertTrue(app.webViews.firstMatch.exists)
         app.buttons["Settings"].tap()

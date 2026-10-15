@@ -85,7 +85,7 @@ final class SettingsTests: XCTestCase {
     /// default, so no other test inherits a forced theme.
     func testThemeIsAVisibleChoice() {
         let app = openSettings(["--workflow-fixture", "-appearance", "dark"])
-        let theme = app.segmentedControls["settings.theme"]
+        let theme = app.settingsTheme()
         XCTAssertTrue(theme.waitForExistence(timeout: 5))
         XCTAssertEqual(theme.buttons.allElementsBoundByIndex.map(\.label), ["Light", "Dark", "Match device"])
         XCTAssertTrue(theme.buttons["Dark"].isSelected, "The stored setting is shown")
@@ -108,12 +108,23 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(app.buttons["about.privacy"].exists)
         app.buttons["about.howGradstepWorks"].tap()
         XCTAssertTrue(app.navigationBars["How Gradstep works"].waitForExistence(timeout: 5))
-        XCTAssertTrue(element(labelContaining: "A credit is a Gradstep usage unit", in: app).exists)
+        let credit = element(labelContaining: "A credit is a Gradstep usage unit", in: app)
+        for _ in 0..<4 where !credit.exists { app.swipeUp() }   // a lazy list: below a phone's first screen
+        XCTAssertTrue(credit.exists)
+        // arXiv's required acknowledgement (docs/architecture/ARXIV_DEVICE_ONLY.md §7), at the page's end.
+        let thanks = element(labelContaining: "Thank you to arXiv for use of its open access interoperability", in: app)
+        for _ in 0..<6 where !thanks.exists { app.swipeUp() }
+        XCTAssertTrue(thanks.exists, "How Gradstep works carries arXiv's acknowledgement")
         app.navigationBars["How Gradstep works"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["About"].exists)
         app.buttons["about.acknowledgements"].tap()
         XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5))
-        XCTAssertTrue(element(labelContaining: "readable versions of papers", in: app).waitForExistence(timeout: 5))
+        // The reader's own components since the device-only cutover (no Mathpix on a server), and arXiv's acknowledgement.
+        XCTAssertTrue(element(labelContaining: "arXiv HTML for the reader on this device", in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(element(labelContaining: "Mathpix", in: app).exists, "Nothing converts papers on a server")
         XCTAssertFalse(element(labelContaining: "equation-aware readers", in: app).exists, "No “reader” jargon")
+        let acknowledgement = app.descendants(matching: .any)["acknowledgements.arxiv"]
+        for _ in 0..<4 where !acknowledgement.exists { app.swipeUp() }
+        XCTAssertTrue(element(labelContaining: "Thank you to arXiv", in: app).exists, "arXiv's acknowledgement")
     }
 }

@@ -93,7 +93,7 @@ final class LiveJourneyTests: XCTestCase {
             let added = NSPredicate(format: "exists == false")
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: added, object: addResult)], timeout: 30), .completed)
             capture(app, "Added from search")
-            app.segmentedControls.buttons["Library"].tap()
+            app.segmentedControls["wide.mode"].buttons["Library"].tap()
         } else {
             add.tap()
             let reference = app.textFields["import.reference"]

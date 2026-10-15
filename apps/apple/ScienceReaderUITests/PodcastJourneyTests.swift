@@ -115,7 +115,12 @@ final class PodcastJourneyTests: XCTestCase {
         let mini = element(app, "podcast.miniPlayer")
         XCTAssertTrue(mini.waitForExistence(timeout: 5), "Dismissing the sheet keeps playing in the mini-player")
         XCTAssertEqual(app.buttons["podcast.miniPlayer.toggle"].label, "Pause")
-        XCTAssertLessThanOrEqual(mini.frame.maxY, app.buttons["tab.feed"].frame.minY + 1, "The mini-player sits above the tab bar")
+        if app.buttons["tab.feed"].exists {
+            XCTAssertLessThanOrEqual(mini.frame.maxY, app.buttons["tab.feed"].frame.minY + 1, "The mini-player sits above the tab bar")
+        } else {
+            // The wide layout docks it along the bottom, below every pane (RootView.wideLayout).
+            XCTAssertGreaterThan(mini.frame.minY, app.windows.firstMatch.frame.maxY - 140, "The mini-player is docked along the bottom")
+        }
         capture(app, "Mini-player above the tab bar")
         // It stays across tabs, and the Library's last row scrolls clear of it.
         app.show("library")
@@ -144,9 +149,12 @@ final class PodcastJourneyTests: XCTestCase {
         waitFor("The message box sits above the mini-player") { composer.frame.maxY <= mini.frame.minY + 1 }
         XCTAssertTrue(composer.isHittable)
         capture(app, "Chat with the mini-player")
-        // Typing hides the tab bar and the mini-player with it, so neither covers the keyboard's message box.
+        // Typing hides the tab bar and the mini-player with it, so neither covers the keyboard's message box. The wide
+        // layout has no tab bar: the docked mini-player stays below the panes, clear of the message box.
+        let narrow = app.buttons["tab.chat"].exists
         composer.tap()
-        XCTAssertTrue(mini.waitForNonExistence(timeout: 5))
+        if narrow { XCTAssertTrue(mini.waitForNonExistence(timeout: 5)) }
+        else { waitFor("The docked mini-player stays clear of the message box while typing") { !mini.exists || composer.frame.maxY <= mini.frame.minY + 1 } }
         app.buttons["chat.dismissKeyboard"].tap()
         XCTAssertTrue(mini.waitForExistence(timeout: 5))
     }
@@ -158,6 +166,8 @@ final class PodcastJourneyTests: XCTestCase {
         app.buttons[sampleID].tap()
         let firstPass = app.webViews.firstMatch.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A useful first pass identifies")).firstMatch
         XCTAssertTrue(firstPass.waitForExistence(timeout: 60))
+        // Read on a little: a jump made from the very top offers no Back (owner, build 44: nothing to go back to).
+        app.webViews.firstMatch.swipeUp()
         openListen(app)
         playSample(app)
         app.buttons["podcast.player.toggle"].tap()  // pause; the evidence jump doesn't need sound
@@ -270,7 +280,8 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
         let ten = element(app, "podcast.length.podcast-10min-v1")
         XCTAssertTrue(ten.waitForExistence(timeout: 10), "the sheet lists the lengths")
-        for (profile, maximum) in [("podcast-short-v1", 140), ("podcast-5min-v1", 150), ("podcast-10min-v1", 300), ("podcast-20min-v1", 530)] {
+        // DeepSeek's maxima, the default writer (2026-10-14 writer choice; its 20-minute cap is 520).
+        for (profile, maximum) in [("podcast-short-v1", 140), ("podcast-5min-v1", 150), ("podcast-10min-v1", 300), ("podcast-20min-v1", 520)] {
             XCTAssertTrue(element(app, "podcast.length.\(profile)").label.contains("up to \(maximum) credits"), "\(profile) shows its own maximum")
         }
         XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isSelected, "five minutes by default")
@@ -466,12 +477,12 @@ final class PodcastJourneyTests: XCTestCase {
         addTeardownBlock { @MainActor in
             if !app.buttons["tab.settings"].exists { return }
             app.show("settings")
-            let match = app.segmentedControls["settings.theme"].buttons["Match device"]
+            let match = app.settingsTheme().buttons["Match device"]
             if match.waitForExistence(timeout: 5) { match.tap() }
         }
         for theme in ["Light", "Dark"] {
             app.show("settings")
-            let choice = app.segmentedControls["settings.theme"].buttons[theme]
+            let choice = app.settingsTheme().buttons[theme]
             XCTAssertTrue(choice.waitForExistence(timeout: 5)); choice.tap()
             openListen(app)
             sleep(1); capture(app, "podcast-listen-\(theme.lowercased())")

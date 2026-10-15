@@ -457,8 +457,9 @@ struct LibraryRowActions: View {
             if item.phase == .failed, item.errorCode == .insufficientCredits {
                 Button("Get credits", systemImage: "creditcard") { model.showStore = true }
             }
-            // Source-only arXiv papers stay local; an existing local copy opens in the native PDF viewer.
-            if item.phase == .sourceOnly, model.localPaperAvailable(for: item) {
+            // Source-only arXiv papers stay local; an existing local copy opens in the native PDF viewer (so does a failed
+            // web import's PDF saved on this device).
+            if item.phase == .sourceOnly || item.phase == .failed, model.localPaperAvailable(for: item) {
                 Button("Open PDF", systemImage: "doc.text.magnifyingglass") { model.openLocalPaper(item) }
             } else if item.canDownloadOnDevice {
                 // A web paper (or a reader's own upload) can take the PDF from this device.

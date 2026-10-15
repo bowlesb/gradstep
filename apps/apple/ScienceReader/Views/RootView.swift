@@ -245,9 +245,12 @@ struct RootView: View {
                         Image(GradstepSymbol.mark).symbolRenderingMode(.palette).foregroundStyle(Color.gradstepInk, Color.gradstepAmber)
                     }.font(.headline)
                     Spacer()
-                    Picker("View", selection: $model.wideMode) {
-                        ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented).frame(maxWidth: 560)
+                    // No segment is selected while Settings is shown, so tapping any of them, the view Settings was
+                    // opened from included, leaves Settings (audit 2026-10-15: a tap on the highlighted one did nothing).
+                    Picker("View", selection: Binding<WideMode?>(get: { model.tab == .settings ? nil : model.wideMode },
+                                                                 set: { if let mode = $0 { model.showWideMode(mode) } })) {
+                        ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                    }.pickerStyle(.segmented).frame(maxWidth: 560).accessibilityIdentifier("wide.mode")
                     Button { model.tab = .settings } label: { Image(GradstepSymbol.settings).font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44) }
                         .accessibilityLabel("Settings")
                 }.padding(.horizontal, 18).padding(.vertical, 12)
@@ -445,7 +448,7 @@ struct LibraryView: View {
             }
             if searching {
                 Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
             }
         }
         .modifier(HeaderWidth(fullWidth: tableShown))

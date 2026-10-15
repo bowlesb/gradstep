@@ -54,10 +54,14 @@ final class PassageJourneyTests: XCTestCase {
         let explain = app.editMenuItem("Explain in Chat")
         XCTAssertTrue(explain.waitForExistence(timeout: 5)); explain.tap()
         let title = app.buttons["chat.context"]
-        waitFor("The question is saved as \"Explain · …\"", timeout: 10) { title.exists && title.label.hasPrefix("Conversation: Explain · ") }
-        let conversationTitle = String(title.label.dropFirst("Conversation: ".count))
         let answer = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).element(boundBy: 1)
         XCTAssertTrue(answer.waitForExistence(timeout: 10), "The fixture answers")
+        // Titled by the action ("Explain · …"), or by the server's topic title once the chat's profiles have loaded
+        // (2026-10-14; always so beside the paper on a wide screen, where the chat is already on screen).
+        waitFor("The question is saved under a title", timeout: 10) {
+            title.exists && (title.label.hasPrefix("Conversation: Explain · ") || title.label == "Conversation: Explainer for a persona paper")
+        }
+        let conversationTitle = String(title.label.dropFirst("Conversation: ".count))
         capture(app, "Explain chat from a passage")
 
         // 2. Back to the paper: the passage is underlined (screenshot), and a tap on it opens its chat.
@@ -115,13 +119,13 @@ final class PassageJourneyTests: XCTestCase {
         // 5. The underline in dark mode.
         if phone {
             app.show("settings")
-            let dark = app.segmentedControls["settings.theme"].buttons["Dark"]
+            let dark = app.settingsTheme().buttons["Dark"]
             XCTAssertTrue(dark.waitForExistence(timeout: 5)); dark.tap()
             app.show("paper")
             waitFor("The paper keeps the passage it went to", passageVisible)
             capture(app, "Passage with a chat is underlined (dark)")
             app.show("settings")
-            app.segmentedControls["settings.theme"].buttons["Match device"].tap()
+            app.settingsTheme().buttons["Match device"].tap()
         }
     }
 }
