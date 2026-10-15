@@ -1,5 +1,5 @@
 import { localChatContext } from './arxiv-reader';
-import { chatFigureImages, storedFigurePartsText, type FigureParts } from './chat-figures';
+import { chatFigureImages, composeFigure, figureLabel, storedFigurePartsText, type FigureParts } from './chat-figures';
 import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
 // rebinds a task. When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md,
@@ -499,15 +499,19 @@ export class ChatSession {
 
   /** Study needs the paper numbered on this device (the HTML reader's bundle), as the server's tutor cites [¶N]. */
   canStudy(documentID: string | null): boolean { return !!documentID && this.sourcePapers.has(documentID); }
-  /** A figure's image from this chat's paper on this device, when its bundle is the one the parts were cut from. */
-  async figureImage(documentID: string | null, manifestSHA256: string, path: string): Promise<Blob | null> {
+  /** A figure's image from this chat's paper on this device, when its bundle is the one the parts were cut from;
+   * several panels composed exactly as they were sent. */
+  async figureImage(documentID: string | null, manifestSHA256: string, paths: string[]): Promise<Blob | null> {
     const local = documentID ? this.sourcePapers.get(documentID) : undefined;
     if (!local) return null;
     try {
       const bundle = await local.load();
-      const bytes = bundle.manifestSHA256 === manifestSHA256 ? bundle.contents.get(path) : undefined;
-      const type = bundle.manifest.members.find(m => m.path === path)?.media_type;
-      return bytes && type ? new Blob([bytes as BlobPart], { type }) : null;
+      if (bundle.manifestSHA256 !== manifestSHA256) return null;
+      const panels = paths.map(path => ({ bytes: bundle.contents.get(path), mediaType: bundle.manifest.members.find(m => m.path === path)?.media_type ?? '' }));
+      if (panels.some(p => !p.bytes || !p.mediaType)) return null;
+      if (panels.length === 1) return new Blob([panels[0].bytes as BlobPart], { type: panels[0].mediaType });
+      const composed = await composeFigure(panels as { bytes: Uint8Array; mediaType: string }[]);
+      return composed && 'convertToBlob' in composed ? await composed.convertToBlob({ type: 'image/png' }) : null;
     } catch { return null; }
   }
   /** Starts (or restarts) a study in this chat: an empty map and the opening turn, sent as the reader's message. */
@@ -667,12 +671,12 @@ export class ChatSession {
       { ...(table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {}), visualAnswers: readVisualAnswers() });
     if (question.action === 'study') request.study = c.study ?? { ...EMPTY_STUDY_MAP };
     const reference=this.reference(c.documentID);
-    let figureManifest:string|null=null;
+    let figureManifest:string|null=null, figureBundle:VerifiedBundle|null=null;
     if(reference){
       try {
         const local=this.sourcePapers.get(reference.membershipID);
         if(!local)throw new Error('local_reader_unavailable');
-        const bundle=await local.load();
+        const bundle=await local.load(); figureBundle=bundle;
         request.localContext=localChatContext(reference,bundle);
         request.documentID=null;
         // The figures the question names, from this paper's own images (consent v3 names them; CHAT.md).
@@ -702,10 +706,14 @@ export class ChatSession {
       }
       if (this.signal.aborted || this.retiredStorage || !this.accepting) { await this.journal!.dropTurn(answerID).catch(() => {}); releaseTurn(); if (!this.signal.aborted) { c.phase = 'idle'; this.publish(); } return; }
     }
-    const controller = cancellation([this.signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
+    let controller = cancellation([this.signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
     this.streams.set(c.id, controller);
     this.starting.delete(c.id);
-    c.liveID = entityID; c.liveText = ''; c.phase = 'streaming'; c.issue = null; c.progress = null; this.publish();
+    c.liveID = entityID; c.liveText = ''; c.phase = 'streaming'; c.issue = null; c.progress = null;
+    // A question sent with a figure says so until the answer starts (owner, 2026-10-15: "Not able to do this").
+    const named = request.figures?.[0] ? figureLabel(request.figures[0].caption) : null;
+    if (named) c.progress = { kind: 'looking_at_figure', query: named };
+    this.publish();
     let outcome: Outcome = { kind: 'failed', code: 'transport' }, diagram: { title: string; source: string; format?: DiagramFormat } | null = null;
     let lastCheckpoint = performance.now(), lastCheckpointDate = turn?.updatedAt ?? Date.now(), checkpointing: Promise<void> = Promise.resolve(), checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     const checkpointTurn = (force = false) => {
@@ -720,9 +728,10 @@ export class ChatSession {
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
     let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
-    let figureParts: FigureParts | null = null;
+    let figureParts: FigureParts | null = null, asked: string | null = null, sent = request;
+    for (let pass = 0; pass < 2; pass++) {
     try {
-      for await (const event of this.deps.stream(this.account, request, controller.signal)) {
+      for await (const event of this.deps.stream(this.account, sent, controller.signal)) {
         controller.signal.throwIfAborted();
         if (event.type === 'delta') {
           const next = c.liveText + event.text;
@@ -735,6 +744,7 @@ export class ChatSession {
         else if (event.type === 'followups') followUps = event.questions;
         else if (event.type === 'study') nextMap = event.map;
         else if (event.type === 'figure_parts') figureParts = event.parts;
+        else if (event.type === 'figure_request') asked = event.figure;
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();
@@ -743,6 +753,22 @@ export class ChatSession {
       outcome = controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? { kind: 'cancelled' }
         : { kind: 'failed', code: error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport' };
     } finally { clearTimeout(deadline); clearTimeout(checkpointTimer); controller.dispose(); this.streams.delete(c.id); }
+    // The model asked for a figure the question is about (none was attached): the same question again, once, with that
+    // figure from this paper; the first answer was only the request and is not kept.
+    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted) {
+      const figures = await chatFigureImages(asked, null, figureBundle);
+      if (figures.length && !this.signal.aborted) {
+        sent = { ...sent, operationID: crypto.randomUUID(), figures }; figureManifest = figureBundle.manifestSHA256;
+        c.liveText = ''; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null;
+        outcome = { kind: 'failed', code: 'transport' };
+        c.progress = { kind: 'looking_at_figure', query: figures[0] ? figureLabel(figures[0].caption) ?? undefined : undefined }; this.publish();
+        controller = cancellation([this.signal]); deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
+        this.streams.set(c.id, controller);
+        continue;
+      }
+    }
+    break;
+    }
     await checkpointing;
     // An externally retired login cannot write or expose text in its replacement. Its turn checkpoint stays on this
     // device and reopens as interrupted on the next sign-in; it is never re-requested.
@@ -750,9 +776,9 @@ export class ChatSession {
     // The answer's figure parts are its drawing (the server sends at most one kind): the parts and where their image
     // is in this paper's bundle, never the image (StoredFigureParts, as the apps keep it).
     if (figureParts && figureManifest) {
-      const parts: FigureParts = figureParts, image = request.figures?.find(f => f.id === parts.figure);
+      const parts: FigureParts = figureParts, image = sent.figures?.find(f => f.id === parts.figure);
       const made = image ? makeDiagram(parts.title, storedFigurePartsText({ manifestSHA256: figureManifest, blockID: image.blockID,
-        assetPath: image.assetPath, paragraph: parts.paragraph, title: parts.title, parts: parts.parts }), undefined, 'figure-parts-v1') : null;
+        assetPath: image.assetPath, assetPaths: image.assetPaths, paragraph: parts.paragraph, title: parts.title, parts: parts.parts }), undefined, 'figure-parts-v1') : null;
       if (made) diagram = { title: made.title, source: made.source, format: 'figure-parts-v1' };
     }
     // A valid diagram-only completion still needs an assistant event to attach the encrypted diagram to.

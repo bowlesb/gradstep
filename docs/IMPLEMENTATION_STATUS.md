@@ -2,6 +2,23 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Figures in chat when you don't name one, and figures with panels — 2026-10-15, ~11:45 UTC
+
+Owner, on CaLIF (2610.19525): "Not able to do this", then "Even when I referenced a figure it still didn't work".
+- **The model asks for the figure** (`look_at_figure`, `figure_request`, the `figure_requests` capability): the
+  device asks again once with that figure; the first answer is not kept. Server, both apps and the browser.
+- **Panels are one figure** (`ARXIV_RENDERER_REVISION` 12): picture panels under one caption; six cached papers change,
+  all with panels; both sweep corpora replay with 0 failures. Chat sends the panels stacked as one image and stores
+  every panel's path so the parts crop the same image anywhere.
+- **Visible attachment**: "Looking at Figure N…" while a figure goes with a question.
+- Named figures already worked from build 47: the app's finder on this paper's real bundle prepares Figures 2, 3 and 4
+  (`ChatFigureTests` with `TEST_RUNNER_FIGURE_BUNDLE`, the bundle from `reader-device-compile.mjs --out`).
+
+Evidence: backend chat tests 99 (with the figure request), converter tests 44, `npm test`; browser units 381 and the
+HTML-paper journey (an unnamed figure question makes a second request with Figure 1 and shows its parts); Simulator: 63
+unit tests and the figure tests on CaLIF; live on staging, `chat-live-smoke.mjs --look`: Figure 2 requested, then
+four parts.
+
 ## The arXiv converter in components; Library tag chips and remembered filters; stale journeys repaired — 2026-10-15, ~09:30 UTC
 
 - **Converter split** (READER_ARCHITECTURE_RETHINK.md step 2): `arxiv-html.ts` keeps the API and the order of the

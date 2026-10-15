@@ -24,6 +24,10 @@ const STUDY = process.argv.includes('--study');
 const QUESTION = process.argv.find(a => a.startsWith('--question='))?.slice(11) ?? null;
 /** `--figure=N` attaches the bundle's figure N image (consent cloud-ai-v3), as the app does for a question naming it. */
 const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9) ?? 0);
+/** `--look`: no figure attached, the device says it can answer a figure request (`figure_requests`); when the model asks for
+ * one (`figure_request`), the question goes again with that figure, as the apps do (2026-10-15). */
+const LOOK = process.argv.includes('--look');
+let forced = 0;
 const INDEX = process.argv.find(a => a.startsWith('--index='))?.slice(8) ?? `${ROOT}/.artifacts/bundles/ecbc0a04588f/reader.json`;
 const dotenv = path => Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
   .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^(['"])(.*)\1$/, '$2')]; }));
@@ -105,9 +109,10 @@ try {
   let followUps = [], studyMap = { concepts: [], links: [], focus: null, journey: [], next: 'calibrate' };
   const ask = async question => {
     turns.push({ role: 'user', text: question });
-    const figures = FIGURE && turns.length === 1 ? figureImages(FIGURE) : [];
-    const body = { operation_id: randomUUID(), consent_version: figures.length ? 'cloud-ai-v3' : 'cloud-ai-v2', mode: 'paper', local_context, messages: turns,
-      topic_title: turns.length === 1, capabilities: ['visual_answers'], ...(figures.length ? { figures } : {}),
+    const figures = forced ? figureImages(forced) : FIGURE && turns.length === 1 ? figureImages(FIGURE) : [];
+    let requested = null;
+    const body = { operation_id: randomUUID(), consent_version: figures.length || LOOK ? 'cloud-ai-v3' : 'cloud-ai-v2', mode: 'paper', local_context, messages: turns,
+      topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
       ...(STUDY ? { action: 'study', study: studyMap } : { follow_ups: true }) };
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
@@ -128,6 +133,7 @@ try {
       else if (name === 'study') { studyMap = payload.map; log(`study map: ${studyMap.concepts.length} concepts ${JSON.stringify(studyMap.concepts.map(c => `${c.label}:${c.state}`))} links ${studyMap.links.length} focus ${studyMap.focus} next ${studyMap.next} journey ${studyMap.journey.join('>')}`); }
       else if (name === 'figure_parts') log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`);
       else if (name === 'visual') log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`);
+      else if (name === 'figure_request') { requested = payload.figure; log(`figure request: ${payload.figure}`); }
       else if (name === 'done') done = payload;
       else log(`event ${name} ${JSON.stringify(payload).slice(0, 300)}`);
     };
@@ -145,6 +151,13 @@ try {
     log(`citations: [${cites.join(', ')}] (${cites.filter(n => n >= 1 && n <= index.blocks.length).length} resolvable of ${cites.length})`);
     log(`follow-ups (${followUps.length}): ${JSON.stringify(followUps)}`);
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
+    // The model asked for a figure: the same question again with it (the first answer was only the request).
+    if (LOOK && requested && !figures.length && /^Figure \d+$/.test(requested)) {
+      turns.pop(); forced = Number(requested.split(' ')[1]);
+      log(`asking again with ${requested} attached`);
+      try { await ask(question); } finally { forced = 0; }
+      return;
+    }
     turns.push({ role: 'assistant', text: answer });
   };
   if (STUDY) {

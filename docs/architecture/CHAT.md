@@ -655,6 +655,18 @@ passage that names one) carries that figure's image, so the model reads the figu
   Walk me through each part of it."` on DPO: the answer read the figure's own details (the trophy marking the
   preferred response, the example prompt) and gave five parts with boxes that crop the right regions (rendered by
   `FigurePartsRenderingTests`). 5 credits with the paper cached.
+- **Asking for a figure** (2026-10-15, owner: "Not able to do this"; "Even when I referenced a figure it still didn't
+  work"): a question about a figure that names no number ("break down the most complex figure") attached nothing. A
+  device that holds the paper now sends the `figure_requests` capability; under consent v3 the server then offers
+  `look_at_figure` beside the parts tool (in every such request, so the cached tools never change), and the model
+  names the figure it means. The server relays `figure_request` ("Figure 2"), skips suggestions for that answer, and
+  the device asks the same question again once with that figure attached; the first answer was only the request and is
+  not kept. Both apps and the browser say "Looking at Figure 2…" while a figure goes with a question. Proof on
+  staging (`scripts/chat-live-smoke.mjs --look`): the model asked for DPO's Figure 2, the second answer split it into
+  four parts; 25 credits for the first request (it wrote the paper to the cache) and 5 for the second.
+- **Figures of several panels** ("Figure 1" with (a) and (b)): the converter keeps picture panels under one caption
+  as one figure (renderer revision 12), and chat sends the panels as one image, stacked at the widest panel's width
+  with 2 % gaps; the stored parts list every panel (`assetPaths`) so either surface composes the same image to crop.
 - **Browser** (2026-10-15): the same rules (`apps/web/src/lib/chat-figures.ts`): consent v3 (readers who accepted v2
   are asked once more, the dialog names figures), at most two named figures from the open paper's bundle prepared as
   JPEG on white with a canvas, the `figure_parts` event kept as the same `figure-parts-v1` JSON the apps write (so either

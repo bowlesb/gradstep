@@ -41,6 +41,19 @@ struct ChatVisualTests {
 /// Figures in chat (consent v3): the figure a question names is found by its caption, prepared within the provider's
 /// resolution, sent with the question, and the answer's parts are kept as `figure-parts-v1` and cropped on the device.
 struct ChatFigureTests {
+    /// A real paper's bundle as the device compiles it (`node scripts/reader-device-compile.mjs --ids=<id> --out=<dir>`),
+    /// when this Mac has one: TEST_RUNNER_FIGURE_BUNDLE=<dir>/<id>.
+    @Test func aRealPapersNamedFigureIsFoundAndPrepared() throws {
+        guard let path = ProcessInfo.processInfo.environment["FIGURE_BUNDLE"],
+              let sha = try? String(contentsOfFile: path + "/manifest.sha256", encoding: .utf8) else { return }
+        let bundle = try ReaderBundleLoader.load(directory: URL(fileURLWithPath: path), expectedSHA256: sha.trimmingCharacters(in: .whitespacesAndNewlines))
+        for question in ["What does Figure 4 show? Walk me through each part.", "Explain figure 2 in parts", "fig. 3 please", "Figure 1 please"] {
+            let images = ChatFigureFinder.images(question: question, selection: nil, bundle: bundle)
+            print("figure finder: \(question) -> \(images.map { "\($0.id) ¶\($0.paragraph) \($0.width)x\($0.height) \($0.data.count) chars \($0.caption.prefix(30))" })")
+            #expect(images.count == 1, "\(question)")
+        }
+    }
+
     @Test func mentionsAreFoundInOrder() {
         let found = ChatFigureFinder.mentions(in: "Compare Fig. 3 with Figure 2 and Table 1; and figure 3 again")
         #expect(found.map { "\($0.kind) \($0.number)" } == ["figure 3", "figure 2", "table 1"])

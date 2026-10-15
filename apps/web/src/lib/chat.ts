@@ -64,7 +64,9 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   if (r.action) body.action = r.action;
   // Add paper may add an open-access web paper; visual answers (diagrams, drawn explanations) unless the reader turned
   // them off — always a list, so an empty one says "off" (servers before the setting ignore unknown values).
-  body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers'])];
+  // `figure_requests`: this browser holds the paper (local context) and can attach a figure the model asks for.
+  body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers']),
+    ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : [])];
   if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
   if (r.action !== 'diagram_fix' && r.topicTitle) body.topic_title = true;
   // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own).
@@ -79,7 +81,8 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
 
 // ---------- Stream events ----------
 
-export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_paper';
+/** `looking_at_figure` is the browser's own: the figure a question names (or the model asked for) went with it. */
+export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_paper' | 'looking_at_figure';
 export interface Progress { kind: ProgressKind; query?: string }
 export type StreamEvent =
   | { type: 'delta'; text: string } | { type: 'diagram'; title: string; source: string } | { type: 'status'; progress: Progress }
@@ -93,6 +96,8 @@ export type StreamEvent =
   | { type: 'study'; map: StudyMap }
   /** The parts of an attached figure the answer explains (servers from 2026-10-15); kept as a figure-parts diagram. */
   | { type: 'figure_parts'; parts: FigureParts }
+  /** The model asks for a figure of the paper ("Figure 4"); the question is asked again with it attached. */
+  | { type: 'figure_request'; figure: string }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string; credits?: number };
 
@@ -107,6 +112,7 @@ export function progressText(p: Progress): string {
     case 'reading': return 'Reading results…';
     case 'finding_paper': return 'Finding the paper…';
     case 'adding_paper': return 'Adding to your library…';
+    case 'looking_at_figure': return p.query ? `Looking at ${p.query}…` : 'Looking at the figure…';
   }
 }
 
@@ -189,6 +195,11 @@ export class SSEParser {
         const questions = (Array.isArray(v?.questions) ? v.questions : []).filter((q): q is string => typeof q === 'string')
           .map(q => q.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim()).filter(q => q.length >= 3 && [...q].length <= 120).slice(0, 3);
         return questions.length ? { type: 'followups', questions } : null;
+      }
+      case 'figure_request': {
+        // Informational: a request that is not a figure's label is dropped, never fatal.
+        const figure = typeof v?.figure === 'string' && /^(Figure|Table) \d{1,3}$/.test(v.figure) ? v.figure : null;
+        return figure ? { type: 'figure_request', figure } : null;
       }
       case 'figure_parts': {
         // Informational: parts that are not usable are dropped, never fatal.

@@ -1,10 +1,11 @@
 import SwiftUI
 import ScienceReaderCore
 
-/// The image of a figure in a bundle on this device, by its manifest and member path (set by RootView from the model).
-struct FigureImageLookupKey: EnvironmentKey { static let defaultValue: @MainActor @Sendable (String, String) -> CGImage? = { _, _ in nil } }
+/// The image of a figure in a bundle on this device, by its manifest and member paths (several: its panels composed),
+/// set by RootView from the model.
+struct FigureImageLookupKey: EnvironmentKey { static let defaultValue: @MainActor @Sendable (String, [String]) -> CGImage? = { _, _ in nil } }
 extension EnvironmentValues {
-    var figureImage: @MainActor @Sendable (String, String) -> CGImage? {
+    var figureImage: @MainActor @Sendable (String, [String]) -> CGImage? {
         get { self[FigureImageLookupKey.self] }
         set { self[FigureImageLookupKey.self] = newValue }
     }
@@ -18,7 +19,7 @@ struct FigurePartsView: View {
 
     var body: some View {
         ScrollView {
-            FigurePartsContent(stored: stored, image: figureImage(stored.manifestSHA256, stored.assetPath))
+            FigurePartsContent(stored: stored, image: figureImage(stored.manifestSHA256, stored.paths))
                 .padding(20).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
         }
     }

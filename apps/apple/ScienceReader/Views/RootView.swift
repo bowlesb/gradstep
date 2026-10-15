@@ -122,7 +122,7 @@ struct RootView: View {
         .sheet(item: $model.presentedDiagram) { presented in
             if let diagram = model.diagram(presented.id) {
                 DiagramSheet(diagram: diagram).macSheetKeys()
-                    .environment(\.figureImage) { manifest, path in model.figureImage(manifest: manifest, path: path) }
+                    .environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
             }
         }
         .sheet(isPresented: $model.showReport, onDismiss: {
@@ -1407,7 +1407,7 @@ struct HistoryView: View {
             List {
                 ForEach(savedDiagrams, id: \.id) { saved in
                     NavigationLink(saved.diagram.title) {
-                        DiagramDetail(diagram: saved.diagram).environment(\.figureImage) { manifest, path in model.figureImage(manifest: manifest, path: path) }
+                        DiagramDetail(diagram: saved.diagram).environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
                     }
                         .accessibilityIdentifier("diagram.\(saved.id.wire)")
                 }

@@ -15,6 +15,12 @@ fix below and adds clearer reader download-limit, interrupted-download and updat
 |---|---|---|---|---|
 | 1 | "Sending figures to model should be ok?" (after "the agent has the ability to break figures into cropped sub sections as part of the response and explain each component") | Chat | Yes, on the same terms as the text: the figure is part of the paper whose full text already goes to Anthropic, under the same retention terms, prepared on the device from arXiv's HTML (no PDF, nothing new fetched); about half a cent per figure. The one condition: the consent must say so, so it is v3 ("When you ask about a figure or table, its image from the paper") and readers are asked once more. Built: a question naming a figure sends its image; the model can break it into parts, shown as crops under the answer with a note each (CHAT.md "Figures in chat"). Proven live on DPO's Figure 1. | Built; build 47 (apps); the browser follows |
 
+## Chat report, 2026-10-15: figures in parts "Not able to do this", "Even when I referenced a figure it still didn't work"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | The answer said no figure was attached (CaLIF, 2610.19525) | Chat, paper | A question naming no figure number attached nothing; the model now asks for the figure it means and the device asks again with it. Naming one works in builds from 47 (checked on this paper in the Simulator: Figures 2, 3, 4); a phone still on build 46 or earlier sends none. A figure with panels was two figures and its "Figure 1" caption a paragraph, so "Figure 1" was not found: panels are one figure now and go as one image. While a figure goes with a question, the chat says "Looking at Figure N…". | Built; live proof on staging; build 52 and the browser |
+
 ## Chat request, 2026-10-15: "create a version of the on device model into the app knowing it won't always work"
 
 | # | Owner said | Where | Cause / plan | Status |

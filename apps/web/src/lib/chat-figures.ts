@@ -9,12 +9,15 @@ export const FIGURE_PARTS_FORMAT = 'figure-parts-v1';
 
 export interface ChatFigureImage {
   id: string; paragraph: number; caption: string; mediaType: 'image/jpeg' | 'image/png'; data: string; width: number; height: number;
-  /** Kept on this device only: where the image is, so the answer's parts can be cropped from it later. */
-  blockID: string; assetPath: string;
+  /** Kept on this device only: where the image is, so the answer's parts can be cropped from it later; a figure of
+   * several panels has them all, sent as one image stacked (`composeFigure`). */
+  blockID: string; assetPath: string; assetPaths: string[];
 }
 export interface FigurePart { label: string; box: [number, number, number, number]; note: string }
 export interface FigureParts { figure: string; paragraph: number; title: string; parts: FigurePart[] }
-export interface StoredFigureParts { manifestSHA256: string; blockID: string; assetPath: string; paragraph: number; title: string; parts: FigurePart[] }
+export interface StoredFigureParts { manifestSHA256: string; blockID: string; assetPath: string; paragraph: number; title: string; parts: FigurePart[]; assetPaths?: string[] }
+/** The images a stored figure's boxes refer to, in order. */
+export const storedPaths = (s: StoredFigureParts): string[] => s.assetPaths && s.assetPaths.length > 1 ? s.assetPaths : [s.assetPath];
 
 /** "figure 2", "table 1" named in the text, in order of first mention. */
 export function figureMentions(text: string): { kind: 'figure' | 'table'; number: number }[] {
@@ -24,6 +27,12 @@ export function figureMentions(text: string): { kind: 'figure' | 'table'; number
     if (!found.some(f => f.kind === kind && f.number === number)) found.push({ kind, number });
   }
   return found;
+}
+
+/** "Figure 4" or "Table 2" from a caption that starts with its number; null otherwise. */
+export function figureLabel(caption: string): string | null {
+  const m = /^\s*(figure|fig\.?|table)\s*(\d{1,3})\b/i.exec(caption);
+  return m ? `${m[1].toLowerCase().startsWith('tab') ? 'Table' : 'Figure'} ${Number(m[2])}` : null;
 }
 
 /** The figure whose caption names it ("Figure 2:", "Fig. 2.", "Table 1:"). */
@@ -54,8 +63,8 @@ export function parseFigureParts(value: unknown): FigureParts | null {
 
 /** As the apps encode it (sorted keys), so a diagram made here opens on iOS and the Mac. */
 export function storedFigurePartsText(s: StoredFigureParts): string {
-  return JSON.stringify({ assetPath: s.assetPath, blockID: s.blockID, manifestSHA256: s.manifestSHA256, paragraph: s.paragraph,
-    parts: s.parts.map(p => ({ box: p.box, label: p.label, note: p.note })), title: s.title });
+  return JSON.stringify({ assetPath: s.assetPath, ...(s.assetPaths && s.assetPaths.length > 1 ? { assetPaths: s.assetPaths } : {}), blockID: s.blockID,
+    manifestSHA256: s.manifestSHA256, paragraph: s.paragraph, parts: s.parts.map(p => ({ box: p.box, label: p.label, note: p.note })), title: s.title });
 }
 export function decodeStoredFigureParts(text: string): StoredFigureParts | null {
   if (new TextEncoder().encode(text).length > 16_000) return null;
@@ -63,24 +72,46 @@ export function decodeStoredFigureParts(text: string): StoredFigureParts | null 
     const v = JSON.parse(text) as Record<string, unknown>;
     if (typeof v.manifestSHA256 !== 'string' || typeof v.blockID !== 'string' || typeof v.assetPath !== 'string' || !Number.isSafeInteger(v.paragraph)
       || typeof v.title !== 'string' || !Array.isArray(v.parts) || v.parts.length < 1 || v.parts.length > 8 || !v.parts.every(partValid)) return null;
+    const paths = Array.isArray(v.assetPaths) && v.assetPaths.length > 1 && v.assetPaths.length <= 4 && v.assetPaths.every(p => typeof p === 'string') ? v.assetPaths as string[] : undefined;
     return { manifestSHA256: v.manifestSHA256, blockID: v.blockID, assetPath: v.assetPath, paragraph: v.paragraph as number, title: v.title,
-      parts: v.parts as FigurePart[] };
+      parts: v.parts as FigurePart[], ...(paths ? { assetPaths: paths } : {}) };
   } catch { return null; }
 }
 
 const base64 = (bytes: Uint8Array) => { let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192)); return btoa(s); };
 
+export const MAX_PANELS = 4;
+/** A figure's panels as one image, as the apps compose it (ChatFigureFinder.composite): each scaled to the widest
+ * panel's width, top to bottom, 2 % of the width of white between them; the parts' boxes are fractions of it. */
+export async function composeFigure(images: { bytes: Uint8Array; mediaType: string }[]): Promise<ImageBitmap | OffscreenCanvas | null> {
+  try {
+    const panels = await Promise.all(images.slice(0, MAX_PANELS).map(i => createImageBitmap(new Blob([i.bytes as BlobPart], { type: i.mediaType }))));
+    if (panels.length === 1) return panels[0];
+    const width = Math.max(...panels.map(p => p.width)), gap = Math.max(1, Math.round(width * 0.02));
+    const heights = panels.map(p => Math.round(p.height * width / p.width)), height = heights.reduce((a, b) => a + b, 0) + gap * (panels.length - 1);
+    if (!panels.length || width * height > 40_000_000) return null;
+    const canvas = new OffscreenCanvas(width, height), ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
+    let top = 0;
+    panels.forEach((p, i) => { ctx.drawImage(p, 0, top, width, heights[i]); top += heights[i] + gap; p.close(); });
+    return canvas;
+  } catch { return null; }
+}
+
 /** A figure as the model reads it best: scaled to the provider's resolution, JPEG on white (no transparency). */
 export async function prepareFigure(bytes: Uint8Array, mediaType: string): Promise<{ data: string; width: number; height: number } | null> {
+  try { return await prepareSource(await createImageBitmap(new Blob([bytes as BlobPart], { type: mediaType }))); } catch { return null; }
+}
+async function prepareSource(bitmap: ImageBitmap | OffscreenCanvas): Promise<{ data: string; width: number; height: number } | null> {
   try {
-    const bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: mediaType }));
     const long = Math.max(bitmap.width, bitmap.height), short = Math.min(bitmap.width, bitmap.height);
     const limit = Math.min(MAX_SIDE, Math.sqrt(MAX_PIXELS * long / short), long), scale = limit / long;
     const w = Math.max(1, Math.round(bitmap.width * scale)), h = Math.max(1, Math.round(bitmap.height * scale));
     if (w < 8 || h < 8 || w > 1600 || h > 1600) return null;
     const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(bitmap, 0, 0, w, h); bitmap.close();
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(bitmap, 0, 0, w, h); if ('close' in bitmap) bitmap.close();
     const out = new Uint8Array(await (await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })).arrayBuffer());
     return out.length <= 1_150_000 ? { data: base64(out), width: w, height: h } : null;
   } catch { return null; }
@@ -99,13 +130,16 @@ export async function chatFigureImages(question: string, selection: string | nul
   }
   const out: ChatFigureImage[] = [];
   for (const figure of figures) {
-    const path = figure.asset_paths[0], bytes = path ? bundle.contents.get(path) : undefined;
+    // A figure of several panels goes as one image, its panels stacked (2610.19525's Figure 1, (a) and (b)).
+    const paths = figure.asset_paths.slice(0, MAX_PANELS), path = paths[0];
+    const panels = paths.map(p => ({ bytes: bundle.contents.get(p), mediaType: mediaTypeOf(bundle, p) }));
     const paragraph = bundle.index.blocks.findIndex(b => b.id === figure.block_id) + 1;
-    if (!path || !bytes || paragraph < 1) continue;
-    const prepared = await prepareFigure(bytes, mediaTypeOf(bundle, path));
+    if (!path || panels.some(p => !p.bytes) || paragraph < 1) continue;
+    const source = panels.length > 1 ? await composeFigure(panels as { bytes: Uint8Array; mediaType: string }[]) : null;
+    const prepared = panels.length > 1 ? (source ? await prepareSource(source) : null) : await prepareFigure(panels[0].bytes!, panels[0].mediaType);
     if (!prepared) continue;
     out.push({ id: `F${out.length + 1}`, paragraph, caption: [...figure.caption].slice(0, 1200).join(''), mediaType: 'image/jpeg', ...prepared,
-      blockID: figure.block_id, assetPath: path });
+      blockID: figure.block_id, assetPath: path, assetPaths: paths });
   }
   return out;
 }

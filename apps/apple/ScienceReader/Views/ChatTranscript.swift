@@ -149,7 +149,7 @@ private struct TranscriptMessage: View {
                 if let diagram, !streaming, diagram.isFigureParts, let model = papers?.model,
                    let stored = model.diagram(diagram.id).flatMap({ StoredFigureParts.decode($0.source) }) {
                     // The figure's parts as part of the answer: each crop with its number and label; a tap opens them all.
-                    FigurePartsStrip(stored: stored, image: model.figureImage(manifest: stored.manifestSHA256, path: stored.assetPath),
+                    FigurePartsStrip(stored: stored, image: model.figureImage(manifest: stored.manifestSHA256, paths: stored.paths),
                                      fontSize: fontSize) { openDiagram(diagram.id) }
                         .accessibilityIdentifier("chat.message.figureParts.\(message.payload.entityID.wire)")
                 } else if let diagram, !streaming, let model = papers?.model {

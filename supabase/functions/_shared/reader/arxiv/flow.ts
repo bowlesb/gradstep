@@ -56,6 +56,12 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
       // Panels laid out in a tabular whose cells hold only graphics (Batch Normalization's Figure 1, audit
       // 2026-10-15: graphics in table cells were left out): the figure's own images, in cell order.
       output = [imageFigure(cx, n)];
+    } else if (imagePanels(n, insideSVG)) {
+      // Panels that are all pictures under one caption ("Figure 1" with (a) and (b), 2610.19525 on build 51: the
+      // panels were two figures and "Figure 1" a paragraph, so a chat question about Figure 1 found nothing): one
+      // figure, its panels in order with their own captions under them, the figure's caption last. A reference to a
+      // panel opens the figure.
+      output = [imageFigure(cx, n)];
     } else if (elements(n, c => c !== n && c.name === 'figure').length || (tables.length && images.length)) {
       // Compound figures keep their panel order and captions as separate,
       // non-nested reader blocks. A reference to the group opens its first panel.
@@ -134,4 +140,12 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
   else output = [block(cx, n, 'p', 'paragraph', id => inline(cx, n, id))];
   if (cx.blocks.length > before && n.attribs?.id && !cx.aliases.has(n.attribs.id)) bind(cx, n, cx.blocks[before].id);
   return recovered.length ? [...recovered, ...output] : output;
+}
+
+/** A figure whose nested panels each hold a picture and no table of text, with one caption of its own. */
+function imagePanels(n: DomNode, insideSVG: (c: DomNode) => boolean): boolean {
+  const panels = elements(n, c => c !== n && c.name === 'figure');
+  const textTable = (root: DomNode) => elements(root, c => c.name === 'table' && !insideSVG(c) && normalizeSpace(textContent(c)).length > 0).length > 0;
+  return panels.length > 0 && children(n).filter(c => c.name === 'figcaption').length === 1 && !textTable(n)
+    && panels.every(p => elements(p, c => ['img','object','svg'].includes(c.name)).length > 0);
 }

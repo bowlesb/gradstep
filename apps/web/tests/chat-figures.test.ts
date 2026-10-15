@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeStoredFigureParts, figureFor, figureMentions, parseFigureParts, storedFigurePartsText } from '../src/lib/chat-figures';
+import { decodeStoredFigureParts, figureFor, figureLabel, figureMentions, parseFigureParts, storedFigurePartsText, storedPaths } from '../src/lib/chat-figures';
 import { requestBody, makeRequest } from '../src/lib/chat';
 
 describe('figures in chat (CHAT.md "Figures in chat")', () => {
@@ -30,8 +30,18 @@ describe('figures in chat (CHAT.md "Figures in chat")', () => {
     // Swift's JSONEncoder escapes slashes.
     expect(decodeStoredFigureParts(text.replace('assets/x.png', 'assets\\/x.png'))?.assetPath).toBe('assets/x.png');
   });
+  it('a figure of several panels stores them all, in the apps\' key order, and older single-image records still read', () => {
+    const stored = { manifestSHA256: 'b'.repeat(64), blockID: 'b-12', assetPath: 'assets/a.png', assetPaths: ['assets/a.png', 'assets/b.png'], paragraph: 12, title: 'Panels',
+      parts: [{ label: 'Panel a', box: [0, 0, 1, 0.49] as [number, number, number, number], note: 'Top.' }] };
+    const text = storedFigurePartsText(stored);
+    expect(Object.keys(JSON.parse(text))).toEqual(['assetPath', 'assetPaths', 'blockID', 'manifestSHA256', 'paragraph', 'parts', 'title']);
+    expect(storedPaths(decodeStoredFigureParts(text)!)).toEqual(['assets/a.png', 'assets/b.png']);
+    const single = decodeStoredFigureParts(storedFigurePartsText({ ...stored, assetPaths: undefined }))!;
+    expect(storedPaths(single)).toEqual(['assets/a.png']);
+    expect(figureLabel('Fig. 3: The loss')).toBe('Figure 3'); expect(figureLabel('(a) Panel')).toBeNull();
+  });
   it('sends figures only with a paper question, never with Add paper', () => {
-    const figure = { id: 'F1', paragraph: 3, caption: 'Figure 1: A.', mediaType: 'image/jpeg' as const, data: '/9j/'.padEnd(20, 'A'), width: 100, height: 80, blockID: 'b', assetPath: 'p' };
+    const figure = { id: 'F1', paragraph: 3, caption: 'Figure 1: A.', mediaType: 'image/jpeg' as const, data: '/9j/'.padEnd(20, 'A'), width: 100, height: 80, blockID: 'b', assetPath: 'p', assetPaths: ['p'] };
     const paper = { ...makeRequest('op', 'doc', [{ role: 'user', text: 'What does Figure 1 show?' }], null), figures: [figure] };
     expect(requestBody(paper).figures).toEqual([{ id: 'F1', paragraph: 3, caption: 'Figure 1: A.', media_type: 'image/jpeg', data: figure.data, width: 100, height: 80 }]);
     expect(requestBody(paper).consent_version).toBe('cloud-ai-v3');

@@ -176,4 +176,14 @@ import Testing
         #expect(!ChatFailureText.isRetryable("refused"))
         #expect(ChatFailureText.isRetryable("provider_unavailable"))
     }
+
+    @Test func figureRequestsAreParsedAndOfferedOnlyWithTheLocalPaper() throws {
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Data("event: figure_request\ndata: {\"figure\":\"Figure 4\"}\n\nevent: figure_request\ndata: {\"figure\":\"the big one\"}\n\n".utf8))
+        #expect(events == [.figureRequest("Figure 4")], "a label that is not a figure's is dropped")
+        #expect(ChatGenerationRequest.capabilities(action: nil, visualAnswers: true, figureRequests: true) == ["visual_answers", "figure_requests"])
+        #expect(ChatGenerationRequest.capabilities(action: nil, visualAnswers: false, figureRequests: true) == [])
+        #expect(ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true, figureRequests: true) == ["web_import", "visual_answers"])
+        #expect(ChatProgress(kind: .lookingAtFigure, query: "Figure 4").text == "Looking at Figure 4…")
+    }
 }

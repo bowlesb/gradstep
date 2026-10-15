@@ -2482,18 +2482,27 @@ final class ReaderModel {
     }
     func returnToChat() { returnToChatAvailable = false; tab = .chat }
 
+    /// The figure a model asked for ("Figure 4"), prepared from the chat's paper on this device.
+    private func requestedFigures(_ label: String, turn: ChatAnswerTurn) -> (images: [ChatFigureImage], manifest: String)? {
+        guard let reference = turn.paperReference, let bundle = papers.first(where: { $0.sourceMembership == reference })?.readerBundle else { return nil }
+        let images = ChatFigureFinder.images(question: label, selection: nil, bundle: bundle)
+        return images.isEmpty ? nil : (images, bundle.manifestSHA256)
+    }
+
     /// An answer's figure parts as a stored diagram: the parts and where their image is in the paper's bundle.
     private func figurePartsDiagram(_ parts: ChatFigureParts?, generation: ChatGeneration) -> ChatDiagram? {
         guard let parts, let manifest = generation.figureManifest, let image = generation.figures.first(where: { $0.id == parts.figure }) else { return nil }
         let stored = StoredFigureParts(manifestSHA256: manifest, blockID: image.blockID, assetPath: image.assetPath, paragraph: parts.paragraph,
-                                       title: parts.title, parts: parts.parts)
+                                       title: parts.title, parts: parts.parts, assetPaths: image.assetPaths)
         return ChatDiagram(title: parts.title, source: stored.encodedText(), messageID: generation.assistantID, format: ChatDiagram.figurePartsFormat)
     }
 
     /// A figure's image from a paper whose bundle is open on this device (figure parts crop it).
-    func figureImage(manifest: String, path: String) -> CGImage? {
-        guard let bundle = papers.first(where: { $0.readerBundle?.manifestSHA256 == manifest })?.readerBundle, let data = bundle.data(for: path) else { return nil }
-        return ChatFigureFinder.image(data)
+    func figureImage(manifest: String, paths: [String]) -> CGImage? {
+        guard let bundle = papers.first(where: { $0.readerBundle?.manifestSHA256 == manifest })?.readerBundle else { return nil }
+        // Several panels: composed exactly as they were sent, so the parts' boxes land on the same places.
+        let images = paths.compactMap { bundle.data(for: $0).flatMap(ChatFigureFinder.image) }
+        return images.count == paths.count ? ChatFigureFinder.composite(images) : nil
     }
 
     private func openLocalPaperIfNeeded() {
@@ -3364,7 +3373,7 @@ final class ReaderModel {
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?, visual: (title: String, html: String)?
-        var figureParts: ChatFigureParts?
+        var figureParts: ChatFigureParts?, figureRequest: String?
         var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
@@ -3382,6 +3391,7 @@ final class ReaderModel {
                 case .diagram(let title, let source): diagram = (title, source)
                 case .visual(let title, let html): visual = (title, html)
                 case .figureParts(let parts): figureParts = parts
+                case .figureRequest(let label): figureRequest = label
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
@@ -3393,16 +3403,37 @@ final class ReaderModel {
             }
             return true
         }
-        do {
-            guard try await consume(try await transport.chatStream(request, accountID: generation.turn.accountID)) else { return }
-        } catch ChatTransportError.rejected(let code) {
-            outcome = .failed(code: code)
-        } catch BackendError.signInRequired {
-            outcome = .failed(code: "authentication_required")
-        } catch {
-            if !Task.isCancelled { outcome = .failed(code: "transport") }
+        func run(_ request: ChatGenerationRequest) async -> Bool {
+            do {
+                guard try await consume(try await transport.chatStream(request, accountID: generation.turn.accountID)) else { return false }
+            } catch ChatTransportError.rejected(let code) {
+                outcome = .failed(code: code)
+            } catch BackendError.signInRequired {
+                outcome = .failed(code: "authentication_required")
+            } catch {
+                if !Task.isCancelled { outcome = .failed(code: "transport") }
+            }
+            return true
         }
+        // A question sent with a figure says so until the answer starts (owner, 2026-10-15: "Not able to do this").
+        if let label = request.figures.first.flatMap({ ChatFigureFinder.label($0.caption) }) {
+            chatStreamProgress[generation.id] = ChatProgress(kind: .lookingAtFigure, query: label)
+        }
+        guard await run(request) else { return }
         guard ownsGeneration(generation) else { return }
+        var labelled = generation
+        // The model asked for a figure the question is about (none was attached): the same question again, once, with
+        // that figure; the first answer was only the request and is not kept.
+        if let label = figureRequest, request.figures.isEmpty, case .completed? = outcome,
+           let found = requestedFigures(label, turn: generation.turn) {
+            text = ""; diagram = nil; visual = nil; figureParts = nil; followUps = nil; studyMap = nil; outcome = nil; figureRequest = nil
+            bufferAnswer(generation, text: "")
+            chatStreamProgress[generation.id] = ChatProgress(kind: .lookingAtFigure, query: label)
+            let second = request.attaching(found.images)
+            labelled.figures = second.figures; labelled.figureManifest = found.manifest
+            guard await run(second) else { return }
+            guard ownsGeneration(generation) else { return }
+        }
         // A stream that ends without done/error is interrupted, never complete.
         let resolved = outcome ?? (Task.isCancelled || chatGenerations[generation.turn.composerID]?.stopping == true
             ? .cancelled : .failed(code: "transport"))
@@ -3411,7 +3442,6 @@ final class ReaderModel {
             diagram = await checkedDiagram(drawn, generation: generation, transport: transport)
             guard ownsGeneration(generation) else { return }
         }
-        var labelled = generation
         labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
         await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, visual: visual, figureParts: figureParts, title: title, followUps: followUps,
                                study: studyMap, failedCredits: failedCredits)

@@ -485,3 +485,17 @@ test('build 46 headers: a title keeps no line breaks; a logo before the author l
  assert.ok(!/Kensington<\/sup>|, Kensington/.test(runHeader.split('<span')[0]), 'the affiliation is not a name: ' + runHeader);
  assert.match(runHeader, /<span class="reader-notes"><sup>†<\/sup> Corresponding Author<\/span>/, runHeader);
 });
+
+test('picture panels under one caption are one figure, panel captions inside, a panel reference opens it (2610.19525 Figure 1)', () => {
+ const panel = (n: string) => `<figure id="S8.F1.sf${n}" class="ltx_figure ltx_figure_panel"><img src="2601.01234v2/figure.jpg"><figcaption>(${n}) Panel ${n}.</figcaption></figure>`;
+ const text = source.replace('<p id="p1">', `<figure id="S8.F1" class="ltx_figure">${panel('a')}${panel('b')}<figcaption>Figure 1: Two panels in one figure.</figcaption></figure><p id="pref">See <a href="#S8.F1.sfb" class="ltx_ref">1(b)</a>.</p><p id="p1">`);
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const one = checked.index.figures.find(f => /Two panels in one figure/.test(f.caption));
+ assert.ok(one, JSON.stringify(checked.index.figures.map(f => f.caption)));
+ assert.equal(one!.caption, 'Figure 1: Two panels in one figure.');
+ assert.ok(!checked.index.figures.some(f => /^\(a\)|^\(b\)/.test(f.caption)), 'panels are not figures of their own');
+ assert.ok(!checked.index.blocks.some(b => b.kind === 'paragraph' && /^Figure 1:/.test(b.text)), 'the caption is the figure\'s, not a paragraph');
+ const html = new TextDecoder().decode(bundle.members.get('index.html'));
+ assert.match(html, /<p>\(a\) Panel a\.<\/p>/);
+ assert.match(html, new RegExp(`href="#${one!.id}"`), 'a reference to panel (b) opens the figure');
+});

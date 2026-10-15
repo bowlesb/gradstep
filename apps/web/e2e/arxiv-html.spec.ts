@@ -87,4 +87,13 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await expect(whole).toContainText('The left half of the figure.');
  await page.screenshot({path:`../../.artifacts/html-browser-figure-parts-${test.info().project.name}.png`});
  await whole.getByRole('button',{name:'Done'}).click();
+ // A figure question that names no number: the model asks for the figure it means, and the question goes again with it.
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('Break down the most complex figure into its parts');
+ await page.getByRole('button',{name:'Send',exact:true}).click();
+ await expect(page.getByTestId('figure-parts')).toHaveCount(2);
+ const both=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests.slice(2);
+ expect(both.map((r:{figures?:unknown[]})=>r.figures?.length??0)).toEqual([0,1]);
+ expect(both[0].capabilities).toContain('figure_requests');
+ expect(both[1].figures[0].caption).toBe('Figure 1: A test figure.');
+ await expect(page.getByTestId('chat-pane')).not.toContainText('Let me look at Figure 1.');
 });

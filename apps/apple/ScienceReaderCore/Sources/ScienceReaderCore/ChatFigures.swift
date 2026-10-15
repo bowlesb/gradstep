@@ -13,12 +13,16 @@ public struct ChatFigureImage: Equatable, Sendable {
     public let height: Int
     public let blockID: String
     public let assetPath: String
+    /// Every panel's image when the figure has several (sent as one image, stacked; `ChatFigureFinder.composite`).
+    public let assetPaths: [String]
 
-    public init?(id: String, paragraph: Int, caption: String, mediaType: String, data: String, width: Int, height: Int, blockID: String, assetPath: String) {
+    public init?(id: String, paragraph: Int, caption: String, mediaType: String, data: String, width: Int, height: Int, blockID: String, assetPath: String,
+                 assetPaths: [String]? = nil) {
         guard ["F1", "F2", "F3"].contains(id), (1...20_000).contains(paragraph), ["image/jpeg", "image/png"].contains(mediaType),
               data.count >= 16, data.count <= 1_600_000, (8...1_600).contains(width), (8...1_600).contains(height) else { return nil }
         self.id = id; self.paragraph = paragraph; self.caption = String(caption.prefix(1_200)); self.mediaType = mediaType; self.data = data
         self.width = width; self.height = height; self.blockID = blockID; self.assetPath = assetPath
+        self.assetPaths = assetPaths.flatMap { $0.isEmpty ? nil : Array($0.prefix(4)) } ?? [assetPath]
     }
 }
 
@@ -55,9 +59,16 @@ public struct StoredFigureParts: Codable, Equatable, Sendable {
     public let paragraph: Int
     public let title: String
     public let parts: [ChatFigureParts.Part]
+    /// A figure of several panels: all of them, stacked as they were sent (absent for one image; older builds read
+    /// `assetPath` alone).
+    public let assetPaths: [String]?
+    /// The images the parts' boxes refer to, in order.
+    public var paths: [String] { assetPaths.flatMap { $0.isEmpty ? nil : $0 } ?? [assetPath] }
 
-    public init(manifestSHA256: String, blockID: String, assetPath: String, paragraph: Int, title: String, parts: [ChatFigureParts.Part]) {
+    public init(manifestSHA256: String, blockID: String, assetPath: String, paragraph: Int, title: String, parts: [ChatFigureParts.Part],
+                assetPaths: [String]? = nil) {
         self.manifestSHA256 = manifestSHA256; self.blockID = blockID; self.assetPath = assetPath; self.paragraph = paragraph; self.title = title; self.parts = parts
+        self.assetPaths = (assetPaths?.count ?? 0) > 1 ? assetPaths : nil
     }
 
     public func encodedText() -> String {

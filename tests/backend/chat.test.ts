@@ -2032,3 +2032,34 @@ test('show_figure_parts: boxes within the image, tight enough, against an attach
   assert.deepEqual(bare.events.map(e => e.event), ['delta', 'figure_parts', 'done']);
   assert.equal((bare.events[0].data as { text: string }).text, 'Pipeline\n\n1. **Left**: The encoder.\n2. **Right**: The decoder.');
 });
+
+test('look_at_figure: offered to devices that can answer it (consent v3), relayed as figure_request, never with a figure attached', async () => {
+  const { figureLookRequest } = await import('../../supabase/functions/_shared/chat-figures.ts');
+  assert.deepEqual(figureLookRequest({ figure: ' fig. 04 ' }), { figure: 'Figure 4' });
+  assert.deepEqual(figureLookRequest({ figure: 'Table 2' }), { figure: 'Table 2' });
+  for (const bad of [{ figure: 'the architecture' }, { figure: 'Figure' }, { figure: 'Figure 4a' }, {}, null, 'Figure 4']) assert.equal(figureLookRequest(bad), null, JSON.stringify(bad));
+
+  let sent: { tools?: { name: string }[]; system?: { text: string }[] } | null = null;
+  const asks = harness({ generate: async (params, stream) => {
+    sent = params as typeof sent;
+    stream.onText('Let me look at Figure 4.');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'look_at_figure', input: { figure: 'Figure 4' } }] });
+  } });
+  await runChat(asks.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers', 'figure_requests'], follow_ups: true }, asks.emit, new AbortController().signal);
+  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure']);
+  assert.match(sent!.system!.map(b => b.text).join('\n'), /call look_at_figure with its number before writing anything/);
+  assert.deepEqual(asks.events.map(e => e.event), ['delta', 'figure_request', 'done'], 'no suggestions for an answer that asked for a figure');
+  assert.deepEqual(asks.events[1].data, { figure: 'Figure 4' });
+
+  // A build without the capability, or consent v2, is never offered the tool.
+  for (const body of [{ ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers'] }, { ...paperBody(), capabilities: ['visual_answers', 'figure_requests'] }]) {
+    let tools: string[] = [];
+    const h = harness({ generate: async params => { tools = ((params as { tools?: { name: string }[] }).tools ?? []).map(t => t.name); return completeOutcome({}); } });
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+    assert.ok(!tools.includes('look_at_figure'), JSON.stringify(body.capabilities));
+  }
+  // With a figure attached the tool is still offered (the cached tools stay the same) but a call is not relayed.
+  const attached = harness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'look_at_figure', input: { figure: 'Figure 2' } }] }) });
+  await runChat(attached.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers', 'figure_requests'], figures: [figure()] }, attached.emit, new AbortController().signal);
+  assert.ok(!attached.events.some(e => e.event === 'figure_request'));
+});

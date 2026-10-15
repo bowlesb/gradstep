@@ -26,9 +26,10 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages;
  * revision 10: the shared validator's device-pdf extension, which arXiv output never uses; revision 11: the converter
- * split into components, output proven identical apart from the ids this revision hashes), so a device re-prepares
+ * split into components, output proven identical apart from the ids this revision hashes; revision 12: picture panels
+ * under one caption are one figure), so a device re-prepares
  * papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 11;
+export const ARXIV_RENDERER_REVISION = 12;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

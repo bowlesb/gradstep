@@ -1,4 +1,4 @@
-import { decodeStoredFigureParts } from '../lib/chat-figures';
+import { decodeStoredFigureParts, storedPaths } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -166,7 +166,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={m.payload.text ?? ''} label="Copy answer" /></div><Answer text={m.payload.text ?? ''} /></>}
         {m.payload.status === 'interrupted' && <span className="fine interrupted">Answer interrupted</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
-        {diagrams.has(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, path) => chat.figureImage(c.documentID, manifest, path)} />}
+        {diagrams.has(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
         <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
@@ -288,14 +288,14 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
 }
 
 /** An answer's drawing; figure parts first load their figure from this chat's paper on this device. */
-function AnswerDiagram({ diagram, image }: { diagram: { title: string; source: string; format: DiagramFormat }; image: (manifest: string, path: string) => Promise<Blob | null> }) {
+function AnswerDiagram({ diagram, image }: { diagram: { title: string; source: string; format: DiagramFormat }; image: (manifest: string, paths: string[]) => Promise<Blob | null> }) {
   const [figure, setFigure] = useState<Blob | null>(null);
   useEffect(() => {
     if (diagram.format !== 'figure-parts-v1') return;
     const stored = decodeStoredFigureParts(diagram.source);
     if (!stored) return;
     let live = true;
-    void image(stored.manifestSHA256, stored.assetPath).then(blob => { if (live) setFigure(blob); });
+    void image(stored.manifestSHA256, storedPaths(stored)).then(blob => { if (live) setFigure(blob); });
     return () => { live = false; };
     // The image function is recreated each render; the stored parts decide what to load.
     // eslint-disable-next-line react-hooks/exhaustive-deps

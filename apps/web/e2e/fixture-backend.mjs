@@ -465,6 +465,11 @@ createServer(async (request, response) => {
           links: [{ from: 'softmax', to: 'attention', kind: 'prerequisite' }], focus: 'softmax', journey: ['attention', 'softmax'], next: 'teach' } });
       event('done', { stop_reason: 'end_turn', credits: 4 }); return response.end();
     }
+    // A question about a figure with none attached, from a device that can attach one: the model asks for Figure 1.
+    if (!body.figures?.length && (body.capabilities ?? []).includes('figure_requests') && /most complex figure/i.test(body.messages.at(-1)?.text ?? '')) {
+      event('delta', { text: 'Let me look at Figure 1.' }); event('figure_request', { figure: 'Figure 1' });
+      event('done', { stop_reason: 'end_turn', credits: 1 }); return response.end();
+    }
     event('status', { kind: body.action === 'related' ? 'searching' : 'reading', query: body.action === 'related' ? 'DPO related work' : undefined });
     const text = 'The **objective** compares preferences [¶2].\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
     const chunks = text.match(mode === 'steady' ? /[\s\S]/g : /[\s\S]{1,24}/g);

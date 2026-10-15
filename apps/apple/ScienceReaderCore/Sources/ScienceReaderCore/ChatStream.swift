@@ -125,7 +125,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
-            capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers), profile: profile == .standard ? nil : profile,
+            capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers, figureRequests: localContext != nil), profile: profile == .standard ? nil : profile,
             topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest || action == .study ? nil : true,
             study: action == .study ? study ?? .empty : nil,
             figures: figures.isEmpty ? nil : figures.map { Figure(id: $0.id, paragraph: $0.paragraph, caption: $0.caption, media_type: $0.mediaType,
@@ -134,8 +134,17 @@ public struct ChatGenerationRequest: Equatable, Sendable {
 
     /// Always a list: an empty one tells the server the reader turned visual answers off (builds before the setting
     /// sent nothing and still get diagrams).
-    public static func capabilities(action: ChatAction?, visualAnswers: Bool) -> [String] {
+    /// `figureRequests`: the device holds the paper (local context) and can attach a figure the model asks for
+    /// (`figure_request`, 2026-10-15), so the server may offer `look_at_figure`.
+    public static func capabilities(action: ChatAction?, visualAnswers: Bool, figureRequests: Bool = false) -> [String] {
         (action == .ingest ? ["web_import"] : []) + (visualAnswers ? ["visual_answers"] : [])
+            + (visualAnswers && figureRequests && action != .ingest && action != .diagramFix ? ["figure_requests"] : [])
+    }
+
+    /// The same question again with the figures the model asked for (a new operation: the first one is settled).
+    public func attaching(_ figures: [ChatFigureImage]) -> ChatGenerationRequest {
+        ChatGenerationRequest(operationID: UUID(), documentID: documentID, turns: turns, selection: selection, action: action, profile: profile,
+                              topicTitle: topicTitle, localContext: localContext, study: study, visualAnswers: visualAnswers, figures: Array(figures.prefix(3)))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {
@@ -154,6 +163,9 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case visual(title: String, html: String)
     /// Parts of an attached figure, each cropped on the device with its note.
     case figureParts(ChatFigureParts)
+    /// The model asks for a figure of the paper ("Figure 4"): the device asks again with it attached (servers from
+    /// 2026-10-15, offered with the `figure_requests` capability).
+    case figureRequest(String)
     /// What the server is doing between pieces of text (searching, adding a paper).
     case status(ChatProgress)
     /// The conversation's topic title (asked for with `topicTitle`), sent before `done`.
@@ -176,6 +188,8 @@ public struct ChatProgress: Equatable, Sendable {
         case searching, reading, findingPaper = "finding_paper", addingPaper = "adding_paper"
         /// The device's own: a diagram that didn't parse is being redrawn (never sent by the server).
         case fixingDiagram = "fixing_diagram"
+        /// The device's own: the figure the model asked for is attached and the question asked again.
+        case lookingAtFigure = "looking_at_figure"
     }
     public static let maximumQueryCharacters = 200
     public let kind: Kind
@@ -188,7 +202,7 @@ public struct ChatProgress: Equatable, Sendable {
             String(value.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : Character($0) })
                 .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }
-        self.query = kind == .searching ? cleaned.flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumQueryCharacters)) } : nil
+        self.query = kind == .searching || kind == .lookingAtFigure ? cleaned.flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumQueryCharacters)) } : nil
     }
 
     /// One line under the streaming answer.
@@ -199,6 +213,7 @@ public struct ChatProgress: Equatable, Sendable {
         case .findingPaper: "Finding the paper…"
         case .addingPaper: "Adding to your library…"
         case .fixingDiagram: "Fixing the diagram…"
+        case .lookingAtFigure: query.map { "Looking at \($0)…" } ?? "Looking at the figure…"
         }
     }
 }
@@ -288,6 +303,12 @@ public struct ChatSSEParser: Sendable {
             guard let diagram = try? JSONDecoder().decode(Diagram.self, from: payload),
                   ChatDiagram(title: diagram.title, source: diagram.source, messageID: nil) != nil else { throw ChatStreamError.malformed }
             return .diagram(title: diagram.title, source: diagram.source)
+        case "figure_request":
+            // Informational: a request that is not a figure's label is dropped, never fatal.
+            struct Request: Decodable { let figure: String }
+            guard let request = try? JSONDecoder().decode(Request.self, from: payload),
+                  request.figure.range(of: #"^(Figure|Table) [0-9]{1,3}$"#, options: .regularExpression) != nil else { return nil }
+            return .figureRequest(request.figure)
         case "figure_parts":
             // Informational: parts that are not usable are dropped, never fatal.
             guard let parts = try? JSONDecoder().decode(ChatFigureParts.self, from: payload), parts.isValid else { return nil }

@@ -79,6 +79,30 @@ const clean = (value: unknown, limit: number): string | null => {
   return text && [...text].length <= limit ? text : null;
 };
 
+/** The model asks for a figure the question is about when none is attached (owner, 2026-10-15: "break down the most
+ * complex figure" and "Figure 4" asked of a build without figures both got a caption-only answer). The device finds
+ * the figure in its copy of the paper and asks again with it attached; offered only to devices that say they can
+ * (`figure_requests`), under consent v3, so an older build is never left with an unanswered request. */
+export const LOOK_AT_FIGURE_TOOL: Anthropic.Beta.Messages.BetaTool = {
+  name: 'look_at_figure',
+  description: 'Gets the image of one figure or table of this paper from the reader\'s device. Use it when the question is about a '
+    + 'figure or table (named, or one you choose, such as "the most complex figure") and no figure is attached (no F1). Name it as '
+    + 'its caption numbers it: "Figure 4" or "Table 2". Call it first, before writing anything else: the device sends the question '
+    + 'again with that image attached, and you answer then. Never call it when a figure is attached.',
+  input_schema: {
+    type: 'object',
+    properties: { figure: { type: 'string', description: 'The figure or table as its caption numbers it, e.g. "Figure 4" or "Table 2".' } },
+    required: ['figure'],
+  },
+};
+
+/** The look_at_figure input as the device finds it ("Figure 4", "Table 2"), or null. */
+export function figureLookRequest(input: unknown): { figure: string } | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const m = /^\s*(figure|fig\.?|table)\s*(\d{1,3})\s*$/i.exec(String((input as Record<string, unknown>).figure ?? ''));
+  return m ? { figure: `${m[1].toLowerCase().startsWith('tab') ? 'Table' : 'Figure'} ${Number(m[2])}` } : null;
+}
+
 /** Validates the model's show_figure_parts input against the figures that were attached. */
 export function figurePartsRequest(input: unknown, images: readonly FigureImage[]): FigureParts | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
@@ -100,8 +124,12 @@ export function figurePartsRequest(input: unknown, images: readonly FigureImage[
 }
 
 /** After the paper, with the question's figures: read the image itself; break it into parts when that helps. */
-export function figureInstructions(images: readonly FigureImage[], parts: boolean): string | null {
-  if (!images.length) return null;
+export function figureInstructions(images: readonly FigureImage[], parts: boolean, look = false): string | null {
+  if (!images.length) {
+    return look ? 'No figure is attached to this question. When it is about a figure or table of the paper, by its number or by a '
+      + 'description ("the architecture figure", "the most complex figure"), choose it from the captions in the paper and call '
+      + 'look_at_figure with its number before writing anything; you will answer with its image.' : null;
+  }
   return `The reader's question comes with the figure${images.length > 1 ? 's' : ''} it refers to, attached as image${images.length > 1 ? 's' : ''} `
     + `(${images.map(i => i.id).join(', ')}) with ${images.length > 1 ? 'their captions and paragraph numbers' : 'its caption and paragraph number'}. `
     + 'Read the image itself: axes, legends, panels, arrows, labels and values; say what the figure shows, not only what the caption says, and '

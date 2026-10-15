@@ -57,7 +57,8 @@ export function imageFigure(cx: ArxivContext, n: DomNode): OutNode {
       // teaser 0.65 em tall: "the figure is tiny").
       else if (child.name === 'p' && loneImage(child)) parts.push(figureImage(cx, elements(child, c => ['img','object','svg'].includes(c.name))[0], id));
       else if (child.name === 'p') parts.push(el('p', {}, children(child).flatMap(c => inline(cx, c,id))));
-      else if (['div','span','table','thead','tbody','tfoot','tr','td','th'].includes(child.name)) children(child).forEach(visit);
+      // A panel (a nested figure) reads in place: its pictures, then its own caption as a paragraph.
+      else if (['div','span','figure','table','thead','tbody','tfoot','tr','td','th'].includes(child.name)) children(child).forEach(visit);
       else parts.push(...inline(cx, child,id));
     };
     if (['img','object','svg'].includes(n.name)) parts.push(figureImage(cx, n,id));

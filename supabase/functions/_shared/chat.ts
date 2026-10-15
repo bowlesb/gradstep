@@ -13,7 +13,7 @@ import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
-import { figureBlocks, figureImages, figureInstructions, figurePartsRequest, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
+import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -100,7 +100,7 @@ function localPaperContext(input: unknown): LocalPaperContext {
 /** 'web_import' = the app shows web (non-arXiv) library entries; 'visual_answers' = the app draws HTML visuals and
  * Mermaid diagrams and the reader has them on. A request that names no capabilities at all (builds before the
  * setting) still gets diagrams. */
-export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers'] as const;
+export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers', 'figure_requests'] as const;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study';
 const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study'];
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
@@ -407,6 +407,7 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   /** A visual answer (chat-visual.ts), sent once before `done`; builds that predate it ignore unknown events. */
   | { event: 'visual'; data: { title: string; html: string } }
   /** Parts of an attached figure (chat-figures.ts), sent once before `done`. */
+  | { event: 'figure_request'; data: { figure: string } }
   | { event: 'figure_parts'; data: { figure: string; paragraph: number; title: string; parts: { label: string; box: [number, number, number, number]; note: string }[] } }
   /** Progress while the server searches or adds a paper. Builds that predate it ignore unknown events. */
   | { event: 'status'; data: ChatStatus }
@@ -526,11 +527,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
   // A Study turn has its own length (one step, one question); the profile's length would contradict it.
   const offersParts = request.visuals && request.mode === 'paper' && request.action !== 'ingest' && !repair;
-  const trailing = [instructions.action, figureInstructions(request.figures, offersParts), repair || study ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
+  // A device that can answer a figure request (and may send figures: consent v3) is offered look_at_figure with the parts
+  // tool, whether or not this question has a figure, so the tools (part of the cached prefix) stay the same per device.
+  const offersLook = offersParts && request.capabilities.includes('figure_requests') && request.consentVersion === FIGURE_CONSENT_VERSION;
+  const trailing = [instructions.action, figureInstructions(request.figures, offersParts, offersLook), repair || study ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
     model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
-      : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, ...(request.mode === 'paper' ? [SHOW_FIGURE_PARTS_TOOL] : [])] : []),
+      : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, ...(request.mode === 'paper' ? [SHOW_FIGURE_PARTS_TOOL] : []), ...(offersLook ? [LOOK_AT_FIGURE_TOOL] : [])] : []),
         ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const held = balance ? await balance : null;
   const available = held?.ok ? held.value : null;
@@ -646,7 +650,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Follow-up suggestions read the finished answer, so they come after it (bounded; the answer is already on the
   // device). Only a complete, non-refused answer with text gets them; the request is part of this operation too.
   let suggested: FollowUpResult | null = null;
-  if (followUpHold && outcome.status === 'complete' && outcome.stopReason !== 'refusal' && wroteText && !signal.aborted) {
+  // An answer that asked for a figure is not the answer: the device asks again with it, and that one gets suggestions.
+  const asksForFigure = offersLook && !request.figures.length && !!outcome.toolCalls?.some(c => c.name === 'look_at_figure');
+  if (followUpHold && outcome.status === 'complete' && outcome.stopReason !== 'refusal' && wroteText && !asksForFigure && !signal.aborted) {
     const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead });
     suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now);
     if (suggested.outcome.attempts.length) {
@@ -770,6 +776,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         if (!wroteText) emit({ event: 'delta', data: { text: `${parts.title}\n\n${parts.parts.map((p, i) => `${i + 1}. **${p.label}**: ${p.note}`).join('\n')}` } });
         emit({ event: 'figure_parts', data: parts });
       }
+    }
+    // A figure request: the device attaches that figure and asks again (only when none was attached; never twice).
+    const look = offersLook && !request.figures.length ? outcome.toolCalls?.find(c => c.name === 'look_at_figure') : undefined;
+    if (look) {
+      const wanted = figureLookRequest(look.input);
+      deps.log({ event: wanted ? 'chat_figure_request' : 'chat_figure_request_invalid_input', operation_id: request.operationID });
+      if (wanted && !signal.aborted) emit({ event: 'figure_request', data: wanted });
     }
     // Visual: one sanitized HTML fragment, relayed once like a diagram; the device keeps it encrypted (format html-v1).
     const shown = request.action !== 'ingest' && request.action !== 'diagram_fix' && request.visuals ? outcome.toolCalls?.find(c => c.name === 'create_visual') : undefined;
