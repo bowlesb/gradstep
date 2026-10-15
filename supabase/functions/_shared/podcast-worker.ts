@@ -4,7 +4,7 @@
 // retried automatically. Content (paper text, scripts, audio) never enters logs —
 // only ids, digests and counts; staged drafts are kept as bounded server checkpoints.
 import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, FIVE_MINUTE_SHAPE, repairRequest,
-  fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewReport, reviewRequest, scriptCost, scriptDocument,
+  fitsInput, fixtureScript, NORMALIZATION_VERSION, NORMALIZATION_VERSIONS, normalizeText, parseReview, parseScript, requestBytes, reviewReport, reviewRequest, scriptCost, scriptDocument,
   scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds, type CheckReport, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider, type ScriptShape, type CheckedSegment } from './podcast-script.ts';
 import { alignSegments, fitSpeech, fixtureAudio, joinChunks, parseWav, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
@@ -155,7 +155,8 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
   try {
     // The exact pinned text: verified length and digest before any paid call.
     const source = claim.source;
-    if (source.normalization_version !== NORMALIZATION_VERSION || source.bytes > spec.max_source_bytes) throw new Failure('source_too_large', false);
+    // The server's converted text (Mathpix) or the paper's own text from the device (migration 066).
+    if (!NORMALIZATION_VERSIONS.has(source.normalization_version) || source.bytes > spec.max_source_bytes) throw new Failure('source_too_large', false);
     const raw = await deps.storage.download(source.bucket, source.path, source.bytes);
     if (raw.byteLength !== source.bytes || await deps.sha256Hex(raw) !== source.sha256) throw new Failure('source_integrity_failed', false);
     let paper: string;

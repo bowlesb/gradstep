@@ -240,7 +240,8 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(estimate.waitForExistence(timeout: 10))
         XCTAssertTrue(estimate.label.contains("maximum 150 credits"), estimate.label)
         XCTAssertFalse(app.buttons["podcast.generate.quote"].exists, "No separate estimate step")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Anthropic (script) and Google Vertex AI (speech)")).firstMatch.exists)
+        // The default writer's script provider (DeepSeek since 2026-10-14) and the speech provider are named.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "(script) and Google Vertex AI (speech)")).firstMatch.exists)
         let start = app.buttons["podcast.generate.start"]
         XCTAssertTrue(start.isHittable, "Create is pinned at the bottom, not below the fold")
         XCTAssertTrue(start.label.contains("150 credits"))

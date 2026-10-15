@@ -668,3 +668,42 @@ public enum PodcastDuration {
         return formatter.string(from: TimeInterval(seconds)) ?? "\(seconds) seconds"
     }
 }
+
+/// The paper's own text on this device, for a private episode (migration 066): the numbered context the chat sends,
+/// with the library's title and author names. Uploaded once per account and digest; the quote names it by digest.
+public struct PodcastDeviceSource: Equatable, Sendable {
+    public static let format = "paper-context-v2"
+    public let context: LocalPaperChatContext
+    public let title: String
+    public let authors: [String]
+    public init(context: LocalPaperChatContext, title: String, authors: [String]) {
+        self.context = context; self.title = String(title.prefix(500)); self.authors = Array(authors.prefix(20).map { String($0.prefix(200)) })
+    }
+    /// What the quote names once the text is stored: identity and digest, never the text.
+    public func descriptor(textSHA256: String) -> PodcastDeviceDescriptor {
+        PodcastDeviceDescriptor(sourceID: context.sourceID, revision: context.revision, manifestSHA256: context.manifestSHA256,
+                                textSHA256: textSHA256, title: title.isEmpty ? nil : title, authors: authors)
+    }
+}
+
+/// The quote's `device_source`: the paper's identity and the stored text's digest.
+public struct PodcastDeviceDescriptor: Equatable, Sendable {
+    public let source = "arxiv"
+    public let sourceID: String
+    public let revision: Int
+    public let manifestSHA256: String
+    public let textSHA256: String
+    public let title: String?
+    public let authors: [String]
+    public init(sourceID: String, revision: Int, manifestSHA256: String, textSHA256: String, title: String?, authors: [String]) {
+        self.sourceID = sourceID; self.revision = revision; self.manifestSHA256 = manifestSHA256; self.textSHA256 = textSHA256
+        self.title = title; self.authors = authors
+    }
+    /// The wire object (sorted keys when serialized).
+    public var body: [String: Any] {
+        var value: [String: Any] = ["source": source, "source_id": sourceID, "revision": revision, "manifest_sha256": manifestSHA256,
+                                    "text_sha256": textSHA256, "authors": authors]
+        if let title { value["title"] = title }
+        return value
+    }
+}

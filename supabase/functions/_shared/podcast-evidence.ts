@@ -15,7 +15,7 @@ export const SPAN_MIN_CANONICAL = 8, SPAN_MAX_CHARS = 600;
 const MATH_ONLY_LETTERS = 8;
 
 export type EvidenceDrop = 'too_short' | 'too_long' | 'math_only' | 'not_found';
-export type EvidenceRepair = 'math' | 'escapes' | 'citations' | 'ellipsis' | 'page_split' | 'formatting' | 'spoken_markup';
+export type EvidenceRepair = 'math' | 'escapes' | 'citations' | 'ellipsis' | 'page_split' | 'formatting' | 'spoken_markup' | 'paragraph_marker';
 
 const GREEK: Record<string, string> = {
   α: 'alpha', β: 'beta', γ: 'gamma', δ: 'delta', ε: 'epsilon', ϵ: 'epsilon', ζ: 'zeta', η: 'eta', θ: 'theta', ϑ: 'theta', ι: 'iota',

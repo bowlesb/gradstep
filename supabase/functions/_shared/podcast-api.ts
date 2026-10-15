@@ -10,6 +10,8 @@ export interface PodcastAPIDeps {
   service<T>(name: string, params: Record<string, unknown>): Promise<T>;
   /** One bounded Storage read of a trusted object. */
   download(bucket: string, path: string, maximum: number): Promise<Uint8Array>;
+  /** Stores a device's paper text for a private episode (migration 066); replaces an object at the same path. */
+  upload(bucket: string, path: string, bytes: Uint8Array, mediaType: string): Promise<void>;
   /** The Supabase origin used for single-use member URLs. */
   origin: string;
   randomHex(bytes: number): string;
@@ -31,11 +33,11 @@ export function podcastError(message: string): PublicError {
   return new PublicError(known ? STATUS[message] : 503, known ? message : 'service_unavailable');
 }
 
-async function body(request: Request): Promise<Record<string, unknown>> {
+async function body(request: Request, limit = 8192): Promise<Record<string, unknown>> {
   const declared = request.headers.get('content-length');
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > 8192)) throw new PublicError(413, 'invalid_podcast_request');
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) throw new PublicError(413, 'invalid_podcast_request');
   const text = await request.text();
-  if (text.length > 8192) throw new PublicError(413, 'invalid_podcast_request');
+  if (text.length > limit) throw new PublicError(413, 'invalid_podcast_request');
   try {
     const value = JSON.parse(text) as unknown;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
@@ -53,7 +55,7 @@ interface Transcript { format: number; speakers: unknown; disclosure: unknown; t
 
 export async function handlePodcast(request: Request, deps: PodcastAPIDeps, headers: Record<string, string>): Promise<Response> {
   const url = new URL(request.url), action = url.searchParams.get('action') ?? '';
-  const reads = new Set(['catalog', 'episode', 'paper', 'status']), writes = new Set(['quote', 'start', 'cancel', 'download', 'states']);
+  const reads = new Set(['catalog', 'episode', 'paper', 'status']), writes = new Set(['source', 'quote', 'start', 'cancel', 'download', 'states']);
   if (!(reads.has(action) && request.method === 'GET') && !(writes.has(action) && request.method === 'POST')) throw new PublicError(405, 'method_unavailable');
   const session = await deps.user(request);
   switch (action) {
@@ -66,6 +68,20 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
       return json(await session.rpc('v1_podcast_paper', { p_item_id: uuid(url.searchParams.get('item_id')) }), headers);
     case 'status':
       return json(await session.rpc('v1_podcast_status', { p_request_id: uuid(url.searchParams.get('request_id')) }), headers);
+    case 'source': {
+      // The paper's own text from the device (PAPER_CONTEXT_FORMAT v2), stored once per account and digest; the quote
+      // then names it by digest. At most the longest length's source bound; nothing is stored for a bad request.
+      const b = await body(request, 450_000);
+      if (b.format !== 'paper-context-v2' || typeof b.text !== 'string' || !b.text.trim()) throw new PublicError(400, 'invalid_podcast_request');
+      const bytes = new TextEncoder().encode(b.text);
+      if (bytes.byteLength > 409_600) throw new PublicError(413, 'source_too_large');
+      const digest = await sha256(bytes);
+      const path = `podcast-sources/${session.accountID}/${digest}.txt`;
+      await deps.upload('private-content', path, bytes, 'text/plain');
+      const registered = await deps.service<{ bytes?: unknown }>('worker_podcast_source_register', { p_account: session.accountID, p_sha256: digest, p_bytes: bytes.byteLength });
+      if (registered?.bytes !== bytes.byteLength) throw new PublicError(503, 'service_unavailable');
+      return json({ source: { text_sha256: digest, bytes: bytes.byteLength, format: 'paper-context-v2' } }, headers);
+    }
     case 'quote': {
       const b = await body(request);
       // A length (podcast-short-v1, podcast-5min-v1, podcast-10min-v1, podcast-20min-v1); omitted means five minutes.
@@ -76,8 +92,24 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
       if (b.writer !== undefined && b.writer !== null && (typeof b.writer !== 'string' || !/^[a-z][a-z0-9_-]{1,31}$/.test(b.writer))) {
         throw new PublicError(400, 'podcast_writer_unavailable');
       }
+      // A device source (migration 066): the paper's identity and the digest of the text stored by `source`.
+      let device: Record<string, unknown> | undefined;
+      if (b.device_source !== undefined && b.device_source !== null) {
+        const d = b.device_source as Record<string, unknown>;
+        if (!d || typeof d !== 'object' || Array.isArray(d) || d.source !== 'arxiv' || typeof d.source_id !== 'string' || d.source_id.length > 64
+          || !Number.isInteger(d.revision) || (d.revision as number) < 1 || (d.revision as number) > 999
+          || typeof d.manifest_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(d.manifest_sha256)
+          || typeof d.text_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(d.text_sha256)
+          || (d.title !== undefined && (typeof d.title !== 'string' || d.title.length > 500))
+          || (d.authors !== undefined && (!Array.isArray(d.authors) || d.authors.length > 20 || !d.authors.every(a => typeof a === 'string' && a.length <= 200)))) {
+          throw new PublicError(400, 'invalid_podcast_request');
+        }
+        device = { source: 'arxiv', source_id: d.source_id, revision: d.revision, manifest_sha256: d.manifest_sha256, text_sha256: d.text_sha256,
+          ...(typeof d.title === 'string' ? { title: d.title } : {}), ...(Array.isArray(d.authors) ? { authors: d.authors } : {}) };
+      }
       return json(await session.rpc('v1_podcast_quote', { p_item_id: uuid(String(b.item_id ?? '')), p_request_id: uuid(String(b.request_id ?? '')),
-        ...(typeof b.profile === 'string' ? { p_profile: b.profile } : {}), ...(typeof b.writer === 'string' ? { p_writer: b.writer } : {}) }), headers);
+        ...(typeof b.profile === 'string' ? { p_profile: b.profile } : {}), ...(typeof b.writer === 'string' ? { p_writer: b.writer } : {}),
+        ...(device ? { p_device: device } : {}) }), headers);
     }
     case 'start': {
       const b = await body(request);

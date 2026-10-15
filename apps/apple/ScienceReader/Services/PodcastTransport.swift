@@ -9,14 +9,24 @@ protocol PodcastTransport: Sendable {
     func catalog(after: String?, limit: Int) async throws -> PodcastCatalogPage
     func episode(_ releaseID: UUID) async throws -> PodcastEpisode
     func paper(itemID: UUID) async throws -> PodcastPaperLookup
-    /// `profile` names a length (`podcast-10min-v1`); nil asks for the default (five minutes).
-    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?) async throws -> PodcastQuoteOutcome
+    /// `profile` names a length (`podcast-10min-v1`); nil asks for the default (five minutes). `device` names the
+    /// paper's own text stored by `uploadSource` (migration 066) for a paper the server has no converted text for.
+    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?, device: PodcastDeviceDescriptor?) async throws -> PodcastQuoteOutcome
+    /// Stores the paper's own text for a private episode; returns its digest (the same text stores once).
+    func uploadSource(_ source: PodcastDeviceSource) async throws -> String
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome
     func status(requestID: UUID) async throws -> PodcastJobOutcome
     func cancel(requestID: UUID) async throws -> PodcastJobOutcome
     func download(_ releaseID: UUID) async throws -> PodcastGrant
     func states(_ releaseIDs: [UUID]) async throws -> [UUID: PodcastReleaseStatus]
     func member(_ member: PodcastMember, progress: @escaping @Sendable (Int) -> Void) async throws -> Data
+}
+
+extension PodcastTransport {
+    /// A server-converted paper (no device text).
+    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?) async throws -> PodcastQuoteOutcome {
+        try await quote(itemID: itemID, requestID: requestID, profile: profile, writer: writer, device: nil)
+    }
 }
 
 /// The signed-in account's podcast service, bound to that account: a later account's session can't use it.
@@ -49,11 +59,18 @@ struct BackendPodcastTransport: PodcastTransport {
     func paper(itemID: UUID) async throws -> PodcastPaperLookup {
         try await get("action=paper&item_id=\(itemID.wire)", PodcastPaperLookup.self)
     }
-    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?) async throws -> PodcastQuoteOutcome {
+    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?, device: PodcastDeviceDescriptor?) async throws -> PodcastQuoteOutcome {
         var body: [String: Any] = ["item_id": itemID.wire, "request_id": requestID.wire]
         if let profile { body["profile"] = profile }
         if let writer { body["writer"] = writer }
+        if let device { body["device_source"] = device.body }
         return try await post("quote", body, PodcastQuoteOutcome.self)
+    }
+    private struct SourceBody: Decodable { let source: Stored; struct Stored: Decodable { let text_sha256: String; let bytes: Int } }
+    func uploadSource(_ source: PodcastDeviceSource) async throws -> String {
+        let stored = try await post("source", ["format": PodcastDeviceSource.format, "text": source.context.text], SourceBody.self).source
+        guard stored.text_sha256.count == 64, stored.text_sha256.allSatisfy({ $0.isHexDigit }), stored.bytes == source.context.text.utf8.count else { throw ReaderError.corruptData }
+        return stored.text_sha256
     }
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
         try await post("start", ["quote_id": quoteID.wire, "request_id": requestID.wire, "consent_version": consentVersion], PodcastJobOutcome.self)

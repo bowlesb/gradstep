@@ -1474,7 +1474,7 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
   the eight generation and docked-player journeys pass there) — unchanged from before this work, and why those journeys
   are recorded on the iPhone. A Debug Mac Catalyst `build` compiles with 0 errors; the Mac app was not launched.
 
-### Episodes from the paper on this device (design 2026-10-14 night; migration 066)
+### Episodes from the paper on this device (migration 066; designed and built 2026-10-14 night)
 
 Owner (TestFlight, build 35): "we should have stopped storing PDFs at all on the server is that not the case? And the
 message is also very off putting". The server keeps no PDFs (HTML-first cutover, 2026-10-13); Listen could still only
@@ -1524,6 +1524,28 @@ on both surfaces), uploaded with the quote. Shared catalog episodes are unchange
   the rest of the flow (lengths, writer, consent, progress, play, download) is unchanged. Papers neither converted
   on the server nor prepared on this device keep the refusal copy ("open the paper first").
 - **Costs.** Unchanged per episode; the text object is small (≤ 400 KB) and counted in the account's private storage.
+
+**As built.** `podcast?action=source` (POST, JSON `{format:'paper-context-v2', text}`, body ≤ 450 KB, text ≤ 409,600
+bytes) stores the text with the service role at `private-content/podcast-sources/<account>/<sha256>.txt` (upsert) and
+registers it through `worker_podcast_source_register(p_account, p_sha256, p_bytes)` (service role; 64 MB per account,
+2 GB overall; a second registration of the same digest is the same object); the response is `{source:{text_sha256,
+bytes, format}}`. `podcast?action=quote` takes `device_source` = `{source:'arxiv', source_id, revision,
+manifest_sha256, text_sha256, title?, authors?}` beside `item_id` (the membership id); the function validates the
+shape and passes it as `p_device` to `v1_podcast_quote(p_item_id, p_request_id, p_profile, p_writer, p_device)`
+(the four-argument overload is dropped; the function is the only caller). The pin, work key (its existing
+`text_sha256` + `normalization_version` tuple; Mathpix keys unchanged), `podcast_device_sources`, the start, the claim
+(`source.document_id` = membership id, `metadata` from the device row), `v1_podcast_paper(membership id)` and
+`podcast_episode_public` (`document_id` = membership id, `source` from the device row) are in migration 066. The
+worker accepts `gradstep-paper-context-v2` beside the Mathpix version (`NORMALIZATION_VERSIONS`), the writer is told
+paragraph markers are not words, and the checker strips a leading marker from a quote (`paragraph_marker` repair).
+Native: `PodcastCenter.deviceSource(for:)` builds `PodcastDeviceSource` from the membership and verified bundle when
+the library has no server item; `requestQuote` uploads once per generation (`deviceTextSHA256`) and quotes with
+`PodcastDeviceDescriptor`. Browser: `PaperListen` takes a `deviceSource` provider (App.tsx builds it from the reader
+cache or a fresh preparation plus `localChatContext`); `estimate()` uploads once and quotes with the descriptor.
+Tests: `tests/database/podcast_device_sources.sql` (register, pin, quote, start, lookup, claim, refusals),
+`tests/backend/podcast.test.ts` (the `source` action and the quote descriptor; marker stripping), native
+`PodcastTransportTests/testDeviceSourceIsStoredThenNamedByTheQuote`. Deployment is recorded in
+IMPLEMENTATION_STATUS.md.
 
 ### Script repair: one bounded second draft (migration 062, worker; 2026-10-14)
 

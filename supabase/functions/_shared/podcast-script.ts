@@ -18,6 +18,9 @@ export const SCRIPT_MODEL = 'claude-sonnet-5-5';
  */
 export const CHECKER_VERSION = 'podcast-checker-v5';
 export const NORMALIZATION_VERSION = 'mathpix-standalone-mmd-v1';
+/** Texts the worker accepts: the server's Mathpix conversion, or the paper's own numbered text from the device
+ * (`PAPER_CONTEXT_FORMAT` v2, migration 066). */
+export const NORMALIZATION_VERSIONS: ReadonlySet<string> = new Set([NORMALIZATION_VERSION, 'gradstep-paper-context-v2']);
 /** The checker's default spoken-text bound; the five-minute prompt asks for less so its single speech call fits (FIVE_MINUTE_SHAPE). */
 export const MAX_SPOKEN_CHARACTERS = 6_000;
 export const SPEAKERS = { explainer: 'Host 1 · explainer', skeptic: 'Host 2 · skeptical reader' } as const;
@@ -144,7 +147,8 @@ export function scriptInstructions(shape: ScriptShape = FIVE_MINUTE_SHAPE, maxSp
 }
 
 /** How to quote and how to speak numbers; shared by the draft and the review so both apply the checker's rules. */
-const QUOTING_RULES = `- Each evidence quote is copied character for character from one paragraph of the paper text: a single contiguous span of 12 to 300 characters, ideally the whole sentence that states the number or claim. Keep inline math, symbols and citation markers inside the span exactly as written, or end the span before them. Never use an ellipsis, never join two passages, never correct or reword the text, and never quote a heading, a table row or a formula on its own. section is the section heading or number the quote comes from, or an empty string.
+const QUOTING_RULES = `- Paragraph markers such as ¶12 at the start of a paragraph are numbering, not the paper's words: never quote or speak them.
+- Each evidence quote is copied character for character from one paragraph of the paper text: a single contiguous span of 12 to 300 characters, ideally the whole sentence that states the number or claim. Keep inline math, symbols and citation markers inside the span exactly as written, or end the span before them. Never use an ellipsis, never join two passages, never correct or reword the text, and never quote a heading, a table row or a formula on its own. section is the section heading or number the quote comes from, or an empty string.
 - Every number spoken in a segment must appear in that segment's own evidence quotes, written with the same digits (0.72 as 0.72, 32,768 as 32,768). If the sentence that states a number is not among the segment's quotes, quote it too or leave the number out. Never compute new numbers such as differences, ratios or rounded values, and say counts the paper writes in words (four rounds) in words.
 - Model, dataset and benchmark names may be written exactly as the paper writes them (for example Qwen3-4B or GSM8K) in any segment. Apart from such names, a segment without evidence contains no digits: do not mention section, figure, table or equation numbers.`;
 
@@ -591,6 +595,8 @@ const MARKUP = (text: string) => /[<>]/.test(text.replace(/<short pause>/g, ''))
  * writes Markdown emphasis, backticks and inline math wrappers; four turns of the owner's first episode were cut for
  * it). Emphasis, code spans, a leading speaker label and `\(…\)` / `$…$` wrappers around plain words come off; a
  * backslash command, braces or an angle bracket that remain still mark the turn as unreadable. */
+/** The device text numbers paragraphs ("¶12 "); a quote that starts with one loses it (migration 066). */
+export function stripParagraphMarker(quote: string): string { return quote.replace(/^\s*¶\s?\d{1,5}\s*/u, ''); }
 export function stripSpokenMarkup(text: string): string {
   let out = text;
   out = out.replace(/^(host|speaker|explainer|skeptic)\s*\d*\s*:\s*/i, '');
@@ -688,7 +694,10 @@ export function checkScript(script: Script, paperText: string, options: { fixtur
     s.evidence.forEach((e, item) => {
       if (item >= 3) { evidenceCounts.excess++; return; }
       evidenceCounts.checked++;
-      const result = verifyQuote(index, e.quote);
+      // A paragraph marker (¶12, the device text's numbering) is never part of the paper's words.
+      const quote = stripParagraphMarker(e.quote);
+      if (quote !== e.quote) bump(repaired, 'paragraph_marker');
+      const result = verifyQuote(index, quote);
       if (!result.ok) {
         evidenceCounts.unverified++; bump(unverified, result.reason);
         items.push({ segment: label(s.id), item, reason: result.reason, ...result.diagnostic });

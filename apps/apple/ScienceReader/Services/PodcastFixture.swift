@@ -77,7 +77,8 @@ actor PodcastFixtureTransport: PodcastTransport {
         return [PodcastWriter(writer: "deepseek", label: "DeepSeek V4 Pro", maxCredits: deepseek, consentVersion: "podcast-private-v2"),
                 PodcastWriter(writer: "anthropic", label: "Claude Sonnet 5.5", maxCredits: sonnet, consentVersion: "podcast-private-v1")]
     }
-    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?) async throws -> PodcastQuoteOutcome {
+    func uploadSource(_ source: PodcastDeviceSource) async throws -> String { String(repeating: "d", count: 64) }
+    func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?, device: PodcastDeviceDescriptor?) async throws -> PodcastQuoteOutcome {
         if outcomePending { throw BackendError.rejected("podcast_outcome_pending") }
         guard let length = Self.length(profile) else { throw BackendError.rejected("podcast_profile_unavailable") }
         // Each length is its own episode: only the same length is reused.

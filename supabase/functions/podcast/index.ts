@@ -26,6 +26,10 @@ Deno.serve(async request => {
       },
       service: (name, params) => call(service, name, params),
       download: (bucket, path, maximum) => boundedStorageDownload(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, bucket, path, maximum),
+      upload: async (bucket, path, bytes, mediaType) => {
+        const { error } = await service.storage.from(bucket).upload(path, bytes, { contentType: mediaType, upsert: true });
+        if (error) throw new PublicError(503, 'service_unavailable');
+      },
       origin: Deno.env.get('SUPABASE_URL')!,
       randomHex: bytes => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), b => b.toString(16).padStart(2, '0')).join(''),
     }, headers);

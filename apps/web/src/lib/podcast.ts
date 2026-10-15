@@ -258,10 +258,20 @@ export async function podcastPaper(account: string, itemID: string, signal?: Abo
   if (!isUUID(itemID)) throw new BackendError('invalid_request');
   return decodePaper(await functionGet(`podcast?action=paper&item_id=${itemID}`, { account, signal, maximum: 65_536 }));
 }
-export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal, writer?: string): Promise<QuoteResult> {
+/** A paper's own text on this device, for a private episode (migration 066): stored once per account and digest. */
+export interface DeviceSourceText { format: 'paper-context-v2'; text: string }
+/** What the quote names: the paper's identity and the stored text's digest, never the text. */
+export interface DeviceSourceDescriptor { source: 'arxiv'; source_id: string; revision: number; manifest_sha256: string; text_sha256: string; title?: string; authors?: string[] }
+export async function podcastUploadSource(account: string, source: DeviceSourceText, signal?: AbortSignal): Promise<{ textSHA256: string; bytes: number }> {
+  if (source.format !== 'paper-context-v2' || !source.text.trim() || new TextEncoder().encode(source.text).byteLength > 409_600) throw new BackendError('source_too_large');
+  const v = await functionPost<{ source?: { text_sha256?: unknown; bytes?: unknown } }>('podcast?action=source', source, { account, signal, maximum: 16_384 });
+  if (!v?.source || typeof v.source.text_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(v.source.text_sha256) || typeof v.source.bytes !== 'number') throw new BackendError('invalid_response');
+  return { textSHA256: v.source.text_sha256, bytes: v.source.bytes };
+}
+export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal, writer?: string, device?: DeviceSourceDescriptor): Promise<QuoteResult> {
   if (!isUUID(itemID) || !isUUID(requestID)) throw new BackendError('invalid_request');
   if (writer !== undefined && !/^[a-z][a-z0-9_-]{1,31}$/.test(writer)) throw new BackendError('invalid_request');
-  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID, ...(writer ? { writer } : {}) }, { account, signal, maximum: 16_384 }));
+  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID, ...(writer ? { writer } : {}), ...(device ? { device_source: device } : {}) }, { account, signal, maximum: 16_384 }));
 }
 /** Start and status can reuse an episode that became ready after quoting (046), with no job or new hold. */
 export type RequestResult = { kind: 'job'; job: Job } | { kind: 'reuse'; releaseID: string };

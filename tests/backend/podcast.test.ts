@@ -9,7 +9,7 @@ import { PassThrough } from 'node:stream';
 import { writeFileSync } from 'node:fs';
 import { applyCorrections, checkScript, stripSpokenMarkup, SCRIPT_INSTRUCTIONS, correctionLimit, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript, parseReview, parseScript, rejectPolicy, requestBytes, REVIEW_SCHEMA,
   reviewRequest, scriptCost, scriptDocument, type CheckReport, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
-  type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
+  type ScriptProvider, stripParagraphMarker } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
   vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { podcastAudioBounds, podcastCheckerBounds, runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
@@ -1244,7 +1244,7 @@ function api(overrides: Partial<PodcastAPIDeps> = {}, transcript?: Uint8Array) {
         transcript: { bucket: 'podcast-assets', path: `shared/${'a'.repeat(64)}/transcript.json`, sha256: sha(doc), bytes: doc.byteLength } } as T;
       return { grant_id: 'g', expires_at: 'soon', members: [{ role: 'audio', id: '46000000-0000-4000-8000-0000000000cc', bytes: 10, sha256: 'a'.repeat(64), media_type: 'audio/mp4' }] } as T;
     },
-    download: async () => doc, origin: 'https://project.supabase.co/', randomHex: () => 'f'.repeat(64), ...overrides,
+    download: async () => doc, upload: async () => {}, origin: 'https://project.supabase.co/', randomHex: () => 'f'.repeat(64), ...overrides,
   };
   return { deps, calls };
 }
@@ -1417,4 +1417,36 @@ test('a removed opening turn is repaired before the episode is spoken, or refuse
   const refused = harness({ scripts: [headless, ACCEPT] });
   assert.equal((await runPodcast(refused.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected', 'no repair call: never spoken mid-thought');
   assert.ok(!refused.names().includes('worker_podcast_speech_begin'));
+});
+
+test('device sources (066): the text is stored once by digest and the quote names it; bad descriptors never reach the database', async () => {
+  const uploads: { bucket: string; path: string; bytes: number; mediaType: string }[] = [];
+  const h = api({ upload: async (bucket, path, bytes, mediaType) => { uploads.push({ bucket, path, bytes: bytes.byteLength, mediaType }); } });
+  const text = '¶1 A paper read on this device.\n\n¶2 Its second paragraph.';
+  const stored = await handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'paper-context-v2', text }) }), {
+    ...h.deps, service: async <T,>(name: string, params: Record<string, unknown>) => { h.calls.push({ kind: 'service', name, params }); return { bytes: params.p_bytes } as T; } }, headers);
+  const body = await stored.json() as { source: { text_sha256: string; bytes: number; format: string } };
+  const digest = sha(new TextEncoder().encode(text));
+  assert.deepEqual(body, { source: { text_sha256: digest, bytes: new TextEncoder().encode(text).byteLength, format: 'paper-context-v2' } });
+  assert.deepEqual(uploads, [{ bucket: 'private-content', path: `podcast-sources/${ACCOUNT}/${digest}.txt`, bytes: body.source.bytes, mediaType: 'text/plain' }]);
+  const register = h.calls.find(c => c.name === 'worker_podcast_source_register');
+  assert.deepEqual(register?.params, { p_account: ACCOUNT, p_sha256: digest, p_bytes: body.source.bytes });
+  // The quote carries the descriptor (identity and digest), never the text.
+  const device = { source: 'arxiv', source_id: '2610.16334', revision: 1, manifest_sha256: 'b'.repeat(64), text_sha256: digest, title: 'Toward Study', authors: ['Gayoung Kim'] };
+  await handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'podcast-5min-v1', device_source: device }) }), h.deps, headers);
+  const quote = h.calls.filter(c => c.name === 'v1_podcast_quote').at(-1);
+  assert.deepEqual(quote?.params, { p_item_id: RELEASE, p_request_id: ACCOUNT, p_profile: 'podcast-5min-v1', p_device: device });
+  // Wrong shapes are refused before any RPC; an oversized text never stores.
+  for (const bad of [{ ...device, source: 'web' }, { ...device, revision: 0 }, { ...device, text_sha256: 'x' }, { ...device, authors: ['a'.repeat(201)] }]) {
+    await assert.rejects(handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, device_source: bad }) }), h.deps, headers), /invalid_podcast_request/);
+  }
+  await assert.rejects(handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'paper-context-v2', text: 'x'.repeat(409_601) }) }), h.deps, headers), /source_too_large/);
+  await assert.rejects(handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'mmd', text: 'x' }) }), h.deps, headers), /invalid_podcast_request/);
+  assert.equal(uploads.length, 1);
+});
+
+test('checker strips a paragraph marker from an evidence quote before verifying it (device text)', () => {
+  assert.equal(stripParagraphMarker('¶12 The reward only supervises the final answer.'), 'The reward only supervises the final answer.');
+  assert.equal(stripParagraphMarker(' ¶3The reward'), 'The reward');
+  assert.equal(stripParagraphMarker('The reward ¶12 stays'), 'The reward ¶12 stays');
 });

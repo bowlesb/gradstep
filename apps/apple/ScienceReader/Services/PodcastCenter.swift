@@ -63,6 +63,10 @@ struct PodcastGeneration: Identifiable, Equatable {
     /// the same request, never a second quote or charge.
     var quoteRequestIDs: [String: UUID] = [:]
     var startRequestIDs: [UUID: UUID] = [:]
+    /// The paper's own text on this device when the server has no converted text for it (migration 066), and the
+    /// digest the server gave it once stored (the quote names the text by digest).
+    var deviceSource: PodcastDeviceSource?
+    var deviceTextSHA256: String?
 
     init(paperTitle: String, itemID: UUID, documentID: UUID, phase: Phase, capabilities: PodcastCapabilities?,
          ready: [PodcastEpisode] = [], selected: String? = nil) {
@@ -252,6 +256,12 @@ final class PodcastCenter {
     /// through the HTML reader has none, which is not the same as being outside the synced library.
     /// Owner (build 35): the earlier wording ("a server copy of the paper") read as if PDFs were kept on the server
     /// (they are not; the server keeps only the text it converted for older papers) and was off-putting.
+    /// The paper's own text for a private episode: a paper read on this device (a membership with its verified bundle).
+    static func deviceSource(for paper: Paper) -> PodcastDeviceSource? {
+        guard let membership = paper.sourceMembership, let bundle = paper.readerBundle,
+              let context = try? LocalPaperChatContext(reference: membership, bundle: bundle) else { return nil }
+        return PodcastDeviceSource(context: context, title: paper.title, authors: paper.authorNames)
+    }
     static func noEpisodeSource(for paper: Paper) -> String {
         if paper.sourceMembership != nil {
             return "Episodes can’t be made for this paper yet. Listening still works from the text the server converted for older papers; making episodes from the paper on this device is being built."
@@ -588,14 +598,18 @@ final class PodcastCenter {
         Task {
             guard let account = await currentAccount() else { notice = "Sign in to listen to paper episodes."; return }
             let itemID: UUID
+            // A paper read on this device: its membership id names it, and its own text makes the episode (066).
+            var deviceSource: PodcastDeviceSource?
             #if DEBUG && FIXTURE_HOST
-            if PodcastFixtureTransport.isEnabled { itemID = paper.id } else {
-                guard let found = host?.podcastItemID(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
-                itemID = found
+            if PodcastFixtureTransport.isEnabled { itemID = paper.id } else if let found = host?.podcastItemID(for: paper) { itemID = found } else {
+                guard let source = Self.deviceSource(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
+                itemID = UUID(uuidString: source.context.membershipID) ?? paper.id; deviceSource = source
             }
             #else
-            guard let found = host?.podcastItemID(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
-            itemID = found
+            if let found = host?.podcastItemID(for: paper) { itemID = found } else {
+                guard let source = Self.deviceSource(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
+                itemID = UUID(uuidString: source.context.membershipID) ?? paper.id; deviceSource = source
+            }
             #endif
             do {
                 let lookup = try await account.transport.paper(itemID: itemID)
@@ -607,10 +621,12 @@ final class PodcastCenter {
                 } else if let job = lookup.job, job.state.isActive {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .running(job),
                                                    capabilities: lookup.capabilities ?? capabilities, ready: ready, selected: job.profile)
+                    generation?.deviceSource = deviceSource
                     poll(job.requestID)
                 } else if lookup.capabilities?.generation == true {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer,
                                                    capabilities: lookup.capabilities, ready: ready)
+                    generation?.deviceSource = deviceSource
                     // One confirm step: the chosen length's estimate is fetched at once (a quote holds nothing).
                     quoteIfWanted()
                 } else if choosingLength, let episode = lookup.episode, !episode.state.blocksPlayback {
@@ -637,7 +653,18 @@ final class PodcastCenter {
         generation = current
         Task {
             do {
-                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile, writer: writer)
+                // The device's text is stored once (the server keeps one copy per digest); every quote names that digest.
+                var device: PodcastDeviceDescriptor?
+                if let source = current.deviceSource {
+                    let digest: String
+                    if let known = current.deviceTextSHA256 { digest = known } else {
+                        digest = try await account.transport.uploadSource(source)
+                        guard generation?.id == current.id else { return }
+                        generation?.deviceTextSHA256 = digest
+                    }
+                    device = source.descriptor(textSHA256: digest)
+                }
+                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile, writer: writer, device: device)
                 guard generation?.id == current.id, generation?.selected == profile, generation?.selectedWriter == writer else { return }
                 switch outcome {
                 case .quote(let quote): generation?.phase = .quoted(quote)

@@ -5,7 +5,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { authorLine } from '../lib/authors';
 import { auth, BackendError } from '../lib/backend';
-import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult } from '../lib/podcast';
+import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult, podcastUploadSource, type DeviceSourceText, type DeviceSourceDescriptor } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
 import { Dialog } from './common';
@@ -466,7 +466,9 @@ function generationMessage(error: unknown) {
 }
 
 /** Mount beside a synced paper's existing toolbar actions. No quote or paid start happens on mount/open. */
-export function PaperListen({ account, itemID, title, player, onBrowseShared }: { account: string; itemID: string; title: string; player: PlayerModel; onBrowseShared?: () => void }) {
+/** The paper's own text on this device, built on demand (a verified bundle's numbered context) for a private episode. */
+export type DeviceSourceProvider = (signal: AbortSignal) => Promise<{ text: DeviceSourceText; identity: Omit<DeviceSourceDescriptor, 'text_sha256'> } | null>;
+export function PaperListen({ account, itemID, title, player, onBrowseShared, deviceSource }: { account: string; itemID: string; title: string; player: PlayerModel; onBrowseShared?: () => void; deviceSource?: DeviceSourceProvider }) {
   const owner = useAccountOwner(account);
   const tracking = useMemo(() => new PodcastRequests(account, owner), [account, owner]);
   const [shown, setShown] = useState(false);
@@ -550,12 +552,24 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared }: 
     } catch (e) { if (live(c)) { if (!retained && featureUnavailable(e)) setUnavailable(true); else if (isSourceTooLarge(e)) { setSourceTooLarge(true); setIssue(null); } else setIssue(generationMessage(e)); } }
     finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
+  // A device-read paper's text is stored once per session (the server keeps one copy per digest); the quote names it.
+  const uploadedDevice = useRef<DeviceSourceDescriptor | null>(null);
+  const resolveDevice = async (c: AbortController): Promise<DeviceSourceDescriptor | undefined> => {
+    if (!deviceSource) return undefined;
+    if (uploadedDevice.current) return uploadedDevice.current;
+    const built = await deviceSource(c.signal);
+    if (!built) return undefined;
+    const stored = await podcastUploadSource(account, built.text, c.signal);
+    uploadedDevice.current = { ...built.identity, text_sha256: stored.textSHA256 };
+    return uploadedDevice.current;
+  };
   const estimate = async () => {
     if (!paper?.capabilities.generation || busy || trackingBlocked || uncertainStart) return;
     const c = begin('quote'); if (!c) return;
     requestID.current ??= crypto.randomUUID();
     try {
-      const result = await podcastQuote(account, itemID, requestID.current, c.signal, writer ?? undefined); if (!live(c)) return;
+      const device = await resolveDevice(c); if (!live(c)) return;
+      const result = await podcastQuote(account, itemID, requestID.current, c.signal, writer ?? undefined, device); if (!live(c)) return;
       if (result.kind === 'quote') { setQuote(result.quote); setJob(null); }
       else if (result.kind === 'join') {
         requestID.current = result.requestID;

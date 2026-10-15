@@ -2,6 +2,19 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Episodes from the paper on this device — 2026-10-14, late night (migration 066; built, deployment noted below)
+
+Owner (TestFlight, build 35): Listen refused every paper read on this device ("we should have stopped storing PDFs at
+all on the server… the message is also very off putting"). A private episode is now written from the paper's own
+numbered text on the device: the client stores the text once (`podcast?action=source`), the quote names it by digest
+with the paper's identity, and the pipeline runs unchanged from that text (PAPER_PODCASTS.md "Episodes from the paper
+on this device", design and as-built). Shared catalog episodes and Mathpix-era private episodes are unchanged.
+
+Evidence (local): database suite with `podcast_device_sources.sql`; backend tests 472+ (the `source` action, the
+quote descriptor, marker stripping); browser types; iPhone Simulator `PodcastTransportTests` and the private
+generation journey. Deployment: recorded below once done (migration 066, `podcast` function, pipeline worker, browser
+Pages, TestFlight build 38).
+
 ## TestFlight screenshots on builds 33–36: author blocks, Listen copy, menu wording — 2026-10-14, late night (built; deployment noted below)
 
 Six screenshot reports (`docs/OWNER_FEEDBACK.md`, "TestFlight screenshots, 2026-10-14"). The arXiv compiler's author

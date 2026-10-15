@@ -105,6 +105,35 @@ final class PodcastTransportTests: XCTestCase {
         XCTAssertEqual(sent, ["quote_id": quoteID.wire, "request_id": requestID.wire, "consent_version": "podcast-private-v1"])
     }
 
+    /// A paper read on this device (migration 066): its text is stored once and the quote names it by digest.
+    func testDeviceSourceIsStoredThenNamedByTheQuote() async throws {
+        let itemID = UUID(), requestID = UUID(), digest = String(repeating: "d", count: 64)
+        // The shared arXiv HTML fixture, numbered on this device, as its membership.
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/package.json")))
+        let reference = try SourcePaperReference(membershipID: itemID, sourceID: "2601.01234", revision: 2)
+        let context = try LocalPaperChatContext(reference: reference, bundle: bundle)
+        let source = PodcastDeviceSource(context: context, title: "Toward Study", authors: ["Gayoung Kim"])
+        let transport = try transport([
+            "/functions/v1/podcast?source": .init(body: Data(#"{"source":{"text_sha256":"\#(digest)","bytes":\#(context.text.utf8.count),"format":"paper-context-v2"}}"#.utf8)),
+            "/functions/v1/podcast?quote": .init(body: Data(#"{"reuse":{"release_id":"\#(release.wire)"}}"#.utf8)),
+        ])
+        let stored = try await transport.uploadSource(source)
+        XCTAssertEqual(stored, digest)
+        let (upload, uploadBody) = try XCTUnwrap(PodcastHTTPProtocol.recorded(host).first)
+        XCTAssertEqual(upload.url?.query, "action=source")
+        let uploaded = try XCTUnwrap(JSONSerialization.jsonObject(with: uploadBody) as? [String: String])
+        XCTAssertEqual(uploaded["format"], "paper-context-v2"); XCTAssertEqual(uploaded["text"], context.text)
+        let outcome = try await transport.quote(itemID: itemID, requestID: requestID, profile: "podcast-5min-v1", writer: "deepseek", device: source.descriptor(textSHA256: digest))
+        XCTAssertEqual(outcome, .reuse(releaseID: release))
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(PodcastHTTPProtocol.recorded(host).last).1) as? [String: Any])
+        let device = try XCTUnwrap(sent["device_source"] as? [String: Any])
+        XCTAssertEqual(device["source"] as? String, "arxiv"); XCTAssertEqual(device["source_id"] as? String, "2601.01234"); XCTAssertEqual(device["revision"] as? Int, 2)
+        XCTAssertEqual(device["manifest_sha256"] as? String, bundle.manifestSHA256); XCTAssertEqual(device["text_sha256"] as? String, digest)
+        XCTAssertEqual(device["title"] as? String, "Toward Study"); XCTAssertEqual(device["authors"] as? [String], ["Gayoung Kim"])
+        XCTAssertNil(device["text"], "The quote never carries the text")
+    }
+
     func testQuoteNamesTheChosenLengthAndReadsEveryOption() async throws {
         let itemID = UUID(), requestID = UUID()
         let options = #"[{"profile":"podcast-short-v1","label":"Short","target_seconds":150,"max_credits":110},{"profile":"podcast-10min-v1","label":"10 min","target_seconds":600,"max_credits":220}]"#
