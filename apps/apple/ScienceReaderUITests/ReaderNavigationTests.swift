@@ -144,10 +144,14 @@ final class ReaderNavigationTests: XCTestCase {
     /// the tab bar (owner feedback, build 21).
     private func assertBackClearOfTextSizeAndTabs(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let back = app.buttons["reader.citation.back"], textSize = app.descendants(matching: .any)["paper.textSize"]
-        XCTAssertEqual(back.label, "Back to where you were", file: file, line: line)
+        // VoiceOver hears where Back goes ("Back to 6.1 …"), or "Back to where you were" when the section is unknown.
+        XCTAssertTrue(back.label.hasPrefix("Back to "), back.label, file: file, line: line)
         XCTAssertTrue(textSize.exists, file: file, line: line)
         XCTAssertFalse(back.frame.intersects(textSize.frame), "Back \(back.frame) covers A− / A+ \(textSize.frame)", file: file, line: line)
         XCTAssertLessThan(back.frame.midX, textSize.frame.minX, file: file, line: line)
+        // The wide layout's line width sits beside A− / A+ (READING_MODE.md): Back keeps clear of it too.
+        let lineWidth = app.buttons["paper.lineWidth"]
+        if lineWidth.exists { XCTAssertFalse(back.frame.intersects(lineWidth.frame), "Back \(back.frame) covers Line width \(lineWidth.frame)", file: file, line: line) }
         let tab = app.buttons["tab.paper"]
         if tab.exists { XCTAssertLessThanOrEqual(back.frame.maxY, tab.frame.minY, "Back stays above the tab bar", file: file, line: line) }
     }

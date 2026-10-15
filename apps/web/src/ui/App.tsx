@@ -31,6 +31,7 @@ const LIBRARY_FILTER_KEY = 'gradstep.library.filter', LIBRARY_TAG_KEY = 'gradste
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import type { EquationHost } from './EquationView';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
+import { useReadingMode } from './ReadingMode';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
 import { ReportDialog, ReportsDialog } from './SupportReports';
@@ -93,8 +94,9 @@ function Unsupported() {
 }
 
 const SHORTCUTS = [['/ or ⌘K', 'Search the library'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
+  ['F', 'Reading mode (Esc leaves it)'], ['J K', 'Next or previous section'], ['Space', 'Page down in the paper (Shift: up)'],
   ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
-const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help' };
+const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
 
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
@@ -247,8 +249,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const ws = useWorkspace(route);
   // Back to chat goes away once the chat is open again or the paper is left.
   useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(false); }, [ws.right.open, route]);
-  const latest = useRef({ ws, route, paperID });
-  latest.current = { ws, route, paperID };
+  const reading = useReadingMode(ws, route === 'paper' && !!item);
+  const latest = useRef({ ws, route, paperID, reading });
+  latest.current = { ws, route, paperID, reading };
   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
   const feed = useFeed(account, library.serverEntries);
   const podcasts = usePodcasts(account);
@@ -256,8 +259,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [listening, setListening] = useState(false);
 
   const shortcut = useCallback((key: FrameKey) => {
-    const { ws, route } = latest.current;
+    const { ws, route, reading } = latest.current;
     switch (key) {
+      case 'reading': if (route === 'paper') reading.toggle(); break;
+      case 'next': if (route === 'paper') readerCommands.current?.section?.(1); break;
+      case 'previous': if (route === 'paper') readerCommands.current?.section?.(-1); break;
       case 'search': search.current?.focus(); search.current?.select(); break;
       case 'find': if (route === 'paper') readerCommands.current?.find(); break;
       case 'left': ws.toggle('left'); break;
@@ -266,6 +272,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       case 'escape':
         if (readerCommands.current?.escape()) break;
         if (ws.overlay) ws.show(ws.overlay, false);
+        // Reading mode: a slide-over closes first, then reading mode ends.
+        else if (reading.on && (ws.left.open || ws.right.open)) { if (ws.right.open) ws.show('right', false); if (ws.left.open) ws.show('left', false); }
+        else if (reading.on) reading.exit();
         break;
     }
   }, []);
@@ -419,7 +428,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
-        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
+        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
@@ -438,7 +447,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   );
 
   return (
-    <div className="app">
+    <div className={`app${reading.on ? ' reading' : ''}`}>
       <a className="skip-link" href="#main">Skip to content</a>
       <header className="topbar">
         <button className={`icon-button${ws.left.open ? ' on' : ''}`} onClick={() => ws.toggle('left')} aria-label="Side panel" aria-pressed={ws.left.open} title="Side panel ( [ )">

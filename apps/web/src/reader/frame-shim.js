@@ -12,6 +12,7 @@
   window.__readerBundleConfig = config?.bundle ?? null;
   window.__readerPaperLine = config?.paper_line ?? null;
   window.__readerPaperTags = config?.paper_tags ?? null;
+  window.__readerLineWidth = config?.line_width ?? null;
   const send = value => { if (target) parent.postMessage({ gradstep: 'reader', value }, target); };
   window.webkit = Object.freeze({ messageHandlers: Object.freeze({ reader: Object.freeze({ postMessage: send }) }) });
   if (config?.font_size) document.documentElement.style.fontSize = config.font_size + 'px';
@@ -25,6 +26,7 @@
     paperLine: text => window.__scienceReaderSetPaperLine?.(text),
     paperTags: tags => window.__scienceReaderSetPaperTags?.(tags),
     fontSize: size => { document.documentElement.style.fontSize = Number(size) + 'px'; window.__scienceReaderFit?.(); return true; },
+    lineWidth: mode => window.__scienceReaderSetLineWidth?.(String(mode)),
     // The third argument is used only after a verified `figureref` message from a supporting bridge.
     showFigure: (id, reduced, fromReference) => window.__scienceReaderShowFigure?.(String(id), !!reduced, fromReference === true),
     find: (query, direction) => find(String(query ?? ''), direction),
@@ -123,7 +125,7 @@
     send({ type: 'find', count: matches.length, index: current });
   }
 
-  // App shortcuts typed while the paper has focus: find, search, panes, help and Escape.
+  // App shortcuts typed while the paper has focus: find, search, panes, help, reading mode, sections and Escape.
   addEventListener('keydown', event => {
     const target = event.target;
     const typing = target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
@@ -132,7 +134,8 @@
     if (command && event.key.toLowerCase() === 'f') key = 'find';
     else if (command && event.key.toLowerCase() === 'k') key = 'search';
     else if (event.key === 'Escape') key = 'escape';
-    else if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) key = { '/': 'search', '[': 'left', ']': 'right', '?': 'help' }[event.key] ?? null;
+    // F reading mode, J / K the next and previous section (READING_MODE.md).
+    else if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) key = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' }[event.key] ?? null;
     if (!key) return;
     if (key !== 'escape') event.preventDefault();
     send({ type: 'key', key });

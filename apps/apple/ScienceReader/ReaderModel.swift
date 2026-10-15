@@ -334,6 +334,16 @@ final class ReaderModel {
     var feedTextStep = UserDefaults.standard.integer(forKey: "feedTextStep") { didSet { UserDefaults.standard.set(feedTextStep, forKey: "feedTextStep") } }
     /// iPad and Mac Reader: the chat column beside the paper is hidden for full-width reading (kept per device).
     var readerChatHidden = UserDefaults.standard.bool(forKey: "reader.chatHidden") { didSet { UserDefaults.standard.set(readerChatHidden, forKey: "reader.chatHidden") } }
+    /// iPad and Mac: the paper's line width (Comfortable, Wide, Full width; docs/architecture/READING_MODE.md), per device.
+    var paperLineWidth = ReaderLineWidth(rawValue: UserDefaults.standard.string(forKey: "reader.lineWidth") ?? "") ?? .comfortable {
+        didSet { UserDefaults.standard.set(paperLineWidth.rawValue, forKey: "reader.lineWidth") }
+    }
+    /// Reading mode (READING_MODE.md): the wide layout shows only the paper, the chat slides over it when asked for.
+    var readingMode = false
+    var readingChatShown = false
+    /// The section being read (its heading), for reading mode's bar; set from the reader's position reports.
+    var readingSectionTitle: String?
+    @ObservationIgnored var readingState = ReadingModeState()
     /// The chat column's width there as the reader dragged it; nil is the default for the window's width.
     var readerChatWidth = UserDefaults.standard.object(forKey: "reader.chatWidth") as? Double { didSet { UserDefaults.standard.set(readerChatWidth, forKey: "reader.chatWidth") } }
     /// Passage-linked conversations (Views/PaperPassages.swift): underline passages with chats (Settings › Reading),

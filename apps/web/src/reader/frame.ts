@@ -10,7 +10,10 @@ export const FRAME_SCRIPT_HASH = frame.hash;
 
 const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,applet,form,link,noscript,template,portal';
 
-export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | null; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null }
+export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | null; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null;
+  /** The text column's measure (READING_MODE.md): comfortable, wide or full. */ lineWidth?: LineWidth }
+export type LineWidth = 'comfortable' | 'wide' | 'full';
+export const LINE_WIDTHS: readonly LineWidth[] = ['comfortable', 'wide', 'full'];
 
 /** No bundle scripts, frames, forms or handlers, no script or data URLs; verified images inlined as data URIs. Shared
  * with the equation view's frame (equation-frame.ts). */
@@ -59,7 +62,7 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
   configBlock.setAttribute('type', 'application/json');
   configBlock.setAttribute('data-gradstep-config', '');
   const config = {
-    parent_origin: options.parentOrigin, paper_line: options.paperLine ?? null, paper_tags: options.paperTags ?? null, font_size: options.fontSize ?? null, theme: options.theme ?? null,
+    parent_origin: options.parentOrigin, paper_line: options.paperLine ?? null, paper_tags: options.paperTags ?? null, font_size: options.fontSize ?? null, theme: options.theme ?? null, line_width: options.lineWidth ?? null,
     bundle: { ...bundle.index, manifest_sha256: bundle.manifestSHA256, ...(options.figureID ? { figure_id: options.figureID } : {}) },
   };
   // `<` escaped so no text in the index can end the data block.
@@ -85,8 +88,8 @@ export type FrameMessage =
   | { type: 'key'; key: FrameKey };
 
 /** App shortcuts typed while the paper frame has focus (forwarded by the frame shim). */
-export type FrameKey = 'find' | 'search' | 'escape' | 'left' | 'right' | 'help';
-const FRAME_KEYS: readonly FrameKey[] = ['find', 'search', 'escape', 'left', 'right', 'help'];
+export type FrameKey = 'find' | 'search' | 'escape' | 'left' | 'right' | 'help' | 'reading' | 'next' | 'previous';
+const FRAME_KEYS: readonly FrameKey[] = ['find', 'search', 'escape', 'left', 'right', 'help', 'reading', 'next', 'previous'];
 
 export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): FrameMessage | null {
   const v = value as Record<string, unknown>;

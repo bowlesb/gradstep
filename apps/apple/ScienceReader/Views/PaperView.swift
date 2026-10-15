@@ -184,6 +184,10 @@ struct PaperView: View {
     @Environment(\.openURL) private var openURL
     /// In the wide Reader, beside the chat column (which the reader can hide).
     @Environment(\.readerChatColumn) private var besideChat
+    /// iPad and Mac (the wide layout): line width and reading mode apply (READING_MODE.md).
+    @Environment(\.wideReader) private var wideReader
+    /// Inside reading mode: the quiet bar replaces the toolbar and the bottom controls.
+    @Environment(\.readingModeActive) private var readingActive
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
@@ -200,11 +204,13 @@ struct PaperView: View {
                     Group {
                         readerHooks(PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
                                      location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
-                                     fontSize: model.paperFontSize * bodySize / 17, jump: model.paperJump,
+                                     fontSize: model.paperFontSize * bodySize / 17, lineWidth: model.paperLineWidth, jump: model.paperJump,
                                      reduceMotion: reduceMotion, selectionClearID: selectionClearID, onLoading: {
                                          if model.readerDocumentScope == readerScope { loadingPaper = $0 }
                                      },
                                      onLocation: { key, location in
+                                         // The section being read, for reading mode's bar and J / K (every paper).
+                                         if model.readerDocumentScope == readerScope { model.noteReadingPosition(location, paperID: paper.id) }
                                          // A sign-out clears the selection and the account's transient state.
                                          guard model.readerSessionID == readerScope.sessionID, model.selectedPaper != nil, paper.artifactID != nil else { return }
                                          model.recordReadingLocation(location, key: key, documentID: paper.id)
@@ -252,6 +258,14 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
                                      }, passage: model.passageJump(for: paper), onPassage: { id, found in
                                          if model.readerDocumentScope == readerScope { model.finishPassage(id, found: found) }
+                                     }, onKey: { key in
+                                         guard model.readerDocumentScope == readerScope else { return }
+                                         switch key {
+                                         case "next": model.stepSection(1)
+                                         case "previous": model.stepSection(-1)
+                                         // Esc in reading mode: the chat slide-over first, then reading mode itself.
+                                         default: if model.readingChatShown { model.readingChatShown = false } else if model.readingMode { model.exitReadingMode() }
+                                         }
                                      }), scope: readerScope)
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
@@ -281,10 +295,24 @@ struct PaperView: View {
                     // outcome spans the bottom. "Back to where you were" sits at the left of the same row.
                     .overlay(alignment: .bottomTrailing) {
                         if showsTextSize {
-                            TextSizeControl(identifier: "paper.textSize", canShrink: model.paperFontSize > 14, canGrow: model.paperFontSize < 26,
-                                            shrink: { model.paperFontSize = max(14, model.paperFontSize - 1) },
-                                            grow: { model.paperFontSize = min(26, model.paperFontSize + 1) })
-                                .padding(.trailing, Self.textSizeInset).padding(.bottom, 8)
+                            HStack(spacing: 8) {
+                                // Line width beside A− / A+ where the column can grow (READING_MODE.md).
+                                if wideReader {
+                                    LineWidthMenu(selection: $model.paperLineWidth).chromeSurface(Capsule(), interactive: true)
+                                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                                }
+                                TextSizeControl(identifier: "paper.textSize", canShrink: model.paperFontSize > 14, canGrow: model.paperFontSize < 26,
+                                                shrink: { model.paperFontSize = max(14, model.paperFontSize - 1) },
+                                                grow: { model.paperFontSize = min(26, model.paperFontSize + 1) })
+                            }
+                            .padding(.trailing, Self.textSizeInset).padding(.bottom, 8)
+                        }
+                    }
+                    // Reading mode's quiet bar over the top of the paper (the toolbar steps aside).
+                    .overlay(alignment: .top) {
+                        if readingActive {
+                            ReadingTopBar(model: model, title: paper.title, forced: citationBack, contents: { showContents = true },
+                                          figures: bundle.index.figures.isEmpty || readerFailed || loadingPaper ? nil : { showFigures = true })
                         }
                     }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
@@ -333,9 +361,19 @@ struct PaperView: View {
             }
             .tabBarSpace(fade: false)
             .navigationTitle("Paper").navigationBarTitleDisplayMode(.inline)
+            .toolbar(readingActive ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
                 ToolbarItem(placement: .principal) { titleView }
+                // Reading mode (READING_MODE.md): the paper alone, full screen on the Mac (its View menu has ⇧⌘R).
+                if wideReader && !readingActive && model.canEnterReadingMode {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { model.enterReadingMode() } label: { Image(systemName: "book") }
+                            .accessibilityLabel("Reading mode").accessibilityIdentifier("paper.readingMode")
+                            .help("Reading mode (⇧⌘R)")
+                            .modifier(ReadingModeShortcut())
+                    }
+                }
                 if besideChat && model.readerChatHidden {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { model.readerChatHidden = false } label: { Image(GradstepSymbol.chat) }
@@ -502,7 +540,7 @@ struct PaperView: View {
     }
 
     /// A− / A+ shows unless the paper failed or is loading, or a reference's outcome spans the bottom.
-    private var showsTextSize: Bool { !readerFailed && !loadingPaper && model.referenceNotice == nil }
+    private var showsTextSize: Bool { !readerFailed && !loadingPaper && model.referenceNotice == nil && !readingActive }
     /// A− / A+'s distance from the trailing edge, and its width (two 44 pt buttons and a hairline; the control keeps
     /// its size at every text size). Back keeps clear of it on the same row.
     private static let textSizeInset: CGFloat = 12
@@ -525,7 +563,7 @@ struct PaperView: View {
                 }
                 .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 12)
-                .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + 12 : 12)
+                .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + (wideReader ? 52 : 0) + 12 : 12)
             }
         }
         .padding(.top, notice != nil || back || chatBack ? 6 : 0)
@@ -718,6 +756,8 @@ struct PaperWebView: UIViewRepresentable {
     let locationKey: String
     let location: PaperReadingLocation?
     let fontSize: Double
+    /// The text column's measure (READING_MODE.md), applied by the bridge before the first layout and live after.
+    var lineWidth: ReaderLineWidth = .comfortable
     let jump: PaperJumpRequest?
     let reduceMotion: Bool
     var selectionClearID: UUID? = nil
@@ -761,6 +801,8 @@ struct PaperWebView: UIViewRepresentable {
     /// Go to passage, applied once the reader is ready; reports whether the passage was found.
     var passage: PaperPassageRequest? = nil
     var onPassage: (UUID, Bool) -> Void = { _, _ in }
+    /// J, K and Esc typed in the paper ("next", "previous", "escape"): sections and reading mode.
+    var onKey: (String) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -769,6 +811,17 @@ struct PaperWebView: UIViewRepresentable {
     static let bridgeScript = Bundle.main.url(forResource: "reader-bridge", withExtension: "js")
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
     @MainActor private static var warm: WKWebView?
+    /// J / K / Esc typed in the paper go to the app (the browser's frame shim forwards its own keys; this is the
+    /// native page's): sections, and leaving reading mode.
+    static let keyScript = """
+        addEventListener('keydown', event => {
+          const t = event.target;
+          if (event.metaKey || event.ctrlKey || event.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
+          const key = {j: 'next', k: 'previous', Escape: 'escape'}[event.key];
+          if (key) window.webkit.messageHandlers.reader.postMessage({type: 'key', key});
+        }, true);
+
+        """
 
     /// Starts WebKit's processes once, just after launch, so the first paper
     /// opened doesn't pay for them (~1–3 s measured on the first open).
@@ -801,9 +854,12 @@ struct PaperWebView: UIViewRepresentable {
         context.coordinator.appliedPaperLine = line == nil ? nil : paperLine
         let tags = figureID == nil ? try? JSONEncoder().encode(paperTags) : nil
         context.coordinator.appliedPaperTags = tags == nil ? [] : paperTags
+        context.coordinator.appliedLineWidth = lineWidth
         let prelude = "window.__readerBundleConfig = " + (bundle == nil ? "null" : String(decoding: json, as: UTF8.self)) + ";\n"
             + "window.__readerPaperLine = " + (line.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
             + "window.__readerPaperTags = " + (tags.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
+            + "window.__readerLineWidth = \"\(lineWidth.rawValue)\";\n"
+            + (figureID == nil ? Self.keyScript : "")
         configuration.userContentController.addUserScript(WKUserScript(source: prelude + script,
             injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         configuration.userContentController.add(context.coordinator, contentWorld: .defaultClient, name: "reader")
@@ -855,6 +911,11 @@ struct PaperWebView: UIViewRepresentable {
             web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'; window.__scienceReaderFit?.();",
                                     arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
         }
+        if context.coordinator.appliedLineWidth != lineWidth, figureID == nil {
+            context.coordinator.appliedLineWidth = lineWidth
+            web.callAsyncJavaScript("window.__scienceReaderSetLineWidth?.(mode);", arguments: ["mode": lineWidth.rawValue],
+                                    in: nil, in: .defaultClient, completionHandler: nil)
+        }
         context.coordinator.applyJump(in: web)
         context.coordinator.applyPassageWork(in: web)
     }
@@ -873,6 +934,7 @@ struct PaperWebView: UIViewRepresentable {
         var active = true
         var navigation: WKNavigation?
         var appliedFontSize: Double?
+        var appliedLineWidth: ReaderLineWidth?
         private var loadingID = UUID()
         private var inFlightJumpID: UUID?
         private var lastJumpID: UUID?
@@ -895,6 +957,8 @@ struct PaperWebView: UIViewRepresentable {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard active, message.frameInfo.isMainFrame, let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
+            case "key":
+                if ready, let key = body["key"] as? String, ["next", "previous", "escape"].contains(key) { parent.onKey(key) }
             case "selection":
                 guard ready, let bundle = parent.bundle, let (selection, quote) = Self.selection(body["selection"], bundle: bundle) else {
                     parent.onSelection(nil); return

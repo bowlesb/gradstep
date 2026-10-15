@@ -99,6 +99,43 @@
   };
   window.__scienceReaderFit = () => { if (config && !config.figure_id) fitMath(); };
 
+  // LINE WIDTH (docs/architecture/READING_MODE.md): the host's measure for the text column, never the bundle's CSS.
+  // Comfortable keeps about 72 characters a line at every text size (the bundle also caps it at 704 px, which made
+  // larger text hold fewer words); Wide about 100; Full width reflows to the window, so a wider window holds more
+  // words on each line. Figures stay at a readable size; tables and display math scroll inside their own boxes.
+  const LINE_WIDTHS = ['comfortable', 'wide', 'full'];
+  let lineWidthStyle = null;
+  const applyLineWidth = mode => {
+    const value = LINE_WIDTHS.includes(mode) ? mode : 'comfortable';
+    if (!lineWidthStyle) {
+      lineWidthStyle = document.createElement('style');
+      lineWidthStyle.textContent = [
+        'html[data-sr-line-width=comfortable] body:not(.reader-figure-detail){max-width:72ch}',
+        'html[data-sr-line-width=wide] body:not(.reader-figure-detail){max-width:100ch}',
+        'html[data-sr-line-width=full] body:not(.reader-figure-detail){max-width:none;padding-left:clamp(22px,4vw,72px);padding-right:clamp(22px,4vw,72px)}',
+        'html[data-sr-line-width=wide] figure,html[data-sr-line-width=full] figure{max-width:min(100%,110ch);margin-left:auto;margin-right:auto}',
+      ].join('');
+      document.head.append(lineWidthStyle);
+    }
+    document.documentElement.setAttribute('data-sr-line-width', value);
+    return value;
+  };
+  if (!config?.figure_id) applyLineWidth(window.__readerLineWidth);
+  // A live change keeps the place: the paragraph at the top of the viewport stays there (after a citation jump, the
+  // reference stays in view and Back still returns to the place left).
+  window.__scienceReaderSetLineWidth = mode => {
+    if (config?.figure_id) return false;
+    const before = document.documentElement.getAttribute('data-sr-line-width');
+    // Measured now, before the new measure reflows the page (unlike a resize, which has reflowed already).
+    const location = citationBack ? null : window.__scienceReaderLocation?.();
+    const value = applyLineWidth(mode);
+    if (value === before) return true;
+    window.__scienceReaderFit();
+    if (citationBack) showReference(citationBack.entry, true);
+    else if (location) window.__scienceReaderRestore(location);
+    return true;
+  };
+
   // Citations, references and the paper line (device presentation for every
   // bundle version, like the layout above). Citations are wrapped in inline
   // spans and nothing else changes, so each block's text — and with it
