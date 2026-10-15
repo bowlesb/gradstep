@@ -80,6 +80,8 @@ enum ChatTitle {
     /// The title to show for a saved conversation title: "Explain · ‹passage›" for a selection action, otherwise the
     /// question itself; math in either as readable symbols, on one line, "…" where the saved title was cut.
     static func display(_ saved: String) -> String {
+        // The passage's paragraph marker ("[¶24]") goes with the question, not into its title.
+        let saved = saved.replacing(/\s*\[¶\d{1,5}\]\s*$/, with: "")
         // Exactly the saved length: the question was (almost certainly) longer. A cut at a space ended a whole word.
         var truncated = saved.count == savedLimit
         let wholeWord = saved.last?.isWhitespace == true

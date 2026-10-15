@@ -1591,7 +1591,8 @@ struct DiscoveryRow: View {
             }
             Spacer(minLength: 4)
             DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID), adding: adding,
-                                enabled: model.canBeginImport) {
+                                enabled: model.canBeginImport, preparing: model.devicePreparation(sourceID: result.sourceID),
+                                open: { model.openLibraryPaper(sourceID: result.sourceID) }) {
                 adding = true; issue = nil
                 Task {
                     do { try await model.addDiscovered(result) }

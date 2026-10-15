@@ -132,12 +132,18 @@ struct ChatFollowRequest: Equatable {
 
 @MainActor @Observable
 final class ReaderModel {
-    var tab: ReaderTab = .library
+    var tab: ReaderTab = .library { didSet { if tab == .chat { returnToChatAvailable = false } } }
     var wideMode: WideMode = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
     private(set) var libraryImports: [LibraryImportRecord] = [] {
         didSet {
             guard libraryImports != oldValue else { return }
+            // An import this device watched finish is prepared here as soon as its paper appears (owner, build 42: "I
+            // press Add… it just sits there… I click on it: it gives me another Downloading screen?").
+            let active: Set<LibraryImportPhase> = [.accepted, .resolving, .acquiring]
+            for old in oldValue where active.contains(old.phase) {
+                if let sourceID = old.sourceID, !libraryImports.contains(where: { $0.id == old.id && active.contains($0.phase) }) { finishedImportSources.insert(sourceID) }
+            }
             let now = importClock()
             importSteps.observe(libraryImports, now: now)
             importProgressTracker.observe(libraryImports, now: now)
@@ -182,6 +188,16 @@ final class ReaderModel {
     /// Legacy arXiv items whose official HTML could not be prepared this session: they open from their server bundle.
     @ObservationIgnored private var legacyBundleFallback: Set<UUID> = []
     private(set) var localPaperDownloads: Set<UUID> = []
+    /// What this device is preparing in the background (paper id → fraction), for the Library rows and the Feed.
+    private(set) var devicePreparations: [UUID: Double] = [:]
+    private var devicePreparationTasks: [UUID: Task<Void, Never>] = [:]
+    private(set) var devicePreparationIssues: [UUID: String] = [:]
+    /// Sources whose import this device watched finish; their papers are prepared here as soon as they appear.
+    private var finishedImportSources: Set<String> = []
+    /// The open paper is the copy an earlier version prepared because preparing it again failed (the reason).
+    var readerFallbackNotice: String? = nil
+    /// After a chat citation opened the paper, the reader offers "Back to chat" (owner, 2026-10-15).
+    var returnToChatAvailable = false
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
     private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
@@ -701,6 +717,13 @@ final class ReaderModel {
     }
 
     private func libraryPapersChanged(from previous: [Paper]) {
+        // A paper whose import this device watched finish is downloaded and prepared here now, with its progress in
+        // its row; opening it then is immediate.
+        let known = Set(previous.map(\.id))
+        for paper in papers where !known.contains(paper.id) {
+            guard let sourceID = paper.sourceID, finishedImportSources.contains(sourceID) else { continue }
+            finishedImportSources.remove(sourceID); prepareOnDevice(paper)
+        }
         // Installing verified bytes changes row presentation, not searchable
         // metadata. Keep the worker's snapshot free of reading bundles.
         let currentIDs = Set(papers.map(\.id))
@@ -953,6 +976,8 @@ final class ReaderModel {
         switch entry {
         case .paper(let paper):
             if openingPaperID == paper.id { return .active(openingProgress.map { ArxivHTMLReader.phase(for: $0) } ?? "Preparing…") }
+            if let fraction = devicePreparations[paper.id] { return .active("\(ArxivHTMLReader.phase(for: fraction)) \(Int((fraction * 100).rounded(.down)))%") }
+            if let issue = devicePreparationIssues[paper.id] { return .problem(issue) }
             if paper.isLocalPDF { return .info(localPaperRecords.contains(where: { $0.identity.sourceID == paper.sourceID }) ? "PDF on this device" : "PDF needed on this device") }
             if !paper.canReadStructured, paper.arxivReaderSource == nil { return .problem("Reader unavailable") }
             switch offlineStatus(for: paper) {
@@ -2315,7 +2340,7 @@ final class ReaderModel {
             } else { uploads.pickRequest = .init(target: .localPaper(current.id), title: current.title) }
             return
         }
-        selectedPaper = current; chatPaperID = current.id; tab = .paper
+        selectedPaper = current; chatPaperID = current.id; tab = .paper; returnToChatAvailable = false
         if wideMode != .browse { wideMode = .reader }
         generalChat = false
         recordOpened(current)
@@ -2363,6 +2388,59 @@ final class ReaderModel {
     }
 
     func retryOpeningSelectedPaper() { openLocalPaperIfNeeded() }
+
+    /// Prepares the open paper again with this app's compiler (the notice's "Try again" after a failed re-preparation).
+    func reprepareSelectedPaper() {
+        guard let paper = selectedPaper else { return }
+        readerFallbackNotice = nil
+        papers = papers.map { $0.id == paper.id ? $0.displaying(nil) : $0 }
+        selectedPaper = papers.first { $0.id == paper.id }
+        openLocalPaperIfNeeded()
+    }
+
+    /// Downloads and prepares a paper on this device without opening it: after an import this device watched finish,
+    /// or from a Library row's cloud symbol or menu (owner, build 42: "either it's there… or the cloud icon in which
+    /// case I need a button to download to device"). Progress shows in the row; opening it afterwards is immediate.
+    func prepareOnDevice(_ paper: Paper) {
+        guard let source = paper.arxivReaderSource, devicePreparationTasks[paper.id] == nil, localReaderOpeningID != paper.id,
+              deviceCopy(for: paper) == .cloud, !workOwnership.isActivating, !libraryPublicationDeferred,
+              let store = localPersistence.localReaderStore else { return }
+        let scope = sessionID, persistence = localPersistence
+        devicePreparations[paper.id] = 0; devicePreparationIssues[paper.id] = nil
+        devicePreparationTasks[paper.id] = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.sessionID == scope { self.devicePreparations[paper.id] = nil; self.devicePreparationTasks[paper.id] = nil } }
+            let report: @Sendable (Double) -> Void = { [weak self] fraction in
+                Task { @MainActor in guard let self, self.sessionID == scope, self.devicePreparationTasks[paper.id] != nil else { return }; self.devicePreparations[paper.id] = fraction }
+            }
+            do {
+                let bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report)
+                try Task.checkCancellation()
+                guard self.sessionID == scope, self.papers.contains(where: { $0.id == paper.id }) else { return }
+                let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }
+                _ = try await commit.value
+                guard self.sessionID == scope else { return }
+                self.localReaderRecords = await store.records()
+            } catch is CancellationError {
+            } catch {
+                guard self.sessionID == scope else { return }
+                self.devicePreparationIssues[paper.id] = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device."
+            }
+        }
+    }
+    func cancelDevicePreparation(_ paper: Paper) { devicePreparationTasks[paper.id]?.cancel() }
+    func isPreparingOnDevice(_ paper: Paper) -> Bool { devicePreparationTasks[paper.id] != nil }
+    /// The Feed's control for a paper already in the library: its preparation here, if any.
+    func devicePreparation(sourceID: String) -> Double? { papers.first { $0.sourceID == sourceID && !$0.isSample }.flatMap { devicePreparations[$0.id] } }
+    /// The Feed's checkmark opens the paper (owner, build 42: "it should take me to the library entry").
+    func openLibraryPaper(sourceID: String) { if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { select(paper) } }
+    /// Added in the last three days and never opened: the row's "new" dot (owner, build 42: "nothing to indicate it
+    /// was recently added and unread").
+    func isNew(_ paper: Paper?) -> Bool {
+        guard let paper, !paper.isSample, let added = paper.addedAt, readingActivity[paper.id]?.openedAt == nil else { return false }
+        return Date().timeIntervalSince(added) < 3 * 24 * 3600
+    }
+    func returnToChat() { returnToChatAvailable = false; tab = .chat }
 
     private func openLocalPaperIfNeeded() {
         if let paper = selectedPaper, paper.sourceMembership != nil { openHTMLReader(paper); return }
@@ -2445,9 +2523,11 @@ final class ReaderModel {
         if paper.readerBundle != nil { return }
         if localReaderOpeningID == paper.id { return }
         localReaderTask?.cancel()
+        // Opening takes over from a background preparation of the same paper.
+        devicePreparationTasks[paper.id]?.cancel(); devicePreparationIssues[paper.id] = nil
         guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
         let scope = sessionID, persistence = localPersistence
-        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil
+        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil; readerFallbackNotice = nil
         // The same paper, whichever row it is shown from (a legacy item keeps its document identity).
         let same: (Paper) -> Bool = { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }
         localReaderTask = Task { [weak self] in
@@ -2482,6 +2562,10 @@ final class ReaderModel {
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
+                            // Said on the page, with the reason, instead of silently showing the old copy (owner, build 42:
+                            // PhysCodeGym and 2610.10238 still showed their old headers).
+                            let reason = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device."
+                            self.readerFallbackNotice = "Showing the copy an earlier version prepared; preparing it again failed. \(reason)"
                             bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
                         }
                     }
@@ -2913,12 +2997,14 @@ final class ReaderModel {
         }
     }
 
-    func selectionAction(_ action: SelectionAction, quote: String, origin: PassageOrigin? = nil) {
+    func selectionAction(_ action: SelectionAction, quote: String, origin: PassageOrigin? = nil, paragraph: Int? = nil) {
         selectedQuote = quote
         // The chat's current model, effort and length go with the action into its new conversation.
         let carried = chatProfile
-        // The prompts live with `ChatTitle`, which turns them back into short titles.
-        newChat(general: false); chatInput = action.prompt(quote)
+        // The prompts live with `ChatTitle`, which turns them back into short titles. The passage's paragraph number
+        // (the paper's own [¶N] numbering) goes with the question, so the answer can start from the exact place and the
+        // transcript links back to it (owner, build 42).
+        newChat(general: false); chatInput = action.prompt(quote) + (paragraph.map { " [¶\($0)]" } ?? "")
         if carried != chatDefaultProfile { setChatProfile(carried) }
         tab = .chat; wideMode = .reader; readerChatHidden = false
         // The quote (and the passage it came from, saved on the new conversation) travels with this exact prompt
@@ -2942,7 +3028,8 @@ final class ReaderModel {
         guard readerDocumentScope == scope, let bundle = selectedPaper?.readerBundle,
               bundle.manifestSHA256 == scope.manifestSHA256,
               let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { return }
-        selectionAction(action, quote: quote, origin: PassageOrigin(scope: scope, selection: selection, quote: quote))
+        let paragraph = selection.parts.first.flatMap { part in bundle.index.blocks.firstIndex { $0.id == part.blockID } }.map { $0 + 1 }
+        selectionAction(action, quote: quote, origin: PassageOrigin(scope: scope, selection: selection, quote: quote), paragraph: paragraph)
     }
 
     func newChat(general: Bool) {

@@ -252,6 +252,7 @@ struct PaperView: View {
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
+                    .safeAreaInset(edge: .top, spacing: 0) { if let notice = model.readerFallbackNotice, !readerFailed { fallbackNotice(notice) } }
                     // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
                     // outcome spans the bottom. "Back to where you were" sits at the left of the same row.
                     .overlay(alignment: .bottomTrailing) {
@@ -454,17 +455,22 @@ struct PaperView: View {
     private func bottomControls(scope: ReaderDocumentScope) -> some View {
         let notice = readerFailed ? nil : model.referenceNotice
         let back = citationBack && !readerFailed
+        // After a chat citation opened the paper: a way back to the conversation, unless the chat is beside the page.
+        let chatBack = model.returnToChatAvailable && !readerFailed && !(besideChat && !model.readerChatHidden)
         return VStack(spacing: 8) {
             if let notice { referenceBanner(notice) }
-            if back {
-                citationBackButton
-                    .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 12)
-                    .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + 12 : 12)
+            if back || chatBack {
+                HStack(spacing: 8) {
+                    if back { citationBackButton }
+                    if chatBack { chatBackButton }
+                }
+                .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12)
+                .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + 12 : 12)
             }
         }
-        .padding(.top, notice != nil || back ? 6 : 0)
-        .padding(.bottom, notice != nil || back ? 8 : 0)
+        .padding(.top, notice != nil || back || chatBack ? 6 : 0)
+        .padding(.bottom, notice != nil || back || chatBack ? 8 : 0)
         .frame(maxWidth: .infinity)
         .chromeBand(.bottom)
     }
@@ -501,6 +507,37 @@ struct PaperView: View {
     /// Floats at the bottom left of the paper after any jump (a citation, a figure, a section of the paper's own
     /// contents, Show in paper, Go to passage) until the reader goes back, scrolls two screens away or returns by
     /// scrolling; returns to the exact place (owner feedback, build 21: "a 'return to reading location' option").
+    /// Back to the conversation whose citation opened the paper (owner, 2026-10-15).
+    private var chatBackButton: some View {
+        Button { model.returnToChat() } label: {
+            ViewThatFits(in: .horizontal) {
+                Label("Back to chat", systemImage: "bubble.left.and.text.bubble.right").fixedSize()
+                Label("Chat", systemImage: "bubble.left.and.text.bubble.right").fixedSize()
+            }
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 18).frame(minHeight: 44)
+            .contentShape(Capsule())
+        }
+        .modifier(ReaderControlMaterial())
+        .accessibilityLabel("Back to chat")
+        .accessibilityIdentifier("reader.chat.back")
+        .transition(.opacity)
+    }
+    /// The open copy was prepared by an earlier version and preparing it again failed: said on the page, with a way
+    /// to try again (owner, build 42: old headers were still shown with nothing said).
+    private func fallbackNotice(_ notice: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+            Text(notice).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button("Try again") { model.reprepareSelectedPaper() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("paper.fallbackNotice")
+    }
     private var citationBackButton: some View {
         Button {
             citationBack = false; citationReturnID = UUID()

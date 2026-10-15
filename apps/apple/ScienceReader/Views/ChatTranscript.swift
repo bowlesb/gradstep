@@ -182,9 +182,9 @@ private struct TranscriptMessage: View {
         guard message.payload.role == .assistant, !streaming, let model = papers?.model else { return nil }
         return { action, quote in model.chatQuoteAction(action, quote: quote) }
     }
-    /// An answer's `[¶N]` citations open that block of the paper (not while streaming).
+    /// An answer's `[¶N]` citations open that block of the paper (not while streaming); a question's marker too.
     private var citeHandler: ChatCiteHandler? {
-        guard message.payload.role == .assistant, !streaming, let model = papers?.model else { return nil }
+        guard !(message.payload.role == .assistant && streaming), let model = papers?.model else { return nil }
         return { marker in model.goToCitedBlock(marker) }
     }
 }

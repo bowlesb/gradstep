@@ -7,6 +7,7 @@ import { LIMITS, ARXIV_SOURCE_BYTES } from './profile.ts';
 import { check, decodeUTF8, sha256Hex, utf8 } from './util.ts';
 import { validateHTML } from './html-validate.ts';
 import { inspectImage } from '../images.ts';
+import { admitReaderImage } from './images.ts';
 
 const base64 = (bytes: Uint8Array): string => {
   let s = ''; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192));
@@ -87,25 +88,45 @@ function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height
   return { bytes: utf8(new XMLSerializer().serializeToString(root)), width, height };
 }
 
-async function raster(input: Uint8Array, svg: boolean): Promise<ArxivImage> {
+/** The most pixels one image may keep: a figure reads sharp on a phone or an iPad well under this. */
+const PIXEL_CAP = 3_000_000;
+/** The pixels each of `count` images may keep so a paper's images together never pass the bundle's total
+ * (Apertus 1.5 on build 42: 24 figures, fifteen of them pictures drawn at 2×, refused as `image_total_limit`). */
+export function pixelBudget(count: number): number { return Math.min(PIXEL_CAP, Math.floor(LIMITS.totalImagePixels / Math.max(1, count))); }
+
+/** A raster image the device keeps as it came when the reader's own admission accepts it within the budget
+ * (the same bytes on every device, no re-encoding); a picture (SVG) or an over-large or inadmissible raster is
+ * drawn, scaled to the budget, and encoded as PNG. */
+async function raster(input: Uint8Array, svg: boolean, budget = PIXEL_CAP): Promise<ArxivImage> {
   let bytes = input, mediaType: string, width: number, height: number;
   if (svg) {
     const image = svgImage(input); bytes = image.bytes; width = image.width; height = image.height; mediaType = 'image/svg+xml';
   } else {
     const image = inspectImage(input); width = image.width; height = image.height; mediaType = image.mediaType;
+    if (width * height <= budget) {
+      try {
+        const admitted = admitReaderImage(input);
+        if (admitted.width === width && admitted.height === height)
+          return { bytes: admitted.bytes, inputSHA256: sha256Hex(input), mediaType: admitted.mediaType, width, height };
+      } catch { /* drawn below */ }
+    }
   }
   check(width * height <= LIMITS.imagePixels, 'image_dimensions');
+  // Scaled down to the budget, never up; whole pixels, at least one.
+  const scale = width * height > budget ? Math.sqrt(budget / (width * height)) : 1;
+  const target = { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) };
   const image = new Image();
   image.src = `data:${mediaType};base64,${base64(bytes)}`;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([image.decode(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('image_timeout')), 15_000); })]);
     check(image.naturalWidth === width && image.naturalHeight === height, 'image_dimensions');
-    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const canvas = document.createElement('canvas'); canvas.width = target.width; canvas.height = target.height;
     try {
       const ctx = canvas.getContext('2d', { willReadFrequently: true }); check(ctx, 'image_decode');
-      ctx.drawImage(image, 0, 0, width, height);
-      return { bytes: png(width, height, ctx.getImageData(0, 0, width, height).data), inputSHA256: sha256Hex(input), mediaType: 'image/png', width, height };
+      ctx.drawImage(image, 0, 0, target.width, target.height);
+      return { bytes: png(target.width, target.height, ctx.getImageData(0, 0, target.width, target.height).data), inputSHA256: sha256Hex(input),
+        mediaType: 'image/png', width: target.width, height: target.height };
     } finally { canvas.width = canvas.height = 0; }
   } finally { clearTimeout(timer); image.removeAttribute('src'); }
 }
@@ -131,9 +152,10 @@ export async function prepare(source64: string, sourceID: string, revision: numb
     for (const input of inputs) yield {key:input.url,data:decode64(input.base64,LIMITS.memberBytes),svg:/\.svg$/i.test(new URL(input.url).pathname)};
     for (const [key, xml] of inline) yield {key,data:utf8(xml),svg:true};
   }
+  const budget = pixelBudget(inputs.length + inline.size);
   for (const input of decodeInputs()) {
     const data = input.data; bytes += data.length; check(bytes <= LIMITS.bundleBytes, 'bundle_limit');
-    const image = await raster(data, input.svg); pixels += image.width * image.height;
+    const image = await raster(data, input.svg, budget); pixels += image.width * image.height;
     check(pixels <= LIMITS.totalImagePixels, 'image_total_limit'); images.set(input.key, image);
   }
   const bundle = composeArxivReader({ source, sourceID, revision, images, authors, title });

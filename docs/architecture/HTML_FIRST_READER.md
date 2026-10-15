@@ -429,6 +429,18 @@ library's names head a paper with no author block, and front matter reads first 
 line before the title. What the HTML left out is said in the paper's closing note. The fresh-paper sweep
 (`scripts/reader-sweep.mjs`, TESTING.md) is the gate: 0 of 58 refused on 2026-10-15 against 16 the day before.
 
+Images on the device (2026-10-15, build 42's Apertus refusal): a paper's images share the bundle's pixel budget
+(`pixelBudget`: at most 3 million pixels each and 64 million together, so a paper never refuses over its figure
+count); a raster the reader's own admission accepts within the budget is kept as it came (the same bytes on every
+device); a picture, or a raster over the budget or outside the admission, is drawn scaled and encoded as PNG. A
+TikZ picture carries the patterns and symbols LaTeXML defined elsewhere in the page in its own `defs`; a reference
+nothing defines is left out. `scripts/reader-device-compile.mjs` exercises this path in a headless browser.
+
+The header: the catalog's title and author names are the ground truth; LaTeXML's author block contributes marks,
+affiliations and notes (an author block set as a table reads by rows and cells; several names in one creator split
+by their marks), and a custom title page without an author block folds into the header the same way. Affiliations
+and notes sit on their own lines under the names (`reader-affiliations`, `reader-notes`).
+
 ### Paper availability on a device — 2026-10-15 (owner question: "should we make it more obvious whether you do or do not have a pdf on a device?")
 
 One model, said once. A library paper is in one of four states **on this device**, and every feature that needs the

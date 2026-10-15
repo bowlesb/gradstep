@@ -119,7 +119,10 @@ final class ImportProgressTests: XCTestCase {
     func testUncertainEstimatesAreNotCountedDown() {
         // No page count yet: a typical paper's time, said loosely.
         let finding = progress(.init(step: .finding, percent: 0, etaSeconds: 47), step: .finding)
-        XCTAssertEqual(finding.presentation(at: now + 10).status, "\(finding.percent(at: now + 10)!)%")
+        // The server's metadata stage has no measured progress: the word and a spinner, no percent (owner, build 42:
+        // "stuck at 15%"); the device's own download and preparation count afterwards.
+        XCTAssertNil(finding.percent(at: now + 10))
+        XCTAssertNil(finding.presentation(at: now + 10).status)
         XCTAssertEqual(finding.timeLeft(at: now + 30), .typical(seconds: 47))
         XCTAssertEqual(finding.timeLeft(at: now + 95), .slow)
         // Backing off after an error, or paused: no estimate and no percent (build 16 #10), and it says so.
@@ -156,8 +159,9 @@ final class ImportProgressTests: XCTestCase {
     func testAStuckStepNeverShowsANearlyDonePercent() throws {
         let finding = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 3, etaSeconds: 47), receivedAt: now,
                                      sourceName: "arXiv")
-        XCTAssertEqual(finding.percent(at: now + 47), 15, "Finding counts no further than where finding usually ends")
-        XCTAssertEqual(finding.percent(at: now + 80), 15)
+        XCTAssertNil(finding.percent(at: now + 47), "Finding shows no percent at all now (owner, build 42: a fixed 15 % read as stuck)")
+        XCTAssertNil(finding.percent(at: now + 80))
+        XCTAssertEqual(finding.presentation(at: now + 47).title, "Preparing…")
         let late = finding.presentation(at: now + 200)
         XCTAssertNil(late.percent, "Well past the estimate: no percent")
         XCTAssertNil(late.timeText, "No time estimates (two words and a percentage)")

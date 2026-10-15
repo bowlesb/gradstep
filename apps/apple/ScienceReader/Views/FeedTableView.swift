@@ -243,7 +243,9 @@ struct FeedTable: View {
         case .abstract: Text(result.abstract ?? "").font(.footnote).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
         case .add:
             DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID),
-                                adding: adding.contains(result.id), enabled: model.canBeginImport) { add(result) }
+                                adding: adding.contains(result.id), enabled: model.canBeginImport,
+                                preparing: model.devicePreparation(sourceID: result.sourceID),
+                                open: { model.openLibraryPaper(sourceID: result.sourceID) }) { add(result) }
         case nil: EmptyView()
         }
     }
@@ -295,9 +297,24 @@ struct DiscoveryAddControl: View {
     let inLibrary: Bool
     let adding: Bool
     let enabled: Bool
+    /// Preparing on this device right after the add (fraction): a small bar and percent instead of the checkmark.
+    var preparing: Double? = nil
+    /// The checkmark opens the paper (owner, build 42: "it should take me to the library entry for that item").
+    var open: (() -> Void)? = nil
     let add: () -> Void
     var body: some View {
-        if inLibrary {
+        if let preparing {
+            VStack(spacing: 3) {
+                ProgressView(value: preparing).frame(width: 40)
+                Text("\(Int((preparing * 100).rounded(.down)))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(ArxivHTMLReader.phase(for: preparing)) \(Int((preparing * 100).rounded(.down))) percent")
+        } else if inLibrary, let open {
+            Button(action: open) { Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44) }
+                .buttonStyle(.plain).accessibilityLabel("In library").accessibilityHint("Opens the paper")
+        } else if inLibrary {
             Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44).accessibilityLabel("In library")
         } else if adding {
             ProgressView().frame(minWidth: 44, minHeight: 44)

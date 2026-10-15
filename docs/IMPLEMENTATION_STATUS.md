@@ -2,6 +2,35 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Build 42 feedback: the device image budget, the header from the title page, the add-to-reading flow — 2026-10-15, ~04:30 UTC
+
+Nine TestFlight items on build 42 and four chat messages within an hour (`docs/OWNER_FEEDBACK.md` "TestFlight,
+2026-10-15 03:02–03:17 UTC"). What changed:
+
+- **Device images.** Apertus 1.5 refused `image_total_limit` on the device path, which the sweep never ran. Each
+  paper's images now share the 64-million-pixel budget (`pixelBudget`, at most 3 million each; a raster the reader's
+  admission accepts within it is kept as it came, so every device stores the same bytes; pictures and over-large
+  rasters are drawn scaled). `scripts/reader-device-compile.mjs` runs the whole device path in headless Chromium on
+  cached papers (TESTING.md) and caught the next two refusals: a TikZ picture referencing a pattern LaTeXML defined
+  elsewhere in the page (`svg_fragment`, then `svg_id`); shared definitions travel with the picture. Apertus: 9.1 MiB,
+  31 images; PhysCodeGym 12.3 MiB; 2610.14075 16.4 MiB. The PNG admission's zlib has a browser adapter
+  (`scripts/arxiv-compiler/zlib.ts`).
+- **Header.** An author block set as a table reads by cells and rows; several names in one creator split by their
+  marks; affiliations and notes on their own lines in a smaller face; a custom title page without an author block
+  folds into the catalog header (names with marks, affiliations, "Corresponding authors"; date, report and e-mail
+  lines go; a subtitle stays). `ARXIV_RENDERER_REVISION` **5**. Sweep replay: 0 of 58 fail. Fragment tests 33.
+- **The flow from Add to reading.** Import rows no longer show a fixed 15 %: "Preparing…" with a spinner during the
+  server's metadata stage; the paper is then downloaded and prepared on this device at once (`prepareOnDevice`),
+  with "Downloading… 37%" in the row and in the Feed control, so opening it is immediate. Two device symbols
+  (check / cloud); tapping the cloud or "Download to this device" prepares it; a dot marks papers added in the last
+  three days and not yet opened; the Feed's checkmark opens the paper.
+- **The reader says why.** A stored copy shown because re-preparation failed carries a notice with the reason and
+  Try again (`readerFallbackNotice`, `reprepareSelectedPaper`). "Back to chat" after a chat citation opened the paper.
+- **Chat.** A selection question carries the passage's paragraph marker ("[¶24]"), both surfaces; titles drop it.
+- **Proposals.** `docs/proposals/CHAT_TOOLS.md` (HTML answers, Mermaid, a "Visual answers" setting, figure crops).
+
+Evidence and deployment are recorded at the end of this section once the tests and build 43 are done.
+
 ## Refusals become degradations, the catalog heads the paper, two-word progress — 2026-10-15, ~03:45 UTC
 
 Owner (chat): "maybe you could ask for an audit by a subagent" and "let's simplify [the paper prep step]. We only

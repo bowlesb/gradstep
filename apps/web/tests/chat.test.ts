@@ -102,6 +102,10 @@ describe('chat requests and streams', () => {
   });
   it('words selection actions as the app does and shortens their titles', () => {
     expect(selectionPrompt('define', 'the loss')).toBe('Explain in plain terms, including any symbols: the loss');
+    // The passage's paragraph marker travels with the question (owner, build 42), never into its title.
+    expect(selectionPrompt('define', 'the loss', 24)).toBe('Explain in plain terms, including any symbols: the loss [¶24]');
+    expect(chatTitle(selectionPrompt('define', 'the loss', 24))).toEqual({ label: 'Explain', text: 'the loss', truncated: false });
+    expect(chatTitle('What is [¶24] about?').text).toBe('What is [¶24] about?');
     expect(selectionPrompt('define', '\\[L = -\\log \\sigma(x)\\]')).toMatch(/^Explain this equation: \\\[L = /);
     expect(isSingleEquation('\\(x\\)')).toBe(false);
     expect(isSingleEquation('\\(a \\leq b\\).')).toBe(true);

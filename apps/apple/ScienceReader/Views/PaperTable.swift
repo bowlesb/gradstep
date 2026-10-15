@@ -233,6 +233,10 @@ struct PaperTableTitle {
     var subtitleLines = 1
     /// What this device holds of the paper, shown as a small symbol after the title (Library rows).
     var deviceCopy: PaperDeviceCopy? = nil
+    /// Tapping the cloud symbol downloads the paper to this device (Library rows).
+    var download: (() -> Void)? = nil
+    /// Added recently and not opened yet: a small dot before the second line.
+    var isNew = false
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -561,10 +565,16 @@ struct PaperTableTitleCell: View {
             if title.subtitle != nil || title.deviceCopy != nil {
                 HStack(spacing: 5) {
                     if let copy = title.deviceCopy {
-                        Image(systemName: copy.symbol).font(.caption2.weight(.semibold))
-                            .foregroundStyle(copy == .reader ? Color.accentColor : copy == .unavailable ? Color.orange : Color.secondary)
-                            .accessibilityLabel(copy.label).help(copy.label)
+                        let symbol = Image(systemName: copy.symbol).font(.caption2.weight(.semibold))
+                            .foregroundStyle(copy == .reader || copy == .pdf ? Color.accentColor : copy == .unavailable ? Color.orange : Color.secondary)
+                        if copy == .cloud, let download = title.download {
+                            Button(action: download) { symbol.frame(minWidth: 28, minHeight: 24) }.buttonStyle(.plain)
+                                .accessibilityLabel("Download to this device").help("Download to this device")
+                        } else {
+                            symbol.accessibilityLabel(copy.label).help(copy.label)
+                        }
                     }
+                    if title.isNew { Circle().fill(Color.accentColor).frame(width: 7, height: 7).accessibilityLabel("New") }
                     if let subtitle = title.subtitle {
                         Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(title.subtitleLines).truncationMode(.tail)
                     }

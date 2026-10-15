@@ -7,7 +7,8 @@ if (noble.version !== '1.8.0') throw Error('Unreviewed device SHA-256 dependency
 const result = await build({ absWorkingDir: root, entryPoints: ['supabase/functions/_shared/reader/device-compiler.ts'],
   outfile: 'apps/apple/ScienceReader/Resources/arxiv-reader.js', bundle: true, platform: 'browser', target: 'es2022',
   format: 'iife', globalName: 'GradstepArxivReader', minify: true, legalComments: 'eof',
-  alias: { 'node:crypto': fileURLToPath(new URL('./arxiv-compiler/crypto.ts', import.meta.url)) }, write: false,
+  alias: { 'node:crypto': fileURLToPath(new URL('./arxiv-compiler/crypto.ts', import.meta.url)),
+    'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) }, write: false,
 });
 for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/web/public/arxiv-reader.js']) {
   if (process.argv.includes('--check')) {

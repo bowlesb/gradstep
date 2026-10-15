@@ -30,7 +30,9 @@ struct ImportProgress: Equatable, Sendable {
     /// ends for a typical paper (`countCeiling`), never below `floor`, never 100 % (the row turns into the paper then).
     /// Nil without a server percent.
     func percent(at now: Date) -> Int? {
-        guard let detail else { return nil }
+        // The server's metadata stages have no measured progress (an arXiv paper is downloaded and prepared on the
+        // device afterwards): the word and a spinner, never a percent that sits at 15 (owner, build 42).
+        guard ![.queued, .finding, .preparing].contains(step), let detail else { return nil }
         var shown = Double(min(99, detail.percent))
         if let eta = detail.etaSeconds, eta > 0, !detail.delayed {
             shown += (99 - shown) * min(1, max(0, now.timeIntervalSince(receivedAt)) / Double(eta))

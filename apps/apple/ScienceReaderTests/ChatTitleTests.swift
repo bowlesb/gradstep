@@ -47,6 +47,14 @@ final class ChatTitleTests: XCTestCase {
                        "Explain", "An earlier prompt longer than the saved title")
     }
 
+    /// The passage's paragraph marker travels with the question (owner, build 42), never into its title.
+    func testTheParagraphMarkerStaysOutOfTheTitle() {
+        XCTAssertEqual(ChatTitle.display("Explain in plain terms, including any symbols: parameters φ are optimized alongside [¶24]"),
+                       "Explain · parameters φ are optimized alongside")
+        XCTAssertEqual(ChatTitle.display("Why does this matter to the paper's method and results? the critic [¶3]"), "Why it matters · the critic")
+        XCTAssertEqual(ChatTitle.display("What is [¶24] about?"), "What is [¶24] about?", "A marker inside a question is its text")
+    }
+
     func testOtherQuestionsStayAsAsked() {
         XCTAssertEqual(ChatTitle.display("Why scale the dot products by the square root of d_k?"), "Why scale the dot products by the square root of d_k?")
         XCTAssertEqual(ChatTitle.display("Why scale by $\\sqrt{d_k}$?"), "Why scale by √d_k?")

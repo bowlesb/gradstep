@@ -153,6 +153,7 @@ extension ReaderModel {
         // The anchor is transient: the block is named by its number and resolved when the paper is shown.
         let anchor = TextAnchor(manifestSHA256: paper.readerBundle?.manifestSHA256 ?? String(repeating: "0", count: 64), quote: "", elementID: "¶\(marker)")
         passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: activeConversation ?? UUID(), anchor: anchor)
+        returnToChatAvailable = tab == .chat
         tab = .paper
         if wideMode != .browse { wideMode = .reader }
     }

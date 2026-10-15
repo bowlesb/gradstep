@@ -299,12 +299,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
     void openChatDocument(documentID, anchor);
   };
-  const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor) => {
+  const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => {
     if (!chat || chat.storageRetired || !item) return; // the storage notice explains why nothing is sent
     // The new conversation answers with the model, effort and length the chat pane shows right now.
     const visible = chat.current(chatMode === 'paper' && paperContext ? paperContext.documentID : null);
     const composer = chat.newChat(paperIdentity(item), chat.profileFor(visible));
-    chat.edit(composer, selectionPrompt(action, quote)); setChatMode('paper'); ws.show('right');
+    chat.edit(composer, selectionPrompt(action, quote, paragraph)); setChatMode('paper'); ws.show('right');
     void chat.send(composer, quote, actionFor[action], anchor).then(() => { if (action === 'ingest') void library.refresh().catch(() => {}); });
   };
   const discuss = async (quote: string, anchor: TextAnchor): Promise<boolean> => {

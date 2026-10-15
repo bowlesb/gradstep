@@ -558,13 +558,15 @@ enum PaperDeviceCopy: Equatable, Sendable {
 
     var symbol: String {
         switch self {
-        case .reader: "checkmark.circle.fill"; case .pdf: "doc.fill"; case .cloud: "icloud.and.arrow.down"; case .unavailable: "exclamationmark.circle"
+        // Two symbols (owner, build 42: "either it's there… or the cloud icon"): a check for a copy that opens at
+        // once (prepared, or a PDF), the cloud for one still to download.
+        case .reader, .pdf: "checkmark.circle.fill"; case .cloud: "icloud.and.arrow.down"; case .unavailable: "exclamationmark.circle"
         }
     }
     /// VoiceOver, and the row's tooltip on the Mac.
     var label: String {
         switch self {
-        case .reader: "On this device"; case .pdf: "PDF on this device"; case .cloud: "Not on this device yet; opens from arXiv"
+        case .reader: "On this device"; case .pdf: "PDF on this device"; case .cloud: "Not on this device yet; tap to download"
         case .unavailable: "No readable copy on this device"
         }
     }

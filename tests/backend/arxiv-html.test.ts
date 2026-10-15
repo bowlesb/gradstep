@@ -192,7 +192,7 @@ test('the authors block reads as names with single marks, affiliations and notes
  const bundle=build(source.replace('<div class="ltx_authors">A. Author</div>',authors+'<p>See <a href="#id1">the note</a>.</p>'));
  const html=new TextDecoder().decode(bundle.members.get('index.html'));
  const block=/<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1]??'';
- assert.equal(block,'Rafael Rafailov<sup>2,†</sup>, Archit Sharma<sup>1,2</sup><br><sup>2</sup>Stanford University · <sup>3</sup>CZ Biohub<br><sup>†</sup> Equal contribution; more junior authors listed earlier.');
+ assert.equal(block,'Rafael Rafailov<sup>2,†</sup>, Archit Sharma<sup>1,2</sup> <span class="reader-affiliations"><sup>2</sup>Stanford University<br><sup>3</sup>CZ Biohub</span> <span class="reader-notes"><sup>†</sup> Equal contribution; more junior authors listed earlier.</span>');
  assert.ok(!/footnotemark|Email|stanford\.edu/.test(block));
  const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
  const authorsBlock=checked.index.blocks.find(b=>html.includes(`id="${b.id}" `)&&html.includes(`class="reader-authors" data-reader-block="${b.id}"`)) ?? checked.index.blocks[1];
@@ -209,7 +209,7 @@ test('authors with one "Affiliation:" contact each get numbered marks; e-mail an
  const bundle=build(source.replace('<div class="ltx_authors">A. Author</div>',authors));
  const html=new TextDecoder().decode(bundle.members.get('index.html'));
  const block=/<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1]??'';
- assert.equal(block,'Chenghao Yue<sup>1</sup>, Hao Wang<sup>2</sup>, Jiahao Chen<sup>3</sup>, Gayoung Kim<sup>4</sup><br><sup>1</sup>Tsinghua University · <sup>2</sup>Dalian University of Technology · <sup>3</sup>Peking University · <sup>4</sup>A+HRI Laboratory, Incheon National University.<br><a href="https://seen-e.github.io/PRISM/" rel="noopener noreferrer">https://seen-e.github.io/PRISM/</a>');
+ assert.equal(block,'Chenghao Yue<sup>1</sup>, Hao Wang<sup>2</sup>, Jiahao Chen<sup>3</sup>, Gayoung Kim<sup>4</sup> <span class="reader-affiliations"><sup>1</sup>Tsinghua University<br><sup>2</sup>Dalian University of Technology<br><sup>3</sup>Peking University<br><sup>4</sup>A+HRI Laboratory, Incheon National University.<br><a href="https://seen-e.github.io/PRISM/" rel="noopener noreferrer">https://seen-e.github.io/PRISM/</a></span>');
 });
 
 test('a name that was a graphic (a team logo) is replaced by the library author metadata',()=>{
@@ -221,7 +221,7 @@ test('a name that was a graphic (a team logo) is replaced by the library author 
  assert.match(html,/left out 1 inline graphic/);
  // Without metadata the words that remain are shown, as before.
  const bare=new TextDecoder().decode(build(text).members.get('index.html'));
- assert.match(bare,/<p class="reader-authors"[^>]*><strong>Team<\/strong><\/p>/);
+ assert.match(bare,/<p class="reader-authors"[^>]*>Team<\/p>/);
  // The same source and metadata give the same bundle on every device; different metadata is a different bundle.
  assert.equal(composeArxivReader({source:utf8(text),sourceID:'2601.01234',revision:2,images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]]),authors:['LoongSage Team']}).manifestSHA256,named.manifestSHA256);
  assert.notEqual(build(text).manifestSHA256,named.manifestSHA256);
@@ -236,7 +236,7 @@ test('a title page a template left in error markers is read by macro: abstract a
  assert.deepEqual(checked.index.blocks.slice(0,5).map(b=>[b.kind,b.text.slice(0,32)]),[['heading','Authored HTML fixture'],['paragraph','Yu Wang, Yansheng Li 1Wuhan Univ'],['heading','Abstract'],['paragraph','City-scale 3D grounding is commo'],['heading','1 Introduction']]);
  const html=new TextDecoder().decode(bundle.members.get('index.html'));
  const block=/<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1]??'';
- assert.equal(block,'Yu Wang, Yansheng Li<br><sup>1</sup>Wuhan University · <sup>2</sup>DreamX Team, Alibaba Group<br><sup>†</sup> Project leader');
+ assert.equal(block,'Yu Wang, Yansheng Li <span class="reader-affiliations"><sup>1</sup>Wuhan University<br><sup>2</sup>DreamX Team, Alibaba Group</span> <span class="reader-notes"><sup>†</sup> Project leader</span>');
  assert.ok(!/dreamx_logo|October 13|\[ \[|<sup><\/sup>/.test(html),'plumbing, the date line and empty marks are gone');
  assert.match(html,/left out 6 unsupported commands/);
 });
@@ -350,4 +350,32 @@ test('a custom title page (2610.15371): the catalog title heads it, its logo is 
  assert.deepEqual(blocks.slice(0, 3), [['heading', 'A Sovereign Model'], ['paragraph', 'Ada Lovelace, Alan Turing'], ['paragraph', 'Core Team: Ada Lovelace, Alan Turing']], JSON.stringify(blocks.slice(0, 5)));
  assert.equal(checked.index.figures.length, 1, 'the fixture figure only; the logo is not one');
  assert.match(checked.index.blocks.at(-1)!.text, /left out 1 inline graphic/);
+});
+
+test('an author block set as a table (2610.10238): the first row\'s cells are the authors, the next the affiliations, marks plain, names unbolded', () => {
+ const cell = (name, mark) => `<span class="ltx_td ltx_align_center"><span class="ltx_text ltx_font_bold">${name}<sup class="ltx_sup"><span class="ltx_text ltx_font_italic">${mark}</span></sup></span></span>`;
+ const text = source.replace('<div class="ltx_authors">A. Author</div>', `<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname"><span class="ltx_tabular"><span class="ltx_thead"><span class="ltx_tr">${cell('Hao Wang', '1,2')}${cell('Qiwei Zeng', '2')}${cell('Lei Bi', '2')}</span></span><span class="ltx_tbody"><span class="ltx_tr"><span class="ltx_td"><sup class="ltx_sup">1</sup>The University of Sydney <sup class="ltx_sup">2</sup>Shanghai Jiao Tong University</span></span></span></span></span></span></div>`);
+ const bundle = build(text), html = new TextDecoder().decode(bundle.members.get('index.html'));
+ const block = /<p class="reader-authors"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1];
+ assert.equal(block, 'Hao Wang<sup>1,2</sup>, Qiwei Zeng<sup>2</sup>, Lei Bi<sup>2</sup> <span class="reader-affiliations"><sup>1</sup>The University of Sydney<br><sup>2</sup>Shanghai Jiao Tong University</span>');
+});
+
+test('a custom title page without an author block (2610.14075): names with marks, affiliations and notes read into the header; the date and e-mail lines go; a subtitle stays', () => {
+ const text = source.replace('<h1>Authored HTML fixture</h1><div class="ltx_authors">A. Author</div>', '<h1>Authored HTML fixture</h1><div class="ltx_para"><p class="ltx_p">A Controlled Study for Tabletop Manipulation</p></div><div class="ltx_para"><p class="ltx_p">Public Technical Report Date: October 2026</p></div><div class="ltx_para"><p class="ltx_p">Yuhui Duan<sup class="ltx_sup">1</sup> Shi Jin<sup class="ltx_sup">1</sup> Yan Ding<sup class="ltx_sup">2,*</sup></p></div><div class="ltx_para"><p class="ltx_p"><sup class="ltx_sup">1</sup>Soochow University <sup class="ltx_sup">2</sup>Fudan University</p></div><div class="ltx_para"><p class="ltx_p"><sup class="ltx_sup">*</sup>Corresponding authors: someone@example.com, other@example.com</p></div>');
+ const bundle = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), authors: ['Yuhui Duan', 'Shi Jin', 'Yan Ding'] });
+ const checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256), html = new TextDecoder().decode(bundle.members.get('index.html'));
+ const block = /<p class="reader-authors"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1];
+ assert.equal(block, 'Yuhui Duan<sup>1</sup>, Shi Jin<sup>1</sup>, Yan Ding<sup>2,*</sup> <span class="reader-affiliations"><sup>1</sup>Soochow University<br><sup>2</sup>Fudan University</span> <span class="reader-notes"><sup>*</sup> Corresponding authors</span>');
+ const texts = checked.index.blocks.map(b => b.text);
+ assert.equal(texts[2], 'A Controlled Study for Tabletop Manipulation', JSON.stringify(texts.slice(0, 5)));
+ assert.ok(!texts.some(t => /Date:|example\.com/.test(t)), 'the date and e-mail lines are gone');
+});
+
+test('an inline picture carries the pattern the page defined elsewhere; a reference nothing defines is left out', () => {
+ const text = source.replace('<p id="p1">', '<svg id="shared" class="ltx_picture" width="0" height="0"><defs><pattern id="pgfpat3" width="4" height="4"><path d="M0 0L4 4"/></pattern></defs></svg><figure id="S4.F9" class="ltx_figure"><svg id="S4.F9.pic1" class="ltx_picture" viewBox="0 0 10 10"><defs><pattern href="#pgfpat3" id="pgfupat20"/></defs><rect width="4" height="4" fill="url(#pgfupat20)"/><use href="#nowhere"/></svg><figcaption>Figure 9: Patterned.</figcaption></figure><p id="p1">');
+ const inline = arxivInlineImages(text, url);
+ const xml = inline.get('#S4.F9.pic1')!;
+ assert.ok(xml, [...inline.keys()].join());
+ assert.match(xml, /<pattern [^>]*id="pgfpat3"/, 'the shared pattern travels with the picture');
+ assert.ok(!xml.includes('#nowhere'), 'the dangling reference is left out');
 });

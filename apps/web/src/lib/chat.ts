@@ -269,9 +269,12 @@ const EQUATION_PREFIX = 'Explain this equation: ';
 const EQUATION_SUFFIX = '\n\nBriefly cover the background needed to read it, its overall message, what each symbol means, and how its notation compares with common ML conventions.';
 export const actionFor: Record<SelectionAction, ChatAction | null> = { define: null, relevance: 'relevance', similar: 'related', ingest: 'ingest' };
 
-export function selectionPrompt(action: SelectionAction, quote: string): string {
-  if (action === 'define' && isSingleEquation(quote)) return EQUATION_PREFIX + quote + EQUATION_SUFFIX;
-  return PREFIX[action] + quote;
+/** The question a selection action asks; `paragraph` (the paper's own [¶N] numbering of the passage's block) goes
+ * with it so the answer can start from the exact place and the transcript links back to it (owner, build 42). */
+export function selectionPrompt(action: SelectionAction, quote: string, paragraph?: number): string {
+  const marker = paragraph ? ` [¶${paragraph}]` : '';
+  if (action === 'define' && isSingleEquation(quote)) return EQUATION_PREFIX + quote + EQUATION_SUFFIX + marker;
+  return PREFIX[action] + quote + marker;
 }
 
 export type Segment = { kind: 'text'; text: string } | { kind: 'math'; body: string; display: boolean; closed: boolean };
@@ -322,7 +325,8 @@ export function isSingleEquation(quote: string): boolean {
 /** A saved title (the first question): a known prompt becomes "Label · passage" (display only; nothing saved changes). */
 export function chatTitle(saved: string): { label: string | null; text: string; truncated: boolean } {
   const truncated = [...saved].length >= 100;
-  const text = saved.trim();
+  // The passage's paragraph marker ("[¶24]") goes with the question, not into its title.
+  const text = saved.trim().replace(/\s*\[¶\d{1,5}\]\s*$/, '');
   const prompts: [string, string][] = [...SELECTION_ACTIONS.map(a => [PREFIX[a.action], a.title] as [string, string]), [EQUATION_PREFIX, 'Explain'],
     ['Explain this in plain terms, in the context of this paper (for notation or an equation, say what each symbol means): ', 'Explain'],
     ['Define this in the context of the paper: ', 'Define'], ['What role does this passage play in the paper\'s argument? Connect it to the method and the results: ', 'Why it matters'],

@@ -145,7 +145,9 @@ struct LibraryPaperTable<Top: View>: View {
                    identifier: "library.table",
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
-                       PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry), deviceCopy: item.facts.deviceCopy)
+                       PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry), deviceCopy: item.facts.deviceCopy,
+                                       download: item.facts.deviceCopy == .cloud ? item.facts.paper.map { paper in { model.prepareOnDevice(paper) } } : nil,
+                                       isNew: model.isNew(item.facts.paper))
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
@@ -414,6 +416,13 @@ struct LibraryRowActions: View {
     var body: some View {
         switch entry {
         case .paper(let paper):
+            if model.deviceCopy(for: paper) == .cloud {
+                if model.isPreparingOnDevice(paper) {
+                    Button("Stop downloading", systemImage: "xmark.circle") { model.cancelDevicePreparation(paper) }
+                } else {
+                    Button("Download to this device", systemImage: "icloud.and.arrow.down") { model.prepareOnDevice(paper) }
+                }
+            }
             PodcastListenMenuRow(model: model, paper: paper)
             if let item = model.sourceImport(for: paper) {
                 if model.localPaperAvailable(for: item) {

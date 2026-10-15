@@ -11,7 +11,7 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
  * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 4;
+export const ARXIV_RENDERER_REVISION = 5;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;
@@ -74,17 +74,51 @@ export function arxivInlineImages(source: string, sourceURL: string, options: Ar
   const placeholder = { path: `assets/${'0'.repeat(64)}.png`, width: 1, height: 1 };
   const wanted = new Set(convertArxivHTML(source, sourceURL, () => placeholder, options).imageURLs.filter(url => url.startsWith('#')).map(url => url.slice(1)));
   const result = new Map<string, string>();
-  for (const n of elements(article(source).root, n => n.name === 'svg')) {
+  const root = article(source).root;
+  for (const n of elements(root, n => n.name === 'svg')) {
     const id = n.attribs.id;
     if (typeof id !== 'string' || !wanted.has(id)) continue;
     check(/^[A-Za-z_][A-Za-z0-9_.:-]{0,199}$/.test(id) && !nearest(n, 'svg') && !nearest(n, 'math'), 'arxiv_inline_svg');
     check(!n.attribs.xmlns || n.attribs.xmlns === 'http://www.w3.org/2000/svg', 'arxiv_inline_svg');
-    const xml = serialize(svgTextLabels({ ...n, attribs: { ...n.attribs, xmlns: 'http://www.w3.org/2000/svg' } }));
+    const xml = serialize(svgTextLabels(withSharedDefinitions(root, { ...n, attribs: { ...n.attribs, xmlns: 'http://www.w3.org/2000/svg' } })));
     result.set('#' + id, xml);
   }
   check(result.size === wanted.size, 'arxiv_inline_svg');
   check(result.size <= LIMITS.archiveImages, 'image_limit');
   return result;
+}
+
+/** A TikZ picture may use a pattern or symbol LaTeXML defined once elsewhere in the page (Apertus 1.5's Figure 9, refused
+ * as `svg_fragment` on build 42): those definitions travel with the picture in their own `defs`, and an element whose
+ * reference nothing on the page defines is left out rather than refusing the paper. */
+function withSharedDefinitions(root: DomNode, picture: DomNode): DomNode {
+  const ownRefs = (x: DomNode): string[] => Object.entries(x.attribs ?? {}).flatMap(([key, value]) => {
+    if ((key === 'href' || key === 'xlink:href') && value.startsWith('#')) return [value.slice(1)];
+    return [...String(value).matchAll(/url\(#([^)]+)\)/g)].map(m => m[1]);
+  });
+  const refs = (node: DomNode): string[] => elements(node, () => true).flatMap(ownRefs);
+  const have = new Set(elements(picture, x => typeof x.attribs?.id === 'string').map(x => x.attribs.id));
+  const copies: DomNode[] = [], seen = new Set<string>();
+  let pending = refs(picture).filter(id => !have.has(id));
+  for (let depth = 0; pending.length && depth < 4; depth += 1) {
+    const next: string[] = [];
+    for (const id of pending) {
+      if (seen.has(id) || have.has(id)) continue; seen.add(id);
+      const source = elements(root, x => x.attribs?.id === id && x !== picture && !nearest(x, 'math'))[0];
+      if (!source) continue;
+      copies.push(source); have.add(id);
+      for (const inner of elements(source, x => typeof x.attribs?.id === 'string')) have.add(inner.attribs.id);
+      next.push(...refs(source).filter(r => !have.has(r)));
+    }
+    pending = next;
+  }
+  const defs: DomNode = { type: 'tag', name: 'defs', attribs: {}, children: copies, parent: picture } as DomNode;
+  const missing = new Set(refs(picture).concat(copies.flatMap(refs)).filter(id => !have.has(id)));
+  const prune = (node: DomNode): DomNode => ({ ...node, children: (node.children ?? [])
+    .filter(child => !(child.type === 'tag' && ownRefs(child).some(id => missing.has(id))))
+    .map(child => child.type === 'tag' ? prune(child) : child) });
+  const withDefs: DomNode = copies.length ? { ...picture, children: [...picture.children, defs] } : picture;
+  return missing.size ? prune(withDefs) : withDefs;
 }
 
 /** LaTeXML draws TikZ node labels as `foreignObject` HTML, which the device SVG admission refuses. Each label becomes
@@ -164,20 +198,108 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   // contact labels, e-mail addresses. Authors whose affiliations come without marks (one "Affiliation:" each) get
   // numbered marks in order. A name that was a graphic (a team logo) is replaced by the library's author metadata
   // when the caller passes it (owner reports, 2026-10-14: "gross author presentation", "what is this Team business").
+  // Author text helpers, shared by LaTeXML's author block and a custom title page read into the header.
+    const MARKS = /[\d,†‡*§¶‖]/g, LEADING_MARKS = /^[\d,†‡*§¶‖\s]+/;
+    const EMAIL = /\{[^}]*\}@[\w.-]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+    const plain = (parts: Child[]) => normalizeSpace(parts.map(part => typeof part === 'string' ? part : outText(part)).join(''));
+    const isSup = (part: Child): part is OutNode => typeof part === 'object' && part.name === 'sup';
+    const isBr = (part: Child) => typeof part === 'object' && part.name === 'br';
+    // Collapsed whitespace, no e-mail, no space around a mark, consecutive marks as one ("1,2"), tidy punctuation,
+    // trimmed ends.
+    const tidy = (parts: Child[]): Child[] => {
+      const out: Child[] = [];
+      for (const part of parts) {
+        if (typeof part === 'string') {
+          const last = out[out.length - 1];
+          const text = (isSup(last) ? part.trimStart() : part).replace(EMAIL, '').replace(/\s+/g, ' ');
+          if (!text) continue;
+          if (typeof last === 'string') out[out.length - 1] = (last + text).replace(/\s+/g, ' '); else out.push(text);
+        } else if (isSup(part)) {
+          if (!outText(part).trim()) continue; // a mark that was an icon (an envelope, 2610.12978)
+          const last = out[out.length - 1];
+          if (typeof last === 'string') { const trimmed = last.trimEnd(); if (trimmed) out[out.length - 1] = trimmed; else out.pop(); }
+          const previous = out[out.length - 1];
+          if (isSup(previous)) {
+            const marks = [...new Set([...outText(previous).split(','), ...outText(part).split(',')].map(m => m.trim()).filter(Boolean))];
+            previous.children = [marks.join(',')];
+          } else out.push(part);
+        } else if (part.name === 'br' || part.name === 'a') out.push(part);
+        else {
+          // An emphasis wrapper: tidied inside, and left out when nothing is left in it (a logo that was dropped).
+          const inner = tidy(part.children);
+          if (inner.length) out.push({ ...part, children: inner });
+        }
+      }
+      for (let i = 0; i < out.length; i++) {
+        const part = out[i];
+        if (typeof part === 'string') out[i] = part.replace(/\s+([.,;:])/g, '$1').replace(/:\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ');
+      }
+      if (typeof out[0] === 'string') { out[0] = out[0].trimStart(); if (!out[0]) out.shift(); }
+      const last = out[out.length - 1];
+      if (typeof last === 'string') { out[out.length - 1] = last.trimEnd().replace(/^[\s,;:]+/, ''); if (!out[out.length - 1]) out.pop(); }
+      return out;
+    };
+    // An affiliation line ("²Stanford University ³CZ Biohub"): each mark starts an entry; entries read "a · b".
+    const entries = (parts: Child[]): Child[][] => {
+      const list: Child[][] = [];
+      for (const part of parts) {
+        if (isSup(part) || !list.length) list.push([]);
+        list[list.length - 1].push(part);
+      }
+      return list.map(tidy).filter(entry => plain(entry).replace(MARKS, '').trim());
+    };
+  /** A run of names and affiliations without LaTeXML's creator structure (a tabular's cells, a custom title page,
+   * 2610.10238 and 2610.14075): "Name<sup>1</sup>" is an author, "<sup>1</sup>Place" an affiliation, and a unit without
+   * marks lists names ("A, B and C"). */
+  const trimEdges = (unit: Child[]): Child[] => {
+    const out = [...unit];
+    if (typeof out[0] === 'string') { out[0] = out[0].replace(/^[\s,;:·]+/, ''); if (!out[0]) out.shift(); }
+    const last = out[out.length - 1];
+    if (typeof last === 'string') { out[out.length - 1] = last.replace(/[\s,;:·]+$/, ''); if (!out[out.length - 1]) out.pop(); }
+    return out;
+  };
+  const splitNames = (unit: Child[]): Child[][] => {
+    if (unit.some(part => typeof part !== 'string')) return [unit];
+    const text = plain(unit).replace(/^[A-Z][A-Za-z ]{1,30}:\s*/, '');
+    return text.split(/\s*(?:,|;|\band\b|&)\s*/).map(name => name.trim()).filter(Boolean).map(name => [name]);
+  };
+  const parseRun = (parts: Child[]): { names: Child[][]; affiliations: Child[][] } => {
+    const names: Child[][] = [], affiliations: Child[][] = [];
+    let current: Child[] = [], mode: 'name' | 'affiliation' | null = null;
+    const flush = () => {
+      const unit = trimEdges(tidy(current)); current = [];
+      if (plain(unit).replace(MARKS, '').trim()) (mode === 'affiliation' ? affiliations : names).push(unit);
+      mode = null;
+    };
+    for (const part of parts) {
+      if (isBr(part)) { flush(); continue; }
+      if (isSup(part)) {
+        if (mode === 'name') { current.push(part); flush(); }
+        else { if (mode === 'affiliation') flush(); current.push(part); mode = 'affiliation'; }
+      } else { if (mode === null) mode = 'name'; current.push(part); }
+    }
+    flush();
+    return { names: names.flatMap(unit => unit.some(isSup) ? [unit] : splitNames(unit)), affiliations };
+  };
+  /** The header's author paragraph: the names with their marks, then the affiliations and the notes each on its own
+   * line in a smaller face (ARXIV_CSS; owner, build 42: "still ugly", "needs space after author section"). */
+  const renderAuthors = (names: Child[][], affiliations: Child[][], addresses: Child[][], notes: { mark: string; body: Child[] }[]): Child[] => {
+    const out: Child[] = [];
+    names.forEach((name, index) => { if (index) out.push(', '); out.push(...name); });
+    const lines = (units: Child[][]): Child[] => units.flatMap((unit, index) => index ? [el('br'), ...unit] : unit);
+    if (affiliations.length || addresses.length) out.push(' ', el('span', { class: 'reader-affiliations' }, lines([...affiliations, ...addresses])));
+    if (notes.length) out.push(' ', el('span', { class: 'reader-notes' }, lines(notes.map(note => note.mark ? [el('sup', {}, [note.mark]), ' ', ...note.body] : note.body))));
+    return out;
+  };
   function authorsBlock(n: DomNode): OutNode {
     return block(n, 'p', 'paragraph', id => {
       for (const e of elements(n, () => true)) bind(e, id);
       const INLINE = ['em', 'i', 'strong', 'b', 'u', 's', 'sub', 'sup', 'code'];
-      const MARKS = /[\d,†‡*§¶‖]/g, LEADING_MARKS = /^[\d,†‡*§¶‖\s]+/;
       const MARK_SYMBOLS: Record<string, string> = { '†': '†', '‡': '‡', '*': '*', '∗': '*', '⋆': '*', '§': '§', '¶': '¶', '‖': '‖' };
       const mathText = (m: DomNode): string => m.type === 'text' ? m.data : m.type !== 'tag' || ['annotation', 'annotation-xml'].includes(m.name) ? '' : children(m).map(mathText).join('').trim();
-      const EMAIL = /\{[^}]*\}@[\w.-]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
       const notes: { mark: string; body: Child[] }[] = [], seenNotes = new Set<string>();
       const addresses: Child[][] = [];
       const drop = (c: DomNode): Child[] => { for (const m of elements(c, x => x.name === 'math')) skippedMath.add(m); return []; };
-      const plain = (parts: Child[]) => normalizeSpace(parts.map(part => typeof part === 'string' ? part : outText(part)).join(''));
-      const isSup = (part: Child): part is OutNode => typeof part === 'object' && part.name === 'sup';
-      const isBr = (part: Child) => typeof part === 'object' && part.name === 'br';
       const walk = (c: DomNode): Child[] => {
         if (c.type === 'text') return [c.data];
         if (c.type !== 'tag') return [];
@@ -209,53 +331,15 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         }
         if (has(c, 'ltx_author_before') || has(c, 'ltx_author_after')) return [' '];
         if (c.name === 'br') return [el('br')];
-        const name = INLINE.includes(c.name) ? c.name : has(c, 'ltx_font_bold') ? 'strong' : has(c, 'ltx_font_italic') ? 'em' : null;
+        // A mark is its text (a template's italic "1,2" is no emphasis, 2610.10238); the block has one face, so
+        // bold or italic wrappers around names are left out.
+        if (c.name === 'sup') { const text = plain(children(c).flatMap(walk)); return text ? [el('sup', {}, [text])] : []; }
+        // An author block set as a table (2610.10238): a row is a line, a cell is a unit.
+        if (has(c, 'ltx_tr')) return [...children(c).flatMap(walk), el('br')];
+        if (has(c, 'ltx_td') || has(c, 'ltx_th')) return [...children(c).flatMap(walk), ' '];
+        const name = INLINE.includes(c.name) ? c.name : null;
         const result = children(c).flatMap(walk);
         return name ? [el(name, {}, result)] : result;
-      };
-      // Collapsed whitespace, no e-mail, no space around a mark, consecutive marks as one ("1,2"), tidy punctuation,
-      // trimmed ends.
-      const tidy = (parts: Child[]): Child[] => {
-        const out: Child[] = [];
-        for (const part of parts) {
-          if (typeof part === 'string') {
-            const last = out[out.length - 1];
-            const text = (isSup(last) ? part.trimStart() : part).replace(EMAIL, '').replace(/\s+/g, ' ');
-            if (!text) continue;
-            if (typeof last === 'string') out[out.length - 1] = (last + text).replace(/\s+/g, ' '); else out.push(text);
-          } else if (isSup(part)) {
-            if (!outText(part).trim()) continue; // a mark that was an icon (an envelope, 2610.12978)
-            const last = out[out.length - 1];
-            if (typeof last === 'string') { const trimmed = last.trimEnd(); if (trimmed) out[out.length - 1] = trimmed; else out.pop(); }
-            const previous = out[out.length - 1];
-            if (isSup(previous)) {
-              const marks = [...new Set([...outText(previous).split(','), ...outText(part).split(',')].map(m => m.trim()).filter(Boolean))];
-              previous.children = [marks.join(',')];
-            } else out.push(part);
-          } else if (part.name === 'br' || part.name === 'a') out.push(part);
-          else {
-            // An emphasis wrapper: tidied inside, and left out when nothing is left in it (a logo that was dropped).
-            const inner = tidy(part.children);
-            if (inner.length) out.push({ ...part, children: inner });
-          }
-        }
-        for (let i = 0; i < out.length; i++) {
-          const part = out[i];
-          if (typeof part === 'string') out[i] = part.replace(/\s+([.,;:])/g, '$1').replace(/:\s*\./g, '.').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ');
-        }
-        if (typeof out[0] === 'string') { out[0] = out[0].trimStart(); if (!out[0]) out.shift(); }
-        const last = out[out.length - 1];
-        if (typeof last === 'string') { out[out.length - 1] = last.trimEnd().replace(/^[\s,;:]+/, ''); if (!out[out.length - 1]) out.pop(); }
-        return out;
-      };
-      // An affiliation line ("²Stanford University ³CZ Biohub"): each mark starts an entry; entries read "a · b".
-      const entries = (parts: Child[]): Child[][] => {
-        const list: Child[][] = [];
-        for (const part of parts) {
-          if (isSup(part) || !list.length) list.push([]);
-          list[list.length - 1].push(part);
-        }
-        return list.map(tidy).filter(entry => plain(entry).replace(MARKS, '').trim());
       };
       const affiliations = new Map<string, Child[]>();
       const addAffiliations = (parts: Child[]): string[] => {
@@ -283,6 +367,15 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         let name: Child[] | null = null;
         if (text && !startsWithMark) name = head; else if (text) keys.push(...addAffiliations(head));
         if (cut >= 0) keys.push(...addAffiliations(parts.slice(cut + 1).filter(part => !isBr(part))));
+        // Several authors in one creator (a tabular's cells, names run together with their marks): each is one.
+        const more: Child[][] = [];
+        if (name) {
+          const run = parseRun(name);
+          if (run.names.length >= 2) {
+            for (const unit of run.affiliations) keys.push(...addAffiliations(unit));
+            more.push(...run.names.slice(1)); name = run.names[0];
+          }
+        }
         for (const extra of person ? children(creator).filter(c => c !== person) : []) {
           // A note beside the name (a dagger for equal contribution) marks the name; anything else is an affiliation.
           const marksOnly = extra.type === 'tag' && (has(extra, 'ltx_note')
@@ -291,6 +384,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
           if (marksOnly && name) name = tidy([...name, ...rendered]); else keys.push(...addAffiliations(rendered));
         }
         if (name || lost) creators.push({ name: name ?? [], keys: [...new Set(keys)], lost });
+        for (const unit of more) creators.push({ name: unit, keys: [], lost: false });
       }
       // A title page read by macro (templatePreamble): its affiliations and contribution notes belong here.
       for (const entry of templateAffiliations.splice(0)) addAffiliations([el('sup', {}, [entry.mark]), entry.text]);
@@ -312,12 +406,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         }
         for (const [key, entry] of affiliations) affiliations.set(key, tidy([el('sup', {}, [numbers.get(key)!]), ...entry]));
       }
-      const out: Child[] = [];
-      if (useMetadata) out.push(metadataAuthors.join(', '));
-      else named.forEach((c, index) => { if (index) out.push(', '); out.push(...c.name); });
-      if (affiliations.size) { out.push(...(out.length ? [el('br')] : [])); let index = 0; for (const entry of affiliations.values()) { if (index++) out.push(' · '); out.push(...entry); } }
-      for (const address of addresses) { if (out.length) out.push(el('br')); out.push(...address); }
-      for (const note of notes) { if (out.length) out.push(el('br')); if (note.mark) out.push(el('sup', {}, [note.mark]), ' '); out.push(...note.body); }
+      const out = renderAuthors(useMetadata ? [[metadataAuthors.join(', ')]] : named.map(c => c.name), [...affiliations.values()], addresses, notes);
       if (out.length) return out;
       // Nothing recognisable: the block's own words, with any math inside counted as left out.
       for (const m of elements(n, x => x.name === 'math')) if (!usedMath.has(m)) skippedMath.add(m);
@@ -714,6 +803,30 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     top.splice(titleAt + 1, 0, authors); reorder();
     const listed = fold(metadataAuthors.join(' '));
     for (const entry of blocks.filter(b => b.kind === 'paragraph' && b.node !== authors && fold(outText(b.node)) === listed)) remove(entry);
+    // A custom title page (2610.14075: names with marks in a tabular, affiliation lines, a date line, "Corresponding
+    // authors:" with e-mail) reads into the header: its names with their marks when they are the catalog's, its
+    // affiliations and notes under them; the date and e-mail lines go. A subtitle stays as the first paragraph.
+    const catalog = new Set(metadataAuthors.map(fold));
+    const parsedNames: Child[][] = [], affiliations: Child[][] = [], notes: { mark: string; body: Child[] }[] = [];
+    let kept = 0;
+    for (const node of top.slice(top.indexOf(authors) + 1, top.indexOf(authors) + 14)) {
+      if (node.name !== 'p' || node.attribs.class) break;
+      const entry = blocks.find(b => b.node === node); if (!entry) break;
+      const text = normalizeSpace(outText(node)), run = parseRun(node.children);
+      const matched = run.names.filter(unit => catalog.has(fold(plain(unit).replace(MARKS, '')))).length;
+      if (/\bdate:/i.test(text) || (/\b(19|20)\d{2}\b/.test(text) && text.length <= 60 && !/[.!?]$/.test(text))) { remove(entry); continue; }
+      if (/corresponding author|equal contribution|contributed equally/i.test(text) && text.length <= 240) {
+        const mark = /^[†‡*§¶‖]/.exec(text)?.[0] ?? '';
+        notes.push({ mark, body: [text.replace(EMAIL, '').replace(/^[†‡*§¶‖\s]+/, '').replace(/\s+([.,;:])/g, '$1').replace(/[\s,;:]+$/, '')] });
+        remove(entry); continue;
+      }
+      if (run.names.length >= 2 && matched * 2 >= run.names.length) { parsedNames.push(...run.names); affiliations.push(...run.affiliations); remove(entry); continue; }
+      if (!run.names.length && run.affiliations.length) { affiliations.push(...run.affiliations); remove(entry); continue; }
+      if (++kept >= 3) break;
+    }
+    if (parsedNames.length || affiliations.length || notes.length) {
+      authors.children = renderAuthors(parsedNames.length ? parsedNames : [[names]], affiliations, [], notes);
+    }
   }
   // A paragraph with nothing in it (a horizontal rule, an empty LaTeXML paragraph) is no block.
   const substance = (node: Child): boolean => typeof node === 'string' ? node.trim().length > 0
