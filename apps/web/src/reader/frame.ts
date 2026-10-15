@@ -12,14 +12,11 @@ const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,
 
 export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | null; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null }
 
-/** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
-export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
-  const html = new TextDecoder().decode(bundle.contents.get(bundle.manifest.entrypoint)!);
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const styles = bundle.manifest.members.filter(m => m.role === 'style');
-  const stylesheetHrefs = [...doc.querySelectorAll('link[rel~="stylesheet"]')].map(l => l.getAttribute('href'));
-  doc.querySelectorAll(REMOVE).forEach(element => element.remove());
-  for (const element of doc.querySelectorAll('*')) {
+/** No bundle scripts, frames, forms or handlers, no script or data URLs; verified images inlined as data URIs. Shared
+ * with the equation view's frame (equation-frame.ts). */
+export function scrub(root: Document | Element, bundle: VerifiedBundle) {
+  root.querySelectorAll(REMOVE).forEach(element => element.remove());
+  for (const element of [...(root instanceof Element ? [root] : []), ...root.querySelectorAll('*')]) {
     for (const attribute of [...element.attributes]) {
       const name = attribute.name.toLowerCase(), value = attribute.value.trim().toLowerCase();
       if (name.startsWith('on') || name === 'srcset' || name === 'formaction' || name === 'ping'
@@ -29,21 +26,33 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
     }
   }
   const images = new Map(bundle.manifest.members.filter(m => m.role === 'image').map(m => [m.path, m]));
-  for (const img of doc.querySelectorAll('img')) {
+  for (const img of root.querySelectorAll('img')) {
     const member = images.get(img.getAttribute('src') ?? '');
     if (member) img.setAttribute('src', `data:${member.media_type};base64,${toBase64(bundle.contents.get(member.path)!)}`);
     else img.removeAttribute('src');
   }
+}
+/** The bundle's stylesheets in its own link order, then any remaining style members. */
+export function bundleStyles(bundle: VerifiedBundle, hrefs: (string | null)[] = []): string[] {
+  const styles = bundle.manifest.members.filter(m => m.role === 'style');
+  const ordered = [...hrefs.map(href => styles.find(s => s.path === href)).filter(Boolean), ...styles.filter(s => !hrefs.includes(s.path))];
+  return [...new Set(ordered)].map(member => new TextDecoder().decode(bundle.contents.get(member!.path)!));
+}
+
+/** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
+export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
+  const html = new TextDecoder().decode(bundle.contents.get(bundle.manifest.entrypoint)!);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const stylesheetHrefs = [...doc.querySelectorAll('link[rel~="stylesheet"]')].map(l => l.getAttribute('href'));
+  scrub(doc, bundle);
   const head = doc.head;
   const csp = doc.createElement('meta');
   csp.setAttribute('http-equiv', 'Content-Security-Policy');
   csp.setAttribute('content', `default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src '${frame.hash}'; base-uri 'none'; form-action 'none'; connect-src 'none'; frame-src 'none'; font-src 'none'`);
   head.prepend(csp);
-  // Stylesheets in the bundle's own link order, then any remaining style members.
-  const ordered = [...stylesheetHrefs.map(href => styles.find(s => s.path === href)).filter(Boolean), ...styles.filter(s => !stylesheetHrefs.includes(s.path))];
-  for (const member of new Set(ordered)) {
+  for (const text of bundleStyles(bundle, stylesheetHrefs)) {
     const style = doc.createElement('style');
-    style.textContent = new TextDecoder().decode(bundle.contents.get(member!.path)!);
+    style.textContent = text;
     head.append(style);
   }
   const configBlock = doc.createElement('script');

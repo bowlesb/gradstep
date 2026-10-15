@@ -29,6 +29,7 @@ import { readStored, type Route, type Theme, useTheme, writeStored } from './pre
 /** The Library's filter and tag, remembered between visits (per browser, a convenience only). */
 const LIBRARY_FILTER_KEY = 'gradstep.library.filter', LIBRARY_TAG_KEY = 'gradstep.library.tag';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
+import type { EquationHost } from './EquationView';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
@@ -334,6 +335,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }));
     return true;
   };
+  // The equation view's requests: the chat's consent, default model and cache for this paper (EQUATION_VIEW.md).
+  const equationDocument = item ? paperIdentity(item) : null;
+  const equationHost = useMemo<EquationHost | undefined>(() => chat && equationDocument ? {
+    consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
+    saved: (manifest, equationID, action) => chat.savedEquation(manifest, equationID, action),
+    run: (input, action, update, signal) => chat.equation(equationDocument, input, action, update, signal),
+  } : undefined, [chat, equationDocument]);
   const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined)]);
 
   const openPodcastEvidence = async (episode: Episode, evidence: Evidence): Promise<boolean | null> => {
@@ -377,7 +385,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       } : undefined} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
-        onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }}
+        onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;

@@ -21,6 +21,7 @@ import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
+import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
 
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
@@ -493,6 +494,59 @@ export class ChatSession {
       if (Number.isSafeInteger(balance?.available) && balance.available >= 0 && Number.isSafeInteger(balance.reserved) && balance.reserved >= 0) { this.balance = balance; this.publish(); }
     } catch { /* A failed balance read never becomes a fabricated zero or client spending authority. */ }
   }
+  // ---------- The equation view (EQUATION_VIEW.md) ----------
+
+  /** Whether this browser accepted cloud AI answers: the chat's own consent, which the equation view shares. */
+  get cloudConsent(): boolean { return this.deps.readConsent(); }
+  acceptCloudConsent(): boolean { try { this.deps.writeConsent(); return true; } catch { return false; } }
+  private equations = new Map<string, EquationResult>();
+  private equationProfile(): ProfileChoice { return this.profiles.table ? this.defaultProfile : STANDARD_PROFILE; }
+  /** A finished result for this equation with the current default model (memory only, this login lifetime). */
+  savedEquation(manifest: string, equationID: string, action: EquationAction): EquationResult | null {
+    const p = this.equationProfile();
+    return this.equations.get(equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`)) ?? null;
+  }
+  /** One equation-view request, sent exactly as this browser's chat sends a question about the paper (its default
+   * profile, capabilities, consent and the numbered paper on this device), so the server reads the same cached prefix.
+   * No conversation or history is made; the finished result is kept in memory for this session. */
+  async equation(documentID: string, input: { equationID: string; latex: string; number: string | null }, action: EquationAction,
+    update: (result: EquationResult) => void, signal: AbortSignal): Promise<EquationResult> {
+    this.allowed();
+    let result: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
+    const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
+    if (this.retiredStorage) return finish('storage_retired');
+    if (!this.deps.readConsent()) return finish('consent_required');
+    const reference = this.reference(documentID), local = reference && this.sourcePapers.get(reference.membershipID);
+    if (!reference || !local) return finish('local_reader_unavailable');
+    update(result);
+    const table = await this.profiles.load();
+    const profile = table ? this.defaultProfile : STANDARD_PROFILE;
+    let bundle: VerifiedBundle;
+    try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
+    if (signal.aborted || this.signal.aborted) return finish('cancelled');
+    const key = equationKey(bundle.manifestSHA256, input.equationID, action, `${profile.model}-${profile.effort}-${profile.length}`);
+    const saved = this.equations.get(key);
+    if (saved) { update(saved); return saved; }
+    const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: equationTurn(input.number) }], input.latex, action,
+      { ...(table ? { profile } : {}), visualAnswers: readVisualAnswers() });
+    try { request.localContext = localChatContext(reference, bundle); } catch { return finish('local_reader_unavailable'); }
+    const controller = cancellation([this.signal, signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
+    try {
+      for await (const event of this.deps.stream(this.account, request, controller.signal)) {
+        if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
+        else if (event.type === 'equation') { result = { ...result, symbols: event.symbols }; update(result); }
+        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null }; finish(event.code); break; }
+        else if (event.type === 'done') { result = { ...result, credits: event.credits }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
+      }
+      if (result.phase === 'loading') finish('transport');
+    } catch (error) {
+      finish(controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled'
+        : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
+    } finally { clearTimeout(deadline); controller.dispose(); }
+    if (result.phase === 'done') this.equations.set(key, result);
+    void this.refreshBalance();
+    return result;
+  }
   private track(task: Promise<void>): Promise<void> { this.tasks.add(task); void task.finally(() => this.tasks.delete(task)).catch(() => {}); return task; }
 
   // ---------- Sending ----------
@@ -745,6 +799,7 @@ export class ChatSession {
         else if (event.type === 'study') nextMap = event.map;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
+        else if (event.type === 'equation') { /* the equation view's own event; a chat never asks for it */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();

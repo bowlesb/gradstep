@@ -7,11 +7,12 @@ import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profile
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
+import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md).
 export const CONSENT_VERSION = 'cloud-ai-v3';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study';
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background';
 export interface ChatTurn { role: Role; text: string }
 export interface LocalPaperContext { format:'reader-local-context-v1'|'reader-local-context-v2';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
 export interface ChatRequest {
@@ -68,12 +69,13 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers']),
     ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : [])];
   if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
-  if (r.action !== 'diagram_fix' && r.topicTitle) body.topic_title = true;
-  // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own).
-  if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study') body.follow_ups = true;
+  if (r.action !== 'diagram_fix' && !isEquationAction(r.action) && r.topicTitle) body.topic_title = true;
+  // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own; the
+  // equation view is no conversation).
+  if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study' && !isEquationAction(r.action)) body.follow_ups = true;
   if (r.action === 'study') body.study = r.study ?? EMPTY_STUDY_MAP;
   // Figures go only with a paper question, never with Add paper or a diagram repair (chat-figures.ts).
-  if (r.figures?.length && body.mode === 'paper' && r.action !== 'ingest' && r.action !== 'diagram_fix') {
+  if (r.figures?.length && body.mode === 'paper' && r.action !== 'ingest' && r.action !== 'diagram_fix' && !isEquationAction(r.action)) {
     body.figures = r.figures.map(f => ({ id: f.id, paragraph: f.paragraph, caption: f.caption, media_type: f.mediaType, data: f.data, width: f.width, height: f.height }));
   }
   return body;
@@ -98,6 +100,8 @@ export type StreamEvent =
   | { type: 'figure_parts'; parts: FigureParts }
   /** The model asks for a figure of the paper ("Figure 4"); the question is asked again with it attached. */
   | { type: 'figure_request'; figure: string }
+  /** The equation view's symbols (action `equation`, servers from 2026-10-15; equation.ts). */
+  | { type: 'equation'; symbols: EquationSymbols }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string; credits?: number };
 
@@ -205,6 +209,11 @@ export class SSEParser {
         // Informational: parts that are not usable are dropped, never fatal.
         const parts = parseFigureParts(v);
         return parts ? { type: 'figure_parts', parts } : null;
+      }
+      case 'equation': {
+        // Informational: symbols that are not usable are dropped, never fatal (the view then says so).
+        const symbols = parseEquationSymbols(v);
+        return symbols ? { type: 'equation', symbols } : null;
       }
       case 'study': {
         // A map that is not whole is dropped; the answer and the previous map are unaffected.

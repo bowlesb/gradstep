@@ -203,6 +203,8 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
+  // Operator roles for the account menu's Operations dashboard link (ADMIN_HEALTH.md): fixture readers have none.
+  v1_account_context: id => ({ account_id: id, protocol_version: 1, roles: [], operator_verified: false }),
   v3_pull_events: (id, a, p) => {
     const events = a.privateEvents.filter(e => e.cursor > p.p_after).slice(0, p.p_limit);
     return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: a.privateEvents.length > (events.at(-1)?.cursor ?? p.p_after) };
@@ -448,6 +450,11 @@ createServer(async (request, response) => {
     if (body.action === 'study' && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.study || !Array.isArray(body.study.concepts)
       || !Array.isArray(body.study.links) || body.follow_ups !== undefined)) return send(response, 400, { code: 'invalid_request' });
     if (body.action !== 'study' && body.study !== undefined) return send(response, 400, { code: 'invalid_request' });
+    // The equation view (chat-equation.ts): the numbered paper on the device, one turn, a selection; never a title,
+    // suggestions or figures.
+    const equation = body.action === 'equation' || body.action === 'equation_background';
+    if (equation && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.selection?.quote || body.messages.length !== 1
+      || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures !== undefined)) return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
@@ -464,6 +471,16 @@ createServer(async (request, response) => {
         : { concepts: [{ id: 'attention', label: 'Attention', state: 'known', paragraphs: [2], note: 'Knows the weighted sum' }, { id: 'softmax', label: 'Softmax', state: 'learning', paragraphs: [2] }],
           links: [{ from: 'softmax', to: 'attention', kind: 'prerequisite' }], focus: 'softmax', journey: ['attention', 'softmax'], next: 'teach' } });
       event('done', { stop_reason: 'end_turn', credits: 4 }); return response.end();
+    }
+    if (body.action === 'equation') {
+      event('equation', { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
+        { symbol: 'x', latex: 'x', meaning: 'The value the paper squares.', source: 'paper', paragraph: 2 },
+        { symbol: '²', latex: '^{2}', meaning: 'Squaring: a number multiplied by itself.', source: 'general' }] });
+      event('done', { stop_reason: 'end_turn', credits: 2 }); return response.end();
+    }
+    if (body.action === 'equation_background') {
+      for (const text of ['Squaring keeps the sign out of the way ', 'and grows quickly with x [¶2]. ', 'For x = 3 it gives 9.']) event('delta', { text });
+      event('done', { stop_reason: 'end_turn', credits: 3 }); return response.end();
     }
     // A question about a figure with none attached, from a device that can attach one: the model asks for Figure 1.
     if (!body.figures?.length && (body.capabilities ?? []).includes('figure_requests') && /most complex figure/i.test(body.messages.at(-1)?.text ?? '')) {

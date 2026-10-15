@@ -1,7 +1,7 @@
 // A converted paper in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
 // contents tree in the left rail with the current section, citation jumps with Back, find in the
 // paper, the figure viewer, text size and a saved place. Selection actions and passage-linked chat use the same verified index.
-import { type ReactNode, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type MutableRefObject, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { BackendError, functionPost } from '../lib/backend';
@@ -9,7 +9,7 @@ import { BundleError, type VerifiedBundle, loadBundle } from '../lib/bundle';
 import { type ReaderPaper, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { prepareArxivReader, ArxivReaderError } from '../lib/arxiv-reader';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
-import { bridgeAnchor, citedMarker, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
+import { bridgeAnchor, citationAnchor, citedMarker, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
 import { citedBlock } from '../lib/paper-context';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
@@ -19,6 +19,10 @@ import { Dialog } from './common';
 import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 import { useWorkspaceControls } from './Shell';
+import type { EquationHost } from './EquationView';
+
+// The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
+const EquationView = lazy(() => import('./EquationView'));
 
 export type ReaderCache = Map<string, VerifiedBundle>; // owned by one signed-in session, memory only
 export interface ReaderCommands { find: () => void; escape: () => boolean }
@@ -56,6 +60,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => void; onMarkedChat: (id: string) => void;
   /** Prepares an unsent draft; true only once the host accepted/persisted it. Never a paid Send. */
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
+  /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
+  equations?: EquationHost;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -66,7 +72,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -86,6 +92,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const referenceRequest = useRef<AbortController | null>(null);
   useEffect(() => () => referenceRequest.current?.abort(), []);
   const [figure, setFigure] = useState<{ id: string | null; open: boolean }>({ id: null, open: false });
+  // The equation view: the tapped equation, and the passage Ask in chat starts from.
+  const [equation, setEquation] = useState<{ id: string; quote: string; anchor: TextAnchor | null } | null>(null);
   const [finding, setFinding] = useState(false);
   const [findText, setFindText] = useState('');
   const [found, setFound] = useState<{ count: number; index: number } | null>(null);
@@ -234,6 +242,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     setActive(id);
     if (workspace && !workspace.left.inline) workspace.show('left', false);
   };
+  // A paragraph the equation view names ("From the paper ¶12"): the reader lands on it with Back offered, as a chat citation does.
+  const goToCited = (marker: number) => {
+    const block = bundle ? citedBlock(bundle.index, marker)?.id : undefined;
+    if (!bundle || !block) { setNotice('This paragraph isn’t in this paper.'); return; }
+    command('goToPassage', bridgeAnchor(crypto.randomUUID(), citationAnchor(marker), item.artifact_id ?? undefined, bundle.manifestSHA256, block));
+  };
   const referenceAnchor = (text: string, blockID?: string): TextAnchor => ({ ...(item.artifact_id ? {artifactID:item.artifact_id} : {manifestSHA256:bundle!.manifestSHA256}), elementID: blockID, quote: text, prefix: '', suffix: '' });
   const discuss = onDiscuss ? (text: string, blockID?: string) => onDiscuss(text, referenceAnchor(text, blockID)) : undefined;
   const addReference = async (text: string, operationID: string = crypto.randomUUID()) => {
@@ -304,11 +318,17 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             <progress max={1} value={loaded} aria-label={`${loaded < 0.8 ? 'Downloading' : 'Preparing'} ${Math.floor(loaded * 100)} percent`} /></div>
         )}
         {quote && selection && bundle && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
-          {SELECTION_ACTIONS.map(({ action, title }) => <button key={action} className="secondary small" onClick={() => {
+          {SELECTION_ACTIONS.flatMap(({ action, title }) => [<button key={action} className="secondary small" onClick={() => {
             const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
             const paragraph = bundle.index.blocks.findIndex(b => b.id === selection.parts[0]?.blockID) + 1;
             if (anchor) { onSelection(action, quote, anchor, paragraph > 0 ? paragraph : undefined); setSelection(null); command('clearSelection'); }
-          }}>{title}</button>)}
+          }}>{title}</button>,
+            // One tapped equation: its own view, right after Explain (EQUATION_VIEW.md).
+            ...(action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID ? [
+              <button key="equation" className="secondary small" data-testid="equation-open" onClick={() => {
+                const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
+                setEquation({ id: selection.parts[0].equationID!, quote, anchor }); setSelection(null); command('clearSelection');
+              }}>Equation</button>] : [])])}
         </div>}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
@@ -327,6 +347,9 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       {bundle && figureReference && <FigureReferenceDetail bundle={bundle} reference={figureReference} theme={theme} fontSize={font}
         onClose={() => setFigureReference(null)} onGo={() => { setFigureReference(null); command('showFigure', figureReference.id, reduced(), true); }}
         onDiscuss={discuss} />}
+      {bundle && equation && <Suspense fallback={null}><EquationView bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
+        onClose={() => setEquation(null)} onCite={marker => { setEquation(null); goToCited(marker); }}
+        onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })}
           onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); }} />

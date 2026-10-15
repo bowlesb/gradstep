@@ -615,3 +615,34 @@ progress.mini { height: 3px; margin-top: 4px; }
 .figure-parts-overview .figure-parts-whole{margin:0;border:1px solid var(--border, rgba(128,128,128,.35));border-radius:6px;overflow:hidden}
 .figure-parts-overview .figure-part-outline{border-width:1.5px}
 .figure-parts-overview .figure-part-outline span{font-size:10px;padding:2px 4px}
+/* The equation view (EQUATION_VIEW.md): a panel on the right, the whole width on a phone. */
+.dialog.equation-dialog { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(100vw, 560px); max-width: 100vw; border-radius: 14px 0 0 14px; border-right: 0; }
+.equation-dialog .dialog-body { height: 100%; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; }
+.equation-view { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.equation-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.equation-head h2 { margin: 0; font-size: 18px; }
+.equation-stage { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-2); min-width: 0; }
+.equation-frame { display: block; width: 100%; border: 0; background: transparent; }
+.equation-stage > .fine { padding: 18px; }
+.equation-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.equation-size { display: inline-flex; align-items: center; gap: 6px; }
+.equation-size output { min-width: 3.4em; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+.equation-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 400; cursor: pointer; }
+.equation-section h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.equation-section > p { margin: 0; }
+.equation-symbols { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.equation-symbols li { display: grid; grid-template-columns: minmax(64px, 30%) minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.equation-symbols li:first-child { border-top: 0; }
+.equation-symbol { font-size: 17px; overflow-x: auto; overflow-y: hidden; overflow-wrap: anywhere; }
+.equation-symbols p { margin: 0 0 2px; }
+.equation-source { min-height: 0; padding: 2px 0; font-size: 12.5px; }
+.equation-symbols.loading li > * { background: var(--row-hover); border-radius: 6px; min-height: 18px; }
+.equation-symbols.loading p { min-height: 36px; }
+.equation-issue { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.equation-issue p { margin: 0; color: var(--problem); }
+.equation-consent p { margin: 0 0 10px; }
+.equation-background { min-width: 0; }
+.equation-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.equation-link .source-address { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; font-size: 12.5px; }
+.equation-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: -20px; background: var(--surface); padding: 10px 0 0; border-top: 1px solid var(--line); }
+@media (max-width: 640px) { .dialog.equation-dialog { width: 100vw; border-radius: 0; border: 0; } .equation-symbols li { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
