@@ -36,10 +36,14 @@ need Downloading… and Preparing… with a total percentage value". `docs/OWNER
   (`ImportProgress.presentation`, `LibraryImportStep`, `ReaderModel.openingProgress` and `ArxivHTMLReader.phase`;
   web `progress.ts` and `Reader.tsx`); a download the server will retry reads "Downloading…".
 
-Evidence: compiler fragment tests 29/29 (37 with the Mathpix renderer file); fast tier green (compiler freshness,
-backend, browser units); iPhone Simulator ImportProgressTests, LibraryMetadataTests, ArxivHTMLReaderTests,
-ReaderBundleLoaderTests 30/30. Native and browser reader journeys and the deployment are recorded at the end of this
-section once run.
+Evidence (commit `61ee891`): compiler fragment tests 30/30 and the category test; fast tier green (compiler
+freshness, backend, browser units); iPhone Simulator ImportProgressTests, LibraryMetadataTests,
+ArxivHTMLReaderTests, ArxivCompilerFailureTests, ReaderBundleLoaderTests, LegacyArxivReaderTests 34/34; native
+journey `ReaderNavigationTests/testHTMLPaperInPageLinksOfferBack` passed; browser reader journeys (arxiv-compiler,
+arxiv-html, device-pdf) passed in 19.5 s; sweep replay on the final compiler 0 fail / 2 warn / 3 without HTML.
+Deployment: browser Pages **`62b81784`** (02:55 UTC; the deployed compiler chunk carries the revision-4 converter);
+TestFlight **build 42** iOS and Mac uploaded 19:56 PDT (processing when written; the owner's 2610.15371 validates
+on this compiler: 480 blocks, 24 figures, 104 headings).
 
 ## Stale bundles re-prepared, 8 MiB sources, the fresh-paper sweep, the rethink — 2026-10-15, ~03:00 UTC (commit `af9d9e5`)
 
@@ -61,7 +65,7 @@ a subagent audit. `docs/OWNER_FEEDBACK.md` "Chat, 2026-10-15 (builds 39–40)" h
   a three-step plan whose first step — refusals become degradations with a ledger, the header from catalog
   metadata, the sweep as the gate — follows the independent audit now in progress.
 
-Deployment: TestFlight **build 41** iOS VALID (19:13 PDT), Mac uploaded 19:25 PDT; browser Pages **`49a4000e`**;
+Deployment: TestFlight **build 41** iOS VALID (19:13 PDT), Mac VALID (19:18 PDT); browser Pages **`49a4000e`**;
 both carry the identity, the limit and everything before.
 
 ## Template-broken title pages read by macro — 2026-10-15, ~02:00 UTC (commit `8d481e9`; deployed)
