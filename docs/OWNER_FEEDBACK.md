@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight screenshot, 2026-10-15 (build 39): Urbex's header (abstract before the title, "[ [", a date line)
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | (screenshot) arXiv 2610.18356: the abstract rendered above the title, the authors ended in a stray "[ [" line, and "October 13, 2026" stood alone under the paper line | Reader header | The paper uses a custom report template whose macros LaTeXML does not know, so its whole title page — logo path, running title, date, author list, affiliations ("1]Wuhan University"), contribution notes ("[†]Project leader") and the abstract itself — arrived as one error-marked paragraph *before* the title, and the two affiliation contacts were literally "[". The compiler now keeps each LaTeXML error marker as an empty span that names its macro and, for such a paragraph before the title, reads it by macro: the abstract segment becomes the Abstract heading and paragraph after the authors (where the paper's own would be), affiliation lines and contribution notes fold into the author block with their marks, the plumbing is left out with the macros (still counted in the closing note). Punctuation-only affiliations are dropped, and the `ltx_dates` line is left out (the paper line already says the year and revision). | Built; compiler test; TestFlight build 40 and the browser |
+
 ## Chat screenshot, 2026-10-15 (build 39): "AI answers are paused right now"
 
 | # | Owner said | Where | Cause / plan | Status |

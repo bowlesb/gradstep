@@ -403,6 +403,17 @@ of the bundle, so every device of one library compiles the same bundle, and a li
 a different one (its own manifest digest). Empty emphasis wrappers left by a dropped logo are removed. Checked on
 2305.18290, 2610.16334, 2610.14704, 2610.16352 and 2610.17288 (`.artifacts/back-repro/authors-check.mjs`, local).
 
+**Title pages a template left in pieces (2026-10-15, 2610.18356).** LaTeXML marks every macro it does not know with
+`ltx_ERROR`; a custom report template can leave the whole title page as one such paragraph before the document title
+(logo path, running title, date, author list, "1]Wuhan University" affiliation lines, "[†]Project leader" contribution
+notes, and the abstract itself under `\reportabstract`). The compiler now keeps each marker as an empty span naming
+its macro (`data-reader-macro`; never printed) and, for a paragraph before the title with two or more markers,
+reads it by macro (`templatePreamble`): the segment of a macro whose name contains "abstract" becomes the Abstract
+heading and paragraph right after the authors; `contribution`/`thanks`/`footnote` segments become notes with their
+marks; lines of the form `1]Institution` become marked affiliations; everything else is left out with the macros
+(counted in the closing note). Affiliations with no letter or digit (a template's "[") are dropped, and the
+`ltx_dates` line is left out, since the paper line says the year and revision.
+
 ### Paper availability on a device — 2026-10-15 (owner question: "should we make it more obvious whether you do or do not have a pdf on a device?")
 
 One model, said once. A library paper is in one of four states **on this device**, and every feature that needs the

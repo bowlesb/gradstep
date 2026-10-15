@@ -48,7 +48,9 @@ function article(source: string): { root: DomNode; dropped: number } {
     if (has(n, 'ltx_ERROR') || has(n, 'ltx_error')) errors.push(n);
   });
   check(errors.length <= CONVERSION_ERROR_LIMIT, 'arxiv_conversion_error');
-  for (const n of errors) { const parent = n.parent; if (parent?.children) parent.children = parent.children.filter(c => c !== n); }
+  // Each marker stays as an empty span that names its macro (`data-reader-macro`); the reader never prints it, and a
+  // title page a template left in pieces can be read by macro (templatePreamble below).
+  for (const n of errors) { n.attribs = { ...(n.attribs ?? {}), 'data-reader-macro': normalizeSpace(textContent(n)).slice(0, 64) }; n.children = []; }
   return { root: papers[0], dropped: errors.length };
 }
 
@@ -114,6 +116,13 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   const digest = sha256Hex(utf8(`${ARXIV_RENDERER_REVISION}\n${source}`)).slice(0, 12);
   const blocks: { id: string; kind: string; node: OutNode }[] = [], top: OutNode[] = [];
   let omittedGraphics = 0;
+  const isMarker = (n: DomNode) => n.type === 'tag' && n.attribs?.['data-reader-macro'] !== undefined;
+  // A title page LaTeXML could not convert (a custom report template whose macros it does not know, 2610.18356):
+  // the abstract, the affiliations and the contribution notes it carried are kept for the header; the rest (a logo
+  // path, running titles, PDF metadata) is left out with the macros. Read before the document title only.
+  let titleSeen = false;
+  let pendingAbstract: { owner: DomNode; nodes: DomNode[] } | null = null;
+  const templateNotes: { mark: string; text: string }[] = [], templateAffiliations: { mark: string; text: string }[] = [];
   /** Math carried by a picture (drawn inside it or left out with it) rather than rendered as an equation. */
   const skippedMath = new Set<DomNode>();
   /** A paragraph whose only content is one graphic (LaTeXML's unwrapped \\includegraphics): a figure, not text. */
@@ -270,13 +279,24 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         }
         if (name || lost) creators.push({ name: name ?? [], keys: [...new Set(keys)], lost });
       }
+      // A title page read by macro (templatePreamble): its affiliations and contribution notes belong here.
+      for (const entry of templateAffiliations.splice(0)) addAffiliations([el('sup', {}, [entry.mark]), entry.text]);
+      for (const note of templateNotes.splice(0)) {
+        if (!seenNotes.has(note.mark + '\u0000' + note.text)) { seenNotes.add(note.mark + '\u0000' + note.text); notes.push({ mark: note.mark, body: [note.text] }); }
+      }
+      // An affiliation that is only punctuation (a template's "[", 2610.18356) says nothing.
+      for (const [key, entry] of [...affiliations]) if (!/[\p{L}\p{N}]/u.test(plain(entry).replace(LEADING_MARKS, ''))) affiliations.delete(key);
+      for (const c of creators) c.keys = c.keys.filter(key => affiliations.has(key));
       const named = creators.filter(c => c.name.length);
       // A name that was a graphic, or no name at all: the library's author metadata names them.
       const useMetadata = metadataAuthors.length > 0 && (creators.some(c => c.lost) || !named.length);
       const affiliationMarked = named.some(c => c.name.some(part => isSup(part) && /\d/.test(outText(part))));
       if (!useMetadata && !affiliationMarked && affiliations.size >= 2 && named.some(c => c.keys.length)) {
         const numbers = new Map([...affiliations.keys()].map((key, index) => [key, String(index + 1)]));
-        for (const c of named) if (c.keys.length) c.name = tidy([...c.name, el('sup', {}, [c.keys.map(key => numbers.get(key)!).join(',')])]);
+        for (const c of named) {
+          const marks = c.keys.map(key => numbers.get(key)).filter((m): m is string => !!m);
+          if (marks.length) c.name = tidy([...c.name, el('sup', {}, [marks.join(',')])]);
+        }
         for (const [key, entry] of affiliations) affiliations.set(key, tidy([el('sup', {}, [numbers.get(key)!]), ...entry]));
       }
       const out: Child[] = [];
@@ -474,12 +494,52 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       return output;
     }, {});
   }
+  function templatePreamble(n: DomNode): void {
+    const segments: { macro: string; nodes: DomNode[] }[] = [{ macro: '', nodes: [] }];
+    const visit = (c: DomNode) => {
+      if (isMarker(c)) { segments.push({ macro: c.attribs['data-reader-macro'], nodes: [] }); return; }
+      if (c.type === 'tag' && ['p', 'div', 'section', 'span'].includes(c.name) && (c.name !== 'span' || elements(c, x => x !== c && isMarker(x)).length)) { children(c).forEach(visit); return; }
+      segments[segments.length - 1].nodes.push(c);
+    };
+    children(n).forEach(visit);
+    const text = (nodes: DomNode[]) => normalizeSpace(nodes.map(textContent).join(''));
+    for (const segment of segments) {
+      const words = text(segment.nodes);
+      if (!words) continue;
+      if (/abstract/i.test(segment.macro) && !pendingAbstract) { pendingAbstract = { owner: n, nodes: segment.nodes }; continue; }
+      for (const m of segment.nodes.flatMap(x => elements(x, y => y.name === 'math'))) skippedMath.add(m);
+      if (/contribution|thanks|footnote|note/i.test(segment.macro)) {
+        const note = /^\[?\s*([^\]\s]{1,3})\s*\]\s*(.+)$/u.exec(words);
+        templateNotes.push(note ? { mark: note[1], text: note[2] } : { mark: '', text: words });
+        continue;
+      }
+      // Affiliation lines a template wrote as "1]Wuhan University".
+      for (const line of nodes_lines(segment.nodes)) {
+        const affiliation = /^\s*(\d{1,2}|[a-z])\s*\]\s*(.+?)\s*$/u.exec(line);
+        if (affiliation) templateAffiliations.push({ mark: affiliation[1], text: normalizeSpace(affiliation[2]) });
+      }
+    }
+  }
+  function nodes_lines(nodes: DomNode[]): string[] { return nodes.map(textContent).join('').split('\n'); }
   function flow(n: DomNode): OutNode[] {
     if (n.type === 'comment' || active.has(n.name) || (n.type === 'text' && !n.data.trim())) return [];
     if (n.type === 'text') return [block(n, 'p', 'paragraph', () => [n.data])];
     check(n.type === 'tag', 'arxiv_node');
+    if (isMarker(n)) { bind(n, blocks[blocks.length - 1]?.id ?? ''); return []; }
+    // The date line under the header (the paper line already says the year and the arXiv revision).
+    if (has(n, 'ltx_dates')) return [];
+    if (!titleSeen && ['div', 'p'].includes(n.name) && elements(n, c => isMarker(c)).length >= 2 && !elements(n, c => ['figure', 'table', 'h1'].includes(c.name)).length) {
+      templatePreamble(n); return [];
+    }
+    // A recovered abstract reads where the paper's own would: after the title and the authors.
+    let recovered: OutNode[] = [];
+    if (pendingAbstract && titleSeen && n.name !== 'h1' && !has(n, 'ltx_authors')) {
+      const { owner, nodes } = pendingAbstract; pendingAbstract = null;
+      recovered = [block(owner, 'h6', 'heading', () => ['Abstract']), block(owner, 'p', 'paragraph', id => nodes.flatMap(c => inline(c, id)))];
+    }
     const before = blocks.length;
     let output: OutNode[];
+    if (n.name === 'h1') titleSeen = true;
     if (/^h[1-6]$/.test(n.name)) output = [block(n, n.name, 'heading', id => children(n).flatMap(c => inline(c, id)))];
     else if (n.name === 'figure') {
       const tables = elements(n, c => c.name === 'table');
@@ -558,7 +618,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     else if (n.name === 'img' || n.name === 'object') output = [imageFigure(n)];
     else output = [block(n, 'p', 'paragraph', id => inline(n, id))];
     if (blocks.length > before && n.attribs?.id && !aliases.has(n.attribs.id)) bind(n, blocks[before].id);
-    return output;
+    return recovered.length ? [...recovered, ...output] : output;
   }
   top.push(...flow(root));
   if (dropped > 0 || omittedGraphics > 0) {

@@ -226,3 +226,17 @@ test('a name that was a graphic (a team logo) is replaced by the library author 
  assert.equal(composeArxivReader({source:utf8(text),sourceID:'2601.01234',revision:2,images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]]),authors:['LoongSage Team']}).manifestSHA256,named.manifestSHA256);
  assert.notEqual(build(text).manifestSHA256,named.manifestSHA256);
 });
+
+test('a title page a template left in error markers is read by macro: abstract after the header, affiliations and notes in it, plumbing and the date line left out',()=>{
+ const marker=(name)=>`<span class="ltx_ERROR undefined">${name}</span>`;
+ const preamble=`<div id="tp1" class="ltx_para ltx_noindent">${marker('\\\\DreamXLogo')}<p id="tp1.2" class="ltx_p">figures/dreamx_logo.png\n${marker('\\\\DreamXRunningTitle')}Urbex\n${marker('\\\\DreamXHeaderRight')}October 13, 2026\n${marker('\\\\DreamXAuthorLineBreak')}\n1]Wuhan University\n2]DreamX Team, Alibaba Group\n${marker('\\\\contribution')}[†]Project leader\n${marker('\\\\reportabstract')}City-scale 3D grounding is commonly formulated as candidate ranking.</p></div>`;
+ const authors=`<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname">Yu Wang\n</span></span><span class="ltx_author_before">  </span><span class="ltx_creator ltx_role_author"><span class="ltx_personname">Yansheng Li\n</span><span class="ltx_author_notes"><span class="ltx_author_notes_content"><span class="ltx_contact ltx_role_affiliation"><span class="ltx_contact_name">Affiliation: </span>[\n</span><span class="ltx_contact ltx_role_affiliation"><span class="ltx_contact_name">Affiliation: </span>[\n</span></span></span></span></div><div class="ltx_dates">October 13, 2026</div>`;
+ const text=source.replace('<h1>Authored HTML fixture</h1><div class="ltx_authors">A. Author</div>',preamble+'<h1>Authored HTML fixture</h1>'+authors);
+ const bundle=build(text); const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ assert.deepEqual(checked.index.blocks.slice(0,5).map(b=>[b.kind,b.text.slice(0,32)]),[['heading','Authored HTML fixture'],['paragraph','Yu Wang, Yansheng Li 1Wuhan Univ'],['heading','Abstract'],['paragraph','City-scale 3D grounding is commo'],['heading','1 Introduction']]);
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ const block=/<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1]??'';
+ assert.equal(block,'Yu Wang, Yansheng Li<br><sup>1</sup>Wuhan University · <sup>2</sup>DreamX Team, Alibaba Group<br><sup>†</sup> Project leader');
+ assert.ok(!/dreamx_logo|October 13|\[ \[|<sup><\/sup>/.test(html),'plumbing, the date line and empty marks are gone');
+ assert.match(html,/left out 6 unsupported commands/);
+});
