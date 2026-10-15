@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gradstep · Privacy</title>
+<meta name="description" content="How Gradstep handles your data during its private beta: what stays on your device, what our servers keep, and which providers process what.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/brand/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site">
+  <div class="wrap bar">
+    <a class="brand" href="/" aria-label="Gradstep home"><img src="/brand/icon.svg" alt="" width="26" height="26">Gradstep</a>
+    <nav aria-label="Primary">
+      <a href="/#how">How it works</a>
+      <a class="join" href="mailto:hello@gradstep.ai?subject=Gradstep%20beta">Join the beta</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="legal wrap">
+  <h1>Privacy</h1>
+  <p class="updated">Private beta &middot; last updated 15 October 2026</p>
+  <p class="intro">Gradstep is a reader for machine-learning papers on iPhone, iPad and Mac, and in a web browser. This page explains what the apps and our servers handle during the private beta, who processes it, and the choices you have.</p>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="#papers">Papers and PDFs</a>
+    <a href="#library">Your library</a>
+    <a href="#history">Conversations and notes</a>
+    <a href="#ai">AI answers</a>
+    <a href="#episodes">Episodes</a>
+    <a href="#account">Your account</a>
+    <a href="#where">Where data is processed</a>
+    <a href="#delete">Deleting your account</a>
+  </nav>
+
+  <h2 id="papers">Papers and PDFs</h2>
+  <p>Your device fetches a paper&rsquo;s official HTML version from arXiv and prepares it for reading on the device. Our servers don&rsquo;t fetch, store or convert it.</p>
+  <p>A PDF you add, choose, drop or download is opened and kept only on your device. It is never uploaded to our servers. In a browser, a PDF stays in the file you chose and the tab it is open in. An experimental option in the apps prepares a PDF with models that run on the device itself.</p>
+  <p>When you add a paper, our servers look up its catalog details (title, authors, abstract, version and licence) from arXiv, OpenAlex and Crossref. When you add a paper from a reference in another paper, the reference&rsquo;s text is sent to Crossref, OpenAlex and arXiv to identify it. Searches you type in the Feed go to arXiv and OpenAlex.</p>
+  <p>Before 13 October 2026, papers were fetched and converted on our servers. Those conversions are still stored and may be used when you ask about one of those papers or make an episode of it. Conversions of openly licensed papers may be shared with other readers.</p>
+
+  <h2 id="library">Your library</h2>
+  <p>Your library (which papers you have added, which you archived and the tags you give them) is kept on our servers so it syncs between your devices. Our service can read it: it is not encrypted with your device keys the way your conversations are.</p>
+  <p>To suggest topic tags for a paper, its title and abstract (public information about the paper, nothing about you) are sent to Anthropic. The Feed&rsquo;s &ldquo;For you&rdquo; list is ranked on our servers from the topics in your library, without an AI model.</p>
+  <p>We also keep the records needed to run the service: your devices, which days you used Gradstep and which parts of it (for example the library, sync, chat or the Feed), usage and credits. Daily activity records are kept for up to 400 days.</p>
+
+  <h2 id="history">Conversations and notes</h2>
+  <p>Your conversations, their titles, your notes, reading positions, and the diagrams and figure breakdowns in answers are encrypted on your device, with keys kept on your devices, before they are stored or synced. Our servers store only the encrypted form. In a browser, the keys are kept by that browser.</p>
+  <p>A new device is approved from a device you are already signed in on, or with your recovery code. If you lose every device and your recovery code, we cannot recover that content.</p>
+
+  <h2 id="ai">AI answers</h2>
+  <p>When you ask a question, the app sends your question, any passage you selected, earlier messages in that conversation and, for questions about a paper, the paper&rsquo;s text to Anthropic, whose Claude models write the answer. When you ask about a figure or table, its image from the paper goes too.</p>
+  <p>The equation view sends the equation and the paper&rsquo;s text in the same way. Study mode also sends its record of what you have covered so far, and a Claude model updates that record from your reply and the tutor&rsquo;s answer. A Claude model writes each conversation&rsquo;s title from your question, and suggests follow-up questions from your question and the start of the answer.</p>
+  <p>When a question needs the web, the searches Claude writes go to Tavily or, as a backup, Anthropic&rsquo;s search provider. Search services see only the searches.</p>
+  <p>Our servers pass these requests through without storing their text. You agree to this the first time you ask a question. Anthropic and the search services process requests under their own terms and may keep them for a limited time. Answers are saved, encrypted, on your device.</p>
+
+  <h2 id="episodes">Episodes</h2>
+  <p>To make an episode of a paper you have opened, your device sends the paper&rsquo;s text to our servers, where it is stored privately for your account. The writer you choose, Anthropic&rsquo;s Claude or DeepSeek, writes and checks the script from that text. Google Vertex AI turns the script into voices. These providers process the text under their own terms.</p>
+  <p>Your episode&rsquo;s audio and transcript are stored privately for your account, and only your account can play them. Links to the audio expire within 15 minutes. Your episodes, and the text they were made from, are kept until you delete your account. Shared episodes in the catalog are made only from papers under CC&nbsp;BY or CC0 licences.</p>
+
+  <h2 id="account">Your account</h2>
+  <p>You sign in with Apple, Google or an email code. We keep your email address and the identifiers from these sign-in services to run your account. Sign-in codes are sent by email through Resend. During the beta, new accounts are by invitation.</p>
+
+  <h2>Purchases and credits</h2>
+  <p>Plans and credit packs are sold through the App Store. Apple processes payment; we receive transaction details to add credits to your account and keep a record of credit use.</p>
+
+  <h2>Reports and support</h2>
+  <p>If you send a report from the app, we store its text and any screenshots you attach, privately, to investigate it. Reports are visible to our support staff, who sign in with two-factor authentication.</p>
+
+  <h2>What we don&rsquo;t do</h2>
+  <ul>
+    <li>We don&rsquo;t sell your data or use it for advertising.</li>
+    <li>The apps contain no advertising or third-party analytics code.</li>
+    <li>We don&rsquo;t train AI models on your data.</li>
+  </ul>
+
+  <h2 id="where">Where data is processed</h2>
+  <ul>
+    <li>Our database, file storage and server functions run on Supabase in the United States (US West, Oregon).</li>
+    <li>Paper lookups, topic tags and episode production run on Google Cloud in the United States (US West, Oregon). Episode voices use Google Vertex AI&rsquo;s global service.</li>
+    <li>This website and the browser version of Gradstep are served by Cloudflare.</li>
+    <li>Anthropic, DeepSeek and Tavily process the requests described above on their own infrastructure, under their own terms.</li>
+  </ul>
+
+  <h2 id="delete">Deleting your account</h2>
+  <p>You can delete your account in the iPhone, iPad or Mac app (Settings &rarr; Account &rarr; Delete account). We then delete your library, your encrypted history, your devices and keys, your private papers and episodes and the text they were made from, your reports, your activity records and your sign-in details. Records of paid work, such as credit and usage totals and the episodes you paid for, are kept linked only to an internal number, no longer to your email or sign-in. Shared paper conversions and catalog episodes that other readers use remain.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about privacy: <a href="mailto:privacy@gradstep.ai">privacy@gradstep.ai</a>.</p>
+</main>
+
+<footer class="site">
+  <div class="wrap foot">
+    <div class="foot-links">
+      <a class="brand small" href="/"><img src="/brand/icon.svg" alt="" width="20" height="20">Gradstep</a>
+      <a href="/privacy/" aria-current="page">Privacy</a>
+      <a href="mailto:hello@gradstep.ai">hello@gradstep.ai</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
