@@ -231,6 +231,8 @@ struct PaperTableTitle {
     var expanded = false
     /// Lines the second line may take (the Feed's "why" line needs two).
     var subtitleLines = 1
+    /// What this device holds of the paper, shown as a small symbol after the title (Library rows).
+    var deviceCopy: PaperDeviceCopy? = nil
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -556,8 +558,17 @@ struct PaperTableTitleCell: View {
             Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(title.expanded ? nil : 2).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
-            if let subtitle = title.subtitle {
-                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(title.subtitleLines).truncationMode(.tail)
+            if title.subtitle != nil || title.deviceCopy != nil {
+                HStack(spacing: 5) {
+                    if let copy = title.deviceCopy {
+                        Image(systemName: copy.symbol).font(.caption2.weight(.semibold))
+                            .foregroundStyle(copy == .reader ? Color.accentColor : copy == .unavailable ? Color.orange : Color.secondary)
+                            .accessibilityLabel(copy.label).help(copy.label)
+                    }
+                    if let subtitle = title.subtitle {
+                        Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(title.subtitleLines).truncationMode(.tail)
+                    }
+                }
             }
         }
     }

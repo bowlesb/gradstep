@@ -546,6 +546,33 @@ extension LibraryImportRecord {
 }
 
 /// Everything the Table shows for one library entry.
+/// What of a paper this device holds. Reading, chat, Study and Listen all work from the paper's structured text on
+/// this device; a paper that is only in the synced library opens from arXiv when the network allows, and a PDF kept
+/// on the device is read as a PDF (no structured text).
+enum PaperDeviceCopy: Equatable, Sendable {
+    /// Prepared on this device: reads offline; chat, Study and Listen have its text.
+    case reader
+    /// A PDF file on this device: reads as a PDF; no structured text for chat, Study or Listen.
+    case pdf
+    /// In the library, not on this device yet: opens from arXiv (or the server's copy) when online.
+    case cloud
+    /// No readable copy can be made here (not converted, quarantined, or source unavailable).
+    case unavailable
+
+    var symbol: String {
+        switch self {
+        case .reader: "checkmark.circle.fill"; case .pdf: "doc.fill"; case .cloud: "icloud.and.arrow.down"; case .unavailable: "exclamationmark.circle"
+        }
+    }
+    /// VoiceOver, and the row's tooltip on the Mac.
+    var label: String {
+        switch self {
+        case .reader: "On this device"; case .pdf: "PDF on this device"; case .cloud: "Not on this device yet; opens from arXiv"
+        case .unavailable: "No readable copy on this device"
+        }
+    }
+}
+
 struct LibraryRowFacts {
     enum Status: Equatable {
         case none                    // ready: never a noisy "Ready" label
@@ -579,6 +606,9 @@ struct LibraryRowFacts {
     /// What a stopped import offers beside its status (owner feedback 2026-10-07: a failed import should never just
     /// sit there).
     var importAction: LibraryImportAction? = nil
+    /// Whether this device holds the paper (owner request 2026-10-14: "make it more obvious whether you do or do not
+    /// have a pdf on a device"); nil for an import.
+    var deviceCopy: PaperDeviceCopy? = nil
 
     var statusText: String? {
         switch status { case .none: nil; case .active(let text), .info(let text), .problem(let text): text }

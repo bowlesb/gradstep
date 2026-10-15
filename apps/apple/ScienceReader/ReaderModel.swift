@@ -906,7 +906,8 @@ final class ReaderModel {
                 opened: activity?.openedAt, progress: activity?.progress, chats: paperChatCounts[paper.id] ?? 0,
                 pages: paper.pageCount, status: status, needsCredits: false,
                 source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL),
-                spokenSource: LibrarySourceLabel.spoken(sourceID: paper.sourceID, url: paper.sourceURL))
+                spokenSource: LibrarySourceLabel.spoken(sourceID: paper.sourceID, url: paper.sourceURL),
+                deviceCopy: deviceCopy(for: paper))
         case .pending(let item):
             let retrying = isRetrying(item)
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil,
@@ -2345,6 +2346,17 @@ final class ReaderModel {
         guard accountID != nil, let coordinator = readerBundles,
               let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return .none }
         return coordinator.permits(installation) ? .available : .unavailable
+    }
+
+    /// What this device holds of a paper, for the Library's rows (`PaperDeviceCopy`).
+    func deviceCopy(for paper: Paper) -> PaperDeviceCopy? {
+        if paper.isSample { return nil }
+        if paper.isLocalPDF || paper.fileURL != nil { return .pdf }
+        switch offlineStatus(for: paper) {
+        case .available: return .reader
+        case .unavailable: return .unavailable
+        case .none: return paper.canReadStructured || paper.sourceMembership != nil || paper.legacyArxivSource != nil ? .cloud : .unavailable
+        }
     }
 
     func retryOpeningSelectedPaper() { openLocalPaperIfNeeded() }

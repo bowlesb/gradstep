@@ -53,7 +53,7 @@ export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: nu
     try {
       response = await fetcher(current.href, { redirect: 'manual', headers: { accept, 'user-agent': 'ScienceReader/0.1 (research paper reader; mailto:support@sciencereader.invalid)' },
         signal: AbortSignal.timeout(60_000) });
-    } catch { throw new Error('source_unavailable'); }
+    } catch (error) { throw new Error('source_unavailable', { cause: { endpoint: current.hostname, reason: error instanceof Error ? error.name : 'fetch' } }); }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location'); void response.body?.cancel().catch(() => {});
       if (!location) throw new Error('arxiv_redirect_invalid');
@@ -64,7 +64,7 @@ export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: nu
       void response.body?.cancel().catch(() => {});
       throw new SourceBusy(current.hostname, retryAfterSeconds(response.headers.get('retry-after'), Date.now()));
     }
-    if (response.status !== 200 || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('source_unavailable'); }
+    if (response.status !== 200 || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('source_unavailable', { cause: { endpoint: current.hostname, status: response.status } }); }
     const declared = response.headers.get('content-length');
     if (declared && Number(declared) > maximum) { void response.body.cancel().catch(() => {}); throw new PermanentFailure('too_large'); }
     const reader = response.body.getReader(); const parts: Uint8Array[] = []; let size = 0;
@@ -172,7 +172,9 @@ export async function runMetadataPipeline(deps: MetadataDeps, deadline: number):
     await deps.rpc('worker_pipeline_release', claim);
   } catch (error) {
     const code = error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'metadata_unavailable';
-    deps.log('metadata_error', { paper: paper.id, code });
+    // Which endpoint refused and how (a status or a network failure name): operators see why arXiv is unavailable.
+    const cause = error instanceof Error && error.cause && typeof error.cause === 'object' ? error.cause as Record<string, unknown> : null;
+    deps.log('metadata_error', { paper: paper.id, code, ...(cause ? { endpoint: cause.endpoint, status: cause.status ?? null, reason: cause.reason ?? null } : {}) });
     if (paper.stage === 'metadata') {
       const failures = paper.failures + 1;
       const fail = error instanceof PermanentFailure || failures >= 10;

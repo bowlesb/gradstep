@@ -86,8 +86,11 @@ export function arxivURLs(reference: ArxivReference): { abstract: string; atom: 
   const id = `${ref.sourceID}${ref.revision === null ? '' : `v${ref.revision}`}`;
   const atom = new URL('https://export.arxiv.org/api/query');
   atom.search = new URLSearchParams({ id_list: id, max_results: '1' }).toString();
+  // The identifier's colons stay literal: arXiv's OAI server stopped answering the percent-encoded form
+  // (`oai%3AarXiv.org%3A…`) on 2026-10-14 (every import hung for 60 s at the metadata stage); the plain form answers
+  // at once. `sourceID` is validated above (digits and dots, or archive/NNNNNNN), so nothing else needs encoding.
   const raw = new URL('https://oaipmh.arxiv.org/oai');
-  raw.search = new URLSearchParams({ verb: 'GetRecord', identifier: `oai:arXiv.org:${ref.sourceID}`, metadataPrefix: 'arXivRaw' }).toString();
+  raw.search = `verb=GetRecord&identifier=oai:arXiv.org:${ref.sourceID}&metadataPrefix=arXivRaw`;
   return { abstract: `https://arxiv.org/abs/${id}`, atom: atom.href, raw: raw.href,
     pdf: ref.revision === null ? null : `https://arxiv.org/pdf/${id}` };
 }

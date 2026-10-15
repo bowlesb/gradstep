@@ -234,6 +234,9 @@ table.papers { width: max(100%, calc(var(--library-title-width) + var(--library-
   text-decoration: none; overflow-wrap: anywhere; line-height: 1.35; }
 .papers a.title:hover { text-decoration: underline; }
 .papers .author { display: block; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.papers .device { display: inline-block; margin-right: 5px; font-size: 12px; line-height: 1; cursor: help; }
+.papers .device.cloud { color: var(--muted); }
+.papers .device.server { color: var(--accent); }
 .papers .status { display: block; font-size: 12.5px; color: var(--muted); }
 .papers .status.problem { color: var(--problem); }
 .papers .status.active { color: var(--accent); }

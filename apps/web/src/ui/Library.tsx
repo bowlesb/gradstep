@@ -48,6 +48,14 @@ export const commandError = (error: unknown) => {
 
 const isReading = (a: Activity | undefined) => !!a && a.progress < 0.995;
 const authorList = (entry: ClientEntry) => entry.metadata?.authors ?? [];
+/** What this browser holds of a paper (owner request 2026-10-14): a source paper opens from arXiv and is prepared in
+ * this browser when opened (nothing is kept between visits yet); a converted paper reads from the server's copy. */
+const deviceCopy = (entry: ClientEntry): { kind: 'cloud' | 'server' | 'unavailable'; glyph: string; label: string } | null => {
+  if (!isReaderPaper(entry)) return null;
+  if (isSourcePaper(entry)) return { kind: 'cloud', glyph: '☁︎', label: 'Opens from arXiv; prepared in this browser when opened' };
+  if (entry.kind === 'item' && entry.readiness === 'converted_ready' && entry.render_availability !== 'quarantined') return { kind: 'server', glyph: '◎', label: 'Reads from the server’s converted copy' };
+  return null;
+};
 
 /** Rows, counts, tags and the filtered, sorted list for one library view. Shared by the table, rail and compact list. */
 export function useLibraryModel(library: Library, current: Map<string, Activity>, view: LibraryQuery, visible = true) {
@@ -390,7 +398,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
         {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
-        {!columns.includes('authors') && row.firstAuthor && <span className="author">{firstAuthorLine(authors)}</span>}
+        {!columns.includes('authors') && row.firstAuthor && <span className="author">{deviceCopy(entry) && <span className={`device ${deviceCopy(entry)!.kind}`} title={deviceCopy(entry)!.label} aria-label={deviceCopy(entry)!.label}>{deviceCopy(entry)!.glyph}</span>}{firstAuthorLine(authors)}</span>}
         {row.status && !progress && <span className={`status ${row.status.kind}`}>{row.status.kind === 'problem' ? '⚠︎ ' : ''}{row.status.text}</span>}
         {progress && <span className="status active" aria-label={progress.label}>{progress.title}{progress.detail ? ` (${progress.detail})` : ''}</span>}
         {busy && <span className="status active">Updating…</span>}

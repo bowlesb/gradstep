@@ -986,12 +986,45 @@ struct FigureWebView: View {
 struct LocalPDFReaderView: View {
     let presentation: LocalPaperPresentation
     @Environment(\.dismiss) private var dismiss
+    @State private var showContents = false
+    @State private var jump: PDFOutlineEntry? = nil
+    /// The PDF's own outline (bookmarks), when the file carries one (owner report, build 36: "Table of contents still not
+    /// rendering for older PDFs"): the HTML reader's Contents never applied to a PDF kept on the device.
+    private var outline: [PDFOutlineEntry] { PDFOutlineEntry.entries(in: presentation.data) }
 
     var body: some View {
         NavigationStack {
-            LocalPDFKitView(data: presentation.data)
+            LocalPDFKitView(data: presentation.data, jump: $jump)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .navigationTitle(presentation.title)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showContents = true } label: { Image(GradstepSymbol.contents) }
+                            .accessibilityLabel("Table of contents").accessibilityIdentifier("pdf.contents")
+                    }
+                }
+                .sheet(isPresented: $showContents) {
+                    NavigationStack {
+                        let entries = outline
+                        Group {
+                            if entries.isEmpty {
+                                ContentUnavailableView("No table of contents", systemImage: "list.bullet.indent",
+                                                       description: Text("This PDF has no outline of its own. The reader’s Contents come from a paper’s structured text, which this PDF doesn’t have on this device."))
+                            } else {
+                                let nested = entries.contains { $0.depth > 0 }
+                                List(entries) { entry in
+                                    Button { jump = entry; showContents = false } label: {
+                                        ContentsRow(heading: PaperHeading(id: entry.id, title: entry.title, depth: entry.depth), nested: nested)
+                                    }
+                                    .accessibilityValue(nested ? "Level \(entry.depth + 1)" : "")
+                                    .padding(.leading, CGFloat(entry.depth) * 16)
+                                }
+                            }
+                        }
+                        .navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
+                    }
+                }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -1002,8 +1035,40 @@ struct LocalPDFReaderView: View {
     }
 }
 
+/// One entry of a PDF's outline, flattened in reading order with its depth (at most four levels, 500 entries).
+struct PDFOutlineEntry: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let depth: Int
+    /// The outline's own index path, so the destination is found again in a fresh document.
+    let path: [Int]
+
+    static func entries(in data: Data) -> [PDFOutlineEntry] {
+        guard let document = PDFDocument(data: data), let root = document.outlineRoot else { return [] }
+        var out: [PDFOutlineEntry] = []
+        func walk(_ node: PDFOutline, depth: Int, path: [Int]) {
+            for index in 0..<node.numberOfChildren {
+                guard out.count < 500, let child = node.child(at: index) else { return }
+                let title = (child.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let childPath = path + [index]
+                if !title.isEmpty, child.destination != nil { out.append(PDFOutlineEntry(id: childPath.map(String.init).joined(separator: "."), title: String(title.prefix(200)), depth: depth, path: childPath)) }
+                if depth < 3 { walk(child, depth: depth + 1, path: childPath) }
+            }
+        }
+        walk(root, depth: 0, path: [])
+        return out
+    }
+
+    func destination(in document: PDFDocument) -> PDFDestination? {
+        var node = document.outlineRoot
+        for index in path { node = node?.child(at: index) }
+        return node?.destination
+    }
+}
+
 private struct LocalPDFKitView: UIViewRepresentable {
     let data: Data
+    @Binding var jump: PDFOutlineEntry?
 
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
@@ -1016,7 +1081,11 @@ private struct LocalPDFKitView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PDFView, context: Context) {
-        view.document = PDFDocument(data: data)
-        view.autoScales = true
+        if view.document == nil { view.document = PDFDocument(data: data); view.autoScales = true }
+        // A Contents entry: go to its destination once, then clear the request.
+        if let entry = jump, let document = view.document, let destination = entry.destination(in: document) {
+            view.go(to: destination)
+            DispatchQueue.main.async { jump = nil }
+        }
     }
 }

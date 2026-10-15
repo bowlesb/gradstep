@@ -396,6 +396,26 @@ of the bundle, so every device of one library compiles the same bundle, and a li
 a different one (its own manifest digest). Empty emphasis wrappers left by a dropped logo are removed. Checked on
 2305.18290, 2610.16334, 2610.14704, 2610.16352 and 2610.17288 (`.artifacts/back-repro/authors-check.mjs`, local).
 
+### Paper availability on a device — 2026-10-15 (owner question: "should we make it more obvious whether you do or do not have a pdf on a device?")
+
+One model, said once. A library paper is in one of four states **on this device**, and every feature that needs the
+paper's text reads from the same place:
+
+| State | Means | Reading | Chat, Study, Listen |
+|---|---|---|---|
+| **On this device** (`PaperDeviceCopy.reader`) | Its official arXiv HTML was prepared here (the verified bundle is installed) | Offline | Have its numbered text |
+| **PDF on this device** (`.pdf`) | A PDF file kept here (device-only PDFs; no server processing) | As a PDF, with the PDF's own outline as Contents | Nothing structured yet (the local model is future work); Listen says so |
+| **Not on this device yet** (`.cloud`) | In the synced library (a membership, or an older server-processed item) but not prepared here | Opens from arXiv (or the server's copy) when online, then becomes *On this device* | Need the paper opened here first; Listen says "Open this paper first so its text is ready on this device" |
+| **No readable copy** (`.unavailable`) | Not converted, quarantined, or source unavailable | — | — |
+
+The Library rows show the state as a small symbol before the byline (native `PaperTableTitleCell`: ✓ on this
+device, a document for a PDF, a cloud for not yet here, ⚠ for no readable copy; VoiceOver and the Mac tooltip read the
+words). The browser keeps nothing between visits yet, so its rows say "Opens from arXiv; prepared in this browser when
+opened" or "Reads from the server's converted copy". Sync carries memberships, not files: two devices of one library
+can and do hold different papers, and the row is where that shows. What each feature says when the text isn't here
+is in `PodcastCenter.noEpisodeSource(for:)` and the chat's paper-context copy; nothing silently pretends the paper is
+present.
+
 ### Budget at cutover
 
 The incremental ceiling remains $100/month and the metered provider cap remains $25. The live October ledger

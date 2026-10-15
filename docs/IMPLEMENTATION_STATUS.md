@@ -2,6 +2,27 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Imports unstuck (arXiv OAI identifier), PDF Contents, device-availability rows — 2026-10-15, early (deployment noted below)
+
+Owner (chat, with a Library screenshot): imports stuck at "Finding 15%"; how podcast jobs run and whether they
+survive closing the app; Contents for older PDFs; whether a device holds a paper. `docs/OWNER_FEEDBACK.md`
+"Chat report, 2026-10-15" has the four rows.
+
+- **Imports.** The metadata stage's OAI-PMH request percent-encoded the identifier's colons; arXiv's OAI server began
+  hanging on that form on 2026-10-14 (60 s timeout, `source_unavailable`, retried on backoff). Found by running the
+  worker image locally with new failure diagnostics (`metadata_error` now carries `endpoint`, `status`, `reason`).
+  `arxivURLs` builds the identifier with literal colons; verified inside the image (GetRecord 200 in 0.25 s).
+- **PDF Contents.** `LocalPDFReaderView` lists the PDF's own outline (`PDFOutlineEntry`, four levels, 500 entries)
+  and goes to the entry's destination; a PDF without an outline explains itself.
+- **Device availability.** `PaperDeviceCopy` (reader / pdf / cloud / unavailable) from `ReaderModel.deviceCopy(for:)`
+  on every Library row (`PaperTableTitleCell`), the browser's row badge, and Listen's refusals by state.
+- **Podcast lifecycle** answered from the code (server job; polling while open; re-attached on reopening Listen).
+  Proposed, not built: a "Your episodes" list across papers and a notice when one finishes.
+
+Evidence (local): backend tests (arxiv, metadata-pipeline, pipeline-worker: 27); browser types and units (374);
+iPhone Simulator `LibraryMetadataTests`, the Library table journey and the offline reader journey. Deployment:
+recorded below once done.
+
 ## Episodes from the paper on this device — 2026-10-14, late night (migration 066; built, deployment noted below)
 
 Owner (TestFlight, build 35): Listen refused every paper read on this device ("we should have stopped storing PDFs at

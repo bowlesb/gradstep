@@ -145,7 +145,7 @@ struct LibraryPaperTable<Top: View>: View {
                    identifier: "library.table",
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
-                       PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry))
+                       PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry), deviceCopy: item.facts.deviceCopy)
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,

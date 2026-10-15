@@ -264,7 +264,11 @@ final class PodcastCenter {
     }
     static func noEpisodeSource(for paper: Paper) -> String {
         if paper.sourceMembership != nil {
-            return "Episodes can’t be made for this paper yet. Listening still works from the text the server converted for older papers; making episodes from the paper on this device is being built."
+            // The episode is made from the paper's text on this device (migration 066); it has to be opened here first.
+            return "Open this paper first so its text is ready on this device, then try Listen again."
+        }
+        if paper.isLocalPDF || paper.fileURL != nil {
+            return "Episodes are made from a paper’s structured text. This PDF has no structured text on this device yet."
         }
         return "Episodes can’t be made for this paper yet: it isn’t in your synced library. Add it to your library, then try again."
     }

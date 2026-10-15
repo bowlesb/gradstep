@@ -420,3 +420,15 @@ they do no work. Tests: `test_resume_credits.sql`, `test_source_waits.sql`, `tes
 - Continuous: [workflow checks](WORKFLOW_CHECKS.md) — after every deploy and on a schedule: the Vault URL is the
   Cloud Run worker, nothing is stuck or crash-looping, and imports (including the 44.6 MB and 49-page papers,
   weekly) reach ready within limits. 2026-10-07: 2610.03771 ready in 37 s on Cloud Run.
+
+## arXiv OAI identifier encoding — 2026-10-15
+
+The metadata stage asks OAI-PMH for `GetRecord` with `identifier=oai:arXiv.org:<id>`. Built through `URLSearchParams`
+the colons were percent-encoded; on 2026-10-14 arXiv's OAI server stopped answering that form (the connection stays
+open until the worker's 60 s timeout; `source_unavailable`; retried on backoff up to ten times), while the literal
+form answers in a quarter second. `arxivURLs` now writes the query by hand with literal colons (the id is validated
+before). The worker's `metadata_error` log names the endpoint and the HTTP status or the failure name, so the next
+such change is read off the log instead of reproduced by hand. Reproduction that found it: the worker image run
+locally against staging (`deploy-pipeline-worker.py build` then `run`, kicked at `POST /run` with the pipeline
+secret) failed identically, which ruled out Cloud Run's network; the exact request inside the image then timed out
+only in its encoded form.
