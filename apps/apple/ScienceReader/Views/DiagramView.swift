@@ -27,7 +27,9 @@ struct DiagramDetail: View {
 
     var body: some View {
         Group {
-            if diagram.isHTML {
+            if diagram.isFigureParts, let stored = StoredFigureParts.decode(diagram.source) {
+                FigurePartsView(stored: stored)
+            } else if diagram.isHTML {
                 HTMLVisualWebView(html: diagram.source, dark: colorScheme == .dark).id(colorScheme)
                     .accessibilityIdentifier("visual.canvas")
             } else if failed {

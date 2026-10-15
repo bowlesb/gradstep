@@ -77,6 +77,9 @@ struct ChatGeneration: Sendable {
     var task: Task<Void, Never>?
     /// The chat profile this answer was asked with (sent when not the default).
     var profile: ChatProfileChoice = .standard
+    /// The figures sent with the question and the bundle they came from, so the answer's figure parts can be cropped.
+    var figures: [ChatFigureImage] = []
+    var figureManifest: String?
     /// The request carried choices (the server published its profile table).
     var sentProfile = false
     /// The model and profile the server reported in `done`, saved with the answer.

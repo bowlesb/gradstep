@@ -13,12 +13,17 @@ import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
+import { figureBlocks, figureImages, figureInstructions, figurePartsRequest, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
  * v1 (builds up to TestFlight 11) names only Anthropic's, so v1 answers never use Tavily. */
 export const CONSENT_VERSION = 'cloud-ai-v2';
-export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION];
+/** v3 (2026-10-15) also names the figure a question is about: only v3 requests may carry figure images. */
+export const FIGURE_CONSENT_VERSION = 'cloud-ai-v3';
+export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION];
+/** v2 and v3 name Tavily; v1 (builds up to TestFlight 11) names only Anthropic's search. */
+const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION;
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_TURNS = 60;
 export const MAX_MESSAGE_BYTES = 200_000;
@@ -56,6 +61,8 @@ export interface ChatRequest {
   capabilities: string[];
   /** Diagrams and HTML visuals may be drawn (the reader's "Visual answers" setting; on when a build says nothing). */
   visuals: boolean;
+  /** The question's figure images (chat-figures.ts): paper chat, consent v3 only. */
+  figures: FigureImage[];
   /** The reader's model, effort and length (chat-profiles.ts); null = the default profile (today's request). */
   choice: Choice | null;
   /** Also write a topic title for the conversation (chat-title.ts). */
@@ -119,7 +126,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'topic_title', 'follow_ups', 'study']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'local_context', 'messages', 'selection', 'action', 'capabilities', 'profile', 'figures', 'topic_title', 'follow_ups', 'study']);
   if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
   const consentVersion = body.consent_version;
   const mode = body.mode;
@@ -190,7 +197,11 @@ export function validateChatRequest(input: unknown): ChatRequest {
   // The tutor ends every turn with its own question: no follow-up suggestions beside it.
   if (action === 'study' && followUps) invalid();
   const visuals = body.capabilities === undefined || body.capabilities === null || capabilities.includes('visual_answers');
-  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, choice, topicTitle, followUps,
+  let figures: FigureImage[];
+  try { figures = figureImages(body.figures); } catch { invalid(); }
+  // Figures only in a paper chat whose consent names them, and never with Add paper or a diagram repair.
+  if (figures!.length && (consentVersion !== FIGURE_CONSENT_VERSION || mode !== 'paper' || action === 'ingest' || action === 'diagram_fix')) invalid();
+  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, figures: figures!, choice, topicTitle, followUps,
     ...(localContext ? { localContext } : {}), ...(study ? { study } : {}) };
 }
 
@@ -202,6 +213,8 @@ export function canonicalRequest(request: ChatRequest): string {
     mode: request.mode, operation_id: request.operationID,
     selection: request.selection === null ? null : { quote: request.selection },
     ...(request.action ? { action: request.action } : {}),
+    ...(request.figures.length ? { figures: request.figures.map(f => ({ id: f.id, paragraph: f.paragraph, caption: f.caption, media_type: f.mediaType,
+      width: f.width, height: f.height, data: f.data })) } : {}),
     ...(request.capabilities.length ? { capabilities: request.capabilities } : {}),
     ...(request.choice ? { profile: { effort: request.choice.effort, length: request.choice.length, model: request.choice.model } } : {}),
     ...(request.topicTitle ? { topic_title: true } : {}),
@@ -393,6 +406,8 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'diagram'; data: { title: string; source: string } }
   /** A visual answer (chat-visual.ts), sent once before `done`; builds that predate it ignore unknown events. */
   | { event: 'visual'; data: { title: string; html: string } }
+  /** Parts of an attached figure (chat-figures.ts), sent once before `done`. */
+  | { event: 'figure_parts'; data: { figure: string; paragraph: number; title: string; parts: { label: string; box: [number, number, number, number]; note: string }[] } }
   /** Progress while the server searches or adds a paper. Builds that predate it ignore unknown events. */
   | { event: 'status'; data: ChatStatus }
   /** The conversation's topic title (requested with `topic_title`), sent once before `done`; never logged or stored. */
@@ -488,7 +503,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
   // otherwise, and as its backup, Anthropic's search.
-  const tavilyReady = search && request.consentVersion === CONSENT_VERSION && deps.search
+  const tavilyReady = search && namesTavily(request.consentVersion) && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
   const balance = deps.availableCredits ? settled(deps.availableCredits()) : null;
   await admitted();
@@ -510,11 +525,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
   // A Study turn has its own length (one step, one question); the profile's length would contradict it.
-  const trailing = [instructions.action, repair || study ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
+  const offersParts = request.visuals && request.mode === 'paper' && request.action !== 'ingest' && !repair;
+  const trailing = [instructions.action, figureInstructions(request.figures, offersParts), repair || study ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
-    paper, turns: request.turns, selection: request.selection, maxTokens,
+    paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
     model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
-      : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL] : []),
+      : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, ...(request.mode === 'paper' ? [SHOW_FIGURE_PARTS_TOOL] : [])] : []),
         ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const held = balance ? await balance : null;
   const available = held?.ok ? held.value : null;
@@ -701,7 +717,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       const clock = deps.now ?? Date.now, started = clock();
       status({ kind: 'finding_paper' });
       const search = await deps.findPaper(wanted, budget, { web,
-        tavily: request.consentVersion === CONSENT_VERSION && deps.webSearch === true }).catch((): FindResult => ({ status: 'unavailable' }));
+        tavily: namesTavily(request.consentVersion) && deps.webSearch === true }).catch((): FindResult => ({ status: 'unavailable' }));
       const findMs = clock() - started;
       const found = 'paper' in search ? search.paper : null;
       let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
@@ -742,6 +758,17 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         // The device keeps a diagram only with a non-empty answer (a repair replaces one; it needs no text).
         if (!wroteText && !repair) emit({ event: 'delta', data: { text: `Diagram: “${diagram.title}”` } });
         emit({ event: 'diagram', data: diagram });
+      }
+    }
+    // Figure parts: the regions of an attached figure the device crops and shows, relayed once (format figure-parts-v1).
+    const breakdown = offersParts && request.figures.length ? outcome.toolCalls?.find(c => c.name === 'show_figure_parts') : undefined;
+    if (breakdown) {
+      const parts = figurePartsRequest(breakdown.input, request.figures);
+      deps.log({ event: parts ? 'chat_figure_parts' : 'chat_figure_parts_invalid_input', operation_id: request.operationID });
+      if (parts && !signal.aborted) {
+        // Without prose of its own, the answer is the parts' notes (the reader always has the explanation in the chat).
+        if (!wroteText) emit({ event: 'delta', data: { text: `${parts.title}\n\n${parts.parts.map((p, i) => `${i + 1}. **${p.label}**: ${p.note}`).join('\n')}` } });
+        emit({ event: 'figure_parts', data: parts });
       }
     }
     // Visual: one sanitized HTML fragment, relayed once like a diagram; the device keeps it encrypted (format html-v1).

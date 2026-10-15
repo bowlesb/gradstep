@@ -145,10 +145,17 @@ private struct TranscriptMessage: View {
                         .accessibilityLabel(Text(verbatim: "Answered with \(answeredBy)"))
                         .accessibilityIdentifier("chat.message.answeredBy.\(message.payload.entityID.wire)")
                 }
-                if let diagram, !streaming {
+                if let diagram, !streaming, diagram.isFigureParts, let model = papers?.model,
+                   let stored = model.diagram(diagram.id).flatMap({ StoredFigureParts.decode($0.source) }) {
+                    // The figure's parts as part of the answer: each crop with its number and label; a tap opens them all.
+                    FigurePartsStrip(stored: stored, image: model.figureImage(manifest: stored.manifestSHA256, path: stored.assetPath),
+                                     fontSize: fontSize) { openDiagram(diagram.id) }
+                        .accessibilityIdentifier("chat.message.figureParts.\(message.payload.entityID.wire)")
+                } else if let diagram, !streaming {
                     Button { openDiagram(diagram.id) } label: {
-                        Label(diagram.isHTML ? "View visual: \(diagram.title)" : "View diagram: \(diagram.title)",
-                              systemImage: diagram.isHTML ? "rectangle.and.text.magnifyingglass" : "square.stack.3d.up").font(.system(size: fontSize * 0.88)).lineLimit(2)
+                        Label(diagram.isFigureParts ? "View figure parts: \(diagram.title)" : diagram.isHTML ? "View visual: \(diagram.title)" : "View diagram: \(diagram.title)",
+                              systemImage: diagram.isFigureParts ? "square.split.2x2" : diagram.isHTML ? "rectangle.and.text.magnifyingglass" : "square.stack.3d.up")
+                            .font(.system(size: fontSize * 0.88)).lineLimit(2)
                     }
                     .buttonStyle(.bordered).accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
                 }

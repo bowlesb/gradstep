@@ -15,6 +15,7 @@ struct ChatConsentView: View {
                         Label("Your question and any passage you selected", systemImage: "text.bubble")
                         Label("Earlier messages in this conversation", systemImage: "bubble.left.and.bubble.right")
                         Label("For paper chats, the paper’s full text", systemImage: "doc.text")
+                        Label("When you ask about a figure or table, its image from the paper", systemImage: "photo")
                         Label("When a question needs it, web searches Claude writes go to Tavily, a search service (or Anthropic’s search provider as a backup)", systemImage: "magnifyingglass")
                     }
                     .labelStyle(ConsentLabelStyle())

@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat, 2026-10-15: "Sending figures to model should be ok?"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "Sending figures to model should be ok?" (after "the agent has the ability to break figures into cropped sub sections as part of the response and explain each component") | Chat | Yes, on the same terms as the text: the figure is part of the paper whose full text already goes to Anthropic, under the same retention terms, prepared on the device from arXiv's HTML (no PDF, nothing new fetched); about half a cent per figure. The one condition: the consent must say so, so it is v3 ("When you ask about a figure or table, its image from the paper") and readers are asked once more. Built: a question naming a figure sends its image; the model can break it into parts, shown as crops under the answer with a note each (CHAT.md "Figures in chat"). Proven live on DPO's Figure 1. | Built; build 47 (apps); the browser follows |
+
 ## TestFlight, 2026-10-15 04:32–04:40 UTC (build 44, iPhone, 6 items)
 
 | # | Owner said | Where | Cause / plan | Status |

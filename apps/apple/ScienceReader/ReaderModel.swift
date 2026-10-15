@@ -2462,6 +2462,20 @@ final class ReaderModel {
     }
     func returnToChat() { returnToChatAvailable = false; tab = .chat }
 
+    /// An answer's figure parts as a stored diagram: the parts and where their image is in the paper's bundle.
+    private func figurePartsDiagram(_ parts: ChatFigureParts?, generation: ChatGeneration) -> ChatDiagram? {
+        guard let parts, let manifest = generation.figureManifest, let image = generation.figures.first(where: { $0.id == parts.figure }) else { return nil }
+        let stored = StoredFigureParts(manifestSHA256: manifest, blockID: image.blockID, assetPath: image.assetPath, paragraph: parts.paragraph,
+                                       title: parts.title, parts: parts.parts)
+        return ChatDiagram(title: parts.title, source: stored.encodedText(), messageID: generation.assistantID, format: ChatDiagram.figurePartsFormat)
+    }
+
+    /// A figure's image from a paper whose bundle is open on this device (figure parts crop it).
+    func figureImage(manifest: String, path: String) -> CGImage? {
+        guard let bundle = papers.first(where: { $0.readerBundle?.manifestSHA256 == manifest })?.readerBundle, let data = bundle.data(for: path) else { return nil }
+        return ChatFigureFinder.image(data)
+    }
+
     private func openLocalPaperIfNeeded() {
         if let paper = selectedPaper, paper.sourceMembership != nil { openHTMLReader(paper); return }
         // A legacy arXiv item: an installed server bundle still opens offline; otherwise its official HTML is prepared
@@ -3288,6 +3302,7 @@ final class ReaderModel {
             return ChatTurnInput(role: role, text: text)
         }
         let request: ChatGenerationRequest
+        var figures: [ChatFigureImage] = [], figureManifest: String?
         let choices = requestChoices(for: turn, branch: branch.messages, state: state)
         do {
             let localContext: LocalPaperChatContext?
@@ -3296,10 +3311,15 @@ final class ReaderModel {
                     throw ChatTransportError.rejected("local_reader_unavailable")
                 }
                 localContext = try LocalPaperChatContext(reference: reference, bundle: bundle)
+                // The figures the question names, from this paper's own images (consent v3 names them).
+                if turn.action != .ingest, turn.action != .diagramFix, let question = transcript.last?.text {
+                    figures = ChatFigureFinder.images(question: question, selection: turn.selection, bundle: bundle)
+                    figureManifest = bundle.manifestSHA256
+                }
             } else { localContext = nil }
             request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
-                                                     study: turn.study, visualAnswers: visualAnswers)
+                                                     study: turn.study, visualAnswers: visualAnswers, figures: figures)
         } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
@@ -3307,6 +3327,7 @@ final class ReaderModel {
         chatFollowUps[turn.composerID] = nil
         var generation = ChatGeneration(turn: turn)
         generation.profile = choices.profile; generation.sentProfile = choices.sent
+        generation.figures = request.figures; generation.figureManifest = figureManifest
         // A later explicit branch choice wins over moving to this answer.
         let choice = branchSelections.capture(in: turn.conversationID)
         let pending = generation
@@ -3323,6 +3344,7 @@ final class ReaderModel {
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?, visual: (title: String, html: String)?
+        var figureParts: ChatFigureParts?
         var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
@@ -3339,6 +3361,7 @@ final class ReaderModel {
                 case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
                 case .visual(let title, let html): visual = (title, html)
+                case .figureParts(let parts): figureParts = parts
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
@@ -3370,7 +3393,7 @@ final class ReaderModel {
         }
         var labelled = generation
         labelled.answeredModel = answered.model; labelled.answeredProfile = answered.profile
-        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, visual: visual, title: title, followUps: followUps,
+        await finishGeneration(labelled, text: text, outcome: resolved, choice: choice, diagram: diagram, visual: visual, figureParts: figureParts, title: title, followUps: followUps,
                                study: studyMap, failedCredits: failedCredits)
     }
 
@@ -3423,7 +3446,7 @@ final class ReaderModel {
 
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
                                   choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
-                                  visual: (title: String, html: String)? = nil,
+                                  visual: (title: String, html: String)? = nil, figureParts: ChatFigureParts? = nil,
                                   title: String? = nil, followUps: [String]? = nil, study: StudyMap? = nil, failedCredits: Int? = nil) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
@@ -3434,7 +3457,8 @@ final class ReaderModel {
             // A visual (HTML) or a diagram (Mermaid), kept only with a complete answer, in the same batch; the server
             // sends at most one of them.
             let drawn = status == .complete
-                ? visual.flatMap { ChatDiagram(title: $0.title, source: $0.html, messageID: generation.assistantID, format: ChatDiagram.htmlFormat) }
+                ? figurePartsDiagram(figureParts, generation: generation)
+                    ?? visual.flatMap { ChatDiagram(title: $0.title, source: $0.html, messageID: generation.assistantID, format: ChatDiagram.htmlFormat) }
                     ?? diagram.flatMap { ChatDiagram(title: $0.title, source: $0.source, messageID: generation.assistantID) }
                 : nil
             do {

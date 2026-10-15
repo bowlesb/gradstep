@@ -1,6 +1,7 @@
 // Anthropic provider boundary for paid chat. Deno and Node compatible: no
 // runtime globals beyond fetch/AbortSignal, so tests can drive the real SDK
 // with a fake fetch. Never log prompts, answers, or the API key here.
+import { IMAGE_HOLD_TOKENS } from './chat-figures.ts';
 import Anthropic from '@anthropic-ai/sdk';
 
 export const CHAT_MODEL = 'claude-sonnet-5-5';
@@ -264,6 +265,8 @@ export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH
  * with different actions on the same paper share the cached prefix (tools, shared instructions, paper). */
 export function chatRequestParams(input: { instructions: string; actionInstructions?: string | null; paper: PaperContext | null;
   turns: readonly ChatTurn[]; selection: string | null; tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number;
+  /** The question's figures (chat-figures.ts), placed before its text in the last turn. */
+  figures?: readonly Anthropic.Beta.Messages.BetaContentBlockParam[];
   /** A reader's chosen model and effort (chat-profiles.ts); the default is today's Sonnet 5.5 at `low`. */
   model?: { id: string; effort: 'low' | 'medium' | 'high'; fallbacks: boolean } })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
@@ -277,9 +280,10 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
     if (input.actionInstructions) system.push({ type: 'text', text: input.actionInstructions });
   }
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = input.turns.map((turn, index) => {
-    if (index === input.turns.length - 1 && input.selection) {
+    if (index === input.turns.length - 1 && (input.selection || input.figures?.length)) {
       return { role: 'user', content: [
-        { type: 'text', text: `<selected_passage>\n${input.selection}\n</selected_passage>` },
+        ...(input.selection ? [{ type: 'text' as const, text: `<selected_passage>\n${input.selection}\n</selected_passage>` }] : []),
+        ...(input.figures ?? []),
         { type: 'text', text: turn.text },
       ] };
     }
@@ -308,8 +312,13 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
  * at 242 micro-USD against 271 actual; that overrun paused every paid request on staging, so the margin returned the
  * same hour. A real token count (the count-tokens endpoint) is the cost audit's open item 3. */
 export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): number {
-  return new TextEncoder().encode(JSON.stringify({ system: params.system ?? [], messages: params.messages,
-    tools: params.tools ?? [] })).byteLength * 3;
+  // An image counts as the tokens it is billed (chat-figures.ts IMAGE_HOLD_TOKENS), not as its base64 text.
+  let images = 0;
+  const json = JSON.stringify({ system: params.system ?? [], messages: params.messages, tools: params.tools ?? [] }, (_key, value) => {
+    if (value && typeof value === 'object' && (value as { type?: unknown }).type === 'image') { images += 1; return { type: 'image' }; }
+    return value;
+  });
+  return new TextEncoder().encode(json).byteLength * 3 + images * IMAGE_HOLD_TOKENS * 3;
 }
 
 export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected';

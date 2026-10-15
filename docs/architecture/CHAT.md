@@ -536,7 +536,7 @@ by (Opus 5/4.8, $5/$25), not Opus 5.5's.
 
 ## Privacy
 
-- Plaintext leaving the device per answer: the question, earlier turns of that branch (bounded as above), an optional selected passage and, for paper chat, the paper MMD that the server already holds. Prompts are built on the device from decrypted history; nothing else (notes, other chats, keys) is sent.
+- Plaintext leaving the device per answer: the question, earlier turns of that branch (bounded as above), an optional selected passage and, for paper chat, the paper MMD that the server already holds. Under consent v3, the image of a figure or table the question names ("Figures in chat"). Prompts are built on the device from decrypted history; nothing else (notes, other chats, keys) is sent.
 - The function stores no chat text: no tables, queues or logs. Logs carry only event names, operation IDs, counts and codes. The answer returns to the device, which seals it with the existing encrypted append path.
 - Anthropic processes and may retain request content under its API terms; no zero-retention claim is made. Consent copy says so.
 - First-use consent is per environment/account in the device Keychain (`<env>.<account>.cloud-ai-consent` = `cloud-ai-v2`, the current consent text; a stored `cloud-ai-v1` is re-asked), not in chat history. The question is saved locally first; consent then binds the request to that saved turn. Declining keeps the question and offers “Get answer”.
@@ -629,3 +629,30 @@ annotated steps. The written answer stays complete on its own; the model is told
   `ChatVisualTests` (native format, request capability, page policy), `apps/web/tests/chat.test.ts` (event, format).
 
 Not built: figure crops (`docs/proposals/CHAT_TOOLS.md`), which need a consent for sending figures to the model.
+
+## Figures in chat — 2026-10-15 (owner: "the agent has the ability to break figures into cropped sub sections… and explain each component"; "Sending figures to model should be ok?")
+
+A question that names a figure or table ("What does Figure 2 show?", "compare Fig. 3 with Table 1", or a selected
+passage that names one) carries that figure's image, so the model reads the figure itself, not only its caption.
+
+- **Device** (`ChatFigureFinder`): finds the figures by their captions in the open paper's bundle, at most two, and
+  prepares each image as the provider reads it best (at most 1,568 px on a side and about 1.15 megapixels, JPEG on
+  white). The image is the paper's own figure from arXiv's HTML, already on the device; no PDF, nothing new fetched.
+- **Consent `cloud-ai-v3`.** The consent screen now lists "When you ask about a figure or table, its image from the
+  paper"; readers who accepted v2 are asked once more. The server accepts figures only under v3, only in a paper chat,
+  never with Add paper or a diagram repair (`chat-figures.ts`: ids F1–F3, a paragraph number, a bounded PNG/JPEG
+  whose bytes match their type). The request digest covers the images. Settings › Privacy's summary says so too.
+- **Cost.** An image is held as 1,600 input tokens (Anthropic bills about width × height / 750); the hold no longer
+  counts its base64 as text. About half a cent per figure on Sonnet.
+- **Figure parts.** The model may call `show_figure_parts` with 1–8 boxes (fractions of the image) and a label and note
+  each. The server checks them against the attached figure and relays `figure_parts`; with no prose of its own the
+  answer becomes the parts' notes. The device keeps them as a `diagram` event of format `figure-parts-v1`
+  (`StoredFigureParts`: the parts and where the image is in the bundle, never the image) and shows the crops under
+  the answer; a tap opens the whole figure with the parts outlined and numbered, each crop with its note. Without
+  the paper on the device, the notes alone. The tool is offered with Visual answers on, in paper chats; it is part
+  of the cached prefix, so a figure question costs no extra cache write.
+- **Proof** (staging, 2026-10-15): `node scripts/chat-live-smoke.mjs --figure=1 --question="What does Figure 1 show?
+  Walk me through each part of it."` on DPO: the answer read the figure's own details (the trophy marking the
+  preferred response, the example prompt) and gave five parts with boxes that crop the right regions (rendered by
+  `FigurePartsRenderingTests`). 5 credits with the paper cached.
+- **Not yet:** the browser keeps consent v2 and sends no figures; it shows the answer text but not the parts.

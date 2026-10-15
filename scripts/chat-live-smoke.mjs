@@ -22,6 +22,8 @@ const QUESTIONS = Number(process.argv.find(a => a.startsWith('--questions='))?.s
 const STUDY = process.argv.includes('--study');
 /** `--question=…` asks this instead of the built-in first question (e.g. one that invites a visual answer). */
 const QUESTION = process.argv.find(a => a.startsWith('--question='))?.slice(11) ?? null;
+/** `--figure=N` attaches the bundle's figure N image (consent cloud-ai-v3), as the app does for a question naming it. */
+const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9) ?? 0);
 const INDEX = process.argv.find(a => a.startsWith('--index='))?.slice(8) ?? `${ROOT}/.artifacts/bundles/ecbc0a04588f/reader.json`;
 const dotenv = path => Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
   .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^(['"])(.*)\1$/, '$2')]; }));
@@ -86,6 +88,16 @@ try {
   if (member?.phase !== 'source_only' || member.source_revision !== 3) throw new Error(`membership phase ${member?.phase ?? 'missing'} ${member?.error_code ?? ''}`);
   log(`membership ${membershipID} source_only: ${member.metadata?.title}`);
 
+  // The bundle's figure N as the app sends it (the DPO figures are JPEGs within the provider's resolution already).
+  const figureImages = n => {
+    const figure = index.figures.find(f => new RegExp(`^\\s*Figure\\s*${n}\\b`).test(f.caption));
+    if (!figure) throw new Error(`no Figure ${n} in the bundle`);
+    const path = figure.asset_paths[0], bytes = readFileSync(`${dirname(INDEX)}/${path}`);
+    const member = JSON.parse(readFileSync(`${dirname(INDEX)}/manifest.json`, 'utf8')).members.find(m => m.path === path);
+    return [{ id: 'F1', paragraph: index.blocks.findIndex(b => b.id === figure.block_id) + 1, caption: figure.caption.slice(0, 1200),
+      media_type: path.endsWith('.png') ? 'image/png' : 'image/jpeg', data: bytes.toString('base64'), width: member.width, height: member.height }];
+  };
+
   // 4. Questions.
   const local_context = { format: 'reader-local-context-v2', membership_id: membershipID, source: 'arxiv', source_id: '2305.18290', revision: 3,
     manifest_sha256, source_sha256: lock.html.sha256, text };
@@ -93,8 +105,11 @@ try {
   let followUps = [], studyMap = { concepts: [], links: [], focus: null, journey: [], next: 'calibrate' };
   const ask = async question => {
     turns.push({ role: 'user', text: question });
-    const body = { operation_id: randomUUID(), consent_version: 'cloud-ai-v2', mode: 'paper', local_context, messages: turns, topic_title: turns.length === 1,
-      capabilities: ['visual_answers'], ...(STUDY ? { action: 'study', study: studyMap } : { follow_ups: true }) };
+    const figures = FIGURE && turns.length === 1 ? figureImages(FIGURE) : [];
+    const body = { operation_id: randomUUID(), consent_version: figures.length ? 'cloud-ai-v3' : 'cloud-ai-v2', mode: 'paper', local_context, messages: turns,
+      topic_title: turns.length === 1, capabilities: ['visual_answers'], ...(figures.length ? { figures } : {}),
+      ...(STUDY ? { action: 'study', study: studyMap } : { follow_ups: true }) };
+    if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
     const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
       apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
@@ -111,6 +126,7 @@ try {
       if (name === 'text' || name === 'delta') { if (!first) first = Date.now(); answer += payload.text ?? payload.delta ?? ''; }
       else if (name === 'followups') followUps = payload.questions ?? [];
       else if (name === 'study') { studyMap = payload.map; log(`study map: ${studyMap.concepts.length} concepts ${JSON.stringify(studyMap.concepts.map(c => `${c.label}:${c.state}`))} links ${studyMap.links.length} focus ${studyMap.focus} next ${studyMap.next} journey ${studyMap.journey.join('>')}`); }
+      else if (name === 'figure_parts') log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`);
       else if (name === 'visual') log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`);
       else if (name === 'done') done = payload;
       else log(`event ${name} ${JSON.stringify(payload).slice(0, 300)}`);

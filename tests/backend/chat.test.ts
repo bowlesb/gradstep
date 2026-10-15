@@ -171,7 +171,7 @@ test('a drawn diagram is relayed once, before done, and never stored or logged a
     return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 'DPO', mermaid: 'flowchart LR\n x --> y' } }] });
   } });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(tools, [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL]);
+  assert.deepEqual(tools, [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL]);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'diagram', 'done']);
   assert.deepEqual(h.events[1].data, { title: 'DPO', source: 'flowchart LR\n x --> y' });
   assert.equal((h.events[2].data as { stop_reason: string }).stop_reason, 'end_turn');
@@ -385,7 +385,7 @@ test('web search is offered only when the server enables it, and never on Ingest
   await runChat(on.deps, paperBody(), on.emit, new AbortController().signal);
   const ingest = harness({ generate: capture('c') }); ingest.deps.webSearch = true;
   await runChat(ingest.deps, ingestBody(), ingest.emit, new AbortController().signal);
-  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL], [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
+  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL], [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
   // Every request completed (a fractional bigint amount once failed the reservation).
   for (const run of [off, on, ingest]) assert.equal(run.events.at(-1)?.event, 'done', JSON.stringify(run.events.at(-1)));
   assert.ok(Number.isSafeInteger(webSearchHoldMicrousd(39_657)));
@@ -926,7 +926,9 @@ test('consent v2 is accepted alongside v1 and keeps its own request digest', () 
   assert.equal(validateChatRequest(v2(paperBody())).consentVersion, 'cloud-ai-v2');
   assert.equal(validateChatRequest(paperBody()).consentVersion, 'cloud-ai-v1');
   assert.notEqual(canonicalRequest(validateChatRequest(paperBody())), canonicalRequest(validateChatRequest(v2(paperBody()))));
-  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })), { code: 'invalid_request' });
+  // v3 (2026-10-15) names figures; an unknown version is still refused.
+  assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })).consentVersion, 'cloud-ai-v3');
+  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v4' })), { code: 'invalid_request' });
 });
 
 test('Tavily searches run between rounds as search results (not citable: no cache-breaking switch) and are priced for the reader but not as provider spend', async () => {
@@ -940,7 +942,7 @@ test('Tavily searches run between rounds as search results (not citable: no cach
   const runs = searching(h, [found]);
   await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
   assert.deepEqual(runs, [{ query: 'IPO preference optimization', academic: true }]);
-  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'create_visual', 'search_web'], 'Tavily, not Anthropic search');
+  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'search_web'], 'Tavily, not Anthropic search');
   // Round two: the first round's content, then the results as search results (citations off) with a cache breakpoint.
   const [assistant, results] = sent[1].messages.slice(-2) as { role: string; content: Record<string, unknown>[] }[];
   assert.equal(assistant.role, 'assistant'); assert.equal(assistant.content[1].id, 'toolu_s1');
@@ -978,7 +980,7 @@ test('readers who consented to v1 (Anthropic only), and a paused or exhausted Ta
     const h = harness({ generate: async (params, stream) => { tools = ((params as unknown as Sent).tools ?? []).map(t => t.name!); stream.onText('a'); return completeOutcome(); } });
     const runs = searching(h, [], ready);
     await runChat(h.deps, body, h.emit, new AbortController().signal);
-    assert.deepEqual(tools, ['create_diagram', 'create_visual', 'web_search']); assert.equal(runs.length, 0);
+    assert.deepEqual(tools, ['create_diagram', 'create_visual', 'show_figure_parts', 'web_search']); assert.equal(runs.length, 0);
     assert.equal(h.answers[0].search_provider, 'anthropic');
   }
   // Ingest never searches.
@@ -1208,7 +1210,7 @@ test('Why it matters uses only the paper: no search tool, even with Tavily ready
   const h = harness({ generate: async (params, stream) => { sent = params as unknown as Sent; stream.onText('It regularizes.'); return completeOutcome(); } });
   const runs = searching(h, []);
   await runChat(h.deps, quoted, h.emit, new AbortController().signal);
-  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram', 'create_visual']);
+  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts']);
   assert.equal(runs.length, 0);
   // No search allowance in the hold either.
   const held = Number(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
@@ -1818,7 +1820,7 @@ test('Study: the tutor sees the map after the paper, the map request runs after 
   assert.match(system, /one step per turn/); assert.match(system, /<study_map>\{"concepts":\[\{"id":"scaling"/);
   assert.ok(system.indexOf('device-only-context-marker') < system.indexOf('<study_map>'), 'the map follows the paper');
   assert.ok(!/Length:|Answer length/i.test(system.slice(system.indexOf('<study_map>'))), 'no profile length after the map');
-  assert.deepEqual(answer.tools?.map(t => t.name), ['create_diagram', 'create_visual']);
+  assert.deepEqual(answer.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts']);
   // The map request: previous map, the reader's answer, the tutor's reply; never the paper.
   const update = sent[1];
   assert.equal(update.max_tokens, STUDY_MAX_TOKENS); assert.deepEqual(update.tools, [UPDATE_STUDY_MAP_TOOL]); assert.deepEqual(update.tool_choice, { type: 'tool', name: 'update_study_map' });
@@ -1882,6 +1884,7 @@ test('Study: the first turn is no answer; unusable, failed or slow map requests 
 });
 
 import { sanitizeVisual, visualDocument, visualRequest } from '../../supabase/functions/_shared/chat-visual.ts';
+import { figureImages, figurePartsRequest, IMAGE_HOLD_TOKENS, SHOW_FIGURE_PARTS_TOOL } from '../../supabase/functions/_shared/chat-figures.ts';
 
 test('visual answers: the sanitizer keeps structure, tables and inline SVG, drops images and foreign references, refuses script', () => {
   const fragment = '<h2 style="color:#333">Pipeline</h2><p>Three <b>steps</b>:</p><ol><li>Sample</li><li>Score</li></ol>'
@@ -1944,7 +1947,7 @@ test('a visual is relayed once, sanitized, before done; an invalid one is logged
     return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_visual', input: { title: 'Loop', html: '<p onmouseover="x">no</p>' } }] });
   } });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  assert.deepEqual((tools as { name: string }[]).map(t => t.name), ['create_diagram', 'create_visual']);
+  assert.deepEqual((tools as { name: string }[]).map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts']);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'done'], 'the handler attribute refuses the visual');
   assert.deepEqual(h.logs, [{ event: 'chat_visual_invalid_input', operation_id: operation }]);
 
@@ -1959,4 +1962,73 @@ test('a visual is relayed once, sanitized, before done; an invalid one is logged
   const off = harness({ generate: async (params, stream) => { offTools = (params as { tools?: unknown }).tools; stream.onText('Prose only.'); return completeOutcome({ stopReason: 'end_turn' }); } });
   await runChat(off.deps, { ...paperBody(), capabilities: [] }, off.emit, new AbortController().signal);
   assert.equal(offTools, undefined, 'no tools at all when visuals are off and search is not on');
+});
+
+// ---------- Figures (consent v3) ----------
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 7)]).toString('base64');
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(60, 1)]).toString('base64');
+const figure = (changes: Record<string, unknown> = {}) => ({ id: 'F1', paragraph: 12, caption: 'Figure 2: The pipeline.', media_type: 'image/jpeg', data: JPEG, width: 800, height: 600, ...changes });
+
+test('figures: bounded PNG/JPEG images with ids and paragraphs, only under consent v3 in a paper chat', () => {
+  assert.deepEqual(figureImages(undefined), []);
+  const [one] = figureImages([figure({ caption: ' Figure 2:\n The pipeline. ' })]);
+  assert.deepEqual({ ...one, data: '…' }, { id: 'F1', paragraph: 12, caption: 'Figure 2: The pipeline.', mediaType: 'image/jpeg', data: '…', width: 800, height: 600 });
+  assert.equal(figureImages([figure({ media_type: 'image/png', data: PNG })])[0].mediaType, 'image/png');
+  for (const bad of [[figure({ id: 'F4' })], [figure(), figure()], [figure({ media_type: 'image/gif' })], [figure({ data: PNG })], [figure({ width: 4000 })],
+    [figure({ paragraph: 0 })], [figure({ extra: 1 })], [figure({ data: 'not base64!' })], Array.from({ length: 4 }, (_, i) => figure({ id: `F${i + 1}` }))]) {
+    assert.throws(() => figureImages(bad), JSON.stringify(bad).slice(0, 60));
+  }
+  const v3 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v3' });
+  assert.equal(validateChatRequest(v3(paperBody({ figures: [figure()] }))).figures.length, 1);
+  assert.throws(() => validateChatRequest(v2(paperBody({ figures: [figure()] }))), { code: 'invalid_request' }, 'v2 does not name figures');
+  assert.throws(() => validateChatRequest(v3(paperBody({ figures: [figure()], action: 'ingest', selection: { quote: '[3] A paper' } }))), { code: 'invalid_request' });
+  // The digest covers the image itself.
+  const a = canonicalRequest(validateChatRequest(v3(paperBody({ figures: [figure()] })))), b = canonicalRequest(validateChatRequest(v3(paperBody({ figures: [figure({ data: JPEG.slice(0, -4) + 'AAAA' })] }))));
+  assert.notEqual(a, b);
+});
+
+test('figures go before the question as label and image; the hold counts each image as its tokens, not its base64', () => {
+  const turns = [{ role: 'user' as const, text: 'What does Figure 2 show?' }];
+  const images = figureImages([figure({ data: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(90_002, 7)]).toString('base64') })]);
+  const blocks = [{ type: 'text' as const, text: '<figure id="F1" paragraph="¶12">Figure 2: The pipeline.</figure>' },
+    { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: images[0].data } }];
+  const params = chatRequestParams({ instructions: 'x', paper: { title: 'T', text: paperText }, turns, selection: null, figures: blocks });
+  const last = params.messages.at(-1)!.content as { type: string }[];
+  assert.deepEqual(last.map(b => b.type), ['text', 'image', 'text']);
+  const without = chatRequestParams({ instructions: 'x', paper: { title: 'T', text: paperText }, turns, selection: null });
+  const extra = promptCharacters(params) - promptCharacters(without);
+  assert.ok(extra >= IMAGE_HOLD_TOKENS * 3 && extra < IMAGE_HOLD_TOKENS * 3 + 1_000, `an image holds its tokens: ${extra}`);
+});
+
+test('show_figure_parts: boxes within the image, tight enough, against an attached figure only; relayed once before done', async () => {
+  const images = figureImages([figure()]);
+  const parts = figurePartsRequest({ figure: 'F1', title: ' The pipeline ', parts: [{ label: 'Encoder', box: [0, 0, 0.5, 1.2], note: 'Reads the input.' }, { label: 'Decoder', box: [0.5, 0, 1, 1], note: 'Writes the output.' }] }, images);
+  assert.deepEqual(parts, { figure: 'F1', paragraph: 12, title: 'The pipeline', parts: [{ label: 'Encoder', note: 'Reads the input.', box: [0, 0, 0.5, 1] }, { label: 'Decoder', note: 'Writes the output.', box: [0.5, 0, 1, 1] }] });
+  for (const bad of [{ figure: 'F2', title: 'x', parts: [{ label: 'a', box: [0, 0, 1, 1], note: 'n' }] }, { figure: 'F1', title: 'x', parts: [] },
+    { figure: 'F1', title: 'x', parts: [{ label: 'a', box: [0.5, 0.5, 0.51, 0.9], note: 'n' }] }, { figure: 'F1', title: 'x', parts: [{ label: 'a', box: [0, 0, 1], note: 'n' }] }]) {
+    assert.equal(figurePartsRequest(bad, images), null, JSON.stringify(bad).slice(0, 60));
+  }
+  assert.equal(figurePartsRequest({ figure: 'F1', title: 'x', parts: [{ label: 'a', box: [0, 0, 1, 1], note: 'n' }] }, []), null, 'no figure attached');
+
+  let sentParams: { tools?: { name: string }[]; system?: { text: string }[]; messages?: { content: unknown }[] } | null = null;
+  const h = harness({ generate: async (params, stream) => {
+    sentParams = params as typeof sentParams;
+    stream.onText('Figure 2 has two halves.');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'show_figure_parts', input: { figure: 'F1', title: 'Pipeline', parts: [{ label: 'Left', box: [0, 0, 0.5, 1], note: 'The encoder.' }] } }] });
+  } });
+  await runChat(h.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', figures: [figure()] }, h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'figure_parts', 'done']);
+  assert.deepEqual(h.events[1].data, { figure: 'F1', paragraph: 12, title: 'Pipeline', parts: [{ label: 'Left', note: 'The encoder.', box: [0, 0, 0.5, 1] }] });
+  assert.deepEqual(h.logs, [{ event: 'chat_figure_parts', operation_id: operation }]);
+  const system = sentParams!.system!.map(b => b.text).join('\n');
+  assert.match(system, /comes with the figure it refers to, attached as image \(F1\)/);
+  assert.match(system, /call show_figure_parts once/);
+  assert.match(system, /Write your explanation first/);
+
+  // Parts without prose: the answer is the parts' notes.
+  const bare = harness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'show_figure_parts',
+    input: { figure: 'F1', title: 'Pipeline', parts: [{ label: 'Left', box: [0, 0, 0.5, 1], note: 'The encoder.' }, { label: 'Right', box: [0.5, 0, 1, 1], note: 'The decoder.' }] } }] }) });
+  await runChat(bare.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', figures: [figure()] }, bare.emit, new AbortController().signal);
+  assert.deepEqual(bare.events.map(e => e.event), ['delta', 'figure_parts', 'done']);
+  assert.equal((bare.events[0].data as { text: string }).text, 'Pipeline\n\n1. **Left**: The encoder.\n2. **Right**: The decoder.');
 });

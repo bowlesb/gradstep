@@ -23,7 +23,8 @@ public enum ChatRequestError: Error, Equatable {
 public enum ChatAction: String, Equatable, Sendable { case ingest, related, relevance, diagramFix = "diagram_fix", study }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
-    public static let consentVersion = "cloud-ai-v2"
+    /// v3 (2026-10-15) also names the figure a question is about (ChatConsentView); readers who accepted v2 are asked once more.
+    public static let consentVersion = "cloud-ai-v3"
     public static let maximumTurns = 60
     public static let maximumMessageBytes = 200_000
     public static let maximumSelectionScalars = 4_000
@@ -46,13 +47,15 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     /// The reader's "Visual answers" setting: with it the server may draw diagrams and HTML visuals (sent as the
     /// `visual_answers` capability; an empty list says it is off).
     public let visualAnswers: Bool
+    /// The figures the question is about (at most three images), sent under consent v3.
+    public let figures: [ChatFigureImage]
 
     /// Keeps the newest turns that fit the server bounds. The context always
     /// starts and ends with a user turn; empty turns are skipped.
     public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
                             action: ChatAction? = nil, profile: ChatProfileChoice = .standard,
                             topicTitle: Bool = false, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil,
-                            visualAnswers: Bool = true) throws -> ChatGenerationRequest {
+                            visualAnswers: Bool = true, figures: [ChatFigureImage] = []) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
         guard last.text.utf8.count <= maximumMessageBytes else { throw ChatRequestError.questionTooLarge }
@@ -70,7 +73,8 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         let kept_action = action == .study || quote != nil ? action : nil
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
                                      action: kept_action, profile: profile, topicTitle: topicTitle, localContext: localContext,
-                                     study: kept_action == .study ? study ?? .empty : nil, visualAnswers: visualAnswers)
+                                     study: kept_action == .study ? study ?? .empty : nil, visualAnswers: visualAnswers,
+                                     figures: kept_action == .ingest || (documentID == nil && localContext == nil) ? [] : Array(figures.prefix(3)))
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -87,9 +91,10 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     }
 
     private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?,
-                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil, visualAnswers: Bool = true) {
+                 profile: ChatProfileChoice, topicTitle: Bool, localContext: LocalPaperChatContext? = nil, study: StudyMap? = nil, visualAnswers: Bool = true,
+                 figures: [ChatFigureImage] = []) {
         self.operationID = operationID; self.documentID = localContext == nil ? documentID : nil; self.localContext = localContext; self.turns = turns; self.selection = selection; self.action = action
-        self.profile = profile; self.topicTitle = topicTitle; self.study = study; self.visualAnswers = visualAnswers
+        self.profile = profile; self.topicTitle = topicTitle; self.study = study; self.visualAnswers = visualAnswers; self.figures = figures
     }
 
     public func encoded() throws -> Data {
@@ -113,13 +118,18 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let follow_ups: Bool?
             /// Study: the knowledge map this turn answers against.
             let study: StudyMap?
+            /// The figures the question is about (consent v3).
+            let figures: [Figure]?
         }
+        struct Figure: Encodable { let id: String; let paragraph: Int; let caption: String; let media_type: String; let data: String; let width: Int; let height: Int }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
             capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers), profile: profile == .standard ? nil : profile,
             topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest || action == .study ? nil : true,
-            study: action == .study ? study ?? .empty : nil))
+            study: action == .study ? study ?? .empty : nil,
+            figures: figures.isEmpty ? nil : figures.map { Figure(id: $0.id, paragraph: $0.paragraph, caption: $0.caption, media_type: $0.mediaType,
+                                                                 data: $0.data, width: $0.width, height: $0.height) }))
     }
 
     /// Always a list: an empty one tells the server the reader turned visual answers off (builds before the setting
@@ -142,6 +152,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case diagram(title: String, source: String)
     /// A visual answer (an HTML fragment the server sanitized), kept like a diagram.
     case visual(title: String, html: String)
+    /// Parts of an attached figure, each cropped on the device with its note.
+    case figureParts(ChatFigureParts)
     /// What the server is doing between pieces of text (searching, adding a paper).
     case status(ChatProgress)
     /// The conversation's topic title (asked for with `topicTitle`), sent before `done`.
@@ -276,6 +288,10 @@ public struct ChatSSEParser: Sendable {
             guard let diagram = try? JSONDecoder().decode(Diagram.self, from: payload),
                   ChatDiagram(title: diagram.title, source: diagram.source, messageID: nil) != nil else { throw ChatStreamError.malformed }
             return .diagram(title: diagram.title, source: diagram.source)
+        case "figure_parts":
+            // Informational: parts that are not usable are dropped, never fatal.
+            guard let parts = try? JSONDecoder().decode(ChatFigureParts.self, from: payload), parts.isValid else { return nil }
+            return .figureParts(parts)
         case "visual":
             // Informational: a visual that is not usable is dropped, never fatal (builds before it ignore the event).
             struct Visual: Decodable { let title: String; let html: String }

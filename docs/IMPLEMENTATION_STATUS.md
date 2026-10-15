@@ -24,6 +24,19 @@ Evidence (commit `3044a07`): backend 95 (chat) and 41 (compiler fragments) tests
 ArxivHTMLReaderTests 12/12; browser chat tests 16; live smokes on staging (visual 2.3 KB; diagram). Deployment: chat
 Edge function deployed; browser Pages **`5dd5f179`**; TestFlight **build 45** iOS and Mac both VALID (22:04 PDT).
 
+## Figures in chat: the figure a question names is sent; its parts are cropped under the answer — 2026-10-15, ~07:00 UTC
+
+Owner: "Sending figures to model should be ok?" Yes, under consent v3, which names figures (CHAT.md "Figures in
+chat"). Server: `chat-figures.ts` (validation, image blocks before the question, `show_figure_parts` and its checks,
+the hold counting an image as 1,600 tokens), consent v3 accepted with v1/v2 (v2 and v3 name Tavily), the digest
+covering images, the `figure_parts` relay with the notes as the answer when the model writes none. Apps:
+`ChatFigureFinder` (captions, 1,568 px JPEG on white), consent v3 copy, `figure-parts-v1` storage, crops under the
+answer and a full view with numbered outlines. Proof on staging with DPO's Figure 1 (five parts, correct crops).
+Tests: backend chat 98; native ChatFigureTests, FigurePartsRenderingTests and the suites around them. The browser
+keeps v2 and shows the text only, for now.
+
+Evidence and deployment are recorded at the end of this section once build 47 is processed.
+
 ## Build 44 feedback: Back says where, no Back from the top, the store conflict behind failed re-preparations, Adding…, auto-download setting, reference edit menu — 2026-10-15, ~06:30 UTC
 
 Six TestFlight items on build 44 (`docs/OWNER_FEEDBACK.md` "TestFlight, 2026-10-15 04:32–04:40 UTC"). The one real

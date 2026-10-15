@@ -42,4 +42,5 @@ Setting and HTML answers first, figure crops after the image-sending consent is 
 ## Status (2026-10-15)
 
 Items 1–3 are built and deployed (`docs/architecture/CHAT.md` "Visual answers"; build 45 and the browser). Item 4,
-figure crops, is not: it needs the "Send figures to the model" consent designed first.
+figure crops, is built for the apps (CHAT.md "Figures in chat"; build 47): the owner judged sending figures fine, and
+the consent became v3, naming them, instead of a separate setting. The browser follows.

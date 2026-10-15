@@ -119,7 +119,10 @@ struct RootView: View {
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
         }
         .sheet(item: $model.presentedDiagram) { presented in
-            if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram).macSheetKeys() }
+            if let diagram = model.diagram(presented.id) {
+                DiagramSheet(diagram: diagram).macSheetKeys()
+                    .environment(\.figureImage) { manifest, path in model.figureImage(manifest: manifest, path: path) }
+            }
         }
         .sheet(isPresented: $model.showReport, onDismiss: {
             model.reportScreenshot = nil
@@ -1374,7 +1377,7 @@ struct PrivacyView: View {
                 Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.")
             } header: { Text("Your notes and conversations") }
             Section {
-                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
+                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Anthropic. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
             } header: { Text("AI answers") }
             Section {
                 Text("Private PDF uploads and reports you submit are accessible to the services that process them. Papers added from the web are fetched by our server and converted privately for your account.")
@@ -1393,7 +1396,9 @@ struct HistoryView: View {
             let savedDiagrams = model.privateState.diagrams()
             List {
                 ForEach(savedDiagrams, id: \.id) { saved in
-                    NavigationLink(saved.diagram.title) { DiagramDetail(diagram: saved.diagram) }
+                    NavigationLink(saved.diagram.title) {
+                        DiagramDetail(diagram: saved.diagram).environment(\.figureImage) { manifest, path in model.figureImage(manifest: manifest, path: path) }
+                    }
                         .accessibilityIdentifier("diagram.\(saved.id.wire)")
                 }
             }.overlay { if savedDiagrams.isEmpty { ContentUnavailableView("No diagrams yet", systemImage: "square.stack.3d.up") } }

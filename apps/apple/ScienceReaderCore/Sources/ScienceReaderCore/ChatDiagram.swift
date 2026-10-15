@@ -8,6 +8,8 @@ public struct ChatDiagram: Codable, Equatable, Sendable {
     /// A visual answer (server chat-visual.ts, 2026-10-15): a sanitized HTML fragment the device shows in a frame
     /// with no scripts and no network. Stored like a diagram so builds before it ignore it rather than fail.
     public static let htmlFormat = "html-v1"
+    /// Parts of a figure the answer explained (`StoredFigureParts` JSON in `source`), cropped on the device.
+    public static let figurePartsFormat = "figure-parts-v1"
     public static let maximumTitleScalars = 200
     public static let maximumSourceBytes = 16_000
     public static let maximumHTMLBytes = 24_000
@@ -20,10 +22,11 @@ public struct ChatDiagram: Codable, Equatable, Sendable {
     public let messageID: UUID?
 
     public var isHTML: Bool { format == Self.htmlFormat }
+    public var isFigureParts: Bool { format == Self.figurePartsFormat }
 
     public init?(title: String, source: String, messageID: UUID?, format: String = ChatDiagram.currentFormat) {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard format == Self.currentFormat || format == Self.htmlFormat,
+        guard format == Self.currentFormat || format == Self.htmlFormat || (format == Self.figurePartsFormat && StoredFigureParts.decode(source) != nil),
               !title.isEmpty, title.unicodeScalars.count <= Self.maximumTitleScalars,
               !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               source.utf8.count <= (format == Self.htmlFormat ? Self.maximumHTMLBytes : Self.maximumSourceBytes) else { return nil }
@@ -50,6 +53,8 @@ public struct ChatDiagramLink: Equatable, Sendable {
     public let title: String
     /// A visual answer (HTML) rather than a Mermaid diagram.
     public var isHTML = false
+    /// Parts of a figure (cropped on the device) rather than a Mermaid diagram.
+    public var isFigureParts = false
 }
 
 public extension PrivateState {
@@ -67,7 +72,9 @@ public extension PrivateState {
     func diagramsByMessage() -> [UUID: ChatDiagramLink] {
         var result: [UUID: ChatDiagramLink] = [:]
         for (id, diagram) in diagrams() {
-            if let message = diagram.messageID, result[message] == nil { result[message] = ChatDiagramLink(id: id, title: diagram.title, isHTML: diagram.isHTML) }
+            if let message = diagram.messageID, result[message] == nil {
+                result[message] = ChatDiagramLink(id: id, title: diagram.title, isHTML: diagram.isHTML, isFigureParts: diagram.isFigureParts)
+            }
         }
         return result
     }
