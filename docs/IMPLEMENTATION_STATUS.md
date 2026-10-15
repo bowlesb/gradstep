@@ -19,6 +19,9 @@ HTML-paper journey (an unnamed figure question makes a second request with Figur
 unit tests and the figure tests on CaLIF; live on staging, `chat-live-smoke.mjs --look`: Figure 2 requested, then
 four parts.
 
+Deployment (commit `12b55ee`): chat Edge function on staging; browser Pages **`af0cbb1b`**; TestFlight **build 52** iOS and
+Mac VALID (04:41 and 04:46 PDT).
+
 ## The arXiv converter in components; Library tag chips and remembered filters; stale journeys repaired — 2026-10-15, ~09:30 UTC
 
 - **Converter split** (READER_ARCHITECTURE_RETHINK.md step 2): `arxiv-html.ts` keeps the API and the order of the
