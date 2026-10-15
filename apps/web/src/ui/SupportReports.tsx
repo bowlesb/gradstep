@@ -61,7 +61,7 @@ export function ReportDialog({ open, onClose, account, onSent }: { open: boolean
     setBusy(true); setError(null);
     try {
       const id = reportID.current;
-      await createSupportReport({ id, title: (title.trim() || 'Browser issue').slice(0, 160), note: text.slice(0, 10_000), appVersion: WEB_VERSION, build: 'web', osVersion: navigator.platform.slice(0, 100), screen: screenLabel() }, account);
+      await createSupportReport({ id, title: (title.trim() || 'Browser issue').slice(0, 160), note: text.slice(0, 10_000), appVersion: WEB_VERSION, build: `web ${__WEB_BUILD__}`, osVersion: navigator.platform.slice(0, 100), screen: screenLabel() }, account);
       if (image && attachmentID) {
         await uploadSupportImage(new Uint8Array(await image.blob.arrayBuffer()), image.mediaType, account, id, attachmentID);
       }

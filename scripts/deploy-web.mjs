@@ -5,7 +5,7 @@
 //   node scripts/deploy-web.mjs site   # web/site → gradstep-site / gradstep.ai
 // Add --build-only to run every local output gate without invoking Wrangler or Cloudflare.
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -82,7 +82,7 @@ export function validateClientOutput(root, directory, target, backend, env) {
     if (target === 'admin' && /__fixture-spending-entry|synthetic-observation|\/@vite\/client|react-refresh|owner@example\.com/.test(text)) fail('a development fixture or development runtime appears in the admin output');
   }
 }
-export function deployWeb(target, { root = repository, buildOnly = false, run = execFileSync, processEnv = process.env, log = console.log } = {}) {
+export function deployWeb(target, { root = repository, buildOnly = false, publish = true, run = execFileSync, processEnv = process.env, log = console.log } = {}) {
   if (!Object.hasOwn(TARGETS, target)) fail('Usage: node scripts/deploy-web.mjs app|admin|site [--build-only]');
   const selected = TARGETS[target], env = dotenv(join(root, '.env.staging'));
   if (!buildOnly) for (const name of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']) if (!env[name]) fail(`${name} is missing from .env.staging`);
@@ -103,6 +103,7 @@ export function deployWeb(target, { root = repository, buildOnly = false, run = 
     validateClientOutput(root, directory, target, backend, env);
   }
   if (buildOnly) { log(`Validated ${target} static output for Pages project ${selected.project}; no deployment performed`); }
+  else if (!publish) { log(`Validated ${target} static output; publishing in phases`); }
   else {
     const wrangler = join(root, 'node_modules/.bin/wrangler');
     if (!existsSync(wrangler)) fail('run npm ci at the repository root for the locked Wrangler version');
@@ -141,12 +142,78 @@ export async function verifyLive(directory, host, { fetchImpl = fetch, wait = ms
   log(`Verified ${origin}: ${assets.length} scripts and stylesheets served with their own types`);
 }
 
+/** One Pages deployment of `directory` to the target's project (the same Wrangler call deployWeb makes). */
+function pagesDeploy(root, target, directory, run, env, processEnv) {
+  const wrangler = join(root, 'node_modules/.bin/wrangler');
+  if (!existsSync(wrangler)) fail('run npm ci at the repository root for the locked Wrangler version');
+  run(wrangler, ['pages', 'deploy', directory, '--project-name', TARGETS[target].project, '--branch', 'main', '--commit-dirty=true', '--force'], {
+    cwd: root, stdio: ['ignore', 'inherit', 'inherit'],
+    env: { ...processEnv, CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID, WRANGLER_SEND_METRICS: 'false' },
+  });
+}
+
+/** The two staged directories of a phased release. Phase 1 is the live release, whole (its index, headers and files),
+ * plus the new release's assets; phase 2 is the new release plus the previous release's assets (a tab still on the
+ * old index can load its own chunks). Each carries a marker named for its phase, so the domain can be asked which one
+ * it serves without requesting a new asset from an edge that may still be on the old deployment. */
+export function stagePhases(dist, previous, stageRoot, id) {
+  const phase1 = join(stageRoot, 'phase1'), phase2 = join(stageRoot, 'phase2');
+  for (const dir of [phase1, phase2]) rmSync(dir, { recursive: true, force: true });
+  cpSync(previous, phase1, { recursive: true });
+  cpSync(join(dist, 'assets'), join(phase1, 'assets'), { recursive: true, force: false, errorOnExist: false });
+  cpSync(dist, phase2, { recursive: true });
+  if (existsSync(join(previous, 'assets'))) cpSync(join(previous, 'assets'), join(phase2, 'assets'), { recursive: true, force: false, errorOnExist: false });
+  writeFileSync(join(phase1, `__deploy-${id}-1.txt`), id);
+  writeFileSync(join(phase2, `__deploy-${id}-2.txt`), id);
+  return { phase1, phase2 };
+}
+
+/** Waits until the domain serves the deployment carrying `marker` (its text is the deploy id). */
+export async function waitForMarker(host, marker, id, { fetchImpl = fetch, wait = ms => new Promise(r => setTimeout(r, ms)), timeoutMs = 180_000 } = {}) {
+  const started = Date.now();
+  for (;;) {
+    const text = await fetchImpl(`https://${host}/${marker}?check=${Date.now()}`, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '');
+    if (text.trim() === id) return;
+    if (Date.now() - started > timeoutMs) fail(`${host} does not serve ${marker} after ${Math.round(timeoutMs / 1000)}s`);
+    await wait(5_000);
+  }
+}
+
+/** Publishes a validated build in two phases (2026-10-15: twice a new script was requested from an edge still on the
+ * previous deployment, answered with the single-page fallback and cached for a year, blanking the site). Phase 1 puts
+ * the new assets everywhere while the old index is still served; only then does phase 2 switch the index. Without a
+ * snapshot of the live release (the first phased deploy) it publishes once, as before, and keeps the snapshot. */
+export async function publishInPhases(target, dist, { root = repository, run = execFileSync, processEnv = process.env, log = console.log,
+  fetchImpl = fetch, wait = ms => new Promise(r => setTimeout(r, ms)), id = Date.now().toString(36) } = {}) {
+  const env = dotenv(join(root, '.env.staging')), host = TARGETS[target].host;
+  const snapshot = join(root, '.artifacts/web-deployed', target), stageRoot = join(root, '.artifacts/web-deploy-stage', target);
+  mkdirSync(stageRoot, { recursive: true });
+  let final = dist;
+  if (existsSync(join(snapshot, 'index.html'))) {
+    const { phase1, phase2 } = stagePhases(dist, snapshot, stageRoot, id);
+    pagesDeploy(root, target, phase1, run, env, processEnv);
+    await waitForMarker(host, `__deploy-${id}-1.txt`, id, { fetchImpl, wait });
+    await wait(30_000); // other edges switch a little later than the one answering us
+    log(`Phase 1 live on ${host}: the new assets are served beside the current release`);
+    pagesDeploy(root, target, phase2, run, env, processEnv);
+    final = phase2;
+  } else {
+    log(`No snapshot of the live ${target} release yet: publishing in one phase`);
+    pagesDeploy(root, target, dist, run, env, processEnv);
+  }
+  log(`Deployed ${target} to Pages project ${TARGETS[target].project}`);
+  await verifyLive(final, host, { fetchImpl, wait, log });
+  rmSync(snapshot, { recursive: true, force: true });
+  cpSync(dist, snapshot, { recursive: true });
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [target, flag, ...extra] = process.argv.slice(2);
     if (extra.length || (flag && flag !== '--build-only')) fail('Usage: node scripts/deploy-web.mjs app|admin|site [--build-only]');
-    const result = deployWeb(target, { buildOnly: flag === '--build-only' });
-    if (!result.buildOnly && target !== 'site') await verifyLive(result.directory, TARGETS[target].host);
+    const buildOnly = flag === '--build-only', phased = !buildOnly && target !== 'site';
+    const result = deployWeb(target, { buildOnly, publish: !phased });
+    if (phased) await publishInPhases(target, result.directory);
   } catch (error) {
     console.error(error instanceof Refusal ? 'Refusing to deploy: ' + error.message : 'Build/deployment failed. No credentials are included in this diagnostic.');
     process.exitCode = 1;

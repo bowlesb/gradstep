@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deployWeb, verifyLive } from '../../scripts/deploy-web.mjs';
+import { deployWeb, publishInPhases, stagePhases, verifyLive, waitForMarker } from '../../scripts/deploy-web.mjs';
 
 const project = 'aaaaaaaaaaaaaaaaaaaa', backend = `https://${project}.supabase.co`;
 const jwt = (role = 'anon', ref = project) => Buffer.from('{}').toString('base64url') + '.' + Buffer.from(JSON.stringify({ role, ref })).toString('base64url') + '.fixture';
@@ -146,4 +146,50 @@ test('a deploy is verified live: an HTML fallback cached for a new script fails 
   await assert.rejects(verifyLive(directory, 'admin.example', { ...options, fetchImpl: serve(true) }), /HTML fallback/);
   indexCalls = -1e9;
   await assert.rejects(verifyLive(directory, 'admin.example', { ...options, fetchImpl: serve(false), timeoutMs: -1 }), /previous index/);
+});
+
+const release = (dir, name, extra = {}) => {
+  mkdirSync(join(dir, 'assets'), { recursive: true });
+  writeFileSync(join(dir, 'index.html'), `<script type="module" src="/assets/${name}.js"></script><link rel="stylesheet" href="/assets/${name}.css">`);
+  writeFileSync(join(dir, '_headers'), `/*\n  X-Release: ${name}\n`);
+  writeFileSync(join(dir, `assets/${name}.js`), name); writeFileSync(join(dir, `assets/${name}.css`), name);
+  for (const [path, text] of Object.entries(extra)) writeFileSync(join(dir, path), text);
+};
+
+test('a phased release: phase 1 is the live release plus the new assets; phase 2 the new release plus the old assets', t => {
+  const root = mkdtempSync(join(tmpdir(), 'gradstep-phases-')); t.after(() => rmSync(root, { recursive: true, force: true }));
+  release(join(root, 'old'), 'old'); release(join(root, 'new'), 'new');
+  const { phase1, phase2 } = stagePhases(join(root, 'new'), join(root, 'old'), join(root, 'stage'), 'abc');
+  assert.match(readFileSync(join(phase1, 'index.html'), 'utf8'), /old\.js/, 'phase 1 still serves the old index');
+  assert.match(readFileSync(join(phase1, '_headers'), 'utf8'), /X-Release: old/, '…with its own headers (its frames\' CSP hashes)');
+  for (const name of ['old.js', 'new.js', 'new.css']) assert.ok(readFileSync(join(phase1, 'assets', name)), `phase 1 has ${name}`);
+  assert.match(readFileSync(join(phase2, 'index.html'), 'utf8'), /new\.js/);
+  assert.match(readFileSync(join(phase2, '_headers'), 'utf8'), /X-Release: new/);
+  assert.ok(readFileSync(join(phase2, 'assets/old.js')), 'an open tab on the old index can still load its chunks');
+  assert.equal(readFileSync(join(phase1, '__deploy-abc-1.txt'), 'utf8'), 'abc'); assert.equal(readFileSync(join(phase2, '__deploy-abc-2.txt'), 'utf8'), 'abc');
+});
+
+test('publishing waits for phase 1 everywhere before switching the index, then checks it live and keeps a snapshot', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'gradstep-publish-')); t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const dir of ['infra', 'node_modules/.bin']) mkdirSync(join(root, dir), { recursive: true });
+  writeFileSync(join(root, '.env.staging'), 'CLOUDFLARE_API_TOKEN=x\nCLOUDFLARE_ACCOUNT_ID=y'); writeFileSync(join(root, 'node_modules/.bin/wrangler'), '');
+  release(join(root, 'dist1'), 'one'); release(join(root, 'dist2'), 'two');
+  let live = { index: '', files: new Set() }; const deployed = [];
+  const run = (_command, args) => { const dir = args[2]; deployed.push(dir);
+    live = { index: readFileSync(join(dir, 'index.html'), 'utf8'), files: new Set(readdirSync(dir).concat(readdirSync(join(dir, 'assets')).map(n => `assets/${n}`))), dir }; };
+  const fetchImpl = async url => { const path = new URL(url).pathname.slice(1);
+    if (!path) return { ok: true, status: 200, text: async () => live.index, headers: new Map([['content-type', 'text/html']]) };
+    const exists = live.files.has(path);
+    const type = !exists ? 'text/html' : path.endsWith('.js') ? 'application/javascript' : path.endsWith('.css') ? 'text/css' : 'text/plain';
+    return { ok: true, status: 200, text: async () => exists ? readFileSync(join(live.dir, path), 'utf8') : live.index, headers: new Map([['content-type', type]]) }; };
+  const options = { root, run, fetchImpl, wait: async () => {}, log: () => {}, processEnv: {} };
+  await publishInPhases('app', join(root, 'dist1'), { ...options, id: 'first' });
+  assert.equal(deployed.length, 1, 'no snapshot yet: one phase');
+  assert.match(readFileSync(join(root, '.artifacts/web-deployed/app/index.html'), 'utf8'), /one\.js/);
+  await publishInPhases('app', join(root, 'dist2'), { ...options, id: 'second' });
+  assert.equal(deployed.length, 3, 'with a snapshot: two phases');
+  assert.match(readFileSync(join(deployed[1], 'index.html'), 'utf8'), /one\.js/, 'phase 1 keeps the live index');
+  assert.ok(readFileSync(join(deployed[1], 'assets/two.js')), 'phase 1 already has the new script');
+  assert.match(readFileSync(join(root, '.artifacts/web-deployed/app/index.html'), 'utf8'), /two\.js/, 'the snapshot is the new release');
+  await assert.rejects(waitForMarker('app.example', '__deploy-x-1.txt', 'x', { fetchImpl: async () => ({ ok: true, text: async () => '<html>' }), wait: async () => {}, timeoutMs: -1 }), /does not serve/);
 });

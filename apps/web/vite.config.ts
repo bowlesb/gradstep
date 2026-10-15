@@ -93,6 +93,9 @@ export default defineConfig(({ mode }) => {
   const auth = env.VITE_AUTH_URL ?? backend;
   return {
     plugins: [readerFrame(backend, auth)],
+    // The build's own time (UTC, to the minute), named in support reports, so a report says which deploy it came from.
+    // Every deploy therefore gets new script names, which also clears any edge that cached an old name wrongly.
+    define: { __WEB_BUILD__: JSON.stringify(mode === 'test' ? 'test' : new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')) },
     // The shared reader code hashes with `node:crypto`; in the browser (the metadata extractor, ARXIV_DEVICE_ONLY.md) it
     // is the same SHA-256 adapter the device compiler bundle uses. Unit tests run in Node, which has the real module.
     ...(mode === 'test' ? {} : { resolve: { alias: { 'node:crypto': fileURLToPath(new URL('../../scripts/arxiv-compiler/crypto.ts', import.meta.url)) } } }),
