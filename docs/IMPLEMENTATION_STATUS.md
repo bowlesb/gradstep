@@ -42,7 +42,8 @@ LibraryMetadata, ArxivHTMLReader, ChatVisual, PaperWebView, PaperPassage) and th
 `testHTMLPaperInPageLinksOfferBack` and `testCitationGoesToItsReferenceAndBackReturnsToTheSamePlace` pass; the journey's
 screenshots show "Back to 1 Introduction" with its X and the reference's edit menu (Copy · Open on arXiv · …).
 
-Deployment is recorded at the end of this section once build 46 is processed.
+Deployment (commit `5ace580`): TestFlight **build 46** iOS and Mac both VALID (22:35 PDT). These are app-only changes;
+the browser and the server are unchanged since build 45.
 
 ## Build 43 feedback: unresolved citations, math colours, table pictures, the passage highlight, stored copies open at once — 2026-10-15, ~05:00 UTC
 
