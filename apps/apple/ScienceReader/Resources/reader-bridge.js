@@ -1249,7 +1249,7 @@
   // A tap or a scroll takes every flash away at once (owner, build 43: "if I click outside it, the highlight should
   // go away").
   const flashes = new Set();
-  const clearFlashes = () => { for (const box of flashes) box.remove(); flashes.clear(); };
+  const clearFlashes = () => { for (const box of flashes) box.remove(); flashes.clear(); window.CSS?.highlights?.delete('sr-passage'); };
   for (const type of ['touchstart', 'pointerdown', 'keydown']) window.addEventListener(type, clearFlashes, {passive: true, capture: true});
   const flash = rect => {
     if (!rect || (!rect.width && !rect.height)) return;
@@ -1276,8 +1276,8 @@
     window.scrollTo({top, behavior: instant || reducedMotion() ? 'instant' : 'smooth'});
     if (citationBack) citationBack.landing = null;
     settled(() => {
-      if (citationBack?.entry !== entry) return;
-      citationBack.landing = window.scrollY;
+      if (citationBack && citationBack.entry !== entry) return;
+      if (citationBack) citationBack.landing = window.scrollY;
       if (!instant) flash(entry.range.getBoundingClientRect());
     });
   };
@@ -1287,12 +1287,26 @@
     post({type:'citation',state:'ended'});
     postPosition();
   };
+  // The section the reader left (the nearest heading above the origin block), so Back can say where it goes
+  // (owner, build 44: "it needs to say where that is"); nothing when the origin is the top of the paper, where
+  // Back would only go to the title (owner, build 44: "I press Back and I get to the top of the Article???").
+  const originLabel = location => {
+    for (let i = Math.min(location.block, blocks.length - 1); i >= 0; i--) {
+      const element = blocks[i];
+      if (/^H[2-6]$/.test(element.tagName)) { const text = (element.textContent || '').replace(/\s+/g, ' ').trim(); return text.length > 44 ? text.slice(0, 43).trimEnd() + '…' : text; }
+    }
+    return '';
+  };
+  const atTheTop = location => location.y < 4;
+  window.__scienceReaderEndCitation = () => { endCitation(); return true; };
   const jumpToReference = (entry, cite) => {
     // A second citation followed from the bibliography keeps the first place.
     const origin = citationBack?.origin ?? {location: window.__scienceReaderLocation(), cite};
+    // An in-page link always offers Back (the reader was reading there, the top included); only a jump from a chat
+    // citation into an unread paper has nowhere to go back to (`__scienceReaderGoToPassage`).
     citationBack = {origin, entry, landing: null}; movedSinceJump = false;
     showReference(entry, false);
-    post({type:'citation',state:'jumped',id:entry.id});
+    post({type:'citation',state:'jumped',id:entry.id,back:true,from:originLabel(origin.location)});
   };
   window.__scienceReaderCitationBack = () => {
     const back = citationBack;
@@ -1718,7 +1732,7 @@
     style.textContent = [
       ':root{--sr-mark:rgba(86,89,214,.5)}@media(prefers-color-scheme:dark){:root{--sr-mark:rgba(165,167,255,.55)}}',
       '::highlight(sr-chat-mark){text-decoration-line:underline;text-decoration-color:var(--sr-mark);text-decoration-thickness:2px;text-underline-offset:.24em}',
-      '::highlight(sr-passage){background-color:var(--sr-flash)}',
+      '::highlight(sr-passage){background-color:transparent}',
       // Math is drawn, not text: a marked formula gets a line under it (inline) or beside it (display).
       '.sr-chat-mark-math{box-shadow:0 2px 0 var(--sr-mark)}.sr-chat-mark-display{box-shadow:-6px 0 0 -3px var(--sr-mark)}',
     ].join('');
@@ -1732,22 +1746,31 @@
     if (!found) return {found: false};
     const entry = {id: 'passage', range: found.range};
     const origin = citationBack?.origin ?? {location: window.__scienceReaderLocation(), cite: null};
-    citationBack = {origin, entry, landing: null}; movedSinceJump = false;
+    const offersBack = !atTheTop(origin.location);
+    citationBack = offersBack ? {origin, entry, landing: null} : null; movedSinceJump = false;
     window.scrollTo({top: scrollTarget(found.range.getBoundingClientRect()), behavior: reducedMotion() ? 'instant' : 'smooth'});
     settled(() => {
-      if (citationBack?.entry !== entry) return;
-      citationBack.landing = window.scrollY;
+      if (citationBack && citationBack.entry !== entry) return;
+      if (citationBack) citationBack.landing = window.scrollY;
       // Unlike a citation peek, the reader chose to go here: like a contents jump, this becomes the place
       // remembered (leaving the tab and coming back shows the passage); Back still returns to where they were.
       lastPosition = window.__scienceReaderLocation(); post({type: 'position', ...lastPosition});
       // A box over the whole passage, equations included (a CSS highlight painted around MathML and stayed:
-      // owner, build 43, "the highlight kind of works but it excludes parts"), fading like a citation flash.
+      // owner, build 43, "the highlight kind of works but it excludes parts"), fading like a citation flash. The
+      // found range stays registered as `sr-passage` without paint of its own (what was found, for Go to passage's
+      // checks) and leaves with the box: after the fade, or at once on a tap.
       flash(found.range.getBoundingClientRect());
+      const registry = highlights();
+      if (!registry) return;
+      registry.set('sr-passage', new Highlight(found.range));
+      clearTimeout(passageTimer);
+      passageTimer = setTimeout(() => registry.delete('sr-passage'), 2600);
     });
-    post({type: 'citation', state: 'jumped', id: 'passage'});
+    post({type: 'citation', state: 'jumped', id: 'passage', back: offersBack, from: offersBack ? originLabel(origin.location) : ''});
     return {found: true, method: found.method};
   };
 
+  let passageTimer;
   // Marks: passages with conversations on this paper. list: [{id, quote, prefix, suffix, element, same}].
   let marks = [];
   const markedMath = new Set();

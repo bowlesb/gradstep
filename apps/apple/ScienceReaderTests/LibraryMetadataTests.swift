@@ -182,17 +182,17 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(step.spokenStatus(elapsed: elapsed(40)), "Downloading")
         XCTAssertEqual(step.spokenStatus(elapsed: elapsed(200)), "Downloading, 3 minutes, taking longer than usual")
 
-        // Every phase in progress has a step; the table says only "Downloading…" or "Preparing…" (owner, 2026-10-15).
+        // Every phase in progress has a step; the table says only "Downloading…" or "Adding…" (owner, 2026-10-15).
         let expected: [(String, String?, LibraryImportStep, String)] = [
-            ("accepted", nil, .queued, "Preparing…"),
-            ("accepted", "converting", .converting, "Preparing…"),
-            ("resolving", nil, .finding, "Preparing…"),
-            ("resolving", "finding", .finding, "Preparing…"),
-            ("acquiring", nil, .preparing, "Preparing…"),
+            ("accepted", nil, .queued, "Adding…"),
+            ("accepted", "converting", .converting, "Adding…"),
+            ("resolving", nil, .finding, "Adding…"),
+            ("resolving", "finding", .finding, "Adding…"),
+            ("acquiring", nil, .preparing, "Adding…"),
             ("acquiring", "downloading", .downloading, "Downloading…"),
-            ("acquiring", "rendering", .building, "Preparing…"),
-            ("acquiring", "finishing", .building, "Preparing…"),
-            ("acquiring", "future_progress", .preparing, "Preparing…"),
+            ("acquiring", "rendering", .building, "Adding…"),
+            ("acquiring", "finishing", .building, "Adding…"),
+            ("acquiring", "future_progress", .preparing, "Adding…"),
         ]
         for (phase, progress, step, words) in expected {
             let item = try importRecord(phase: phase, progress: progress)
@@ -200,7 +200,7 @@ final class LibraryMetadataTests: XCTestCase {
             XCTAssertEqual(item.libraryStatus, words)
             XCTAssertEqual(item.libraryShortStatus, words)
         }
-        XCTAssertEqual(LibraryImportStep.queued.status(short: false, elapsed: elapsed(130)), "Preparing… · 2 min")
+        XCTAssertEqual(LibraryImportStep.queued.status(short: false, elapsed: elapsed(130)), "Adding… · 2 min")
         for phase in ["failed", "ready", "cancelled", "source_only", "membership_conflict"] {
             XCTAssertNil(try importRecord(phase: phase).step, "\(phase) is not in progress")
         }

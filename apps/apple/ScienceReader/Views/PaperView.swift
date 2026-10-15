@@ -51,6 +51,9 @@ private struct PaperLoadIdentity: Hashable {
 
 /// A bibliography entry the reader tapped (reader-bridge.js): its text as shown, the best
 /// link it names, and where it is on screen (to anchor the actions).
+/// What a tapped reference's edit menu offers.
+enum ReferenceAction { case openLink, discuss, add, copy }
+
 struct ReaderReference: Identifiable, Equatable {
     struct Link: Equatable {
         let url: URL
@@ -158,6 +161,12 @@ struct PaperView: View {
     /// After following a citation: offer "Back" to the place left.
     @State private var citationBack = false
     @State private var citationReturnID: UUID?
+    /// Where Back goes (the section left), from the bridge; empty when unknown.
+    @State private var citationOrigin = ""
+    /// Ends the offer without going back (the X beside Back).
+    @State private var citationDismissID: UUID?
+    /// One silent reload after the web content process died (owner, build 44: a swipe on Back ended on "Couldn't open").
+    @State private var crashReloads = 0
     @State private var reference: ReaderReference?
     /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
     @State private var figureReference: ReaderFigureReference?
@@ -186,7 +195,7 @@ struct PaperView: View {
                     // page, which fades its last lines. The page itself stops above them: reading positions,
                     // heading and citation jumps are measured in the page's own viewport, which must be what shows.
                     Group {
-                        PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
+                        readerHooks(PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
                                      location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
                                      fontSize: model.paperFontSize * bodySize / 17, jump: model.paperJump,
                                      reduceMotion: reduceMotion, selectionClearID: selectionClearID, onLoading: {
@@ -221,9 +230,9 @@ struct PaperView: View {
                                          #endif
                                      }, paperLine: paper.publicationLine, paperTags: paper.tags,
                                      onTags: { if model.readerDocumentScope == readerScope { model.editTags(for: paper) } },
-                                     citationReturnID: citationReturnID, onCitation: { active in
-                                         if model.readerDocumentScope == readerScope { citationBack = active }
-                                     }, onReference: { value in
+                                     citationReturnID: citationReturnID, onCitation: { active, origin in
+                                         if model.readerDocumentScope == readerScope { citationBack = active; citationOrigin = active ? origin : "" }
+                                     },                                     onReference: { value in
                                          if model.readerDocumentScope == readerScope { reference = value }
                                      }, onFigureReference: { value in
                                          if model.readerDocumentScope == readerScope { figureReference = value }
@@ -236,7 +245,7 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
                                      }, passage: model.passageJump(for: paper), onPassage: { id, found in
                                          if model.readerDocumentScope == readerScope { model.finishPassage(id, found: found) }
-                                     })
+                                     }), scope: readerScope)
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
                     }
@@ -270,7 +279,7 @@ struct PaperView: View {
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                     .macPaperMenu(PaperMenuActions(
                         contents: { showContents = true },
-                        back: citationBack && !readerFailed ? { citationBack = false; citationReturnID = UUID() } : nil,
+                        back: citationBack && !readerFailed ? { citationBack = false; citationOrigin = ""; citationReturnID = UUID() } : nil,
                         selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) }))
                 } else if model.selectedPaper != nil {
                     if model.openingPaperID == model.selectedPaper?.id {
@@ -464,7 +473,7 @@ struct PaperView: View {
             if let notice { referenceBanner(notice) }
             if back || chatBack {
                 HStack(spacing: 8) {
-                    if back { citationBackButton }
+                    if back { citationBackButton; citationDismissButton }
                     if chatBack { chatBackButton }
                 }
                 .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
@@ -556,13 +565,48 @@ struct PaperView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("paper.updateReady")
     }
+    /// The hooks added in build 46, set after construction so the page's long initializer still type-checks.
+    private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {
+        var hooked = view
+        hooked.citationDismissID = citationDismissID
+        hooked.onCrash = handleCrash
+        hooked.onReferenceAction = { value, action in handleReferenceAction(value, action, scope: scope) }
+        return hooked
+    }
+    /// The web content process died (memory, a swipe that unloaded the page): reload once, quietly; say so the second time.
+    private func handleCrash() {
+        if crashReloads == 0 { crashReloads += 1; loadingPaper = true; reloadID = UUID() } else { readerFailed = true }
+    }
+    /// A tapped bibliography entry's chosen action, from the native edit menu beside it.
+    private func handleReferenceAction(_ value: ReaderReference, _ action: ReferenceAction, scope: ReaderDocumentScope) {
+        guard model.readerDocumentScope == scope else { return }
+        switch action {
+        case .openLink: if let link = value.link { openURL(link.url) }
+        case .discuss: model.discussReference(value.text)
+        case .add: Task { await model.addReference(value.text) }
+        case .copy: UIPasteboard.general.string = value.text
+        }
+    }
+    /// The X beside Back: the offer goes away without going back (owner, build 44).
+    private var citationDismissButton: some View {
+        Button {
+            citationBack = false; citationOrigin = ""; citationDismissID = UUID()
+        } label: {
+            Image(systemName: "xmark").font(.subheadline.weight(.semibold)).frame(width: 40, height: 44).contentShape(Circle())
+        }
+        .modifier(ReaderControlMaterial())
+        .accessibilityLabel("Dismiss Back")
+        .accessibilityIdentifier("reader.citation.dismiss")
+        .transition(.opacity)
+    }
     private var citationBackButton: some View {
         Button {
-            citationBack = false; citationReturnID = UUID()
+            citationBack = false; citationOrigin = ""; citationReturnID = UUID()
         } label: {
-            // The full words when they fit beside A− / A+; "Back" at large text sizes or in a narrow column.
+            // Where it goes when the bridge knows the section left ("Back to 3 Method"); the full words when they fit
+            // beside A− / A+; "Back" at large text sizes or in a narrow column.
             ViewThatFits(in: .horizontal) {
-                Label("Back to where you were", systemImage: "arrow.uturn.backward").fixedSize()
+                Label(citationOrigin.isEmpty ? "Back to where you were" : "Back to \(citationOrigin)", systemImage: "arrow.uturn.backward").fixedSize()
                 Label("Back", systemImage: "arrow.uturn.backward").fixedSize()
             }
             .font(.subheadline.weight(.semibold))
@@ -645,8 +689,14 @@ struct PaperWebView: UIViewRepresentable {
     var onTags: () -> Void = {}
     /// A new value returns from a citation jump to the reading position.
     var citationReturnID: UUID? = nil
+    /// A new value ends the Back offer in the page without going back.
+    var citationDismissID: UUID? = nil
+    /// The web content process died: the view reloads once by itself before saying so.
+    var onCrash: () -> Void = {}
     /// True while the reader can go back from a citation jump.
-    var onCitation: (Bool) -> Void = { _ in }
+    var onCitation: (Bool, String) -> Void = { _, _ in }
+    /// A tapped bibliography entry's chosen action (the native edit menu beside the entry).
+    var onReferenceAction: ((ReaderReference, ReferenceAction) -> Void)? = nil
     var onReference: (ReaderReference) -> Void = { _ in }
     /// A figure, table or algorithm reference tapped in the text.
     var onFigureReference: (ReaderFigureReference) -> Void = { _ in }
@@ -780,6 +830,7 @@ struct PaperWebView: UIViewRepresentable {
         private var sampledOffsetY = 0.0
         private var lastSelectionClearID: UUID?
         private var lastCitationReturnID: UUID?
+        var lastCitationDismissID: UUID?
         private var lastFindRequestID: UUID?
         /// After a citation jump the saved place stays where reading left off.
         private var citationActive = false
@@ -787,7 +838,7 @@ struct PaperWebView: UIViewRepresentable {
         var appliedPaperTags: [String] = []
         var passages = PaperPassageState()
         init(_ parent: PaperWebView) {
-            self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID
+            self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID; lastCitationDismissID = parent.citationDismissID
             lastFindRequestID = parent.findRequestID
         }
 
@@ -825,15 +876,26 @@ struct PaperWebView: UIViewRepresentable {
             case "position": if ready, let web = message.webView { remember(body, in: web) }
             case "citation":
                 guard ready, let state = body["state"] as? String, state == "jumped" || state == "ended" else { return }
-                citationActive = state == "jumped"
-                parent.onCitation(citationActive)
+                citationActive = state == "jumped" && (body["back"] as? Bool ?? true)
+                let origin = (body["from"] as? String ?? "").replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+                parent.onCitation(citationActive, citationActive ? String(origin.prefix(48)) : "")
             case "tags":
                 guard ready, parent.figureID == nil else { return }
                 parent.onTags()
             case "reference":
                 guard ready, let bundle = parent.bundle, let size = message.webView?.bounds.size,
                       let reference = ReaderReference(message: body, bundle: bundle, viewport: size) else { return }
-                parent.onReference(reference)
+                // The native edit menu beside the entry (owner, build 44: "a native style popup like Copy").
+                if let web = message.webView as? ReaderWebView, let act = parent.onReferenceAction {
+                    // Copy first, as in the system's menu for selected text; the link keeps its own name ("Open on arXiv").
+                    var actions: [UIMenuElement] = [UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in act(reference, .copy) }]
+                    if let link = reference.link { actions.append(UIAction(title: link.title, image: UIImage(systemName: "safari")) { _ in act(reference, .openLink) }) }
+                    actions.append(UIAction(title: "Add to library", image: UIImage(systemName: "plus.circle")) { _ in act(reference, .add) })
+                    actions.append(UIAction(title: "Discuss in chat", image: UIImage(systemName: "bubble.left.and.text.bubble.right")) { _ in act(reference, .discuss) })
+                    web.presentReferenceMenu(rect: reference.anchor, actions: actions)
+                } else {
+                    parent.onReference(reference)
+                }
             case "figureref":
                 guard ready, parent.figureID == nil, let bundle = parent.bundle,
                       let reference = ReaderFigureReference(message: body, bundle: bundle) else { return }
@@ -932,6 +994,10 @@ struct PaperWebView: UIViewRepresentable {
         }
 
         func returnFromCitationIfNeeded(in web: WKWebView) {
+            if let id = parent.citationDismissID, id != lastCitationDismissID {
+                lastCitationDismissID = id; citationActive = false
+                web.callAsyncJavaScript("return window.__scienceReaderEndCitation();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
+            }
             guard let id = parent.citationReturnID, id != lastCitationReturnID else { return }
             lastCitationReturnID = id
             citationActive = false
@@ -994,7 +1060,7 @@ struct PaperWebView: UIViewRepresentable {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard active else { return }
             invalidateLoad(); navigation = nil
-            parent.onLoading(false); parent.onFailure()
+            parent.onLoading(false); parent.onCrash()
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {

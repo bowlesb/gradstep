@@ -87,8 +87,8 @@ struct ImportProgress: Equatable, Sendable {
     /// Two words and a percentage (owner, 2026-10-15: "we only need Downloading… and Preparing… with a total
     /// percentage value"): "Downloading…" while the PDF downloads, "Preparing…" for every other step. The percent is
     /// the server's, counted on as before; a wait or a scheduled retry shows "retrying" beside it instead of a time.
-    static func label(for step: LibraryImportStep) -> String { step == .downloading ? "Downloading…" : "Preparing…" }
-    static func compactLabel(for step: LibraryImportStep) -> String { step == .downloading ? "Downloading" : "Preparing" }
+    static func label(for step: LibraryImportStep) -> String { step == .downloading ? "Downloading…" : "Adding…" }
+    static func compactLabel(for step: LibraryImportStep) -> String { step == .downloading ? "Downloading" : "Adding" }
 
     func presentation(at now: Date) -> ImportProgressPresentation {
         let title = Self.label(for: step), spokenTitle = Self.compactLabel(for: step)

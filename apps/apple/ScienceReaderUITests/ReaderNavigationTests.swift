@@ -90,15 +90,18 @@ final class ReaderNavigationTests: XCTestCase {
         let jumped = XCTAttachment(screenshot: app.screenshot()); jumped.name = "Reference after a citation"; jumped.lifetime = .keepAlways; add(jumped)
 
         // A reference offers its actions; the reader stays at the reference.
+        // The native edit menu beside the entry, Copy first (owner, build 44: "a native style popup like Copy").
         entry.tap()
-        XCTAssertTrue(app.buttons["Add to library"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Copy"].exists)
-        XCTAssertTrue(app.buttons["Open on arXiv"].exists, "Reference 11 names arXiv:2204.02311")
+        let copy = app.editMenuItem("Copy")
+        XCTAssertTrue(copy.waitForExistence(timeout: 5), "A reference opens the edit menu")
+        let actions = XCTAttachment(screenshot: app.screenshot()); actions.name = "Reference actions"; actions.lifetime = .keepAlways; add(actions)
+        XCTAssertTrue(app.revealEditMenuItem("Open on arXiv").exists, "Reference 11 names arXiv:2204.02311")
+        XCTAssertTrue(app.revealEditMenuItem("Add to library").exists)
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "[11]")).count, 1,
                        "The reference stays in the paper and is not repeated as a tall menu message")
-        let actions = XCTAttachment(screenshot: app.screenshot()); actions.name = "Reference actions"; actions.lifetime = .keepAlways; add(actions)
-        app.buttons["Copy"].tap()
-        XCTAssertTrue(app.buttons["Copy"].waitForNonExistence(timeout: 5))
+        if !copy.exists || !copy.isHittable { entry.tap(); _ = copy.waitForExistence(timeout: 5) }
+        copy.tap()
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
 
         back.tap()
         let returned = NSPredicate { _, _ in paragraph.exists && abs(paragraph.frame.minY - start) < 3 && !back.exists }

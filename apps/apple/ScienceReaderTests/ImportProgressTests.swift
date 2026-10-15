@@ -30,11 +30,11 @@ final class ImportProgressTests: XCTestCase {
 
     func testStepsUseTheReadersWords() throws {
         let cases: [(String, LibraryImportStep, String, String)] = [
-            ("finding", .finding, "Preparing…", "Preparing"),
+            ("finding", .finding, "Adding…", "Adding"),
             ("downloading", .downloading, "Downloading…", "Downloading"),
-            ("reading_equations", .converting, "Preparing…", "Preparing"),
-            ("preparing", .building, "Preparing…", "Preparing"),
-            ("waiting", .waiting, "Preparing…", "Preparing"),
+            ("reading_equations", .converting, "Adding…", "Adding"),
+            ("preparing", .building, "Adding…", "Adding"),
+            ("waiting", .waiting, "Adding…", "Adding"),
         ]
         for (wire, step, title, word) in cases {
             // The detail's step wins over the coarse progress, which may lag or be less exact.
@@ -57,20 +57,20 @@ final class ImportProgressTests: XCTestCase {
 
     func testTheStepLineSaysWhichPageOrHowBig() {
         let reading = progress(.init(step: .readingEquations, percent: 62, etaSeconds: 40, pages: 27, pagesDone: 12)).presentation(at: now)
-        XCTAssertEqual(reading.line, "Preparing…", "Two words and a percentage: no page counts or times")
+        XCTAssertEqual(reading.line, "Adding…", "Two words and a percentage: no page counts or times")
         XCTAssertEqual(reading.status, "62%")
         XCTAssertEqual(reading.fraction, 0.62)
-        XCTAssertEqual(reading.accessibilityLabel, "Preparing, 62 percent")
+        XCTAssertEqual(reading.accessibilityLabel, "Adding, 62 percent")
 
         let started = progress(.init(step: .readingEquations, percent: 30, etaSeconds: 50, pages: 27, pagesDone: 0)).presentation(at: now)
-        XCTAssertEqual(started.line, "Preparing…")
+        XCTAssertEqual(started.line, "Adding…")
         let size = progress(.init(step: .downloading, percent: 14, etaSeconds: 52, pages: 45, bytes: 40_817_183), step: .downloading)
             .presentation(at: now)
         XCTAssertEqual(size.line, "Downloading…")
         let pagesOnly = progress(.init(step: .downloading, percent: 14, etaSeconds: 52, pages: 1), step: .downloading).presentation(at: now)
         XCTAssertEqual(pagesOnly.line, "Downloading…")
         let preparing = progress(.init(step: .preparing, percent: 91, etaSeconds: 6, pages: 12), step: .building).presentation(at: now)
-        XCTAssertEqual(preparing.line, "Preparing…")
+        XCTAssertEqual(preparing.line, "Adding…")
         XCTAssertEqual(preparing.status, "91%")
     }
 
@@ -131,7 +131,7 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertEqual(shown.status, "retrying")
         XCTAssertTrue(shown.isSlow)
         XCTAssertNil(shown.percent, "No percent while it waits: the row shows a spinner")
-        XCTAssertEqual(shown.accessibilityLabel, "Preparing, retrying")
+        XCTAssertEqual(shown.accessibilityLabel, "Adding, retrying")
         // A detail without an estimate (not delayed): quiet, until the step has run three minutes here.
         let quiet = progress(.init(step: .readingEquations, percent: 41, pages: 25), stepSince: now)
         XCTAssertNil(quiet.timeLeft(at: now + 60))
@@ -161,7 +161,7 @@ final class ImportProgressTests: XCTestCase {
                                      sourceName: "arXiv")
         XCTAssertNil(finding.percent(at: now + 47), "Finding shows no percent at all now (owner, build 42: a fixed 15 % read as stuck)")
         XCTAssertNil(finding.percent(at: now + 80))
-        XCTAssertEqual(finding.presentation(at: now + 47).title, "Preparing…")
+        XCTAssertEqual(finding.presentation(at: now + 47).title, "Adding…")
         let late = finding.presentation(at: now + 200)
         XCTAssertNil(late.percent, "Well past the estimate: no percent")
         XCTAssertNil(late.timeText, "No time estimates (two words and a percentage)")
@@ -175,7 +175,7 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertNil(shown.fraction, "An indeterminate spinner, not a bar")
         XCTAssertEqual(shown.timeText, "retrying")
         XCTAssertEqual(shown.compactTimeText, "retrying")
-        XCTAssertEqual(shown.accessibilityLabel, "Preparing, retrying")
+        XCTAssertEqual(shown.accessibilityLabel, "Adding, retrying")
         let web = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 5, delayed: true), receivedAt: now)
         XCTAssertEqual(web.presentation(at: now).timeText, "retrying")
         let download = ImportProgress(step: .downloading, detail: .init(step: .downloading, percent: 20, delayed: true), receivedAt: now)
@@ -266,10 +266,10 @@ final class ImportProgressTests: XCTestCase {
             XCTAssertTrue(value.isRetryingAutomatically)
             let shown = try XCTUnwrap(ImportProgressTracker().progress(of: value, stepSince: nil, now: now)).presentation(at: now)
             _ = (reason, compact)
-            XCTAssertEqual(shown.title, "Preparing…", "A metadata or render retry never pretends to download")
-            XCTAssertEqual(shown.compactTitle, "Preparing")
+            XCTAssertEqual(shown.title, "Adding…", "A metadata or render retry never pretends to download")
+            XCTAssertEqual(shown.compactTitle, "Adding")
             XCTAssertEqual(shown.timeText, "retrying")
-            XCTAssertEqual(shown.accessibilityLabel, "Preparing, trying again automatically")
+            XCTAssertEqual(shown.accessibilityLabel, "Adding, trying again automatically")
             XCTAssertNil(shown.fraction)
             XCTAssertNil(LibraryImportAction.available(for: value, retrying: false), "Scheduled work doesn't compete with a Retry button")
             XCTAssertFalse(LibraryFilter.failed.includesImport(value.phase, retryingAutomatically: value.isRetryingAutomatically))
@@ -290,9 +290,9 @@ final class ImportProgressTests: XCTestCase {
         model.installLibraryMetadataFixture(papers: [], imports: [reading], sequences: [:], activity: [:], offline: [:])
         let facts = model.libraryFacts(for: .pending(reading))
         let shown = try XCTUnwrap(facts.importProgress).presentation(at: now + 20)
-        XCTAssertEqual(shown.line, "Preparing…")
+        XCTAssertEqual(shown.line, "Adding…")
         XCTAssertEqual(shown.status, "80%")
-        XCTAssertEqual(model.libraryStatus(for: .pending(reading)), .active("Preparing…"))
+        XCTAssertEqual(model.libraryStatus(for: .pending(reading)), .active("Adding…"))
 
         clock = now + 30
         let ready = try record(id, phase: "ready", progress: nil, state: 2)

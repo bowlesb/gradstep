@@ -9,6 +9,17 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight, 2026-10-15 04:32–04:40 UTC (build 44, iPhone, 6 items)
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "I see many situations where I press Back and I get to the top of the Article???" | Reader, after a chat citation | The jump from the chat opened the paper and recorded the top as "where you were". A chat jump into a paper not yet read offers no Back now (Back to chat stays); in-page links keep theirs. | Built; build 46 |
+| 2 | "I was reading a paper, I saw a Back to where you were, I tried to swipe it and somehow I got to this screen" ("Couldn't open this paper — The reading bundle couldn't be loaded completely") | Reader | That screen appears when the web content process dies (memory, or a gesture that unloaded the page). The view now reloads once by itself before saying so. | Built; build 46 |
+| 3 | "The Back to where you were feature, it needs to say where that is, maybe a reference? Also there needs to be a little x button that makes it go away" | Reader | Back names the section it returns to ("Back to 3 Method", from the nearest heading above the place left), and an X beside it ends the offer without going back. | Built; build 46 |
+| 4 | "Still seeing this message" (Rubrics: "preparing it again failed. This paper couldn't be prepared on this device.") | Reader, stored copies | Found: the device store keeps one copy per paper revision and refused the new one as a `revisionConflict` because the old copy was removed only after installing. The old copy leaves first now; the notice names the store's own reason if it ever recurs. | Built; build 46 |
+| 5 | "'Preparing' at the initial step is really Adding to library, right? … you are not automatically downloading when you add to library but you could… a setting that allows you to decide if you want to automatically download new papers" | Library | The server's stage says "Adding…" now; the device's download and preparation say "Downloading…" and "Preparing…". A paper that was already in the library when its import row went (LensErase) was missed: both orders are handled now. Settings › Library: "Download new papers automatically", on by default. | Built; build 46 |
+| 6 | "For some reason the first time I clicked nothing happened second time I got the actual popup. But let's use a native style popup like Copy similar to when you select a term and want to explain in chat" | Reader, references | A tapped bibliography entry opens the same native edit menu as a tapped equation, beside the entry, instead of the sheet: Copy first (as for selected text), then the link by its own name ("Open on arXiv"), Add to library, Discuss in chat. | Built; build 46 |
+
 ## TestFlight, 2026-10-15 04:04–04:11 UTC (build 43, iPhone, 9 items, all on 2610.18683 "ProAS" and two reopened papers)
 
 | # | Owner said | Where | Cause / plan | Status |

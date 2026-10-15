@@ -144,6 +144,10 @@ final class ReaderModel {
             for old in oldValue where active.contains(old.phase) {
                 if let sourceID = old.sourceID, !libraryImports.contains(where: { $0.id == old.id && active.contains($0.phase) }) { finishedImportSources.insert(sourceID) }
             }
+            // The paper may already be in the library when the import row goes (build 44: LensErase stayed a cloud).
+            for sourceID in finishedImportSources {
+                if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper) } }
+            }
             let now = importClock()
             importSteps.observe(libraryImports, now: now)
             importProgressTracker.observe(libraryImports, now: now)
@@ -194,6 +198,9 @@ final class ReaderModel {
     private(set) var devicePreparationIssues: [UUID: String] = [:]
     /// Sources whose import this device watched finish; their papers are prepared here as soon as they appear.
     private var finishedImportSources: Set<String> = []
+    /// Settings › Library (owner, build 44: "a setting that allows you to decide if you want to automatically download
+    /// new papers"): a paper added here downloads and prepares on this device at once.
+    var autoDownloadNewPapers = UserDefaults.standard.object(forKey: "library.autoDownload") as? Bool ?? true { didSet { UserDefaults.standard.set(autoDownloadNewPapers, forKey: "library.autoDownload") } }
     /// The open paper is the copy an earlier version prepared because preparing it again failed (the reason).
     var readerFallbackNotice: String? = nil
     /// A newer copy of the open paper was prepared behind the page; "Reload" shows it.
@@ -203,7 +210,8 @@ final class ReaderModel {
     static func preparationReason(_ error: Error) -> String {
         if let known = error as? ArxivHTMLError { return known.message }
         if let url = error as? URLError { return "Couldn’t reach arXiv: \(url.localizedDescription)" }
-        return "This paper couldn’t be prepared on this device."
+        if let store = error as? LocalReaderStoreError { return "The paper was prepared but couldn’t be stored on this device (\(store))." }
+        return "This paper couldn’t be prepared on this device (\(type(of: error)))."
     }
     /// After a chat citation opened the paper, the reader offers "Back to chat" (owner, 2026-10-15).
     var returnToChatAvailable = false
@@ -734,7 +742,7 @@ final class ReaderModel {
         let known = Set(previous.map(\.id))
         for paper in papers where !known.contains(paper.id) {
             guard let sourceID = paper.sourceID, finishedImportSources.contains(sourceID) else { continue }
-            finishedImportSources.remove(sourceID); prepareOnDevice(paper)
+            finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper) }
         }
         // Installing verified bytes changes row presentation, not searchable
         // metadata. Keep the worker's snapshot free of reading bundles.
@@ -2569,9 +2577,11 @@ final class ReaderModel {
                             do {
                                 let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title)
                                 guard self.sessionID == scope, self.papers.contains(where: same) else { return }
+                                // The old copy leaves first: the store keeps one copy per source revision and refused the
+                                // new one as a `revisionConflict` otherwise (build 44: every re-preparation "failed").
                                 let commit = try persistence.acceptLocalReaderWrite { store in
-                                    try await store.install(bundle: fresh)
                                     if fresh.manifestSHA256 != oldSHA256 { try await store.remove(record.identity) }
+                                    try await store.install(bundle: fresh)
                                 }
                                 _ = try await commit.value
                                 guard self.sessionID == scope else { return }

@@ -20,7 +20,29 @@ Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as his
   ledger (`--ledger`: source figures, tables, algorithms, tabulars and listings against the reader's) with `losses`
   warnings, and names the ancestors of math a coverage refusal could not place. Both corpora replay with 0 refusals.
 
-Evidence and deployment are recorded at the end of this section once build 45 is processed.
+Evidence (commit `3044a07`): backend 95 (chat) and 41 (compiler fragments) tests; native ChatVisualTests, ChatTitleTests,
+ArxivHTMLReaderTests 12/12; browser chat tests 16; live smokes on staging (visual 2.3 KB; diagram). Deployment: chat
+Edge function deployed; browser Pages **`5dd5f179`**; TestFlight **build 45** iOS and Mac both VALID (22:04 PDT).
+
+## Build 44 feedback: Back says where, no Back from the top, the store conflict behind failed re-preparations, Adding…, auto-download setting, reference edit menu — 2026-10-15, ~06:30 UTC
+
+Six TestFlight items on build 44 (`docs/OWNER_FEEDBACK.md` "TestFlight, 2026-10-15 04:32–04:40 UTC"). The one real
+bug: `DeviceReaderStore.install` refuses a second copy of the same paper revision (`revisionConflict`), and the
+re-preparation installed before removing the old copy, so every re-preparation of a stored paper failed; the old copy
+leaves first now and the notice names the store's reason. Back names the section it returns to and has an X; a chat
+jump into an unread paper offers no Back; the web content process dying reloads the page once; the server's import
+stage says "Adding…"; a paper already in the library when its import row goes is downloaded too; Settings › Library
+"Download new papers automatically"; a tapped reference opens the native edit menu.
+
+Tests: the reader web view and passage suites ran in full for the first time since the Back hardening of `beba14c`,
+whose tests still scrolled by script without the reader input that now ends Back; they dispatch a wheel event first,
+wait for an in-page link's animated jump, and expect no Back from a chat jump at the top. The passage highlight keeps
+the found range registered (paintless) so Go to passage stays checkable. iPhone Simulator: 60 unit tests (ImportProgress,
+LibraryMetadata, ArxivHTMLReader, ChatVisual, PaperWebView, PaperPassage) and the journeys
+`testHTMLPaperInPageLinksOfferBack` and `testCitationGoesToItsReferenceAndBackReturnsToTheSamePlace` pass; the journey's
+screenshots show "Back to 1 Introduction" with its X and the reference's edit menu (Copy · Open on arXiv · …).
+
+Deployment is recorded at the end of this section once build 46 is processed.
 
 ## Build 43 feedback: unresolved citations, math colours, table pictures, the passage highlight, stored copies open at once — 2026-10-15, ~05:00 UTC
 

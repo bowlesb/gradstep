@@ -1301,6 +1301,12 @@ struct SettingsView: View {
                         Text("The model, effort and length new chats start with. A chat can change them in its message box. Visual answers let the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
                     }
                 }
+                Section {
+                    Toggle("Download new papers automatically", isOn: $model.autoDownloadNewPapers)
+                        .accessibilityIdentifier("settings.autoDownload")
+                } header: { Text("Library") } footer: {
+                    Text("A paper added from the Feed or by its arXiv id downloads and prepares on this device right away, so it opens at once. Off, a paper downloads when you open it or tap its cloud symbol.")
+                }
                 Section("Reading") {
                     ThemePicker(selection: $model.appearance)
                     sizeSlider("Paper text size", value: $model.paperFontSize, range: 14...26)

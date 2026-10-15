@@ -156,6 +156,19 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     private lazy var equationMenu = UIEditMenuInteraction(delegate: self)
     /// The equation whose menu is open: its quote, where it is, its ID in the page, and this presentation's token.
     private var equation: (quote: String, rect: CGRect, equationID: String, id: String)?
+    /// A tapped bibliography entry's actions, as the same edit menu (owner, build 44: "a native style popup like
+    /// Copy"): the actions and this presentation's token.
+    private var referenceMenuItems: (actions: [UIMenuElement], id: String)?
+
+    /// Opens the edit menu beside a tapped reference with the given actions.
+    func presentReferenceMenu(rect: CGRect, actions: [UIMenuElement]) {
+        if !interactions.contains(where: { $0 === equationMenu }) { addInteraction(equationMenu) }
+        let id = UUID().uuidString
+        referenceMenuItems = (actions, id)
+        let visible = rect.intersection(bounds)
+        let point = visible.isNull ? CGPoint(x: bounds.midX, y: bounds.midY) : CGPoint(x: visible.midX, y: visible.minY)
+        equationMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: id as NSString, sourcePoint: point))
+    }
 
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
@@ -216,6 +229,10 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
                              suggestedActions: [UIMenuElement]) -> UIMenu? {
+        if let referenceMenuItems, configuration.identifier as? String == referenceMenuItems.id {
+            self.referenceMenuItems = nil
+            return UIMenu(children: referenceMenuItems.actions)
+        }
         guard let equation, configuration.identifier as? String == equation.id, let menuAction else { return nil }
         // Copy first, then the actions; "Copy as text" last, so the horizontal menu's first page shows Explain in Chat.
         let copy = UIAction(title: "Copy LaTeX", image: UIImage(systemName: "doc.on.doc"), identifier: UIAction.Identifier("reader.equation.copyLatex")) { _ in

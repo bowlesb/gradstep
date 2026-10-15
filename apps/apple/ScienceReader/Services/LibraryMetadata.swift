@@ -360,21 +360,22 @@ enum LibraryImportStep: Equatable, Sendable {
     /// The list's name for the step.
     var title: String {
         switch self {
-        // Two words (owner, 2026-10-15): "Downloading…" while the PDF downloads, "Preparing…" for every other step.
+        // One word for the server's stage (owner, build 44: "what you mean… is really Adding to library"): the device's
+        // own download and preparation say "Downloading…" and "Preparing…" afterwards.
         case .downloading: "Downloading…"
-        case .queued, .finding, .preparing, .converting, .building, .waiting: "Preparing…"
+        case .queued, .finding, .preparing, .converting, .building, .waiting: "Adding…"
         }
     }
     /// Short enough for a table column.
     var shortTitle: String {
         switch self {
-        case .downloading: "Downloading…"; default: "Preparing…"
+        case .downloading: "Downloading…"; default: "Adding…"
         }
     }
     /// One word, beside a spinner in the table's Progress column.
     var tableTitle: String {
         switch self {
-        case .downloading: "Downloading"; default: "Preparing"
+        case .downloading: "Downloading"; default: "Adding"
         }
     }
     /// "Downloading…" or "Preparing…", the same in both widths.

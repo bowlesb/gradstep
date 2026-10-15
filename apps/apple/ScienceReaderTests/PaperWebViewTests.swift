@@ -213,12 +213,13 @@ final class PaperWebViewTests: XCTestCase {
             && document.getElementById('paper-introduction').tagName === 'H1'
             """) as? Bool
         XCTAssertEqual(link, true, "The artifact's internal link still resolves to its original heading")
-        _ = try await web.callAsyncJavaScript("""
-            document.getElementById('intro-link').click();
-            await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-            """, arguments: [:], in: nil, contentWorld: .page)
-        let returned = try await web.evaluateJavaScript("document.getElementById('paper-introduction').getBoundingClientRect().top") as? Double
-        XCTAssertEqual(try XCTUnwrap(returned), 0, accuracy: 2, "An in-paper fragment link remains navigable after the contents jump")
+        // An in-paper link is the reader's own animated jump (with Back, build 31): wait for it to settle.
+        _ = try await web.callAsyncJavaScript("document.getElementById('intro-link').click();", arguments: [:], in: nil, contentWorld: .page)
+        let returned = try await eventually {
+            let top = try await web.evaluateJavaScript("document.getElementById('paper-introduction').getBoundingClientRect().top") as? Double ?? -9_999
+            return abs(top) < 24
+        }
+        XCTAssertTrue(returned, "An in-paper fragment link remains navigable after the contents jump")
         let duplicateJump = try await web.callAsyncJavaScript(
             "return window.__scienceReaderJumpToHeading(key,true);",
             arguments: ["key": harness.headings[2].id], in: nil, contentWorld: .defaultClient) as? Bool
@@ -430,10 +431,11 @@ final class PaperWebViewTests: XCTestCase {
         let landedAgain = try await eventually { try await self.script(web, entryVisible) as? Bool == true }
         XCTAssertTrue(landedAgain)
         try await Task.sleep(for: .milliseconds(300))
-        _ = try await script(web, "window.scrollBy({top: -1.5 * window.innerHeight, behavior: 'instant'});")
+        // The reader's own scroll (input first, as a finger or wheel gives): only that ends Back (beba14c, build 35).
+        _ = try await script(web, "window.dispatchEvent(new WheelEvent('wheel', {deltaY: -120})); window.scrollBy({top: -1.5 * window.innerHeight, behavior: 'instant'});")
         try await Task.sleep(for: .milliseconds(400))
         XCTAssertEqual(harness.citationStates, [true, false, true], "A screen and a half away, Back is still offered")
-        _ = try await script(web, "window.scrollBy({top: -window.innerHeight, behavior: 'instant'});")
+        _ = try await script(web, "window.dispatchEvent(new WheelEvent('wheel', {deltaY: -120})); window.scrollBy({top: -window.innerHeight, behavior: 'instant'});")
         let ended = try await eventually { harness.citationStates == [true, false, true, false] }
         XCTAssertTrue(ended, "\(harness.citationStates)")
         let backAgain = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
@@ -764,7 +766,7 @@ final class PaperWebViewTests: XCTestCase {
         }
         XCTAssertTrue(landed, "The caption is in view with Back offered")
         try await Task.sleep(for: .milliseconds(400))
-        _ = try await script(web, "window.scrollTo({top: 0, behavior: 'instant'});")
+        _ = try await script(web, "window.dispatchEvent(new WheelEvent('wheel', {deltaY: -120})); window.scrollTo({top: 0, behavior: 'instant'});")
         let returned = try await eventually { harness.citationStates == [true, false] }
         XCTAssertTrue(returned, "Back ends once the reader scrolls back by themselves: \(harness.citationStates)")
     }
@@ -1170,8 +1172,8 @@ final class PaperWebViewTests: XCTestCase {
             }, onHeadings: { [weak self] in self?.headings = $0 }, onFigure: { [weak self] id in
                 guard let self, self.figureID == nil else { return }
                 self.figureID = id; openedFigure.fulfill()
-            }, onFailure: { [weak self] in self?.failed = true }, paperLine: paperLine, onCitation: { [weak self] in
-                self?.citationStates.append($0)
+            }, onFailure: { [weak self] in self?.failed = true }, paperLine: paperLine, onCitation: { [weak self] active, _ in
+                self?.citationStates.append(active)
             }, onReference: { [weak self] reference in
                 guard let self, self.reference == nil else { return }
                 self.reference = reference; referenced.fulfill()

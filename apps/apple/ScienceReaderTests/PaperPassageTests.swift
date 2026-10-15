@@ -32,11 +32,15 @@ final class PaperPassageTests: XCTestCase {
         XCTAssertEqual(anchor.prefix, "enerating code, we would like to", "\(anchor.prefix)")
         XCTAssertEqual(anchor.suffix, "present in its training data. Si", "\(anchor.suffix)")
 
-        _ = try await script(web, "window.__scienceReaderClearSelection(); window.scrollTo({top: 0, behavior: 'instant'});")
+        // The reader is further on (from the very top a chat jump offers no Back: owner, build 44).
+        let origin = try await script(web, "window.__scienceReaderClearSelection(); window.scrollTo({top: (document.documentElement.scrollHeight - window.innerHeight) / 2, behavior: 'instant'}); return window.scrollY;") as? Double ?? 0
+        XCTAssertGreaterThan(origin, 100)
         let result = try await go(web, anchor, same: true)
         XCTAssertEqual(result["found"] as? Bool, true); XCTAssertEqual(result["method"] as? String, "exact")
         let landed = try await eventually { try await self.highlighted(web) == self.passage }
-        XCTAssertTrue(landed, "The passage is tinted once the page settles")
+        XCTAssertTrue(landed, "The passage is found once the page settles")
+        let boxed = try await script(web, "return document.querySelectorAll('.sr-flash').length === 1;") as? Bool
+        XCTAssertEqual(boxed, true, "A box over the whole passage, equations included")
         let visible = try await script(web, """
             const rect = [...CSS.highlights.get('sr-passage')][0].getBoundingClientRect();
             return rect.top >= 0 && rect.bottom <= window.innerHeight;
@@ -44,8 +48,9 @@ final class PaperPassageTests: XCTestCase {
         XCTAssertEqual(visible, true)
         XCTAssertEqual(harness.citationStates, [true], "Back is offered, as after a citation")
         _ = try await script(web, "return window.__scienceReaderCitationBack();")
-        let returned = try await eventually { (try await self.script(web, "return window.scrollY;") as? Double ?? -1) < 1 }
-        XCTAssertTrue(returned, "Back returns to where reading left off")
+        let returned = try await eventually { abs((try await self.script(web, "return window.scrollY;") as? Double ?? -1) - origin) < 1 }
+        let at = try await script(web, "return window.scrollY;") as? Double ?? -1
+        XCTAssertTrue(returned, "Back returns to where reading left off: \(at) vs \(origin)")
         let cleared = try await eventually(timeout: 4) { try await self.highlighted(web) == nil }
         XCTAssertTrue(cleared, "The tint fades")
     }
@@ -144,7 +149,7 @@ final class PaperPassageTests: XCTestCase {
         let applied = try await eventually { harness.passages.count == 1 }
         XCTAssertTrue(applied)
         XCTAssertEqual(harness.passages.first?.0, found.id); XCTAssertEqual(harness.passages.first?.1, true)
-        XCTAssertEqual(harness.citationStates, [true])
+        XCTAssertEqual(harness.citationStates, [false], "Opened from the chat at the top of the paper: no Back (owner, build 44)")
         harness.close()
 
         let missing = PaperPassageRequest(documentID: UUID(), conversationID: UUID(),
@@ -305,7 +310,7 @@ private final class PassageHarness {
             didLoad = true; loaded.fulfill()
         }, onLocation: { _, _ in }, onJumpApplied: { _ in }, onSelection: { [weak self] in
             if let selection = $0, !selection.parts.isEmpty { self?.selection = selection }
-        }, onHeadings: { _ in }, onFigure: { _ in }, onCitation: { [weak self] in self?.citationStates.append($0) },
+        }, onHeadings: { _ in }, onFigure: { _ in }, onCitation: { [weak self] active, _ in self?.citationStates.append(active) },
            marks: marks, onMarks: { [weak self] in self?.marked.append($0) },
            passage: passage, onPassage: { [weak self] in self?.passages.append(($0, $1)) })
         let host = UIHostingController(rootView: view)
