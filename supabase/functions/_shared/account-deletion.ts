@@ -26,6 +26,9 @@ export function allowedPrefix(accountID: string, bucket: string, prefix: string)
   if (bucket === 'paper-assets') return prefix === `private/${accountID}/` || /^(raw|reader)\/[0-9a-f]{64}\/$/.test(prefix);
   if (bucket === 'support') return prefix === `${accountID}/`;
   if (bucket === 'paper-uploads') return prefix === `${accountID}/`;
+  // The account's private episodes and the paper text its devices sent for them (migration 070).
+  if (bucket === 'podcast-assets') return prefix === `private/${accountID}/`;
+  if (bucket === 'private-content') return prefix === `podcast-sources/${accountID}/`;
   return false;
 }
 export interface DeletionOutcome { complete: boolean; step?: 'files' | 'finish' | 'login'; code?: 'deletion_scan_incomplete' | 'asset_write_uncertain' }

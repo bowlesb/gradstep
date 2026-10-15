@@ -68,6 +68,6 @@ longer answer, extra validation pass or fallback can erase part of the apparent 
 [official pricing documentation](https://platform.claude.com/docs/en/about-claude/pricing) describes the
 Sonnet cache-read multipliers and the same token accounting principle.
 
-No DeepSeek traffic is enabled by this comparison. Any future trial must be opt-in at the server profile level,
+**Update 2026-10-14:** DeepSeek is now enabled for one use only: writing podcast episode scripts, when the reader chooses it as the writer (docs/architecture/PAPER_PODCASTS.md; migrations 063–065). Chat does not use it. This comparison itself enabled no traffic. Any future trial must be opt-in at the server profile level,
 bounded by the same credit and provider-spend controls, and accepted only after the quality and data-handling
 review passes.

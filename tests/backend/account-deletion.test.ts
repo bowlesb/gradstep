@@ -64,6 +64,11 @@ test('a wrong prefix is ignored and failures report the step reached', async () 
 const sha = 'a'.repeat(64);
 test('only the account’s own folders and its conversions’ raw/reader folders may be emptied', () => {
   assert.ok(allowedPrefix(account, 'paper-assets', `private/${account}/`));
+  // Private episodes and their device-sent text (migration 070): only this account's folders, never the shared ones.
+  assert.ok(allowedPrefix(account, 'podcast-assets', `private/${account}/`));
+  assert.ok(allowedPrefix(account, 'private-content', `podcast-sources/${account}/`));
+  assert.ok(!allowedPrefix(account, 'podcast-assets', 'shared/') && !allowedPrefix(account, 'podcast-assets', 'private/'));
+  assert.ok(!allowedPrefix(account, 'private-content', 'podcast-sources/') && !allowedPrefix(account, 'private-content', `${account}/`));
   assert.ok(allowedPrefix(account, 'paper-assets', `raw/${sha}/`) && allowedPrefix(account, 'paper-assets', `reader/${sha}/`));
   assert.ok(allowedPrefix(account, 'support', `${account}/`));
   assert.ok(allowedPrefix(account, 'paper-uploads', `${account}/`), 'PDF uploads (migration 039)');
