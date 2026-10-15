@@ -2,6 +2,17 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Template-broken title pages read by macro — 2026-10-15, ~02:00 UTC (commit `8d481e9`; deployed)
+
+Owner screenshot (build 39, arXiv 2610.18356 "Urbex"): abstract above the title, "[ [" after the authors, a bare
+date line. The compiler now keeps LaTeXML's error markers as empty spans naming their macro and reads a pre-title
+paragraph of them by macro: the abstract goes after the authors, affiliations and contribution notes fold into the
+author block, the plumbing stays out; punctuation-only affiliations and the `ltx_dates` line are dropped
+(HTML_FIRST_READER.md "Title pages a template left in pieces"). Evidence: compiler tests 18/18, DPO and Urbex block
+order, iPhone Simulator ArxivHTMLReaderTests and LegacyArxivReaderTests, browser types/build and the compiler and
+arxiv-html journeys. Deployment: browser Pages **`43aef05a`** (the live compiler carries the change); TestFlight
+**build 40** iOS VALID (18:52 PDT), Mac uploaded 18:5x PDT (processing when written).
+
 ## October platform cap raised — 2026-10-15, 01:30 UTC (owner: "push ahead")
 
 The owner's chat refused with "AI answers are paused" at $23.20 of October's $25. On the owner's instruction the
