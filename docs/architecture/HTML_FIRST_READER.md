@@ -441,6 +441,12 @@ affiliations and notes (an author block set as a table reads by rows and cells; 
 by their marks), and a custom title page without an author block folds into the header the same way. Affiliations
 and notes sit on their own lines under the names (`reader-affiliations`, `reader-notes`).
 
+Colours and citations (build 43): the reader owns its colours, so a source colour or background on math is left
+out as the HTML's own colours are; a citation LaTeXML could not resolve (a bold "?") is left out with its
+parentheses and counted in the closing note; a macro definition left as a paragraph (TeX parameter tokens) goes.
+A copy stored on the device opens at once whichever app compiled it; one compiled by an older app is prepared again
+behind the page, and the newer copy is offered with a Reload bar or shown on the next opening.
+
 ### Paper availability on a device — 2026-10-15 (owner question: "should we make it more obvious whether you do or do not have a pdf on a device?")
 
 One model, said once. A library paper is in one of four states **on this device**, and every feature that needs the

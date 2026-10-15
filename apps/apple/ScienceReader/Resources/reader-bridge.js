@@ -1246,15 +1246,20 @@
   for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
     window.addEventListener(type, () => { movedSinceJump = true; }, {passive: true, capture: true});
   }
+  // A tap or a scroll takes every flash away at once (owner, build 43: "if I click outside it, the highlight should
+  // go away").
+  const flashes = new Set();
+  const clearFlashes = () => { for (const box of flashes) box.remove(); flashes.clear(); };
+  for (const type of ['touchstart', 'pointerdown', 'keydown']) window.addEventListener(type, clearFlashes, {passive: true, capture: true});
   const flash = rect => {
     if (!rect || (!rect.width && !rect.height)) return;
     const box = document.createElement('div');
     box.className = 'sr-flash'; box.setAttribute(CHROME, ''); box.setAttribute('aria-hidden', 'true');
     Object.assign(box.style, {left: rect.left + window.scrollX - 8 + 'px', top: rect.top + window.scrollY - 6 + 'px',
       width: rect.width + 16 + 'px', height: rect.height + 12 + 'px'});
-    document.body.append(box);
+    document.body.append(box); flashes.add(box);
     setTimeout(() => box.classList.add('sr-flash-done'), 1600);
-    setTimeout(() => box.remove(), 2700);
+    setTimeout(() => { box.remove(); flashes.delete(box); }, 2700);
   };
   const scrollTarget = rect => {
     const limit = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
@@ -1721,7 +1726,6 @@
   }
 
   // Go to passage: the same landing and Back as a citation; the passage is briefly tinted.
-  let passageTimer;
   window.__scienceReaderGoToPassage = anchor => {
     let found = null;
     try { found = resolvePassage(anchor, true); } catch { found = null; }
@@ -1736,11 +1740,9 @@
       // Unlike a citation peek, the reader chose to go here: like a contents jump, this becomes the place
       // remembered (leaving the tab and coming back shows the passage); Back still returns to where they were.
       lastPosition = window.__scienceReaderLocation(); post({type: 'position', ...lastPosition});
-      const registry = highlights();
-      if (!registry) return;
-      registry.set('sr-passage', new Highlight(found.range));
-      clearTimeout(passageTimer);
-      passageTimer = setTimeout(() => registry.delete('sr-passage'), 2600);
+      // A box over the whole passage, equations included (a CSS highlight painted around MathML and stayed:
+      // owner, build 43, "the highlight kind of works but it excludes parts"), fading like a citation flash.
+      flash(found.range.getBoundingClientRect());
     });
     post({type: 'citation', state: 'jumped', id: 'passage'});
     return {found: true, method: found.method};

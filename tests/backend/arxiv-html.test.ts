@@ -170,7 +170,8 @@ test('grouped captions and inline vector legends preserve figure order, text and
  assert.deepEqual(checked.index.figures.map(f=>f.caption),['','Figure 1: First panel x^2 .','Figure 2: Second panel.','Figure 3: Legend and illustration.']);
  assert.match(checked.index.blocks.at(-1)!.text,/Retained legend text.*Second legend line y/);
  assert.equal(checked.index.equations.length,2);
- assert.match(new TextDecoder().decode(bundle.members.get('index.html')),/mathbackground="#E8F3F4"/);
+ // The reader owns its colours: a source math background is left out (build 43: boxed ± in dark mode).
+ assert.ok(!/mathbackground/.test(new TextDecoder().decode(bundle.members.get('index.html'))),'no source math background');
  assert.equal((checked.provenance.inline_image_inputs as unknown[]).length,1);
  // Legacy output grammars must not silently admit this extension.
  assert.throws(()=>validateHTML(bundle.members.get('index.html')!,bundle.index,new Map()));
@@ -386,4 +387,30 @@ test('a size command LaTeXML left in a caption is no word of the paper (2610.140
  const caption = checked.index.figures.find(f => /Overview/.test(f.caption))!.caption;
  assert.equal(caption, 'Figure 1: Overview. ① The design crosses FoV. ② Each rollout is scored.');
  assert.ok(!new TextDecoder().decode(bundle.members.get('index.html')).includes('scriptsize'));
+});
+
+test('build 43 (2610.18683): a second line of marked names is authors, not affiliations; a macro definition paragraph goes; math colours go; unresolved citations go with their parentheses', () => {
+ const text = source.replace('<div class="ltx_authors">A. Author</div>', '<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname">Bowen Ding<sup class="ltx_sup">1</sup>, Futing Wang<sup class="ltx_sup">1</sup><br class="ltx_break">Heyuan Deng<sup class="ltx_sup">4</sup> Fei Mi<sup class="ltx_sup">4,‡</sup><br class="ltx_break"><sup class="ltx_sup">1</sup>Zhejiang University <sup class="ltx_sup">4</sup>Huawei</span></span></div>')
+  .replace('<p id="p1">', '<div class="ltx_para"><p class="ltx_p">[1]<span class="ltx_text ltx_font_bold">for each</span> #1 <span class="ltx_text ltx_font_bold">do</span></p></div><div class="ltx_para"><p class="ltx_p">Applications in software engineering (<span class="ltx_text ltx_font_bold">?</span>), assistance (<span class="ltx_text ltx_font_bold">??</span>) and PPO (<span class="ltx_text ltx_font_bold">?</span>) address this with <math alttext="\\pm" display="inline"><semantics><mo style="--ltx-bg-color:#EBEBFF;" mathbackground="#EBEBFF" mathcolor="#16697A">±</mo><annotation encoding="application/x-tex">\\pm</annotation></semantics></math> noise.</p></div><p id="p1">');
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const html = new TextDecoder().decode(bundle.members.get('index.html'));
+ const block = /<p class="reader-authors"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1];
+ assert.equal(block, 'Bowen Ding<sup>1</sup>, Futing Wang<sup>1</sup>, Heyuan Deng<sup>4</sup>, Fei Mi<sup>4,‡</sup> <span class="reader-affiliations"><sup>1</sup>Zhejiang University<br><sup>4</sup>Huawei</span>');
+ const texts = checked.index.blocks.map(b => b.text);
+ assert.ok(!texts.some(t => /for each #1/.test(t)), 'the macro definition is gone');
+ assert.ok(texts.some(t => t === 'Applications in software engineering, assistance and PPO address this with \\pm noise.'), JSON.stringify(texts.slice(0, 8)));
+ assert.ok(!/mathbackground|mathcolor/.test(html), 'the reader owns its colours');
+ assert.match(texts.at(-1)!, /1 unsupported command.*3 unresolved citations/);
+});
+
+test('a table drawn as a TikZ picture is the figure\'s own image; a picture beside words stays a legend symbol', () => {
+ const text = source.replace('<p id="p1">', `<figure id="A5.T11" class="ltx_table"><figcaption>Table 11: An example.</figcaption><div class="ltx_logical-block"><div class="ltx_para"><span class="ltx_inline-block"><svg id="A5.T11.p1.pic1" class="ltx_picture" viewBox="0 0 528 610" width="528" height="610"><rect width="100" height="40"/></svg></span></div></div></figure><p id="p1">`);
+ const inline = arxivInlineImages(text, url);
+ assert.deepEqual([...inline.keys()], ['#A5.T11.p1.pic1']);
+ const png = admitReaderImage(new Uint8Array(readFileSync(new URL('../fixtures/reader/assets/attention.png', import.meta.url))));
+ const images = new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }], ['#A5.T11.p1.pic1', { ...png, inputSHA256: sha256Hex(utf8(inline.get('#A5.T11.p1.pic1')!)) }]]);
+ const bundle = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images });
+ const html = new TextDecoder().decode(bundle.members.get('index.html'));
+ const figure = /<figure[^>]*>[\s\S]*?Table 11[\s\S]*?<\/figure>/.exec(html)![0];
+ assert.ok(/<img [^>]*src="assets\/[a-f0-9]{64}\.png"/.test(figure) && !/reader-inline-image/.test(figure), figure.slice(0, 400));
 });

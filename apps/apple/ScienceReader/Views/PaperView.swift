@@ -252,7 +252,10 @@ struct PaperView: View {
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
-                    .safeAreaInset(edge: .top, spacing: 0) { if let notice = model.readerFallbackNotice, !readerFailed { fallbackNotice(notice) } }
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if let notice = model.readerFallbackNotice, !readerFailed { fallbackNotice(notice) }
+                        else if model.readerUpdateReady, !readerFailed { updateReadyBar }
+                    }
                     // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
                     // outcome spans the bottom. "Back to where you were" sits at the left of the same row.
                     .overlay(alignment: .bottomTrailing) {
@@ -537,6 +540,21 @@ struct PaperView: View {
         .background(.bar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("paper.fallbackNotice")
+    }
+    /// A newer copy of this paper was prepared behind the page (build 43: a stored copy opens at once and is
+    /// prepared again in the background).
+    private var updateReadyBar: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary)
+            Text("An updated copy of this paper is ready.").font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button("Reload") { model.reprepareSelectedPaper() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("paper.updateReady")
     }
     private var citationBackButton: some View {
         Button {

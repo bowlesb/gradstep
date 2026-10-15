@@ -9,6 +9,19 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight, 2026-10-15 04:04–04:11 UTC (build 43, iPhone, 9 items, all on 2610.18683 "ProAS" and two reopened papers)
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "More gross ness" ("[1]for each #1 do" after the abstract; "(?)" and "(??)" through the introduction) | Reader | A macro definition LaTeXML left as a paragraph (TeX parameter tokens never read in prose): gone, counted as an unsupported command. Citations LaTeXML could not resolve print as a bold "?": left out with their parentheses and counted in the closing note ("3 unresolved citations"). | Built; fragment test; build 44 and the browser |
+| 2 | "Spacing fail around abstract" (a gap under "Abstract"; names on a second line read as affiliations) | Header | The abstract heading kept the browser's default 2.3 em bottom margin: headings now have their own. A second line of names with marks ("Heyuan Deng⁴ Fei Mi⁴,‡") was read as affiliations: lines after the first are more authors when they carry marks. | Built; fragment test; build 44 and the browser |
+| 3 | "The highlight kind of works but it excludes parts. And if I click outside it, the highlight should go away" (a chat citation's passage highlight skipping equations) | Reader | The passage highlight was a CSS custom highlight, which WebKit does not paint over MathML and which outlived the jump. It is now a box over the whole passage, equations included, fading like a citation flash; a tap or key takes it away at once. | Built; build 44 |
+| 4 | "So many question marks ??" | Reader | Row 1: unresolved citations. | Built; build 44 and the browser |
+| 5 | "Weird white boxes ?" (a boxed ± in the bold table rows) | Tables | LaTeXML's math background colour on the ± (a `\colorbox`): the reader owns its colours now, so math colours and backgrounds are left out like the HTML's. | Built; fragment test; build 44 and the browser |
+| 6 | "There is a weird gradient ??" (a tall table tinted after a citation jump) | Reader | The same passage highlight (row 3) over a whole table, under the bottom controls' fade. It fades in under two seconds now and clears on a tap. | Built; build 44 |
+| 7 | "White box looks like a render fail" (Tables 11 and 12: a small white square) | Reader | A table drawn as a TikZ picture inside the figure was shown as a 0.65 em inline symbol. A picture on its own inside a figure is the figure's image; one beside words stays a legend symbol. | Built; fragment test; build 44 and the browser |
+| 8 | "Fail" (MiniDog: "Showing the copy an earlier version prepared; preparing it again failed. This paper couldn't be prepared on this device.") · "There was a check does that not mean it's downloaded? When I clicked it said downloading… and then it gave me awkward message at top" (ScenePlacer) | Reader | A copy on this device now opens at once whichever app compiled it (the check means what it says); one compiled by an older app is prepared again behind the page, and an "updated copy is ready — Reload" bar offers the new one. A failure names its reason, including a network error ("Couldn't reach arXiv: …") instead of the generic sentence. | Built; build 44 |
+
 ## TestFlight, 2026-10-15 03:02–03:17 UTC (build 42, iPhone, 9 items) and the chat messages that followed
 
 | # | Owner said | Where | Cause / plan | Status |

@@ -196,6 +196,15 @@ final class ReaderModel {
     private var finishedImportSources: Set<String> = []
     /// The open paper is the copy an earlier version prepared because preparing it again failed (the reason).
     var readerFallbackNotice: String? = nil
+    /// A newer copy of the open paper was prepared behind the page; "Reload" shows it.
+    var readerUpdateReady = false
+    private var backgroundRepreparations: Set<UUID> = []
+    /// Why a preparation failed, in the reader's words; never source text.
+    static func preparationReason(_ error: Error) -> String {
+        if let known = error as? ArxivHTMLError { return known.message }
+        if let url = error as? URLError { return "Couldn’t reach arXiv: \(url.localizedDescription)" }
+        return "This paper couldn’t be prepared on this device."
+    }
     /// After a chat citation opened the paper, the reader offers "Back to chat" (owner, 2026-10-15).
     var returnToChatAvailable = false
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
@@ -2340,7 +2349,7 @@ final class ReaderModel {
             } else { uploads.pickRequest = .init(target: .localPaper(current.id), title: current.title) }
             return
         }
-        selectedPaper = current; chatPaperID = current.id; tab = .paper; returnToChatAvailable = false
+        selectedPaper = current; chatPaperID = current.id; tab = .paper; returnToChatAvailable = false; readerUpdateReady = false
         if wideMode != .browse { wideMode = .reader }
         generalChat = false
         recordOpened(current)
@@ -2392,7 +2401,7 @@ final class ReaderModel {
     /// Prepares the open paper again with this app's compiler (the notice's "Try again" after a failed re-preparation).
     func reprepareSelectedPaper() {
         guard let paper = selectedPaper else { return }
-        readerFallbackNotice = nil
+        readerFallbackNotice = nil; readerUpdateReady = false
         papers = papers.map { $0.id == paper.id ? $0.displaying(nil) : $0 }
         selectedPaper = papers.first { $0.id == paper.id }
         openLocalPaperIfNeeded()
@@ -2424,7 +2433,7 @@ final class ReaderModel {
             } catch is CancellationError {
             } catch {
                 guard self.sessionID == scope else { return }
-                self.devicePreparationIssues[paper.id] = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device."
+                self.devicePreparationIssues[paper.id] = Self.preparationReason(error)
             }
         }
     }
@@ -2527,7 +2536,7 @@ final class ReaderModel {
         devicePreparationTasks[paper.id]?.cancel(); devicePreparationIssues[paper.id] = nil
         guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
         let scope = sessionID, persistence = localPersistence
-        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil; readerFallbackNotice = nil
+        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil; readerFallbackNotice = nil; readerUpdateReady = false
         // The same paper, whichever row it is shown from (a legacy item keeps its document identity).
         let same: (Paper) -> Bool = { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }
         localReaderTask = Task { [weak self] in
@@ -2544,29 +2553,32 @@ final class ReaderModel {
                 let bundle: VerifiedReaderBundle
                 if let record = await store.record(sourceID: source.sourceID, revision: source.revision) {
                     let reopened = try await store.read(record.identity)
-                    if ArxivCompilerIdentity.isCurrent(reopened) {
-                        bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
-                    } else {
-                        // Compiled by an older app: prepared again by this one and the old copy removed. Off the network
-                        // (or arXiv busy) the stored copy still reads; the next opening tries again.
-                        do {
-                            let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report)
-                            try Task.checkCancellation()
-                            guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
-                            let commit = try persistence.acceptLocalReaderWrite { store in
-                                try await store.install(bundle: fresh)
-                                if fresh.manifestSHA256 != record.identity.sha256.map({ String(format: "%02x", $0) }).joined() { try await store.remove(record.identity) }
+                    // A copy on this device opens at once, whichever app compiled it (owner, build 43: "there was a
+                    // check… when I clicked it said downloading"). One compiled by an older app is prepared again
+                    // behind the page; the newer copy is offered when ready, or the failure said with its reason.
+                    bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
+                    if !ArxivCompilerIdentity.isCurrent(reopened), !self.backgroundRepreparations.contains(paper.id) {
+                        self.backgroundRepreparations.insert(paper.id)
+                        let oldSHA256 = record.identity.sha256.map({ String(format: "%02x", $0) }).joined()
+                        Task { [weak self] in
+                            guard let self else { return }
+                            defer { if self.sessionID == scope { self.backgroundRepreparations.remove(paper.id) } }
+                            do {
+                                let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title)
+                                guard self.sessionID == scope, self.papers.contains(where: same) else { return }
+                                let commit = try persistence.acceptLocalReaderWrite { store in
+                                    try await store.install(bundle: fresh)
+                                    if fresh.manifestSHA256 != oldSHA256 { try await store.remove(record.identity) }
+                                }
+                                _ = try await commit.value
+                                guard self.sessionID == scope else { return }
+                                self.localReaderRecords = await store.records()
+                                if self.selectedPaper?.id == paper.id, fresh.manifestSHA256 != oldSHA256 { self.readerUpdateReady = true }
+                            } catch is CancellationError {
+                            } catch {
+                                guard self.sessionID == scope, self.selectedPaper?.id == paper.id else { return }
+                                self.readerFallbackNotice = "Showing the copy an earlier version prepared; preparing it again failed. \(Self.preparationReason(error))"
                             }
-                            _ = try await commit.value
-                            bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: fresh) }.value
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch {
-                            // Said on the page, with the reason, instead of silently showing the old copy (owner, build 42:
-                            // PhysCodeGym and 2610.10238 still showed their old headers).
-                            let reason = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device."
-                            self.readerFallbackNotice = "Showing the copy an earlier version prepared; preparing it again failed. \(reason)"
-                            bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
                         }
                     }
                 } else {

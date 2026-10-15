@@ -16,7 +16,9 @@ export interface ArxivBundleInput {
 }
 export const ARXIV_CSS = READER_CSS + '\nfigure img.reader-inline-image,body.reader-figure-detail figure img.reader-inline-image{display:inline-block;width:auto;height:.65em;max-width:none;margin:0 .15em;border-radius:0;vertical-align:baseline;background:transparent}\n'
   // The header's affiliations and notes: their own lines in a smaller face under the names (owner, build 42).
-  + '.reader-authors .reader-affiliations,.reader-authors .reader-notes{display:block;font-size:.82em;line-height:1.4;margin-top:.45em;opacity:.85}\n';
+  + '.reader-authors .reader-affiliations,.reader-authors .reader-notes{display:block;font-size:.82em;line-height:1.4;margin-top:.45em;opacity:.85}\n'
+  // Headings keep the browser's default bottom margin otherwise (an h6 "Abstract" sat 2.3 em above its text, build 43).
+  + 'h2{margin-bottom:.55em}h3,h4,h5,h6{margin-bottom:.45em}h2+p,h3+p,h4+p,h5+p,h6+p{margin-top:.3em}\n';
 export const ARXIV_BUILD_SHA256 = sha256Hex(canonicalBytes({ renderer: ARXIV_RENDERER_ID,
   revision: ARXIV_RENDERER_REVISION, css: sha256Hex(utf8(ARXIV_CSS)), notices: sha256Hex(utf8(THIRD_PARTY_NOTICES)) }));
 

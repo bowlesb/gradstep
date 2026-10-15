@@ -11,7 +11,7 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
  * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 6;
+export const ARXIV_RENDERER_REVISION = 7;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;
@@ -147,7 +147,8 @@ export interface ArxivConvertOptions {
 export function convertArxivHTML(source: string, sourceURL: string, resolveImage: (url: string) => HTMLImage, options: ArxivConvertOptions = {}): {
   index: ReaderIndex; html: string; imageURLs: string[];
 } {
-  const { root, dropped } = article(source);
+  const { root, dropped: droppedMarkers } = article(source);
+  let dropped = droppedMarkers;
   const metadataAuthors = (Array.isArray(options.authors) ? options.authors : []).filter(a => typeof a === 'string')
     .map(a => normalizeSpace(a)).filter(Boolean).slice(0, 64).map(a => a.slice(0, 256));
   check(/^https:\/\/arxiv\.org\/html\/.+v[1-9][0-9]*$/.test(sourceURL), 'arxiv_identity');
@@ -185,11 +186,21 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   // Ids are issued, never reused: a block removed later (an empty paragraph, a repeated title) must not free its number.
   let issued = 0;
   const nextID = () => { check(blocks.length < LIMITS.blocks, 'block_limit'); issued += 1; return `b-${digest}-${issued}`; };
+  // Adjacent strings as one, and the parentheses a dropped citation left empty ("PPO ()", "LLMs (, )") removed.
+  const tidyPunctuation = (parts: Child[]): Child[] => {
+    const out: Child[] = [];
+    for (const part of parts) {
+      if (typeof part === 'string' && typeof out[out.length - 1] === 'string') out[out.length - 1] = (out[out.length - 1] as string) + part;
+      else out.push(part);
+    }
+    return out.map(part => typeof part === 'string' ? part.replace(/\s*[([]\s*(?:[,;]\s*)*[)\]]/g, '').replace(/\s+([.,;:])/g, '$1') : part);
+  };
   function block(n: DomNode, name: string, kind: string, make: (id: string) => Child[], attrs: Record<string, string> = {}): OutNode {
     const id = nextID();
     const out = el(name, { ...attrs, id, 'data-reader-block': id, 'data-reader-kind': kind });
     blocks.push({ id, kind, node: out }); bind(n, id);
-    out.children = make(id);
+    const made = make(id);
+    out.children = ['paragraph', 'heading', 'list'].includes(kind) && unresolvedCitations > 0 ? tidyPunctuation(made) : made;
     return out;
   }
   // The authors (LaTeXML `div.ltx_authors`), read as a typeset header rather than as LaTeXML prints it: each name
@@ -366,7 +377,6 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         const keys: string[] = [];
         let name: Child[] | null = null;
         if (text && !startsWithMark) name = head; else if (text) keys.push(...addAffiliations(head));
-        if (cut >= 0) keys.push(...addAffiliations(parts.slice(cut + 1).filter(part => !isBr(part))));
         // Several authors in one creator (a tabular's cells, names run together with their marks): each is one.
         const more: Child[][] = [];
         if (name) {
@@ -375,6 +385,13 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
             for (const unit of run.affiliations) keys.push(...addAffiliations(unit));
             more.push(...run.names.slice(1)); name = run.names[0];
           }
+        }
+        if (cut >= 0) {
+          // Lines after the first: more authors when they carry marks ("Heyuan Deng⁴ Fei Mi⁴,‡", 2610.18683),
+          // otherwise that author's affiliations (LaTeXML's `\\` under a name).
+          const rest = parseRun(parts.slice(cut + 1));
+          for (const unit of rest.names) { if (unit.some(isSup) && name) more.push(unit); else keys.push(...addAffiliations(unit)); }
+          for (const unit of rest.affiliations) keys.push(...addAffiliations(unit));
         }
         for (const extra of person ? children(creator).filter(c => c !== person) : []) {
           // A note beside the name (a dagger for equal contribution) marks the name; anything else is an affiliation.
@@ -432,12 +449,15 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         for (const declaration of value.split(';').map(v => v.trim()).filter(Boolean)) {
           const match = /^(width|height|depth|font-size|--ltx-fg-color|--ltx-bg-color):\s*([A-Za-z0-9 .%#+-]+)$/.exec(declaration);
           check(match, 'arxiv_math_style');
-          const attr = match[1] === 'font-size' ? 'mathsize' : match[1] === '--ltx-fg-color' ? 'mathcolor'
-            : match[1] === '--ltx-bg-color' ? 'mathbackground' : match[1];
+          // The reader owns its colours: a source colour or background (a boxed ± in 2610.18683's tables, a teal
+          // dagger) is left out, as the HTML's own colours are.
+          if (match[1] === '--ltx-fg-color' || match[1] === '--ltx-bg-color') continue;
+          const attr = match[1] === 'font-size' ? 'mathsize' : match[1];
           check(mathAttributeIsSafe(n.name, attr, match[2]), 'arxiv_math_style'); attrs[attr] = match[2];
         }
         continue;
       }
+      if (key === 'mathcolor' || key === 'mathbackground') continue;
       check(mathAttributeIsSafe(n.name, key, value), 'arxiv_math_attribute'); attrs[key] = value;
     }
     return [el(n.name, attrs, children(n).flatMap(mathNode))];
@@ -461,8 +481,12 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   // A size or style command LaTeXML left in running text ("\\scriptsize①" in 2610.14075's Figure 1 caption, build 42:
   // "I see \\scriptsize") is no word of the paper.
   const LEAKED_MACRO = /\\(?:scriptsize|footnotesize|small|tiny|large|Large|LARGE|huge|Huge|normalsize|bfseries|itshape|rmfamily|sffamily|ttfamily|bf|it|rm|sf|tt|em|centering|raggedright|raggedleft|noindent|boldmath|unboldmath|relax)(?![A-Za-z])\s?/g;
+  let unresolvedCitations = 0;
   function inline(n: DomNode, owner: string, inAnchor = false, forceDisplay = false): Child[] {
     if (n.type === 'text') return [n.data.replace(LEAKED_MACRO, '')];
+    // A citation LaTeXML could not resolve prints as a bold "?" (2610.18683: "(?)", "(??)"): left out and counted;
+    // the parentheses around it go too (`tidyPunctuation`).
+    if (n.type === 'tag' && has(n, 'ltx_font_bold') && /^\?+$/.test(normalizeSpace(textContent(n)))) { unresolvedCitations += 1; bind(n, owner); return []; }
     if (n.type === 'comment') return [];
     check(n.type === 'tag' || active.has(n.name), 'arxiv_node');
     if (active.has(n.name)) return [];
@@ -582,6 +606,12 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         if (child.name === 'figcaption') {
           caption = el('figcaption', {}, children(child).flatMap(c => inline(c, id))); parts.push(caption);
         } else if (child.name === 'img' || child.name === 'object') parts.push(figureImage(child,id));
+        // A picture beside words is a legend symbol, inline; a picture on its own (a table drawn as TikZ, 2610.18683's
+        // Table 11, shown 0.65 em tall on build 43) is the figure's image.
+        else if (child.name === 'svg') {
+          const wrapper = child.parent && child.parent !== n ? child.parent : null;
+          if (wrapper && normalizeSpace(textContent(wrapper)).length > 0) parts.push(...inline(child, id)); else parts.push(figureImage(child, id));
+        }
         // A paragraph that only wraps the graphic (LaTeXML centres with p > span > img) is the figure's image, full
         // size; a paragraph with words keeps its graphics inline as legend symbols (build 31 drew 2610.17288's
         // teaser 0.65 em tall: "the figure is tiny").
@@ -831,6 +861,9 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       authors.children = renderAuthors(parsedNames.length ? parsedNames : [[names]], affiliations, [], notes);
     }
   }
+  // A macro definition LaTeXML left as text ("[1]for each #1 do", 2610.18683: TeX parameter tokens never read in prose)
+  // is no paragraph; it counts as an unsupported command in the closing note.
+  for (const entry of blocks.filter(b => b.kind === 'paragraph' && top.includes(b.node) && /#\d/.test(outText(b.node)))) { remove(entry); dropped += 1; }
   // A paragraph with nothing in it (a horizontal rule, an empty LaTeXML paragraph) is no block.
   const substance = (node: Child): boolean => typeof node === 'string' ? node.trim().length > 0
     : node.name === 'img' || node.name === 'a' || node.attribs['data-reader-equation'] !== undefined || node.children.some(substance);
@@ -843,10 +876,11 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   // A page that is only a pointer to the PDF (Adam v9: "See pages 1-last of … .pdf") is no paper, however the catalog heads it.
   const own = blocks.filter(b => !synthetic.has(b.node));
   check(own.length >= 3 || own.some(b => b.kind !== 'heading' && normalizeSpace(outText(b.node)).length > 200), 'arxiv_article');
-  if (dropped > 0 || omittedGraphics > 0) {
+  if (dropped > 0 || omittedGraphics > 0 || unresolvedCitations > 0) {
     // Said in the paper itself, as its last paragraph, so a reader knows what the HTML omitted.
     const parts = [dropped > 0 ? `${dropped} unsupported ${dropped === 1 ? 'command' : 'commands'}` : '',
-      omittedGraphics > 0 ? `${omittedGraphics} inline ${omittedGraphics === 1 ? 'graphic' : 'graphics'}` : ''].filter(Boolean);
+      omittedGraphics > 0 ? `${omittedGraphics} inline ${omittedGraphics === 1 ? 'graphic' : 'graphics'}` : '',
+      unresolvedCitations > 0 ? `${unresolvedCitations} unresolved ${unresolvedCitations === 1 ? 'citation' : 'citations'}` : ''].filter(Boolean);
     const id = nextID();
     const note = el('p', { id, 'data-reader-block': id, 'data-reader-kind': 'paragraph' },
       [`Note: arXiv’s HTML conversion of this version left out ${parts.join(' and ')}. The PDF is complete.`]);

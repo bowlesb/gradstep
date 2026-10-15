@@ -2,6 +2,20 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Build 43 feedback: unresolved citations, math colours, table pictures, the passage highlight, stored copies open at once — 2026-10-15, ~05:00 UTC
+
+Nine TestFlight items on build 43 (`docs/OWNER_FEEDBACK.md` "TestFlight, 2026-10-15 04:04–04:11 UTC"), all on one
+paper (ProAS, 2610.18683) and two reopened papers. Converter (`ARXIV_RENDERER_REVISION` **7**): a macro definition
+left as a paragraph goes; citations LaTeXML printed as a bold "?" go with their parentheses and are counted in the
+closing note; math colours and backgrounds are left out (the reader owns its colours); a second line of marked
+names is authors; a picture on its own inside a figure is the figure's image; headings have their own bottom
+margin (the gap under "Abstract"). Reader bridge: the passage highlight is a box over the whole passage, equations
+included, fading like a citation flash and cleared by a tap. App: a stored copy opens at once whichever app compiled
+it; an older one is prepared again behind the page with a Reload bar when ready; a failure names its reason
+(network errors included). Fragment tests 36.
+
+Evidence and deployment are recorded at the end of this section once the tests and build 44 are done.
+
 ## Build 42 feedback: the device image budget, the header from the title page, the add-to-reading flow — 2026-10-15, ~04:30 UTC
 
 Nine TestFlight items on build 42 and four chat messages within an hour (`docs/OWNER_FEEDBACK.md` "TestFlight,
