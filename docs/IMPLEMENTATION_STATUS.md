@@ -14,7 +14,12 @@ included, fading like a citation flash and cleared by a tap. App: a stored copy 
 it; an older one is prepared again behind the page with a Reload bar when ready; a failure names its reason
 (network errors included). Fragment tests 36.
 
-Evidence and deployment are recorded at the end of this section once the tests and build 44 are done.
+Evidence (commit `556a95d`): compiler fragment tests 36/36; fast tier green; headless device compile ok for
+2610.18683 (1.5 MiB); sweep replay 0 of 58 fail; iPhone Simulator unit tests 23/23 (ArxivHTMLReader,
+ArxivCompilerFailure, ImportProgress, LibraryMetadata) and the reader journey
+`ReaderNavigationTests/testHTMLPaperInPageLinksOfferBack` passed. Deployment: browser Pages **`27550fa8`** (the
+live host serves it; the compiler chunk carries revision 7); TestFlight **build 44** iOS and Mac both VALID
+(21:24 PDT). Stored papers prepared by build 43 or earlier open at once and are prepared again behind the page.
 
 ## Build 42 feedback: the device image budget, the header from the title page, the add-to-reading flow — 2026-10-15, ~04:30 UTC
 
