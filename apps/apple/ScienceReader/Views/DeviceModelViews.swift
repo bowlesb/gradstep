@@ -16,6 +16,10 @@ struct DeviceModelProgressBar: View {
                         let elapsed = Int(context.date.timeIntervalSince(run.started))
                         Text("\(run.stageText) · \(elapsed / 60):\(String(format: "%02d", elapsed % 60))").font(.footnote).foregroundStyle(.secondary).monospacedDigit()
                     }
+                    #if !targetEnvironment(macCatalyst)
+                    // iOS pauses an app in the background and stops its GPU work: the reading needs the app open.
+                    Text("Keep Gradstep open while it reads.").font(.caption).foregroundStyle(.secondary)
+                    #endif
                 }
                 Spacer(minLength: 0)
                 Button("Stop", role: .cancel, action: cancel).buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)

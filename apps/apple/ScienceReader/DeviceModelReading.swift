@@ -195,9 +195,18 @@ extension ReaderModel {
             selectedPaper = paper; chatPaperID = paper.id; tab = .paper
         }
         deviceModelRun = DeviceModelRun(paperID: paper.id, started: Date())
+        // The screen stays on while the model reads: auto-lock would pause the app and stop its GPU work.
+        #if !targetEnvironment(macCatalyst)
+        UIApplication.shared.isIdleTimerDisabled = true
+        #endif
         deviceModelTask = Task { [weak self] in
             guard let self else { return }
-            defer { if self.sessionID == scope, self.deviceModelRun?.paperID == paper.id { self.deviceModelRun = nil; self.deviceModelTask = nil } }
+            defer {
+                #if !targetEnvironment(macCatalyst)
+                UIApplication.shared.isIdleTimerDisabled = false
+                #endif
+                if self.sessionID == scope, self.deviceModelRun?.paperID == paper.id { self.deviceModelRun = nil; self.deviceModelTask = nil }
+            }
             do {
                 if !again, let modelStore, let kept = await modelStore.record(sourceID: source.sourceID, revision: source.revision) {
                     let bundle = try await modelStore.read(kept.identity)
@@ -242,7 +251,12 @@ extension ReaderModel {
         return paper
     }
 
-    func cancelDeviceModelReading() { deviceModelTask?.cancel(); deviceModelTask = nil; deviceModelRun = nil }
+    func cancelDeviceModelReading() {
+        deviceModelTask?.cancel(); deviceModelTask = nil; deviceModelRun = nil
+        #if !targetEnvironment(macCatalyst)
+        UIApplication.shared.isIdleTimerDisabled = false
+        #endif
+    }
 
     private func showModelReading(_ bundle: VerifiedReaderBundle, for paper: Paper) {
         guard let current = selectedPaper, current.id == paper.id else { return }
