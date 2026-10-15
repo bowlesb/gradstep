@@ -13,6 +13,13 @@ deleted). The repository review of 2026-10-13 (arXiv pacing, shared preparation,
 revisions, deleted PDF/Mathpix code) shipped in the same release. Commits: `7233641` (cutover), `dc040a9` (review),
 and the Agent v2 commit that follows this checkpoint.
 
+**Later that night (owner's TestFlight screenshots on builds 33–36):** the author block now covers every LaTeXML shape seen
+and takes the library's names for logo-only authors (commit `c2ad885`, build 37), and **private episodes are made from
+the paper's own text on the device** (migrations 066–067, `podcast?action=source` + `device_source` on the quote,
+worker 00040, both clients; live proof ready in 85 s; commits `f508315` and the records commit after it; build 38 iOS
+and Mac VALID; Pages `e7764deb`). Private generation paused once at the $0.75 quality allocation during the proofs;
+the allocation is $2.00 (policy revision 10). See `docs/OWNER_FEEDBACK.md` "TestFlight screenshots, 2026-10-14".
+
 **Night, 2026-10-14 (owner testing build 35):** three chat reports — the authors list on all surfaces, "Back to where
 you were" missing after a reference or figure, and the chat snapping down while an answer streams — are handled in
 commit `beba14c` (browser Pages `943836e8`, TestFlight build 36 iOS VALID and Mac uploaded, 16:31–16:34 PDT): the arXiv compiler's `authorsBlock` and shared author rules on both surfaces, bridge

@@ -39,6 +39,15 @@
       "application/json"
     ]
   },
+  "podcast_source_bucket": {
+    "id": "private-content",
+    "name": "private-content",
+    "public": false,
+    "file_size_limit": 524288,
+    "allowed_mime_types": [
+      "text/plain"
+    ]
+  },
   "upload_bucket": {
     "id": "paper-uploads",
     "name": "paper-uploads",

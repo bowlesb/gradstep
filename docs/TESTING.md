@@ -12,6 +12,7 @@ Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/we
 |---|---|---|
 | Fast, default | `npm test` or `npm run test:fast` | Backend contracts, browser units, authored bundle/crypto fixtures, compiled device-reader freshness. No browsers, downloads, databases, Simulator, credentials or paid calls. |
 | Fast, targeted | `node --test tests/backend/arxiv-html.test.ts` or `npm run test:fast --prefix apps/web -- tests/bundle.test.ts` | Exactly the selected files. `test:backend` alone runs all backend contracts. |
+| Slow, paid, podcast device source | `node scripts/podcast-device-smoke.mjs [--profile=podcast-5min-v1]` | One private episode from the DPO text as a device sends it, on staging, with a disposable account (deleted after): source, quote, start, status, paper lookup, transcript. About $0.20 of provider spend. Run after changes to the podcast quote, claim, publish or worker source handling. |
 | Slow, reader journeys | `npm run test:slow` | Production-CSP browser compiler, complete HTML reader/chat admission, local PDF worker and membership/reselection cases. Local fixture backend only. |
 | Slow, real corpus | `npm run test:slow:corpus` | Offline replay of eight exact arXiv revisions through Chromium, Firefox and WebKit; independent bundle verification, math/images/fragments, device-only PDF intake/reload. |
 | Slow, native | `npm run test:slow:native` | iPad Simulator WKWebView compiler, PDF admission, locked/over-limit PDF rejection, real-PDF PDFKit rendering and encrypted store reopen. Never selects a physical device. |

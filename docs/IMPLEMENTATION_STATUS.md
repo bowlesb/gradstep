@@ -11,9 +11,25 @@ with the paper's identity, and the pipeline runs unchanged from that text (PAPER
 on this device", design and as-built). Shared catalog episodes and Mathpix-era private episodes are unchanged.
 
 Evidence (local): database suite with `podcast_device_sources.sql`; backend tests 472+ (the `source` action, the
-quote descriptor, marker stripping); browser types; iPhone Simulator `PodcastTransportTests` and the private
-generation journey. Deployment: recorded below once done (migration 066, `podcast` function, pipeline worker, browser
-Pages, TestFlight build 38).
+quote descriptor, marker stripping); browser types and the podcast/arxiv journeys (10 passed); iPhone Simulator
+`PodcastTransportTests` (incl. the device source test), the private generation and transcript evidence journeys.
+
+Deployment (2026-10-14/15 PDT): migrations **066** and **067** applied and verified on staging (067 supersedes
+`worker_podcast_asset_plan`, which read the Mathpix source row strictly: the first five-minute proof failed at
+"publishing" with `database_error`); `podcast` function deployed; pipeline worker revision **00040** (device text
+accepted, marker rule and strip); browser Pages **`e7764deb`**; the private bucket **`private-content`** provisioned
+(512 KB, text/plain; now in `infra/staging.json` as `podcast_source_bucket` and verified by `deploy-staging.py`
+whenever `podcast` deploys); TestFlight **build 38** iOS and Mac VALID (17:16 and 17:20 PDT). Live proof
+(`scripts/podcast-device-smoke.mjs --profile=podcast-5min-v1`, disposable account, deleted after): the DPO text
+(274 blocks, 111 KB) stored by digest, quoted (5 min, DeepSeek, 150 credits max), started, **ready in 85 s for 31
+credits**; the paper lookup by membership id returned the episode with `document_id` = membership and the arXiv
+source; transcript 19 segments, 12 evidence quotes, none carrying a paragraph marker; opening "Welcome to Gradstep.
+Today we are looking at Direct Preference Optimization…". Two earlier proof runs failed and charged zero: a Short
+(150 s) DeepSeek draft of 710 words (`spoken_too_long`, `word_budget`; the writer ignored the Short length — a
+known DeepSeek variance, not a device-source fault) and the 067 bug above. Their known costs ($0.10 + $0.26) took the
+month's podcast quality losses to the $0.75 allocation, which paused private generation (`podcast_paused`), so the
+podcast policy's `quality_allocation_microusd` was raised to **$2.00** (revision 10, reason recorded; inside the $25
+provider cap, no budget change) and the proof passed.
 
 ## TestFlight screenshots on builds 33–36: author blocks, Listen copy, menu wording — 2026-10-14, late night (built; deployment noted below)
 
@@ -27,7 +43,8 @@ designed in PAPER_PODCASTS.md and built next.
 
 Evidence (local): compiler tests 17/17; `npm test`; browser types, units, arxiv-html and arxiv-compiler journeys;
 iPhone Simulator `ArxivHTMLReaderTests`, `LegacyArxivReaderTests`, `OfflineModelTests`, the HTML Back journey and
-the Listen filter journey. Deployment: recorded below once done.
+the Listen filter journey. Deployment: commit `c2ad885`; browser Pages `fa19e107` (2026-10-14 16:58 PDT); TestFlight
+**build 37** iOS and Mac VALID (16:59 and 17:02 PDT). Build 38 (above) carries these too.
 
 ## Owner reports: authors list, Back after a jump, scrolling while streaming — 2026-10-14, night (built; deployment noted below)
 

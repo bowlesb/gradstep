@@ -1547,6 +1547,15 @@ Tests: `tests/database/podcast_device_sources.sql` (register, pin, quote, start,
 `PodcastTransportTests/testDeviceSourceIsStoredThenNamedByTheQuote`. Deployment is recorded in
 IMPLEMENTATION_STATUS.md.
 
+Found by the live proof (`scripts/podcast-device-smoke.mjs`, paid, disposable account): `worker_podcast_asset_plan`
+read the Mathpix source row strictly, so a device episode failed at "publishing" (`database_error`); migration
+**067** reads it only when a shared episode needs its document. The `private-content` bucket must exist (512 KB,
+`text/plain`; `infra/staging.json` `podcast_source_bucket`, verified on every `podcast` deploy). The proof then
+passed end to end (ready in 85 s, 31 credits). Observed on the way: a Short (150 s) DeepSeek draft came back at 710
+words and was rejected (`word_budget`, `spoken_too_long`) — the writer ignored the Short length; the five-minute
+length is the owner's default and behaved. The month's quality allocation was raised to $2.00 (policy revision 10)
+after the two failed proofs reached $0.75 and paused private generation.
+
 ### Script repair: one bounded second draft (migration 062, worker; 2026-10-14)
 
 Owner (2026-10-14): "I was not able to create a podcast at all." The recorded reason for every customer and seed
