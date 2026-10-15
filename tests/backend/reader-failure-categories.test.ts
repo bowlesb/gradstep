@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 // Every reason code the device compiler can throw has a category on both surfaces, and the two tables agree
 // (audit 2026-10-15: the browser's list was kept by hand and iOS collapsed every refusal to one message).
 const root = new URL('../../', import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), 'utf8');
 const converterCodes = new Set<string>();
-for (const file of ['arxiv-html.ts', 'arxiv-bundle.ts', 'device-compiler.ts'])
+// The arXiv converter's components (reader/arxiv/*.ts) refuse with the same helpers as its entry module.
+for (const file of ['arxiv-html.ts', 'arxiv-bundle.ts', 'device-compiler.ts',
+  ...readdirSync(new URL('supabase/functions/_shared/reader/arxiv/', root)).filter(f => f.endsWith('.ts')).map(f => `arxiv/${f}`)])
   // The code is the last argument of a refusing helper (`check`, `boundedText`, …) or an Error's message; LaTeXML
   // class names (`ltx_…`) are never codes.
   for (const m of read(`supabase/functions/_shared/reader/${file}`).matchAll(/(?:\b(?:check|boundedText|decodeUTF8|decode64|integer|text)\([^;]*?, |Error\()'((?!ltx_)[a-z][a-z0-9]*_[a-z0-9_]+)'\)/g)) converterCodes.add(m[1]);

@@ -64,8 +64,15 @@ corpus rather than on what the owner opens today.
    the sweep's 58 papers went from 16 refusals to 0; the catalog title heads a paper without an `h1` and the
    library's names a paper without an author block; the closing note is the ledger so far (unsupported commands,
    left-out graphics).
-2. **Next:** split `arxiv-html.ts` (1,000+ lines) into front matter, body, math, figures and tables modules, each
-   with its own fragment tests; delete heuristics the metadata header makes unnecessary.
+2. **Split, 2026-10-15.** `arxiv-html.ts` keeps the public API and the order of the passes (about 100 lines); the
+   components live in `reader/arxiv/`: `context.ts` (one conversion's state, ids, blocks, reorder and remove),
+   `source.ts`, `urls.ts`, `pictures.ts`, `front-matter.ts`, `authors.ts`, `flow.ts`, `inline.ts`, `math.ts`,
+   `tables.ts`, `figures.ts`, `finish.ts`. No output changed: `scripts/arxiv-converter-equivalence.mjs` compiles every
+   cached arXiv source (sweep, pinned corpus, fixtures: 113 sources, 210 runs with and without catalog metadata) with
+   the previous commit's converter and the working tree and compares assets, inline pictures, HTML, index, image URLs,
+   math diagnostics and refusal codes byte for byte; run it before any restructuring. Still to do: per-component
+   fragment tests, and retiring header heuristics the catalog metadata makes unnecessary (each removal needs its own
+   fixtures, since a branch unused by the cached papers may still serve one not yet seen).
 3. **Then:** the sweep and the import canary run on a schedule with a one-line summary in IMPLEMENTATION_STATUS.md;
    a reader change that drops the success rate does not ship.
 
