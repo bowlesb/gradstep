@@ -21,20 +21,24 @@ export function mathNode(n: DomNode): Child[] {
     if (['class', 'id', 'intent', 'alttext', 'xref', 'xmlns'].includes(key)) continue;
     if (key === 'style') {
       // LaTeXML mirrors a few presentation attributes as CSS. Never retain
-      // source CSS; translate only this finite scalar vocabulary.
+      // source CSS; translate only this finite scalar vocabulary. Anything
+      // else is left out, never refused: one `vertical-align:-2.1pt` on one
+      // formula refused all of 2606.05868 (owner, 2026-10-15: "Couldn't open
+      // this paper"). The formula keeps its content; only that styling goes.
       for (const declaration of value.split(';').map(v => v.trim()).filter(Boolean)) {
         const match = /^(width|height|depth|font-size|--ltx-fg-color|--ltx-bg-color):\s*([A-Za-z0-9 .%#+-]+)$/.exec(declaration);
-        check(match, 'arxiv_math_style');
+        if (!match) continue;
         // The reader owns its colours: a source colour or background (a boxed ± in 2610.18683's tables, a teal
         // dagger) is left out, as the HTML's own colours are.
         if (match[1] === '--ltx-fg-color' || match[1] === '--ltx-bg-color') continue;
         const attr = match[1] === 'font-size' ? 'mathsize' : match[1];
-        check(mathAttributeIsSafe(n.name, attr, match[2]), 'arxiv_math_style'); attrs[attr] = match[2];
+        if (mathAttributeIsSafe(n.name, attr, match[2])) attrs[attr] = match[2];
       }
       continue;
     }
     if (key === 'mathcolor' || key === 'mathbackground') continue;
-    check(mathAttributeIsSafe(n.name, key, value), 'arxiv_math_attribute'); attrs[key] = value;
+    // An attribute outside the allow-list (or with an unsafe value) is left out, as unknown styling is.
+    if (mathAttributeIsSafe(n.name, key, value)) attrs[key] = value;
   }
   return [el(n.name, attrs, children(n).flatMap(mathNode))];
 }

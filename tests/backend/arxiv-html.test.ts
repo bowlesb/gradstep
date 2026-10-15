@@ -143,8 +143,17 @@ test('a caption-only figure after a lone graphic paragraph reads as the figure t
 });
 
 test('unsafe MathML and inconsistent TeX are rejected rather than silently losing equations',()=>{
- for(const replacement of [math.replace('<mi>x</mi>','<mi href="https://evil.example">x</mi>'),math.replace('>x^2</annotation>','>x^3</annotation>'),
+ for(const replacement of [math.replace('>x^2</annotation>','>x^3</annotation>'),
   math.replace('<msup>','<maction>').replace('</msup>','</maction>')])assert.throws(()=>build(source.replace(math,replacement)));
+});
+
+test('math styling or attributes outside the allow-list are left out, never refuse the paper (2606.05868 on build 55)',()=>{
+ for(const replacement of [math.replace('<mi>x</mi>','<mi href="https://evil.example">x</mi>'),
+  math.replace('<mi>x</mi>','<mi style="vertical-align:-2.1pt">x</mi>'),math.replace('<mi>x</mi>','<mi style="width:calc(1px)">x</mi>')]){
+  const html=new TextDecoder().decode(build(source.replace(math,replacement)).members.get('index.html'));
+  assert.doesNotMatch(html,/evil\.example|vertical-align|calc\(/,'nothing of the unknown attribute reaches the page');
+  assert.match(html,/<mi>x<\/mi>/,'the formula keeps its content');
+ }
 });
 
 test('independent verification rejects a self-consistently rehashed foreign source provenance',()=>{

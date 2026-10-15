@@ -57,7 +57,10 @@ export function compose(cx: ArxivContext): { index: ReaderIndex; html: string; i
   }
   const titles = cx.blocks.filter(b => b.node.name === 'h1');
   check(titles.length === 1, 'arxiv_title');
-  const title = boundedText(normalizeSpace(outText(titles[0].node)), LIMITS.headingBytes, 'arxiv_title');
+  // A title set as a picture (2610.18615's word-mark, in the owner's library on build 55) has no words of its own: the
+  // picture stays as the heading and the catalog's title names the paper, never a refusal.
+  const own = normalizeSpace(outText(titles[0].node));
+  const title = boundedText(own || normalizeSpace(cx.metadataTitle ?? '') || 'Untitled paper', LIMITS.headingBytes, 'arxiv_title');
   check(title.length > 0, 'arxiv_title');
   const headings = cx.blocks.filter(b => b.kind === 'heading' && b !== titles[0]).map(b => ({ id: b.id,
     level: Number(b.node.name.slice(1)), title: boundedText(normalizeSpace(outText(b.node)), LIMITS.headingBytes, 'heading_limit') }));
