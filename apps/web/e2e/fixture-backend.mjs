@@ -203,11 +203,8 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
-  // Only the device-search switch (migration 072), and only while a journey turns it on (__device-search).
-  v1_reader_capabilities: (id, a) => {
-    if (!a.deviceSearch) throw pg('capabilities_unavailable');
-    return { account_id: id, device_search: { enabled: true, format: 'device-search-v1' } };
-  },
+  // The device-search switch (migration 072), as staging answers it: off unless a journey turns it on (__device-search).
+  v1_reader_capabilities: (id, a) => ({ account_id: id, device_search: { enabled: !!a.deviceSearch, format: 'device-search-v1' } }),
   // Operator roles for the account menu's Operations dashboard link (ADMIN_HEALTH.md): fixture readers have none.
   v1_account_context: id => ({ account_id: id, protocol_version: 1, roles: [], operator_verified: false }),
   v3_pull_events: (id, a, p) => {

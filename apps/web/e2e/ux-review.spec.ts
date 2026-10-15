@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { fixtureOrigin as API } from './environment';
+import { durableKeys } from './key-capability';
 
 const OUT = new URL('../../../.artifacts/ux/web/', import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
@@ -27,6 +28,7 @@ const message = (page: Page) => page.getByRole('textbox', { name: 'Message', exa
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`${scheme}: sign-in, library, reader and the chat states`, async ({ page, request }, info) => {
+    test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys; the review needs a signed-in browser (as the other key-dependent journeys).');
     // Legacy fixture papers try their official arXiv HTML first; the review reads the fixture bundle (no test reaches arXiv).
     await page.route('https://arxiv.org/**', route => route.abort());
     await request.post(`${API}/__reset`);
