@@ -145,6 +145,10 @@ final class PodcastCenter {
     private(set) var capabilities: PodcastCapabilities?
     private(set) var catalog: [PodcastEpisode] = []
     private(set) var catalogState: CatalogState = .idle
+    /// When the shown list was loaded, and a note when a later check failed: the list stays, said as of then
+    /// (docs/architecture/RESILIENCE.md fix 10).
+    private(set) var catalogLoadedAt: Date?
+    private(set) var catalogStaleNote: String?
     private(set) var catalogNext: String?
     let player = PodcastPlayer()
     var showPlayer = false
@@ -352,12 +356,17 @@ final class PodcastCenter {
                 guard self.account?.id == account.id, !Task.isCancelled else { return }
                 capabilities = page.capabilities ?? capabilities
                 catalog = page.episodes.map { resolve($0) }; catalogNext = page.next; catalogState = .loaded
+                catalogLoadedAt = Date(); catalogStaleNote = nil
                 #if DEBUG && FIXTURE_HOST
                 fixtureAutoplay()
                 #endif
                 await refreshDownloadedStates()
             } catch {
                 guard self.account?.id == account.id, !Task.isCancelled else { return }
+                if !catalog.isEmpty, catalogState == .loaded, let loaded = catalogLoadedAt {
+                    catalogStaleNote = "Couldn’t check for new episodes. These are the episodes from \(LastGood.phrase(loaded))."
+                    return
+                }
                 catalogState = .failed(error.podcastMessage)
             }
         }

@@ -4,7 +4,7 @@ import ScienceReaderCore
 
 /// Synthetic answers for UI journeys (`--chat-fixture`). Compiled out of
 /// physical-device and release builds; it never opens a network connection.
-/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|broken_diagram|sources|research`.
+/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|broken_diagram|sources|research|throttled|overloaded|stall`.
 /// `broken_diagram`: a diagram Mermaid can't parse, and a correction (`diagram_fix`) that still can't be.
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
 /// `figure_parts`: an answer about the sample's Figure 1 that marks where its two parts go, and the parts.
@@ -17,6 +17,9 @@ struct ChatFixtureTransport: ChatTransport {
     enum Mode: String, Sendable {
         case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, brokenDiagram = "broken_diagram", sources, research
         case figureParts = "figure_parts", equation
+        /// Faults (docs/architecture/RESILIENCE.md): the server is rate limiting (`rate_limited` before any text), the
+        /// AI provider is overloaded (`provider_unavailable` before any text), or the stream goes silent (no events at all).
+        case throttled, overloaded, stall
     }
     let mode: Mode
 
@@ -117,6 +120,15 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.finish(); return
                     }
                     switch mode {
+                    case .throttled:
+                        try await Task.sleep(for: .milliseconds(200))
+                        continuation.yield(.failure(code: "rate_limited"))
+                    case .overloaded:
+                        try await Task.sleep(for: .milliseconds(200))
+                        continuation.yield(.failure(code: "provider_unavailable"))
+                    case .stall:
+                        // Nothing ever arrives: the client's idle deadline must end it.
+                        try await Task.sleep(for: .seconds(3600))
                     case .insufficientCredits:
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "insufficient_credits"))

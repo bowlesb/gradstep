@@ -769,11 +769,18 @@ struct FeedView: View {
                             Button("Show them") { model.feedHidesLibrary = false }.accessibilityIdentifier("feed.showLibrary")
                         }
                     } else if tableShown {
+                        if let stale = model.feedStaleNote {
+                            StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }
+                                .padding(.horizontal, DesignMetrics.margin).padding(.top, 6)
+                        }
                         FeedTable(model: model, issue: $issue).refreshable { model.loadFeed() }
                     } else {
                         List {
                             if let issue {
                                 StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
+                            }
+                            if let stale = model.feedStaleNote {
+                                StatusBanner(tone: .info, systemImage: "clock.arrow.circlepath", message: stale, messageID: "feed.stale") { EmptyView() }.listRowSeparator(.hidden)
                             }
                             FeedColdStartNote(model: model)
                             ForEach(model.shownFeedResults) { result in

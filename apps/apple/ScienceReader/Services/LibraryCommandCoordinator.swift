@@ -341,6 +341,7 @@ final class LibraryCommandCoordinator {
         if let backend = error as? BackendError {
             switch backend {
             case .signInRequired: return .authentication
+            case .throttled: return .rateLimited
             case .rejected(let code):
                 if code == "request_failed" { return .connection }
                 if code == "request_rate_limit" { return .rateLimited }

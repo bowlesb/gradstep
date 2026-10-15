@@ -12,6 +12,45 @@ protocol ChatTransport: Sendable {
 
 extension BackendClient: ChatTransport {}
 
+/// Every answer has an end (docs/architecture/RESILIENCE.md, "bounded time everywhere"): a stream that sends nothing for
+/// `idle` — the server pings every 15 s — ends with the connection-interrupted message instead of an endless spinner.
+/// Wraps any transport, so the fixture and the live one behave the same.
+struct IdleBoundedChatTransport: ChatTransport {
+    let base: any ChatTransport
+    let idle: Duration
+
+    func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        let source = try await base.chatStream(request, accountID: accountID)
+        let idle = self.idle
+        return AsyncThrowingStream { continuation in
+            let lastEvent = LastEvent()
+            let forward = Task {
+                do {
+                    for try await event in source { await lastEvent.touch(); continuation.yield(event) }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            let watchdog = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: idle / 4)
+                    if await lastEvent.silent(longerThan: idle) {
+                        forward.cancel(); continuation.finish(throwing: ChatTransportError.rejected("transport")); return
+                    }
+                }
+            }
+            continuation.onTermination = { _ in forward.cancel(); watchdog.cancel() }
+        }
+    }
+    func creditBalance(accountID: UUID) async throws -> CreditBalance { try await base.creditBalance(accountID: accountID) }
+    func chatProfiles(accountID: UUID) async throws -> ChatProfileTable { try await base.chatProfiles(accountID: accountID) }
+
+    private actor LastEvent {
+        private var at = ContinuousClock.now
+        func touch() { at = .now }
+        func silent(longerThan idle: Duration) -> Bool { ContinuousClock.now - at > idle }
+    }
+}
+
 enum ChatTransportError: Error, Equatable {
     /// A stable server code (docs/architecture/CHAT.md), never response text.
     case rejected(String)

@@ -80,10 +80,28 @@ struct AppleAuthorization: Sendable { let id: UUID; let hashedNonce: String }
 
 enum BackendError: LocalizedError {
     case unavailable, signInRequired, emailConfirmation, rejected(String), transport
+    /// The server or a provider behind it asked us to slow down (HTTP 429 without a more specific code). Carries its
+    /// wait when it gave one (`Retry-After` or a body's `retry_after`); callers back off at least that long
+    /// (docs/architecture/RESILIENCE.md fix 9).
+    case throttled(retryAfter: TimeInterval?)
     /// Finite public delivery codes only. Server-provided prose never reaches the reader UI.
     static let readerDeliveryCodes: Set<String> = ["reader_transfer_limit", "reader_upgrade_required",
         "reader_grant_unavailable", "reader_grant_consumed", "asset_inventory_incomplete",
         "reader_unavailable", "reader_not_ready", "reader_integrity_failed"]
+    /// Seconds the server asked us to wait, when it said.
+    var retryAfter: TimeInterval? { if case .throttled(let wait) = self { wait } else { nil } }
+    /// A failure worth retrying later without the reader doing anything differently: the connection, a busy server
+    /// or an unexplained server error. Specific refusals (limits, credits, keys) are not.
+    var isTransient: Bool {
+        switch self {
+        case .transport, .throttled: true
+        case .rejected(let code): code == "request_failed"
+        default: false
+        }
+    }
+    static func waitPhrase(_ seconds: TimeInterval) -> String {
+        seconds < 90 ? "\(Int(seconds.rounded(.up))) seconds" : "\(Int((seconds / 60).rounded(.up))) minutes"
+    }
     var readerDeliveryMessage: String? {
         guard case .rejected(let code) = self, Self.readerDeliveryCodes.contains(code) else { return nil }
         return errorDescription
@@ -117,6 +135,9 @@ enum BackendError: LocalizedError {
             default: "The server could not complete this request. Please try again."
         }
         case .transport: "The connection was interrupted. Your saved work is still on this device."
+        case .throttled(let wait):
+            if let wait, wait >= 1 { "Gradstep is busy right now. Try again in \(Self.waitPhrase(wait)). Your saved work is still on this device." }
+            else { "Gradstep is busy right now. Try again shortly. Your saved work is still on this device." }
         }
     }
 }
@@ -127,6 +148,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
     private var authGeneration: UInt64 = 0
     private let network: URLSession
+    /// Ordinary requests (RPCs and small function calls): bounded in total, not only between bytes, so no spinner waits
+    /// forever (RESILIENCE.md fix 11). Streams and downloads use `network`, bounded more loosely.
+    private let rpcNetwork: URLSession
     /// Library read version: 5 (full entries with uploads), or 3 on a server that doesn't have v5 yet.
     private let authNetwork: URLSession
     private let credentials: any AuthenticationCredentialStore
@@ -152,11 +176,23 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         self.credentials = credentials
         let settings = URLSessionConfiguration.ephemeral
         settings.timeoutIntervalForRequest = 60
+        // A chat answer streams for minutes and an episode downloads in one request: fifteen minutes in total, not
+        // the system's seven days.
+        settings.timeoutIntervalForResource = 900
         settings.waitsForConnectivity = false
+        Self.injectFaults(settings)
         self.network = network ?? URLSession(configuration: settings)
+        // Preserves injected URLProtocol fixtures, as the auth session below does.
+        let rpcSettings = network?.configuration ?? URLSessionConfiguration.ephemeral
+        rpcSettings.timeoutIntervalForRequest = 60
+        rpcSettings.timeoutIntervalForResource = 180
+        rpcSettings.waitsForConnectivity = false
+        Self.injectFaults(rpcSettings)
+        self.rpcNetwork = URLSession(configuration: rpcSettings)
         // Preserve injected URLProtocol fixtures while fixing auth-only limits;
         // support/library payload policy remains independent.
         let authSettings = network?.configuration ?? URLSessionConfiguration.ephemeral
+        Self.injectFaults(authSettings)
         authSettings.timeoutIntervalForRequest = 30
         authSettings.timeoutIntervalForResource = 60
         authSettings.waitsForConnectivity = false
@@ -170,6 +206,14 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         if let stored {
             session = try Self.decodeSession(stored)
         }
+    }
+
+    /// UI journeys only: `--backend-fault=…` puts the fault injector in front of every backend request (Debug fixture
+    /// builds; a no-op everywhere else).
+    private static func injectFaults(_ settings: URLSessionConfiguration) {
+        #if DEBUG && FIXTURE_HOST
+        if BackendFaultProtocol.isActive { settings.protocolClasses = [BackendFaultProtocol.self] + (settings.protocolClasses ?? []) }
+        #endif
     }
 
     func currentUser() -> AuthSession.User? { session?.user }
@@ -994,9 +1038,10 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 // A one-byte member may have a larger finite JSON quota error. Keep the
                 // success ceiling exact, with a separate small error-only ceiling.
                 let errorBytes = path.hasPrefix("functions/v1/reader-member?") ? 4_096 : nil
-                (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes, maximumErrorBytes: errorBytes)
+                (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes, maximumErrorBytes: errorBytes,
+                                                             session: rpcNetwork)
             } else {
-                (data, response) = try await network.data(for: request)
+                (data, response) = try await rpcNetwork.data(for: request)
             }
         } catch {
             SessionTimeline.shared.record("request", ["method": method, "path": SessionTimeline.describe(path: path), "status": "failed",
@@ -1008,8 +1053,11 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
         guard let response = response as? HTTPURLResponse else { throw BackendError.transport }
         guard (200..<300).contains(response.statusCode) else {
-            struct Failure: Decodable { let code: String?; let message: String?; let error_code: String? }
+            struct Failure: Decodable { let code: String?; let message: String?; let error_code: String?; let retry_after: Double? }
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
+            let throttled = response.statusCode == 429
+                ? BackendError.throttled(retryAfter: RetryBackoff.retryAfter(header: response.value(forHTTPHeaderField: "Retry-After"), body: failure?.retry_after))
+                : nil
             if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
                 throw LibraryTransportError.resyncRequired
             }
@@ -1032,6 +1080,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                    commandCodes.contains(message) { throw BackendError.rejected(message) }
                 // Unknown bodies, wrong HTTP/SQL codes and embedded lookalike
                 // strings never become an immutable-operation conflict.
+                if let throttled { throw throttled }
                 throw BackendError.rejected("request_failed")
             }
             let known = Set(["upload_too_large", "upload_quota", "upload_limit", "upload_storage_full", "upload_expired", "upload_id_conflict",
@@ -1043,13 +1092,16 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                              "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "reader_update_required", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
                 .union(BackendError.podcastCodes)
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
+            // A busy server without a more specific code: wait as asked rather than a generic refusal.
+            if code == "request_failed", let throttled { throw throttled }
             throw BackendError.rejected(code)
         }
         return data
     }
 
-    private func boundedResponse(for request: URLRequest, maximumBytes: Int, maximumErrorBytes: Int? = nil) async throws -> (Data, URLResponse) {
-        let (bytes, response) = try await network.bytes(for: request, delegate: LibraryRedirectPolicy())
+    private func boundedResponse(for request: URLRequest, maximumBytes: Int, maximumErrorBytes: Int? = nil,
+                                 session: URLSession? = nil) async throws -> (Data, URLResponse) {
+        let (bytes, response) = try await (session ?? network).bytes(for: request, delegate: LibraryRedirectPolicy())
         // Always cancel on early exit, including a false Content-Length,
         // decoder-independent overflow, cancellation, or a truncated stream.
         defer { bytes.task.cancel() }

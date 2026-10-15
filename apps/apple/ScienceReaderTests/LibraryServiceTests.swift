@@ -628,7 +628,8 @@ final class LibraryTransportTests: XCTestCase {
             (.init(data: f.bytes(["code": "P0001", "message": "request_rate_limit"]), status: 400), "request_rate_limit"),
             (.init(data: f.bytes(["code": "P0001", "message": "library_account_item_limit"]), status: 400), "library_account_item_limit"),
             (.init(data: f.bytes(["code": "P0001", "message": "operation_id_conflict"]), status: 503), "request_failed"),
-            (.init(data: f.bytes(["code": "P0001", "message": "operation_id_conflict"]), status: 429), "request_failed"),
+            // A busy server is not a conflict either: it says to wait (RESILIENCE.md fix 9).
+            (.init(data: f.bytes(["code": "P0001", "message": "operation_id_conflict"]), status: 429), "throttled"),
             (.init(data: f.bytes(["code": "other", "message": "operation_id_conflict"]), status: 400), "request_failed"),
             (.init(data: f.bytes(["code": "P0001", "message": "some operation_id_conflict text"]), status: 400), "request_failed"),
             (.init(data: f.bytes(["code": "P0001", "details": "operation_id_conflict"]), status: 400), "request_failed"),
@@ -643,6 +644,7 @@ final class LibraryTransportTests: XCTestCase {
         for (_, expected) in cases {
             do { _ = try await client.libraryCommand(attempt); XCTFail("Error must reject") }
             catch BackendError.rejected(let code) { XCTAssertEqual(code, expected) }
+            catch BackendError.throttled { XCTAssertEqual("throttled", expected) }
         }
         do { _ = try await client.libraryCommand(attempt); XCTFail("Expired auth must pause") }
         catch BackendError.signInRequired { }

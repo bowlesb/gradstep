@@ -205,6 +205,8 @@ final class AuthenticationModelTests: XCTestCase {
     func testAccountPreparationFailureOffersRetryWithoutBootstrappingFreshKeys() async throws {
         let server = AuthenticationModelServer(); server.configure(failKeys: true)
         let fixture = try fixture(server: server), model = fixture.model
+        // Retried by hand below; the automatic retry would also call v1_key_state.
+        model.accountPreparationRetryDelay = { _, _ in 3_600 }
         model.openSignIn()
         try XCTUnwrap(model.authentication).startApple(presenter: AuthenticationModelPresenter())
         await eventually("preparation failure shown") { model.accountPreparationIssue != nil && !model.isBusy }
@@ -212,7 +214,9 @@ final class AuthenticationModelTests: XCTestCase {
         XCTAssertFalse(model.showRecovery)
         let keyBytes = try XCTUnwrap(KeychainVault.read(fixture.deviceKeyName))
         model.authenticationSheetDismissed()
-        XCTAssertTrue(model.showRecovery)
+        // A server that can't be reached (503) is not a key problem: no recovery sheet (RESILIENCE.md fix 6).
+        XCTAssertFalse(model.showRecovery)
+        XCTAssertTrue(model.accountPreparationIssue?.contains("Couldn’t reach Gradstep") == true, model.accountPreparationIssue ?? "")
         server.configure()
         await model.retryAccountPreparation()
         XCTAssertNil(model.accountPreparationIssue)
