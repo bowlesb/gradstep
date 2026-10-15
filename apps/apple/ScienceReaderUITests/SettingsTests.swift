@@ -29,6 +29,22 @@ final class SettingsTests: XCTestCase {
         let attached = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); attached.name = name; attached.lifetime = .keepAlways; add(attached)
     }
 
+    /// The owner's monitoring is one tap from Settings (docs/architecture/ADMIN_HEALTH.md); readers never see the row.
+    func testOperationsDashboardRowIsForOperatorsOnly() {
+        var app = openSettings(["--chat-fixture", "--chat-fixture-consented", "--operator-fixture"])
+        let row = app.descendants(matching: .any)["settings.operations"]
+        // Settings is a few screens tall; the row sits just above About.
+        for _ in 0..<5 where !row.waitForExistence(timeout: 1) { app.swipeUp() }
+        XCTAssertTrue(row.exists, "An operator sees Operations dashboard")
+        XCTAssertTrue(app.staticTexts["Operations dashboard"].exists)
+        attach("settings-operations")
+        app.terminate()
+        app = openSettings(["--chat-fixture", "--chat-fixture-consented"])
+        for _ in 0..<5 { app.swipeUp() }
+        XCTAssertTrue(app.buttons["settings.about"].exists || app.descendants(matching: .any)["settings.about"].exists, "Scrolled to the bottom")
+        XCTAssertFalse(app.descendants(matching: .any)["settings.operations"].exists, "A reader never sees it")
+    }
+
     func testAccountRowOpensAPageWithSyncSignOutAndDelete() {
         let app = openSettings(["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture"])
         let row = app.buttons["account.row"]

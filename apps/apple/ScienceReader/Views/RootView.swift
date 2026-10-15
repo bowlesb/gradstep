@@ -1341,6 +1341,16 @@ struct SettingsView: View {
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
                     Button("Open reader sample") { model.openSample() }
                 }
+                // The owner's monitoring (docs/architecture/ADMIN_HEALTH.md): the private admin site, for operators only.
+                if !model.operatorRoles.isEmpty {
+                    Section {
+                        Link(destination: OperationsDashboard.url(roles: model.operatorRoles)) {
+                            Label("Operations dashboard", systemImage: "chart.xyaxis.line")
+                        }.accessibilityIdentifier("settings.operations")
+                    } header: { Text("Operations") } footer: {
+                        Text("People, use, reliability and spending, on the private admin site. Sign in there once with your password and authenticator.")
+                    }
+                }
                 // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
                 Section {
                     NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
@@ -1353,6 +1363,8 @@ struct SettingsView: View {
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
                 .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model) }
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance(); await model.refreshStoreSummary() } }
+                // Its own task: a slow balance or store answer never holds the operator row back.
+                .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshOperatorRoles() } }
                 .toolbar { if let dismissSettings { ToolbarItem(placement: .confirmationAction) { Button("Done", action: dismissSettings) } } }
         }
     }
@@ -1377,6 +1389,13 @@ struct SettingsView: View {
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
             }.contentShape(Rectangle())
         }.tint(.primary)
+    }
+}
+
+/// The admin site's address for an operator: the owner lands on Health, support on Support.
+enum OperationsDashboard {
+    static func url(roles: [String]) -> URL {
+        URL(string: roles.contains("owner") ? "https://admin.gradstep.ai/#health/30" : "https://admin.gradstep.ai/#support")!
     }
 }
 

@@ -578,3 +578,11 @@ export async function signedMember(url: string, bytes: number, signal?: AbortSig
   } catch (error) { if (signal?.aborted || error instanceof BackendError) throw error; throw new BackendError('connection'); }
   finally { deadline.dispose(); }
 }
+
+/** The account's operator roles (`v1_account_context`): the account menu links the operations dashboard for them. */
+export async function operatorRoles(account: string, signal?: AbortSignal): Promise<string[]> {
+  const context = await rpc<{ roles?: unknown }>('v1_account_context', {}, { account, signal, maximum: 4_096 });
+  return Array.isArray(context?.roles) ? context.roles.filter((r): r is string => r === 'owner' || r === 'support') : [];
+}
+/** The admin site's address for an operator: the owner lands on Health, support on Support (docs/architecture/ADMIN_HEALTH.md). */
+export const operationsDashboard = (roles: string[]) => roles.includes('owner') ? 'https://admin.gradstep.ai/#health/30' : 'https://admin.gradstep.ai/#support';

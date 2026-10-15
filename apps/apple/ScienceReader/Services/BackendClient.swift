@@ -388,6 +388,15 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return LibraryPageDelivery(request: request, page: page)
     }
 
+    /// The account's operator roles from `v1_account_context` ("owner", "support"): Settings then links the operations
+    /// dashboard. Other roles and readers get an empty list.
+    func operatorRoles(accountID: UUID) async throws -> [String] {
+        let data = try await authorized(path: "rest/v1/rpc/v1_account_context", body: Data("{}".utf8),
+            accountID: accountID, maximumResponseBytes: 4_096)
+        let roles = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["roles"] as? [String] ?? []
+        return roles.filter { ["owner", "support"].contains($0) }
+    }
+
     func readerCapabilities(accountID: UUID) async throws -> ReaderCapabilities? {
         do {
             let data = try await authorized(path: "rest/v1/rpc/v1_reader_capabilities", body: Data("{}".utf8),

@@ -1,6 +1,23 @@
 # Implementation status
 
-Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
+
+## Monitoring for 100 → 1,000 people, and figure parts inline — 2026-10-15, ~14:40 UTC
+
+Owner: "the crops should be inline, right as the chat discusses each one" and "Imagine the graphs I need to monitor,
+what are they, how do I access them, does it feel seamless? Please build".
+- **Health tab** (docs/architecture/ADMIN_HEALTH.md), first for the owner at `https://admin.gradstep.ai/#health/30`:
+  an Attention list, then people (accounts, active this week / 30 days, came back, sign-ups; active accounts per day
+  with a 7-day line), use (papers, chat answers, podcasts per day), reliability (failed paper adds and podcasts with
+  their reasons, unsettled chat answers, open reports) and cost (month to date, forecast against the budget, per active
+  account, projections at 100 and 1,000 accounts, spend per day by provider, credits, prompt-cache share). 7/30/90 days,
+  refreshed every minute while open. Migration 069 (`account_activity_days` rollup, `v1_admin_health`, owner + MFA):
+  338 database tests pass; applied and verified on staging. Admin Pages `b71d1f6a`, Home Screen manifest and icons.
+- **Access**: "Operations dashboard" in Settings (apps) and the account menu (browser) for owner/support accounts.
+- **Deploy hazard fixed**: a new admin script cached as HTML during propagation blanked the admin; the admin now has a
+  real 404 and `deploy-web.mjs` verifies every script and stylesheet live (ADMIN_HOSTING.md).
+- **Figure parts inline** (CHAT.md): crops at `[[part N]]` markers, the outlined whole figure below; chat function on
+  staging, live proof on DPO. Browser and TestFlight 53 follow below.
 
 ## Figures in chat when you don't name one, and figures with panels — 2026-10-15, ~11:45 UTC
 

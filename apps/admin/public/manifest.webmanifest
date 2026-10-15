@@ -1,0 +1,14 @@
+{
+  "name": "Gradstep Operations",
+  "short_name": "Gradstep Ops",
+  "description": "Gradstep's private operations dashboard.",
+  "start_url": "/#health/30",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f7fa",
+  "theme_color": "#17154a",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

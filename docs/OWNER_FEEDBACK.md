@@ -9,6 +9,13 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat, 2026-10-15: figure display, and monitoring at 100 → 1,000 people
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "I think the Figure display needs work. It should display sub figures at the bottom the crops should be inline, right as the chat discusses each one." | Chat (all surfaces) | Read as: each crop inline where the answer discusses it, and the whole figure with its parts outlined at the bottom. The model marks each part's place (`[[part N]]`); the apps and the browser put the crop there. Proven live on DPO's Figure 1. | Built; chat function on staging; browser and build 53 |
+| 2 | "imagine there are 100 users … could be 1000. Imagine the graphs I need to monitor, what are they, how do I access them, does it feel seamless ? Please build" | Admin | Health tab: people, use, reliability, cost, with an Attention list and 100/1,000 projections; one sign-in (password + authenticator), Home Screen app, link in Settings. Cannot see papers that fail on the device (the server never sees them). | Live on admin.gradstep.ai (staging data) |
+
 ## Chat, 2026-10-15: "Sending figures to model should be ok?"
 
 | # | Owner said | Where | Cause / plan | Status |

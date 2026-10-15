@@ -48,3 +48,22 @@ test('a browser report includes a screenshot and can be reopened from My reports
   // It decodes (the page's image policy blocks blob: URLs; a blocked image still shows its alt text).
   await expect.poll(() => page.getByAltText('Screenshot shared with support').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
 });
+
+test('an operator gets the operations dashboard in the account menu; a reader does not', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys; the account menu requires an authenticated browser.');
+  let roles: string[] = [];
+  await page.route('**/rest/v1/rpc/v1_account_context', route => route.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ account_id: '00000000-0000-4000-8000-000000000001', protocol_version: 1, roles, operator_verified: false }) }));
+  await signIn(page);
+  await page.getByTestId('account-menu').click();
+  await expect(page.getByTestId('my-reports')).toBeVisible();
+  await expect(page.getByTestId('operations-dashboard')).toHaveCount(0);
+  roles = ['owner'];
+  await page.reload();
+  await expect(page.getByRole('link', { name: 'Library' })).toBeVisible();
+  await page.getByTestId('account-menu').click();
+  const link = page.getByTestId('operations-dashboard');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('href', 'https://admin.gradstep.ai/#health/30');
+  await expect(link).toHaveAttribute('target', '_blank');
+});

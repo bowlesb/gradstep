@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deployWeb } from '../../scripts/deploy-web.mjs';
+import { deployWeb, verifyLive } from '../../scripts/deploy-web.mjs';
 
 const project = 'aaaaaaaaaaaaaaaaaaaa', backend = `https://${project}.supabase.co`;
 const jwt = (role = 'anon', ref = project) => Buffer.from('{}').toString('base64url') + '.' + Buffer.from(JSON.stringify({ role, ref })).toString('base64url') + '.fixture';
@@ -25,7 +25,8 @@ function fixture(t, changes = {}) {
       if (command !== 'npm') return;
       const app = args[1] === 'build:admin' ? 'apps/admin' : 'apps/web';
       const directory = join(root, app, 'dist'); mkdirSync(join(directory, 'assets'), { recursive: true });
-      writeFileSync(join(directory, '_headers'), adminHeaders);
+      // The browser reader also fetches arXiv HTML directly (device-only reading), so its connect-src names arXiv first.
+      writeFileSync(join(directory, '_headers'), app === 'apps/web' ? adminHeaders.replace(`connect-src ${backend}`, `connect-src https://arxiv.org ${backend}`) : adminHeaders);
       writeFileSync(join(directory, 'index.html'), '<html><body><script src="/assets/client.js"></script></body></html>');
       writeFileSync(join(directory, 'assets/client.js'), `export const endpoint=${JSON.stringify(backend)},key=${JSON.stringify(env.SUPABASE_ANON_KEY)};`);
       mutate(directory);
@@ -39,7 +40,7 @@ test('admin target builds from the repository, strips inherited public/server va
   assert.equal(f.calls.length, 2);
   assert.deepEqual([f.calls[0].command, f.calls[0].args, f.calls[0].cwd], ['npm', ['run', 'build:admin'], f.root]);
   assert.deepEqual(Object.fromEntries(Object.entries(f.calls[0].env).filter(([key]) => key.startsWith('VITE_'))),
-    { VITE_SUPABASE_URL: backend, VITE_SUPABASE_ANON_KEY: jwt(), VITE_ENVIRONMENT: 'staging' });
+    { VITE_SUPABASE_URL: backend, VITE_AUTH_URL: backend, VITE_SUPABASE_ANON_KEY: jwt(), VITE_ENVIRONMENT: 'staging' });
   assert.equal(f.calls[0].env.NODE_ENV, 'production');
   assert.equal(f.calls[0].env.CLOUDFLARE_API_TOKEN, undefined); assert.equal(f.calls[0].env.SUPABASE_SERVICE_ROLE_KEY, undefined);
   assert.deepEqual(f.calls[1].args, ['pages', 'deploy', join(f.root, 'apps/admin/dist'), '--project-name', 'gradstep-admin', '--branch', 'main', '--commit-dirty=true', '--force']);
@@ -124,4 +125,25 @@ test('fixtures, source maps, environment files, symlinks and Pages Functions can
   assert.throws(() => deployWeb('admin', link.options), /symbolic links/); assert.equal(link.calls.length, 1);
   const functions = fixture(t); mkdirSync(join(functions.root, 'functions'));
   assert.throws(() => deployWeb('admin', functions.options), /root functions/); assert.equal(functions.calls.length, 1);
+});
+
+test('a deploy is verified live: an HTML fallback cached for a new script fails it', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'gradstep-live-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(join(directory, 'index.html'), '<script type="module" src="/assets/index-new.js"></script><link rel="stylesheet" href="/assets/index-new.css">');
+  const page = (body, type, status = 200) => ({ ok: status < 400, status, text: async () => body, headers: new Map([['content-type', type]]) });
+  let indexCalls = 0; const seen = [];
+  const serve = poisoned => async (url, init) => {
+    seen.push([url, init?.headers?.Origin ?? null]);
+    if (new URL(url).pathname === '/') return page(++indexCalls < 3 ? '<script src="/assets/index-old.js">' : '<script src="/assets/index-new.js"><link href="/assets/index-new.css">', 'text/html');
+    if (poisoned) return page('<!doctype html>', 'text/html; charset=utf-8');
+    return page('', url.endsWith('.js') ? 'application/javascript' : 'text/css; charset=utf-8');
+  };
+  const options = { wait: async () => {}, log: () => {} };
+  await verifyLive(directory, 'admin.example', { ...options, fetchImpl: serve(false) });
+  assert.equal(indexCalls, 3, 'waits for the domain to serve the new index');
+  assert.deepEqual(seen.filter(([u]) => u.includes('/assets/')).map(([, origin]) => origin), ['https://admin.example', 'https://admin.example']);
+  indexCalls = 0;
+  await assert.rejects(verifyLive(directory, 'admin.example', { ...options, fetchImpl: serve(true) }), /HTML fallback/);
+  indexCalls = -1e9;
+  await assert.rejects(verifyLive(directory, 'admin.example', { ...options, fetchImpl: serve(false), timeoutMs: -1 }), /previous index/);
 });

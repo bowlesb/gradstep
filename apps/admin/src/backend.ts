@@ -137,3 +137,18 @@ export interface PipelineMetrics {
   recent_failures: { at: string; kind: 'crash' | 'import' | 'stage'; source: string | null; stage: string | null; error_code: string | null; private: boolean | null }[];
   stuck: { id: string; source: string; private: boolean; stage: string; since: string; minutes: number; claims: number; crashes: number; leased: boolean }[];
 }
+
+/** v1_admin_health (migration 069, docs/architecture/ADMIN_HEALTH.md): daily series over the window, UTC days. */
+export interface Health {
+  generated_at: string; since: string; today: string; days: number; month_start: string;
+  people: { accounts: number; new_in_window: number; active_7d: number; active_30d: number; returning_7d: number;
+    daily: { day: string; new: number; active: number; active_7d: number }[] };
+  use: { papers_added: number; chat_answers: number; chatting_accounts: number; podcasts_started: number;
+    daily: { day: string; papers: number; chats: number; chatting: number; podcasts: number }[] };
+  reliability: { papers_failed: number; paper_failure_codes: Record<string, number>; chats_unsettled: number; podcasts_ready: number;
+    podcasts_failed: number; podcast_failure_codes: Record<string, number>; reports_open: number;
+    daily: { day: string; papers_failed: number; podcasts_failed: number; reports: number }[] };
+  money: { month_to_date_microusd: number; window_microusd: number; by_provider: Record<string, number>; credits_consumed: number; credits_granted: number;
+    chat_cache: { read_tokens: number; write_tokens: number; input_tokens: number };
+    daily: { day: string; microusd: number; by_provider: Record<string, number>; credits_consumed: number }[] };
+}

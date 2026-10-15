@@ -101,3 +101,14 @@ There were no off-origin requests, JavaScript/CSP errors, owner actions or hoste
 are in `.artifacts/admin-hosting/production-build-check.json`, `production-sign-in.png` and
 `production-sign-in-phone-dark.png`. These local checks are separate from the live-domain proof above and do not
 establish hosted owner MFA.
+
+## A missing asset is a 404, and every deploy is checked live (2026-10-15)
+
+During the Health deploy the admin's new script was requested while Cloudflare was still switching deployments; the
+old deployment answered with its single-page fallback (index.html, 200), the `/assets/*` rule marked it immutable, and
+an edge kept it for requests carrying an `Origin` header (every module script). The live admin was blank. Two changes:
+the admin ships `404.html` (it routes by `#hash` only), so a missing asset is a 404 instead of a page cached for a
+year; and `scripts/deploy-web.mjs` now waits until the domain serves the new index, then fetches each script and
+stylesheet with an `Origin` header and fails the deploy if one comes back as anything else (`verifyLive`, tested in
+`tests/operations/web-deployment.test.mjs`, part of `npm test`). The browser reader keeps its fallback (it routes by
+path: `/feed`, `/paper/…`), so the live check is its guard; recovery is a new deploy whose changed files get new names.

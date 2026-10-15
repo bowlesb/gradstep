@@ -169,3 +169,35 @@ dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba
 .spending-entry fieldset{border:0;padding:0;margin:0;min-width:0}.spending-entry-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px}.spending-entry select{font:inherit;font-weight:400;width:100%;min-width:0;min-height:42px;padding:8px 10px;border:1px solid var(--viz-axis);border-radius:7px;background:var(--viz-surface);color:inherit}.spending-entry select:focus-visible{outline:3px solid #a5b4fc;outline-offset:3px}.spending-entry .field-help{margin:8px 0 16px}.spending-entry-actions{display:flex;gap:12px 20px;align-items:center;flex-wrap:wrap}.spending-entry .notice{display:block}.observation-receipt{overflow-wrap:anywhere}.spending-entry form>p{margin-bottom:0}.spending-entry .section-heading{flex-wrap:wrap}@media(max-width:650px){.spending-entry-grid{grid-template-columns:minmax(0,1fr)}.spending-entry input[type=month]{max-width:100%;min-width:0}}
 .spending>form.toolbar{flex-direction:row;justify-content:flex-start}.spending .toolbar select{font:inherit;font-weight:400;min-height:42px;padding:8px 12px;border:1px solid var(--viz-axis);border-radius:7px;background:var(--viz-surface);color:inherit}.spending .toolbar select:focus-visible{outline:3px solid #a5b4fc;outline-offset:3px}
 .spending .toolbar{align-items:end}.spending .toolbar label{font-size:12px;display:flex;flex-direction:column;gap:6px}.spending .account-filter{flex:1;max-width:400px;min-width:200px}.spending .metric strong{font-size:26px}.spending .metric small{display:block;margin-top:8px;color:#818898;font-size:12px}.spending .check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:12px}.spending .check input{width:auto}.spending .identifier{overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,monospace;font-size:13px}.spending .attempt-detail,.spending .financial-record{border-top:1px solid var(--viz-grid);padding:12px 0;font-size:13px}.spending summary{cursor:pointer}.attempt-detail summary span{float:right;margin-left:12px}.attempt-detail dl{display:grid;grid-template-columns:130px minmax(0,1fr);gap:9px 15px;margin:18px 0}.attempt-detail dt{color:#818898}.attempt-detail dd{margin:0;overflow-wrap:anywhere}.spending pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;padding:14px;background:var(--viz-grid);border-radius:6px}.spending .record-tabs{margin-top:24px}.spending .record-tabs button{font-size:12px}.spending-detail h2:focus{outline:none}.spending .allowance-row{display:flex;gap:8px 18px;flex-wrap:wrap;align-items:center;font-size:13px;padding:12px 0}.spending .allowance-row small{width:100%;overflow-wrap:anywhere}.spending .table-view article{padding-top:18px;font-size:13px}.spending td small{overflow-wrap:anywhere}.spending .table-scroll table{min-width:720px}@media(max-width:650px){.attempt-detail dl{grid-template-columns:1fr;gap:5px}.attempt-detail dd{margin-bottom:8px}.spending .section-heading{flex-wrap:wrap}.attempt-detail summary span{float:none;display:block;margin:6px 0 0}.spending .metric strong{font-size:22px}}
+
+/* Health tab (docs/architecture/ADMIN_HEALTH.md). Provider tones extend the --viz palette: distinct in hue and lightness
+   on the white panel; text never uses a series color. */
+:root{--viz-p-anthropic:#5b5ef0;--viz-p-deepseek:#1f9a8a;--viz-p-google:#e09a1f;--viz-p-tavily:#a14fd0;--viz-p-other:#8d94a5}
+.tone-p-anthropic{--tone:var(--viz-p-anthropic)}.tone-p-deepseek{--tone:var(--viz-p-deepseek)}.tone-p-google{--tone:var(--viz-p-google)}.tone-p-tavily{--tone:var(--viz-p-tavily)}.tone-p-other{--tone:var(--viz-p-other)}
+.health .group-title{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#858c9e;margin:30px 0 12px}
+.health .group-title:first-of-type{margin-top:6px}
+.attention{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-direction:column;gap:8px}
+.attention li{display:flex;gap:10px;align-items:center;padding:11px 15px;border-radius:8px;font-size:13px}
+.attention li.warning{border:1px solid #f1d5a3;background:#fff8ea;color:#74480b}
+.attention li.info{border:1px solid #d9dcfb;background:#f4f5ff;color:#3c3f9c}
+.attention li>span{display:inline-grid;place-items:center;flex:none;width:18px;height:18px;border-radius:50%;color:white;font-size:12px;font-weight:700}
+.attention li.warning>span{background:#e8a23a}.attention li.info>span{background:#6366f1}
+.all-clear{display:flex;gap:10px;align-items:center;padding:11px 15px;border:1px solid #cfe9d9;background:#f1faf4;color:#26704a;border-radius:8px;font-size:13px;margin:0 0 18px}
+.all-clear>span{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#2f9e5f;color:white;font-size:11px}
+.mini-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.mini-stats .metric{padding:12px 14px}.mini-stats .metric strong{font-size:22px}
+.scale-rows{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px}
+.scale-rows>div{display:flex;flex-direction:column;gap:4px;border:1px solid #edf0f5;border-radius:9px;padding:14px}
+.scale-rows strong{font-size:22px;letter-spacing:-.03em}
+.scale-rows .bad{color:#b33a3a;font-size:12px;font-weight:600}
+@media(max-width:1000px){.metrics.headline{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.mini-stats{grid-template-columns:1fr 1fr 1fr;gap:6px}.scale-rows{grid-template-columns:1fr}.health .metric small{font-size:11px}}
+@media(prefers-color-scheme:dark){
+:root{--viz-p-anthropic:#7a80f2;--viz-p-deepseek:#35b5a3;--viz-p-google:#e3a63d;--viz-p-tavily:#b874e0;--viz-p-other:#80869a}
+.health .group-title{color:#8a91a5}
+.attention li.warning{background:#2a2112;border-color:#5a4318;color:#f1cf94}
+.attention li.info{background:#1d1f3d;border-color:#34366b;color:#c9cbff}
+.all-clear{background:#14281c;border-color:#24503a;color:#77d39f}
+.scale-rows>div{border-color:#272a37}
+}
+.health .panel>h2+.muted{margin:-10px 0 14px}

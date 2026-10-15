@@ -4,7 +4,7 @@ import { localChatContext, prepareArxivReader } from '../lib/arxiv-reader';
 import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey } from '../lib/reader-paper';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
-import { AuthError, type AuthIssue, type Session, auth, config } from '../lib/backend';
+import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
 import type { Episode, Evidence } from '../lib/podcast';
@@ -424,7 +424,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
       </header>
@@ -477,10 +477,17 @@ function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolea
   return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onChatDefaults: (() => void) | null }) {
   const [open, setOpen] = useState(false);
+  const [roles, setRoles] = useState<string[]>([]);
   const box = useRef<HTMLDivElement>(null);
+  // Operators (owner, support) get a link to the admin site; readers never see it.
+  useEffect(() => {
+    const abort = new AbortController(); setRoles([]);
+    operatorRoles(account, abort.signal).then(setRoles, () => undefined);
+    return () => abort.abort();
+  }, [account]);
   useEffect(() => {
     if (!open) return;
     const away = (event: Event) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
@@ -506,6 +513,7 @@ function AccountMenu({ email, theme, setTheme, onHelp, onInfo, onReport, onRepor
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReport(); }} data-testid="report-issue"><Icon name="bug" size={14} /> Report this screen…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReports(); }} data-testid="my-reports"><Icon name="bubble" size={14} /> My reports</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
+          {roles.length > 0 && <a role="menuitem" className="menu-item" href={operationsDashboard(roles)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)} data-testid="operations-dashboard"><Icon name="external" size={14} /> Operations dashboard</a>}
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
         </div>
       )}

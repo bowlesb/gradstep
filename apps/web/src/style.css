@@ -119,6 +119,7 @@ kbd { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; border: 1px soli
 .seg.on { background: var(--accent-muted); color: var(--text); font-weight: 600; }
 .menu-item { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 8px; border-radius: 6px; text-align: left; font-size: 13.5px; }
 .menu-item:hover { background: var(--row-hover); }
+a.menu-item { color: inherit; text-decoration: none; }
 @media (max-width: 1000px) { .nav-label, .account-email, .search-field kbd { display: none; } .nav-link { padding: 0 8px; } }
 @media (max-width: 640px) {
   .environment, .brand.small span, .add-button span, .theme-toggle, .chat-toggle { display: none; } .add-button { width: 32px; padding: 0; justify-content: center; margin: 0; }

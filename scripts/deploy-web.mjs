@@ -115,11 +115,37 @@ export function deployWeb(target, { root = repository, buildOnly = false, run = 
   }
   return { target, directory, pagesProject: selected.project, intendedOrigin: `https://${selected.host}`, buildOnly };
 }
+
+/** After a deploy: wait until the domain serves the new index, then fetch each script and stylesheet the way a
+ * browser does (with an Origin header, which Cloudflare caches separately). On 2026-10-15 the admin's new script was
+ * requested during propagation, answered by the old deployment's HTML fallback, and that HTML was cached under the
+ * year-long `/assets/*` rule, so the live admin was blank. A wrong type here fails the deploy loudly. */
+export async function verifyLive(directory, host, { fetchImpl = fetch, wait = ms => new Promise(r => setTimeout(r, ms)), timeoutMs = 180_000, log = console.log } = {}) {
+  const index = readFileSync(join(directory, 'index.html'), 'utf8');
+  const assets = [...new Set([...index.matchAll(/(?:src|href)="\/?(assets\/[^"]+\.(?:js|css))"/g)].map(m => m[1]))];
+  const origin = `https://${host}`, started = Date.now();
+  for (;;) {
+    const live = await fetchImpl(`${origin}/?deploy-check=${Date.now()}`, { cache: 'no-store' }).then(r => r.text()).catch(() => '');
+    if (assets.every(a => live.includes(a))) break;
+    if (Date.now() - started > timeoutMs) fail(`${host} still serves the previous index after ${Math.round(timeoutMs / 1000)}s`);
+    await wait(5_000);
+  }
+  await wait(20_000); // other edges switch a little later than the one answering us
+  for (const asset of assets) {
+    const response = await fetchImpl(`${origin}/${asset}`, { headers: { Origin: origin } });
+    const type = response.headers.get('content-type') ?? '';
+    const expected = asset.endsWith('.js') ? /javascript/ : /text\/css/;
+    if (!response.ok || !expected.test(type)) fail(`${origin}/${asset} answers ${response.status} ${type}: an edge cached the HTML fallback. Change any source file and deploy again (new asset names)`);
+  }
+  log(`Verified ${origin}: ${assets.length} scripts and stylesheets served with their own types`);
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [target, flag, ...extra] = process.argv.slice(2);
     if (extra.length || (flag && flag !== '--build-only')) fail('Usage: node scripts/deploy-web.mjs app|admin|site [--build-only]');
-    deployWeb(target, { buildOnly: flag === '--build-only' });
+    const result = deployWeb(target, { buildOnly: flag === '--build-only' });
+    if (!result.buildOnly && target !== 'site') await verifyLive(result.directory, TARGETS[target].host);
   } catch (error) {
     console.error(error instanceof Refusal ? 'Refusing to deploy: ' + error.message : 'Build/deployment failed. No credentials are included in this diagnostic.');
     process.exitCode = 1;

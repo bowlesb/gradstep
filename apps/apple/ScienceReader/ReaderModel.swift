@@ -3601,7 +3601,7 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
-        storeSummary = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeSummary = nil; operatorRoles = []; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
@@ -3670,6 +3670,7 @@ final class ReaderModel {
 
     var showStore = false
     private(set) var storeSummary: StoreSummary?
+    private(set) var operatorRoles: [String] = []
     /// This Apple Account's plan was bought by another (open) account: plans are
     /// not offered here, so a purchase can't land on the other account.
     private(set) var planOwnedElsewhere = false
@@ -3821,6 +3822,18 @@ final class ReaderModel {
         if planOwnedElsewhere { storeNotice = "The plan on this Apple Account belongs to another account. Sign in to that account to use it." }
         else if let unconfirmed = lastStoreSyncResults.first(where: { !$0.isFinal }) { storeNotice = StoreSync.message(for: unconfirmed) }
         else { storeNotice = storeSummary?.planName.map { "Your \($0) plan is active." } ?? "No active plan was found for this Apple Account." }
+    }
+
+    /// Operator roles for Settings' "Operations dashboard" row (docs/architecture/ADMIN_HEALTH.md); empty for readers.
+    func refreshOperatorRoles() async {
+        #if DEBUG
+        // UI tests: the fixture account as the owner (the link only opens the admin site, which checks for itself).
+        if ProcessInfo.processInfo.arguments.contains("--operator-fixture") { operatorRoles = ["owner"]; return }
+        #endif
+        guard let backend, let accountID, device != nil else { operatorRoles = []; return }
+        let scope = sessionID
+        guard let roles = try? await backend.operatorRoles(accountID: accountID), sessionID == scope, self.accountID == accountID else { return }
+        operatorRoles = roles
     }
 
     func refreshStoreSummary() async {

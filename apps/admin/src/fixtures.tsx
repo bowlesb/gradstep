@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import type { PipelineMetrics } from './backend';
+import type { Budget, Health as HealthData, PipelineMetrics } from './backend';
+import { Health } from './health';
 import { Accounts, type AccountList, type AccountsApi, type AdminAccount, type AccountSort } from './accounts';
 import { Reliability } from './reliability';
 import { Shell } from './shell';
@@ -234,5 +235,67 @@ export function AccountsFixture() {
   return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Accounts" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Accounts api={api} reloadKey={reloads} />
+  </Shell>;
+}
+
+// `?fixture=health`: a service growing from about 100 to 1,000 accounts over 90 days (`&state=empty` for a new
+// service, `&state=quiet` for nothing needing attention). Deterministic, so screenshots compare.
+function healthFixture(days: number, state: string | null): HealthData {
+  const now = new Date(); const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const monthStart = iso(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)));
+  let seed = 7; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const empty = state === 'empty', quiet = state === 'quiet';
+  const all = Array.from({ length: 120 }, (_, k) => { // 120 days so 7-day windows have history
+    const i = 119 - k, day = new Date(today.getTime() - i * DAY); const t = (120 - i) / 120;
+    const weekend = [0, 6].includes(day.getUTCDay()) ? 0.72 : 1;
+    const base = empty ? 0 : quiet ? 40 + 60 * t : 100 + 900 * t * t;
+    const signups = empty ? 0 : Math.round((4 + 22 * t) * weekend * (0.7 + 0.6 * rand()) + (i === 9 ? 60 : 0));
+    const active = Math.round(base * 0.31 * weekend * (0.85 + 0.3 * rand()));
+    const papers = Math.round(active * 0.9 * (0.8 + 0.4 * rand()));
+    const chats = Math.round(active * 2.4 * (0.75 + 0.5 * rand()));
+    const podcasts = Math.round(active * 0.05 * (0.6 + 0.8 * rand()));
+    const failedPapers = quiet ? Math.round(papers * 0.01) : i === 3 ? Math.round(papers * 0.18) : Math.round(papers * 0.02 * rand());
+    const failedPodcasts = quiet ? 0 : Math.round(podcasts * 0.12 * rand());
+    // Staging rates (2026-10-15): a chat answer about 2.5¢ with the paper cached, an episode about 11¢ (script review,
+    // DeepSeek script, Google voices), a web search 0.8¢ on 6% of answers.
+    const anthropic = chats * 25_000 + podcasts * 30_000, deepseek = podcasts * 4_000, google = podcasts * 80_000, tavily = chats * 0.06 * 8_000;
+    return { day: iso(day), signups, active, papers, chats, chatting: Math.round(active * 0.6), podcasts, failedPapers, failedPodcasts,
+      reports: !quiet && (i === 2 || i === 11) ? 1 : 0, by_provider: { anthropic, deepseek, google, tavily: Math.round(tavily) } };
+  });
+  const sum = (rows: typeof all, f: (r: typeof all[number]) => number) => rows.reduce((n, r) => n + f(r), 0);
+  const window = all.slice(-days), last7 = all.slice(-7), last30 = all.slice(-30);
+  const cost = (r: typeof all[number]) => Object.values(r.by_provider).reduce((a, b) => a + b, 0);
+  const month = all.filter(r => r.day >= monthStart);
+  const providerTotals = (rows: typeof all) => rows.reduce<Record<string, number>>((acc, r) => { for (const [k, v] of Object.entries(r.by_provider)) acc[k] = (acc[k] ?? 0) + v; return acc; }, {});
+  const accounts = empty ? 0 : 100 + sum(all, r => r.signups);
+  return {
+    generated_at: now.toISOString(), since: window[0].day, today: iso(today), days, month_start: monthStart,
+    people: { accounts, new_in_window: sum(window, r => r.signups), active_7d: empty ? 0 : Math.round(sum(last7, r => r.active) * 0.42),
+      active_30d: empty ? 0 : Math.round(sum(last30, r => r.active) * 0.17), returning_7d: empty ? 0 : Math.round(sum(last7, r => r.active) * 0.33),
+      daily: window.map((r, k) => ({ day: r.day, new: r.signups, active: r.active, active_7d: Math.round(sum(all.slice(all.length - days + k - 6, all.length - days + k + 1), x => x.active) * 0.42) })) },
+    use: { papers_added: sum(window, r => r.papers), chat_answers: sum(window, r => r.chats), chatting_accounts: empty ? 0 : Math.round(accounts * 0.38), podcasts_started: sum(window, r => r.podcasts),
+      daily: window.map(r => ({ day: r.day, papers: r.papers, chats: r.chats, chatting: r.chatting, podcasts: r.podcasts })) },
+    reliability: { papers_failed: sum(window, r => r.failedPapers), paper_failure_codes: empty ? {} : { metadata_unavailable: Math.round(sum(window, r => r.failedPapers) * 0.7), provider_unavailable: Math.round(sum(window, r => r.failedPapers) * 0.3) },
+      chats_unsettled: empty ? 0 : 3, podcasts_ready: sum(window, r => r.podcasts - r.failedPodcasts), podcasts_failed: sum(window, r => r.failedPodcasts),
+      podcast_failure_codes: quiet || empty ? {} : { script_evidence_rejected: Math.ceil(sum(window, r => r.failedPodcasts) * 0.6), provider_unavailable: Math.floor(sum(window, r => r.failedPodcasts) * 0.4) },
+      reports_open: sum(window, r => r.reports), daily: window.map(r => ({ day: r.day, papers_failed: r.failedPapers, podcasts_failed: r.failedPodcasts, reports: r.reports })) },
+    money: { month_to_date_microusd: Math.round(sum(month, cost)), window_microusd: Math.round(sum(window, cost)), by_provider: providerTotals(window),
+      credits_consumed: sum(window, r => r.chats * 5 + r.podcasts * 40), credits_granted: sum(window, r => r.signups * 500),
+      chat_cache: empty ? { read_tokens: 0, write_tokens: 0, input_tokens: 0 } : { read_tokens: 61_000_000, write_tokens: 19_000_000, input_tokens: 8_000_000 },
+      daily: window.map(r => ({ day: r.day, microusd: Math.round(cost(r)), by_provider: r.by_provider, credits_consumed: r.chats * 5 + r.podcasts * 40 })) },
+  };
+}
+
+export function HealthFixture() {
+  const [reloads, setReloads] = useState(0);
+  const [days, setDays] = useState(30);
+  const state = new URLSearchParams(location.search).get('state');
+  const load = useCallback((n: number) => new Promise<HealthData>(resolve => setTimeout(() => resolve(healthFixture(n, state)), 120)), [state]);
+  const now = new Date();
+  const budget: Budget = { period: now.toISOString().slice(0, 7) + '-01', limit_microusd: 100_000_000, spent_microusd: 41_000_000, reserved_microusd: 600_000, work_enabled: true };
+  return <Shell tabs={['Health', 'Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Health" onTab={() => undefined} counts={{ Support: 2 }}
+    email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
+    <Health load={load} budget={state === 'empty' ? null : budget} reloadKey={reloads} days={days} onDays={setDays} />
   </Shell>;
 }

@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
-import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
+import { attachmentImage, backend, environment, rpc, type AccountContext, type Health as HealthData, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import { Reliability } from './reliability';
+import { Health, HEALTH_WINDOWS } from './health';
 import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
 import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
@@ -12,6 +13,7 @@ import { Brand, Shell } from './shell';
 import './style.css';
 
 const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
+const loadHealth = (days: number) => rpc<HealthData>('v1_admin_health', { p_days: days });
 const loadChecks = () => rpc<WorkflowChecks>('v1_admin_workflow_checks', { p_days: 14 });
 const purchasesApi: PurchasesApi = {
   list: (filter, reference) => rpc<PurchaseObservations>('v1_admin_store_verifications', { p_filter: filter, p_reference: reference }),
@@ -24,11 +26,20 @@ const date = (value: string) => new Date(value).toLocaleString();
 const statusName = (value: string) => value.replaceAll('_', ' ');
 const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GiB` : `${(value / 1024 ** 2).toFixed(2)} MiB`;
 
+// The address names the page (#health/30, #support), so a bookmark or the apps' "Operations dashboard" link opens it.
+const OWNER_TABS = ['Health', 'Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'];
+function fromHash(): { tab: string | null; days: number } {
+  const [name, days] = location.hash.replace(/^#/, '').split('/');
+  const tab = OWNER_TABS.find(t => t.toLowerCase() === (name ?? '').toLowerCase()) ?? null;
+  return { tab, days: HEALTH_WINDOWS.includes(Number(days)) ? Number(days) : 30 };
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [account, setAccount] = useState<AccountContext | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState('Overview');
+  const [tab, setTab] = useState(() => fromHash().tab ?? 'Health');
+  const [healthDays, setHealthDays] = useState(() => fromHash().days);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
@@ -37,6 +48,15 @@ function App() {
   const currentUser = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
   const accountsApi = useMemo(() => liveAccountsApi(session?.user.id ?? ''), [session?.user.id]);
+
+  useEffect(() => {
+    const target = '#' + tab.toLowerCase() + (tab === 'Health' ? '/' + healthDays : '');
+    if (location.hash !== target) history.replaceState(null, '', target);
+  }, [tab, healthDays]);
+  useEffect(() => {
+    const follow = () => { const next = fromHash(); if (next.tab) setTab(next.tab); setHealthDays(next.days); };
+    addEventListener('hashchange', follow); return () => removeEventListener('hashchange', follow);
+  }, []);
 
   useEffect(() => {
     if (!backend) return;
@@ -83,11 +103,12 @@ function App() {
   }
   if (account && !account.operator_verified) return <TwoFactor onVerified={refresh} />;
   const owner = account.roles.includes('owner');
-  return <Shell tabs={owner ? ['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'] : ['Support']} tab={tab} onTab={setTab}
+  return <Shell tabs={owner ? OWNER_TABS : ['Support']} tab={tab} onTab={setTab}
     counts={{ Support: overview?.open_reports }} email={session.user.email ?? ''} onSignOut={() => void backend?.auth.signOut()}
     loading={loading} onRefresh={() => { setReloads(n => n + 1); void refresh(); }}>
       {error && <div className="error" role="alert">{error}</div>}
       {loading && !account ? <p role="status">Checking operator access…</p> : null}
+      {tab === 'Health' && owner && <Health key={account.account_id} load={loadHealth} budget={overview?.budgets[0] ?? null} reloadKey={reloads} days={healthDays} onDays={setHealthDays} />}
       {tab === 'Overview' && overview && <>
         <div className="metrics"><Metric label="Accounts" value={overview.accounts} /><Metric label="Library items" value={overview.library_items} /><Metric label="Shared documents" value={overview.shared_documents} /><Metric label="Reused by multiple accounts" value={overview.shared_documents_reused} /></div>
         <BudgetPanel overview={overview} onChanged={refresh} />
@@ -254,9 +275,10 @@ const root = createRoot(document.getElementById('root')!);
 // Development-only screenshot fixtures; production builds drop these branches and their modules.
 if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'spending') {
   void import('./spending-fixture').then(({ SpendingFixture }) => root.render(<React.StrictMode><SpendingFixture /></React.StrictMode>));
-} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
-  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture }) => root.render(<React.StrictMode>
-    {new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture />
+} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases', 'health'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
+  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture, HealthFixture }) => root.render(<React.StrictMode>
+    {new URLSearchParams(location.search).get('fixture') === 'health' ? <HealthFixture />
+      : new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture />
       : new URLSearchParams(location.search).get('fixture') === 'purchases' ? <PurchasesFixture /> : <ReliabilityFixture />}</React.StrictMode>));
 } else {
   root.render(<React.StrictMode><App /></React.StrictMode>);
