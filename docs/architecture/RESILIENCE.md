@@ -1,0 +1,262 @@
+# Resilience: a failing response costs one feature, never the app
+
+**Status: proposal, 2026-10-15.** Nothing here is built yet. Owner: "I don't want the entire app to break if a
+response starts failing; we need to think and plan carefully there."
+
+Scope: every external dependency and our own backend paths, on every surface — the shared Swift app (iPhone, iPad,
+Mac), the browser app, Edge functions, the Cloud Run worker and the admin. Findings cite `file:line` at `ef81285`.
+Related: [ADMIN_HEALTH.md](ADMIN_HEALTH.md), [ARXIV_DEVICE_ONLY.md](ARXIV_DEVICE_ONLY.md),
+[DATA_HANDLING_AND_COSTS.md](DATA_HANDLING_AND_COSTS.md).
+
+## Summary
+
+The native app is already offline-first where it matters most: a signed-in device opens its library and its
+downloaded papers from local storage before any request (`ReaderModel.swift:1590-1602`), opening a paper talks only
+to arXiv and the local store (`ReaderModel.swift:2596-2680`), chat failures are per answer with specific wording
+(`ChatStream.swift:398-417`), and sync backs off to five minutes (`ReaderModel.swift:3802-3804`). Most single-provider
+outages therefore already degrade one feature.
+
+Five couplings break more than one feature:
+
+1. **One operation's overrun pauses all paid work for everyone.** Settlement sets the month's `work_enabled=false`
+   when a single operation's actual or uncertain provider cost exceeds its ceiling
+   (`202610070034_provider_accounting.sql:289-291`, `:348`). Chat, Study, the equation view and podcasts then answer
+   "AI answers are paused right now" for every account until an operator resumes it — the message the owner saw on
+   build 38. A pricing estimate bug or a provider's late usage report becomes a platform-wide outage.
+2. **The browser app has no error boundary.** `apps/web/src/main.tsx:8` renders the whole tree with no
+   `ErrorBoundary` and no `error`/`unhandledrejection` handler; a render-time exception from one malformed response
+   (any panel) blanks the entire page.
+3. **The browser waits on the server at every launch.** `App.tsx:83` shows nothing but `KeySetup` until
+   `prepare()` (`lib/keys.ts:176-184`) has fetched `v1_key_state`; a Supabase blip at launch blocks reading,
+   the library and chat alike, with one manual "Try again".
+4. **Search shares one platform-wide arXiv slot.** `discover/index.ts:106-111` reserves `worker_pipeline_arxiv_slot`
+   (one arXiv request every 3 s for all users and imports together); under load it returns `503 search_busy`, and
+   OpenAlex keyless usage caps ranking at about 50 searches a day (`discover/index.ts:93-100`). Being replaced
+   (ARXIV_DEVICE_ONLY.md step 4).
+5. **Transient provider throttling fails an episode for good.** A pre-processing 429 from Anthropic, DeepSeek or
+   Google becomes `script_rejected`/`speech_rejected` (`podcast-script.ts:322`, `podcast-speech.ts:249-251`,
+   `podcast-worker.ts:291-292`, `:539-540`) and `worker_podcast_fail` settles the job as `failed`
+   (`202610080048_paper_podcasts.sql:1913-1925`) — no requeue. (The reader is not charged; the episode just fails.)
+
+And one gap makes all of it hard to see: provider throttling and errors are not recorded anywhere the admin reads.
+A chat 429 before the first token leaves no durable row (`chat.ts:1069` returns early without attempts); podcast
+failures appear only as job failure codes; the Health tab has no provider-error series.
+
+## Principles
+
+1. **Feature isolation.** A failure degrades only the feature that made the call, with one honest, specific message
+   in that feature's place and a way to retry. No feature's call sets an app-wide failure state, presents an
+   unrelated sheet, or blocks launch.
+2. **Local first, last-good second.** What the device holds (library, downloaded papers, chats) opens without the
+   network. Where a cached answer is safe (feed, capabilities, chat profiles, podcast catalog, credit balance), the
+   last good copy is shown, marked as possibly out of date, instead of an error.
+3. **Bounded time everywhere.** Every request has a timeout and every spinner has an end; a stream has an idle
+   deadline. Total time, not just idle time, is bounded.
+4. **Retries only where safe.** Only idempotent reads, or writes with an operation id the server deduplicates, are
+   retried; exponential back-off with full jitter; honour `Retry-After`; a small maximum; never a retry loop on a
+   4xx other than 408/409/425/429.
+5. **No retry storms.** Clients back off on failure (polls slow down, they don't keep their fast cadence) and add
+   jitter; the server can tell clients to wait (`retry_after` in error bodies and a capability flag), and
+   capability-driven kill switches stop a feature's requests at the source.
+6. **Circuit breakers on the server, per provider.** After repeated 429/5xx/timeouts within a window a provider is
+   marked *open*: new calls fail fast with a specific code (or use a fallback) for a cool-off, then one *half-open*
+   probe decides. Breaker state is shared across function instances (a database row), so many instances don't each
+   rediscover the outage.
+7. **Money safety without platform outages.** Budget limits stay hard, but a single operation's anomaly isolates
+   that operation and alerts; it pauses everything only if the month's projected spend would cross the limit.
+8. **Visible before reported.** Every provider failure class is counted per hour and shown on the admin Health
+   tab with an Attention rule; a user report should never be the first signal.
+
+## Failure propagation map
+
+Severity: **App** = the whole app or every account; **Screen** = one screen or flow unusable; **Feature** = one
+feature degraded with a message; **Cosmetic**.
+
+### Launch and sign-in
+
+| Path | Failure | Today | Severity | Where |
+|---|---|---|---|---|
+| Native launch, signed in, device cached | Supabase down / 5xx / timeout | Library and downloaded papers open from local storage; sync shows "Saved on this device · Sync paused", retries 15 s → 60 s → 300 s | Feature (good) | `ReaderModel.swift:1458-1461`, `:1590-1612`, `:3802-3804` |
+| Native first sign-in on a device (no cached device) | `v1_key_state` 5xx/timeout in `DeviceKeys.prepare()` | Throws; sets "Couldn't prepare your private library…" and presents the **recovery sheet**, as if keys were missing | Screen (misleading) | `ReaderModel.swift:1463`, `:1384-1387` |
+| Native email sign-in | Resend/Supabase email 429 | Mapped to `rateLimited(retryAfterSeconds:)`, shown with the wait | Feature (good) | `BackendClient.swift:956-964` |
+| Native token refresh | Auth 5xx | Error surfaces to the caller; the session is kept (not signed out) | Feature (good) | `BackendClient.swift:781-805` |
+| Browser launch | `v1_key_state` 5xx/timeout/429 | `KeySetup` shows "failed" with Try again; nothing else of the app renders | **App (browser)** | `App.tsx:83`, `lib/keys.ts:176-184`, `ui/Keys.tsx:60-63` |
+| Browser token refresh | Auth 5xx | `connection` error to the caller; 400/401/403 sign out (correct) | Feature (good) | `lib/backend.ts:302-340` |
+| Browser render | Any malformed value reaching a component | React unmounts the whole tree: blank page | **App (browser)** | `main.tsx:8` |
+
+### Library, sync and reading
+
+| Path | Failure | Today | Severity | Where |
+|---|---|---|---|---|
+| Native library refresh | RPC 5xx/malformed | Local rows stay; library issue banner | Feature (good) | `ReaderModel.swift:1788…` |
+| Native sync | Any | Paused status, back-off (no jitter) | Feature | `ReaderModel.swift:1634-1650` |
+| Native open paper | arXiv 5xx/timeout | Device-only; 30 s request / 90 s resource timeouts; specific "couldn't be prepared" message; a previously prepared copy is shown with a fallback notice | Feature (good) | `ArxivHTMLReader.swift:122-124`, `ReaderModel.swift:2620-2680` |
+| Native imports polling | Server down | Polls every 1 s for 20 s, 4 s, then 15 s regardless of failures; no jitter | Cosmetic → load | `ReaderModel.swift:1762`, `:1779` |
+| Browser library | Server down | 60 s focus poll plus fast import poll with no back-off on failure, no jitter | Cosmetic → load | `ui/useLibrary.ts:87`, `:98-105` |
+| Browser open paper | arXiv slow | Per-request timeout, asset concurrency bounded | Feature (good) | `lib/arxiv-reader.ts:35-58`, `:64-78` |
+
+### AI features
+
+| Path | Failure | Today | Severity | Where |
+|---|---|---|---|---|
+| Chat / Study / Equation view | Anthropic 429/529/5xx before start | `provider_unavailable`, no charge (no message id), no durable record of the 429 | Feature; **invisible** | `anthropic.ts:470-473`, `chat.ts:693`, `:829`, `:1069` |
+| Chat | Anthropic fails mid-stream | Charged for usage up to the hold (`credits = min(priced, hold)` when a message id exists) while the reader sees "couldn't finish this answer" | Feature; **owner decision** | `chat.ts:693` |
+| Chat | Any operation's cost exceeds its ceiling | `work_enabled=false`: every account's paid features pause | **App (all accounts' AI)** | `202610070034_provider_accounting.sql:289-291`, `:348` |
+| Chat web search | Tavily down | Native Anthropic search as the backup | Feature (good) | `tavily.ts:2`, `:96` |
+| Chat retries | Provider 429 | `maxRetries: 0`; no retry, no alternative model for availability (fallbacks are refusal fallbacks only) | Feature | `anthropic.ts:296`, `:352-357` |
+| Podcasts | Provider 429/5xx | Episode fails (`script_rejected`, `speech_rejected`, `*_outcome_unknown`); no requeue | Feature (permanent) | `podcast-worker.ts:291-292`, `:539-540` |
+
+### Search, feed, add paper
+
+| Path | Failure | Today | Severity | Where |
+|---|---|---|---|---|
+| Search | OpenAlex fails | `Promise.allSettled`, falls back to arXiv search | Feature (good) | `discover/index.ts:99-101` |
+| Search | arXiv slot busy (any user or import holds it) | OpenAlex-ranked only, else `503 search_busy` | Feature, **scales badly** | `discover/index.ts:106-111` |
+| Search | OpenAlex keyless budget spent | Ranking silently lost after ~50 searches/day | Feature | `discover/index.ts:93-100` |
+| Add paper by DOI | Crossref/OpenAlex slow | 8–12 s timeouts, no retry | Feature | `identify.ts:162`, `:233`, `:257` |
+| Feed pool | arXiv RSS down | Pool keeps its rows (conditional fetch) | Feature (good) | `feed-pool.ts:171-174` |
+
+### Purchases and admin
+
+| Path | Failure | Today | Severity |
+|---|---|---|---|
+| StoreKit / App Store Server API | Apple 5xx | Store sync retries with a counter; credits appear later | Feature (good) |
+| Admin Health | Provider errors | Not visible (no series); podcast failure codes only | — |
+
+## Per-dependency table
+
+| Dependency | Failure modes | User-visible behaviour (target) | Mechanism | Owner |
+|---|---|---|---|---|
+| Anthropic | 429 (org tier), 529 overloaded, 5xx, slow stream | Chat: "AI answers are busy; trying again…" then the per-answer error with Retry; reading, library and sync unaffected | Server: one retry after `retry-after`/jittered 1–3 s for pre-start 429/529 only; breaker per model family; optional availability fallback (Sonnet → Haiku with the model named in the answer footer) behind a flag; record every failure class | Chat |
+| DeepSeek | Slow, 5xx (no published rate limit) | Episode waits longer, then retries; writer falls back to Claude for the job if DeepSeek's breaker is open | Worker requeue with back-off (step 4); per-job writer fallback recorded | Podcasts |
+| Google Vertex TTS | 429 quota, 5xx | Episode retries later; never a terminal failure for a quota 429 | Requeue with back-off; quota raise as an ops action | Podcasts |
+| Tavily | 429, 5xx, credits exhausted | Answer without web results, saying so (already); backup search | Breaker so a dead Tavily isn't tried on every answer | Chat |
+| OpenAlex (V1: removed) | Budget 429 | — | Removed (owner decision 2026-10-15) | Search |
+| Crossref | 429 (polite pool 10/s single, 3/s query) | "Couldn't look up this DOI right now; try again" | Cache by DOI; breaker | Add paper |
+| DataCite (planned) | 429 (1,000/5 min/IP), 5xx, lag | Feed shows the last pool with its date; browser search falls back to the library | Last-good pool; fixed egress IP for the server; browser per-IP | Feed, search |
+| Hugging Face | 429/5xx | Feed without the trending signal | Optional input; cached | Feed |
+| arXiv (devices) | 429/503 busy, 403 refusal, slow | One paper: "arXiv is busy; trying again in N s" or "arXiv refused this device for now (until …)" | Per-device pacer with back-off and a 24 h stop after 403 (built on the arXiv branch) | Reader |
+| Supabase PostgREST | 5xx, timeouts, pool exhaustion | Native: local-first; browser: see step 2 | Client back-off with jitter; last-good caches | All |
+| Supabase Auth / Resend | Email 429 (project 100/h set 2026-10-15; Resend plan) | "Too many sign-in emails; wait N min, or use Apple/Google" | Already mapped natively; same in browser; Apple/Google always offered | Sign-in |
+| Supabase Storage | 5xx | Podcast audio/support attachments retry; reading unaffected | Bounded retries | Podcasts, support |
+| Supabase Edge runtime | Cold start, 5xx, wall-clock limit | Chat/podcast/search per-feature error; sync still works | Timeouts below the platform limit (chat 130 s) | — |
+| Cloud Run worker | Down, slow | Imports' server stages stall (device reading unaffected); podcasts wait | `pipeline.stuck` check; Health Attention | Pipeline |
+| Cloudflare Pages | Edge cache poisoning, outage | Browser app unreachable | Deploy live check (done); 404 for missing admin assets (done) | Web |
+| Apple StoreKit / Server API | 5xx | Purchase pending; credits later | Existing retry; notice | Purchases |
+| Sign in with Apple / Google | Outage | Email code still works | Offer the other methods | Sign-in |
+
+## Ranked fixes
+
+| # | Fix | Severity fixed | Where | Effort |
+|---|---|---|---|---|
+| 1 | **Contain overruns.** An operation whose actual or uncertain cost exceeds its ceiling is recorded and alerted (Health Attention, a `budget_anomaly` row) instead of setting `work_enabled=false`; pause the month only when `spent + reserved + projected` crosses the limit, or when anomalies exceed N per hour (a tripwire), or by the operator. Keep the hard monthly limit. | App (all AI) | `202610070034_provider_accounting.sql:289-291`, `:348` (new migration superseding both) | M (migration + DB tests + admin copy) |
+| 2 | **Browser error boundaries.** One per pane (reader, chat, library, feed, podcasts, dialogs) with "This panel hit a problem — Reload panel · Report"; a top-level boundary and `error`/`unhandledrejection` handlers that record a code (never content) for reports. | App (browser) | `main.tsx:8`, `ui/App.tsx` panes | S |
+| 3 | **Browser launch without the server.** Retry `v1_key_state` automatically (3 tries, 1/2/4 s with jitter) before showing failure; keep the library list from the last session (encrypted, per browser) so a blip shows "Offline — showing your library from earlier" instead of a blocked app. | App (browser) | `lib/keys.ts:176-184`, `ui/Keys.tsx:60-63`, `ui/App.tsx:83` | M |
+| 4 | **Podcasts requeue on transient failures.** A pre-processing 429/503 (`rejected` with `http_429`/`http_503`) parks the job with `retry_at` (back-off 1, 5, 15, 60 min, 4 tries) instead of failing; `unknown` outcomes keep today's liability handling. | Feature (permanent → temporary) | `podcast-worker.ts:291-292`, `:539-540`, migration for `retry_at` | M |
+| 5 | **Provider telemetry and breakers** (below): record every failure class per provider per hour; breakers for Anthropic, Tavily, DeepSeek, Google, Crossref, DataCite. | Visibility, storms | new `_shared/provider-health.ts`, migration | M |
+| 6 | **Native first-device key preparation**: a network/5xx failure in `prepare()` shows "Couldn't reach Gradstep to set up this device. Try again" with automatic retry, not the recovery sheet; recovery only for `.recoveryRequired`. | Screen (misleading) | `ReaderModel.swift:1384-1387`, `:1463` | S |
+| 7 | **Chat retries once on pre-start 429/529** after `retry-after` (≤ 3 s, jittered), inside the existing hold; show "busy, retrying" via a `status` event. | Feature | `anthropic.ts:470-473`, `chat.ts` generateAnswer | S |
+| 8 | **Client back-off with jitter for polls**: native import poll and sync, browser library/import polls slow down after consecutive failures (×2 to a cap) and add ±20 % jitter; honour a server `retry_after`. | Load / storms | `ReaderModel.swift:1762`, `:1779`, `:3802-3804`; `ui/useLibrary.ts:87`, `:98-105` | S |
+| 9 | **Native `Retry-After` and 429 mapping** outside sign-in: `BackendError.rateLimited(seconds)` from any 429, surfaced per feature. | Feature | `BackendClient.swift:1001-1037` | S |
+| 10 | **Last-good caches** on the native and browser clients for capabilities, chat profiles, podcast catalog, feed and credit balance, each shown "as of" when stale. | Feature | `ReaderModel.swift:458` (profiles), feed/podcast centers, `lib/feed.ts`, `lib/podcast.ts` | M |
+| 11 | **Total-time bounds** on native RPCs (`timeoutIntervalForResource` is the 7-day default on the main session) — e.g. 120 s, streams excepted. | Spinner that never ends | `BackendClient.swift:153-155` | XS |
+| 12 | **Search off the shared slot** — device search (ARXIV_DEVICE_ONLY.md step 4), no OpenAlex. | Feature, scale | `discover/index.ts:93-111` | in progress |
+
+## Telemetry: "throttled or failing, by provider"
+
+**What:** counts only, never content or identifiers of people: per hour, per provider, per route, per outcome class
+— `ok`, `throttled` (429, quota), `overloaded` (529/503), `server_error` (other 5xx), `timeout`, `transport`
+(connection/aborted mid-stream), `rejected` (other 4xx), `breaker_open` (failed fast) — plus p50/p95 latency of the
+`ok` calls and the largest `retry_after` seen.
+
+**Where:** a new table, not `provider_usage_events` (that is per paid event and needs an operation; most failures
+have none):
+
+```sql
+create table app_private.provider_health_hours (
+  hour timestamptz not null,                 -- date_trunc('hour', now())
+  provider text not null check (provider ~ '^[a-z][a-z0-9_]{0,31}$'),
+  route text not null check (route ~ '^[a-z][a-z0-9_]{0,31}$'),
+  outcome text not null check (outcome in ('ok','throttled','overloaded','server_error','timeout','transport','rejected','breaker_open')),
+  calls integer not null default 0,
+  latency_ms_total bigint not null default 0,
+  latency_ms_max integer not null default 0,
+  retry_after_max_s integer,
+  primary key (hour, provider, route, outcome)
+);
+-- RLS on, no grants; written only through:
+create function public.worker_provider_health(p_provider text, p_route text, p_outcome text, p_latency_ms integer,
+  p_retry_after_s integer default null) returns void ... -- upsert-increment; never raises to the caller; 90-day retention
+create table app_private.provider_breakers (
+  provider text primary key, state text check (state in ('closed','open','half_open')),
+  opened_at timestamptz, reopen_at timestamptz, consecutive_failures integer not null default 0);
+```
+
+`_shared/provider-health.ts` wraps each provider call site (Anthropic, Tavily, DeepSeek, Google, Crossref, DataCite,
+Hugging Face) and the worker's: classify the outcome, fire-and-forget the RPC (bounded, never blocks the answer),
+consult/update the breaker (open after 5 consecutive `throttled|overloaded|server_error|timeout` within 60 s; cool
+off 30 s doubling to 5 min; one half-open probe).
+
+**Health tab:** `v1_admin_health` adds `providers: { daily: [{ day, by_provider: { anthropic: { ok, failed, throttled } } }],
+last_hour: [...] }`; a "Provider errors" chart (stacked failed/throttled per provider per day; hour view for 7 days)
+beside Spend per day; the Reliability tab gets the hour-level table. **Attention rules:** any provider with ≥ 5 %
+failed or throttled calls in the last hour (and ≥ 20 calls); any breaker open now; `work_enabled` false; a
+`budget_anomaly` in the last 24 h.
+
+## Fault injection
+
+**Server switches** (staging and local only; never production):
+
+- `app_private.fault_injection(provider text, route text, mode text check (mode in ('throttle','overload','error','timeout','malformed')), rate numeric, until timestamptz)`,
+  read by `provider-health.ts` before the real call; honoured only when the request's account is a test account
+  (`@example.invalid`/`@example.test`) **and** the environment is not production (`SCIENCE_READER_ENVIRONMENT`), so a
+  forgotten row can't hurt a real reader. Operator RPC to set/clear, audit-logged.
+- `scripts/fault-drill.mjs --provider=anthropic --mode=throttle --minutes=5`: sets the row, runs the affected
+  workflow checks (chat smoke, podcast short, search, add DOI) with a disposable account, asserts the user-visible
+  outcome and the telemetry counts, clears the row.
+
+**Client fixtures:** native `ChatFixtureTransport` modes `throttled`, `overloaded`, `stall` (no bytes for 120 s) and
+a `BackendFaultProtocol` (`--backend-fault=<path-prefix>:<status>|timeout|malformed`) for any RPC; browser
+`e2e/fixture-backend.mjs` gains the same switches (`?fault=rpc:v1_key_state:503`), plus an arXiv fault for the
+reader (`429` with `Retry-After`, `403`).
+
+**Journeys that must stay usable** (each a UI journey per surface, run in the slow tier):
+
+| Dependency down | Must still work |
+|---|---|
+| Anthropic | Library, reading downloaded and new arXiv papers, figures and equations shown (not described), sync, podcasts already made, settings |
+| Supabase (all) | Native: library from this device, reading downloaded papers, local chats; browser: a clear offline state, no blank page |
+| Supabase Edge only | Library sync and reading; chat/search/podcast show their own errors |
+| Cloud Run worker | Reading, chat, sync; imports show "waiting" not failure; podcasts queue |
+| arXiv | Downloaded papers, library, chat about downloaded papers |
+| Email (Resend) | Sign in with Apple and Google |
+| Podcasts' providers | Everything except new episodes; existing episodes play |
+| Any one search source | Library search and the feed's last pool |
+
+## Implementation order
+
+1. **Contain overruns** (fix 1) and its Attention rule — highest blast radius; M, ~1 day with DB tests.
+2. **Browser error boundaries** (fix 2) — S, half a day; e2e that injects a malformed RPC body per pane.
+3. **Telemetry table, `provider-health.ts`, Health chart and Attention** (fix 5, recording only) — M, ~1 day.
+4. **Podcast requeue** (fix 4) — M, ~1 day with DB tests.
+5. **Browser launch retry + last-session library** (fix 3) — M, ~1 day.
+6. **Native first-device key preparation copy and retry** (fix 6), **native 429 mapping** (fix 9), **resource
+   timeout** (fix 11) — S, half a day together.
+7. **Chat one retry on pre-start 429/529** (fix 7) — S.
+8. **Client back-off with jitter** (fix 8) — S.
+9. **Breakers** on top of the telemetry (fix 5, second half) — M.
+10. **Fault-injection switches, drill script and the must-stay-usable journeys** — M, ~1–2 days.
+11. **Last-good caches** (fix 10) — M.
+
+## Owner decisions
+
+- **Resend plan:** the free plan sends 100 emails a day (3,000 a month), account-wide; the project now allows 100 an
+  hour (set 2026-10-15). A paid plan (about $20/month) removes the daily wall; counts against the $100 budget.
+- **Anthropic tier:** limits are per organisation and rise with cumulative purchases; check the console tier before
+  launch and decide whether to pre-purchase to reach the next tier.
+- **Charging for failed answers:** today a stream that fails after it started is charged for the tokens used
+  (`chat.ts:693`). Waive it (the platform absorbs the cost) or keep it?
+- **Availability fallback model:** allow Sonnet → Haiku (named in the answer) when Sonnet is throttled?
+- **Overrun policy** (fix 1): what anomaly rate should still pause everything?
+- **Fixed egress IP** for the server that calls DataCite (Cloud Run with Cloud NAT, a small monthly cost), so per-IP
+  limits aren't shared with other tenants.
