@@ -78,7 +78,8 @@ function Abstract({ paper, expanded = false }: { paper: DiscoveryResult; expande
   </>;
 }
 
-export function FeedCards({ results, actions }: { results: DiscoveryResult[]; actions: Actions }) {
+/** `unknownPopularity: false` (search): popularity only when known, as native DiscoveryRow shows it. */
+export function FeedCards({ results, actions, unknownPopularity = true }: { results: DiscoveryResult[]; actions: Actions; unknownPopularity?: boolean }) {
   return <ul className="feed-grid" data-testid="feed-grid">{results.map(paper => <li key={paper.source_id} className={`feed-card${actions.expanded.has(paper.source_id) ? ' expanded' : ''}`}>
     <a className="feed-title" href={address(paper)} target="_blank" rel="noopener noreferrer">{paper.title}</a>
     {paper.reason && <p className="feed-reason">{paper.reason}</p>}
@@ -89,7 +90,7 @@ export function FeedCards({ results, actions }: { results: DiscoveryResult[]; ac
         {actions.expanded.has(paper.source_id) ? 'Less' : 'Full abstract'}</button>
     </>}
     <Topics paper={paper} />
-    <div className="feed-meta"><span>{published(paper)}</span><Popularity paper={paper} /><span className="mono faint">{paper.source_id}</span><Add paper={paper} actions={actions} /><Feedback paper={paper} actions={actions} /></div>
+    <div className="feed-meta"><span>{published(paper)}</span>{(unknownPopularity || paper.upvotes !== null) && <Popularity paper={paper} />}<span className="mono faint">{paper.source_id}</span><Add paper={paper} actions={actions} /><Feedback paper={paper} actions={actions} /></div>
   </li>)}</ul>;
 }
 

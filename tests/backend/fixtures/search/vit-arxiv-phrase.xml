@@ -1,0 +1,72 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/OGd/TNh9GcT1bmCk4v4HCLcsfts</id>
+  <title>arXiv Query: search_query=ti:"vision transformer"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-10-15T18:05:25Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=ti:%22vision+transformer%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>2000</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2005.09112v6</id>
+    <title>Accurate Measles Rash Detection via Vision Transformer Fine-Tuning</title>
+    <updated>2025-08-18T00:17:47Z</updated>
+    <link href="https://arxiv.org/abs/2005.09112v6" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2005.09112v6" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Measles, a highly contagious disease declared eliminated in the United States in 2000 after decades of successful vaccination campaigns, resurged in 2025, with 1,356 confirmed cases reported as of August 5, 2025. Given its rapid spread among susceptible individuals, fast and reliable diagnostic systems are critical for early prevention and containment. In this work, we applied transfer learning to fine-tune a pretrained Data-efficient Image Transformer (DeiT) model for distinguishing measles rashes from other skin conditions. After tuning the classification head on a diverse, curated skin rash image dataset, the DeiT model achieved an average classification accuracy of 95.17%, precision of 95.06%, recall of 95.17%, and an F1-score of 95.03%, demonstrating high effectiveness in accurate measles detection to aid outbreak control. We also compared the DeiT model with a convolutional neural network and discussed the directions for future research.</summary>
+    <category term="eess.IV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="q-bio.QM" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2020-05-18T22:02:43Z</published>
+    <arxiv:primary_category term="eess.IV"/>
+    <author>
+      <name>Harshana Rajakaruna</name>
+    </author>
+    <author>
+      <name>Dong Li</name>
+    </author>
+    <author>
+      <name>Anil Shanker</name>
+    </author>
+    <author>
+      <name>Qingguo Wang</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2011.08019v2</id>
+    <title>On the Effectiveness of Vision Transformers for Zero-shot Face Anti-Spoofing</title>
+    <updated>2021-06-02T10:37:30Z</updated>
+    <link href="https://arxiv.org/abs/2011.08019v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2011.08019v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The vulnerability of face recognition systems to presentation attacks has limited their application in security-critical scenarios. Automatic methods of detecting such malicious attempts are essential for the safe use of facial recognition technology. Although various methods have been suggested for detecting such attacks, most of them over-fit the training set and fail in generalizing to unseen attacks and environments. In this work, we use transfer learning from the vision transformer model for the zero-shot anti-spoofing task. The effectiveness of the proposed approach is demonstrated through experiments in publicly available datasets. The proposed approach outperforms the state-of-the-art methods in the zero-shot protocols in the HQ-WMCA and SiW-M datasets by a large margin. Besides, the model achieves a significant boost in cross-database performance as well.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2020-11-16T15:14:59Z</published>
+    <arxiv:comment>8 pages, 3 figures, Accepted for Publication in IJCB2021</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Anjith George</name>
+    </author>
+    <author>
+      <name>Sebastien Marcel</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2101.03771v1</id>
+    <title>Investigating the Vision Transformer Model for Image Retrieval Tasks</title>
+    <updated>2021-01-11T08:59:54Z</updated>
+    <link href="https://arxiv.org/abs/2101.03771v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2101.03771v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>This paper introduces a plug-and-play descriptor that can be effectively adopted for image retrieval tasks without prior initialization or preparation. The description method utilizes the recently proposed Vision Transformer network while it does not require any training data to adjust parameters. In image retrieval tasks, the use of Handcrafted global and local descriptors has been very successfully replaced, over the last years, by the Convolutional Neural Networks (CNN)-based methods. However, the experimental evaluation conducted in this paper on several benchmarking datasets against 36 state-of-the-art descriptors from the literature demonstrates that a neural network that contains no convolutional layer, such as Vision Transformer, can shape a global descriptor and achieve competitive results. As fine-tuning is not required, the presented methodology's low complexity encourages adoption of the architecture as an image retrieval baseline model, replacing the traditional and well adopted CNN-based approaches and inaugurating a new era in image retrieval approaches.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.IR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2021-01-11T08:59:54Z</published>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Socratis Gkelios</name>
+    </author>
+    <author>
+      <name>Yiannis Boutalis</name>
+    </author>
+    <author>
+      <name>Savvas A. Chatzichristofis</name>
+    </author></entry>
+</feed>

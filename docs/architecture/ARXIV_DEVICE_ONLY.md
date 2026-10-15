@@ -578,20 +578,33 @@ source_metadata: {
   - One shared module, `_shared/paper-search.ts`, builds the requests, decodes both answers into today's result rows
     (the native and browser decoders are unchanged) and orders them. Native runs it in JavaScriptCore (the
     `arxiv-source-metadata.js` bundle), the browser and the server import it.
-  - Native (`DeviceSearch`): only when the person submits a search. Requests: relevance over all the words
-    (`max_results` 50), then the three oldest titles with the phrase (2–8 words), and any word (`OR`) only when the
-    first finds fewer than 5. All go through the device's single export API queue (`ArxivRequestPacer`,
-    `ArxivDeviceRefusal`, the Gradstep User-Agent). Each query's results are kept on the device for 24 h (Caches,
-    never synced). An arXiv ID or link is one `id_list` request.
-  - Browser (`lib/device-search.ts`): DataCite (`provider-id=arxiv`, sparse fields, `mailto`, no credentials), the
-    same three roles, near spellings (`~1`) instead of any word; one search's requests at a time; each query kept in
-    the tab for 24 h. `connect-src` lists `https://api.datacite.org`. **The browser has no paper-search box today**
-    (only Add by ID, DOI or link); adding one is an interaction change for the owner (open question 11).
+  - Native (`DeviceSearch`): only when the person submits a search. Requests, in order: arXiv's relevance over all the
+    words (`max_results` 50), DataCite's ten most cited matches, then arXiv's three oldest titles with the phrase
+    (2–8 words); DataCite's near spellings (`~1`) only when arXiv's first answer lists fewer than 5 (arXiv's API has
+    no near-spelling search; tuning 1, §5.6.1). arXiv requests go through the device's single export API queue
+    (`ArxivRequestPacer`, `ArxivDeviceRefusal`, the Gradstep User-Agent); DataCite requests carry the same User-Agent
+    and are not arXiv's to pace. Each query's results are kept on the device for 24 h (Caches, never synced). An arXiv
+    ID or link is one `id_list` request.
+  - Browser (`lib/device-search.ts`): DataCite (`provider-id=arxiv`, sparse fields, `mailto`, no credentials): the same
+    relevance, most cited and phrase requests together, near spellings when the first is short; one search at a time;
+    each query kept in the tab for 24 h. `connect-src` lists `https://api.datacite.org`.
+  - Browser page (owner, 2026-10-15: "If no downside shoot for parity"; `ui/PaperSearch.tsx`): the native Library
+    search. While searching, the Library / arXiv switch sits under the top-bar field with Cancel (native's label kept;
+    the "arXiv" label question stays open for both, §8 question 9). The arXiv side searches on Enter, or on switching
+    with a query not yet searched; its states are native's (Find papers, Searching arXiv…, Couldn't search with Try
+    again, No papers found); results are the Feed's rows with Newest (the default) or Relevance order, Add, the
+    Downloading…/Preparing… percent after Add, and In library, which opens the paper. `/` focuses the field, Escape
+    clears it and then leaves the search. With `device_search` off the browser asks the server's `discover?q=`, as the
+    native app does.
   - The order, every factor a plain multiplier (`explainSearch` names them): the index's relevance order
     (1 / (1 + rank / 10)); title words (+0.5 × the share of the query's words in the title, +0.5 for the phrase);
     machine-learning categories ×1.15, outside computing and statistics ×0.7; an exact title or main title ×3; the
     earliest paper titled with the phrase ×2 when its main title is the phrase, ×1.5 when the phrase has 3+ words and
-    the paper is in an ML category. No citation counts: neither index has them for arXiv papers.
+    the paper is in an ML category; well known (tuning 2): DataCite's `citationCount` (other DataCite records citing
+    the paper; most arXiv papers have none, landmarks a few to dozens). A paper cited at least twice and about the
+    query (its title has all the query's distinctive words, or half of them and its abstract has the query's phrase)
+    gains 1 + log2(1 + citations) / 4, and one the word matching missed joins from the most cited list at its place
+    there.
   - The query never reaches our server. Adding a result is today's Add. Nothing is prefetched for results the person
     has not opened.
 
@@ -628,12 +641,32 @@ before the run for 20 of the queries.
   broad (`OR`) answer is poor (0.10); DataCite's `~1` finds the right papers (0.57; "atention is all you ned" →
   Attention Is All You Need first). Today's search returns nothing or unrelated papers.
 - **Exact titles and IDs:** first on every engine.
-- **Verdict:** roughly the same experience, better for authors, links, specific topics and speed, worse for the
-  landmark paper of a broad two-word topic. Tuning in order: (1) native misspellings: when the strict answer is short,
-  ask DataCite's near spellings (the owner accepted third-party calls that fit terms and scale) instead of arXiv's
-  `OR`; (2) native latency: show the relevance answer at once and reorder when the phrase answer arrives 3 s later;
-  (3) landmark papers: an explainable "well known" signal is the one gap (for example Hugging Face Papers upvotes
-  where the pool has them, or the year of the earliest title match as a tie-breaker), to be judged on this same set.
+- **Verdict (first run):** roughly the same experience, better for authors, links, specific topics and speed, worse
+  for the landmark paper of a broad two-word topic.
+
+**Tuning (same day, same queries and judgments; papers the tunings newly surfaced were judged by the same rules).**
+(1) Native: when arXiv finds fewer than 5, ask DataCite's near spellings instead of arXiv's any-word search.
+(2) Well known: DataCite's `citationCount`, through a most-cited request and rule 6 above. `--without-known` gives the
+ordering with (1) alone.
+
+| Relevance of the top 5, by kind | topic | short | long | author | title | id | misspelling | all | expected top 10 / first | time |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Today (OpenAlex) | 0.67 | 0.70 | 0.45 | 0.17 | 0.28 | 0.50 | 0.00 | 0.48 | 12/20 / 8/20 | 4.3 s |
+| Native, before | 0.83 | 0.70 | 0.85 | 1.00 | 0.26 | 1.00 | 0.10 | 0.69 | 13/20 / 12/20 | 3.3 s |
+| Native, near spellings | 0.83 | 0.70 | 0.85 | 1.00 | 0.36 | 1.00 | 0.57 | 0.75 | 14/20 / 13/20 | 3.3 s |
+| Native, both | 0.84 | 0.70 | 0.85 | 1.00 | 0.36 | 1.00 | 0.57 | 0.76 | 17/20 / 13/20 | 3.3 s |
+| Browser, before | 0.94 | 0.60 | 0.65 | 0.97 | 0.38 | 1.00 | 0.57 | 0.79 | 13/20 / 13/20 | 1.6 s |
+| Browser, both | 0.93 | 0.60 | 0.65 | 0.97 | 0.38 | 1.00 | 0.57 | 0.79 | 16/20 / 13/20 | 0.7 s |
+
+- Near spellings lift native misspellings from 0.10 to 0.57. The title score rises because, for the long FlashAttention
+  title, they replace arXiv's any-word results with the paper alone (the score counts the papers shown).
+- Well known brings the landmark into the top 10 for "vision transformer" (ViT, second on both), "state space models"
+  (Mamba) and "reinforcement learning from human feedback" (InstructGPT; Christiano et al. stays out: its title lacks
+  "feedback" and its abstract the phrase), and 3D Gaussian Splatting for "neural radiance fields". Other kinds are
+  unchanged; topic relevance moves by 0.01 either way. One query got worse: "contrastive learning" (0.80 → 0.70 on
+  both engines; moderately cited, partly relevant papers rise above it in the browser's top 3).
+- The browser's time fell to 0.7 s because its requests now go together; native's stays 3.3 s (two arXiv requests
+  3 s apart). Kept: both tunings. Not done: showing native results before the phrase answer.
 
 ### 5.7 Tags
 
@@ -770,14 +803,16 @@ staging or switched on.
 - **Step 4, search (switched off).** Migration `202610150072_device_search.sql` (`device_search_enabled` false,
   `openalex_enabled` true, `worker_search_policy()` for the functions, `v1_reader_capabilities.device_search`);
   `_shared/paper-search.ts`; native `DeviceSearch` behind `ReaderCapabilities.searchesOnDevice` in
-  `ReaderModel.runDiscovery`; browser `lib/device-search.ts` (no UI yet); `discover?q=` searches DataCite and
+  `ReaderModel.runDiscovery`; browser `lib/device-search.ts` and its page (`ui/PaperSearch.tsx`, the Library / arXiv
+  switch, native parity); the two tunings of §5.6.1; `discover?q=` searches DataCite and
   `identify.resolveDOI` skips OpenAlex when `openalex_enabled` is false; the browser CSP and the deploy gate list
   `https://api.datacite.org`. Evaluation: §5.6.1 and `scripts/search-eval.mjs`.
 - **Active with every flag off** (owner's rules 3 and 4): the 24 h stop after arXiv answers 403, on both clients, and
   the Gradstep User-Agent on the native reader's own requests. Everything else is inert until `source_metadata_enabled`
   is set, apart from the capability check itself: a browser preparing papers asks our server's
-  `v1_reader_capabilities` at most once every 10 minutes. The browser's CSP lists DataCite, but nothing in the page
-  calls it while the search has no UI.
+  `v1_reader_capabilities` at most once every 10 minutes. The browser's paper search (native parity) is visible with
+  every flag off and then searches through the server's `discover?q=`, as the native app does; its CSP lists DataCite,
+  which it calls only once `device_search` is on.
 - **Design changes from the proposal below.**
   - Provenance is a companion table, not `origin` and `evidence_sha256` columns: `catalog_metadata` rows are immutable.
   - No `v6_begin_import`; devices submit afterwards, and the Add paths are unchanged.
@@ -1000,11 +1035,11 @@ projection.
 10. **Reader page loads and rule 3.** The reader requests a paper's page 3 s after the previous one, then that page's
     figures at most 4 at a time, as a browser does. Strictly one request every 3 s would make a 20-figure paper take
     about a minute to open. Keep the page-visit policy for the reader, with rule 3 applied to the APIs?
-11. **A paper-search box in the browser.** The browser has no search today (Add takes an ID, DOI or link). Proposal:
-    the top-bar search gets the native app's Library / arXiv switch; the arXiv side runs `lib/device-search.ts`
-    (DataCite) and shows the Feed's result rows with + Add. An interaction change, so it waits for the owner.
-12. **Search tuning (§5.6.1).** Native near spellings through DataCite; show results before the phrase answer; and
-    whether a "well known" signal is wanted for broad two-word topics.
+11. **Browser paper search:** built for parity on the owner's "If no downside shoot for parity" (§5.6); it shows with
+    every flag off, through the server's `discover?q=`, as the native app's search does.
+12. **Search tuning (§5.6.1).** Done: native near spellings through DataCite, and DataCite citations as the "well known"
+    signal. Open: native results before the phrase answer (about 3 s sooner), and whether the "contrastive learning"
+    trade is acceptable.
 
 ## References in this repository
 

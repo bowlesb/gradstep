@@ -1,0 +1,1511 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.2010.11929",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2010.11929",
+    "titles": [
+     {
+      "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Alexey",
+      "familyName": "Dosovitskiy",
+      "name": "Dosovitskiy, Alexey",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lucas",
+      "familyName": "Beyer",
+      "name": "Beyer, Lucas",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Alexander",
+      "familyName": "Kolesnikov",
+      "name": "Kolesnikov, Alexander",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Dirk",
+      "familyName": "Weissenborn",
+      "name": "Weissenborn, Dirk",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiaohua",
+      "familyName": "Zhai",
+      "name": "Zhai, Xiaohua",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Thomas",
+      "familyName": "Unterthiner",
+      "name": "Unterthiner, Thomas",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mostafa",
+      "familyName": "Dehghani",
+      "name": "Dehghani, Mostafa",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Matthias",
+      "familyName": "Minderer",
+      "name": "Minderer, Matthias",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Georg",
+      "familyName": "Heigold",
+      "name": "Heigold, Georg",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Sylvain",
+      "familyName": "Gelly",
+      "name": "Gelly, Sylvain",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jakob",
+      "familyName": "Uszkoreit",
+      "name": "Uszkoreit, Jakob",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Neil",
+      "familyName": "Houlsby",
+      "name": "Houlsby, Neil",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "While the Transformer architecture has become the de-facto standard for natural language processing tasks, its applications to computer vision remain limited. In vision, attention is either applied in conjunction with convolutional networks, or used to replace certain components of convolutional networks while keeping their overall structure in place. We show that this reliance on CNNs is not necessary and a pure transformer applied directly to sequences of image patches can perform very well on image classification tasks. When pre-trained on large amounts of data and transferred to multiple mid-sized or small image recognition benchmarks (ImageNet, CIFAR-100, VTAB, etc.), Vision Transformer (ViT) attains excellent results compared to state-of-the-art convolutional networks while requiring substantially fewer computational resources to train."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Fine-tuning code and pre-trained models are available at https://github.com/google-research/vision_transformer. ICLR camera-ready version with 2 small modifications: 1) Added a discussion of CLS vs GAP classifier in the appendix, 2) Fixed an error in exaFLOPs computation in Figure 5 and Table 6 (relative performance of models is basically not affected)"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2020-10-22T17:55:59Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2020-10-23T00:29:42Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-06-03T13:08:56Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-06-04T00:19:17Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2020-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2020",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2020,
+    "citationCount": 16
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2510.06070",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2510.06070",
+    "titles": [
+     {
+      "title": "There is More to Attention: Statistical Filtering Enhances Explanations in Vision Transformers"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Meghna P",
+      "familyName": "Ayyar",
+      "name": "Ayyar, Meghna P",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jenny",
+      "familyName": "Benois-Pineau",
+      "name": "Benois-Pineau, Jenny",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Akka",
+      "familyName": "Zemmari",
+      "name": "Zemmari, Akka",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Explainable AI (XAI) has become increasingly important with the rise of large transformer models, yet many explanation methods designed for CNNs transfer poorly to Vision Transformers (ViTs). Existing ViT explanations often rely on attention weights, which tend to yield noisy maps as they capture token-to-token interactions within each layer.While attribution methods incorporating MLP blocks have been proposed, we argue that attention remains a valuable and interpretable signal when properly filtered. We propose a method that combines attention maps with a statistical filtering, initially proposed for CNNs, to remove noisy or uninformative patterns and produce more faithful explanations. We further extend our approach with a class-specific variant that yields discriminative explanations. Evaluation against popular state-of-the-art methods demonstrates that our approach produces sharper and more interpretable maps. In addition to perturbation-based faithfulness metrics, we incorporate human gaze data to assess alignment with human perception, arguing that human interpretability remains essential for XAI. Across multiple datasets, our approach consistently outperforms or is comparable to the SOTA methods while remaining efficient and human plausible."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2025-10-07T15:59:04Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-10-08T00:56:44Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2025,
+    "citationCount": 6
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2101.00529",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2101.00529",
+    "titles": [
+     {
+      "title": "VinVL: Revisiting Visual Representations in Vision-Language Models"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Pengchuan",
+      "familyName": "Zhang",
+      "name": "Zhang, Pengchuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiujun",
+      "familyName": "Li",
+      "name": "Li, Xiujun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiaowei",
+      "familyName": "Hu",
+      "name": "Hu, Xiaowei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jianwei",
+      "familyName": "Yang",
+      "name": "Yang, Jianwei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lei",
+      "familyName": "Zhang",
+      "name": "Zhang, Lei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lijuan",
+      "familyName": "Wang",
+      "name": "Wang, Lijuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yejin",
+      "familyName": "Choi",
+      "name": "Choi, Yejin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jianfeng",
+      "familyName": "Gao",
+      "name": "Gao, Jianfeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "This paper presents a detailed study of improving visual representations for vision language (VL) tasks and develops an improved object detection model to provide object-centric representations of images. Compared to the most widely used \\emph{bottom-up and top-down} model \\cite{anderson2018bottom}, the new model is bigger, better-designed for VL tasks, and pre-trained on much larger training corpora that combine multiple public annotated object detection datasets. Therefore, it can generate representations of a richer collection of visual objects and concepts. While previous VL research focuses mainly on improving the vision-language fusion model and leaves the object detection model improvement untouched, we show that visual features matter significantly in VL models. In our experiments we feed the visual features generated by the new object detection model into a Transformer-based VL fusion model \\oscar \\cite{li2020oscar}, and utilize an improved approach \\short\\ to pre-train the VL model and fine-tune it on a wide range of downstream VL tasks. Our results show that the new visual features significantly improve the performance across all VL tasks, creating new state-of-the-art results on seven public benchmarks. We will release the new object detection model to public."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2021-01-02T23:35:27Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-01-05T01:20:49Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-03-10T01:27:16Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-03-11T01:07:25Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-01",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2021,
+    "citationCount": 2
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2502.13923",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2502.13923",
+    "titles": [
+     {
+      "title": "Qwen2.5-VL Technical Report"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Shuai",
+      "familyName": "Bai",
+      "name": "Bai, Shuai",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Keqin",
+      "familyName": "Chen",
+      "name": "Chen, Keqin",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Xuejing",
+      "familyName": "Liu",
+      "name": "Liu, Xuejing",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Jialin",
+      "familyName": "Wang",
+      "name": "Wang, Jialin",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Wenbin",
+      "familyName": "Ge",
+      "name": "Ge, Wenbin",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Sibo",
+      "familyName": "Song",
+      "name": "Song, Sibo",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Kai",
+      "familyName": "Dang",
+      "name": "Dang, Kai",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Peng",
+      "familyName": "Wang",
+      "name": "Wang, Peng",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Shijie",
+      "familyName": "Wang",
+      "name": "Wang, Shijie",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Jun",
+      "familyName": "Tang",
+      "name": "Tang, Jun",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Humen",
+      "familyName": "Zhong",
+      "name": "Zhong, Humen",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Yuanzhi",
+      "familyName": "Zhu",
+      "name": "Zhu, Yuanzhi",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Mingkun",
+      "familyName": "Yang",
+      "name": "Yang, Mingkun",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Zhaohai",
+      "familyName": "Li",
+      "name": "Li, Zhaohai",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Jianqiang",
+      "familyName": "Wan",
+      "name": "Wan, Jianqiang",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Pengfei",
+      "familyName": "Wang",
+      "name": "Wang, Pengfei",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Wei",
+      "familyName": "Ding",
+      "name": "Ding, Wei",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Zheren",
+      "familyName": "Fu",
+      "name": "Fu, Zheren",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Yiheng",
+      "familyName": "Xu",
+      "name": "Xu, Yiheng",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Jiabo",
+      "familyName": "Ye",
+      "name": "Ye, Jiabo",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Xi",
+      "familyName": "Zhang",
+      "name": "Zhang, Xi",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Tianbao",
+      "familyName": "Xie",
+      "name": "Xie, Tianbao",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Zesen",
+      "familyName": "Cheng",
+      "name": "Cheng, Zesen",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Hang",
+      "familyName": "Zhang",
+      "name": "Zhang, Hang",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Zhibo",
+      "familyName": "Yang",
+      "name": "Yang, Zhibo",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Haiyang",
+      "familyName": "Xu",
+      "name": "Xu, Haiyang",
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "additional authors not shown"
+      ],
+      "givenName": "Junyang",
+      "familyName": "Lin",
+      "name": "Lin, Junyang",
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "We introduce Qwen2.5-VL, the latest flagship model of Qwen vision-language series, which demonstrates significant advancements in both foundational capabilities and innovative functionalities. Qwen2.5-VL achieves a major leap forward in understanding and interacting with the world through enhanced visual recognition, precise object localization, robust document parsing, and long-video comprehension. A standout feature of Qwen2.5-VL is its ability to localize objects using bounding boxes or points accurately. It provides robust structured data extraction from invoices, forms, and tables, as well as detailed analysis of charts, diagrams, and layouts. To handle complex inputs, Qwen2.5-VL introduces dynamic resolution processing and absolute time encoding, enabling it to process images of varying sizes and videos of extended durations (up to hours) with second-level event localization. This allows the model to natively perceive spatial scales and temporal dynamics without relying on traditional normalization techniques. By training a native dynamic-resolution Vision Transformer (ViT) from scratch and incorporating Window Attention, we reduce computational overhead while maintaining native resolution. As a result, Qwen2.5-VL excels not only in static image and document understanding but also as an interactive visual agent capable of reasoning, tool usage, and task execution in real-world scenarios such as operating computers and mobile devices. Qwen2.5-VL is available in three sizes, addressing diverse use cases from edge AI to high-performance computing. The flagship Qwen2.5-VL-72B model matches state-of-the-art models like GPT-4o and Claude 3.5 Sonnet, particularly excelling in document and diagram understanding. Additionally, Qwen2.5-VL maintains robust linguistic performance, preserving the core language competencies of the Qwen2.5 LLM."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2025-02-19T18:00:14Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-03-05T04:31:55Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-02",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2025,
+    "citationCount": 2
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2308.15517",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2308.15517",
+    "titles": [
+     {
+      "title": "Document AI: A Comparative Study of Transformer-Based, Graph-Based Models, and Convolutional Neural Networks For Document Layout Analysis"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Sotirios",
+      "familyName": "Kastanas",
+      "name": "Kastanas, Sotirios",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Shaomu",
+      "familyName": "Tan",
+      "name": "Tan, Shaomu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yi",
+      "familyName": "He",
+      "name": "He, Yi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Document AI aims to automatically analyze documents by leveraging natural language processing and computer vision techniques. One of the major tasks of Document AI is document layout analysis, which structures document pages by interpreting the content and spatial relationships of layout, image, and text. This task can be image-centric, wherein the aim is to identify and label various regions such as authors and paragraphs, or text-centric, where the focus is on classifying individual words in a document. Although there are increasingly sophisticated methods for improving layout analysis, doubts remain about the extent to which their findings can be generalized to a broader context. Specifically, prior work developed systems based on very different architectures, such as transformer-based, graph-based, and CNNs. However, no work has mentioned the effectiveness of these models in a comparative analysis. Moreover, while language-independent Document AI models capable of knowledge transfer have been developed, it remains to be investigated to what degree they can effectively transfer knowledge. In this study, we aim to fill these gaps by conducting a comparative evaluation of state-of-the-art models in document layout analysis and investigating the potential of cross-lingual layout analysis by utilizing machine translation techniques."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2023-08-29T16:58:03Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-08-31T00:00:35Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-08",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023,
+    "citationCount": 1
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2405.02512",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2405.02512",
+    "titles": [
+     {
+      "title": "SatSwinMAE: Efficient Autoencoding for Multiscale Time-series Satellite Imagery"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Yohei",
+      "familyName": "Nakayama",
+      "name": "Nakayama, Yohei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jiawei",
+      "familyName": "Su",
+      "name": "Su, Jiawei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Luis M.",
+      "familyName": "Pazos-Outón",
+      "name": "Pazos-Outón, Luis M.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Recent advancements in foundation models have significantly impacted various fields, including natural language processing, computer vision, and multi-modal tasks. One area that stands to benefit greatly is Earth observation, where these models can efficiently process large-scale, unlabeled geospatial data. In this work we extend the SwinMAE model to integrate temporal information for satellite time-series data. The architecture employs a hierarchical 3D Masked Autoencoder (MAE) with Video Swin Transformer blocks to effectively capture multi-scale spatio-temporal dependencies in satellite imagery. To enhance transfer learning, we incorporate both encoder and decoder pretrained weights, along with skip connections to preserve scale-specific information. This forms an architecture similar to SwinUNet with an additional temporal component. Our approach shows significant performance improvements over existing state-of-the-art foundation models for all the evaluated downstream tasks: land cover segmentation, building density prediction, flood mapping, wildfire scar mapping and multi-temporal crop segmentation. Particularly, in the land cover segmentation task of the PhilEO Bench dataset, it outperforms other geospatial foundation models with a 10.4% higher accuracy."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2024-05-03T22:55:56Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-05-07T00:10:35Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10-18T08:25:52Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-10-21T00:36:04Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-05",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024,
+    "citationCount": 1
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2107.03107",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2107.03107",
+    "titles": [
+     {
+      "title": "Learning Vision Transformer with Squeeze and Excitation for Facial Expression Recognition"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Mouath",
+      "familyName": "Aouayeb",
+      "name": "Aouayeb, Mouath",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wassim",
+      "familyName": "Hamidouche",
+      "name": "Hamidouche, Wassim",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Catherine",
+      "familyName": "Soladie",
+      "name": "Soladie, Catherine",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kidiyo",
+      "familyName": "Kpalma",
+      "name": "Kpalma, Kidiyo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Renaud",
+      "familyName": "Seguier",
+      "name": "Seguier, Renaud",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "As various databases of facial expressions have been made accessible over the last few decades, the Facial Expression Recognition (FER) task has gotten a lot of interest. The multiple sources of the available databases raised several challenges for facial recognition task. These challenges are usually addressed by Convolution Neural Network (CNN) architectures. Different from CNN models, a Transformer model based on attention mechanism has been presented recently to address vision tasks. One of the major issue with Transformers is the need of a large data for training, while most FER databases are limited compared to other vision applications. Therefore, we propose in this paper to learn a vision Transformer jointly with a Squeeze and Excitation (SE) block for FER task. The proposed method is evaluated on different publicly available FER databases including CK+, JAFFE,RAF-DB and SFEW. Experiments demonstrate that our model outperforms state-of-the-art methods on CK+ and SFEW and achieves competitive results on JAFFE and RAF-DB."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "4",
+    "dates": [
+     {
+      "date": "2021-07-07T09:49:01Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-07-08T00:14:04Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-07-08T10:37:00Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-07-09T00:16:45Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-07-15T12:18:48Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2021-07-16T00:14:23Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2021-07-16T07:49:19Z",
+      "dateType": "Submitted",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2021-07-19T00:10:23Z",
+      "dateType": "Updated",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2021-07",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2021,
+    "citationCount": 1
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2103.14030",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2103.14030",
+    "titles": [
+     {
+      "title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Ze",
+      "familyName": "Liu",
+      "name": "Liu, Ze",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yutong",
+      "familyName": "Lin",
+      "name": "Lin, Yutong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yue",
+      "familyName": "Cao",
+      "name": "Cao, Yue",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Han",
+      "familyName": "Hu",
+      "name": "Hu, Han",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yixuan",
+      "familyName": "Wei",
+      "name": "Wei, Yixuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zheng",
+      "familyName": "Zhang",
+      "name": "Zhang, Zheng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Stephen",
+      "familyName": "Lin",
+      "name": "Lin, Stephen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Baining",
+      "familyName": "Guo",
+      "name": "Guo, Baining",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "This paper presents a new vision Transformer, called Swin Transformer, that capably serves as a general-purpose backbone for computer vision. Challenges in adapting Transformer from language to vision arise from differences between the two domains, such as large variations in the scale of visual entities and the high resolution of pixels in images compared to words in text. To address these differences, we propose a hierarchical Transformer whose representation is computed with \\textbf{S}hifted \\textbf{win}dows. The shifted windowing scheme brings greater efficiency by limiting self-attention computation to non-overlapping local windows while also allowing for cross-window connection. This hierarchical architecture has the flexibility to model at various scales and has linear computational complexity with respect to image size. These qualities of Swin Transformer make it compatible with a broad range of vision tasks, including image classification (87.3 top-1 accuracy on ImageNet-1K) and dense prediction tasks such as object detection (58.7 box AP and 51.1 mask AP on COCO test-dev) and semantic segmentation (53.5 mIoU on ADE20K val). Its performance surpasses the previous state-of-the-art by a large margin of +2.7 box AP and +2.6 mask AP on COCO, and +3.2 mIoU on ADE20K, demonstrating the potential of Transformer-based models as vision backbones. The hierarchical design and the shifted window approach also prove beneficial for all-MLP architectures. The code and models are publicly available at~\\url{https://github.com/microsoft/Swin-Transformer}."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2021-03-25T17:59:31Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-03-26T00:31:07Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021-08-17T16:41:34Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-08-18T00:25:15Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2021-03",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2021",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2021,
+    "citationCount": 1
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2011.10363",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2011.10363",
+    "titles": [
+     {
+      "title": "SophiaPop: Experiments in Human-AI Collaboration on Popular Music"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "David",
+      "familyName": "Hanson",
+      "name": "Hanson, David",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Frankie",
+      "familyName": "Storm",
+      "name": "Storm, Frankie",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wenwei",
+      "familyName": "Huang",
+      "name": "Huang, Wenwei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Vytas",
+      "familyName": "Krisciunas",
+      "name": "Krisciunas, Vytas",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Tiger",
+      "familyName": "Darrow",
+      "name": "Darrow, Tiger",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Audrey",
+      "familyName": "Brown",
+      "name": "Brown, Audrey",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mengna",
+      "familyName": "Lei",
+      "name": "Lei, Mengna",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Matthew",
+      "familyName": "Aylett",
+      "name": "Aylett, Matthew",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Adam",
+      "familyName": "Pickrell",
+      "name": "Pickrell, Adam",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Sophia the",
+      "familyName": "Robot",
+      "name": "Robot, Sophia the",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "A diverse team of engineers, artists, and algorithms, collaborated to create songs for SophiaPop, via various neural networks, robotics technologies, and artistic tools, and animated the results on Sophia the Robot, a robotic celebrity and animated character. Sophia is a platform for arts, research, and other uses. To advance the art and technology of Sophia, we combine various AI with a fictional narrative of her burgeoning career as a popstar. Her actual AI-generated pop lyrics, music, and paintings, and animated conversations wherein she interacts with humans real-time in narratives that discuss her experiences. To compose the music, SophiaPop team built corpora from human and AI-generated Sophia character personality content, along with pop music song forms, to train and provide seeds for a number of AI algorithms including expert models, and custom-trained transformer neural networks, which then generated original pop-song lyrics and melodies. Our musicians including Frankie Storm, Adam Pickrell, and Tiger Darrow, then performed interpretations of the AI-generated musical content, including singing and instrumentation. The human-performed singing data then was processed by a neural-network-based Sophia voice, which was custom-trained from human performances by Cereproc. This AI then generated the unique Sophia voice singing of the songs. Then we animated Sophia to sing the songs in music videos, using a variety of animation generators and human-generated animations. Being algorithms and humans, working together, SophiaPop represents a human-AI collaboration, aspiring toward human AI symbiosis. We believe that such a creative convergence of multiple disciplines with humans and AI working together, can make AI relevant to human culture in new and exciting ways, and lead to a hopeful vision for the future of human-AI relations."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "7 pages, 4 figures"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Human-Computer Interaction (cs.HC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2020-11-20T12:05:50Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2020-11-23T01:12:46Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2020-11",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2020",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2020,
+    "citationCount": 1
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2309.14500",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2309.14500",
+    "titles": [
+     {
+      "title": "Assessment of a new GeoAI foundation model for flood inundation mapping"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Wenwen",
+      "familyName": "Li",
+      "name": "Li, Wenwen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hyunho",
+      "familyName": "Lee",
+      "name": "Lee, Hyunho",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Sizhe",
+      "familyName": "Wang",
+      "name": "Wang, Sizhe",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chia-Yu",
+      "familyName": "Hsu",
+      "name": "Hsu, Chia-Yu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Samantha T.",
+      "familyName": "Arundel",
+      "name": "Arundel, Samantha T.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Vision foundation models are a new frontier in Geospatial Artificial Intelligence (GeoAI), an interdisciplinary research area that applies and extends AI for geospatial problem solving and geographic knowledge discovery, because of their potential to enable powerful image analysis by learning and extracting important image features from vast amounts of geospatial data. This paper evaluates the performance of the first-of-its-kind geospatial foundation model, IBM-NASA's Prithvi, to support a crucial geospatial analysis task: flood inundation mapping. This model is compared with convolutional neural network and vision transformer-based architectures in terms of mapping accuracy for flooded areas. A benchmark dataset, Sen1Floods11, is used in the experiments, and the models' predictability, generalizability, and transferability are evaluated based on both a test dataset and a dataset that is completely unseen by the model. Results show the good transferability of the Prithvi model, highlighting its performance advantages in segmenting flooded areas in previously unseen regions. The findings also indicate areas for improvement for the Prithvi model in terms of adopting multi-scale representation learning, developing more end-to-end pipelines for high-level image analysis tasks, and offering more flexibility in terms of input data bands."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "8 pages, 4 figures, Accepted for the 6th ACM SIGSPATIAL International Workshop on AI for Geographic Knowledge Discovery"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "4",
+    "dates": [
+     {
+      "date": "2023-09-25T19:50:47Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-09-27T00:04:15Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-10-22T22:05:54Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2023-10-24T00:41:48Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2023-10-26T22:58:04Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2023-10-30T00:11:08Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2023-11-03T21:58:45Z",
+      "dateType": "Submitted",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2024-05-29T00:58:02Z",
+      "dateType": "Updated",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2023-09",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023,
+    "citationCount": 1
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 7215,
+  "totalPages": 722,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=vision+transformer&provider-id=arxiv&sort=-citation-count&page%5Bsize%5D=10&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear%2CcitationCount&mailto=hello%40gradstep.ai",
+  "next": "https://api.datacite.org/dois?disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear%2CcitationCount&page%5Bnumber%5D=2&page%5Bsize%5D=10&provider-id=arxiv&query=vision+transformer"
+ }
+}

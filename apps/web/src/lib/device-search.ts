@@ -2,10 +2,10 @@
 // `device_search` capability is on, the person's search goes from this browser to DataCite (CORS; identified by
 // `mailto`, since a browser cannot set a User-Agent), never through our server, and is ordered by the shared,
 // explainable rules in paper-search.ts. One search's requests at a time; each query's results are kept in this tab
-// for 24 hours; nothing is stored. The page has no paper-search box yet (a proposal for the owner, §5.6): this is the
-// engine it would use. The search code and the DataCite client load only on the first search.
-import { BackendError, rpc } from './backend';
-import { decodeFeed, type DiscoveryResult } from './feed';
+// for 24 hours; nothing is stored. While the capability is off, the search goes to the server's `discover?q=`, as the
+// native app's does (`searchPapers`). The search code and the DataCite client load only on the first search.
+import { BackendError, functionGet, rpc } from './backend';
+import { decodeFeed, orderFeed, type DiscoveryResult } from './feed';
 
 export const DEVICE_SEARCH_FORMAT = 'device-search-v1';
 export const SEARCH_CACHE_MS = 86_400_000;
@@ -67,3 +67,20 @@ export function browserSearch(account: string, deps: BrowserSearchDeps = live) {
     },
   };
 }
+
+/** The server's search (`discover?q=`): what the native app uses while device search is off. */
+export async function serverSearch(account: string, query: string, signal?: AbortSignal): Promise<DiscoveryResult[]> {
+  const params = new URLSearchParams({ q: query.normalize('NFKC').trim().slice(0, 300), abstract: 'full' });
+  return decodeFeed(await functionGet(`discover?${params}`, { account, signal, maximum: 4_194_304 })).results;
+}
+
+/** The person's paper search, as native ReaderModel.runDiscovery: from this browser while the server says so, else
+ * from the server. */
+export async function searchPapers(account: string, engine: ReturnType<typeof browserSearch>, query: string, signal?: AbortSignal): Promise<DiscoveryResult[]> {
+  return await engine.enabled() ? engine.search(query, signal) : serverSearch(account, query, signal);
+}
+
+/** Native DiscoveryOrder: newest first (the default; submission month and number) or the search's own order. */
+export type DiscoveryOrder = 'newest' | 'relevance';
+export const DISCOVERY_ORDER_KEY = 'gradstep.discover.order.v1';
+export const orderDiscovery = (results: DiscoveryResult[], order: DiscoveryOrder) => order === 'newest' ? orderFeed(results, 'newest') : results;

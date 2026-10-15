@@ -28,10 +28,10 @@ final class SourceMetadataExtractor {
     /// The record from the export API's Atom answer for exactly this version, or nil.
     func fromAtom(_ xml: String, source: ArxivReaderSource) -> Data? { call("fromAtom", xml, source) }
 
-    /// A search's export API requests (paper-search.ts): made in order; `broad` only when the relevance answer lists
-    /// fewer than `broadBelow` papers.
+    /// A search's requests (paper-search.ts): made in order; `broad` only when the relevance answer lists fewer than
+    /// `broadBelow` papers. `source` "arxiv" goes through the device's paced export API queue, "datacite" to DataCite.
     struct SearchPlan: Decodable, Equatable {
-        struct Request: Decodable, Equatable { let role: String; let url: URL }
+        struct Request: Decodable, Equatable { let role: String; let url: URL; let source: String }
         let requests: [Request]
         let broad: Request?
         let broadBelow: Int
