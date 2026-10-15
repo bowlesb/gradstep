@@ -1,6 +1,7 @@
 import {useDevicePDFs} from './useDevicePDFs';
 import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
-import { localChatContext, prepareArxivReader } from '../lib/arxiv-reader';
+import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
+import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
@@ -98,6 +99,8 @@ const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 
 
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
+  // What this browser reads about a paper it prepares goes to the server only while it asks (ARXIV_DEVICE_ONLY.md §5.3).
+  useEffect(() => observeArxivSources(sourceMetadataReporter(account)), [account]);
   const chat = useChat(account, ready);
   const devicePDFs=useDevicePDFs(chat);
   const library = useLibrary(account,devicePDFs);

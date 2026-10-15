@@ -87,6 +87,38 @@ final class SourceMetadataReporterTests: XCTestCase {
         _ = try await relaunched.atom(for: other)
         XCTAssertEqual(ArxivAPIFixture.requests.count, 3)
     }
+
+    /// One refusal stops the whole device: after the export API's 403 the reader asks arXiv for nothing, and the reader's
+    /// own 403 stops the export API (owner, 2026-10-15: stop 24 h after a 403).
+    @MainActor
+    func testARefusalStopsEveryArxivRequestFromTheDevice() async throws {
+        let suite = "arxiv.metadata.test.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: cache) }
+        ArxivAPIFixture.reset([(403, "")])
+        ArxivMetadataFetcher.fixtureProtocolClasses = [ArxivAPIFixture.self]
+        ArxivHTMLReader.fixtureProtocolClasses = [ArxivAPIFixture.self]
+        ArxivHTMLReader.refusalSuite = suite
+        defer { ArxivMetadataFetcher.fixtureProtocolClasses = nil; ArxivHTMLReader.fixtureProtocolClasses = nil; ArxivHTMLReader.refusalSuite = nil }
+        let fetcher = ArxivMetadataFetcher(defaultsSuite: suite, cacheDirectory: cache, sleep: { _ in })
+        do { _ = try await fetcher.atom(for: try source()); XCTFail("refused") } catch { XCTAssertEqual(error as? ArxivMetadataFetcher.Failure, .paused) }
+        do { _ = try await ArxivHTMLReader().prepare(try source()); XCTFail("the reader must not ask") }
+        catch { guard case ArxivHTMLError.refused = error else { return XCTFail("\(error)") } }
+        XCTAssertEqual(ArxivAPIFixture.requests.map { $0.url?.host }, ["export.arxiv.org"], "nothing after the refusal")
+
+        // The other way round: the reader's 403 pauses the export API.
+        UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        ArxivAPIFixture.reset([(403, "")])
+        do { _ = try await ArxivHTMLReader().prepare(try ArxivReaderSource(sourceID: "2306.00002", revision: 1)); XCTFail("refused") }
+        catch { guard case ArxivHTMLError.refused = error else { return XCTFail("\(error)") } }
+        let other = ArxivMetadataFetcher(defaultsSuite: suite, cacheDirectory: cache, sleep: { _ in })
+        do { _ = try await other.atom(for: try ArxivReaderSource(sourceID: "2306.00003", revision: 1)); XCTFail("paused") }
+        catch { XCTAssertEqual(error as? ArxivMetadataFetcher.Failure, .paused) }
+        XCTAssertEqual(ArxivAPIFixture.requests.map { $0.url?.host }, ["arxiv.org"])
+        // The reader's own request names the app too.
+        XCTAssertTrue(ArxivAPIFixture.requests.first?.value(forHTTPHeaderField: "User-Agent")?.hasPrefix("Gradstep/") == true)
+    }
 }
 
 private actor SentRecorder {
@@ -108,12 +140,12 @@ private final class TestClock: @unchecked Sendable {
     func advance(_ seconds: TimeInterval) { lock.withLock { current = current.addingTimeInterval(seconds); slept.append(seconds) } }
 }
 
-/// Answers export.arxiv.org in-process; records each request.
+/// Answers export.arxiv.org and arxiv.org in-process; records each request.
 final class ArxivAPIFixture: URLProtocol {
     nonisolated(unsafe) static var responses: [(Int, String)] = []
     nonisolated(unsafe) static var requests: [URLRequest] = []
     static func reset(_ answers: [(Int, String)]) { responses = answers; requests = [] }
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "export.arxiv.org" }
+    override class func canInit(with request: URLRequest) -> Bool { ["export.arxiv.org", "arxiv.org"].contains(request.url?.host) }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.requests.append(request)

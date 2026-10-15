@@ -37,27 +37,21 @@ final class SourceMetadataExtractor {
 }
 
 /// The export API for a paper without HTML: one request at a time from this device, at least 3 s apart, Retry-After
-/// honoured, a day's pause after a refusal (403), each answer cached (a version's record never changes), and the app
-/// named in the User-Agent. Requests only for a paper this account added, only while the capability is on.
+/// honoured, a day's pause after a refusal (403) shared with the reader's own requests (`ArxivDeviceRefusal`), each
+/// answer cached (a version's record never changes), and the app named in the User-Agent. Only for a paper this
+/// account added, only when the person opens or downloads it on this device, only while the capability is on.
 actor ArxivMetadataFetcher {
     static let shared = ArxivMetadataFetcher()
     enum Failure: Error, Equatable { case paused, notFound, unavailable, invalid }
 
-    static var userAgent: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
-        #if targetEnvironment(macCatalyst)
-        let platform = "macOS"
-        #else
-        let platform = "iOS"
-        #endif
-        return "Gradstep/\(version) (\(platform); +https://gradstep.ai; mailto:hello@gradstep.ai)"
-    }
+    static var userAgent: String { ArxivAcquisitionPolicy.userAgent }
     #if DEBUG
     /// Tests only: protocols that answer in-process (nothing leaves the process).
     nonisolated(unsafe) static var fixtureProtocolClasses: [AnyClass]?
     #endif
 
     private let defaults: UserDefaults
+    private let refusal: ArxivDeviceRefusal
     private let cacheDirectory: URL?
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (TimeInterval) async throws -> Void
@@ -71,7 +65,8 @@ actor ArxivMetadataFetcher {
          now: @escaping @Sendable () -> Date = Date.init,
          sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
         let defaults = defaultsSuite.flatMap(UserDefaults.init(suiteName:)) ?? .standard
-        self.defaults = defaults; self.cacheDirectory = cacheDirectory; self.now = now; self.sleep = sleep
+        self.defaults = defaults; self.refusal = ArxivDeviceRefusal(suite: defaultsSuite)
+        self.cacheDirectory = cacheDirectory; self.now = now; self.sleep = sleep
         pacer = defaults.data(forKey: Self.pacerKey).flatMap { try? JSONDecoder().decode(ArxivRequestPacer.self, from: $0) } ?? ArxivRequestPacer()
     }
 
@@ -92,7 +87,7 @@ actor ArxivMetadataFetcher {
         busy = true
         defer { busy = false }
         let start = now()
-        guard let scheduled = pacer.reserve(now: start) else { save(); throw Failure.paused }
+        guard refusal.until(now: start) == nil, let scheduled = pacer.reserve(now: start) else { save(); throw Failure.paused }
         save()
         if scheduled > start { try await sleep(scheduled.timeIntervalSince(start)) }
         try Task.checkCancellation()
@@ -112,6 +107,7 @@ actor ArxivMetadataFetcher {
         guard let http = response as? HTTPURLResponse else { throw Failure.invalid }
         pacer.record(status: http.statusCode, retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init), now: now())
         save()
+        if http.statusCode == 403 { refusal.record(now: now()) }
         switch http.statusCode {
         case 200: break
         case 403, 429, 503: throw Failure.paused

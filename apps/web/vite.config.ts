@@ -93,6 +93,9 @@ export default defineConfig(({ mode }) => {
   const auth = env.VITE_AUTH_URL ?? backend;
   return {
     plugins: [readerFrame(backend, auth)],
+    // The shared reader code hashes with `node:crypto`; in the browser (the metadata extractor, ARXIV_DEVICE_ONLY.md) it
+    // is the same SHA-256 adapter the device compiler bundle uses. Unit tests run in Node, which has the real module.
+    ...(mode === 'test' ? {} : { resolve: { alias: { 'node:crypto': fileURLToPath(new URL('../../scripts/arxiv-compiler/crypto.ts', import.meta.url)) } } }),
     server: { fs: { allow: [repository] } },
     build: { target: 'es2022', sourcemap: false, assetsInlineLimit: 0 },
     test: { include: ['tests/**/*.test.ts'], environment: 'node', testTimeout: 30_000 },

@@ -146,7 +146,7 @@ final class ReaderModel {
             }
             // The paper may already be in the library when the import row goes (build 44: LensErase stayed a cloud).
             for sourceID in finishedImportSources {
-                if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper) } }
+                if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper, automatic: true) } }
             }
             let now = importClock()
             importSteps.observe(libraryImports, now: now)
@@ -766,7 +766,7 @@ final class ReaderModel {
         let known = Set(previous.map(\.id))
         for paper in papers where !known.contains(paper.id) {
             guard let sourceID = paper.sourceID, finishedImportSources.contains(sourceID) else { continue }
-            finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper) }
+            finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper, automatic: true) }
         }
         // Installing verified bytes changes row presentation, not searchable
         // metadata. Keep the worker's snapshot free of reading bundles.
@@ -2461,7 +2461,8 @@ final class ReaderModel {
         let reporter = target.reporter, importID = target.importID
         return { html in Task.detached(priority: .utility) { await reporter.report(html: html, source: source, importID: importID) } }
     }
-    /// A paper without HTML (arXiv answered 404): its metadata from one paced export API request made by this device.
+    /// A paper without HTML (arXiv answered 404): its metadata from one paced export API request made by this device,
+    /// only when the person opened or downloaded it here (never from an automatic download).
     private func reportSourceMetadataWithoutHTML(_ paper: Paper, source: ArxivReaderSource) {
         Task { [weak self] in
             guard let self, let target = await self.sourceMetadataTarget(for: paper) else { return }
@@ -2472,7 +2473,9 @@ final class ReaderModel {
     /// Downloads and prepares a paper on this device without opening it: after an import this device watched finish,
     /// or from a Library row's cloud symbol or menu (owner, build 42: "either it's there… or the cloud icon in which
     /// case I need a button to download to device"). Progress shows in the row; opening it afterwards is immediate.
-    func prepareOnDevice(_ paper: Paper) {
+    /// `automatic`: the automatic download of a paper this account added, not the person's own action on this device; it
+    /// makes no arXiv request beyond the paper itself (ARXIV_DEVICE_ONLY.md §5.1).
+    func prepareOnDevice(_ paper: Paper, automatic: Bool = false) {
         guard let source = paper.arxivReaderSource, devicePreparationTasks[paper.id] == nil, localReaderOpeningID != paper.id,
               deviceCopy(for: paper) == .cloud, !workOwnership.isActivating, !libraryPublicationDeferred,
               let store = localPersistence.localReaderStore else { return }
@@ -2496,7 +2499,7 @@ final class ReaderModel {
             } catch is CancellationError {
             } catch {
                 guard self.sessionID == scope else { return }
-                if case ArxivHTMLError.unavailable = error { self.reportSourceMetadataWithoutHTML(paper, source: source) }
+                if case ArxivHTMLError.unavailable = error, !automatic { self.reportSourceMetadataWithoutHTML(paper, source: source) }
                 self.devicePreparationIssues[paper.id] = Self.preparationReason(error)
             }
         }

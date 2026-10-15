@@ -34,10 +34,27 @@ struct ArxivRequestPacerTests {
         pacer.record(status: 503, retryAfter: nil, now: t0.addingTimeInterval(60))
         #expect(pacer.busyUntil == t0.addingTimeInterval(180), "doubling without Retry-After")
         #expect(pacer.reserve(now: t0.addingTimeInterval(61)) == nil)
+        // A short Retry-After never undercuts the doubling.
+        pacer.record(status: 429, retryAfter: 5, now: t0.addingTimeInterval(180))
+        #expect(pacer.busyUntil == t0.addingTimeInterval(420))
         pacer.record(status: 429, retryAfter: 1e9, now: t0)
         #expect(pacer.busyUntil == t0.addingTimeInterval(86_400), "at most a day")
         pacer.record(status: 200, retryAfter: nil, now: t0)
         #expect(pacer.failures == 0)
+    }
+
+    @Test func aRefusalIsSharedByEveryRequestOnTheDeviceAndForgottenAfterADay() throws {
+        let suite = "arxiv.refusal.test.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let refusal = ArxivDeviceRefusal(suite: suite)
+        #expect(refusal.until(now: t0) == nil)
+        refusal.record(now: t0)
+        // Another reader of the same store (the reader's acquisition, the export API fetcher, a relaunch) sees it.
+        #expect(ArxivDeviceRefusal(suite: suite).until(now: t0.addingTimeInterval(3600)) == t0.addingTimeInterval(86_400))
+        #expect(ArxivDeviceRefusal(suite: suite).until(now: t0.addingTimeInterval(86_400)) == nil)
+        // A record further ahead than a day was not written here and stops nothing.
+        UserDefaults(suiteName: suite)?.set(t0.addingTimeInterval(10 * 86_400).timeIntervalSince1970, forKey: ArxivDeviceRefusal.key)
+        #expect(refusal.until(now: t0) == nil)
     }
 
     @Test func itSurvivesARelaunch() throws {
