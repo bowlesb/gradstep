@@ -1895,12 +1895,16 @@ final class ReaderModel {
         let scope = sessionID
         discoveryTask = Task {
             do {
-                let results = try await backend.discover(query: query, accountID: accountID)
+                // While the server says so, the search runs from this device (ARXIV_DEVICE_ONLY.md §5.6); else the server's.
+                let onDevice = await self.libraryService?.capabilities?.searchesOnDevice == true
+                let results = onDevice ? try await DeviceSearch.shared.search(query) : try await backend.discover(query: query, accountID: accountID)
                 guard self.sessionID == scope, self.discoveryGeneration == generation else { return }
                 self.discoveryResults = results; self.discoveryState = .results
             } catch {
                 guard self.sessionID == scope, self.discoveryGeneration == generation, !(error is CancellationError) else { return }
-                self.discoveryState = .failed("arXiv search isn’t available right now. Try again in a moment.")
+                self.discoveryState = .failed((error as? DeviceSearch.Failure) == .paused
+                    ? "arXiv asked this device to wait, so Gradstep won’t search it for now. Try again later."
+                    : "arXiv search isn’t available right now. Try again in a moment.")
             }
         }
     }

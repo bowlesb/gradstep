@@ -80,5 +80,11 @@ struct ArxivRequestPacerTests {
         #expect(try !capabilities(#","source_metadata":{"enabled":false,"format":"arxiv-source-metadata-v1"}"#).submitsSourceMetadata)
         #expect(try capabilities(#","source_metadata":{"enabled":true,"format":"arxiv-source-metadata-v1"}"#).submitsSourceMetadata)
         #expect(try !capabilities(#","source_metadata":{"enabled":true,"format":"arxiv-source-metadata-v2"}"#).submitsSourceMetadata, "an unknown format: off")
+        // Device search (§5.6) the same way; a malformed value is off, never a failure to read the capabilities.
+        #expect(try !capabilities("").searchesOnDevice)
+        #expect(try capabilities(#","device_search":{"enabled":true,"format":"device-search-v1"}"#).searchesOnDevice)
+        #expect(try !capabilities(#","device_search":{"enabled":true,"format":"device-search-v2"}"#).searchesOnDevice)
+        #expect(try !capabilities(#","device_search":"yes","source_metadata":7"#).searchesOnDevice)
+        #expect(try !capabilities(#","device_search":{"enabled":"true","format":"device-search-v1"}"#).searchesOnDevice)
     }
 }

@@ -59,22 +59,37 @@ public struct ReaderCapabilities: Decodable, Equatable, Sendable {
             case maximumParts = "maximum_parts", partAttempts = "part_attempts"
         }
     }
-    /// Device-read paper metadata (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3): whether this device should send what it
-    /// read about a paper to the server. Absent from older servers; off until the server enables it.
-    public struct SourceMetadata: Decodable, Equatable, Sendable {
+    /// A device feature the server switches (docs/architecture/ARXIV_DEVICE_ONLY.md): on only for `enabled: true` with
+    /// the exact format this app knows. Absent from older servers; a malformed value reads as off, never as a failure.
+    public struct Switch: Decodable, Equatable, Sendable {
         public let enabled: Bool
         public let format: String
+        private enum CodingKeys: String, CodingKey { case enabled, format }
+        public init(from decoder: any Decoder) throws {
+            let c = try? decoder.container(keyedBy: CodingKeys.self)
+            enabled = (try? c?.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
+            format = (try? c?.decodeIfPresent(String.self, forKey: .format)) ?? ""
+        }
+        func on(_ known: String) -> Bool { enabled && format == known }
     }
+    /// Device-read paper metadata (§5.3): whether this device should send what it read about a paper to the server.
+    public typealias SourceMetadata = Switch
     public let format: Int
     public let accountID: UUID
     public let library: Library
     public let descriptors: Descriptors
     public let uploads: Uploads
     public let sourceMetadata: SourceMetadata?
+    /// The person's search from this device (§5.6): arXiv's API, paced, instead of the server's `discover?q=`.
+    public let deviceSearch: Switch?
     public var readContext: LibraryReadContext { .uploadFull5(datasetEpoch: library.datasetEpoch) }
     /// Send device-read metadata only when the server asks for this exact format.
-    public var submitsSourceMetadata: Bool { sourceMetadata?.enabled == true && sourceMetadata?.format == "arxiv-source-metadata-v1" }
-    private enum CodingKeys: String, CodingKey { case format, accountID = "account_id", library, descriptors, uploads, sourceMetadata = "source_metadata" }
+    public var submitsSourceMetadata: Bool { sourceMetadata?.on("arxiv-source-metadata-v1") == true }
+    /// Search from this device only when the server says so in this exact format.
+    public var searchesOnDevice: Bool { deviceSearch?.on("device-search-v1") == true }
+    private enum CodingKeys: String, CodingKey {
+        case format, accountID = "account_id", library, descriptors, uploads, sourceMetadata = "source_metadata", deviceSearch = "device_search"
+    }
 
     public static func decode(_ data: Data, accountID: UUID) throws -> Self {
         guard data.count <= 16_384 else { throw LibraryProtocolError.payloadTooLarge }

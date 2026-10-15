@@ -28,6 +28,36 @@ final class SourceMetadataExtractor {
     /// The record from the export API's Atom answer for exactly this version, or nil.
     func fromAtom(_ xml: String, source: ArxivReaderSource) -> Data? { call("fromAtom", xml, source) }
 
+    /// A search's export API requests (paper-search.ts): made in order; `broad` only when the relevance answer lists
+    /// fewer than `broadBelow` papers.
+    struct SearchPlan: Decodable, Equatable {
+        struct Request: Decodable, Equatable { let role: String; let url: URL }
+        let requests: [Request]
+        let broad: Request?
+        let broadBelow: Int
+        private enum CodingKeys: String, CodingKey { case requests, broad, broadBelow = "broad_below" }
+    }
+    func searchRequests(_ query: String) -> SearchPlan? {
+        context.exception = nil
+        guard let json = module.invokeMethod("searchRequests", withArguments: [query])?.toString(), context.exception == nil, json != "null",
+              let plan = try? JSONDecoder().decode(SearchPlan.self, from: Data(json.utf8)), !plan.requests.isEmpty else { return nil }
+        return plan
+    }
+    /// How many papers an Atom answer lists (-1: not an answer).
+    func searchCount(_ xml: String) -> Int {
+        context.exception = nil
+        guard let value = module.invokeMethod("searchCount", withArguments: [xml]), context.exception == nil, value.isNumber else { return -1 }
+        return Int(value.toInt32())
+    }
+    /// The ordered results as the discover contract's `results` array (JSON), from the answers by role.
+    func searchResults(_ query: String, responses: [String: String]) -> Data? {
+        context.exception = nil
+        guard let encoded = try? JSONEncoder().encode(responses),
+              let json = module.invokeMethod("searchResults", withArguments: [query, String(decoding: encoded, as: UTF8.self)])?.toString(),
+              context.exception == nil, json.utf8.count <= 4_194_304 else { return nil }
+        return Data(json.utf8)
+    }
+
     private func call(_ method: String, _ text: String, _ source: ArxivReaderSource) -> Data? {
         context.exception = nil
         guard let result = module.invokeMethod(method, withArguments: [text, source.sourceID, source.revision]),
@@ -36,10 +66,10 @@ final class SourceMetadataExtractor {
     }
 }
 
-/// The export API for a paper without HTML: one request at a time from this device, at least 3 s apart, Retry-After
-/// honoured, a day's pause after a refusal (403) shared with the reader's own requests (`ArxivDeviceRefusal`), each
-/// answer cached (a version's record never changes), and the app named in the User-Agent. Only for a paper this
-/// account added, only when the person opens or downloads it on this device, only while the capability is on.
+/// arXiv's export API from this device, for a paper without HTML and for the person's own searches (`DeviceSearch`):
+/// one request at a time, at least 3 s apart, Retry-After honoured, a day's pause after a refusal (403) shared with the
+/// reader's own requests (`ArxivDeviceRefusal`), and the app named in the User-Agent. A version's record is cached for
+/// good (it never changes). Only for the person's own action on this device, only while the server's capability is on.
 actor ArxivMetadataFetcher {
     static let shared = ArxivMetadataFetcher()
     enum Failure: Error, Equatable { case paused, notFound, unavailable, invalid }
@@ -82,6 +112,17 @@ actor ArxivMetadataFetcher {
     /// The Atom answer for exactly this version.
     func atom(for source: ArxivReaderSource) async throws -> String {
         if let file = cacheFile(source), let cached = try? String(contentsOf: file, encoding: .utf8) { return cached }
+        let text = try await query(Self.url(for: source))
+        if let file = cacheFile(source) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data(text.utf8).write(to: file, options: [.atomic])
+        }
+        return text
+    }
+
+    /// One export API request (only `https://export.arxiv.org/api/query`), through this device's single paced queue.
+    func query(_ url: URL) async throws -> String {
+        guard url.scheme == "https", url.host == "export.arxiv.org", url.path == "/api/query", url.user == nil, url.port == nil else { throw Failure.invalid }
         // One connection at a time from this device.
         while busy { try await sleep(0.2) }
         busy = true
@@ -99,7 +140,7 @@ actor ArxivMetadataFetcher {
         #endif
         let session = URLSession(configuration: config, delegate: MetadataNoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        var request = URLRequest(url: Self.url(for: source), cachePolicy: .reloadIgnoringLocalCacheData)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/atom+xml", forHTTPHeaderField: "Accept")
         let (data, response): (Data, URLResponse)
@@ -115,10 +156,6 @@ actor ArxivMetadataFetcher {
         default: throw Failure.unavailable
         }
         guard data.count <= 1_048_576, let text = String(data: data, encoding: .utf8), text.contains("<feed") else { throw Failure.invalid }
-        if let file = cacheFile(source) {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? Data(text.utf8).write(to: file, options: [.atomic])
-        }
         return text
     }
 

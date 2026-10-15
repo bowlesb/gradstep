@@ -1,0 +1,344 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/mNkUs6AomkviHq5FRx+VUYlQZYY</id>
+  <title>arXiv Query: search_query=all:direct AND all:preference AND all:optimization&amp;id_list=&amp;start=0&amp;max_results=50</title>
+  <updated>2026-10-15T18:04:53Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:direct+AND+(all:preference+AND+all:optimization)&amp;start=0&amp;max_results=50&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>50</opensearch:itemsPerPage>
+  <opensearch:totalResults>2129</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2407.14477v4</id>
+    <title>Data-Centric Human Preference with Rationales for Direct Preference Alignment</title>
+    <updated>2025-07-13T19:41:48Z</updated>
+    <link href="https://arxiv.org/abs/2407.14477v4" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2407.14477v4" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Aligning language models with human preferences through reinforcement learning from human feedback is crucial for their safe and effective deployment. The human preference is typically represented through comparison where one response is chosen over another for a given prompt. However, standard preference datasets often lack explicit information on why a particular choice was made, presenting an ambiguity that can hinder efficient learning and robust alignment, especially given the high cost of acquiring extensive human annotations. While many studies focus on algorithmic improvements, this work adopts a data-centric perspective, exploring how to enhance learning from existing preference data. We propose augmenting standard preference pairs with rationales that explain the reasoning behind the human preference. Specifically, we introduce a simple and principled framework that leverages machine-generated rationales to enrich preference data for preference optimization algorithms. Our comprehensive analysis demonstrates that incorporating rationales improves learning efficiency. Extensive experiments reveal some advantages: rationale-augmented learning accelerates convergence and can achieve higher final model performance. Furthermore, this approach is versatile and compatible with various direct preference optimization algorithms. Our findings showcase the potential of thoughtful data design in preference learning, demonstrating that enriching existing datasets with explanatory rationales can help unlock improvements in model alignment and annotation efficiency.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-07-19T17:27:52Z</published>
+    <arxiv:comment>Data-Centric Human Preference with Rationales for Direct Preference Alignment</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Hoang Anh Just</name>
+    </author>
+    <author>
+      <name>Ming Jin</name>
+    </author>
+    <author>
+      <name>Anit Sahu</name>
+    </author>
+    <author>
+      <name>Huy Phan</name>
+    </author>
+    <author>
+      <name>Ruoxi Jia</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.12505v1</id>
+    <title>Boosting Direct Preference Optimization with Penalization</title>
+    <updated>2026-06-10T17:22:51Z</updated>
+    <link href="https://arxiv.org/abs/2606.12505v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.12505v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Offline preference optimization has become a practical substitute for reinforcement learning from human feedback, but pairwise objectives such as Direct Preference Optimization (DPO) and its variants use only the chosen and rejected responses stored in a static dataset. This leaves a useful signal unused: the response that the reference model itself would generate for the same prompt. We propose Direct Preference Optimization with Penalization (DPOP), a simple extension of DPO that augments the base preference loss with a gated penalty on reference-greedy responses. DPOP activates this penalty only when the current policy still assigns a lower likelihood to the preferred response than to the rejected response. On AlpacaEval 2.0, DPOP improves length-controlled win rate over DPO, SimPO, and AlphaDPO on both Llama-3-8b-it and Gemma-2-9b-it, achieving relative gains of 5.3\% and 4.4\% over baselines on the two models, respectively. Ablations further show that a SimNPO-style length-normalized penalty is stronger than NPO and token-level unlikelihood in this setting.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-10T17:22:51Z</published>
+    <arxiv:comment>Accepted at ICML 2026 Workshop on Decision-Making from Offline Datasets to Online Adaptation: Black-Box Optimization to Reinforcement Learning</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Pengwei Sun</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2402.18571v3</id>
+    <title>Arithmetic Control of LLMs for Diverse User Preferences: Directional Preference Alignment with Multi-Objective Rewards</title>
+    <updated>2024-03-06T08:07:02Z</updated>
+    <link href="https://arxiv.org/abs/2402.18571v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2402.18571v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Fine-grained control over large language models (LLMs) remains a significant challenge, hindering their adaptability to diverse user needs. While Reinforcement Learning from Human Feedback (RLHF) shows promise in aligning LLMs, its reliance on scalar rewards often limits its ability to capture diverse user preferences in real-world applications. To address this limitation, we introduce the Directional Preference Alignment (DPA) framework. Unlike the scalar-reward RLHF, DPA incorporates multi-objective reward modeling to represent diverse preference profiles. Additionally, DPA models user preferences as directions (i.e., unit vectors) in the reward space to achieve user-dependent preference control. Our method involves training a multi-objective reward model and then fine-tuning the LLM with a preference-conditioned variant of Rejection Sampling Finetuning (RSF), an RLHF method adopted by Llama 2. This method enjoys a better performance trade-off across various reward objectives. In comparison with the scalar-reward RLHF, DPA offers users intuitive control over LLM generation: they can arithmetically specify their desired trade-offs (e.g., more helpfulness with less verbosity). We also validate the effectiveness of DPA with real-world alignment experiments on Mistral-7B. Our method provides straightforward arithmetic control over the trade-off between helpfulness and verbosity while maintaining competitive performance with strong baselines such as Direct Preference Optimization (DPO).</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="stat.ML" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-02-28T18:58:25Z</published>
+    <arxiv:comment>The code and model are released at https://github.com/Haoxiang-Wang/directional-preference-alignment</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Haoxiang Wang</name>
+    </author>
+    <author>
+      <name>Yong Lin</name>
+    </author>
+    <author>
+      <name>Wei Xiong</name>
+    </author>
+    <author>
+      <name>Rui Yang</name>
+    </author>
+    <author>
+      <name>Shizhe Diao</name>
+    </author>
+    <author>
+      <name>Shuang Qiu</name>
+    </author>
+    <author>
+      <name>Han Zhao</name>
+    </author>
+    <author>
+      <name>Tong Zhang</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2409.02392v2</id>
+    <title>Building Math Agents with Multi-Turn Iterative Preference Learning</title>
+    <updated>2025-02-27T22:10:16Z</updated>
+    <link href="https://arxiv.org/abs/2409.02392v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2409.02392v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Recent studies have shown that large language models' (LLMs) mathematical problem-solving capabilities can be enhanced by integrating external tools, such as code interpreters, and employing multi-turn Chain-of-Thought (CoT) reasoning. While current methods focus on synthetic data generation and Supervised Fine-Tuning (SFT), this paper studies the complementary direct preference learning approach to further improve model performance. However, existing direct preference learning algorithms are originally designed for the single-turn chat task, and do not fully address the complexities of multi-turn reasoning and external tool integration required for tool-integrated mathematical reasoning tasks. To fill in this gap, we introduce a multi-turn direct preference learning framework, tailored for this context, that leverages feedback from code interpreters and optimizes trajectory-level preferences. This framework includes multi-turn DPO and multi-turn KTO as specific implementations. The effectiveness of our framework is validated through training of various language models using an augmented prompt set from the GSM8K and MATH datasets. Our results demonstrate substantial improvements: a supervised fine-tuned Gemma-1.1-it-7B model's performance increased from 77.5% to 83.9% on GSM8K and from 46.1% to 51.2% on MATH. Similarly, a Gemma-2-it-9B model improved from 84.1% to 86.3% on GSM8K and from 51.0% to 54.5% on MATH.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="stat.ML" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-09-04T02:41:04Z</published>
+    <arxiv:comment>A multi-turn direct preference learning framework for tool-integrated reasoning tasks</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Wei Xiong</name>
+    </author>
+    <author>
+      <name>Chengshuai Shi</name>
+    </author>
+    <author>
+      <name>Jiaming Shen</name>
+    </author>
+    <author>
+      <name>Aviv Rosenberg</name>
+    </author>
+    <author>
+      <name>Zhen Qin</name>
+    </author>
+    <author>
+      <name>Daniele Calandriello</name>
+    </author>
+    <author>
+      <name>Misha Khalman</name>
+    </author>
+    <author>
+      <name>Rishabh Joshi</name>
+    </author>
+    <author>
+      <name>Bilal Piot</name>
+    </author>
+    <author>
+      <name>Mohammad Saleh</name>
+    </author>
+    <author>
+      <name>Chi Jin</name>
+    </author>
+    <author>
+      <name>Tong Zhang</name>
+    </author>
+    <author>
+      <name>Tianqi Liu</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2508.04149v2</id>
+    <title>Difficulty-Based Preference Data Selection by DPO Implicit Reward Gap</title>
+    <updated>2026-05-16T09:55:19Z</updated>
+    <link href="https://arxiv.org/abs/2508.04149v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2508.04149v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Aligning large language models (LLMs) with human preferences is a critical challenge in AI research. While methods like Reinforcement Learning from Human Feedback (RLHF) and Direct Preference Optimization (DPO) are widely used, they often rely on large, costly preference datasets. The current work lacks methods for high-quality data selection specifically for preference data. In this work, we introduce a novel difficulty-based data selection strategy for preference datasets, grounded in the DPO implicit reward mechanism. By selecting preference data examples with smaller DPO implicit reward gaps, which are indicative of more challenging cases, we improve data efficiency and model alignment. Our approach consistently outperforms five strong baselines across multiple datasets and alignment tasks, achieving superior performance with only 10\% of the original data. This principled, efficient selection method offers a promising solution for scaling LLM alignment with limited resources.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-08-06T07:24:14Z</published>
+    <arxiv:comment>Our code and data are available at https://github.com/Difficulty-Based-Preference-Data-Select/Difficulty-Based-Preference-Data-Select</arxiv:comment>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Xuan Qi</name>
+    </author>
+    <author>
+      <name>Rongwu Xu</name>
+    </author>
+    <author>
+      <name>Zhijing Jin</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.20696v1</id>
+    <title>Distributed Direct Preference Optimization</title>
+    <updated>2026-05-20T04:49:13Z</updated>
+    <link href="https://arxiv.org/abs/2605.20696v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.20696v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Preference-based reinforcement learning (RL) is a key paradigm for aligning policies with human judgments, yet its theoretical behavior in distributed settings where preference data are fragmented across heterogeneous users remains poorly understood. Direct Preference Optimization (DPO) avoids explicit reward modeling but lacks convergence guarantees under federated and decentralized training, where communication constraints and non-IID preferences fundamentally alter optimization dynamics. We provide the first convergence and time-complexity analysis of DPO in distributed environments. Modeling personalized offline RL with user-specific preference distributions, we characterize the induced global optimization landscape. For federated DPO, we derive convergence rates that quantify the impact of client drift, communication frequency, and preference heterogeneity; for decentralized DPO, we establish convergence over general communication graphs and show how spectral connectivity governs optimization speed and consensus. Empirically, we corroborate our theoretical insights on standard alignment benchmarks, demonstrating that our proposed methods not only enjoy strong theoretical guarantees but also deliver robust and scalable performance in practice. The code base is available here.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-20T04:49:13Z</published>
+    <arxiv:comment>29 pages, 12 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Zhanhong Jiang</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2506.19780v6</id>
+    <title>Listwise Direct Preference Optimization with Multi-Dimensional Preference Mixing</title>
+    <updated>2026-01-21T10:13:03Z</updated>
+    <link href="https://arxiv.org/abs/2506.19780v6" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2506.19780v6" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Recent alignment methods based on Direct Preference Optimization (DPO) reformulate preference learning as supervised optimization over pairwise comparisons, offering improved efficiency and stability over reinforcement learning from human feedback (RLHF). However, existing DPO-style methods implicitly assume a single fixed preference objective, which limits their ability to model the structured and sometimes conflicting nature of real-world human judgments that span multiple preference dimensions. In this work, we propose Listwise Direct Preference Optimization ($λ$-DPO), a unified framework that simultaneously improves supervision granularity and preference flexibility. Instead of collapsing multi-dimensional preference signals into a single ranking, $λ$-DPO constructs a mixture of listwise preference distributions weighted by a preference vector $λ$ on the probability simplex, enabling a single model to internalize a continuous spectrum of preference trade-offs. To further improve robustness, we introduce a performance-driven stochastic $λ$ scheduler that adaptively samples preference weights based on empirical downstream performance, explicitly mitigating the risks of misspecification inherent to static weighting schemes. We evaluate our method across multiple model families and scales on six widely used benchmarks. Experimental results show the consistent improvement against baselines.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-06-24T16:47:17Z</published>
+    <arxiv:comment>13 pages, 1 figures, appendix included</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Yuhui Sun</name>
+    </author>
+    <author>
+      <name>Xiyao Wang</name>
+    </author>
+    <author>
+      <name>Zixi Li</name>
+    </author>
+    <author>
+      <name>YiTian Ding</name>
+    </author>
+    <author>
+      <name>Tianyang Ling</name>
+    </author>
+    <author>
+      <name>Jialuo Chen</name>
+    </author>
+    <author>
+      <name>Tianyi Yu</name>
+    </author>
+    <author>
+      <name>Zhenlong Yuan</name>
+    </author>
+    <author>
+      <name>Jinman Zhao</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2404.13846v4</id>
+    <title>Filtered Direct Preference Optimization</title>
+    <updated>2024-12-03T17:22:01Z</updated>
+    <link href="https://arxiv.org/abs/2404.13846v4" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2404.13846v4" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Reinforcement learning from human feedback (RLHF) plays a crucial role in aligning language models with human preferences. While the significance of dataset quality is generally recognized, explicit investigations into its impact within the RLHF framework, to our knowledge, have been limited. This paper addresses the issue of text quality within the preference dataset by focusing on direct preference optimization (DPO), an increasingly adopted reward-model-free RLHF method. We confirm that text quality significantly influences the performance of models optimized with DPO more than those optimized with reward-model-based RLHF. Building on this new insight, we propose an extension of DPO, termed filtered direct preference optimization (fDPO). fDPO uses a trained reward model to monitor the quality of texts within the preference dataset during DPO training. Samples of lower quality are discarded based on comparisons with texts generated by the model being optimized, resulting in a more accurate dataset. Experimental results demonstrate that fDPO enhances the final model performance. Our code is available at https://github.com/CyberAgentAILab/filtered-dpo.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-04-22T03:05:19Z</published>
+    <arxiv:comment>EMNLP 2024</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Tetsuro Morimura</name>
+    </author>
+    <author>
+      <name>Mitsuki Sakamoto</name>
+    </author>
+    <author>
+      <name>Yuu Jinnai</name>
+    </author>
+    <author>
+      <name>Kenshi Abe</name>
+    </author>
+    <author>
+      <name>Kaito Ariu</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2402.10571v2</id>
+    <title>Direct Preference Optimization with an Offset</title>
+    <updated>2024-06-06T12:02:37Z</updated>
+    <link href="https://arxiv.org/abs/2402.10571v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2402.10571v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Direct preference optimization (DPO) is a successful fine-tuning strategy for aligning large language models with human preferences without the need to train a reward model or employ reinforcement learning. DPO, as originally formulated, relies on binary preference data and fine-tunes a language model to increase the likelihood of a preferred response over a dispreferred response. However, not all preference pairs are equal. Sometimes, the preferred response is only slightly better than the dispreferred one. In other cases, the preference is much stronger. For instance, if a response contains harmful or toxic content, the annotator will have a strong preference for that response. In this paper, we propose a generalization of DPO, termed DPO with an offset (ODPO), that does not treat every preference pair equally during fine-tuning. Intuitively, ODPO requires the difference between the likelihood of the preferred and dispreferred response to be greater than an offset value. The offset is determined based on the extent to which one response is preferred over another. Our experiments on various tasks suggest that ODPO significantly outperforms DPO in aligning language models, especially when the number of preference pairs is limited.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-02-16T10:55:38Z</published>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Afra Amini</name>
+    </author>
+    <author>
+      <name>Tim Vieira</name>
+    </author>
+    <author>
+      <name>Ryan Cotterell</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2602.09533v2</id>
+    <title>Autoregressive Direct Preference Optimization</title>
+    <updated>2026-06-10T06:12:57Z</updated>
+    <link href="https://arxiv.org/abs/2602.09533v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2602.09533v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Direct preference optimization (DPO) has emerged as a promising approach for aligning large language models (LLMs) with human preferences. However, the widespread reliance on the response-level Bradley-Terry (BT) model may limit its full potential, as the reference and learnable models are assumed to be autoregressive only after deriving the objective function. Motivated by this limitation, we revisit the theoretical foundations of DPO and propose a novel formulation that explicitly introduces the autoregressive assumption prior to applying the BT model. By reformulating and extending DPO, we derive a novel variant, termed Autoregressive DPO (ADPO), that explicitly integrates autoregressive modeling into the preference optimization framework. Without violating the theoretical foundations, the derived loss takes an elegant form: it shifts the summation operation in the DPO objective outside the log-sigmoid function. Furthermore, through theoretical analysis of ADPO, we show that there exist two length measures to be considered when designing DPO-based algorithms: the token length $μ$ and the feedback length $μ'$. To the best of our knowledge, we are the first to explicitly distinguish these two measures and analyze their implications for preference optimization in LLMs.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-02-10T08:45:30Z</published>
+    <arxiv:comment>ICML 2026</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Masanari Oi</name>
+    </author>
+    <author>
+      <name>Mahiro Ukai</name>
+    </author>
+    <author>
+      <name>Masahiro Kaneko</name>
+    </author>
+    <author>
+      <name>Naoaki Okazaki</name>
+    </author>
+    <author>
+      <name>Nakamasa Inoue</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2510.15716v1</id>
+    <title>Direct Preference Optimization with Unobserved Preference Heterogeneity: The Necessity of Ternary Preferences</title>
+    <updated>2025-10-17T15:00:40Z</updated>
+    <link href="https://arxiv.org/abs/2510.15716v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2510.15716v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Reinforcement Learning from Human Feedback (RLHF) has become central to aligning large language models with human values, typically by first learning a reward model from preference data which is then used to update the model with reinforcement learning. Recent alternatives such as Direct Preference Optimization (DPO) simplify this pipeline by directly optimizing on preferences. However, both approaches often assume uniform annotator preferences and rely on binary comparisons, overlooking two key limitations: the diversity of human evaluators and the limitations of pairwise feedback. In this work, we address both these issues. First, we connect preference learning in RLHF with the econometrics literature and show that binary comparisons are insufficient for identifying latent user preferences from finite user data and infinite users, while (even incomplete) rankings over three or more responses ensure identifiability. Second, we introduce methods to incorporate heterogeneous preferences into alignment algorithms. We develop an Expectation-Maximization adaptation of DPO that discovers latent annotator types and trains a mixture of LLMs accordingly. Then we propose an aggregation algorithm using a min-max regret fairness criterion to produce a single generative policy with equitable performance guarantees. Together, these contributions establish a theoretical and algorithmic framework for fairness and personalization for diverse users in generative model alignment.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-10-17T15:00:40Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Keertana Chidambaram</name>
+    </author>
+    <author>
+      <name>Karthik Vinary Seetharaman</name>
+    </author>
+    <author>
+      <name>Vasilis Syrgkanis</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2409.06411v2</id>
+    <title>Length Desensitization in Direct Preference Optimization</title>
+    <updated>2024-11-28T02:53:40Z</updated>
+    <link href="https://arxiv.org/abs/2409.06411v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2409.06411v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Direct Preference Optimization (DPO) is widely utilized in the Reinforcement Learning from Human Feedback (RLHF) phase to align Large Language Models (LLMs) with human preferences, thereby enhancing both their harmlessness and efficacy. However, it has been observed that DPO tends to over-optimize for verbosity, which can detrimentally affect both performance and user experience. In this paper, we conduct an in-depth theoretical analysis of DPO's optimization objective and reveal a strong correlation between its implicit reward and data length. This correlation misguides the optimization direction, resulting in length sensitivity during the DPO training and leading to verbosity. To address this issue, we propose a length-desensitization improvement method for DPO, termed LD-DPO. The proposed method aims to desensitize DPO to data length by decoupling explicit length preference, which is relatively insignificant, from the other implicit preferences, thereby enabling more effective learning of the intrinsic preferences. We utilized two settings (Base and Instruct) of Llama2-13B, Llama3-8B, and Qwen2-7B for experimental validation on various benchmarks including MT-Bench and AlpacaEval 2. The experimental results indicate that LD-DPO consistently outperforms DPO and other baseline methods, achieving more concise responses with a 10-40% reduction in length compared to DPO. We conducted in-depth experimental analyses to demonstrate that LD-DPO can indeed achieve length desensitization and align the model more closely with human-like preferences.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-09-10T10:49:38Z</published>
+    <arxiv:comment>21 pages, 9 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Wei Liu</name>
+    </author>
+    <author>
+      <name>Yang Bai</name>
+    </author>
+    <author>
+      <name>Chengcheng Han</name>
+    </author>
+    <author>
+      <name>Rongxiang Weng</name>
+    </author>
+    <author>
+      <name>Jun Xu</name>
+    </author>
+    <author>
+      <name>Xuezhi Cao</name>
+    </author>
+    <author>
+      <name>Jingang Wang</name>
+    </author>
+    <author>
+      <name>Xunliang Cai</name>
+    </author></entry>
+</feed>

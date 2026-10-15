@@ -480,8 +480,9 @@ test('security headers and a refused foreign script', async ({ page, request }) 
   const response = await request.get('/');
   const csp = response.headers()['content-security-policy'];
   expect(csp).toContain("default-src 'none'");
-  // The device fetches the official arXiv HTML itself (HTML-first reader), and nothing else beyond the backend.
-  expect(csp).toContain(`connect-src https://arxiv.org ${FIXTURE}`);
+  // The device fetches the official arXiv HTML itself (HTML-first reader) and searches DataCite itself (ARXIV_DEVICE_ONLY.md
+  // §5.6), and nothing else beyond the backend.
+  expect(csp).toContain(`connect-src https://arxiv.org https://api.datacite.org ${FIXTURE}`);
   expect(csp).toContain("frame-ancestors 'none'");
   expect(response.headers()['x-content-type-options']).toBe('nosniff');
   await page.goto('/');

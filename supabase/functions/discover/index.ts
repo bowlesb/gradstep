@@ -1,6 +1,7 @@
 // Authenticated arXiv search for the Library's "arXiv" segment and the Feed. Shares the
 // global arXiv request pacing with the paper pipeline.
-//   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata)
+//   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata); with `openalex_enabled` off (migration 072),
+//                   DataCite, ordered by paper-search.ts as the browser orders it, and no request to arXiv
 //   ?category=X     a Feed chip: from the shared pool when the feed switch serves this reader
 //                   (migrations 043/046, with topics and upvotes), else arXiv's live RSS as before
 //   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool, and
@@ -18,6 +19,8 @@ import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mer
 import { FEED_RANKING_VERSION, poolResultV2, rankForYou, withDetails, type CandidateSet, type PoolDetail } from '../_shared/feed-rank.ts';
 import { compoundsParameter, interestTopics, resolveTopic, type TopicStats } from '../_shared/feed-interests.ts';
 import { displayTopics, feedTopics } from '../_shared/feed-topics.ts';
+import { DataCiteError, dataciteGet } from '../_shared/datacite.ts';
+import { runSearch, SearchNotFound } from '../_shared/paper-search.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('discover');
 
@@ -87,6 +90,21 @@ Deno.serve(async request => {
       }
     }
     const query = params.get('q') ?? '';
+    if (!recent) {
+      const policy = await service.rpc('worker_search_policy');
+      if (!policy.error && (policy.data as { openalex?: unknown } | null)?.openalex === false) {
+        let found;
+        try {
+          found = await runSearch('datacite', query, async ask => {
+            try { return JSON.stringify(await dataciteGet(ask.url, { signal: AbortSignal.timeout(10_000) })); }
+            catch (error) { if (error instanceof DataCiteError && error.code === 'datacite_not_found') throw new SearchNotFound(); throw error; }
+          });
+        } catch { throw new PublicError(503, 'search_unavailable'); }
+        // Older clients asked for previews only: the same fields as before.
+        const results = found.map(({ full_abstract, abstract_truncated, ...rest }) => fullAbstracts ? { ...rest, full_abstract, abstract_truncated } : rest);
+        return Response.json({ results }, { headers });
+      }
+    }
     let urls = recent ? [recent] : arxivSearchURLs(query);
     if (!urls.length) return Response.json({ results: [] }, { headers });
     // Topic queries are ranked with OpenAlex (relevance and citations); arXiv then

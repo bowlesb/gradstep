@@ -1,0 +1,420 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.2305.18290",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2305.18290",
+    "titles": [
+     {
+      "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Rafael",
+      "familyName": "Rafailov",
+      "name": "Rafailov, Rafael",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Archit",
+      "familyName": "Sharma",
+      "name": "Sharma, Archit",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Eric",
+      "familyName": "Mitchell",
+      "name": "Mitchell, Eric",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Stefano",
+      "familyName": "Ermon",
+      "name": "Ermon, Stefano",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Christopher D.",
+      "familyName": "Manning",
+      "name": "Manning, Christopher D.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chelsea",
+      "familyName": "Finn",
+      "name": "Finn, Chelsea",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "While large-scale unsupervised language models (LMs) learn broad world knowledge and some reasoning skills, achieving precise control of their behavior is difficult due to the completely unsupervised nature of their training. Existing methods for gaining such steerability collect human labels of the relative quality of model generations and fine-tune the unsupervised LM to align with these preferences, often with reinforcement learning from human feedback (RLHF). However, RLHF is a complex and often unstable procedure, first fitting a reward model that reflects the human preferences, and then fine-tuning the large unsupervised LM using reinforcement learning to maximize this estimated reward without drifting too far from the original model. In this paper we introduce a new parameterization of the reward model in RLHF that enables extraction of the corresponding optimal policy in closed form, allowing us to solve the standard RLHF problem with only a simple classification loss. The resulting algorithm, which we call Direct Preference Optimization (DPO), is stable, performant, and computationally lightweight, eliminating the need for sampling from the LM during fine-tuning or performing significant hyperparameter tuning. Our experiments show that DPO can fine-tune LMs to align with human preferences as well as or better than existing methods. Notably, fine-tuning with DPO exceeds PPO-based RLHF in ability to control sentiment of generations, and matches or improves response quality in summarization and single-turn dialogue while being substantially simpler to implement and train."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "3",
+    "dates": [
+     {
+      "date": "2023-05-29T17:57:46Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-05-30T00:36:16Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-12-13T18:48:48Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2023-12-14T01:33:53Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-07-29T22:26:36Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-07-31T00:11:09Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2023-05",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2309.16240",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2309.16240",
+    "titles": [
+     {
+      "title": "Beyond Reverse KL: Generalizing Direct Preference Optimization with Diverse Divergence Constraints"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Chaoqi",
+      "familyName": "Wang",
+      "name": "Wang, Chaoqi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yibo",
+      "familyName": "Jiang",
+      "name": "Jiang, Yibo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chenghao",
+      "familyName": "Yang",
+      "name": "Yang, Chenghao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Han",
+      "familyName": "Liu",
+      "name": "Liu, Han",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yuxin",
+      "familyName": "Chen",
+      "name": "Chen, Yuxin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "The increasing capabilities of large language models (LLMs) raise opportunities for artificial general intelligence but concurrently amplify safety concerns, such as potential misuse of AI systems, necessitating effective AI alignment. Reinforcement Learning from Human Feedback (RLHF) has emerged as a promising pathway towards AI alignment but brings forth challenges due to its complexity and dependence on a separate reward model. Direct Preference Optimization (DPO) has been proposed as an alternative, and it remains equivalent to RLHF under the reverse KL regularization constraint. This paper presents $f$-DPO, a generalized approach to DPO by incorporating diverse divergence constraints. We show that under certain $f$-divergences, including Jensen-Shannon divergence, forward KL divergences and $α$-divergences, the complex relationship between the reward and optimal policy can also be simplified by addressing the Karush-Kuhn-Tucker conditions. This eliminates the need for estimating the normalizing constant in the Bradley-Terry model and enables a tractable mapping between the reward function and the optimal policy. Our approach optimizes LLMs to align with human preferences in a more efficient and supervised manner under a broad set of divergence constraints. Empirically, adopting these divergences ensures a balance between alignment performance and generation diversity. Importantly, $f$-DPO outperforms PPO-based methods in divergence efficiency, and divergence constraints directly influence expected calibration error (ECE)."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Preprint"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (stat.ML)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2023-09-28T08:29:44Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-09-29T00:18:41Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-09",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2310.03708",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2310.03708",
+    "titles": [
+     {
+      "title": "Beyond One-Preference-Fits-All Alignment: Multi-Objective Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Zhanhui",
+      "familyName": "Zhou",
+      "name": "Zhou, Zhanhui",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jie",
+      "familyName": "Liu",
+      "name": "Liu, Jie",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jing",
+      "familyName": "Shao",
+      "name": "Shao, Jing",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiangyu",
+      "familyName": "Yue",
+      "name": "Yue, Xiangyu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chao",
+      "familyName": "Yang",
+      "name": "Yang, Chao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wanli",
+      "familyName": "Ouyang",
+      "name": "Ouyang, Wanli",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yu",
+      "familyName": "Qiao",
+      "name": "Qiao, Yu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "A single language model, even when aligned with labelers through reinforcement learning from human feedback (RLHF), may not suit all human preferences. Recent approaches therefore prefer customization, gathering multi-dimensional feedback, and creating distinct reward models for each dimension. Different language models are then optimized for various preferences using multi-objective RLHF (MORLHF) with varying reward weights. However, RL fine-tuning is unstable and resource-heavy, especially with diverse and usually conflicting objectives. In this paper, we present Multi-Objective Direct Preference Optimization (MODPO), an RL-free extension of Direct Preference Optimization (DPO) for multiple alignment objectives. Essentially, MODPO folds language modeling directly into reward modeling, training language models as implicit collective reward models that combine all objectives with specific weights. MODPO theoretically yields the same optimal solutions as MORLHF but is practically more stable and efficient. Empirical results in safety alignment and long-form question answering show that MODPO matches or outperforms existing methods, producing a Pareto front of language models catering to diverse preferences with three times less computational resources compared to MORLHF. Code is available at https://github.com/ZHZisZZ/modpo."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Findings of ACL 2024"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "4",
+    "dates": [
+     {
+      "date": "2023-10-05T17:35:26Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-10-06T00:29:31Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-10-17T16:29:35Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2023-10-18T00:30:08Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2023-12-15T09:58:18Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2023-12-18T01:20:20Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-08-17T13:39:13Z",
+      "dateType": "Submitted",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2024-08-20T00:20:59Z",
+      "dateType": "Updated",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2023-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 218,
+  "totalPages": 73,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=titles.title%3A%22direct+preference+optimization%22&provider-id=arxiv&sort=name&page%5Bsize%5D=3&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai",
+  "next": "https://api.datacite.org/dois?disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&page%5Bnumber%5D=2&page%5Bsize%5D=3&provider-id=arxiv&query=titles.title%3A%22direct+preference+optimization%22"
+ }
+}

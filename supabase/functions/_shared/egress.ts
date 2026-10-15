@@ -44,6 +44,8 @@ const attempts: EgressAttempt[] = [];
 export const egressAttempts = (): readonly EgressAttempt[] => attempts;
 
 type Fetch = typeof fetch;
+/** The request options this guard reads; spelled out because some runtimes' lib types narrow `RequestInit`. */
+type FetchInit = NonNullable<Parameters<Fetch>[1]> & { redirect?: 'follow' | 'manual' | 'error'; method?: string; body?: unknown };
 const INSTALLED = Symbol.for('gradstep.egress.guard');
 const MAX_REDIRECTS = 20;
 
@@ -61,7 +63,7 @@ function note(host: string, caller: string, mode: EgressMode, log: (line: string
  * the platform follows them and a final arXiv URL is reported after the fact. */
 export function guardedFetch(inner: Fetch, caller: string, options: { mode?: () => EgressMode; log?: (line: string) => void } = {}): Fetch {
   const modeOf = options.mode ?? egressMode, log = options.log ?? ((line: string) => console.error(line));
-  const guarded = async (input: Parameters<Fetch>[0], init?: Parameters<Fetch>[1]): Promise<Response> => {
+  const guarded = async (input: Parameters<Fetch>[0], init?: FetchInit): Promise<Response> => {
     const mode = modeOf();
     const host = requestHost(input);
     if (host !== null && isArxivHost(host)) {
@@ -79,7 +81,7 @@ export function guardedFetch(inner: Fetch, caller: string, options: { mode?: () 
     }
     // Block mode, automatic redirects: follow them here so every hop is checked first.
     let url = typeof input === 'string' || input instanceof URL ? new URL(String(input)) : new URL((input as Request).url);
-    let request: Parameters<Fetch>[1] = { ...init, redirect: 'manual' };
+    let request: FetchInit = { ...init, redirect: 'manual' };
     for (let hop = 0; ; hop++) {
       const response = await inner(hop === 0 && input instanceof Request ? input : url.href, hop === 0 && input instanceof Request ? { ...init, redirect: 'manual' } : request);
       if (response.status < 300 || response.status >= 400 || response.status === 304) return response;

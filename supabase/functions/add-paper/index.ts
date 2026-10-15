@@ -42,7 +42,10 @@ Deno.serve(async request => {
       if (error) throw new Error('search_busy');
       return data;
     };
-    const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, slot, importPaper: finder.importPaper }, query, web, budget);
+    // OpenAlex names DOIs until `openalex_enabled` is switched off (migration 072); a server without it keeps OpenAlex.
+    const policy = await service.rpc('worker_search_policy');
+    const openAlex = policy.error ? true : (policy.data as { openalex?: unknown } | null)?.openalex !== false;
+    const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, slot, importPaper: finder.importPaper, openAlex }, query, web, budget);
     // Outcomes join the reliability events (no account ids; the reader's text is never stored).
     await service.rpc('worker_record_reference_event', { p_result: outcome.status, p_route: `add_${outcome.route}`,
       p_source_id: outcome.paper?.source_id?.slice(0, 200) ?? null, p_duration_ms: Date.now() - started }).then(() => {}, () => {});

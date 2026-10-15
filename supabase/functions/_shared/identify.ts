@@ -225,6 +225,8 @@ export interface IdentifyDeps {
   fetch: typeof fetch;
   resolveHost?: ResolveHost;
   findPaper: (wanted: PaperRequest, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
+  /** `pipeline_policy.openalex_enabled` (migration 072; default true). Off, a DOI is named by Crossref alone. */
+  openAlex?: boolean;
 }
 
 const JSON_HEADERS = { accept: 'application/json', 'user-agent': `Gradstep/0.1 (research paper reader; mailto:${MAILTO})` };
@@ -251,10 +253,12 @@ function fromCandidate(candidate: OpenAlexCandidate, web: boolean): FindResult {
 }
 
 /** A DOI: OpenAlex's work (arXiv copy, open copy or closed); a DOI OpenAlex doesn't know is named by
- * Crossref and searched by title (preprints often have no DOI link); else closed under its DOI. */
+ * Crossref and searched by title (preprints often have no DOI link); else closed under its DOI. With OpenAlex
+ * switched off (`deps.openAlex === false`), every DOI takes the Crossref path. */
 export async function resolveDOI(deps: IdentifyDeps, doi: string, web: boolean, signal: AbortSignal): Promise<FindResult> {
   const select = 'id,doi,title,publication_year,authorships,locations,best_oa_location';
-  const work = await getJSON(deps.fetch, `https://api.openalex.org/works/doi:${encodeURIComponent(doi)}?select=${select}&mailto=${MAILTO}`, signal);
+  const work: Awaited<ReturnType<typeof getJSON>> = deps.openAlex === false ? { ok: false, missing: true }
+    : await getJSON(deps.fetch, `https://api.openalex.org/works/doi:${encodeURIComponent(doi)}?select=${select}&mailto=${MAILTO}`, signal);
   if (work.ok) {
     let candidate: OpenAlexCandidate | undefined;
     try { [candidate] = openAlexCandidates({ results: [work.json] }); } catch { candidate = undefined; }

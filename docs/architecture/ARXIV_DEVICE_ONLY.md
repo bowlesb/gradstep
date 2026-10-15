@@ -1,7 +1,7 @@
 # arXiv terms audit and device-only access design
 
-**Status:** rollout steps 1–3 are implemented and switched off (§6.0); steps 4–8 are a proposal. Nothing here is
-deployed, applied to staging or switched on. **Date: 2026-10-15.**
+**Status:** rollout steps 1–3 and the search part of step 4 are implemented and switched off (§6.0); the rest is a
+proposal. Nothing here is deployed, applied to staging or switched on. **Date: 2026-10-15.**
 Owner request (2026-10-15): audit the app against arXiv's current terms; ensure user devices exclusively interact
 with arXiv servers and ours do not; stop server metadata calls to arXiv and have devices fetch what they need and
 pass it to our server; examine the related sites.
@@ -568,19 +568,72 @@ source_metadata: {
   paper (automatic download is on by default) and submits `source_metadata`; the library shows the device record.
 - **Add by DOI, link or text; Add to library on a reference; Ingest:** the server uses OpenAlex, Crossref and
   DataCite, never arXiv. The found arXiv ID is queued as today.
-- **Search (owner direction, 2026-10-15; designed, not built; step 4, off):** the device searches for the person.
-  - Flag: `pipeline_policy.device_search_enabled` (default `false`), returned as
-    `v1_reader_capabilities.device_search: {enabled, format: "device-search-v1"}`. Off, or an unknown format, means
-    the existing server search, so older builds and a switched-off server behave as today.
-  - Native: one export API `search_query` per search the person submits (never per keystroke), `max_results` at most
-    50, through the same serial queue, `ArxivRequestPacer` and `ArxivDeviceRefusal` as the metadata lookup, with the
-    Gradstep User-Agent. An exact typed ID becomes one `id_list` request. Answers are cached on the device for 24 h
-    per normalized query (the API manual's request), in Caches, never synced.
-  - Browser: one DataCite query per submitted search (`/dois?query=…&provider-id=arxiv&page[size]=50`, `mailto=`),
-    one request at a time, cached in the tab for 24 h. `connect-src` gains `https://api.datacite.org` in that step.
-  - Results map onto today's search rows, so the page is unchanged. The query never reaches our server. Adding a
-    result is today's Add; its metadata follows through `v1_submit_source_metadata` (origin `arxiv_api` or `datacite`).
-  - Nothing is prefetched for results the person has not opened.
+- **Search without OpenAlex (owner decision, 2026-10-15: V1 without OpenAlex if the experience is roughly the same;
+  built in step 4, switched off; §5.6.1 has the evaluation).** The device searches for the person.
+  - Switches (migration 072): `pipeline_policy.device_search_enabled` (default `false`), returned as
+    `v1_reader_capabilities.device_search: {enabled, format: "device-search-v1"}`; off, or an unknown format, keeps
+    the server search. `pipeline_policy.openalex_enabled` (default `true`) keeps OpenAlex in the server's own search
+    (older builds) and its DOI lookups; off, the server searches DataCite with the same code and names a DOI through
+    Crossref alone (`identify.ts`).
+  - One shared module, `_shared/paper-search.ts`, builds the requests, decodes both answers into today's result rows
+    (the native and browser decoders are unchanged) and orders them. Native runs it in JavaScriptCore (the
+    `arxiv-source-metadata.js` bundle), the browser and the server import it.
+  - Native (`DeviceSearch`): only when the person submits a search. Requests: relevance over all the words
+    (`max_results` 50), then the three oldest titles with the phrase (2–8 words), and any word (`OR`) only when the
+    first finds fewer than 5. All go through the device's single export API queue (`ArxivRequestPacer`,
+    `ArxivDeviceRefusal`, the Gradstep User-Agent). Each query's results are kept on the device for 24 h (Caches,
+    never synced). An arXiv ID or link is one `id_list` request.
+  - Browser (`lib/device-search.ts`): DataCite (`provider-id=arxiv`, sparse fields, `mailto`, no credentials), the
+    same three roles, near spellings (`~1`) instead of any word; one search's requests at a time; each query kept in
+    the tab for 24 h. `connect-src` lists `https://api.datacite.org`. **The browser has no paper-search box today**
+    (only Add by ID, DOI or link); adding one is an interaction change for the owner (open question 11).
+  - The order, every factor a plain multiplier (`explainSearch` names them): the index's relevance order
+    (1 / (1 + rank / 10)); title words (+0.5 × the share of the query's words in the title, +0.5 for the phrase);
+    machine-learning categories ×1.15, outside computing and statistics ×0.7; an exact title or main title ×3; the
+    earliest paper titled with the phrase ×2 when its main title is the phrase, ×1.5 when the phrase has 3+ words and
+    the paper is in an ML category. No citation counts: neither index has them for arXiv papers.
+  - The query never reaches our server. Adding a result is today's Add. Nothing is prefetched for results the person
+    has not opened.
+
+### 5.6.1 Search evaluation (2026-10-15)
+
+`node scripts/search-eval.mjs` ran 32 queries (16 topic phrases, a 2-word and two long queries, 3 authors, 5 exact
+titles, an ID and an arXiv link, 3 misspellings) through today's server search (OpenAlex ranking, arXiv metadata, the
+same functions), the native device search and the browser search, with live requests from a developer machine
+(226 cached answers, arXiv paced at 3.2 s, plus nine one-off probes of query syntax). Results, the HTML side by side and the cache are in `.artifacts/search-eval/`. Claude
+judged each engine's top 5 (relevant 1, partly 0.5, not 0; `scripts/search-eval-judgments.json`); "expected" is a canonical paper named
+before the run for 20 of the queries.
+
+| | Today (OpenAlex + arXiv) | Native (arXiv API) | Browser (DataCite) |
+|---|---|---|---|
+| Relevance of the top 5 | 0.48 | 0.69 | 0.79 |
+| A relevant paper in the top 3 | 24/32 | 29/32 | 32/32 |
+| Expected paper in the top 10 / first | 12/20 / 8/20 | 13/20 / 12/20 | 13/20 / 13/20 |
+| Overlap with today's top 10 (mean) | — | 1.1 | 1.3 |
+| Median time to results | 4.3 s | 3.3 s | 1.6 s |
+| By kind (relevance of the top 5): topic / author / misspelling | 0.67 / 0.17 / 0 | 0.83 / 1.0 / 0.10 | 0.94 / 0.97 / 0.57 |
+
+- **Better without OpenAlex:** authors (OpenAlex returned unrelated famous papers for "Tri Dao", "Percy Liang", "Yann
+  LeCun"); arXiv links (today's server sends "https://arxiv.org/abs/1706.03762" to OpenAlex as words and replaces the
+  ID lookup with unrelated papers); specific topics where OpenAlex's "most cited" list pulls in off-topic classics
+  ("test time compute scaling" → PLINK and YOLOv4; "in-context learning" → DeepLab; "state space models" → word2vec);
+  the originals of named methods (chain of thought, NeRF, RAG, DPO, LoRA) through the earliest-title rule; and
+  latency.
+- **Worse without OpenAlex:** broad two-word topics whose landmark paper isn't titled with the phrase: "contrastive
+  learning" (SimCLR and MoCo only through OpenAlex), "mamba ssm" (Mamba itself), "reinforcement learning from human
+  feedback" (InstructGPT, Christiano et al.), "speculative decoding" (Leviathan et al.; Xia et al. leads everywhere).
+  The device lists are newer and on-topic; today's lean to cited classics. Overlap is low (about 1 in 10) because
+  of that, not because either list is off-topic.
+- **Misspellings:** arXiv's API has no near-spelling search (a measured `~` query returns nothing), so the native
+  broad (`OR`) answer is poor (0.10); DataCite's `~1` finds the right papers (0.57; "atention is all you ned" →
+  Attention Is All You Need first). Today's search returns nothing or unrelated papers.
+- **Exact titles and IDs:** first on every engine.
+- **Verdict:** roughly the same experience, better for authors, links, specific topics and speed, worse for the
+  landmark paper of a broad two-word topic. Tuning in order: (1) native misspellings: when the strict answer is short,
+  ask DataCite's near spellings (the owner accepted third-party calls that fit terms and scale) instead of arXiv's
+  `OR`; (2) native latency: show the relevance answer at once and reorder when the phrase answer arrives 3 s later;
+  (3) landmark papers: an explainable "well known" signal is the one gap (for example Hugging Face Papers upvotes
+  where the pool has them, or the year of the earliest title match as a tie-breaker), to be judged on this same set.
 
 ### 5.7 Tags
 
@@ -650,9 +703,11 @@ source_metadata: {
   - Another dependency with its own outage risk.
   - DataCite's own name and marks are excluded from its CC0 waiver; we would not use them.
 - **Owner position (2026-10-15):** devices make every arXiv request. The shared Feed pool uses DataCite server-side,
-  once for everyone, and browser search uses DataCite directly; both are designed behind flags and off. Until the
-  owner confirms DataCite more broadly, `_shared/datacite.ts` (client, parser, evidence) is present, tested on recorded
-  fixtures and unused: nothing calls it, and the browser's `connect-src` does not list DataCite.
+  once for everyone, and browser search uses DataCite directly. Later the same day the owner accepted server and
+  third-party calls that fit terms and scale, and asked for V1 without OpenAlex if the experience is roughly the same.
+  Built and switched off: browser search and the server's search for older builds use DataCite through
+  `_shared/datacite.ts` and `paper-search.ts` (§5.6); the browser's `connect-src` lists DataCite. The Feed pool's
+  DataCite source and server-side verification for promotion are not built yet.
 - **Recommendation:**
   - Use DataCite **server-side** for shared, global data: the Feed pool, out-of-pool categories, search enrichment,
     reference and Ingest lookups, licence corroboration and verification for promotion.
@@ -712,10 +767,17 @@ staging or switched on.
   hands each downloaded page to `sourceMetadataReporter`, which loads the extractor only while the capability is on;
   the 24 h stop after a 403. Not in this step: the browser's DataCite lookup (waits for the owner) and browser bundle
   persistence (`readerCopies`).
+- **Step 4, search (switched off).** Migration `202610150072_device_search.sql` (`device_search_enabled` false,
+  `openalex_enabled` true, `worker_search_policy()` for the functions, `v1_reader_capabilities.device_search`);
+  `_shared/paper-search.ts`; native `DeviceSearch` behind `ReaderCapabilities.searchesOnDevice` in
+  `ReaderModel.runDiscovery`; browser `lib/device-search.ts` (no UI yet); `discover?q=` searches DataCite and
+  `identify.resolveDOI` skips OpenAlex when `openalex_enabled` is false; the browser CSP and the deploy gate list
+  `https://api.datacite.org`. Evaluation: §5.6.1 and `scripts/search-eval.mjs`.
 - **Active with every flag off** (owner's rules 3 and 4): the 24 h stop after arXiv answers 403, on both clients, and
   the Gradstep User-Agent on the native reader's own requests. Everything else is inert until `source_metadata_enabled`
   is set, apart from the capability check itself: a browser preparing papers asks our server's
-  `v1_reader_capabilities` at most once every 10 minutes.
+  `v1_reader_capabilities` at most once every 10 minutes. The browser's CSP lists DataCite, but nothing in the page
+  calls it while the search has no UI.
 - **Design changes from the proposal below.**
   - Provenance is a companion table, not `origin` and `evidence_sha256` columns: `catalog_metadata` rows are immutable.
   - No `v6_begin_import`; devices submit afterwards, and the Add paths are unchanged.
@@ -726,6 +788,26 @@ staging or switched on.
   - The egress scan also covers the workflow job scripts and has three more marker reasons.
 - **Known issue.** The compiler bundle's build resolves `fflate` through the untracked
   `supabase/functions/node_modules/.deno`, so its freshness check depends on that directory being present.
+
+### 6.0.1 OpenAlex after step 4
+
+With both switches on, search and DOI naming no longer use OpenAlex. What still does, by area:
+- **Server code (no switch yet):** `find-paper.ts` (title lookups for Ingest, Add by text and chat's find-paper),
+  `reference.ts` (`byDOI` and the title route of Add to library on a reference), `web-source.ts` and
+  `metadata-pipeline.ts` (papers without an arXiv copy: `openalex:W…` works, their open-access PDF and metadata),
+  `discover.ts` (the switched-off search functions and `openAlexCandidates`, which `identify.ts` and `find-paper.ts`
+  share), and comments in `chat.ts`, `anthropic.ts` and `add-reference/index.ts`.
+- **Data model:** `openalex:W…` source IDs for web papers in migrations 019, 039 and later, the browser's
+  `library.ts` and `paper.ts`, native `PaperAdding.swift`, `LibraryMetadata.swift` and `AddPaperFixture.swift`, the admin
+  fixtures, and their tests. These identify stored papers and stay.
+- **Copy:** native Settings › Acknowledgements (`RootView.swift`: "OpenAlex — Search ranking, and finding open-access
+  copies…") and the privacy page (`web/site-next/privacy/index.html`: catalog details "from arXiv, OpenAlex and
+  Crossref"). Both describe today's behaviour and change when the switches do: search ranking leaves the OpenAlex
+  line, DataCite joins the browser's list, and the privacy page names DataCite for search.
+- **Documents:** `PRIVACY_AND_SYNC.md`, `PAPER_PIPELINE.md`, `DECISIONS.md`, `CHAT.md`, `PDF_UPLOADS.md`,
+  `LANDING_PAGE.md`, `LEGACY_GAP_AUDIT.md`, `IMPLEMENTATION_STATUS.md`, `TAGS.md`, `PROVIDER_SPENDING.md`,
+  `PIPELINE_RELIABILITY.md`, `PERSONALIZED_FEED.md`, `WORKFLOW_CHECKS.md`, the 2026-10-07 credit audit; tooling:
+  `scripts/workflow-checks.mjs` (`ingest.jmlr`), `scripts/smoke-web-import.mjs`, `scripts/search-eval.mjs`.
 
 ### 6.1 Steps and tests
 
@@ -770,11 +852,12 @@ staging or switched on.
      watermark; missing infobox → `null`); browser units for the DataCite fallback and pacing; one Simulator journey
      (Add → prepared → device title shown) and one browser fixture journey. Slow and opt-in per `TESTING.md`.
 4. **Server read paths off arXiv** (each behind its own flag, staging first).
-   - `discover`: search through OpenAlex plus DataCite; chips from the pool, with DataCite for out-of-pool categories
-     (cached 1 h).
+   - `discover`: search through DataCite alone when `openalex_enabled` is off (built, §5.6; the proposal was OpenAlex
+     plus DataCite); chips from the pool, with DataCite for out-of-pool categories (cached 1 h; not built).
    - `find-paper`, `reference` and `identify`: DataCite instead of the export API.
    - Device search (§5.6), flag `device_search_enabled`, off: native export API per submitted search, browser
-     DataCite, both through the clients' pacing.
+     DataCite, both through the clients' pacing (built, §6.0). `identify` names DOIs through Crossref alone when
+     `openalex_enabled` is off (built).
    - `feed-refresh`: switch to the DataCite source. Keep the RSS source row for audit; `refresh_enabled` stays on.
    - *Tests:* fast contract tests showing `discover` responses are byte-compatible with the current decoder (native
      `Discovery.swift`, browser `feed.ts`). Workflow checks: the deploy suite plus a new `egress.no-arxiv` check that
@@ -917,6 +1000,11 @@ projection.
 10. **Reader page loads and rule 3.** The reader requests a paper's page 3 s after the previous one, then that page's
     figures at most 4 at a time, as a browser does. Strictly one request every 3 s would make a 20-figure paper take
     about a minute to open. Keep the page-visit policy for the reader, with rule 3 applied to the APIs?
+11. **A paper-search box in the browser.** The browser has no search today (Add takes an ID, DOI or link). Proposal:
+    the top-bar search gets the native app's Library / arXiv switch; the arXiv side runs `lib/device-search.ts`
+    (DataCite) and shows the Feed's result rows with + Add. An interaction change, so it waits for the owner.
+12. **Search tuning (§5.6.1).** Native near spellings through DataCite; show results before the phrase answer; and
+    whether a "well known" signal is wanted for broad two-word topics.
 
 ## References in this repository
 

@@ -69,6 +69,7 @@
 		358D1B912CC0FAEC50B2D28D /* DeviceModelReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDA405B1BC529221D0FEDDF3 /* DeviceModelReading.swift */; };
 		3692BE0D89EB6EAAFBFDE4EE /* SessionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6590F046CE4A1D77BE2343C /* SessionCapture.swift */; };
 		379DFB126793131B3A645A04 /* ReaderSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F2F1B3D692A2A834D7DA37 /* ReaderSplit.swift */; };
+		380495CB517C35735584CE27 /* DeviceSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B7A875B8F59D5C37AA66D1C /* DeviceSearchTests.swift */; };
 		3B2BDB42B4CF1A60038BAB85 /* DeviceApprover.swift in Sources */ = {isa = PBXBuildFile; fileRef = B857EC5CF10C76E040143087 /* DeviceApprover.swift */; };
 		3B2C11614452FA53057A0BB0 /* DeviceApprovalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2AF682F191DAAA468C083F /* DeviceApprovalViews.swift */; };
 		3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */; };
@@ -141,6 +142,7 @@
 		7886FA4E53948C5AC01576B9 /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
 		792A6D98599A601613D2DEAA /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BB0761CB97647F552ADC5A /* DesignSystem.swift */; };
 		7970DFD1993BF29BE9DAEBD0 /* FeedPersonalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD89596FA26CA7355B696147 /* FeedPersonalizationTests.swift */; };
+		7986240F07878326B76E1DA4 /* DeviceSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63465DB1BED679B3D49CDF82 /* DeviceSearch.swift */; };
 		7B4D89E2210BCCC6DC288A52 /* PodcastPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 456DE2782C3ABCD1E9D8CD7C /* PodcastPlayer.swift */; };
 		7B6ECC0C4064EDE1348737C6 /* BranchPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */; };
 		7BA08C99DEC5FAD99A669F80 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
@@ -206,6 +208,7 @@
 		AB70330F52E2FC9EF4BBCC85 /* TagEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59D4EA1A2220F8E1670ACA1E /* TagEditorView.swift */; };
 		AC9F6CBCB7AE7D8AFED96D75 /* GoogleSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */; };
 		AE58B463CD15597901E64EFA /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1504498C714EEB16B0AD7E1F /* ShareViewController.swift */; };
+		AEFE493667515D3C7D8C04C0 /* DeviceSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63465DB1BED679B3D49CDF82 /* DeviceSearch.swift */; };
 		AF05367468D870A642096853 /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46D8BD9CFBC5DF7CFE72894 /* ShareInbox.swift */; };
 		B1713C47ADAC1C5C2F62FC21 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BB0761CB97647F552ADC5A /* DesignSystem.swift */; };
 		B205221947AC74D62553E0C7 /* DeviceApprovalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2AF682F191DAAA468C083F /* DeviceApprovalViews.swift */; };
@@ -400,11 +403,13 @@
 		59CC84EF0734AAAD333D116D /* ImportProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgressView.swift; sourceTree = "<group>"; };
 		59D4EA1A2220F8E1670ACA1E /* TagEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagEditorView.swift; sourceTree = "<group>"; };
 		5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
+		5B7A875B8F59D5C37AA66D1C /* DeviceSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSearchTests.swift; sourceTree = "<group>"; };
 		5BED4F114BFBFFDA47C676BD /* StudyMapViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyMapViews.swift; sourceTree = "<group>"; };
 		5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandTransport.swift; sourceTree = "<group>"; };
 		60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperWebViewTests.swift; sourceTree = "<group>"; };
 		615E3C9E9D39D5691D583C2E /* LiveJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveJourneyTests.swift; sourceTree = "<group>"; };
 		62440BEEE36E6C96B12FC5E5 /* LibrarySearchCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchCoordinatorTests.swift; sourceTree = "<group>"; };
+		63465DB1BED679B3D49CDF82 /* DeviceSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSearch.swift; sourceTree = "<group>"; };
 		65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineResourcePerformanceTests.swift; sourceTree = "<group>"; };
 		680E5298C08C531C63EDCE08 /* RetirementSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetirementSafetyTests.swift; sourceTree = "<group>"; };
 		6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSafetyTests.swift; sourceTree = "<group>"; };
@@ -574,6 +579,7 @@
 				B857EC5CF10C76E040143087 /* DeviceApprover.swift */,
 				0A7005386659A627AA9009A5 /* DeviceKeys.swift */,
 				034A41C47C7F9BD10076A3D1 /* DevicePDFFetcher.swift */,
+				63465DB1BED679B3D49CDF82 /* DeviceSearch.swift */,
 				EF5AD3A4689C5A15EE40F6A5 /* DiscoveryOrder.swift */,
 				CB6773FA1555465D82AF9329 /* FeedPersonalization.swift */,
 				7E3D1F438A38856740453FBC /* ImportProgress.swift */,
@@ -725,6 +731,7 @@
 				B0CB2F9926545992320951EC /* DeviceApproverTests.swift */,
 				8411E48465CE6A34E14D9F9D /* DeviceModelRouteTests.swift */,
 				43B1182D2905F6AB89673653 /* DevicePDFFetcherTests.swift */,
+				5B7A875B8F59D5C37AA66D1C /* DeviceSearchTests.swift */,
 				7741ECADEE690DBE29C60740 /* DraftQueueTests.swift */,
 				93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */,
 				7C0FD78191E4D06B21ED067D /* DurableWorkspaceTests.swift */,
@@ -1113,6 +1120,7 @@
 				358D1B912CC0FAEC50B2D28D /* DeviceModelReading.swift in Sources */,
 				C4403351D7A198F206DC72EC /* DeviceModelViews.swift in Sources */,
 				A8F4D610BC3F49B09DECF111 /* DevicePDFFetcher.swift in Sources */,
+				AEFE493667515D3C7D8C04C0 /* DeviceSearch.swift in Sources */,
 				FB7517BB2F9EF4AAB69C6684 /* DiagramView.swift in Sources */,
 				6949AE47E930BEE66A770391 /* DiscoveryOrder.swift in Sources */,
 				E5580C6BE62821D978943125 /* EquationView.swift in Sources */,
@@ -1218,6 +1226,7 @@
 				9328E7B23490127422B1A489 /* DeviceApproverTests.swift in Sources */,
 				EA6B974AED9C5057C335DBD7 /* DeviceModelRouteTests.swift in Sources */,
 				E1E46CE84D18311B849DEC68 /* DevicePDFFetcherTests.swift in Sources */,
+				380495CB517C35735584CE27 /* DeviceSearchTests.swift in Sources */,
 				577E406704CB145DD0595722 /* DraftQueueTests.swift in Sources */,
 				5E34F54C8D91D6A0EACB9286 /* DurableDraftIntegrationTests.swift in Sources */,
 				C6F0F36164B3962D90F26435 /* DurableWorkspaceTests.swift in Sources */,
@@ -1318,6 +1327,7 @@
 				BBEDFC71B3662A5B04825DD3 /* DeviceModelReading.swift in Sources */,
 				432CE9EACE625CCD83C0C421 /* DeviceModelViews.swift in Sources */,
 				1905A9A122A45D5D6979982D /* DevicePDFFetcher.swift in Sources */,
+				7986240F07878326B76E1DA4 /* DeviceSearch.swift in Sources */,
 				53F6B0333B096066D8F7E8E1 /* DiagramView.swift in Sources */,
 				98CFE0EEB90B4563024DC537 /* DiscoveryOrder.swift in Sources */,
 				FA301FF07B80B57A3B598658 /* EquationView.swift in Sources */,
