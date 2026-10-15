@@ -38,7 +38,7 @@ final class PodcastJourneyTests: XCTestCase {
     }
 
     private func openListen(_ app: XCUIApplication) {
-        app.buttons["tab.feed"].tap()
+        app.show("feed")
         let listen = app.buttons["feed.listen"]
         XCTAssertTrue(listen.waitForExistence(timeout: 10), "The Feed offers Listen beside its topics")
         listen.tap()
@@ -118,7 +118,7 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertLessThanOrEqual(mini.frame.maxY, app.buttons["tab.feed"].frame.minY + 1, "The mini-player sits above the tab bar")
         capture(app, "Mini-player above the tab bar")
         // It stays across tabs, and the Library's last row scrolls clear of it.
-        app.buttons["tab.library"].tap()
+        app.show("library")
         XCTAssertTrue(mini.exists)
         app.buttons["podcast.miniPlayer.toggle"].tap()
         waitFor("Pause from the mini-player") { app.buttons["podcast.miniPlayer.toggle"].label == "Play" }
@@ -138,7 +138,7 @@ final class PodcastJourneyTests: XCTestCase {
         app.buttons["Done"].tap()
         let mini = element(app, "podcast.miniPlayer")
         XCTAssertTrue(mini.waitForExistence(timeout: 5))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let composer = element(app, "chat.composer")
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         waitFor("The message box sits above the mini-player") { composer.frame.maxY <= mini.frame.minY + 1 }
@@ -465,12 +465,12 @@ final class PodcastJourneyTests: XCTestCase {
         // The theme is a saved preference: leave it as other suites expect.
         addTeardownBlock { @MainActor in
             if !app.buttons["tab.settings"].exists { return }
-            app.buttons["tab.settings"].tap()
+            app.show("settings")
             let match = app.segmentedControls["settings.theme"].buttons["Match device"]
             if match.waitForExistence(timeout: 5) { match.tap() }
         }
         for theme in ["Light", "Dark"] {
-            app.buttons["tab.settings"].tap()
+            app.show("settings")
             let choice = app.segmentedControls["settings.theme"].buttons[theme]
             XCTAssertTrue(choice.waitForExistence(timeout: 5)); choice.tap()
             openListen(app)
@@ -483,7 +483,7 @@ final class PodcastJourneyTests: XCTestCase {
             sleep(1); capture(app, "podcast-player-\(theme.lowercased())")
             app.swipeUp(); sleep(1); capture(app, "podcast-transcript-\(theme.lowercased())")
             app.buttons["Done"].tap()
-            app.buttons["tab.library"].tap()
+            app.show("library")
             XCTAssertTrue(element(app, "podcast.miniPlayer").waitForExistence(timeout: 5))
             sleep(1); capture(app, "podcast-mini-\(theme.lowercased())")
         }

@@ -16,7 +16,7 @@ final class ChatControlsTests: XCTestCase {
                                "-appearance", appearance, "-chat.defaultProfile", "sonnet-low-standard"] + extra
         app.launch()
         XCTAssertTrue(app.buttons[sample].waitForExistence(timeout: 15))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         return app
     }
 
@@ -107,7 +107,7 @@ final class ChatControlsTests: XCTestCase {
     /// Settings › Chat defaults: new chats start with them; the row shows the choice.
     func testChatDefaultsInSettings() {
         let app = launch("light")
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         let row = app.buttons["settings.chatDefaults"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         XCTAssertTrue(row.label.contains("Sonnet · Low · Standard"))
@@ -123,7 +123,7 @@ final class ChatControlsTests: XCTestCase {
         app.navigationBars["Chat defaults"].buttons.firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertTrue(row.label.contains("Haiku · Low · Brief"))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         app.buttons["New chat"].tap()
         XCTAssertEqual(app.buttons["chat.profile"].value as? String, "Haiku · Low · Brief", "A new chat starts with the defaults")
     }

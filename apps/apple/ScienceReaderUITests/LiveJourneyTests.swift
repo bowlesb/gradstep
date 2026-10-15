@@ -132,7 +132,7 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)], timeout: 10), .completed)
 
         if let question {
-            app.buttons["tab.chat"].tap()
+            app.show("chat")
             let composer = app.textViews["chat.composer"].exists ? app.textViews["chat.composer"] : app.textFields["chat.composer"]
             XCTAssertTrue(composer.waitForExistence(timeout: 10)); composer.tap(); composer.typeText(question)
             app.buttons["chat.send"].tap()
@@ -148,14 +148,14 @@ final class LiveJourneyTests: XCTestCase {
         // Relaunch: the installed reader (and any answer) survive offline storage.
         app.terminate()
         launch(app)
-        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 30)); app.buttons["tab.library"].tap()
+        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 30)); app.show("library")
         XCTAssertTrue(paperRow(app).waitForExistence(timeout: 60))
         paperRow(app).tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 30))
         capture(app, "Reader after relaunch")
         if let question {
             // A relaunch starts a fresh chat; the saved conversation is in history.
-            app.buttons["tab.chat"].tap()
+            app.show("chat")
             let history = app.buttons["Chat history"]
             XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
             let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", String(question.prefix(20)))).firstMatch
@@ -174,7 +174,7 @@ final class LiveJourneyTests: XCTestCase {
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
 
         // Get credits lists the plans and the pack (App Store sandbox products).
         let getCredits = app.buttons["settings.getCredits"]
@@ -211,7 +211,7 @@ final class LiveJourneyTests: XCTestCase {
         notice.buttons["OK"].tap()
         // Signing out returns to the Library, as an ordinary sign-out does.
         XCTAssertTrue(app.buttons["Sign in to sync"].waitForExistence(timeout: 10), "The app should be signed out")
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 10), "Settings should show the signed-out state")
         capture(app, "Signed out after deletion")
     }
@@ -225,7 +225,7 @@ final class LiveJourneyTests: XCTestCase {
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         let getCredits = app.buttons["settings.getCredits"]
         for _ in 0..<3 where !getCredits.isHittable { app.swipeUp() }
         XCTAssertTrue(getCredits.waitForExistence(timeout: 10)); getCredits.tap()
@@ -269,7 +269,7 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertTrue(outcome.label.contains(reference.title), "The outcome names \(reference.title): \(outcome.label.suffix(200))")
         capture(app, "Add to library outcome")
         // The import shows in the Library and becomes a readable paper.
-        app.buttons["tab.library"].tap()
+        app.show("library")
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", reference.title)).firstMatch
         let deadline = Date().addingTimeInterval(300)
         while !row.exists && Date() < deadline {
@@ -292,7 +292,7 @@ final class LiveJourneyTests: XCTestCase {
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         let voice = app.switches["session.voice"]
         for _ in 0..<6 where !(voice.exists && voice.isHittable) { app.swipeUp() }
         if (voice.value as? String) == "1" { voice.switches.firstMatch.exists ? voice.switches.firstMatch.tap() : voice.tap() }
@@ -304,7 +304,7 @@ final class LiveJourneyTests: XCTestCase {
         }
         for title in openTiming {
             for attempt in ["first", "second"] {
-                app.buttons["tab.library"].tap()
+                app.show("library")
                 let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", title)).firstMatch
                 XCTAssertTrue(row.waitForExistence(timeout: 30), "\(title) is in the library")
                 let started = Date()

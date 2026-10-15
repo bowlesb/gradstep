@@ -528,7 +528,8 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(request.action, .relevance, "The server leaves web search out")
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.encoded()) as? [String: Any])
         XCTAssertEqual(body["action"] as? String, "relevance")
-        XCTAssertNil(body["capabilities"])
+        // Capabilities are always a list (an empty one says visual answers are off); Why it matters never adds papers.
+        XCTAssertFalse((body["capabilities"] as? [String] ?? []).contains("web_import"))
         transport.send(.done(stopReason: "end_turn", credits: 0))
         try await waitUntil("finished") { !model.isAnswering }
         XCTAssertEqual(SelectionAction.define.chatAction, nil)

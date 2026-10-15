@@ -28,7 +28,7 @@ struct StudyMapBar: View {
         .padding(.horizontal, 14).padding(.vertical, 8)
         .chromeSurface(RoundedRectangle(cornerRadius: 16, style: .continuous), outlined: true)
         .accessibilityElement(children: .contain).accessibilityIdentifier("chat.study.bar")
-        .sheet(isPresented: $showMap) { StudyMapSheet(model: model, map: map) }
+        .sheet(isPresented: $showMap) { StudyMapSheet(model: model, map: map).macSheetKeys() }
     }
 
     private var nowText: String {

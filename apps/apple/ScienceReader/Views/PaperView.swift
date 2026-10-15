@@ -285,7 +285,11 @@ struct PaperView: View {
                     .macPaperMenu(PaperMenuActions(
                         contents: { showContents = true },
                         back: citationBack && !readerFailed ? { citationBack = false; citationOrigin = ""; citationReturnID = UUID() } : nil,
-                        selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) }))
+                        backTitle: citationOrigin.isEmpty ? "Back to Where You Were" : "Back to \(citationOrigin)",
+                        dismissBack: citationBack && !readerFailed ? { citationBack = false; citationOrigin = ""; citationDismissID = UUID() } : nil,
+                        selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) },
+                        // Paper › Figures (audit 2026-10-15: never wired since the menu was added, so always greyed out).
+                        figures: model.selectedPaper?.readerBundle?.index.figures.isEmpty == false && !readerFailed && !loadingPaper ? { showFigures = true } : nil))
                 } else if let selected = model.selectedPaper {
                     if let run = model.deviceModelRun, run.paperID == selected.id {
                         VStack { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() }.frame(maxWidth: 520); Spacer() }
@@ -641,7 +645,7 @@ struct PaperView: View {
             .contentShape(Capsule())
         }
         .modifier(ReaderControlMaterial())
-        .accessibilityLabel("Back to where you were")
+        .accessibilityLabel(citationOrigin.isEmpty ? "Back to where you were" : "Back to \(citationOrigin)")
         .accessibilityIdentifier("reader.citation.back")
         .accessibilityHint("Returns to where you were reading")
         .transition(.opacity)
@@ -1189,6 +1193,7 @@ struct LocalPDFReaderView: View {
                         .navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
                     }
+                    .macSheetKeys()
                 }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {

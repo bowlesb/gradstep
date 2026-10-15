@@ -272,7 +272,7 @@ final class VisualScenarioTests: XCTestCase {
             },
             "signin": Scenario(arguments: ["--authentication-fixture", "--reset-authentication-fixture"]) { app in
                 // The wide iPad layout has no tab bar; Settings is its gear button.
-                if app.buttons["tab.settings"].exists { app.buttons["tab.settings"].tap() } else { app.buttons["Settings"].tap() }
+                if app.buttons["tab.settings"].exists { app.show("settings") } else { app.buttons["Settings"].tap() }
                 let signIn = app.buttons["account.signIn"]
                 XCTAssertTrue(signIn.waitForExistence(timeout: 5)); signIn.tap()
                 XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5)); sleep(1)
@@ -415,7 +415,7 @@ final class VisualScenarioTests: XCTestCase {
 
     private func ask(_ app: XCUIApplication, _ question: String) {
         // The wide iPad layout has no tab bar; its general chat is a segment.
-        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["General Chat"].tap() }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -424,7 +424,7 @@ final class VisualScenarioTests: XCTestCase {
 
     /// Opens All chats from the chat's top bar, after leaving an unsent general draft when one is given.
     private func openHistory(_ app: XCUIApplication, draft: String? = nil) {
-        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["General Chat"].tap() }
         if let draft {
             if app.buttons["chat.context"].exists, app.buttons["chat.context"].value as? String != "General chat" {
                 app.buttons["chat.context"].tap()

@@ -20,9 +20,9 @@ final class ReaderNavigationTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         if app.buttons["tab.library"].exists {
-            app.buttons["tab.library"].tap()
+            app.show("library")
             XCTAssertTrue(app.staticTexts["Reading machine learning papers"].firstMatch.waitForExistence(timeout: 5))
-            app.buttons["tab.paper"].tap()
+            app.show("paper")
             XCTAssertTrue(app.webViews.firstMatch.exists)
         }
     }

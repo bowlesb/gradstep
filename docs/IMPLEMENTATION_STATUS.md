@@ -17,7 +17,12 @@ what are they, how do I access them, does it feel seamless? Please build".
 - **Deploy hazard fixed**: a new admin script cached as HTML during propagation blanked the admin; the admin now has a
   real 404 and `deploy-web.mjs` verifies every script and stylesheet live (ADMIN_HOSTING.md).
 - **Figure parts inline** (CHAT.md): crops at `[[part N]]` markers, the outlined whole figure below; chat function on
-  staging, live proof on DPO. Browser and TestFlight 53 follow below.
+  staging, live proof on DPO.
+- **Shipped**: TestFlight **53** iOS (07:34 PDT) and Mac (07:39 PDT) both VALID, from `80d0dfd`; browser Pages
+  **`7aab13f3`** (live asset check passed); admin Pages **`b71d1f6a`**.
+- **Equation view** (EQUATION_VIEW.md): server actions `equation` / `equation_background` deployed to staging and proven
+  live on DPO's loss (11 symbols, 10 from the paper; background read the cached paper, 5 credits). Apps and browser
+  in progress.
 
 ## Figures in chat when you don't name one, and figures with panels — 2026-10-15, ~11:45 UTC
 

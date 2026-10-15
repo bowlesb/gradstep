@@ -30,3 +30,25 @@ extension XCUIApplication {
     /// True while any of the paper's selection actions is offered (the edit menu is open over the paper).
     var paperSelectionMenuShown: Bool { editMenuItem("Explain in Chat").exists }
 }
+
+/// The app's places in either layout (audit 2026-10-15: journeys tapped the iPhone tab bar, which the wide layout of a
+/// 13-inch iPad and the Mac doesn't have). Narrow layouts (iPhone, an 11-inch iPad in portrait) use the tab bar; the
+/// wide one uses its mode control, where the paper's chat sits beside the paper in Reader.
+extension XCUIApplication {
+    func show(_ place: String) {
+        let tab = buttons["tab.\(place)"]
+        if tab.waitForExistence(timeout: 2) { tab.tap(); return }
+        let modes = segmentedControls.buttons
+        switch place {
+        case "feed": modes["Feed"].tap()
+        case "library": modes["Library"].tap()
+        case "paper": modes["Reader"].tap()
+        case "chat":
+            // The paper's chat when a paper is open (beside it), else the general chat.
+            modes["Reader"].tap()
+            if !descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { modes["General Chat"].tap() }
+        case "settings": (buttons["Settings"].exists ? buttons["Settings"] : buttons["settings.open"]).tap()
+        default: XCTFail("No place named \(place)")
+        }
+    }
+}

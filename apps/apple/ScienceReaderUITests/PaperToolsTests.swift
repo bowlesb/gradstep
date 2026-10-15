@@ -76,7 +76,7 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Find closed: the page stays at the match")
 
         // The found place is where reading resumes.
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         app.buttons["chat.returnToPaper"].tap()
         XCTAssertTrue(wait { found.exists && abs(found.frame.minY - web.frame.minY - offset) < 6 },
                       "Returns to the found place (\(offset) → \(found.frame.minY - web.frame.minY))")
@@ -143,7 +143,7 @@ final class PaperToolsTests: XCTestCase {
             done.tap()
             XCTAssertTrue(done.waitForNonExistence(timeout: 5))
 
-            app.buttons["tab.chat"].tap()
+            app.show("chat")
             let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()

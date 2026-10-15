@@ -22,7 +22,7 @@ final class DeviceApprovalUITests: XCTestCase {
     }
 
     private func openAddDevice(_ app: XCUIApplication) {
-        if app.buttons["tab.settings"].exists { app.buttons["tab.settings"].tap() } else { app.buttons["Settings"].tap() }
+        if app.buttons["tab.settings"].exists { app.show("settings") } else { app.buttons["Settings"].tap() }
         XCTAssertTrue(app.buttons["account.row"].waitForExistence(timeout: 5))
         app.buttons["account.row"].tap()
         let add = app.buttons["account.addDevice"]

@@ -81,12 +81,12 @@ final class PassageJourneyTests: XCTestCase {
         XCTAssertFalse(explain.exists, "A tap on a mark is not a selection")
 
         // 3. Go to passage from the chat's "…" menu, after reading elsewhere.
-        if phone { app.buttons["tab.paper"].tap() }
+        if phone { app.show("paper") }
         XCTAssertTrue(web.waitForExistence(timeout: 5))
         waitFor("The paper is open at the passage", passageVisible)
         web.swipeUp(); web.swipeUp(); web.swipeUp()
         waitFor("Read on, away from the passage") { !passageVisible() }
-        if phone { app.buttons["tab.chat"].tap() }
+        if phone { app.show("chat") }
         app.buttons["Chat options"].tap()
         let go = app.buttons["Go to passage"]
         XCTAssertTrue(go.waitForExistence(timeout: 5)); go.tap()
@@ -98,7 +98,7 @@ final class PassageJourneyTests: XCTestCase {
         waitFor("Back returns to where reading left off") { !passageVisible() && !back.exists }
 
         // 4. Go to passage from All chats (long-press the row).
-        if phone { app.buttons["tab.chat"].tap() }
+        if phone { app.show("chat") }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
@@ -114,13 +114,13 @@ final class PassageJourneyTests: XCTestCase {
 
         // 5. The underline in dark mode.
         if phone {
-            app.buttons["tab.settings"].tap()
+            app.show("settings")
             let dark = app.segmentedControls["settings.theme"].buttons["Dark"]
             XCTAssertTrue(dark.waitForExistence(timeout: 5)); dark.tap()
-            app.buttons["tab.paper"].tap()
+            app.show("paper")
             waitFor("The paper keeps the passage it went to", passageVisible)
             capture(app, "Passage with a chat is underlined (dark)")
-            app.buttons["tab.settings"].tap()
+            app.show("settings")
             app.segmentedControls["settings.theme"].buttons["Match device"].tap()
         }
     }

@@ -13,7 +13,7 @@ final class ChatHistoryTableTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--chat-history-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sample].waitForExistence(timeout: 15))
-        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["General Chat"].tap() }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
@@ -177,7 +177,7 @@ final class ChatHistoryTableTests: XCTestCase {
         app.buttons["Done"].tap()
 
         // From the paper itself: its options list its chats, opening on This paper.
-        app.buttons["tab.paper"].tap()
+        app.show("paper")
         let options = app.buttons["Paper options"]
         XCTAssertTrue(options.waitForExistence(timeout: 5)); options.tap()
         let chats = app.buttons["paper.chats"]
@@ -189,7 +189,7 @@ final class ChatHistoryTableTests: XCTestCase {
 
         // General chat and the Library open All chats unfiltered, without the chip.
         app.buttons["Done"].tap()
-        app.buttons["tab.library"].tap()
+        app.show("library")
         app.buttons["Library options"].tap()
         app.buttons["All chats"].tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))

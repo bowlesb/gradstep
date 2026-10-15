@@ -238,14 +238,18 @@ private final class LockedValue: @unchecked Sendable {
 /// becomes ready after its sheet was closed is offered by name.
 @MainActor
 final class PodcastPresentationTests: XCTestCase {
-    /// Owner report 2026-10-14 ("not able to create a podcast at all"): a paper read on this device has no server
-    /// text to write an episode from, and the notice says so instead of claiming the paper is not in the library.
-    func testAPaperWithoutAServerCopySaysWhyItCannotBecomeAnEpisode() throws {
+    /// Owner reports 2026-10-14 ("not able to create a podcast at all") and build 35 (the "server copy" wording read as
+    /// if PDFs were kept on the server): episodes come from the paper's text on this device, so the notice says to open
+    /// it first; a PDF without structured text and a paper outside the library each say their own reason.
+    func testAPaperWithoutItsTextOnThisDeviceSaysWhatToDo() throws {
         var member = Paper(id: UUID(), title: "Device paper", authors: "A", year: 2026, abstract: "", keywords: [], fileURL: nil, artifactID: nil)
         member.sourceMembership = try SourcePaperReference(membershipID: member.id, sourceID: "2601.01234", revision: 2)
-        XCTAssertEqual(PodcastCenter.noEpisodeSource(for: member), "Episodes are made from a server copy of the paper. Papers read on this device don’t have one yet, so this paper can’t be made into an episode.")
+        XCTAssertEqual(PodcastCenter.noEpisodeSource(for: member), "Open this paper first so its text is ready on this device, then try Listen again.")
+        let pdf = Paper(id: UUID(), title: "Scan", authors: "A", year: 2024, abstract: "", keywords: [], fileURL: URL(fileURLWithPath: "/tmp/scan.pdf"), artifactID: nil)
+        XCTAssertEqual(PodcastCenter.noEpisodeSource(for: pdf), "Episodes are made from a paper’s structured text. This PDF has no structured text on this device yet.")
         let legacy = Paper(id: UUID(), title: "Legacy", authors: "A", year: 2024, abstract: "", keywords: [], fileURL: nil, artifactID: UUID())
-        XCTAssertEqual(PodcastCenter.noEpisodeSource(for: legacy), "Listening needs this paper in your synced library.")
+        XCTAssertEqual(PodcastCenter.noEpisodeSource(for: legacy), "Episodes can’t be made for this paper yet: it isn’t in your synced library. Add it to your library, then try again.")
+        for paper in [member, pdf, legacy] { XCTAssertFalse(PodcastCenter.noEpisodeSource(for: paper).contains("server"), "No notice suggests the server keeps papers") }
     }
 
     private static let lengths = [("podcast-short-v1", "Short", 150, 140), ("podcast-5min-v1", "5 min", 300, 150),

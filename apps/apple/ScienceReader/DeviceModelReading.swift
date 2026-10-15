@@ -193,17 +193,25 @@ extension ReaderModel {
             // From a PDF the reader added (its own PDF view): the reading happens, and opens, in the reader.
             localPaperPresentation = nil
             selectedPaper = paper; chatPaperID = paper.id; tab = .paper
+            // The wide layout (iPad, Mac) shows the reader too, as opening any paper does (`select`).
+            if wideMode != .browse { wideMode = .reader }
+            generalChat = false
         }
         deviceModelRun = DeviceModelRun(paperID: paper.id, started: Date())
         // The screen stays on while the model reads: auto-lock would pause the app and stop its GPU work.
+        // On the Mac, idle sleep would pause it the same way.
         #if !targetEnvironment(macCatalyst)
         UIApplication.shared.isIdleTimerDisabled = true
+        #else
+        let awake = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled], reason: "Reading a paper with the on-device model")
         #endif
         deviceModelTask = Task { [weak self] in
             guard let self else { return }
             defer {
                 #if !targetEnvironment(macCatalyst)
                 UIApplication.shared.isIdleTimerDisabled = false
+                #else
+                ProcessInfo.processInfo.endActivity(awake)
                 #endif
                 if self.sessionID == scope, self.deviceModelRun?.paperID == paper.id { self.deviceModelRun = nil; self.deviceModelTask = nil }
             }

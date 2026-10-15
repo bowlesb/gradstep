@@ -39,7 +39,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
     }
 
     private func settings(_ app: XCUIApplication) {
-        if app.buttons["tab.settings"].exists { app.buttons["tab.settings"].tap() }
+        if app.buttons["tab.settings"].exists { app.show("settings") }
         else {
             XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 5))
             app.buttons["Settings"].tap()

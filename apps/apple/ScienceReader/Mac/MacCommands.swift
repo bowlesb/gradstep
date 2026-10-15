@@ -5,6 +5,9 @@ struct PaperMenuActions {
     var contents: (() -> Void)?
     /// Back to the reading position after following a citation.
     var back: (() -> Void)?
+    /// Where Back goes, as the button on screen says it ("Back to 3 Method"); and the X beside it.
+    var backTitle: String = "Back to Reading Position"
+    var dismissBack: (() -> Void)? = nil
     /// Runs a selection action on the text selected in the paper.
     var selection: ((SelectionAction) -> Void)?
     /// The open paper's figure gallery; unavailable for a paper without figures.
@@ -116,7 +119,7 @@ struct GradstepCommands: Commands {
                     .keyboardShortcut("-", modifiers: [.command, .option])
             }
             Section {
-                Button(model.wideMode == .feed ? "Refresh Feed" : "Refresh Library") { refresh() }
+                Button(model.wideMode == .feed ? (model.podcasts.listenSelected ? "Check for New Episodes" : "Refresh Feed") : "Refresh Library") { refresh() }
                     .keyboardShortcut("r")
                     .disabled(model.wideMode == .feed ? model.librarySignInRequired : (!model.isSignedIn || model.libraryRefreshing))
                 Button("All Chats") { model.showAllChats = true }.keyboardShortcut("y", modifiers: [.command, .shift])
@@ -128,8 +131,9 @@ struct GradstepCommands: Commands {
             Button("Table of Contents") { paper?.contents?() }
                 .keyboardShortcut("t", modifiers: [.command, .option]).disabled(paper?.contents == nil)
             Button("Figures") { paper?.figures?() }.disabled(paper?.figures == nil)
-            Button("Back to Reading Position") { paper?.back?() }
+            Button(paper?.back == nil ? "Back to Reading Position" : paper?.backTitle ?? "Back to Reading Position") { paper?.back?() }
                 .keyboardShortcut("[").disabled(paper?.back == nil)
+            Button("Dismiss Back") { paper?.dismissBack?() }.disabled(paper?.dismissBack == nil)
             Divider()
             Menu("Ask About Selection") {
                 ForEach(Array(SelectionAction.allCases.enumerated()), id: \.offset) { index, action in
@@ -139,6 +143,22 @@ struct GradstepCommands: Commands {
             }.disabled(paper?.selection == nil)
             Button("Ask About This Paper") { model.askAboutSelectedPaper() }
                 .keyboardShortcut("a", modifiers: [.command, .shift]).disabled(model.selectedPaper == nil)
+            // The paper's "…" menu, item for item (PaperView), so nothing on screen is missing from the menu bar.
+            Button("Listen") { if let paper = model.selectedPaper { model.podcasts.listen(to: paper) } }
+                .disabled(model.selectedPaper.map { !model.podcasts.canListen(to: $0) } ?? true)
+            Button("Chats About This Paper") { if let paper = model.selectedPaper { model.openAllChats(paper: paper.id) } }
+                .disabled(model.selectedPaper.map { (model.paperChatCounts[$0.id] ?? 0) == 0 } ?? true)
+            Button("Edit Tags…") { if let paper = model.selectedPaper { model.editTags(for: paper) } }
+                .disabled(model.selectedPaper.map(\.isSample) ?? true)
+            if let paper = model.selectedPaper, model.deviceModelAvailable, model.hasDeviceModelPDF(paper) {
+                Divider()
+                if model.isModelReading(paper) {
+                    Button("Show the HTML Reading") { model.showHTMLReading() }
+                    Button("Read Again with the On-Device Model") { model.readWithDeviceModel(paper, again: true) }.disabled(model.deviceModelRun != nil)
+                } else {
+                    Button("Read with the On-Device Model") { model.readWithDeviceModel(paper) }.disabled(model.deviceModelRun != nil)
+                }
+            }
         }
 
         CommandGroup(replacing: .help) {
@@ -172,7 +192,9 @@ struct GradstepCommands: Commands {
     }
 
     private func refresh() {
-        if model.wideMode == .feed { model.loadFeed() } else { Task { await model.refreshLibrary() } }
+        // On Listen, the episodes (as its "…" menu's Check for new episodes); the hidden feed is not what is shown.
+        if model.wideMode == .feed { if model.podcasts.listenSelected { model.podcasts.loadCatalog() } else { model.loadFeed() } }
+        else { Task { await model.refreshLibrary() } }
     }
 }
 #endif

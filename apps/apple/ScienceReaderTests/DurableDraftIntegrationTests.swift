@@ -29,6 +29,9 @@ final class DurableDraftIntegrationTests: XCTestCase {
         let selection = ReaderSelection(manifestSHA256: bundle.manifestSHA256,
             parts: [.init(kind: "equation", blockID: equation.blockID, equationID: equation.id)])
         let quote = try selection.resolvedQuote(in: bundle)
+        // The question carries the equation's paragraph in the paper's own numbering (owner, build 42).
+        let paragraph = try XCTUnwrap(bundle.index.blocks.firstIndex { $0.id == equation.blockID }) + 1
+        let question = SelectionAction.define.prompt(quote) + " [¶\(paragraph)]"
         model!.selectionAction(.define, selection: selection, scope: scope)
         let sent = expectation(description: "Selection action commits the captured question")
         let observation = Task { @MainActor in
@@ -40,13 +43,13 @@ final class DurableDraftIntegrationTests: XCTestCase {
         await fulfillment(of: [sent], timeout: 5)
         observation.cancel()
         await model!.flushDrafts()
-        XCTAssertEqual(model!.chatMessages.first?.payload.text, SelectionAction.define.prompt(quote))
+        XCTAssertEqual(model!.chatMessages.first?.payload.text, question)
         let conversation = try XCTUnwrap(model!.activeConversation)
         model = nil
         let reopened = ReaderModel(configuration: nil)
         try await reopened.configureDurableDraftFixture(reset: false)
         reopened.openConversation(conversation)
-        XCTAssertEqual(reopened.chatMessages.map(\.payload.text), [SelectionAction.define.prompt(quote)])
+        XCTAssertEqual(reopened.chatMessages.map(\.payload.text), [question])
         XCTAssertEqual(reopened.chatInput, "")
     }
 

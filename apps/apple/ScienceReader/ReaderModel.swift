@@ -2480,7 +2480,8 @@ final class ReaderModel {
         guard let paper, !paper.isSample, let added = paper.addedAt, readingActivity[paper.id]?.openedAt == nil else { return false }
         return Date().timeIntervalSince(added) < 3 * 24 * 3600
     }
-    func returnToChat() { returnToChatAvailable = false; tab = .chat }
+    /// Back to chat: the chat tab, or (wide layout) the chat column beside the paper, shown again if it was hidden.
+    func returnToChat() { returnToChatAvailable = false; tab = .chat; readerChatHidden = false }
 
     /// The figure a model asked for ("Figure 4"), prepared from the chat's paper on this device.
     private func requestedFigures(_ label: String, turn: ChatAnswerTurn) -> (images: [ChatFigureImage], manifest: String)? {

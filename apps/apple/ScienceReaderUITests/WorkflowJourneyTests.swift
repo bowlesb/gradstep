@@ -68,7 +68,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
         app.buttons[sampleID].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))
-        app.buttons["tab.library"].tap()
+        app.show("library")
         XCTAssertEqual(search.value as? String, query)
         capture(app, "Library retains query after reading")
         search.tap()
@@ -89,7 +89,7 @@ final class WorkflowJourneyTests: XCTestCase {
 
     func testChatKeyboardContextHistoryAndReturnPreserveDrafts() throws {
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         XCTAssertTrue(app.navigationBars["Understanding attention"].waitForExistence(timeout: 5))
         assertFinalReplyAtBottom(app)
         capture(app, "Paper conversation with realistic paragraphs")
@@ -111,7 +111,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
         app.buttons["chat.returnToPaper"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
         app.buttons["New chat"].tap()
         XCTAssertNotEqual(input.value as? String, "Paper draft to keep")
@@ -138,7 +138,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertNotNil(last)
         if let last { XCTAssertLessThanOrEqual(last.frame.maxY, tab.frame.minY + 1, "The last row scrolls clear of the tab bar") }
 
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         let transcript = app.tables["chat.transcript"]
@@ -150,13 +150,13 @@ final class WorkflowJourneyTests: XCTestCase {
 
     func testChatKeepsLatestVisibleAsComposerGrowsAndKeyboardDismisses() throws {
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         exerciseLatestReplyWhileComposing(app)
     }
 
     func testDeletedObservedReplyRetainsEarlierMessagesUntilSiblingIsChosen() throws {
         let app = launch(additionalArguments: ["--branch-fixture"])
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertEqual(chatContext(app), "General chat")
         XCTAssertEqual(input.value as? String, "A separate general draft")
@@ -212,7 +212,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         func assertDraftSaved() {
             let status = app.staticTexts["chat.draftStatus"]
@@ -231,7 +231,7 @@ final class WorkflowJourneyTests: XCTestCase {
             app.launchArguments = ["--draft-fixture"]
             app.launch()
             XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-            app.buttons["tab.chat"].tap()
+            app.show("chat")
         }
         func sentQuestion() -> XCUIElementQuery {
             app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@",
@@ -316,7 +316,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
         let unopenedRow = app.buttons[paperID]
-        XCTAssertTrue(unopenedRow.label.contains("Available offline") || unopenedRow.images["Available offline"].exists,
+        XCTAssertTrue(unopenedRow.label.contains("On this device") || unopenedRow.images["On this device"].exists,
                       "A persisted download remains available before its decoded bundle is loaded.")
         capture(app, "Downloaded badge survives relaunch before loading paper")
         app.buttons[paperID].tap()
@@ -372,7 +372,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
         app.buttons[paperID].tap()
         XCTAssertTrue(web.waitForExistence(timeout: 8))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         app.buttons["Chat history"].tap()
         // All chats shows a selection chat by its short title, not the raw LaTeX prompt: an equation's Define asks
         // the explain-equation question, so it reads "Explain · ‹symbols›".
@@ -392,7 +392,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=broken_diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("Draw the attention computation")
@@ -429,7 +429,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_parts", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("What does Figure 1 show?")
@@ -463,7 +463,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("Draw the attention computation")
@@ -499,7 +499,7 @@ final class WorkflowJourneyTests: XCTestCase {
         // The tab bar sits behind the software keyboard, as with system tab bars.
         if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
         XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 5))
-        app.buttons["tab.library"].tap()
+        app.show("library")
         app.buttons["Library options"].tap()
         app.buttons["All diagrams"].tap()
         let saved = app.buttons["Scaled dot-product attention"]
@@ -514,7 +514,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=insufficient_credits", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("Summarize the method")
@@ -563,7 +563,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=sources", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("What do recent sources say about attention?")
@@ -597,7 +597,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"] + extraArguments
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
-        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["General Chat"].tap() }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
@@ -739,9 +739,9 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Answer paper has an explicit Library action")
         target.tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10), "The saved paper opens inside the reader")
-        if app.buttons["tab.library"].exists { app.buttons["tab.library"].tap() } else { app.segmentedControls.buttons["Library"].tap() }
+        if app.buttons["tab.library"].exists { app.show("library") } else { app.segmentedControls.buttons["Library"].tap() }
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5)); app.buttons[sampleID].tap()
-        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") }
         XCTAssertEqual(composer.value as? String, "Keep my follow-up draft")
         XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5), "The original answer remains in its conversation")
         capture(app, "Original conversation and draft after Library action")
@@ -760,7 +760,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let progress = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS[c] %@", "importProgress", "Reading equations and figures")).firstMatch
         XCTAssertTrue(progress.waitForExistence(timeout: 5), "A queued paper opens its current progress")
         capture(app, "Answer Library action shows pending import")
-        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["Reader"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls.buttons["Reader"].tap() }
         XCTAssertEqual(composer.value as? String, "Keep this while it imports")
         XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5))
     }
@@ -788,7 +788,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons[sampleID].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         try audit("Reader")
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("Draw the attention computation")
@@ -801,7 +801,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["Softmax"].waitForExistence(timeout: 10))
         try audit("Diagram")
         app.buttons["Done"].tap()
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         try audit("Settings")
         let attachment = XCTAttachment(string: report.joined(separator: "\n"))
         attachment.name = "Accessibility audit"; attachment.lifetime = .keepAlways; add(attachment)
@@ -813,7 +813,7 @@ final class WorkflowJourneyTests: XCTestCase {
     func testTabletTabsReturnAfterKeyboardClosesInTheWideLayout() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Rotation between compact and wide layouts")
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("Draft while rotating")
@@ -830,7 +830,7 @@ final class WorkflowJourneyTests: XCTestCase {
 
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         app.buttons["New chat"].tap()
         input.typeText("First unsent question")
@@ -849,7 +849,7 @@ final class WorkflowJourneyTests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad split layout")
         let app = launch()
         defer { XCUIDevice.shared.orientation = .portrait }
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].waitForExistence(timeout: 5))
         exerciseLatestReplyWhileComposing(app)
@@ -877,14 +877,14 @@ final class WorkflowJourneyTests: XCTestCase {
     func testChatPreservesScrollbackThroughKeyboardAndComposerResize() throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Phone keyboard geometry; iPad uses the testTabletSplitChat… variants (fails on iPad at 4d8d4ff too)")
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         exerciseScrollbackWhileComposing(app)
     }
 
     func testChatInteractiveKeyboardDismissalPreservesFinalReadingPosition() throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Phone keyboard geometry; iPad uses the testTabletSplitChat… variants (fails on iPad at 4d8d4ff too)")
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let transcript = app.tables["chat.transcript"]
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         input.tap(); input.typeText("Keep this draft")
@@ -917,7 +917,7 @@ final class WorkflowJourneyTests: XCTestCase {
 
     func testChatTextSelectionOffersCopyWithoutLosingDraftOrContext() throws {
         let app = launch()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         input.tap(); input.typeText("Draft survives copying")
         app.buttons["chat.dismissKeyboard"].tap()
@@ -937,7 +937,7 @@ final class WorkflowJourneyTests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad split layout")
         let app = launch()
         defer { XCUIDevice.shared.orientation = .portrait }
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].waitForExistence(timeout: 5))
         exerciseScrollbackWhileComposing(app)
@@ -1009,7 +1009,7 @@ final class WorkflowJourneyTests: XCTestCase {
         jump(); assertAtHeading()
         web.swipeUp(); web.swipeUp()
         jump(); assertAtHeading()
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         app.buttons["chat.returnToPaper"].tap()
         XCTAssertTrue(web.waitForExistence(timeout: 5)); assertAtHeading()
         capture(app, "Reader returns to the same passage")

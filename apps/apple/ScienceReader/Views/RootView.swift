@@ -521,11 +521,22 @@ struct LibraryView: View {
                 switch entry {
                 case .paper(let paper):
                     Button { model.select(paper) } label: {
-                        PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics)
+                        let copy = model.deviceCopy(for: paper)
+                        PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, deviceCopy: copy,
+                                 isNew: model.isNew(paper), status: model.libraryStatus(for: entry),
+                                 showAbstract: model.showAbstracts, showTopics: model.showTopics)
                     }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("paper.\(paper.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
+                        // The cloud symbol's tap: download without opening (as the table's), beside the row's button.
+                        .overlay(alignment: .topTrailing) {
+                            if model.deviceCopy(for: paper) == .cloud {
+                                Button { model.prepareOnDevice(paper) } label: { Color.clear.frame(width: 44, height: 36).contentShape(Rectangle()) }
+                                    .buttonStyle(.plain).accessibilityLabel("Download to this device").help("Download to this device")
+                                    .accessibilityIdentifier("paper.\(paper.id.wire).download")
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) { LibrarySwipeActions(model: model, entry: entry) }
                 case .pending(let item):
                     let retrying = model.isRetrying(item)
@@ -662,10 +673,15 @@ struct ImportStatusText: View {
     }
 }
 
+/// The List layout's row (and the only layout at accessibility text sizes). It says what the table's title cell says
+/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), the "new" dot, and a
+/// download or problem in words.
 struct PaperRow: View {
     let paper: Paper
     var selected = false
-    var offlineStatus: PaperOfflineStatus = .none
+    var deviceCopy: PaperDeviceCopy? = nil
+    var isNew = false
+    var status: LibraryRowFacts.Status = .none
     var showAbstract = true
     var showTopics = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -675,12 +691,23 @@ struct PaperRow: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
+                if isNew { Circle().fill(Color.accentColor).frame(width: 8, height: 8).padding(.top, 7).accessibilityLabel("New") }
                 Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                if offlineStatus == .available { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
-                else if offlineStatus == .unavailable { Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary).accessibilityLabel("Downloaded copy unavailable") }
+                // The cloud's tap target is the list's overlay beside this row's button (a button inside a button's
+                // label doesn't get its own taps).
+                if let copy = deviceCopy {
+                    Image(systemName: copy.symbol).foregroundStyle(copy == .reader || copy == .pdf ? Color.accentColor : copy == .unavailable ? Color.orange : Color.secondary)
+                        .accessibilityLabel(copy.label).help(copy.label)
+                }
             }
             if let authors = LibraryFormat.shortAuthors(for: paper) { Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
+            switch status {
+            case .active(let text):
+                HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(text).monospacedDigit() }.font(.footnote).foregroundStyle(.secondary)
+            case .problem(let text): Text(text).font(.footnote).foregroundStyle(.orange)
+            case .info, .none: EmptyView()
+            }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source

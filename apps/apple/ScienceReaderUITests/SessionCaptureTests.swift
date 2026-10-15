@@ -16,7 +16,7 @@ final class SessionCaptureTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
 
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         let voice = app.switches["session.voice"]
         for _ in 0..<6 where !(voice.exists && voice.isHittable) { app.swipeUp() }
         XCTAssertTrue(voice.waitForExistence(timeout: 5))
@@ -31,10 +31,10 @@ final class SessionCaptureTests: XCTestCase {
         XCTAssertTrue(stop.waitForExistence(timeout: 15), "The recorder controls appear")
 
         // A small journey: open the sample, ask a question that fails for credits, tap Get credits.
-        app.buttons["tab.library"].tap()
+        app.show("library")
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5)); app.buttons[sampleID].tap()
         sleep(2)
-        app.buttons["tab.chat"].tap()
+        app.show("chat")
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("What is the main result?")
@@ -48,7 +48,7 @@ final class SessionCaptureTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Get credits"].waitForExistence(timeout: 5))
         sleep(1)
         app.buttons["Done"].tap()
-        app.buttons["tab.settings"].tap()
+        app.show("settings")
         sleep(1)
 
         XCTAssertTrue(stop.waitForExistence(timeout: 5)); stop.tap()
