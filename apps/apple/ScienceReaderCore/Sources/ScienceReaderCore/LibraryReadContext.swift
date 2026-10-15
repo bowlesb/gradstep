@@ -59,13 +59,22 @@ public struct ReaderCapabilities: Decodable, Equatable, Sendable {
             case maximumParts = "maximum_parts", partAttempts = "part_attempts"
         }
     }
+    /// Device-read paper metadata (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3): whether this device should send what it
+    /// read about a paper to the server. Absent from older servers; off until the server enables it.
+    public struct SourceMetadata: Decodable, Equatable, Sendable {
+        public let enabled: Bool
+        public let format: String
+    }
     public let format: Int
     public let accountID: UUID
     public let library: Library
     public let descriptors: Descriptors
     public let uploads: Uploads
+    public let sourceMetadata: SourceMetadata?
     public var readContext: LibraryReadContext { .uploadFull5(datasetEpoch: library.datasetEpoch) }
-    private enum CodingKeys: String, CodingKey { case format, accountID = "account_id", library, descriptors, uploads }
+    /// Send device-read metadata only when the server asks for this exact format.
+    public var submitsSourceMetadata: Bool { sourceMetadata?.enabled == true && sourceMetadata?.format == "arxiv-source-metadata-v1" }
+    private enum CodingKeys: String, CodingKey { case format, accountID = "account_id", library, descriptors, uploads, sourceMetadata = "source_metadata" }
 
     public static func decode(_ data: Data, accountID: UUID) throws -> Self {
         guard data.count <= 16_384 else { throw LibraryProtocolError.payloadTooLarge }

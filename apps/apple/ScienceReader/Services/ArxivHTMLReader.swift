@@ -182,10 +182,14 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     /// "Preparing…" through the compile and the image admission (0.8–1).
     static func phase(for fraction: Double) -> String { fraction < 0.8 ? "Downloading…" : "Preparing…" }
 
-    func prepare(_ source: ArxivReaderSource, authors: [String] = [], title: String? = nil, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> VerifiedReaderBundle {
+    /// `onSource`: the page's bytes once downloaded, for the metadata this device reads from them
+    /// (SourceMetadataReporter; nil unless the server asks for it).
+    func prepare(_ source: ArxivReaderSource, authors: [String] = [], title: String? = nil, progress: @escaping @Sendable (Double) -> Void = { _ in },
+                 onSource: (@Sendable (Data) -> Void)? = nil) async throws -> VerifiedReaderBundle {
         defer { close() }
         progress(0.02)
         let html = try await acquire(source.htmlURL, source, ArxivAcquisitionPolicy.sourceBytes)
+        onSource?(html)
         progress(0.12)
         try await load()
         // The catalog record goes with both calls: a paper whose HTML has no `h1` or no author block is headed from it.
