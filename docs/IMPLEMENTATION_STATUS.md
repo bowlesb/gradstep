@@ -2,6 +2,13 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## October platform cap raised — 2026-10-15, 01:30 UTC (owner: "push ahead")
+
+The owner's chat refused with "AI answers are paused" at $23.20 of October's $25. On the owner's instruction the
+limit is $30 now (schema ceiling), migration **068** raises the ceiling to $50, and October is set to $40 after it
+applies; all inside the $100/month incremental budget (SPENDING_CONTROLS.md "October cap raised"). A chat live proof
+after the raise answered in full (27 credits). Migration 068 applied and verified on staging 2026-10-15 ~01:40 UTC; October's limit is $40.00 (spent ≈ $23.5).
+
 ## Imports unstuck (arXiv OAI identifier), PDF Contents, device-availability rows — 2026-10-15, early (deployment noted below)
 
 Owner (chat, with a Library screenshot): imports stuck at "Finding 15%"; how podcast jobs run and whether they

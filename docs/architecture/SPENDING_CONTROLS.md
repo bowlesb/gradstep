@@ -231,3 +231,15 @@ hold-sizing part of item 3:
 Evidence: `tests/database/budget_period.sql` (ensure creates next month once, copies and never raises, health
 readback, permissions, the sweep releases a two-hour-old hold without charge or booked spend) in the cutover phase of
 `scripts/test-database.py`; backend chat tests for the zero charge and the `credits` on `error`.
+
+## October cap raised on the owner's instruction — 2026-10-15 01:30 UTC
+
+The owner's chat refused with "AI answers are paused right now" (`platform_budget_exhausted`): October stood at
+**$23.20 spent of the $25 limit**, and a Sonnet answer's hold no longer fit. The owner, shown the day's spending, said
+"it's all fine with me, just push ahead". Done, and recorded here rather than silently: October's limit was set to
+**$30.00** at once (the schema's hard ceiling; `worker_set_platform_budget`), migration **068** raises that hard
+ceiling from $30 to **$50** a month, and October's limit is then set to **$40.00**. Both stay inside the approved
+$100/month incremental beta budget; November's row keeps $25 until the owner says otherwise. What the evening cost:
+the device-source podcast proofs ($0.10 + $0.26 failed, $0.11 ready), the chat live proof after the change ($0.25,
+27 credits), the authors/Back/scroll work nothing. Forecast for the rest of October at the owner's testing pace
+(a few answers and an episode or two a day): $5–8, within the $40.

@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Chat screenshot, 2026-10-15 (build 39): "AI answers are paused right now"
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "It's all fine with me just push ahead please and get me something I can use" (screenshot: the paper chat refused with "AI answers are paused right now. Your papers and saved chats still work.") | Chat | October's platform provider cap: $23.20 of $25 spent, so a Sonnet answer's hold no longer fit (`platform_budget_exhausted`). On the owner's word the limit was raised: $30 immediately (the schema ceiling), then migration 068 lifts the ceiling to $50 and October is set to $40 — inside the approved $100/month budget, recorded in SPENDING_CONTROLS.md. A live chat proof after the raise answered in full (27 credits). | Resolved; "Try again" works |
+
 ## Chat report, 2026-10-15 (build 38): imports stuck at "Finding", podcast lifecycle, Contents for older PDFs, "do I have this paper on this device?"
 
 | # | Owner said | Where | Cause / plan | Status |
