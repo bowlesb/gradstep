@@ -9,6 +9,7 @@ import {
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
+import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
@@ -2064,4 +2065,58 @@ test('look_at_figure: offered to devices that can answer it (consent v3), relaye
   const attached = harness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'look_at_figure', input: { figure: 'Figure 2' } }] }) });
   await runChat(attached.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers', 'figure_requests'], figures: [figure()] }, attached.emit, new AbortController().signal);
   assert.ok(!attached.events.some(e => e.event === 'figure_request'));
+});
+
+// The equation view (chat-equation.ts, docs/architecture/EQUATION_VIEW.md): symbols as checked JSON, background as prose,
+// both on the chat's own cached prefix.
+const equationContext = { ...localContext, format: 'reader-local-context-v2', text: '[¶1] Title\n[¶2] We optimize the policy π_θ with temperature β.\n[¶3] L = -log σ(β x)' };
+const equationBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: equationContext, action: 'equation',
+  selection: { quote: 'L = -\\log \\sigma(\\beta x)' }, messages: [{ role: 'user', text: 'Equation (1)' }], ...overrides });
+const equationHarness = (options: Parameters<typeof harness>[0] = {}) =>
+  harness({ ...options, script: { worker_local_chat_context: () => ({ title: 'DPO' }), ...options.script } });
+
+test('equation actions: the numbered paper on the device, one turn, a selection; never a title, suggestions or figures', () => {
+  assert.equal(validateChatRequest(equationBody()).action, 'equation');
+  assert.equal(validateChatRequest(equationBody({ action: 'equation_background' })).action, 'equation_background');
+  for (const [label, change] of Object.entries({
+    'no selection': { selection: null }, 'unnumbered context (v1)': { local_context: localContext }, 'server document': { document_id: documentID, local_context: undefined },
+    'general mode': { mode: 'general', local_context: undefined }, 'title': { topic_title: true }, 'follow-ups': { follow_ups: true },
+    'two turns': { messages: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }] },
+  })) assert.throws(() => validateChatRequest(equationBody(change as Record<string, unknown>)), { code: 'invalid_request' }, label);
+});
+
+test('the equation view reads the chat cache: same tools, shared instructions and paper as a chat about the paper', async () => {
+  const seen: Anthropic.Beta.Messages.MessageCreateParams[] = [];
+  const h = equationHarness({ generate: async (params, stream) => { seen.push(params); stream.onText('{"summary":"s","symbols":[]}'); return completeOutcome(); } });
+  for (const body of [paperBody({ document_id: null, local_context: equationContext, selection: { quote: 'L = -\\log \\sigma(\\beta x)' } }), equationBody(), equationBody({ action: 'equation_background' })])
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+  const [chat, symbols, background] = seen;
+  for (const other of [symbols, background]) {
+    assert.deepEqual(other.tools, chat.tools); assert.equal(other.model, chat.model);
+    assert.deepEqual((other.system as unknown[]).slice(0, 2), (chat.system as unknown[]).slice(0, 2), 'shared instructions and the cached paper match');
+  }
+  assert.match(JSON.stringify((symbols.system as unknown[])[2]), /Reply with only one JSON object/);
+  assert.equal(symbols.max_tokens, EQUATION_MAX_TOKENS);
+  assert.match(JSON.stringify((background.system as unknown[])[2]), /background to understand it/);
+});
+
+test('symbols are held back, checked and relayed once; a made-up paragraph becomes general; no JSON falls back to the words', async () => {
+  const json = '```json\n{"summary":"The DPO loss.","symbols":[{"symbol":"β","latex":"\\\\beta","meaning":"Temperature.","source":"paper","paragraph":2},'
+    + '{"symbol":"σ","meaning":"Logistic function.","source":"general"},{"symbol":"x","meaning":"Margin.","source":"paper","paragraph":99},{"symbol":"","meaning":"dropped"}]}\n```';
+  const h = equationHarness({ generate: async (_params, stream) => { for (const piece of json.match(/.{1,17}/gs)!) stream.onText(piece); return completeOutcome(); } });
+  await runChat(h.deps, equationBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['equation', 'done'], 'no raw JSON reaches the device');
+  assert.deepEqual(h.events[0].data, { format: 'equation-symbols-v1', summary: 'The DPO loss.', symbols: [
+    { symbol: 'β', latex: '\\beta', meaning: 'Temperature.', source: 'paper', paragraph: 2 },
+    { symbol: 'σ', meaning: 'Logistic function.', source: 'general' },
+    { symbol: 'x', meaning: 'Margin.', source: 'general' }] });
+  const words = equationHarness({ generate: async (_params, stream) => { stream.onText('β is the temperature.'); return completeOutcome(); } });
+  await runChat(words.deps, equationBody(), words.emit, new AbortController().signal);
+  assert.deepEqual(words.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(words.events[0].data, { text: 'β is the temperature.' });
+  // Background streams like an answer; a tool the model calls anyway is never relayed.
+  const background = equationHarness({ generate: async (_params, stream) => { stream.onText('It compares two responses'); stream.onText(' [¶2].');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 't', source: 'flowchart LR\nA-->B' } }] }); } });
+  await runChat(background.deps, equationBody({ action: 'equation_background' }), background.emit, new AbortController().signal);
+  assert.deepEqual(background.events.map(e => e.event), ['delta', 'delta', 'done']);
+  assert.equal(equationSymbols('no json here', 3), null); assert.equal(paragraphCount(equationContext.text), 3);
 });

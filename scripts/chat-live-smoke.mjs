@@ -27,6 +27,8 @@ const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9
 /** `--look`: no figure attached, the device says it can answer a figure request (`figure_requests`); when the model asks for
  * one (`figure_request`), the question goes again with that figure, as the apps do (2026-10-15). */
 const LOOK = process.argv.includes('--look');
+/** `--equation`: the equation view's two requests on DPO's loss (EQUATION_VIEW.md): symbols, then background. */
+const EQUATION = process.argv.includes('--equation');
 let forced = 0;
 const INDEX = process.argv.find(a => a.startsWith('--index='))?.slice(8) ?? `${ROOT}/.artifacts/bundles/ecbc0a04588f/reader.json`;
 const dotenv = path => Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
@@ -106,6 +108,7 @@ try {
   const local_context = { format: 'reader-local-context-v2', membership_id: membershipID, source: 'arxiv', source_id: '2305.18290', revision: 3,
     manifest_sha256, source_sha256: lock.html.sha256, text };
   const turns = [];
+  let equationAction = null, equationLatex = '';
   let followUps = [], studyMap = { concepts: [], links: [], focus: null, journey: [], next: 'calibrate' };
   const ask = async question => {
     turns.push({ role: 'user', text: question });
@@ -113,7 +116,8 @@ try {
     let requested = null;
     const body = { operation_id: randomUUID(), consent_version: figures.length || LOOK ? 'cloud-ai-v3' : 'cloud-ai-v2', mode: 'paper', local_context, messages: turns,
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
-      ...(STUDY ? { action: 'study', study: studyMap } : { follow_ups: true }) };
+      ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } } : { follow_ups: true }) };
+    if (equationAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
     const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
@@ -134,6 +138,7 @@ try {
       else if (name === 'figure_parts') log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`);
       else if (name === 'visual') log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`);
       else if (name === 'figure_request') { requested = payload.figure; log(`figure request: ${payload.figure}`); }
+      else if (name === 'equation') log(`equation: “${payload.summary}” ${payload.symbols.length} symbols: ${payload.symbols.map(x => `${x.symbol} (${x.source}${x.paragraph ? ` ¶${x.paragraph}` : ''}): ${x.meaning}`).join(' | ')}`);
       else if (name === 'done') done = payload;
       else log(`event ${name} ${JSON.stringify(payload).slice(0, 300)}`);
     };
@@ -160,7 +165,13 @@ try {
     }
     turns.push({ role: 'assistant', text: answer });
   };
-  if (STUDY) {
+  if (EQUATION) {
+    const loss = index.equations.find(e => e.display && /DPO/.test(e.latex) && /\\sigma/.test(e.latex));
+    if (!loss) throw new Error('no DPO loss equation in the bundle');
+    equationLatex = loss.latex.replace(/\\(begin|end)\{equation\*?\}/g, '').trim();
+    log(`equation ${loss.id} ¶${index.blocks.findIndex(b => b.id === loss.block_id) + 1}: ${equationLatex.slice(0, 120)}…`);
+    for (const action of ['equation', 'equation_background']) { equationAction = action; turns.length = 0; await ask('Equation (7)'); }
+  } else if (STUDY) {
     await ask('Start studying this paper.');
     await ask('I think the reference model is the model you start from, and the loss compares how much more likely the chosen answer is than the rejected one under the policy versus the reference.');
     await ask('I’m not sure what beta does. Is it a learning rate?');
