@@ -2,11 +2,14 @@
 // the payload; it is verified against Apple's root before anything is
 // recorded. A database failure answers 503 (Apple retries production
 // notifications; sandbox ones are not retried).
+import { installEgressGuard } from '../_shared/egress.ts';
 import { serviceClient } from '../_shared/backend.ts';
 import { PublicError, readBounded } from '../_shared/http.ts';
 import { handleNotification, REJECTED_DATA, storeConfig } from '../_shared/store-purchases.ts';
 import { configuredStoreGoogleIdentity } from '../_shared/store-google-auth.ts';
 import { createStoreRecordTransport, privateStorePolicy, STORE_REQUEST_BUDGET_MS } from '../_shared/store-verifier-transport.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('app-store-notifications');
 
 let connection: ReturnType<typeof configuredStoreGoogleIdentity> | undefined;
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };

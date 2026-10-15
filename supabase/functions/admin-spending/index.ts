@@ -1,7 +1,10 @@
+import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { adminSpending } from '../_shared/admin-spending.ts';
 import type { RpcClient } from '../_shared/admin-accounts.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('admin-spending');
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };

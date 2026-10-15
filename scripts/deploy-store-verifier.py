@@ -43,7 +43,7 @@ SCOPE = {'project': PROJECT, 'project_number': PROJECT_NUMBER, 'region': REGION,
          'service': SERVICE, 'supabase_project': SUPABASE, 'policy_id': POLICY}
 SERVICE_FILES = ('Dockerfile', 'package.json', 'package-lock.json', 'server.ts',
                  'protocol.ts', 'thread-runner.ts', 'worker.ts', 'sdk-patch.ts')
-SHARED_FILES = ('app-store.ts', 'store-purchases.ts', 'store-verifier-protocol.ts')
+SHARED_FILES = ('app-store.ts', 'store-purchases.ts', 'store-verifier-protocol.ts', 'egress.ts')
 SECRET_NAME = 'STORE_VERIFIER_GOOGLE_CREDENTIALS'
 SOURCE_LABEL = 'ai.gradstep.verifier.source-sha256'
 CAPABILITIES = ('certificate_parse', 'certificate_string', 'certificate_raw',

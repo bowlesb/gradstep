@@ -47,6 +47,8 @@ def context():
     shutil.copy(ROOT / 'services/workflow-checks/Dockerfile', target / 'Dockerfile')
     shutil.copy(ROOT / 'scripts/workflow-checks.mjs', target / 'scripts/workflow-checks.mjs')
     shutil.copy(ROOT / 'scripts/reader-workflow.mjs', target / 'scripts/reader-workflow.mjs')
+    (target / 'supabase/functions/_shared').mkdir(parents=True, exist_ok=True)
+    shutil.copy(ROOT / 'supabase/functions/_shared/egress.ts', target / 'supabase/functions/_shared/egress.ts')
     for name in ['staging.json', 'workflow-checks.json']:
         if (ROOT / 'infra' / name).exists(): shutil.copy(ROOT / 'infra' / name, target / 'infra' / name)
     return target

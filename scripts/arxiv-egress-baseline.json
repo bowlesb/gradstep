@@ -1,0 +1,10 @@
+{
+ "note": "Server call sites to arXiv still to retire (docs/architecture/ARXIV_DEVICE_ONLY.md). Report mode fails only on sites beyond these.",
+ "sites": {
+  "supabase/functions/_shared/arxiv.ts": 2,
+  "supabase/functions/_shared/discover.ts": 7,
+  "supabase/functions/_shared/feed-pool.ts": 1,
+  "supabase/functions/_shared/find-paper.ts": 1,
+  "supabase/functions/_shared/reference.ts": 1
+ }
+}

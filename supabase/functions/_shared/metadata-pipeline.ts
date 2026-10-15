@@ -45,8 +45,8 @@ export function retryAfterSeconds(value: string | null, now: number): number | n
 export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: number, accept: string): Promise<Uint8Array> {
   let current = new URL(url);
   for (let hop = 0; hop < 4; hop++) {
-    const metadataEndpoint = (['arxiv.org', 'export.arxiv.org', 'www.arxiv.org'].includes(current.hostname) && ['/api/query', '/oai2'].includes(current.pathname))
-      || (current.hostname === 'oaipmh.arxiv.org' && current.pathname === '/oai');
+    const metadataEndpoint = (['arxiv.org', 'export.arxiv.org', 'www.arxiv.org'].includes(current.hostname) && ['/api/query', '/oai2'].includes(current.pathname)) // egress-ok: parse
+      || (current.hostname === 'oaipmh.arxiv.org' && current.pathname === '/oai'); // egress-ok: parse
     if (current.protocol !== 'https:' || current.username || current.password || current.port || !metadataEndpoint) throw new PermanentFailure('metadata_unavailable');
     let response: Response;
     // Unreachable (reset, timeout, DNS): transient, and named so a download that keeps failing says so.

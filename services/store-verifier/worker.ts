@@ -1,8 +1,11 @@
+import { installEgressGuard } from '../../supabase/functions/_shared/egress.ts';
 import { parentPort } from 'node:worker_threads';
 import { sdkPatchProof } from './sdk-patch.ts';
 import { appleVerifier, verificationError } from '../../supabase/functions/_shared/app-store.ts';
 import { storeVerificationObservation, verifyNotificationRecord, verifyTransactionRecord } from '../../supabase/functions/_shared/store-purchases.ts';
 import { parseRequest, unavailable, type VerificationDecision } from './protocol.ts';
+// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('store-verifier/thread');
 
 if (!parentPort) throw new Error('worker_required');
 parentPort.once('message', async input => {

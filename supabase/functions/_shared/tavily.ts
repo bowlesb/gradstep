@@ -12,7 +12,7 @@ export const TAVILY_TIMEOUT_MS = 15_000;
 
 /** Scholarly sites for `academic` searches: preprints, proceedings, journals. */
 export const ACADEMIC_DOMAINS = Object.freeze([
-  'arxiv.org', 'openreview.net', 'aclanthology.org', 'proceedings.neurips.cc', 'papers.nips.cc', 'proceedings.mlr.press',
+  'arxiv.org', 'openreview.net', 'aclanthology.org', 'proceedings.neurips.cc', 'papers.nips.cc', 'proceedings.mlr.press', // egress-ok: tavily-filter
   'jmlr.org', 'openaccess.thecvf.com', 'ojs.aaai.org', 'ijcai.org', 'dl.acm.org', 'ieeexplore.ieee.org', 'nature.com',
   'science.org', 'pnas.org', 'link.springer.com', 'sciencedirect.com', 'biorxiv.org', 'medrxiv.org', 'semanticscholar.org',
 ]);

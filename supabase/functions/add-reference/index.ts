@@ -1,12 +1,15 @@
 // Direct "Add to library" on a bibliography entry: identifies the cited paper without a model
 // (arXiv id, DOI, Crossref's citation matcher, OpenAlex) and queues it with the caller's own
 // import, like the app's Add. No credits. Answers within ~25 s with a plain outcome the app shows.
+import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
 import { MAX_REFERENCE_CHARS, resolveReference } from '../_shared/reference.ts';
 import { RpcFailure } from '../_shared/chat.ts';
 import { referenceLookupSpending } from '../_shared/provider-spending.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('add-reference');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUDGET_MS = 25_000;

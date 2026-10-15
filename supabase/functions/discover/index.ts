@@ -9,6 +9,7 @@
 // Feed responses carry `feed.for_you: true` when For you is offered, so the app can show the chip.
 // Every result carries `topics` (specific first; keyword rules, no model) and pool-served results
 // `upvotes` (Hugging Face Papers, recorded by the pool refresh; null when unknown).
+import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { readBounded } from '../_shared/feed-pool.ts';
@@ -17,6 +18,8 @@ import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mer
 import { FEED_RANKING_VERSION, poolResultV2, rankForYou, withDetails, type CandidateSet, type PoolDetail } from '../_shared/feed-rank.ts';
 import { compoundsParameter, interestTopics, resolveTopic, type TopicStats } from '../_shared/feed-interests.ts';
 import { displayTopics, feedTopics } from '../_shared/feed-topics.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('discover');
 
 type ServiceClient = ReturnType<typeof serviceClient>;
 /** Pool abstracts and upvotes for the papers shown; null when the pool cannot answer (results keep theirs). */
