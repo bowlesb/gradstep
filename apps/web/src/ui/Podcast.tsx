@@ -5,7 +5,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { authorLine } from '../lib/authors';
 import { auth, BackendError } from '../lib/backend';
-import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult, podcastUploadSource, type DeviceSourceText, type DeviceSourceDescriptor } from '../lib/podcast';
+import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult, podcastUploadSource, type DeviceSourceText, type DeviceSourceDescriptor, DEFAULT_LENGTH, aboutMinutes } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
 import { Dialog } from './common';
@@ -91,7 +91,7 @@ export function ListenView({ podcasts, player }: { podcasts: PodcastsModel; play
   return (
     <>
       <div className="feed-status"><span>{episodes.length} {episodes.length === 1 ? 'episode' : 'episodes'} · AI-generated from each paper’s text</span>
-        <button className="link small-link" onClick={() => load()} disabled={state === 'loading'}><Icon name="refresh" size={12} /> {state === 'loading' ? 'Refreshing…' : 'Refresh'}</button></div>
+        <button className="link small-link" onClick={() => load()} disabled={state === 'loading'}><Icon name="refresh" size={12} /> {state === 'loading' ? 'Checking…' : 'Check for new episodes'}</button></div>
       <ul className="feed-grid" data-testid="podcast-grid">
         {episodes.map(e => {
           const current = player.episode?.releaseID === e.releaseID;
@@ -458,7 +458,8 @@ function generationMessage(error: unknown) {
   if (code === 'insufficient_credits') return 'There aren’t enough available credits. Add credits in Gradstep on iPhone, iPad or Mac, then retry this estimate.';
   if (code === 'quote_expired' || code === 'quote_unavailable') return 'This estimate expired. Get a new estimate before confirming.';
   if (code === 'podcast_unavailable' || code === 'podcast_paused') return 'Private episodes aren’t available right now. You can keep reading.';
-  if (code === 'source_unavailable') return 'This paper’s converted text is not available for a private episode yet.';
+  // The episode is made from the paper's text on this device (PodcastCenter.noEpisodeSource).
+  if (code === 'source_unavailable') return 'Open this paper first so its text is ready on this device, then try Listen again.';
   if (code === 'source_too_large') return 'This paper is longer than a full-paper episode can handle at any available length. Nothing was charged.';
   if (['request_rate_limit', 'podcast_daily_limit', 'active_generation_limit', 'podcast_busy', 'too_many_active_operations'].includes(code)) return 'Episode requests are busy or at their limit. Wait before checking again.';
   if (code === 'platform_budget_exhausted' || code === 'storage_full') return 'New episodes are paused for capacity. You can keep reading.';
@@ -476,6 +477,8 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
   const [quote, setQuote] = useState<Quote | null>(null);
   // The chosen writer (2026-10-14); null follows the server's default (the first it lists).
   const [writer, setWriter] = useState<string | null>(null);
+  // The length (PodcastGenerateSheet's picker): each is its own episode; 5 min until the reader chooses.
+  const [length, setLength] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState<'paper' | 'quote' | 'start' | 'status' | 'cancel' | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
@@ -569,7 +572,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
     requestID.current ??= crypto.randomUUID();
     try {
       const device = await resolveDevice(c); if (!live(c)) return;
-      const result = await podcastQuote(account, itemID, requestID.current, c.signal, writer ?? undefined, device); if (!live(c)) return;
+      const result = await podcastQuote(account, itemID, requestID.current, c.signal, chosenWriter ?? undefined, device, chosenLength?.profile); if (!live(c)) return;
       if (result.kind === 'quote') { setQuote(result.quote); setJob(null); }
       else if (result.kind === 'join') {
         requestID.current = result.requestID;
@@ -642,6 +645,11 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
     finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const ready = paper?.episode?.state === 'ready' || job?.state === 'ready';
+  const lengths = paper?.capabilities.lengths ?? [];
+  const chosenLength = lengths.find(l => l.profile === length) ?? lengths.find(l => l.profile === DEFAULT_LENGTH) ?? lengths[0];
+  // The chosen length's writers (the default length's list from servers that list no lengths).
+  const writers = chosenLength?.writers.length ? chosenLength.writers : paper?.capabilities.writers ?? [];
+  const chosenWriter = writers.find(w => w.writer === writer)?.writer ?? writers[0]?.writer ?? null;
   return <>
     <button className="secondary small podcast-paper-listen" onClick={() => void load()} data-testid="podcast-paper-listen"><Icon name="headphones" size={14} /> Listen</button>
     <Dialog open={shown} onClose={close} title="Listen to this paper">
@@ -673,18 +681,25 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
           <button className="link" disabled={!!busy} onClick={() => { startedPolling.current = Date.now(); setPollPaused(false); void updateJob(); }}>Refresh status</button>
         </>}
         {paper && !ready && !job && !quote && !sourceTooLarge && <>
-          {paper.capabilities.generation ? <><p>Make a private, five-minute episode with two AI hosts and a transcript linked to the paper.</p>
-            {paper.capabilities.writers.length > 1 && <fieldset className="podcast-writers" data-testid="podcast-writers"><legend>Written by</legend>
-              {paper.capabilities.writers.map(w => <label key={w.writer} className="podcast-writer"><input type="radio" name="podcast-writer" value={w.writer}
-                checked={(writer ?? paper.capabilities.writers[0].writer) === w.writer} onChange={() => { setWriter(w.writer); setQuote(null); requestID.current = null; }} />
-                <span>{w.label}</span><span className="fine">up to {w.maxCredits} credits{w.writer === 'deepseek' ? ' · lower cost, scripts vary more' : ' · steadier scripts'}</span></label>)}
+          {paper.capabilities.generation ? <><p>There’s no episode for this paper yet. You can create a private episode: two AI hosts — an explainer and a skeptical reader — discuss the paper, with a transcript linked to its passages.</p>
+            {writers.length > 1 && <fieldset className="podcast-writers" data-testid="podcast-writers"><legend>Written by</legend>
+              {writers.map(w => <label key={w.writer} className="podcast-writer"><input type="radio" name="podcast-writer" value={w.writer}
+                checked={chosenWriter === w.writer} onChange={() => { setWriter(w.writer); setQuote(null); requestID.current = null; }} />
+                <span>{w.label}</span></label>)}
+              <span className="fine" data-testid="podcast-writer-note">{chosenWriter === 'deepseek' ? 'Lower cost. Scripts vary more between runs.' : 'Steadier scripts at a higher maximum.'}</span>
             </fieldset>}
-            <p className="fine">You’ll see the credit estimate before anything is held.</p><button className="primary" disabled={!!busy || trackingBlocked} onClick={() => void estimate()}>Get an estimate</button></>
+            {lengths.length > 1 && <fieldset className="podcast-lengths" data-testid="podcast-lengths"><legend>Length</legend>
+              {lengths.map(l => <label key={l.profile} className="podcast-length"><input type="radio" name="podcast-length" value={l.profile} checked={chosenLength?.profile === l.profile}
+                onChange={() => { setLength(l.profile); setQuote(null); requestID.current = null; }} />
+                <span>{l.label}</span><span className="fine">{aboutMinutes(l.targetSeconds)} · up to {l.writers.find(w => w.writer === chosenWriter)?.maxCredits ?? l.maxCredits} credits</span></label>)}
+            </fieldset>}
+            <p className="fine">Only your account can play it. You’ll see the credit estimate before anything is held.</p><button className="primary" disabled={!!busy || trackingBlocked} onClick={() => void estimate()}>Get an estimate</button></>
             : <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
         </>}
         {quote && !ready && !job && !sourceTooLarge && <>
-          <div className="podcast-estimate"><strong data-testid="podcast-estimate">{quote.estimate}</strong><p>Starting holds up to {quote.maxCredits} credits. You’re charged for work actually done, and the rest is released. Quality failures charge no credits.</p></div>
-          <p>The paper’s converted text is sent to {quote.providers.join(' and ')}. Chats, notes and highlights are never used.</p>
+          <div className="podcast-estimate"><span className="fine" data-testid="podcast-quote-length">{quote.label ?? chosenLength?.label ?? '5 min'} episode · {aboutMinutes(quote.targetSeconds).toLowerCase()}</span>
+            <strong data-testid="podcast-estimate">{quote.estimate}</strong><p>Starting holds up to {quote.maxCredits} credits. You’re charged for work actually done, and the rest is released. Quality failures charge no credits.</p></div>
+          <p>The paper’s text, prepared on this device, is sent to {quote.providers.join(' and ')}. Chats, notes and highlights are never used.</p>
           <p>The audio and transcript are stored privately for your account. They aren’t end-to-end encrypted.</p>
           <p className="fine">AI-generated · beta: check important claims against the paper.</p>
           <button className="primary" disabled={!!busy || trackingBlocked || !paper?.capabilities.generation} onClick={() => void start()} data-testid="podcast-confirm">

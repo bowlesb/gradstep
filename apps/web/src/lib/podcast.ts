@@ -26,7 +26,19 @@ export interface EpisodeDetail extends Episode { chapters: Chapter[]; transcript
 /** A writer the server offers for the default length (2026-10-14): `anthropic` (Claude Sonnet 5.5) or `deepseek`, each with its maximum. */
 export interface Writer { writer: string; label: string; maxCredits: number }
 export interface Capabilities { catalog: boolean; generation: boolean; delivery: boolean; maxCredits: number; targetSeconds: number;
-  transfer: { remainingBytes: number; limitBytes: number } | null; writers: Writer[] }
+  transfer: { remainingBytes: number; limitBytes: number } | null; writers: Writer[];
+  /** Every length the server offers, shortest first, each with its writers (PodcastLength); empty before 2026-10-14. */
+  lengths?: Length[] }
+/** One episode length ("Short", "5 min", "10 min", "20 min"): its own episode, maximum and writers. */
+export interface Length { profile: string; label: string; targetSeconds: number; maxCredits: number; writers: Writer[] }
+export const DEFAULT_LENGTH = 'podcast-5min-v1';
+/** "Under a minute", "About 2½ minutes", "About 10 minutes" (PodcastGenerateSheet.about). */
+export function aboutMinutes(seconds: number): string {
+  const minutes = seconds / 60;
+  if (minutes < 1) return 'Under a minute';
+  const whole = Math.floor(minutes), half = minutes - whole >= 0.5;
+  return `About ${whole}${half ? '½' : ''} minute${whole === 1 && !half ? '' : 's'}`;
+}
 export interface Catalog { episodes: Episode[]; next: string | null; capabilities: Capabilities }
 export interface Member { role: 'audio'; url: string; bytes: number; sha256: string; mediaType: string }
 
@@ -71,15 +83,20 @@ export function decodeEpisode(value: unknown): Episode | null {
 
 export function decodeCapabilities(value: unknown): Capabilities {
   const v = (value ?? {}) as Record<string, unknown>, t = v.transfer as Record<string, unknown> | null | undefined;
-  // The default length's writers (servers from 2026-10-14; none before): the browser offers one length, so one list.
-  const lengths = Array.isArray(v.lengths) ? v.lengths as Record<string, unknown>[] : [];
-  const five = lengths.find(l => l?.profile === 'podcast-5min-v1') ?? lengths[0];
-  const writers = (Array.isArray(five?.writers) ? five!.writers as Record<string, unknown>[] : []).slice(0, 4)
+  // Every length with its writers (servers from 2026-10-14; none before); `writers` stays the default length's list.
+  const raw = Array.isArray(v.lengths) ? (v.lengths as Record<string, unknown>[]).slice(0, 8) : [];
+  const writersOf = (l: Record<string, unknown> | undefined) => (Array.isArray(l?.writers) ? l!.writers as Record<string, unknown>[] : []).slice(0, 4)
     .filter(w => typeof w?.writer === 'string' && /^[a-z][a-z0-9_-]{1,31}$/.test(w.writer as string) && typeof w.label === 'string' && PROVIDER_LABEL.test(w.label as string) && count(w.max_credits, MAX_QUOTE_CREDITS))
     .map(w => ({ writer: w.writer as string, label: w.label as string, maxCredits: w.max_credits as number }));
+  const lengths: Length[] = raw.filter(l => typeof l?.profile === 'string' && /^[a-z][a-z0-9-]{2,47}$/.test(l.profile) && typeof l.label === 'string' && l.label.trim()
+      && new TextEncoder().encode(l.label).length <= 40 && count(l.target_seconds, 3600) && (l.target_seconds as number) >= 30 && count(l.max_credits, MAX_QUOTE_CREDITS))
+    .filter((l, i, all) => all.findIndex(x => x.profile === l.profile) === i)
+    .map(l => ({ profile: l.profile as string, label: (l.label as string).trim(), targetSeconds: l.target_seconds as number, maxCredits: l.max_credits as number, writers: writersOf(l) }));
+  const writers = writersOf(raw.find(l => l?.profile === DEFAULT_LENGTH) ?? raw[0]);
   return { catalog: v.catalog === true, generation: v.generation === true, delivery: v.delivery === true,
     maxCredits: count(v.max_credits, 100_000) ? v.max_credits as number : 150, targetSeconds: count(v.target_seconds, 7200) ? v.target_seconds as number : 300,
-    transfer: t && count(t.remaining_bytes, 2 ** 40) && count(t.limit_bytes, 2 ** 40) ? { remainingBytes: t.remaining_bytes as number, limitBytes: t.limit_bytes as number } : null, writers };
+    transfer: t && count(t.remaining_bytes, 2 ** 40) && count(t.limit_bytes, 2 ** 40) ? { remainingBytes: t.remaining_bytes as number, limitBytes: t.limit_bytes as number } : null, writers,
+    ...(lengths.length ? { lengths } : {}) };
 }
 
 export function decodeCatalog(value: unknown): Catalog {
@@ -217,7 +234,7 @@ export type JobState = typeof JOB_STATES[number];
 export interface Job { requestID: string; state: JobState; stageEnteredAt: string; releaseID: string | null;
   heldCredits: number; chargedCredits: number | null; releasedCredits: number | null; failure: string | null }
 export interface Quote { id: string; expiresAt: number; maxCredits: number; estimate: string; providers: string[];
-  consentVersion: typeof CONSENT_VERSIONS[number]; targetSeconds: number }
+  consentVersion: typeof CONSENT_VERSIONS[number]; targetSeconds: number; /** The length's label ("10 min"), from servers that name it. */ label?: string }
 export type QuoteResult = { kind: 'quote'; quote: Quote } | { kind: 'reuse'; releaseID: string } | { kind: 'join'; requestID: string };
 export interface PaperPodcast { episode: Episode | null; job: Job | null; capabilities: Capabilities }
 const timestamp = (v: unknown): v is string => text(v, 64) && Number.isFinite(Date.parse(v));
@@ -245,7 +262,8 @@ export function decodeQuote(value: unknown): QuoteResult {
     || !Array.isArray(q.providers) || q.providers.length < 1 || q.providers.length > 3
     || !q.providers.every(label => typeof label === 'string' && PROVIDER_LABEL.test(label))) throw new BackendError('invalid_response');
   return { kind: 'quote', quote: { id: q.id.toLowerCase(), expiresAt: Date.parse(q.expires_at), maxCredits: q.max_credits as number,
-    estimate: clean(q.estimate), providers: q.providers as string[], consentVersion: q.consent_version as typeof CONSENT_VERSIONS[number], targetSeconds: q.target_seconds as number } };
+    estimate: clean(q.estimate), providers: q.providers as string[], consentVersion: q.consent_version as typeof CONSENT_VERSIONS[number], targetSeconds: q.target_seconds as number,
+    ...(text(q.label, 40) && clean(q.label) ? { label: clean(q.label) } : {}) } };
 }
 export function decodePaper(value: unknown): PaperPodcast {
   const v = value as Record<string, unknown> | null;
@@ -268,10 +286,12 @@ export async function podcastUploadSource(account: string, source: DeviceSourceT
   if (!v?.source || typeof v.source.text_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(v.source.text_sha256) || typeof v.source.bytes !== 'number') throw new BackendError('invalid_response');
   return { textSHA256: v.source.text_sha256, bytes: v.source.bytes };
 }
-export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal, writer?: string, device?: DeviceSourceDescriptor): Promise<QuoteResult> {
+export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal, writer?: string, device?: DeviceSourceDescriptor, profile?: string): Promise<QuoteResult> {
   if (!isUUID(itemID) || !isUUID(requestID)) throw new BackendError('invalid_request');
   if (writer !== undefined && !/^[a-z][a-z0-9_-]{1,31}$/.test(writer)) throw new BackendError('invalid_request');
-  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID, ...(writer ? { writer } : {}), ...(device ? { device_source: device } : {}) }, { account, signal, maximum: 16_384 }));
+  if (profile !== undefined && !/^[a-z][a-z0-9-]{2,47}$/.test(profile)) throw new BackendError('invalid_request');
+  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID, ...(profile ? { profile } : {}), ...(writer ? { writer } : {}),
+    ...(device ? { device_source: device } : {}) }, { account, signal, maximum: 16_384 }));
 }
 /** Start and status can reuse an episode that became ready after quoting (046), with no job or new hold. */
 export type RequestResult = { kind: 'job'; job: Job } | { kind: 'reuse'; releaseID: string };

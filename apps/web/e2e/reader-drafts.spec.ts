@@ -44,6 +44,7 @@ test('Discuss a figure keeps text and passage through reload, and waits for expl
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByRole('button', { name: 'Allow and get answer' }).click();
   await expect(page.getByTestId('chat-assistant')).toBeVisible();
+  await page.frameLocator('[data-testid=reader-frame]').locator('body').evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); // Back is offered only when there's somewhere to return to
   await page.getByRole('button', { name: 'Go to passage', exact: true }).click();
   if (await page.locator('.pane-right.overlay').count()) await page.keyboard.press('Escape');
   await expect(page.getByTestId('citation-back')).toBeVisible();

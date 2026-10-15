@@ -4,13 +4,14 @@ import type { Import, ProgressDetail } from './library';
 
 export type Step = 'queued' | 'finding' | 'preparing' | 'downloading' | 'converting' | 'building' | 'waiting';
 
-// Two words and a percentage (owner, 2026-10-15): "Downloading…" while the PDF downloads, "Preparing…" otherwise.
+// Two words and a percentage (owner, 2026-10-15), as the apps say them (ImportProgress.label): "Downloading…" while
+// the paper downloads, "Adding…" for the server's other stages. "Preparing…" is the device's own step (opening a paper).
 export const stepTitle: Record<Step, string> = {
-  queued: 'Preparing…', finding: 'Preparing…', preparing: 'Preparing…', downloading: 'Downloading…',
-  converting: 'Preparing…', building: 'Preparing…', waiting: 'Preparing…',
+  queued: 'Adding…', finding: 'Adding…', preparing: 'Adding…', downloading: 'Downloading…',
+  converting: 'Adding…', building: 'Adding…', waiting: 'Adding…',
 };
 export const stepTableTitle: Record<Step, string> = {
-  queued: 'Preparing', waiting: 'Preparing', finding: 'Preparing', preparing: 'Preparing', downloading: 'Downloading', converting: 'Preparing', building: 'Preparing',
+  queued: 'Adding', waiting: 'Adding', finding: 'Adding', preparing: 'Adding', downloading: 'Downloading', converting: 'Adding', building: 'Adding',
 };
 
 /** Failed to download, and the server will try again by itself (migration 027): shown as under way. */

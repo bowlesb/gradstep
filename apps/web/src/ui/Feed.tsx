@@ -137,7 +137,8 @@ const ago = (at: number) => { const m = Math.max(0, Math.round((Date.now() - at)
 const sorts: { value: FeedSort; label: string }[] = [ { value: 'suggested', label: 'Suggested' }, { value: 'newest', label: 'Newest' },
   { value: 'popularity', label: 'Popularity' }, { value: 'title', label: 'Title' }, { value: 'authors', label: 'Authors' }, { value: 'topic', label: 'Topics' } ];
 
-export function FeedView({ model, library, showChips, listen }: { model: FeedModel; library: Library; showChips: boolean; listen?: ListenFilter }) {
+export function FeedView({ model, library, showChips, listen, preparing, onAdded, onOpen }: { model: FeedModel; library: Library; showChips: boolean; listen?: ListenFilter;
+  preparing?: Map<string, number>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void }) {
   useFeedLoading(model, !listen?.selected);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
@@ -160,7 +161,7 @@ export function FeedView({ model, library, showChips, listen }: { model: FeedMod
   const add = async (result: DiscoveryResult) => {
     if (adding || library.pending.has('add')) return;
     setAdding(result.source_id); setIssue(null);
-    try { await library.addArxiv(result.source_id, null); } catch (error) { setIssue(commandError(error)); } finally { setAdding(null); }
+    try { await library.addArxiv(result.source_id, null); onAdded?.(result.source_id); } catch (error) { setIssue(commandError(error)); } finally { setAdding(null); }
   };
   const feedback = async (source: string, kind: FeedFeedback | null) => {
     if (feedbackRequest.current && !feedbackRequest.current.signal.aborted) return;
@@ -175,7 +176,7 @@ export function FeedView({ model, library, showChips, listen }: { model: FeedMod
   };
   const toggle = (source: string) => setExpanded(previous => { const next = new Set(previous); next.has(source) ? next.delete(source) : next.add(source); return next; });
   const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
-    feedback: model.offered ? feedback : undefined, feedbackBusy, feedbackState: model.feedback };
+    feedback: model.offered ? feedback : undefined, feedbackBusy, feedbackState: model.feedback, preparing, open: onOpen };
   return <section className={`feed${!listen?.selected && layout === 'table' ? ' feed-table-view' : ''}`} aria-labelledby="feed-title">
     <div className="view-head"><h1 id="feed-title">Research Feed</h1><span className="view-sub">{listen?.selected ? 'Listen to papers' : personalFeed(model.selected) ? selectionName(model.selected) : `Newest in ${selectionName(model.selected)}`}</span></div>
     {showChips && <div className="chips" role="toolbar" aria-label="Feed topics"><FeedChoices model={model} listen={listen} /></div>}

@@ -74,7 +74,9 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
 export type FrameMessage =
   | { type: 'headings'; items: { id: string; title: string; depth?: number }[] }
   | { type: 'position'; block: number; fraction: number; height: number; y: number; progress: number }
-  | { type: 'citation'; state: 'jumped' | 'ended' }
+  /** After a jump: `back` is whether Back is offered (not after a chat jump that began at the top), `from` the
+   * section left ("3 Method"), empty when the bridge doesn't know it (PaperView's citation Back). */
+  | { type: 'citation'; state: 'jumped' | 'ended'; back: boolean; from: string }
   | { type: 'selection'; empty: boolean; selection: Selection | null }
   | { type: 'marks'; ids: string[] } | { type: 'passage'; found: boolean }
   | { type: 'reference'; reference: ReaderReference } | { type: 'figureref'; reference: ReaderFigureReference }
@@ -99,7 +101,12 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
     case 'position':
       return [v.block, v.fraction, v.height, v.y, v.progress].every(finite) && Number.isInteger(v.block)
         ? { type: 'position', block: v.block as number, fraction: v.fraction as number, height: v.height as number, y: v.y as number, progress: Math.min(1, Math.max(0, v.progress as number)) } : null;
-    case 'citation': return v.state === 'jumped' || v.state === 'ended' ? { type: 'citation', state: v.state } : null;
+    case 'citation': {
+      if (v.state !== 'jumped' && v.state !== 'ended') return null;
+      // An older bridge names neither: Back is offered, with no section.
+      const from = typeof v.from === 'string' ? [...v.from.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()].slice(0, 60).join('') : '';
+      return { type: 'citation', state: v.state, back: v.state === 'jumped' && v.back !== false, from };
+    }
     case 'selection': {
       const raw = v.selection as { manifest_sha256?: unknown; parts?: unknown; context?: unknown } | undefined;
       const parts = raw?.parts;

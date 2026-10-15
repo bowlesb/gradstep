@@ -59,8 +59,11 @@ test('Study this paper: one question at a time, the knowledge map grows with eac
  await expect(panel.getByTestId('study-concepts')).toContainText('Knows the weighted sum');
  await expect(panel.getByTestId('study-concepts')).toContainText('builds on Attention');
  // A concept's paragraph lands in the paper with Back offered, like an answer's citation.
+ await page.frameLocator('[data-testid=reader-frame]').locator('body').evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); // Back is offered only when there's somewhere to return to
+ const drawer=await page.getByTestId('pane-right').evaluate(e=>e.classList.contains('overlay'));
  await panel.getByRole('button',{name:'Go to paragraph 2'}).first().click();
  await expect(page.getByTestId('citation-back')).toBeVisible();
+ if(drawer)await page.getByTestId('chat-back').click(); // a phone's drawer closed for the passage; Back to chat reopens it
  const evidence=await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json();
  expect(evidence.requests).toHaveLength(2);
  expect(evidence.requests[0]).toMatchObject({action:'study',study:{concepts:[],links:[],journey:[]}});

@@ -93,6 +93,7 @@ test('selection tools and passage return keep the verified paper context', async
   await expect(page.getByRole('toolbar', { name: 'Selected passage' })).toBeVisible(); await page.getByRole('button', { name: 'Why it matters', exact: true }).click();
   await page.getByRole('button', { name: 'Allow and get answer' }).click(); await expect(page.getByTestId('chat-assistant')).toBeVisible();
   const e = await evidence(request); expect(e.requests[0].action).toBe('relevance'); expect(e.requests[0].selection.quote.length).toBeGreaterThan(10);
+  await page.frameLocator('[data-testid=reader-frame]').locator('body').evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); // Back is offered only when there's somewhere to return to
   await page.getByRole('button', { name: 'Go to passage', exact: true }).click(); await expect(page.getByTestId('citation-back')).toBeVisible();
 });
 

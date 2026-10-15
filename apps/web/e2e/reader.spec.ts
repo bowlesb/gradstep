@@ -88,7 +88,7 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await page.getByTestId('arxiv-input').fill('https://arxiv.org/abs/1706.03762');
   await page.getByTestId('arxiv-add').click();
   await expect(page.getByTestId('import-progress').first()).toBeVisible();
-  await expect(table.getByText(/Preparing…/).first()).toBeVisible({ timeout: 8_000 }); // two words and a percentage (2026-10-15)
+  await expect(table.getByText(/Adding…/).first()).toBeVisible({ timeout: 8_000 }); // two words and a percentage, the apps' "Adding…" (2026-10-15)
   await shot(page, 'import-progress');
   await expect(table.getByRole('link', { name: 'Attention Is All You Need' })).toBeVisible({ timeout: 15_000 });
 

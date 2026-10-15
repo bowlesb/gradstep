@@ -43,3 +43,14 @@ it('reference destinations prefer arXiv and DOI without enabling credentials or 
   expect(referenceLink('A title', ['javascript:alert(1)', 'http://example.test', 'https://user:password@example.test'])).toBeNull();
   expect(referenceLink('A title', ['https://example.test/paper'])).toEqual({ url: 'https://example.test/paper', title: 'Open link' });
 });
+
+it('Back after a jump: offered unless the bridge says not, with the section it returns to (bounded)', () => {
+  expect(readFrameMessage({ type: 'citation', state: 'jumped', back: true, from: '3  Method\n' })).toEqual({ type: 'citation', state: 'jumped', back: true, from: '3 Method' });
+  // A chat jump that began at the top offers no Back.
+  expect(readFrameMessage({ type: 'citation', state: 'jumped', id: 'passage', back: false, from: '' })).toMatchObject({ back: false });
+  // An older bridge names neither: Back with no section.
+  expect(readFrameMessage({ type: 'citation', state: 'jumped' })).toEqual({ type: 'citation', state: 'jumped', back: true, from: '' });
+  expect(readFrameMessage({ type: 'citation', state: 'ended', back: true })).toMatchObject({ back: false });
+  expect((readFrameMessage({ type: 'citation', state: 'jumped', from: 'x'.repeat(200) }) as { from: string }).from).toHaveLength(60);
+  expect(readFrameMessage({ type: 'citation', state: 'other' })).toBeNull();
+});

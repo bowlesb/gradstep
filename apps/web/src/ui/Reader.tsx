@@ -62,6 +62,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
   equations?: EquationHost;
+  /** After a chat citation closed the chat drawer: reopens it (PaperView's Back to chat). */
+  onBackToChat?: () => void;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -72,7 +74,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, onBackToChat }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -80,7 +82,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [attempt, setAttempt] = useState(0);
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [active, setActive] = useState<string | null>(null);
-  const [back, setBack] = useState(false);
+  // Back after a jump: offered with the section it returns to ('' when unknown), null when not offered.
+  const [back, setBack] = useState<{ from: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [markedChats, setMarkedChats] = useState<string[]>([]);
   const [bridgeReady, setBridgeReady] = useState(false);
@@ -100,6 +103,10 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [findFocus, setFindFocus] = useState(0);
   const [font, setFont] = useState(readFont);
   const frame = useRef<HTMLIFrameElement>(null);
+  // A crowded toolbar scrolls within itself (a phone with Back to chat and Back); it starts at its start again whenever
+  // those appear or go, so Contents and the paper's menu stay in view.
+  const toolbar = useRef<HTMLElement>(null);
+  useEffect(() => { toolbar.current?.scrollTo({ left: 0 }); }, [!!back, !!onBackToChat]); // eslint-disable-line react-hooks/exhaustive-deps
   const findField = useRef<HTMLInputElement>(null);
   const frameReady = useRef(false);
   const title = item.metadata?.title ?? 'Paper';
@@ -197,7 +204,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           setActive(current);
           break;
         }
-        case 'citation': setBack(message.state === 'jumped'); break;
+        case 'citation': setBack(message.back ? { from: message.from } : null); break;
         case 'selection': setSelection(message.selection); break;
         case 'marks': if (message.ids.length === 1) onMarkedChat(message.ids[0]); else setMarkedChats(message.ids); break;
         case 'passage': if (!message.found) setNotice('Couldn’t find the passage. The paper may have changed.'); onPassageHandled(); break;
@@ -274,14 +281,19 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
 
   return (
     <div className="reader" data-theme-frame={theme}>
-      <header className="paper-toolbar">
+      <header className="paper-toolbar" ref={toolbar}>
         <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={onContents} disabled={!headings.length} data-testid="contents"
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         <div className="reader-actions">
           {paperMenu}
           {listenAction}
-          {back && <button className="primary small" onClick={() => command('citationBack')} data-testid="citation-back" aria-label="Back to where you were" title="Back to where you were"><Icon name="chevronLeft" size={14} />Back</button>}
+          {onBackToChat && <button className="primary small" onClick={onBackToChat} data-testid="chat-back" aria-label="Back to chat" title="Back to chat"><Icon name="chevronLeft" size={14} /><span className="back-long">Back to chat</span><span className="back-short" aria-hidden="true">Chat</span></button>}
+          {back && (() => { const label = back.from ? `Back to ${back.from}` : 'Back to where you were'; return <span className="citation-back">
+            <button className="primary small" onClick={() => { setBack(null); command('citationBack'); }} data-testid="citation-back" aria-label={label} title={label}>
+              <Icon name="chevronLeft" size={14} /><span className="back-long">{label}</span><span className="back-short" aria-hidden="true">Back</span></button>
+            <button className="icon-button" onClick={() => { setBack(null); command('endCitation'); }} data-testid="citation-dismiss" aria-label="Dismiss Back" title="Dismiss Back"><Icon name="close" size={14} /></button>
+          </span>; })()}
           <button className={`icon-button${finding ? ' on' : ''}`} onClick={() => (finding ? closeFind() : openFind())} disabled={!srcdoc} aria-label="Find in paper" title="Find in paper (⌘F)" data-testid="find"><Icon name="search" /></button>
           <button className="tool-button" onClick={() => setFigure({ id: null, open: true })} disabled={!figures.length} title="Figures" data-testid="figures">
             <Icon name="image" /><span>Figures</span>{figures.length > 0 && <span className="count">{figures.length}</span>}</button>

@@ -416,3 +416,22 @@ describe('deployment-scoped positions', () => {
       session: 'f0000000-0000-4000-8000-000000000001', sessionStartedAt: 1000, sequence: 2, savedAt: Date.now() + 1000 })).toBe(true);
   });
 });
+
+describe('podcast lengths', () => {
+  it('decodes every offered length with its writers, shortest first as listed; bad rows are dropped', async () => {
+    const { decodeCapabilities, aboutMinutes } = await import('../src/lib/podcast');
+    const writer = (writer: string, max: number) => ({ writer, label: writer === 'deepseek' ? 'DeepSeek' : 'Anthropic', max_credits: max });
+    const capabilities = decodeCapabilities({ catalog: true, generation: true, delivery: true, max_credits: 150, target_seconds: 300, lengths: [
+      { profile: 'podcast-short-v1', label: 'Short', target_seconds: 150, max_credits: 60, writers: [writer('anthropic', 60), writer('deepseek', 20)] },
+      { profile: 'podcast-5min-v1', label: '5 min', target_seconds: 300, max_credits: 150, writers: [writer('anthropic', 150), writer('deepseek', 50)] },
+      { profile: 'podcast-5min-v1', label: 'duplicate', target_seconds: 300, max_credits: 150 },
+      { profile: 'Bad Profile', label: 'x', target_seconds: 300, max_credits: 1 }, { profile: 'podcast-10s-v1', label: '10 s', target_seconds: 10, max_credits: 1 },
+      { profile: 'podcast-20min-v1', label: '20 min', target_seconds: 1200, max_credits: 600 },
+    ] });
+    expect(capabilities.lengths!.map(l => l.label)).toEqual(['Short', '5 min', '20 min']);
+    expect(capabilities.lengths![1].writers).toEqual([{ writer: 'anthropic', label: 'Anthropic', maxCredits: 150 }, { writer: 'deepseek', label: 'DeepSeek', maxCredits: 50 }]);
+    expect(capabilities.writers).toEqual(capabilities.lengths![1].writers); // the default length's list, as before
+    expect(capabilities.lengths![2].writers).toEqual([]);
+    expect(aboutMinutes(150)).toBe('About 2½ minutes'); expect(aboutMinutes(60)).toBe('About 1 minute'); expect(aboutMinutes(600)).toBe('About 10 minutes'); expect(aboutMinutes(30)).toBe('Under a minute');
+  });
+});

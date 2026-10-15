@@ -1,7 +1,7 @@
 import {useDevicePDFs} from './useDevicePDFs';
-import type {LibraryPaper} from '../lib/device-pdf';
+import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, prepareArxivReader } from '../lib/arxiv-reader';
-import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey } from '../lib/reader-paper';
+import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
@@ -108,6 +108,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
   const [passage, setPassage] = useState<{ id: string; documentID: string; anchor: TextAnchor; at: number } | null>(null);
+  // After a chat citation closed the chat drawer: the reader's Back to chat (ReaderModel.returnToChat).
+  const [chatReturn, setChatReturn] = useState(false);
   const [path, moveTo] = usePath();
   const [navigationIssue, setNavigationIssue] = useState(false);
   const navigationIntent = useRef(0);
@@ -146,7 +148,32 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
-  const [readerCache] = useState<ReaderCache>(() => new Map());
+  const [readerCache] = useState(() => new ReaderBundles());
+  const readerCacheVersion = useSyncExternalStore(readerCache.subscribe, readerCache.getVersion);
+  // Which papers this tab has prepared (the library row's check, PaperDeviceCopy).
+  const prepared = useCallback((e: ClientEntry) => isReaderPaper(e) && readerCache.has(readerCacheKey(account, e)), [readerCache, account, readerCacheVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A paper added from the Feed is prepared right away, as the apps do, so opening it doesn't download again; the
+  // Feed shows the percent meanwhile (sourceID → fraction).
+  const [feedPreparing, setFeedPreparing] = useState<Map<string, number>>(new Map());
+  const feedAdded = useRef(new Set<string>());
+  const preparationScope = useRef(new AbortController());
+  useEffect(() => () => preparationScope.current.abort(), []);
+  useEffect(() => {
+    for (const sourceID of [...feedAdded.current]) {
+      // The paper the reader will open (a source paper, or an arXiv item read from its official HTML).
+      const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID && !!readingSource(e));
+      if (!paper) continue;
+      feedAdded.current.delete(sourceID);
+      const key = readerCacheKey(account, paper);
+      if (readerCache.has(key)) continue;
+      const progress = (fraction: number) => setFeedPreparing(m => new Map(m).set(sourceID, fraction));
+      progress(0);
+      void prepareArxivReader(readingSource(paper)!, preparationScope.current.signal, progress, { authors: paper.metadata?.authors ?? [], title: paper.metadata?.title })
+        .then(bundle => { readerCache.set(key, bundle); while (readerCache.size > 3) readerCache.delete(readerCache.keys().next().value!); })
+        .catch(() => { /* opening the paper prepares it again and says why if it can't */ })
+        .finally(() => setFeedPreparing(m => { const next = new Map(m); next.delete(sourceID); return next; }));
+    }
+  }, [library.entries, account, readerCache]);
   useEffect(()=>{
     if(!chat)return;
     chat.setSourcePapers(new Map(library.entries.filter(isSourcePaper).map(paper=>[paper.id,{reference:paperReference(paper)!,load:async()=>{
@@ -218,6 +245,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   useEffect(() => { if (paperID) setLastPaper(paperID); setOrphanPaper(null); setChatMode(paperID ? 'paper' : 'general'); }, [paperID]);
 
   const ws = useWorkspace(route);
+  // Back to chat goes away once the chat is open again or the paper is left.
+  useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(false); }, [ws.right.open, route]);
   const latest = useRef({ ws, route, paperID });
   latest.current = { ws, route, paperID };
   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
@@ -307,7 +336,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       else setOrphanPaper({ documentID, title: 'Paper no longer in library', available: false });
       setChatMode('paper');
     }
-    latest.current.ws.show('right');
+    // A citation from a chat that covers the paper (a drawer: phone, narrow window) closes it so the passage shows, and
+    // the reader offers Back to chat (PaperView's reader.chat.back); beside the paper, the chat stays open.
+    if (anchor && !latest.current.ws.right.inline) { latest.current.ws.show('right', false); setChatReturn(true); }
+    else latest.current.ws.show('right');
   };
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
     void openChatDocument(documentID, anchor);
@@ -362,7 +394,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </span>} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
       <div className="rail-body" role="tabpanel">
         {railTab === 'contents' ? <div ref={setContentsSlot} className="contents-slot"><p className="fine rail-note">The contents appear when the paper opens.</p></div>
-          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} query={view.query} />}
+          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} query={view.query} prepared={prepared} />}
       </div>
     </>
   ) : (
@@ -386,14 +418,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost}
+        onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
-    center = <FeedView model={feed} library={library} showChips={!railVisible}
+    center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing}
+      onAdded={sourceID => { feedAdded.current.add(sourceID); }}
+      onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }}
       listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} /> }} />;
   } else {
-    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible}
+    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
       currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
   }
 

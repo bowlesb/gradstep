@@ -42,6 +42,17 @@ export function formatDateTime(ms: number | null | undefined, now = new Date()):
   if (date.getFullYear() !== now.getFullYear()) return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   return `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`;
 }
+/** The same in a narrow column, on two lines (LibraryFormat.tableDateLines): the day ("Today", "Yest.", "Mon", "Sep 28")
+ * and the time under it; an earlier year's date ("Sep 2025") has no time. */
+export function dateLines(ms: number, now = new Date()): { day: string; time: string | null } {
+  const date = new Date(ms);
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((start(now) - start(date)) / 86_400_000);
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (date.getFullYear() !== now.getFullYear() && days >= 7) return { day: date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }), time: null };
+  const day = days <= 0 ? 'Today' : days === 1 ? 'Yest.' : days < 7 ? date.toLocaleDateString(undefined, { weekday: 'short' }) : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return { day, time };
+}
 export function formatDate(ms: number | null | undefined): string {
   if (!ms) return '—';
   const date = new Date(ms), now = new Date();

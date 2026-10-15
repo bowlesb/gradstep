@@ -38,7 +38,7 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  // The paper's own citation link ("[1]" to its bibliography) jumps with Back offered, and Back returns (build 31 report).
  // With the chat pane open a wide reader is at its narrowest: Back must still be in view in the toolbar (owner report, build 35).
  // On a phone the pane is an overlay over the paper, so it stays closed there.
- const wide=(page.viewportSize()?.width??0)>=900;
+ const wide=(page.viewportSize()?.width??0)>=1100; // the chat is beside the paper from 1,100 px; a drawer below (Shell.RIGHT_INLINE)
  if(wide&&!await page.getByTestId('chat-pane').isVisible())await page.getByTestId('ask').click();
  if(wide)await expect(page.getByTestId('chat-pane')).toBeVisible();
  await frame.locator('a[href^="#b-"]').first().click();
@@ -61,8 +61,34 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  expect(evidence.requests[0].local_context.format).toBe('reader-local-context-v2');
  expect(evidence.requests[0].local_context.text.startsWith('[¶1] # Authored HTML fixture\n\n[¶2] A. Author')).toBe(true);
  const cite=page.getByTestId('chat-assistant').locator('.cite').first();
- await expect(cite).toHaveText('¶2');await cite.click();
- await expect(page.getByTestId('citation-back')).toBeVisible();
+ const drawer=await page.getByTestId('pane-right').evaluate(e=>e.classList.contains('overlay'));
+ await expect(cite).toHaveText('¶2');
+ // From the top of the paper the jump offers no Back (it would go nowhere); read further down first and Back names
+ // where it returns ("Back to 1 Introduction"), with an X that dismisses the offer.
+ // A tall screen may hold the whole fixture paper: then there's nowhere else to have been, and no Back.
+ const scrolled=await frame.locator('body').evaluate(()=>{scrollTo(0,document.documentElement.scrollHeight);return scrollY>4;});
+ await cite.click();
+ if(scrolled){await expect(page.getByTestId('citation-back')).toBeVisible();await expect(page.getByTestId('citation-back')).toHaveAccessibleName(/^Back to /);}
+ if(drawer){
+  // A chat that covers the paper (phone, narrow window) closes so the passage shows: the paper is on top, not just
+  // present under the drawer; Back to chat reopens it (PaperView's reader.chat.back).
+  await expect(page.getByTestId('pane-right')).toBeHidden();
+  const box=(await page.getByTestId('reader-frame').boundingBox())!;
+  expect(await page.evaluate(([x,y])=>document.elementFromPoint(x,y)?.getAttribute('data-testid'),[box.x+box.width/2,box.y+box.height/2])).toBe('reader-frame');
+  // With Back to chat and Back in a phone's toolbar, the paper column still doesn't scroll sideways.
+  expect(await page.locator('.pane-center').evaluate(e=>[e.scrollLeft,e.scrollWidth-e.clientWidth])).toEqual([0,0]);
+  await expect(page.getByTestId('contents')).toBeInViewport();
+  expect(await page.locator('.paper-toolbar').evaluate(e=>e.scrollLeft)).toBe(0);
+ }else await expect(page.getByTestId('chat-back')).toHaveCount(0);
+ if(scrolled)await page.getByTestId('citation-dismiss').click();
+ await expect(page.getByTestId('citation-back')).toHaveCount(0);
+ const backToChat=async()=>{if(drawer){await page.getByTestId('chat-back').click();await expect(page.getByTestId('chat-pane')).toBeVisible();await expect(page.getByTestId('chat-back')).toHaveCount(0);}};
+ await backToChat();
+ await frame.locator('body').evaluate(()=>scrollTo(0,0));
+ await expect.poll(()=>frame.locator('body').evaluate(()=>scrollY)).toBe(0);
+ await cite.click();
+ await expect(page.getByTestId('citation-back')).toHaveCount(0);
+ await backToChat();
  // The answer's suggested follow-up fills the message box; nothing is sent until the reader does.
  await page.getByTestId('follow-ups-toggle').click(); // on request (build 46)
  await page.getByTestId('follow-up').first().click();

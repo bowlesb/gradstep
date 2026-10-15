@@ -144,7 +144,7 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(page.getByRole('navigation', { name: 'Feed topics' })).toBeVisible();
       const cards = page.getByTestId('feed-grid').locator('li');
       await expect(cards).toHaveCount(3);
-      await expect(cards.filter({ hasText: 'Direct Preference Optimization' }).getByRole('button', { name: 'In library' })).toBeDisabled();
+      await expect(cards.filter({ hasText: 'Direct Preference Optimization' }).getByRole('button', { name: 'In library' })).toBeEnabled(); // it opens the paper
       if (width === 1440) await shot(page, `feed-${name}`);
       await cards.nth(1).getByRole('button', { name: '+ Add to library' }).click();
       await expect(cards.nth(1).getByRole('button', { name: 'In library' })).toBeVisible({ timeout: 10_000 });

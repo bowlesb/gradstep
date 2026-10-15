@@ -10,7 +10,12 @@ audio.writeUInt16LE(1, 20); audio.writeUInt16LE(1, 22); audio.writeUInt32LE(8000
 audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36); audio.writeUInt32LE(audio.length - 44, 40);
 for (let i = 0; i < 48 * 8000; i++) audio.writeInt16LE(Math.round(Math.sin(i / 8000 * 2 * Math.PI * (i < 16 * 8000 ? 220 : 330)) * 300), 44 + 2 * i);
 const hash = createHash('sha256').update(audio).digest('hex');
-const capabilities = () => ({ catalog: state.catalog, delivery: state.delivery, generation: state.generation, max_credits: 150, target_seconds: 300, transfer: { remaining_bytes: 100_000_000, limit_bytes: 100_000_000 } });
+// Every length the server offers, each with its writers (podcast_lengths, migration 065), shortest first.
+const writers = max => [{ writer: 'anthropic', label: 'Anthropic', max_credits: max, consent_version: 'podcast-private-v1' }, { writer: 'deepseek', label: 'DeepSeek', max_credits: Math.round(max / 3), consent_version: 'podcast-private-v1' }];
+const LENGTHS = [['podcast-short-v1', 'Short', 150, 60], ['podcast-5min-v1', '5 min', 300, 150], ['podcast-10min-v1', '10 min', 600, 300], ['podcast-20min-v1', '20 min', 1200, 600]]
+  .map(([profile, label, target_seconds, max_credits]) => ({ profile, label, target_seconds, max_credits, estimate: `Up to ${max_credits} credits`, writers: writers(max_credits) }));
+const capabilities = () => ({ catalog: state.catalog, delivery: state.delivery, generation: state.generation, max_credits: 150, target_seconds: 300, transfer: { remaining_bytes: 100_000_000, limit_bytes: 100_000_000 },
+  ...(state.lengths ? { lengths: LENGTHS } : {}) });
 const episode = (id = release, scope = 'shared') => ({ release_id: id, document_id: document, scope, title: scope === 'private' ? null : 'Synthetic fixture: Direct Preference Optimization',
   state: id === release ? state.releaseState : 'ready', replacement_id: state.releaseState === 'superseded' ? replacement : null,
   fixture: true, ai_audio: true, language: 'en', authors: scope === 'private' ? [] : ['R. Rafailov', 'A. Sharma'], year: scope === 'private' ? null : 2023,
@@ -69,6 +74,10 @@ const server = http.createServer(async (req, res) => {
     if (state.quoteOutcome === 'reuse') { json({ reuse: { release_id: release } }); return; }
     if (state.quoteOutcome === 'join') { job ??= jobShape(randomUUID()); json({ join: { request_id: job.request_id } }); return; }
     const id = quoteIDs.get(value.request_id) ?? randomUUID(); quoteIDs.set(value.request_id, id);
+    const length = LENGTHS.find(l => l.profile === value.profile);
+    if (length) { json({ quote: { id, expires_at: new Date(Date.now() + 60_000).toISOString(), max_credits: length.writers.find(w => w.writer === value.writer)?.max_credits ?? length.max_credits,
+      target_seconds: length.target_seconds, label: length.label, estimate: `Estimate — you’re charged actual usage, maximum ${length.max_credits} credits`,
+      providers: [value.writer === 'deepseek' ? 'DeepSeek (script)' : 'Anthropic (script)', 'Google Vertex AI (speech)'], consent_version: 'podcast-private-v1' } }); return; }
     json({ quote: { id, expires_at: new Date(Date.now() + 60_000).toISOString(), max_credits: 150, target_seconds: 300,
       estimate: 'Estimate — you’re charged actual usage, maximum 150 credits', providers: ['Anthropic (script)', 'Google Vertex AI (speech)'], consent_version: 'podcast-private-v1' } }); return;
   }

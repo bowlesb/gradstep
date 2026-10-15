@@ -2,7 +2,7 @@ import type { DevicePDFs } from './useDevicePDFs';
 import { compactAuthors, firstAuthorLine } from '../lib/authors';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
-import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
+import { type ReaderPaper, isNewPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
 // The library on a large screen (legacy LibraryView/PaperTable density, today's data): a dense,
 // full-width table — Title, Authors, Year, Tags, Added, Opened, Progress — with sortable headers,
 // the filters in the left rail (or as chips when the rail is hidden), live import progress with
@@ -18,7 +18,7 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, formatDate, formatDateTime } from './common';
+import { Dialog, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { useLibraryColumns } from './prefs';
@@ -48,14 +48,23 @@ export const commandError = (error: unknown) => {
 
 const isReading = (a: Activity | undefined) => !!a && a.progress < 0.995;
 const authorList = (entry: ClientEntry) => entry.metadata?.authors ?? [];
-/** What this browser holds of a paper (owner request 2026-10-14): a source paper opens from arXiv and is prepared in
- * this browser when opened (nothing is kept between visits yet); a converted paper reads from the server's copy. */
-const deviceCopy = (entry: ClientEntry): { kind: 'cloud' | 'server' | 'unavailable'; glyph: string; label: string } | null => {
+/** What this device holds of a paper, as the apps say it (PaperDeviceCopy): a check when it opens at once (prepared in
+ * this tab, or a PDF here), a cloud when it still has to download. A browser keeps prepared papers for this tab only. */
+type DeviceCopy = { kind: 'device' | 'cloud' | 'unavailable'; glyph: string; label: string };
+export function deviceCopy(entry: ClientEntry, prepared: boolean): DeviceCopy | null {
+  if (entry.kind === 'local_pdf') return entry.available ? { kind: 'device', glyph: '✓', label: 'PDF on this device' }
+    : { kind: 'cloud', glyph: '☁︎', label: 'Not on this device yet; choose the PDF again to read it' };
   if (!isReaderPaper(entry)) return null;
-  if (isSourcePaper(entry)) return { kind: 'cloud', glyph: '☁︎', label: 'Opens from arXiv; prepared in this browser when opened' };
-  if (entry.kind === 'item' && entry.readiness === 'converted_ready' && entry.render_availability !== 'quarantined') return { kind: 'server', glyph: '◎', label: 'Reads from the server’s converted copy' };
-  return null;
-};
+  if (prepared) return { kind: 'device', glyph: '✓', label: 'On this device (prepared in this tab)' };
+  if (isSourcePaper(entry) || (entry.readiness === 'converted_ready' && entry.render_availability !== 'quarantined'))
+    return { kind: 'cloud', glyph: '☁︎', label: 'Not on this device yet; downloads when you open it' };
+  return { kind: 'unavailable', glyph: '!', label: 'No readable copy on this device' };
+}
+/** The row's marks before its first author: "new" (added in the last three days, never opened) and the device copy. */
+function RowMarks({ isNew, copy }: { isNew: boolean; copy: DeviceCopy | null }) {
+  return <>{isNew && <span className="new-dot" title="Added recently, not opened yet" data-testid="new-dot"><span className="visually-hidden">New</span></span>}
+    {copy && <span className={`device ${copy.kind}`} title={copy.label} aria-label={copy.label} role="img" data-testid="device-badge">{copy.glyph}</span>}</>;
+}
 
 /** Rows, counts, tags and the filtered, sorted list for one library view. Shared by the table, rail and compact list. */
 export function useLibraryModel(library: Library, current: Map<string, Activity>, view: LibraryQuery, visible = true) {
@@ -246,8 +255,10 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
   </div>;
 }
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
+  /** Whether this tab has the paper prepared (the row's check); without it every paper shows as still to download. */
+  prepared?: (entry: ClientEntry) => boolean;
   currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
@@ -348,6 +359,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
               query={JSON.stringify(view)} columns={columns} full={!model.windowed || printing} printing={printing} commands={rowCommands} showAll={showAll} render={(row, index, measure) => {
                 const a = isReaderPaper(row.entry) ? activity.get(row.entry.id) : undefined;
                 return <PaperRow key={row.key} row={row} opened={a?.opened ?? null} progress={a ? a.progress : null} mark={library.marks.get(row.entry.id)}
+                  onDevice={!!prepared?.(row.entry)} isNew={isReaderPaper(row.entry) && isNewPaper(row.entry, !!a)} activeTag={view.tag}
                   busy={library.pending.has(row.entry.id)} current={row.entry.id === currentID} onOpen={onOpen} retry={library.retry} remove={library.remove} run={run}
                   onTag={setView} columns={columns} index={index} measure={measure} menuOpen={actions.menuItemID === row.entry.id} onMenu={actions.open} />;
               }} />
@@ -381,8 +393,8 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
   return <span className="pill passive" title="Credits can be added in Gradstep on iPhone, iPad or Mac">Get credits in the app</span>;
 }
 
-const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu }: {
-  row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean;
+const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu, onDevice, isNew, activeTag }: {
+  row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean; onDevice: boolean; isNew: boolean; activeTag: string;
   onOpen: (item: LibraryPaper) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
   index: number; measure?: (element: HTMLTableRowElement | null) => void;
   menuOpen: boolean; onMenu: ReturnType<typeof useLibraryActions>['open'];
@@ -398,7 +410,8 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
         {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
-        {!columns.includes('authors') && row.firstAuthor && <span className="author">{deviceCopy(entry) && <span className={`device ${deviceCopy(entry)!.kind}`} title={deviceCopy(entry)!.label} aria-label={deviceCopy(entry)!.label}>{deviceCopy(entry)!.glyph}</span>}{firstAuthorLine(authors)}</span>}
+        {(() => { const copy = deviceCopy(entry, onDevice), author = !columns.includes('authors') && row.firstAuthor ? firstAuthorLine(authors) : null;
+          return (copy || isNew || author) && <span className="author"><RowMarks isNew={isNew} copy={copy} />{author}</span>; })()}
         {row.status && !progress && <span className={`status ${row.status.kind}`}>{row.status.kind === 'problem' ? '⚠︎ ' : ''}{row.status.text}</span>}
         {progress && <span className="status active" aria-label={progress.label}>{progress.title}{progress.detail ? ` (${progress.detail})` : ''}</span>}
         {busy && <span className="status active">Updating…</span>}
@@ -407,10 +420,12 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
       {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{compactAuthors(authors) || <span className="faint">—</span>}</td>}
       {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
-        <button className="tag" key={t} onClick={e => { e.stopPropagation(); onTag(q => ({ ...q, tag: t })); }} title={`Show papers tagged “${t}”`}>{t}</button>))}</span>
+        // Tapping the active tag again clears the filter; the active one is drawn in the accent (PaperTable's chips).
+        <button className={t === activeTag ? 'tag on' : 'tag'} key={t} aria-pressed={t === activeTag} onClick={e => { e.stopPropagation(); onTag(q => ({ ...q, tag: q.tag === t ? '' : t })); }}
+          title={t === activeTag ? `Show all papers` : `Show papers tagged “${t}”`}>{t}</button>))}</span>
         : <span className="faint">—</span>}</td>}
-      {columns.includes('added') && <td className="col-added">{formatDateTime(row.added)}</td>}
-      {columns.includes('opened') && <td className="col-opened">{formatDateTime(opened)}</td>}
+      {columns.includes('added') && <td className="col-added"><TableDate ms={row.added} /></td>}
+      {columns.includes('opened') && <td className="col-opened"><TableDate ms={opened} /></td>}
       {columns.includes('progress') && <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">
@@ -426,9 +441,17 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
   );
 });
 
+/** A date cell: one line when the column is wide, the day over the time when narrow (PaperTableDate). */
+function TableDate({ ms }: { ms: number | null }) {
+  if (!ms) return <span className="faint">—</span>;
+  const lines = dateLines(ms);
+  return <span className="table-date" title={new Date(ms).toLocaleString()}><span className="one-line">{formatDateTime(ms)}</span>
+    <span className="two-lines"><span>{lines.day}</span>{lines.time && <span className="time">{lines.time}</span>}</span></span>;
+}
+
 /** Beside an open paper (the legacy Browse view): the same library, compact. */
-export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
-  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string;
+export function CompactLibrary({ model, activity, currentID, onOpen, query, prepared }: {
+  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string; prepared?: (entry: ClientEntry) => boolean;
 }) {
   const list = useRef<HTMLUListElement>(null);
   const actions = useLibraryActions(model.library);
@@ -446,7 +469,8 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
               {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={model.library.pending.has(entry.id)} expanded={actions.menuItemID === entry.id} onOpen={actions.open} />}
               {row.readable && isLibraryPaper(entry)
                 ? <a className="compact-link" href={`/paper/${entry.id}`} aria-current={entry.id === currentID ? 'page' : undefined}
-                    onClick={e => { e.preventDefault(); onOpen(entry); }}><span className="compact-title">{row.title}</span><span className="compact-meta">{meta}</span>
+                    onClick={e => { e.preventDefault(); onOpen(entry); }}><span className="compact-title">{row.title}</span>
+                    <span className="compact-meta"><RowMarks isNew={isReaderPaper(entry) && isNewPaper(entry, !!a)} copy={deviceCopy(entry, !!prepared?.(entry))} />{meta}</span>
                     {a && <progress className="accent mini" max={1} value={a.progress} aria-label={`${Math.round(a.progress * 100)}% read`} />}</a>
                 : <span className="compact-link disabled"><span className="compact-title">{row.title}</span><span className="compact-meta">{row.status?.text ?? meta}</span></span>}
             </li>

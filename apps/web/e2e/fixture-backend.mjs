@@ -475,12 +475,19 @@ createServer(async (request, response) => {
     if (body.action === 'equation') {
       event('equation', { format: 'equation-symbols-v1', summary: 'It squares x: the value multiplied by itself.', symbols: [
         { symbol: 'x', latex: 'x', meaning: 'The value the paper squares.', source: 'paper', paragraph: 2 },
-        { symbol: '²', latex: '^{2}', meaning: 'Squaring: a number multiplied by itself.', source: 'general' }] });
+        { symbol: '²', latex: '^{2}', meaning: 'Squaring: a number multiplied by itself.', source: 'general' },
+        // No LaTeX from the model: the text itself is typeset.
+        { symbol: 'L_DPO(π_θ; π_ref)', meaning: 'The loss, named as the paper names it.', source: 'general' }] });
       event('done', { stop_reason: 'end_turn', credits: 2 }); return response.end();
     }
     if (body.action === 'equation_background') {
-      for (const text of ['Squaring keeps the sign out of the way ', 'and grows quickly with x [¶2]. ', 'For x = 3 it gives 9.']) event('delta', { text });
-      event('done', { stop_reason: 'end_turn', credits: 3 }); return response.end();
+      // Several paragraphs, a heading and a list, streamed in small pieces as the model writes them.
+      const text = 'Squaring keeps the sign out of the way and grows quickly with x [¶2].\n\n## Why this form\n\nThe square is smooth, so its gradient is simple: 2x.\n\n- For x = 3 it gives 9.\n- For x = −3 it gives 9 too.\n\nThat symmetry is why the paper uses it.';
+      const pieces = text.match(/[\s\S]{1,9}/g);
+      let i = 0;
+      const tick = () => { if (response.destroyed) return; if (i < pieces.length) { event('delta', { text: pieces[i++] }); return setTimeout(tick, 10); }
+        event('done', { stop_reason: 'end_turn', credits: 3 }); response.end(); };
+      return void tick();
     }
     // A question about a figure with none attached, from a device that can attach one: the model asks for Figure 1.
     if (!body.figures?.length && (body.capabilities ?? []).includes('figure_requests') && /most complex figure/i.test(body.messages.at(-1)?.text ?? '')) {

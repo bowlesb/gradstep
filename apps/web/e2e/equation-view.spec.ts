@@ -52,7 +52,10 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  await expect(view.getByTestId('equation-consent')).toBeVisible();expect(await chats()).toHaveLength(0);
  await view.getByRole('button',{name:'Allow and describe'}).click();
  await expect(view.getByTestId('equation-summary')).toHaveText('It squares x: the value multiplied by itself.');
- await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(2);
+ await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(3);
+ // Every symbol is typeset: from its LaTeX, or from its text when the model gave none ("L_DPO(π_θ; π_ref)").
+ for(let i=0;i<3;i++)await expect(view.getByTestId('equation-symbols').locator('li').nth(i).locator('.equation-symbol math')).toBeVisible();
+ await expect(view.getByTestId('equation-symbols').locator('li').nth(2).locator('.equation-symbol msub')).toHaveCount(3);
  await expect(view.getByTestId('equation-source')).toHaveText('From the paper ¶2');
  await expect(view.getByTestId('equation-symbols')).toContainText('General meaning');
 
@@ -67,7 +70,18 @@ test('a tapped equation opens large, its symbols described from the paper, backg
 
  // Background only on request, rendered like an answer; credits shown quietly.
  await view.getByTestId('equation-more').click();
- await expect(view.getByTestId('equation-background')).toContainText('For x = 3 it gives 9.');
+ const background=view.getByTestId('equation-background');
+ await expect(background).toContainText('That symmetry is why the paper uses it.');
+ // Every paragraph stays once streaming has finished (landing-page capture, 2026-10-15: only the first remained).
+ await expect(view.getByTestId('equation-credits')).toContainText('Background: 3 credits');
+ await page.waitForTimeout(3000);
+ await expect(background.locator('p')).toHaveCount(3);await expect(background.locator('h2, h3, h4')).toHaveCount(1);await expect(background.locator('li')).toHaveCount(2);
+ // It reads in view: its heading was brought up, and its last paragraph can be scrolled to above the pinned footer.
+ await expect(view.getByRole('heading',{name:'Background'})).toBeInViewport();
+ const last=background.locator('p').last();await last.scrollIntoViewIfNeeded();await expect(last).toBeInViewport();
+ const [lastBox,footBox]=[(await last.boundingBox())!,(await view.locator('.equation-foot').boundingBox())!];
+ expect(lastBox.y+lastBox.height).toBeLessThanOrEqual(footBox.y+1);
+ await expect(background).toContainText('For x = 3 it gives 9.');await expect(background).toContainText('That symmetry is why the paper uses it.');
  await expect(view.getByTestId('equation-credits')).toHaveText('Symbols: 2 credits · Background: 3 credits');
  const sent=await chats();
  expect(sent.map(r=>r.action)).toEqual(['equation','equation_background']);
@@ -81,18 +95,20 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  await page.screenshot({path:`../../.artifacts/equation-view-${test.info().project.name}.png`});
  // Dark: the panel and the equation's own frame follow the app's appearance.
  await page.emulateMedia({colorScheme:'dark'});
- await expect.poll(()=>view.frameLocator('[data-testid=equation-frame]').locator('html').evaluate(e=>getComputedStyle(e).colorScheme)).toBe('dark');
+ // The frame is rebuilt in the new colours; a read during the rebuild just tries again.
+ await expect.poll(()=>view.frameLocator('[data-testid=equation-frame]').locator('html').evaluate(e=>getComputedStyle(e).colorScheme).catch(()=>'')).toBe('dark');
  await page.screenshot({path:`../../.artifacts/equation-view-${test.info().project.name}-dark.png`});
  await page.emulateMedia({colorScheme:'light'});
 
- // A symbol's paragraph: the view closes and the paper lands there with Back offered.
+ // A symbol's paragraph: the view closes and the paper lands there, with Back offered unless the reader was at the top.
+ const atTop=await frame.locator('body').evaluate(()=>scrollY<4);
  await view.getByTestId('equation-source').click();
  await expect(view).toBeHidden();
- await expect(page.getByTestId('citation-back')).toBeVisible();
+ if(atTop)await expect(page.getByTestId('citation-back')).toHaveCount(0);else await expect(page.getByTestId('citation-back')).toBeVisible();
 
  // Reopened, the results come back without a new request; Ask in chat starts a draft about the equation, unsent.
  await display.click();await bar.getByTestId('equation-open').click();
- await expect(view.getByTestId('equation-summary')).toBeVisible();await expect(view.getByTestId('equation-background')).toContainText('For x = 3');
+ await expect(view.getByTestId('equation-summary')).toBeVisible();await expect(view.getByTestId('equation-background')).toContainText('That symmetry is why the paper uses it.');
  await expect(view.getByTestId('equation-scale')).toHaveText('240%');
  expect(await chats()).toHaveLength(2);
  await view.getByTestId('equation-ask').click();

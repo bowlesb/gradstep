@@ -19,6 +19,8 @@
     jump: (id, reduced) => window.__scienceReaderJumpToHeading?.(String(id), !!reduced),
     restore: location => window.__scienceReaderRestore?.(location),
     citationBack: () => window.__scienceReaderCitationBack?.(),
+    // The X beside Back: the offer goes away without going back (PaperView's citationDismissButton).
+    endCitation: () => window.__scienceReaderEndCitation?.(),
     clearSelection: () => window.__scienceReaderClearSelection?.(),
     paperLine: text => window.__scienceReaderSetPaperLine?.(text),
     paperTags: tags => window.__scienceReaderSetPaperTags?.(tags),

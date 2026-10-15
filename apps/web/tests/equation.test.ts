@@ -49,3 +49,16 @@ it('the equation frame takes the app’s colours, whatever the system’s', () =
   expect(forScheme(css, 'dark')).toBe(':root{color:#111}@media(min-width: 0px){:root{color:#ddd}}@media (max-width: 0.01px){a{color:blue}}');
   expect(forScheme(css, 'light')).toBe(':root{color:#111}@media(max-width: 0.01px){:root{color:#ddd}}@media (min-width: 0px){a{color:blue}}');
 });
+
+it('a symbol is typeset from its LaTeX, else from its text read as math; an error falls back to the text', async () => {
+  const { symbolMath, texFromText } = await import('../src/lib/equation-math');
+  expect(texFromText('L_DPO(π_θ; π_ref)')).toBe('L_{DPO}(π_{θ}; π_{ref})');
+  expect(texFromText('E_{x∼D}')).toBe('E_{x∼D}');
+  expect(texFromText('x^2_i')).toBe('x^{2}_{i}');
+  expect(symbolMath({ symbol: 'β', latex: '\\beta', meaning: 'm', source: 'general' })).toMatch(/^<math/);
+  const text = symbolMath({ symbol: 'L_DPO(π_θ; π_ref)', meaning: 'm', source: 'general' })!;
+  expect(text).toMatch(/^<math/); expect(text.match(/<msub>/g)).toHaveLength(3);
+  // A bad LaTeX falls back to the text's own typesetting, and plain text without sub/superscripts stays text.
+  expect(symbolMath({ symbol: 'π_θ', latex: '\\frac{', meaning: 'm', source: 'general' })).toMatch(/<msub>/);
+  expect(symbolMath({ symbol: 'σ', meaning: 'm', source: 'general' })).toBeNull();
+});

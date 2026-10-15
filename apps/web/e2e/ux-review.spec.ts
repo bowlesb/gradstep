@@ -54,9 +54,15 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByTestId('follow-ups-toggle').click(); // suggested questions open on request (build 46)
     await expect(page.getByTestId('follow-up').first()).toBeVisible();
     await shot(page, name('chat-answer'), info);
+    await page.frameLocator('[data-testid=reader-frame]').locator('body').evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); // Back is offered only when there's somewhere to return to
+    const drawer = await page.getByTestId('pane-right').evaluate(e => e.classList.contains('overlay'));
     await page.getByTestId('chat-assistant').locator('.cite').first().click();
     await expect(page.getByTestId('citation-back')).toBeVisible();
     await shot(page, name('chat-citation-jump'), info);
+    if (drawer) {
+      await page.getByTestId('chat-back').click(); // a phone's drawer closed for the passage; Back to chat reopens it
+      await page.getByTestId('follow-ups-toggle').click(); // reopened, its suggestions start folded as ever
+    }
     await page.getByTestId('follow-up').first().click();
     await shot(page, name('chat-follow-up-filled'), info);
     await page.getByTestId('profile-button').click();

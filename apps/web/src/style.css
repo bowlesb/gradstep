@@ -585,10 +585,11 @@ progress.mini { height: 3px; margin-top: 4px; }
 .study-chip.unknown, .study-chip.learning, .study-chip.known, .study-chip.verified { color: #1b1b1b; }
 
 /* Podcast writer choice (2026-10-14). */
-.podcast-writers { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px; margin: 6px 0 10px; }
-.podcast-writers legend { font-size: 12.5px; color: var(--muted); padding: 0 4px; }
-.podcast-writer { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; }
-.podcast-writer .fine { grid-column: 2; }
+.podcast-writers, .podcast-lengths { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px; margin: 6px 0 10px; }
+.podcast-writers legend, .podcast-lengths legend { font-size: 12.5px; color: var(--muted); padding: 0 4px; }
+.podcast-writer, .podcast-length { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; flex-direction: row; font-weight: 500; }
+.podcast-writer .fine, .podcast-length .fine { grid-column: 2; }
+.podcast-writers > .fine { display: block; margin-top: 2px; }
 
 /* Figures in chat (CHAT.md): the parts of a figure under the answer, and the whole figure with them outlined. */
 .figure-parts{margin-top:10px}
@@ -617,8 +618,10 @@ progress.mini { height: 3px; margin-top: 4px; }
 .figure-parts-overview .figure-part-outline span{font-size:10px;padding:2px 4px}
 /* The equation view (EQUATION_VIEW.md): a panel on the right, the whole width on a phone. */
 .dialog.equation-dialog { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(100vw, 560px); max-width: 100vw; border-radius: 14px 0 0 14px; border-right: 0; }
-.equation-dialog .dialog-body { height: 100%; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; }
-.equation-view { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.equation-dialog .dialog-body { height: 100%; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; scroll-padding-bottom: 120px; }
+.equation-view { display: flex; flex-direction: column; gap: 14px; min-width: 0; flex: none; }
+/* The section scrolled to stays clear of the panel's top edge; the footer never covers the end of the answer. */
+.equation-background-section { scroll-margin-top: 8px; padding-bottom: 8px; }
 .equation-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .equation-head h2 { margin: 0; font-size: 18px; }
 .equation-stage { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-2); min-width: 0; }
@@ -646,3 +649,26 @@ progress.mini { height: 3px; margin-top: 4px; }
 .equation-link .source-address { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; font-size: 12.5px; }
 .equation-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: -20px; background: var(--surface); padding: 10px 0 0; border-top: 1px solid var(--line); }
 @media (max-width: 640px) { .dialog.equation-dialog { width: 100vw; border-radius: 0; border: 0; } .equation-symbols li { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+/* Back after a jump names where it returns ("Back to 3 Method"); "Back" alone when the paper column is narrow. The X
+   dismisses the offer without going back (PaperView). */
+.citation-back { display: inline-flex; align-items: center; gap: 0; margin-right: 4px; }
+.citation-back .primary.small { margin-right: 2px; max-width: 260px; }
+.back-long { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back-short { display: none; }
+@container center (max-width: 760px) { .back-long { display: none; } .back-short { display: inline; } }
+/* Library row marks (PaperDeviceCopy, ReaderModel.isNew): a check for a paper that opens at once, a cloud for one
+   still to download; a dot for a paper added in the last three days and never opened. */
+.papers .device.device, .compact-meta .device.device { color: var(--accent); }
+.compact-meta .device { display: inline-block; margin-right: 5px; font-size: 12px; line-height: 1; }
+.compact-meta .device.cloud { color: var(--muted); }
+.device.unavailable { color: var(--problem); }
+.new-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin: 0 6px 1px 0; vertical-align: middle; flex: none; }
+.tag.on { background: var(--accent); color: var(--accent-text); }
+button.tag.on:hover { background: var(--accent); color: var(--accent-text); filter: brightness(1.05); }
+/* Dates: one line in a wide column, the day over the time when narrow (PaperTableDate). */
+.table-date .two-lines { display: none; flex-direction: column; line-height: 1.25; }
+.table-date .two-lines .time { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@container center (max-width: 900px) { .table-date .one-line { display: none; } .table-date .two-lines { display: inline-flex; } }
+/* A crowded toolbar (a phone with Back to chat and Back) scrolls within itself; the paper column never scrolls sideways. */
+.paper-toolbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.paper-toolbar::-webkit-scrollbar { display: none; }

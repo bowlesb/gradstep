@@ -15,7 +15,11 @@ audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36)
 for (let i = 0; i < 48 * 8_000; i++) audio.writeInt16LE(Math.round(Math.sin(i / 8_000 * 2 * Math.PI * 220) * 300), 44 + 2 * i);
 const digest = createHash('sha256').update(audio).digest('hex');
 
-async function fixture(page: Page) {
+// Every length with its writers (podcast_lengths, migration 065), as servers from 2026-10-14 list them.
+const writers = (max: number) => [{ writer: 'anthropic', label: 'Anthropic', max_credits: max }, { writer: 'deepseek', label: 'DeepSeek', max_credits: Math.round(max / 3) }];
+const LENGTHS = ([['podcast-short-v1', 'Short', 150, 60], ['podcast-5min-v1', '5 min', 300, 150], ['podcast-10min-v1', '10 min', 600, 300], ['podcast-20min-v1', '20 min', 1200, 600]] as const)
+  .map(([profile, label, target_seconds, max_credits]) => ({ profile, label, target_seconds, max_credits, writers: writers(max_credits) }));
+async function fixture(page: Page, options: { lengths?: boolean; sourceUnavailable?: boolean } = {}) {
   const state = { documentID: '', inLibrary: true, deployed: true, calls: [] as { action: string; body: Record<string, unknown> }[] };
   await page.route('**/rest/v1/rpc/v3_library_page', async route => {
     const response = await route.fetch(), data = await response.json();
@@ -28,7 +32,7 @@ async function fixture(page: Page) {
     published_at: '2026-10-08T00:00:00Z', source: { arxiv_id: '1706.03762', version: 3,
       url: 'https://arxiv.org/abs/1706.03762v3', license: 'https://creativecommons.org/licenses/by/4.0/' },
     audio: { bytes: audio.length, sha256: digest, media_type: 'audio/wav' } });
-  const capabilities = { catalog: true, delivery: true, generation: true, max_credits: 150, target_seconds: 300 };
+  const capabilities = { catalog: true, delivery: true, generation: true, max_credits: 150, target_seconds: 300, ...(options.lengths ? { lengths: LENGTHS } : {}) };
   let quoteID = '', requestID = '', started = false;
   const grants = new Set<string>();
   const job = () => ({ request_id: requestID, state: 'queued', stage_entered_at: new Date().toISOString(), release_id: null,
@@ -55,6 +59,14 @@ async function fixture(page: Page) {
         url: `${API}/functions/v1/podcast-member?grant=${grant}&member=${releaseID}`, bytes: audio.length, sha256: digest, media_type: 'audio/wav' }] } } });
     }
     if (action === 'paper') return route.fulfill({ json: { episode: null, job: started ? job() : null, capabilities } });
+    if (action === 'quote' && options.sourceUnavailable) return route.fulfill({ status: 409, json: { code: 'source_unavailable' } });
+    if (action === 'quote' && options.lengths) {
+      requestID = body.request_id; quoteID = randomUUID();
+      const length = LENGTHS.find(l => l.profile === body.profile)!, max = length.writers.find(w => w.writer === body.writer)!.max_credits;
+      return route.fulfill({ json: { quote: { id: quoteID, expires_at: new Date(Date.now() + 60_000).toISOString(), max_credits: max, target_seconds: length.target_seconds,
+        label: length.label, estimate: `Estimate: up to ${max} credits`, providers: [body.writer === 'deepseek' ? 'DeepSeek (script)' : 'Anthropic (script)', 'Google Vertex AI (speech)'],
+        consent_version: 'podcast-private-v1' } } });
+    }
     if (action === 'quote') {
       requestID = body.request_id; quoteID = randomUUID();
       return route.fulfill({ json: { quote: { id: quoteID, expires_at: new Date(Date.now() + 60_000).toISOString(), max_credits: 150,
@@ -181,4 +193,39 @@ test('paper generation is explicitly quoted; undeployed podcasts never offer a p
   await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click(); await expect(page.getByTestId('podcast-generation-unavailable')).toBeVisible();
   await expect(page.getByTestId('podcast-confirm')).toHaveCount(0); await expect(page.getByRole('button', { name: 'Get an estimate' })).toHaveCount(0);
+});
+
+test('Listen offers every length and both writers, quotes the chosen one, and names the device text', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
+  const f = await fixture(page, { lengths: true }); await signIn(page);
+  await page.getByRole('link', { name: 'Feed', exact: true }).click(); await page.getByTestId('podcast-listen').filter({ visible: true }).click();
+  await expect(page.getByRole('button', { name: 'Check for new episodes' })).toBeVisible();
+  await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
+  await page.getByTestId('podcast-paper-listen').click();
+  const dialog = page.getByRole('dialog', { name: 'Listen to this paper' });
+  // All four lengths (PodcastGenerateSheet), the default 5 min chosen, each with its time and the chosen writer's maximum.
+  const lengths = dialog.getByTestId('podcast-lengths');
+  await expect(lengths.getByRole('radio')).toHaveCount(4);
+  await expect(lengths.getByRole('radio', { name: '5 min' })).toBeChecked();
+  await expect(lengths).toContainText('About 10 minutes · up to 300 credits');
+  await expect(dialog.getByTestId('podcast-writer-note')).toHaveText('Steadier scripts at a higher maximum.');
+  await dialog.getByRole('radio', { name: 'DeepSeek' }).check();
+  await expect(dialog.getByTestId('podcast-writer-note')).toHaveText('Lower cost. Scripts vary more between runs.');
+  await expect(lengths).toContainText('About 10 minutes · up to 100 credits');
+  await lengths.getByRole('radio', { name: '10 min' }).check();
+  await page.screenshot({ path: `../../.artifacts/parity-web-listen-lengths-${test.info().project.name}.png` });
+  await dialog.getByRole('button', { name: 'Get an estimate' }).click();
+  await expect(dialog.getByTestId('podcast-quote-length')).toHaveText('10 min episode · about 10 minutes');
+  expect(f.calls.filter(c => c.action === 'quote').at(-1)!.body).toMatchObject({ profile: 'podcast-10min-v1', writer: 'deepseek' });
+  await expect(dialog).toContainText('The paper’s text, prepared on this device, is sent to DeepSeek (script) and Google Vertex AI (speech).');
+  await expect(dialog).not.toContainText('converted');
+  await expect(page.getByTestId('podcast-confirm')).toHaveText('Create episode · up to 100 credits');
+});
+
+test('a paper whose text isn’t on this device yet says to open it first', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
+  await fixture(page, { sourceUnavailable: true }); await signIn(page);
+  await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
+  await page.getByTestId('podcast-paper-listen').click(); await page.getByRole('button', { name: 'Get an estimate' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Open this paper first so its text is ready on this device, then try Listen again.');
 });

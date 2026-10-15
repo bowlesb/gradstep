@@ -11,6 +11,10 @@ interface Actions {
   expanded: Set<string>; toggle(source: string): void; adding: string | null; inLibrary: Set<string>; addBlocked: boolean;
   add(paper: DiscoveryResult): Promise<void>; feedback?(source: string, kind: FeedFeedback | null): Promise<void>;
   feedbackBusy: boolean; feedbackState: Map<string, FeedFeedback>;
+  /** Right after Add the paper is prepared in this browser (sourceID → fraction); the pill shows its percent. */
+  preparing?: Map<string, number>;
+  /** "In library" opens the paper (native openLibraryPaper). */
+  open?(source: string): void;
 }
 const address = (paper: DiscoveryResult) => `https://arxiv.org/abs/${paper.source_id}`;
 const authors = (paper: DiscoveryResult) => authorLine(paper.authors);
@@ -22,9 +26,14 @@ function Topics({ paper }: { paper: DiscoveryResult }) {
   return <span className="tags">{resultTopics(paper).map(t => <span key={t} className="tag static">{t}</span>)}</span>;
 }
 function Add({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
-  const have = actions.inLibrary.has(paper.source_id);
-  return <button className={have ? 'pill passive' : 'pill accent'} disabled={have || !!actions.adding || actions.addBlocked} onClick={() => void actions.add(paper)}>
-    {have ? 'In library' : actions.adding === paper.source_id ? 'Adding…' : '+ Add to library'}</button>;
+  const have = actions.inLibrary.has(paper.source_id), fraction = actions.preparing?.get(paper.source_id);
+  if (fraction !== undefined) {
+    const percent = Math.floor(Math.min(1, Math.max(0, fraction)) * 100), phase = fraction < 0.8 ? 'Downloading' : 'Preparing';
+    return <span className="pill passive" role="status" aria-label={`${phase} ${percent} percent`} data-testid="feed-preparing">{phase}… {percent}%</span>;
+  }
+  if (have) return <button className="pill" disabled={!actions.open} onClick={() => actions.open?.(paper.source_id)} title="Open the paper" data-testid="feed-open">✓ In library</button>;
+  return <button className="pill accent" disabled={!!actions.adding || actions.addBlocked} onClick={() => void actions.add(paper)}>
+    {actions.adding === paper.source_id ? 'Adding…' : '+ Add to library'}</button>;
 }
 function Feedback({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);

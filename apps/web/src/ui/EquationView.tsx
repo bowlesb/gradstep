@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VerifiedBundle } from '../lib/bundle';
 import { failureText } from '../lib/chat';
 import { equationLatex, equationNumber, type EquationAction, type EquationResult } from '../lib/equation';
-import { renderMath, safeLink } from '../lib/markdown';
+import { safeLink } from '../lib/markdown';
+import { symbolMath } from '../lib/equation-math';
 import { equationDocument } from '../reader/equation-frame';
 import Answer from './Answer';
 import { Dialog } from './common';
@@ -73,6 +74,14 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   useEffect(() => { if (consented && !symbols) run('equation'); }, [consented]); // eslint-disable-line react-hooks/exhaustive-deps
   const allow = () => { if (host?.accept()) setConsented(true); };
 
+  // More background brings its section to the top of the panel as its first words arrive, so the answer reads in view
+  // rather than below the fold behind the pinned footer (landing-page capture, 2026-10-15: only the first paragraph showed).
+  const backgroundSection = useRef<HTMLElement>(null), shownBackground = useRef(false);
+  useEffect(() => {
+    if (!background?.text || shownBackground.current) return;
+    shownBackground.current = true;
+    backgroundSection.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [background?.text]);
   const [link, setLink] = useState<string | null>(null);
   const answerClick = (e: React.MouseEvent) => {
     const target = e.target as Element, control = target.closest('.cite'), marker = Number(control?.getAttribute('data-cite'));
@@ -114,16 +123,16 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
           {symbols?.phase === 'failed' ? <div className="equation-issue" role="alert"><p>{failureText(symbols.issue ?? 'provider_unavailable')}</p>
             {symbols.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('equation')}>Try again</button>}</div>
             : symbols?.symbols?.symbols.length ? <ul className="equation-symbols" data-testid="equation-symbols">{symbols.symbols.symbols.map((s, i) => <li key={i}>
-                <span className="equation-symbol" aria-label={s.symbol}>{s.latex ? <span dangerouslySetInnerHTML={{ __html: renderMath(s.latex, false) }} /> : s.symbol}</span>
+                <span className="equation-symbol" aria-label={s.symbol}>{(() => { const math = symbolMath(s); return math ? <span dangerouslySetInnerHTML={{ __html: math }} /> : s.symbol; })()}</span>
                 <div><p>{s.meaning}</p>{s.source === 'paper' && s.paragraph
                   ? <button className="link equation-source" onClick={() => onCite(s.paragraph!)} data-testid="equation-source">From the paper ¶{s.paragraph}</button>
                   : <span className="fine">General meaning</span>}</div></li>)}</ul>
             : symbols?.phase === 'done' ? <p className="fine">No symbols were listed for this equation.</p>
             : <ul className="equation-symbols loading" aria-hidden="true">{[0, 1, 2].map(i => <li key={i}><span className="equation-symbol" /><div><p /></div></li>)}</ul>}
         </section>
-        <section className="equation-section" aria-labelledby="equation-background">
+        <section ref={backgroundSection} className="equation-section equation-background-section" aria-labelledby="equation-background">
           <h3 id="equation-background">Background</h3>
-          {!background ? <button className="secondary" onClick={() => run('equation_background')} data-testid="equation-more">More background</button>
+          {!background ? <button className="secondary" onClick={() => { shownBackground.current = false; run('equation_background'); }} data-testid="equation-more">More background</button>
             : background.phase === 'failed' && !background.text ? <div className="equation-issue" role="alert"><p>{failureText(background.issue ?? 'provider_unavailable')}</p>
               <button className="secondary small" onClick={() => run('equation_background')}>Try again</button></div>
             : <div className="equation-background" onClick={answerClick} data-testid="equation-background">
