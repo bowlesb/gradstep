@@ -397,6 +397,14 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return roles.filter { ["owner", "support"].contains($0) }
     }
 
+    /// What this device read about one of its account's arXiv imports (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3); sent
+    /// only while the capability says so. The server checks the record again and keeps it on that import alone.
+    func submitSourceMetadata(accountID: UUID, importID: UUID, metadata: Data, revision: Int) async throws {
+        guard metadata.count <= 30_000, let record = try JSONSerialization.jsonObject(with: metadata) as? [String: Any] else { throw BackendError.transport }
+        let body = try JSONSerialization.data(withJSONObject: ["p_import_id": importID.uuidString.lowercased(), "p_metadata": record, "p_expected_revision": revision])
+        _ = try await authorized(path: "rest/v1/rpc/v1_submit_source_metadata", body: body, accountID: accountID, maximumResponseBytes: 1_024)
+    }
+
     func readerCapabilities(accountID: UUID) async throws -> ReaderCapabilities? {
         do {
             let data = try await authorized(path: "rest/v1/rpc/v1_reader_capabilities", body: Data("{}".utf8),

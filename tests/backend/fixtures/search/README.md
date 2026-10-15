@@ -1,0 +1,16 @@
+# Recorded search answers
+
+Recorded by `scripts/search-eval.mjs` (developer machine), trimmed to the first entries.
+
+- arxiv-dpo-relevance.xml: https://export.arxiv.org/api/query?search_query=all%3Adirect+AND+all%3Apreference+AND+all%3Aoptimization&max_results=50&sortBy=relevance&sortOrder=descending (recorded 2026-10-15T18:04:53.786Z)
+- arxiv-dpo-phrase.xml: https://export.arxiv.org/api/query?search_query=ti%3A%22direct+preference+optimization%22&max_results=3&sortBy=submittedDate&sortOrder=ascending (recorded 2026-10-15T18:04:47.089Z)
+- datacite-dpo-relevance.json: https://api.datacite.org/dois?query=direct+preference+optimization&provider-id=arxiv&sort=relevance&page%5Bsize%5D=50&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai (recorded 2026-10-15T18:04:55.072Z)
+- datacite-dpo-phrase.json: https://api.datacite.org/dois?query=titles.title%3A%22direct+preference+optimization%22&provider-id=arxiv&sort=name&page%5Bsize%5D=3&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai (recorded 2026-10-15T18:04:55.446Z)
+- arxiv-misspelling-relevance.xml: https://export.arxiv.org/api/query?search_query=all%3Adifusion+AND+all%3Amodel+AND+all%3Adistilation&max_results=50&sortBy=relevance&sortOrder=descending (recorded 2026-10-15T18:10:06.243Z)
+- arxiv-misspelling-phrase.xml: https://export.arxiv.org/api/query?search_query=ti%3A%22difusion+model+distilation%22&max_results=3&sortBy=submittedDate&sortOrder=ascending (recorded 2026-10-15T18:09:59.784Z)
+- arxiv-misspelling-broad.xml: https://export.arxiv.org/api/query?search_query=all%3Adifusion+OR+all%3Amodel+OR+all%3Adistilation&max_results=50&sortBy=relevance&sortOrder=descending (recorded 2026-10-15T18:10:09.989Z)
+- datacite-misspelling-relevance.json: https://api.datacite.org/dois?query=difusion+model+distilation&provider-id=arxiv&sort=relevance&page%5Bsize%5D=50&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai (recorded 2026-10-15T18:10:10.754Z)
+- datacite-misspelling-phrase.json: https://api.datacite.org/dois?query=titles.title%3A%22difusion+model+distilation%22&provider-id=arxiv&sort=name&page%5Bsize%5D=3&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai (recorded 2026-10-15T18:10:11.231Z)
+- datacite-misspelling-broad.json: https://api.datacite.org/dois?query=difusion%7E1+model%7E1+distilation%7E1&provider-id=arxiv&sort=relevance&page%5Bsize%5D=50&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai (recorded 2026-10-15T18:10:13.250Z)
+- arxiv-id-id.xml: https://export.arxiv.org/api/query?id_list=2305.18290&max_results=1 (recorded 2026-10-15T18:09:50.262Z)
+- datacite-id-id.json: https://api.datacite.org/dois/10.48550/arXiv.2305.18290?mailto=hello%40gradstep.ai (recorded 2026-10-15T18:09:50.469Z)

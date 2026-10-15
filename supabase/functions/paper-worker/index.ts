@@ -1,9 +1,12 @@
 // Advances queued papers. Invoked by pg_cron (every minute) and by the import
 // trigger via pg_net; authenticated with a dedicated shared secret, never a
 // customer token. Returns immediately and works in the background.
+import { installEgressGuard } from '../_shared/egress.ts';
 import { runMetadataPipeline, type MetadataDeps } from '../_shared/metadata-pipeline.ts';
 import { pipelineService, rpcAdapter } from '../_shared/pipeline-runtime.ts';
 import { sweepAccountDeletions } from '../_shared/account-deletion.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('paper-worker');
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 

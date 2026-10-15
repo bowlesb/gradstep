@@ -151,6 +151,22 @@ test('a DOI: its arXiv copy, an open copy, or closed with its landing page; Open
   assert.equal(down.status, 'unavailable');
 });
 
+test('with OpenAlex switched off (migration 072), a DOI is named by Crossref and found by title; OpenAlex is never asked', async () => {
+  const calls: string[] = [];
+  const wanted: string[] = [];
+  const off = { ...deps({ 'api.openalex.org/': () => json(work({})),
+    'api.crossref.org/works/10.1145': () => json({ message: { title: ['Optuna: A Next-generation Hyperparameter Optimization Framework'], issued: { 'date-parts': [[2019]] }, author: [{ family: 'Akiba' }] } }) },
+  { calls, findPaper: async request => { wanted.push(`${request.title}|${request.firstAuthor}`); return { status: 'found', paper: { source_id: '1907.10902', title: request.title, year: 2019, kind: 'arxiv' } }; } }), openAlex: false };
+  const found = await addPaper(off, '10.1145/3292500.3330701', true, signal());
+  assert.equal(found.status, 'added'); assert.equal(found.paper?.source_id, '1907.10902');
+  assert.deepEqual(wanted, ['Optuna: A Next-generation Hyperparameter Optimization Framework|Akiba']);
+  assert.ok(calls.length > 0 && !calls.some(url => url.includes('openalex')), calls.join(' '));
+  const unknown = await addPaper({ ...deps({ 'api.crossref.org/works/': () => json({}, 404) }), openAlex: false }, '10.5555/nothing', true, signal());
+  assert.equal(unknown.status, 'not_found');
+  const down = await addPaper({ ...deps({ 'api.crossref.org/works/': () => json({}, 503) }), openAlex: false }, '10.5555/nothing', true, signal());
+  assert.equal(down.status, 'unavailable');
+});
+
 test('a link: proceedings PDFs through their landing page, DOIs in the path, citation tags, or the device', async () => {
   const imported: FoundPaper[] = [];
   const pmlr = await addPaper(deps({

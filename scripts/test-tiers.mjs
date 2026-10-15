@@ -24,7 +24,9 @@ const commands={
  fast:[['compiler freshness',process.execPath,['scripts/build-arxiv-compiler.mjs','--check'],root],
   ['device PDF compiler freshness',process.execPath,['scripts/build-device-pdf-compiler.mjs','--check'],root],
   ['backend',process.execPath,['--test',...readdirSync('tests/backend').filter(p=>p.endsWith('.test.ts')).map(p=>'tests/backend/'+p)],root],
-  ['operations',process.execPath,['--test','tests/operations/web-deployment.test.mjs','tests/operations/arxiv-acknowledgement.test.mjs'],root],
+  ['operations',process.execPath,['--test','tests/operations/web-deployment.test.mjs','tests/operations/arxiv-acknowledgement.test.mjs','tests/operations/arxiv-egress-scan.test.mjs'],root],
+  // Servers must not contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md): report mode fails only on a new call site.
+  ['arxiv egress scan',process.execPath,['scripts/check-arxiv-egress.mjs'],root],
   ['browser units','npm',['run','test:fast'],root+'apps/web']],
  slow:[['reader journeys','npm',['run','e2e','--','arxiv-compiler.spec.ts','arxiv-html.spec.ts','device-pdf.spec.ts',...extra],root+'apps/web']],
  corpus:[['real paper corpus','npm',['run','e2e','--','--config','reader-corpus.playwright.config.ts',...extra],root+'apps/web']],

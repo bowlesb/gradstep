@@ -5,12 +5,15 @@ import WebKit
 
 enum ArxivHTMLError: Error, Sendable {
     case unavailable, retryLater, retrieval, invalid, tooLarge
+    /// arXiv refused this device (403): no arXiv request from it for a day (`ArxivDeviceRefusal`).
+    case refused
     /// The device compiler refused the paper with one of its finite reason codes (never source text).
     case compiler(String)
     var message: String {
         switch self {
         case .unavailable: "HTML reader unavailable for this version. You can still open the source or its PDF on this device."
         case .retryLater: "arXiv is busy. Please try preparing this paper again later."
+        case .refused: "arXiv refused requests from this device, so Gradstep won’t ask arXiv from it again for a day. Papers already on this device still open."
         case .retrieval: "Couldn’t retrieve this paper from arXiv. Check your connection and try again."
         case .invalid: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
         case .tooLarge: "This paper exceeds the device reader’s current preparation limits. You can still open its PDF."
@@ -80,7 +83,8 @@ struct ArxivCompilerIdentity: Decodable, Sendable, Equatable {
 
 /// Acquisition pacing. A paper's HTML document request is spaced like a new page visit; that page's own
 /// declared assets then load together, bounded, the way a browser loads the images of one page. A
-/// Retry-After from arXiv pauses every request from this device.
+/// Retry-After from arXiv pauses every request from this device; a refusal (403) stops them for a day, shared with the
+/// export API fetcher (`ArxivDeviceRefusal`; owner, 2026-10-15).
 enum ArxivAcquisitionPolicy {
     static let documentSpacing: TimeInterval = 3
     static let assetConcurrency = 4
@@ -91,6 +95,16 @@ enum ArxivAcquisitionPolicy {
     static let assetBytes = 16_777_216
     static let totalBytes = 41_943_040
     static let assets = 512
+    /// Every arXiv request from this app names it, with no user identifier (owner, 2026-10-15; ARXIV_DEVICE_ONLY.md §5.9).
+    static var userAgent: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        #if targetEnvironment(macCatalyst)
+        let platform = "macOS"
+        #else
+        let platform = "iOS"
+        #endif
+        return "Gradstep/\(version) (\(platform); +https://gradstep.ai; mailto:hello@gradstep.ai)"
+    }
 }
 
 /// Bounded acquisition on the reader's network. Nothing is fetched by WebKit:
@@ -102,8 +116,10 @@ private actor ArxivHTMLAcquisition {
     #if DEBUG
     /// Tests: URL protocols that answer arxiv.org in-process (no pacing, nothing leaves the process).
     private var fixtureProtocols: [AnyClass]? { ArxivHTMLReader.fixtureProtocolClasses }
+    private var refusal: ArxivDeviceRefusal { ArxivDeviceRefusal(suite: ArxivHTMLReader.refusalSuite) }
     #else
     private var fixtureProtocols: [AnyClass]? { nil }
+    private var refusal: ArxivDeviceRefusal { ArxivDeviceRefusal() }
     #endif
 
     func fetch(_ url: URL, source: ArxivReaderSource, maximum: Int) async throws -> Data {
@@ -111,6 +127,7 @@ private actor ArxivHTMLAcquisition {
         guard document || source.admitsAsset(url.absoluteString) else { throw ArxivHTMLError.invalid }
         // Reserve a slot before suspending, including concurrent paper opens.
         let now = Date()
+        if refusal.until(now: now) != nil { throw ArxivHTMLError.refused }
         if busyUntil.timeIntervalSince(now) > ArxivAcquisitionPolicy.busyLimit { throw ArxivHTMLError.retryLater }
         var scheduled = max(now, busyUntil)
         if document {
@@ -127,10 +144,12 @@ private actor ArxivHTMLAcquisition {
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue(document ? "text/html" : "image/png,image/jpeg,image/svg+xml", forHTTPHeaderField: "Accept")
+        request.setValue(ArxivAcquisitionPolicy.userAgent, forHTTPHeaderField: "User-Agent")
         let (stream, response) = try await session.bytes(for: request)
         defer { stream.task.cancel() }
         guard let http = response as? HTTPURLResponse, http.url == url else { throw ArxivHTMLError.invalid }
         if [404, 410].contains(http.statusCode), document { throw ArxivHTMLError.unavailable }
+        if http.statusCode == 403 { refusal.record(now: Date()); throw ArxivHTMLError.refused }
         if http.statusCode == 429 || http.statusCode == 503 {
             // Do not retry early, even if another open arrives on this device.
             let delay = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 60
@@ -166,6 +185,8 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     #if DEBUG
     /// Tests only: protocols for the acquisition session, so a fixture answers arxiv.org without the network or pacing.
     nonisolated(unsafe) static var fixtureProtocolClasses: [AnyClass]?
+    /// Tests only: where the device's arXiv refusal is kept, instead of the app's own defaults.
+    nonisolated(unsafe) static var refusalSuite: String?
     #endif
     private var web: WKWebView?
     private var completion: CheckedContinuation<String, Error>?
@@ -182,10 +203,14 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     /// "Preparing…" through the compile and the image admission (0.8–1).
     static func phase(for fraction: Double) -> String { fraction < 0.8 ? "Downloading…" : "Preparing…" }
 
-    func prepare(_ source: ArxivReaderSource, authors: [String] = [], title: String? = nil, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> VerifiedReaderBundle {
+    /// `onSource`: the page's bytes once downloaded, for the metadata this device reads from them
+    /// (SourceMetadataReporter; nil unless the server asks for it).
+    func prepare(_ source: ArxivReaderSource, authors: [String] = [], title: String? = nil, progress: @escaping @Sendable (Double) -> Void = { _ in },
+                 onSource: (@Sendable (Data) -> Void)? = nil) async throws -> VerifiedReaderBundle {
         defer { close() }
         progress(0.02)
         let html = try await acquire(source.htmlURL, source, ArxivAcquisitionPolicy.sourceBytes)
+        onSource?(html)
         progress(0.12)
         try await load()
         // The catalog record goes with both calls: a paper whose HTML has no `h1` or no author block is headed from it.

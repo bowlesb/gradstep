@@ -5,6 +5,7 @@ FROM node:24-slim
 WORKDIR /app
 COPY scripts/workflow-checks.mjs scripts/workflow-checks.mjs
 COPY scripts/reader-workflow.mjs scripts/reader-workflow.mjs
+COPY supabase/functions/_shared/egress.ts supabase/functions/_shared/egress.ts
 COPY infra/ infra/
 ENV WORKFLOW_REPORT_DIR=/tmp/workflow-checks NODE_ENV=production
 USER node

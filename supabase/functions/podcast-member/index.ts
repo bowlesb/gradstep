@@ -1,10 +1,13 @@
 // Single-use, account-bound podcast audio delivery (see _shared/podcast-delivery.ts).
+import { installEgressGuard } from '../_shared/egress.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { podcastError } from '../_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../_shared/podcast-delivery.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('podcast-member');
 
 async function call<T>(client: SupabaseClient, name: string, params: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.rpc(name, params);

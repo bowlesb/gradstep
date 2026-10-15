@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ARXIV_PACING, ArxivReaderError, admitsArxivAsset, fetchArxivAssets, resetArxivPacing, retrieveArxiv, shareInflight } from '../src/lib/arxiv-reader';
+import { ARXIV_PACING, ARXIV_REFUSAL, ArxivReaderError, admitsArxivAsset, fetchArxivAssets, resetArxivPacing, retrieveArxiv, shareInflight } from '../src/lib/arxiv-reader';
 
 const base = 'https://arxiv.org/html/2305.18290v3';
 const asset = (n: number) => `${base}/x${n}.png`;
@@ -60,6 +60,31 @@ describe('arXiv acquisition pacing', () => {
   const blocked = serve(() => ({}));
   await expect(retrieveArxiv(asset(4), 1024, false, never)).rejects.toThrow('arXiv is busy');
   expect(blocked.requests).toHaveLength(0);
+ });
+
+ it('a refusal (403) stops every arXiv request from this browser for a day, kept across reloads', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => { stored.set(k, v); }, removeItem: (k: string) => { stored.delete(k); } });
+  serve(() => ({ status: 403 }));
+  await expect(retrieveArxiv(base, 1024, true, never)).rejects.toThrow('arXiv refused requests from this browser');
+  expect(Number(stored.get(ARXIV_REFUSAL.key))).toBe(Date.now() + ARXIV_REFUSAL.pauseMs);
+  const after = serve(() => ({}));
+  await vi.advanceTimersByTimeAsync(ARXIV_REFUSAL.pauseMs - 1000);
+  await expect(retrieveArxiv(asset(1), 1024, false, never)).rejects.toThrow('arXiv refused');
+  expect(after.requests).toHaveLength(0);
+  // A reload forgets this tab's memory, not the stored refusal.
+  const until = stored.get(ARXIV_REFUSAL.key)!;
+  resetArxivPacing(); stored.set(ARXIV_REFUSAL.key, until);
+  await expect(retrieveArxiv(asset(2), 1024, false, never)).rejects.toThrow('arXiv refused');
+  expect(after.requests).toHaveLength(0);
+  // A day after the refusal the browser asks again.
+  await vi.advanceTimersByTimeAsync(1000);
+  await retrieveArxiv(asset(3), 1024, false, never);
+  expect(after.requests).toEqual([asset(3)]);
+  // A record more than a day ahead was not written by this code and stops nothing.
+  resetArxivPacing(); stored.set(ARXIV_REFUSAL.key, String(Date.now() + 10 * ARXIV_REFUSAL.pauseMs));
+  await retrieveArxiv(asset(4), 1024, false, never);
+  expect(after.requests).toEqual([asset(3), asset(4)]);
  });
 
  it('refuses redirects, wrong types and oversized bodies, and stops the other assets after one failure', async () => {

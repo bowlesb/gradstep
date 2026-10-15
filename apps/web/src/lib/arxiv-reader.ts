@@ -5,20 +5,40 @@ import { arxivPreparationMessage } from './arxiv-reader-error';
 import { buildPaperContext, PAPER_CONTEXT_FORMAT } from './paper-context';
 export class ArxivReaderError extends Error {}
 
+/** Who hears about a page this browser downloaded to prepare a paper (source-metadata.ts, while the server asks for
+ * device-read metadata; docs/architecture/ARXIV_DEVICE_ONLY.md §5.3). */
+export interface ArxivSourceObserver { source(ref: SourcePaperReference, html: Bytes): void }
+let sourceObserver: ArxivSourceObserver | null = null;
+export function observeArxivSources(observer: ArxivSourceObserver | null): () => void {
+ sourceObserver = observer;
+ return () => { if (sourceObserver === observer) sourceObserver = null; };
+}
+
 /** Acquisition pacing. A paper's HTML document request is spaced like a new page visit; that page's
  * own declared assets then load together, bounded, the way a browser loads the images of one page.
- * A Retry-After from arXiv pauses every request from this page. */
+ * A Retry-After from arXiv pauses every request from this page; a refusal (403) stops every arXiv request from this
+ * browser for a day, kept across reloads (owner, 2026-10-15; docs/architecture/ARXIV_DEVICE_ONLY.md §5.1, §5.9). */
 export const ARXIV_PACING = Object.freeze({ documentSpacingMs: 3000, assetConcurrency: 4, requestTimeoutMs: 90_000, busyLimitMs: 60_000 });
 export const ARXIV_LIMITS = Object.freeze({ sourceBytes: 8_388_608, assetBytes: 16_777_216, totalBytes: 41_943_040, assets: 512 });
 const BUSY = 'arXiv is busy. Try preparing this paper again later.';
 const UNAVAILABLE = 'HTML reader unavailable for this version. You can still download its PDF on this device.';
 const TOO_LARGE = 'This paper exceeds the device reader’s preparation limits.';
 const UNREACHABLE = 'Couldn’t retrieve this paper from arXiv. Check your connection and try again.';
+const REFUSED = 'arXiv refused requests from this browser, so Gradstep won’t ask arXiv from here again for a day. Papers already prepared in this tab still open.';
+export const ARXIV_REFUSAL = Object.freeze({ pauseMs: 86_400_000, key: 'gradstep.arxiv.refused-until' });
 
 let nextDocumentRequest = 0;
 let busyUntil = 0;
+let refusedUntil = 0;
 /** Fast-suite only: forget this page's pacing state. */
-export function resetArxivPacing(): void { nextDocumentRequest = 0; busyUntil = 0; }
+export function resetArxivPacing(): void { nextDocumentRequest = 0; busyUntil = 0; refusedUntil = 0; try { localStorage.removeItem(ARXIV_REFUSAL.key); } catch { /* no storage */ } }
+/** Until when arXiv's last refusal stops this browser asking: this tab's own, or one another tab or an earlier visit
+ * recorded. A record more than a day ahead is not one this code wrote, and is ignored. */
+function refusal(now: number): number {
+ let stored = 0; try { stored = Number(localStorage.getItem(ARXIV_REFUSAL.key)) || 0; } catch { /* no storage: this tab only */ }
+ if (stored <= now + ARXIV_REFUSAL.pauseMs) refusedUntil = Math.max(refusedUntil, stored);
+ return refusedUntil;
+}
 
 const abort = (signal: AbortSignal) => signal.throwIfAborted();
 const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -35,6 +55,7 @@ export function admitsArxivAsset(url: string, base: string): boolean {
 export async function retrieveArxiv(url: string, maximum: number, html: boolean, parentSignal: AbortSignal): Promise<Bytes> {
  abort(parentSignal);
  const now = Date.now();
+ if (refusal(now) > now) throw new ArxivReaderError(REFUSED);
  if (busyUntil - now > ARXIV_PACING.busyLimitMs) throw new ArxivReaderError(BUSY);
  let scheduled = Math.max(now, busyUntil);
  if (html) { scheduled = Math.max(scheduled, nextDocumentRequest); nextDocumentRequest = scheduled + ARXIV_PACING.documentSpacingMs; }
@@ -43,6 +64,11 @@ export async function retrieveArxiv(url: string, maximum: number, html: boolean,
  let response: Response;
  try { response = await fetch(url, { credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal }); }
  catch { abort(parentSignal); throw new ArxivReaderError(UNREACHABLE); }
+ if (response.status === 403) {
+  refusedUntil = Date.now() + ARXIV_REFUSAL.pauseMs;
+  try { localStorage.setItem(ARXIV_REFUSAL.key, String(refusedUntil)); } catch { /* no storage: this tab only */ }
+  await response.body?.cancel(); throw new ArxivReaderError(REFUSED);
+ }
  if ([429, 503].includes(response.status)) {
   const retry = response.headers.get('retry-after'), seconds = retry && /^\d+$/.test(retry) ? Number(retry) : Math.max(60, (Date.parse(retry ?? '') - Date.now()) / 1000 || 60);
   busyUntil = Math.max(busyUntil, Date.now() + Math.min(86400, Math.max(3, seconds)) * 1000);
@@ -111,6 +137,7 @@ export interface ArxivPrepareOptions { /** The library's author names and title 
 async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress: (fraction: number) => void, options: ArxivPrepareOptions): Promise<VerifiedBundle> {
  const url = arxivHTMLURL(ref);
  const html = await retrieveArxiv(url, ARXIV_LIMITS.sourceBytes, true, signal); abort(signal);
+ sourceObserver?.source(ref, html);
  const { default: compiler } = await import('virtual:arxiv-compiler'); abort(signal);
  const frame = document.createElement('iframe'); frame.hidden = true; frame.sandbox.add('allow-scripts');
  frame.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${compiler.hash}'; img-src data:; connect-src 'none'; style-src 'none'; base-uri 'none'"><script>${compiler.script}</script>`;

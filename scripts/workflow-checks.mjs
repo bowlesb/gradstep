@@ -9,6 +9,7 @@
 // Staging only. No dependencies beyond Node 24. Secrets come from the environment or from
 // .env.staging / .env.providers / .env.appstore (a git worktree reads the main checkout's) and the
 // macOS keychain ("Supabase CLI"); they are never printed and are redacted from the report.
+import { installEgressGuard } from '../supabase/functions/_shared/egress.ts';
 import { createHash, createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -16,6 +17,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve4, resolve6 } from 'node:dns/promises';
 import { verifyReaderDelivery } from './reader-workflow.mjs';
+// No request from this job (it runs on Cloud Run) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('workflow-checks');
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT_REF = 'coxhjvqpflgxkleydati';

@@ -1,9 +1,12 @@
 // The request remains open until the pipeline's worker thread finishes or is stopped.
 // Do not detach work from this lifecycle: Cloud Run uses request-based CPU billing.
+import { installEgressGuard } from '../../supabase/functions/_shared/egress.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import type { RunResult } from './run.ts';
+// No request from this server may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('pipeline-worker');
 
 /** Leave a full minute for termination, logging and the response before Cloud Run's 900 s limit. */
 export const HARD_RUN_LIMIT_MS = 840_000;

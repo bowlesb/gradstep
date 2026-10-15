@@ -1,11 +1,14 @@
 // Paper podcasts: catalog, episode details, quote/start/status/cancel and audio
 // grants (docs/architecture/PAPER_PODCASTS.md "Client API"). Dark until the
 // operator enables podcast_policy; disabled capabilities return empty/unavailable.
+import { installEgressGuard } from '../_shared/egress.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { handlePodcast, podcastError } from '../_shared/podcast-api.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('podcast');
 
 async function call<T>(client: SupabaseClient, name: string, params: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.rpc(name, params);

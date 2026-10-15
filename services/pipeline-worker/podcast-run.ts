@@ -2,6 +2,7 @@
 // parent (server.ts, POST /podcast) runs this in a worker thread with the same
 // hard deadline as the paper pipeline and awaits it before replying: no detached
 // work under request-based billing. One job (or one stage of a staged job) per request.
+import { installEgressGuard } from '../../supabase/functions/_shared/egress.ts';
 import { parentPort, workerData } from 'node:worker_threads';
 import { createHash, randomUUID } from 'node:crypto';
 import { createAnthropicClient } from '../../supabase/functions/_shared/anthropic.ts';
@@ -12,6 +13,8 @@ import { deepseekScriptProvider } from '../../supabase/functions/_shared/deepsee
 import { impersonatedTokenSource, vertexSpeechProvider } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { runPodcast, type PodcastDeps, type PodcastRunResult } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { ffmpegEncoder } from './podcast-encode.ts';
+// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('pipeline-worker/podcast');
 
 /** Leaves time for recording a failure before the parent's 840 s hard limit. */
 export const PODCAST_BUDGET_MS = 780_000;

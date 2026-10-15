@@ -2,10 +2,10 @@ import { children, one, plain, sourceXML, SourceError, type XMLNode } from './so
 import { sha256 } from './http.ts';
 
 const ATOM = 'http://www.w3.org/2005/Atom';
-const ARXIV_ATOM = 'http://arxiv.org/schemas/atom';
+const ARXIV_ATOM = 'http://arxiv.org/schemas/atom'; // egress-ok: namespace
 const OAI = 'http://www.openarchives.org/OAI/2.0/';
-const RAW = 'http://arxiv.org/OAI/arXivRaw/';
-const allowedInputHosts = new Set(['arxiv.org', 'www.arxiv.org', 'export.arxiv.org']);
+const RAW = 'http://arxiv.org/OAI/arXivRaw/'; // egress-ok: namespace
+const allowedInputHosts = new Set(['arxiv.org', 'www.arxiv.org', 'export.arxiv.org']); // egress-ok: parse
 
 export interface ArxivReference { sourceID: string; revision: number | null }
 export interface ArxivMetadata {
@@ -90,9 +90,9 @@ export function arxivURLs(reference: ArxivReference): { abstract: string; atom: 
   // (`oai%3AarXiv.org%3A…`) on 2026-10-14 (every import hung for 60 s at the metadata stage); the plain form answers
   // at once. `sourceID` is validated above (digits and dots, or archive/NNNNNNN), so nothing else needs encoding.
   const raw = new URL('https://oaipmh.arxiv.org/oai');
-  raw.search = `verb=GetRecord&identifier=oai:arXiv.org:${ref.sourceID}&metadataPrefix=arXivRaw`;
-  return { abstract: `https://arxiv.org/abs/${id}`, atom: atom.href, raw: raw.href,
-    pdf: ref.revision === null ? null : `https://arxiv.org/pdf/${id}` };
+  raw.search = `verb=GetRecord&identifier=oai:arXiv.org:${ref.sourceID}&metadataPrefix=arXivRaw`; // egress-ok: namespace
+  return { abstract: `https://arxiv.org/abs/${id}`, atom: atom.href, raw: raw.href, // egress-ok: link
+    pdf: ref.revision === null ? null : `https://arxiv.org/pdf/${id}` }; // egress-ok: link
 }
 
 function catalogInstant(value: string): boolean {
@@ -211,7 +211,7 @@ function oaiRawRecord(bytes: Uint8Array, ref: ArxivReference): RawRecord {
   const get = one(root, OAI, 'GetRecord')!, record = one(get, OAI, 'record')!, header = one(record, OAI, 'header')!;
   if (header.attributes['{}status'] === 'deleted') throw new SourceError('source_not_found');
   const identity = plain(one(header, OAI, 'identifier'), 256);
-  if (identity !== `oai:arXiv.org:${ref.sourceID}`) throw new SourceError('source_identity_mismatch');
+  if (identity !== `oai:arXiv.org:${ref.sourceID}`) throw new SourceError('source_identity_mismatch'); // egress-ok: namespace
   const raw = one(one(record, OAI, 'metadata')!, RAW, 'arXivRaw')!;
   const rawRef = arxivReference(plain(one(raw, RAW, 'id'), 128)!);
   if (rawRef.sourceID !== ref.sourceID || rawRef.revision !== null) throw new SourceError('source_identity_mismatch');

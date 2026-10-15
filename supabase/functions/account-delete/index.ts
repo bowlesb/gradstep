@@ -5,9 +5,12 @@
 // The first database step closes the account. A repeat call (for example after
 // a lost response) authenticates with the login alone and resumes; anything
 // still incomplete is finished by the paper worker's sweep.
+import { installEgressGuard } from '../_shared/egress.ts';
 import { authenticatedUserID, cors, serviceClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { closePodcastWork, completeAccountDeletion, DELETION_CONFIRMATION } from '../_shared/account-deletion.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('account-delete');
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };

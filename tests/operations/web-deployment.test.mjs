@@ -25,8 +25,8 @@ function fixture(t, changes = {}) {
       if (command !== 'npm') return;
       const app = args[1] === 'build:admin' ? 'apps/admin' : 'apps/web';
       const directory = join(root, app, 'dist'); mkdirSync(join(directory, 'assets'), { recursive: true });
-      // The browser reader also fetches arXiv HTML directly (device-only reading), so its connect-src names arXiv first.
-      writeFileSync(join(directory, '_headers'), app === 'apps/web' ? adminHeaders.replace(`connect-src ${backend}`, `connect-src https://arxiv.org ${backend}`) : adminHeaders);
+      // The browser reader fetches arXiv HTML and searches DataCite directly (devices only), so its connect-src names both first.
+      writeFileSync(join(directory, '_headers'), app === 'apps/web' ? adminHeaders.replace(`connect-src ${backend}`, `connect-src https://arxiv.org https://api.datacite.org ${backend}`) : adminHeaders);
       writeFileSync(join(directory, 'index.html'), '<html><body><script src="/assets/client.js"></script></body></html>');
       writeFileSync(join(directory, 'assets/client.js'), `export const endpoint=${JSON.stringify(backend)},key=${JSON.stringify(env.SUPABASE_ANON_KEY)};`);
       mutate(directory);

@@ -1,0 +1,343 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/v5RgAZvZpfghbbHRyxdLbGQbewA</id>
+  <title>arXiv Query: search_query=all:difusion OR all:model OR all:distilation&amp;id_list=&amp;start=0&amp;max_results=50</title>
+  <updated>2026-10-15T18:10:09Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:difusion+OR+(all:model+OR+all:distilation)&amp;start=0&amp;max_results=50&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>50</opensearch:itemsPerPage>
+  <opensearch:totalResults>1255227</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2605.04999v2</id>
+    <title>A Tutorial for Evaluating Cure Model Appropriateness</title>
+    <updated>2026-05-13T17:03:22Z</updated>
+    <link href="https://arxiv.org/abs/2605.04999v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.04999v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>In survival analysis, traditional models assume all individuals will eventually experience the event of interest. However, advances in therapeutics have led to multiple clinical contexts with potentially curative therapies, and in these contexts, certain individuals may never experience the event. Statisticians have developed cure models as a methodology to address this challenge. Nonetheless, despite significant statistical advances in cure models, we have seen more limited uptake in biomedical applications, and we hypothesize that this is caused by limited guidance in the appropriate application of cure models. Cure models require specific identifiability conditions for valid parameter estimation, and previous reports have demonstrated significant issues with the inappropriate application of cure models. Existing tutorials for cure models focus on model implementation and either assume or provide only limited guidance on whether cure modeling is appropriate for the given dataset. This tutorial addresses this gap by describing a systematic procedure that integrates clinical judgment, visual inspection of Kaplan-Meier curves, and quantitative evaluation. We provide a worked example using data from a randomized clinical trial in acute myeloid leukemia, and we also summarize findings from a series of other datasets of hematopoietic cell transplantation to suggest broad practical guidance for choosing to apply cure models. By systematically evaluating cure model appropriateness before fitting these models, researchers can achieve more reliable survival analysis and improved clinical decision-making.</summary>
+    <category term="stat.ME" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-06T14:59:41Z</published>
+    <arxiv:comment>24 pages, 2 figues, to be submitted in Statistics in Medicine, First two authors have equal contributions</arxiv:comment>
+    <arxiv:primary_category term="stat.ME"/>
+    <author>
+      <name>A Tutorial for Evaluating Cure Model Appropriateness Geethanjalee Mudunkotuwa</name>
+    </author>
+    <author>
+      <name>Durbadal Ghosh</name>
+    </author>
+    <author>
+      <name>Subodh Selukar</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2609.24526v2</id>
+    <title>ME-VLM: A Unified VLM for Embodied Cognition and Agent Coordination</title>
+    <updated>2026-09-22T06:57:21Z</updated>
+    <link href="https://arxiv.org/abs/2609.24526v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2609.24526v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Physical AI requires models to ground visual and linguistic understanding in real-world environments while accounting for environmental constraints and execution feedback. We introduce MachEmbodied-VLM (ME-VLM), a unified vision-language model with two variants, 4B and 35B-A3B, that brings together embodied cognition and multimodal agent capabilities. Our work emphasizes physical perception and spatiotemporal reasoning, together with planning, interaction, and outcome assessment in both digital and physical environments. We construct training data spanning embodied and multimodal agent tasks, including execution observations and feedback to support outcome assessment and decision refinement. The training pipeline comprises embodied capability injection, separate reinforcement learning of embodied and multimodal-agent experts, and multi-teacher on-policy distillation that consolidates their complementary capabilities into a single model. Experiments show competitive performance on both embodied and agent benchmarks, as well as on autonomous-driving and embodied-navigation tasks. For edge deployment, visual token compression, W4A8 quantization, and hardware-software co-optimization enable on-device inference of the 4B variant on the M100, reducing prefill latency from 400 ms to 188 ms.
+  Project Page: https://machembodied.com/ME-Brain/ME-VLM.html Code Repository: https://github.com/MachEmbodied/ME-VLM</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-09-21T12:59:59Z</published>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Foundation Model</name>
+    </author>
+    <author>
+      <name>Li Auto Inc</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/1111.2281v1</id>
+    <title>IVOA Recommendation: Data Model for Astronomical DataSet Characterisation</title>
+    <updated>2011-11-09T17:28:30Z</updated>
+    <link href="https://arxiv.org/abs/1111.2281v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1111.2281v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>This document defines the high level metadata necessary to describe the physical parameter space of observed or simulated astronomical data sets, such as 2D-images, data cubes, X-ray event lists, IFU data, etc.. The Characterisation data model is an abstraction which can be used to derive a structured description of any relevant data and thus to facilitate its discovery and scientific interpretation. The model aims at facilitating the manipulation of heterogeneous data in any VO framework or portal. A VO Characterisation instance can include descriptions of the data axes, the range of coordinates covered by the data, and details of the data sampling and resolution on each axis. These descriptions should be in terms of physical variables, independent of instrumental signatures as far as possible.
+  Implementations of this model has been described in the IVOA Note available at: http://www.ivoa.net/Documents/latest/ImplementationCharacterisation.html
+  Utypes derived from this version of the UML model are listed and commented in the following IVOA Note: http://www.ivoa.net/Documents/latest/UtypeListCharacterisationDM.html
+  An XML schema has been build up from the UML model and is available at: http://www.ivoa.net/xml/Characterisation/Characterisation-v1.11.xsd</summary>
+    <category term="astro-ph.IM" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2011-11-09T17:28:30Z</published>
+    <arxiv:comment>http://www.ivoa.net</arxiv:comment>
+    <arxiv:primary_category term="astro-ph.IM"/>
+    <author>
+      <name>Mireille Louys</name>
+    </author>
+    <author>
+      <name>Anita Richards</name>
+    </author>
+    <author>
+      <name>Francois Bonnarel</name>
+    </author>
+    <author>
+      <name>Alberto Micol</name>
+    </author>
+    <author>
+      <name>Igor Chilingarian</name>
+    </author>
+    <author>
+      <name>Jonathan McDowell</name>
+    </author>
+    <author>
+      <name>the IVOA Data Model Working Group</name>
+    </author>
+    <arxiv:doi>10.5479/ADS/bib/2008ivoa.spec.0325L</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.5479/ADS/bib/2008ivoa.spec.0325L" title="doi"/></entry>
+  <entry>
+    <id>http://arxiv.org/abs/1711.08552v2</id>
+    <title>Thetis coastal ocean model: discontinuous Galerkin discretization for the three-dimensional hydrostatic equations</title>
+    <updated>2018-10-18T12:07:01Z</updated>
+    <link href="https://arxiv.org/abs/1711.08552v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1711.08552v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Unstructured grid ocean models are advantageous for simulating the coastal ocean and river-estuary-plume systems. However, unstructured grid models tend to be diffusive and/or computationally expensive which limits their applicability to real life problems. In this paper, we describe a novel discontinuous Galerkin (DG) finite element discretization for the hydrostatic equations. The formulation is fully conservative and second-order accurate in space and time. Monotonicity of the advection scheme is ensured by using a strong stability preserving time integration method and slope limiters. Compared to previous DG models advantages include a more accurate mode splitting method, revised viscosity formulation, and new second-order time integration scheme. We demonstrate that the model is capable of simulating baroclinic flows in the eddying regime with a suite of test cases. Numerical dissipation is well-controlled, being comparable or lower than in existing state-of-the-art structured grid models.</summary>
+    <category term="physics.ao-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2017-11-23T01:40:41Z</published>
+    <arxiv:comment>Submitted to Geoscientific Model Development</arxiv:comment>
+    <arxiv:primary_category term="physics.ao-ph"/>
+    <arxiv:journal_ref>Geoscientific Model Development 11:4359-4382 (2018)</arxiv:journal_ref>
+    <author>
+      <name>Tuomas Kärnä</name>
+    </author>
+    <author>
+      <name>Stephan C. Kramer</name>
+    </author>
+    <author>
+      <name>Lawrence Mitchell</name>
+    </author>
+    <author>
+      <name>David A. Ham</name>
+    </author>
+    <author>
+      <name>Matthew D. Piggott</name>
+    </author>
+    <author>
+      <name>António M. Baptista</name>
+    </author>
+    <arxiv:doi>10.5194/gmd-11-4359-2018</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.5194/gmd-11-4359-2018" title="doi"/></entry>
+  <entry>
+    <id>http://arxiv.org/abs/1708.04157v2</id>
+    <title>A global scavenging and circulation ocean model of thorium-230 and protactinium-231 with realistic particle dynamics (NEMO-ProThorP 0.1)</title>
+    <updated>2017-12-06T13:15:34Z</updated>
+    <link href="https://arxiv.org/abs/1708.04157v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1708.04157v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>In this paper, we set forth a 3-D ocean model of the radioactive trace isotopes Th-230 and Pa-231. The interest arises from the fact that these isotopes are extensively used for investigating particle transport in the ocean and reconstructing past ocean circulation. The tracers are reversibly scavenged by biogenic and lithogenic particles.
+  Our simulations of Th-230 and Pa-231 are based on the NEMO-PISCES ocean biogeochemistry general circulation model, which includes biogenic particles, namely small and big particulate organic carbon, calcium carbonate and biogenic silica. Small and big lithogenic particles from dust deposition are included in our model as well. Their distributions generally compare well with the small and big lithogenic particle concentrations from recent observations from the GEOTRACES programme, except for boundary nepheloid layers for which, as up to today, there are no non-trivial, prognostic models available on a global scale. Our simulations reproduce Th-230 and Pa-231 dissolved concentrations: they compare well with recent GEOTRACES observations in many parts of the ocean. Particulate Th-230 and Pa-231 concentrations are significantly improved compared to previous studies, but they are still too low because of missing particles from nepheloid layers. Our simulation reproduces the main characteristics of the Pa-231/Th-230 ratio observed in the sediments, and supports a moderate affinity of Pa-231 to biogenic silica as suggested by recent observations, relative to Th-230.
+  Future model development may further improve understanding, especially when this will include a more complete representation of all particles, including different size classes, manganese hydroxides and nepheloid layers. This can be done based on our model, as its source code is readily available.</summary>
+    <category term="physics.ao-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CE" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2017-08-14T14:49:38Z</published>
+    <arxiv:comment>submitted to Geoscientific Model Development</arxiv:comment>
+    <arxiv:primary_category term="physics.ao-ph"/>
+    <arxiv:journal_ref>Geoscientific Model Development, 11, 3537-3556, 2018</arxiv:journal_ref>
+    <author>
+      <name>Marco van Hulten</name>
+    </author>
+    <author>
+      <name>Jean-Claude Dutay</name>
+    </author>
+    <author>
+      <name>Matthieu Roy-Barman</name>
+    </author>
+    <arxiv:doi>10.5194/gmd-11-3537-2018</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.5194/gmd-11-3537-2018" title="doi"/></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2603.15969v2</id>
+    <title>Robust Language Identification for Romansh Varieties</title>
+    <updated>2026-05-05T16:50:27Z</updated>
+    <link href="https://arxiv.org/abs/2603.15969v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2603.15969v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The Romansh language has several regional varieties, called idioms, which sometimes have limited mutual intelligibility. Despite this linguistic diversity, there has been a lack of documented efforts to build a language identification (LID) system that can distinguish between these idioms. Since Romansh LID should also be able to recognize Rumantsch Grischun, a supra-regional variety that combines elements of several idioms, this makes for a novel and interesting classification problem. In this paper, we present a LID system for Romansh idioms based on an SVM approach. We evaluate our model on a newly curated benchmark across two domains and find that it reaches an average in-domain accuracy of 97%, enabling applications such as idiom-aware spell checking or machine translation. Our classifier is publicly available.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-03-16T22:42:10Z</published>
+    <arxiv:comment>To appear at the 11th edition of SwissText</arxiv:comment>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Charlotte Model</name>
+    </author>
+    <author>
+      <name>Sina Ahmadi</name>
+    </author>
+    <author>
+      <name>Jannis Vamvas</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2410.23905v1</id>
+    <title>Text-DiFuse: An Interactive Multi-Modal Image Fusion Framework based on Text-modulated Diffusion Model</title>
+    <updated>2024-10-31T13:10:50Z</updated>
+    <link href="https://arxiv.org/abs/2410.23905v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2410.23905v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Existing multi-modal image fusion methods fail to address the compound degradations presented in source images, resulting in fusion images plagued by noise, color bias, improper exposure, \textit{etc}. Additionally, these methods often overlook the specificity of foreground objects, weakening the salience of the objects of interest within the fused images. To address these challenges, this study proposes a novel interactive multi-modal image fusion framework based on the text-modulated diffusion model, called Text-DiFuse. First, this framework integrates feature-level information integration into the diffusion process, allowing adaptive degradation removal and multi-modal information fusion. This is the first attempt to deeply and explicitly embed information fusion within the diffusion process, effectively addressing compound degradation in image fusion. Second, by embedding the combination of the text and zero-shot location model into the diffusion fusion process, a text-controlled fusion re-modulation strategy is developed. This enables user-customized text control to improve fusion performance and highlight foreground objects in the fused images. Extensive experiments on diverse public datasets show that our Text-DiFuse achieves state-of-the-art fusion performance across various scenarios with complex degradation. Moreover, the semantic segmentation experiment validates the significant enhancement in semantic performance achieved by our text-controlled fusion re-modulation strategy. The code is publicly available at https://github.com/Leiii-Cao/Text-DiFuse.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-10-31T13:10:50Z</published>
+    <arxiv:comment>Accepted by the 38th Conference on Neural Information Processing Systems (NeurIPS 2024)</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Hao Zhang</name>
+    </author>
+    <author>
+      <name>Lei Cao</name>
+    </author>
+    <author>
+      <name>Jiayi Ma</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2410.14047v1</id>
+    <title>DiFuseR: A Distributed Sketch-based Influence Maximization Algorithm for GPUs</title>
+    <updated>2024-10-17T21:41:12Z</updated>
+    <link href="https://arxiv.org/abs/2410.14047v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2410.14047v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Influence Maximization (IM) aims to find a given number of "seed" vertices that can effectively maximize the expected spread under a given diffusion model. Due to the NP-Hardness of finding an optimal seed set, approximation algorithms are often used for IM. However, these algorithms require a large number of simulations to find good seed sets. In this work, we propose DiFuseR, a blazing-fast, high-quality IM algorithm that can run on multiple GPUs in a distributed setting. DiFuseR is designed to increase GPU utilization, reduce inter-node communication, and minimize overlapping data/computation among the nodes. Based on the experiments with various graphs, containing some of the largest networks available, and diffusion settings, the proposed approach is found to be 3.2x and 12x faster on average on a single GPU and 8 GPUs, respectively. It can achieve up to 8x and 233.7x speedup on the same hardware settings. Furthermore, thanks to its smart load-balancing mechanism, on 8 GPUs, it is on average 5.6x faster compared to its single-GPU performance.</summary>
+    <category term="cs.DC" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.PF" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.SI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-10-17T21:41:12Z</published>
+    <arxiv:primary_category term="cs.DC"/>
+    <arxiv:journal_ref>J Supercomput 81, 21 (2025).</arxiv:journal_ref>
+    <author>
+      <name>Gökhan Göktürk</name>
+    </author>
+    <author>
+      <name>Kamer Kaya</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/1204.3055v1</id>
+    <title>IVOA Recommendation: Spectrum Data Model 1.1</title>
+    <updated>2012-04-13T17:19:51Z</updated>
+    <link href="https://arxiv.org/abs/1204.3055v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1204.3055v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We present a data model describing the structure of spectrophotometric datasets with spectral and temporal coordinates and associated metadata. This data model may be used to represent spectra, time series data, segments of SED (Spectral Energy Distributions) and other spectral or temporal associations.</summary>
+    <category term="astro-ph.IM" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2012-04-13T17:19:51Z</published>
+    <arxiv:comment>http://www.ivoa.net</arxiv:comment>
+    <arxiv:primary_category term="astro-ph.IM"/>
+    <author>
+      <name>Jonathan McDowell</name>
+    </author>
+    <author>
+      <name>Doug Tody</name>
+    </author>
+    <author>
+      <name>Tamas Budavari</name>
+    </author>
+    <author>
+      <name>Markus Dolensky</name>
+    </author>
+    <author>
+      <name>Inga Kamp</name>
+    </author>
+    <author>
+      <name>Kelly McCusker</name>
+    </author>
+    <author>
+      <name>Pavlos Protopapas</name>
+    </author>
+    <author>
+      <name>Arnold Rots</name>
+    </author>
+    <author>
+      <name>Randy Thompson</name>
+    </author>
+    <author>
+      <name>Frank Valdes</name>
+    </author>
+    <author>
+      <name>Petr Skoda</name>
+    </author>
+    <author>
+      <name>Bruno Rino</name>
+    </author>
+    <author>
+      <name>Sebastien Derriere</name>
+    </author>
+    <author>
+      <name>Jesus Salgado</name>
+    </author>
+    <author>
+      <name>Omar Laurino</name>
+    </author>
+    <author>
+      <name>the IVOA Data Access Layer</name>
+    </author>
+    <author>
+      <name>Data Model Working Groups</name>
+    </author>
+    <arxiv:doi>10.5479/ADS/bib/2011ivoa.spec.1120M</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.5479/ADS/bib/2011ivoa.spec.1120M" title="doi"/></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2607.09375v1</id>
+    <title>Mach-Mind-4-Flash Technical Report</title>
+    <updated>2026-07-10T12:57:08Z</updated>
+    <link href="https://arxiv.org/abs/2607.09375v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2607.09375v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We present Mach-Mind-4-Flash, a 35B-parameter Mixture-of-Experts (MoE) agentic model with 3B activated parameters. Through post-training optimization alone without scaling pre-training compute, the model achieves performance on par with or surpassing that of 100B-parameter-class models. By introducing scalable agentic interaction environments for large-scale reinforcement learning, the model attains significant performance gains on real-world application tasks. Our pipeline comprises three stages: (1) a unified RL/OPD training infrastructure with dynamic multi-teacher scheduling and operator-level acceleration, delivering 17\% end-to-end training speedup; (2) multiple domain-specific RL experts trained in parallel across Reasoning, General, and Agent tracks, then fused into a single generalist via Multi-Teacher On-Policy Distillation (MOPD) -- a routed reverse-KL objective that eliminates the see-saw degradation of mixed-reward RL; (3) Hybrid Median-length Policy Optimization (HMPO), a single-stage token-efficiency method that compresses reasoning chains by 19--46\% with $\le$0.7 percentage-point accuracy loss. Mach-Mind-4-Flash scores 92.70 on AIME'26, 82.82 on IFBench, 80.74 on Behavioral-SafetyBench, 75.80 on BFCL-v4, 72.31 on BrowseComp-zh, and 84.20 on ClawBench -- leading or matching models with 10--30$\times$ its activated size at a fraction of the inference cost.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-07-10T12:57:08Z</published>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name> Foundation Model Team</name>
+    </author></entry>
+  <entry>
+    <id>http://arxiv.org/abs/1102.1343v3</id>
+    <title>Coupled atmosphere-wildland fire modeling with WRF-Fire</title>
+    <updated>2011-03-10T17:16:13Z</updated>
+    <link href="https://arxiv.org/abs/1102.1343v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1102.1343v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We describe the physical model, numerical algorithms, and software structure of WRF-Fire. WRF-Fire consists of a fire-spread model, implemented by the level-set method, coupled with the Weather Research and Forecasting model. In every time step, the fire model inputs the surface wind, which drives the fire, and outputs the heat flux from the fire into the atmosphere, which in turn influences the atmosphere. The level-set method allows submesh representation of the burning region and flexible implementation of various ignition modes. WRF-Fire is distributed as a part of WRF and it uses the WRF parallel infrastructure for parallel computing.</summary>
+    <category term="physics.ao-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2011-02-07T15:57:09Z</published>
+    <arxiv:comment>Version 3.3, 41 pages, 2 tables, 12 figures. As published in Discussions, under review for Geoscientific Model Development</arxiv:comment>
+    <arxiv:primary_category term="physics.ao-ph"/>
+    <arxiv:journal_ref>Geoscientific Model Development 4, 591-610, 2011</arxiv:journal_ref>
+    <author>
+      <name>Jan Mandel</name>
+    </author>
+    <author>
+      <name>Jonathan D. Beezley</name>
+    </author>
+    <author>
+      <name>Adam K. Kochanski</name>
+    </author>
+    <arxiv:doi>10.5194/gmd-4-591-2011</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.5194/gmd-4-591-2011" title="doi"/></entry>
+  <entry>
+    <id>http://arxiv.org/abs/2412.03515v3</id>
+    <title>Distilling Diffusion Models to Efficient 3D LiDAR Scene Completion</title>
+    <updated>2025-07-28T09:34:02Z</updated>
+    <link href="https://arxiv.org/abs/2412.03515v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2412.03515v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Diffusion models have been applied to 3D LiDAR scene completion due to their strong training stability and high completion quality. However, the slow sampling speed limits the practical application of diffusion-based scene completion models since autonomous vehicles require an efficient perception of surrounding environments. This paper proposes a novel distillation method tailored for 3D Li- DAR scene completion models, dubbed ScoreLiDAR, which achieves efficient yet high-quality scene completion. Score- LiDAR enables the distilled model to sample in significantly fewer steps after distillation. To improve completion quality, we also introduce a novel Structural Loss, which encourages the distilled model to capture the geometric structure of the 3D LiDAR scene. The loss contains a scene-wise term constraining the holistic structure and a point-wise term constraining the key landmark points and their relative configuration. Extensive experiments demonstrate that ScoreLiDAR significantly accelerates the completion time from 30.55 to 5.37 seconds per frame (&gt;5x) on SemanticKITTI and achieves superior performance compared to state-of-the-art 3D LiDAR scene completion models. Our model and code are publicly available on https://github.com/happyw1nd/ScoreLiDAR.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-12-04T17:57:25Z</published>
+    <arxiv:comment>This paper is accepted by ICCV'25(Oral), the model and code are publicly available on https://github.com/happyw1nd/ScoreLiDAR</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Shengyuan Zhang</name>
+    </author>
+    <author>
+      <name>An Zhao</name>
+    </author>
+    <author>
+      <name>Ling Yang</name>
+    </author>
+    <author>
+      <name>Zejian Li</name>
+    </author>
+    <author>
+      <name>Chenye Meng</name>
+    </author>
+    <author>
+      <name>Haoran Xu</name>
+    </author>
+    <author>
+      <name>Tianrun Chen</name>
+    </author>
+    <author>
+      <name>AnYang Wei</name>
+    </author>
+    <author>
+      <name>Perry Pengyun GU</name>
+    </author>
+    <author>
+      <name>Lingyun Sun</name>
+    </author></entry>
+</feed>

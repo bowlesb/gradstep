@@ -1,0 +1,1353 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.2408.02923",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2408.02923",
+    "titles": [
+     {
+      "title": "Intermediate direct preference optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Atsushi",
+      "familyName": "Kojima",
+      "name": "Kojima, Atsushi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "We propose the intermediate direct preference optimization (DPO) method to calculate the DPO loss at selected intermediate layers as an auxiliary loss for finetuning large language models (LLMs). The conventional DPO method fine-tunes a supervised fine-tuning (SFT) model by calculating the DPO loss using logits from the final layer. In our intermediate DPO approach, DPO losses are calculated using the logits from K-selected intermediate layers and averaged to obtain the intermediate DPO loss. For training the intermediate DPO model, the final loss is obtained by calculating the weighted sum of the DPO and intermediate DPO losses. During inference, the intermediate DPO model decodes using the final layer logits similarly to the conventional DPO model. In experiments using the ultrafeedback dataset, the performance of the intermediate DPO model was evaluated using GPT-4. As a result, the intermediate DPO model trained using the intermediate DPO loss calculated at the 22nd layer of a 32-layer SFT model achieved win rates of 52.5% and 67.5% against the conventional DPO and SFT models, respectively, demonstrating the effectiveness of the proposed method. Furthermore, we report the relationships among the position of the selected intermediate layers, the number of layers, and performance."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2024-08-06T03:16:09Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-08-07T00:16:47Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-08",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2605.20696",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2605.20696",
+    "titles": [
+     {
+      "title": "Distributed Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Zhanhong",
+      "familyName": "Jiang",
+      "name": "Jiang, Zhanhong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Preference-based reinforcement learning (RL) is a key paradigm for aligning policies with human judgments, yet its theoretical behavior in distributed settings where preference data are fragmented across heterogeneous users remains poorly understood. Direct Preference Optimization (DPO) avoids explicit reward modeling but lacks convergence guarantees under federated and decentralized training, where communication constraints and non-IID preferences fundamentally alter optimization dynamics. We provide the first convergence and time-complexity analysis of DPO in distributed environments. Modeling personalized offline RL with user-specific preference distributions, we characterize the induced global optimization landscape. For federated DPO, we derive convergence rates that quantify the impact of client drift, communication frequency, and preference heterogeneity; for decentralized DPO, we establish convergence over general communication graphs and show how spectral connectivity governs optimization speed and consensus. Empirically, we corroborate our theoretical insights on standard alignment benchmarks, demonstrating that our proposed methods not only enjoy strong theoretical guarantees but also deliver robust and scalable performance in practice. The code base is available here."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "29 pages, 12 figures"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-05-20T04:49:13Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-05-21T00:28:21Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-05",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2026
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2409.14664",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2409.14664",
+    "titles": [
+     {
+      "title": "Direct Judgement Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Peifeng",
+      "familyName": "Wang",
+      "name": "Wang, Peifeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Austin",
+      "familyName": "Xu",
+      "name": "Xu, Austin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yilun",
+      "familyName": "Zhou",
+      "name": "Zhou, Yilun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Caiming",
+      "familyName": "Xiong",
+      "name": "Xiong, Caiming",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Shafiq",
+      "familyName": "Joty",
+      "name": "Joty, Shafiq",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Auto-evaluation is crucial for assessing response quality and offering feedback for model development. Recent studies have explored training large language models (LLMs) as generative judges to evaluate and critique other models' outputs. In this work, we investigate the idea of learning from both positive and negative data with preference optimization to enhance the evaluation capabilities of LLM judges across an array of different use cases. We achieve this by employing three approaches to collect the preference pairs for different use cases, each aimed at improving our generative judge from a different perspective. Our comprehensive study over a wide range of benchmarks demonstrates the effectiveness of our method. In particular, our generative judge achieves the best performance on 10 out of 13 benchmarks, outperforming strong baselines like GPT-4o and specialized judge models. Further analysis show that our judge model robustly counters inherent biases such as position and length bias, flexibly adapts to any evaluation protocol specified by practitioners, and provides helpful language feedback for improving downstream generator models."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "EMNLP 2025"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "3",
+    "dates": [
+     {
+      "date": "2024-09-23T02:08:20Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-09-24T01:20:32Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-09-30T00:49:30Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-10-01T01:04:37Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2025-09-12T17:21:39Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2025-09-15T00:45:57Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-09",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2602.09533",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2602.09533",
+    "titles": [
+     {
+      "title": "Autoregressive Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Masanari",
+      "familyName": "Oi",
+      "name": "Oi, Masanari",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mahiro",
+      "familyName": "Ukai",
+      "name": "Ukai, Mahiro",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Masahiro",
+      "familyName": "Kaneko",
+      "name": "Kaneko, Masahiro",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Naoaki",
+      "familyName": "Okazaki",
+      "name": "Okazaki, Naoaki",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Nakamasa",
+      "familyName": "Inoue",
+      "name": "Inoue, Nakamasa",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Direct preference optimization (DPO) has emerged as a promising approach for aligning large language models (LLMs) with human preferences. However, the widespread reliance on the response-level Bradley-Terry (BT) model may limit its full potential, as the reference and learnable models are assumed to be autoregressive only after deriving the objective function. Motivated by this limitation, we revisit the theoretical foundations of DPO and propose a novel formulation that explicitly introduces the autoregressive assumption prior to applying the BT model. By reformulating and extending DPO, we derive a novel variant, termed Autoregressive DPO (ADPO), that explicitly integrates autoregressive modeling into the preference optimization framework. Without violating the theoretical foundations, the derived loss takes an elegant form: it shifts the summation operation in the DPO objective outside the log-sigmoid function. Furthermore, through theoretical analysis of ADPO, we show that there exist two length measures to be considered when designing DPO-based algorithms: the token length $μ$ and the feedback length $μ'$. To the best of our knowledge, we are the first to explicitly distinguish these two measures and analyze their implications for preference optimization in LLMs."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "ICML 2026"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2026-02-10T08:45:30Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-02-11T01:36:17Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-06-10T06:12:57Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2026-06-11T00:30:18Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2026-02",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2026
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2404.13846",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2404.13846",
+    "titles": [
+     {
+      "title": "Filtered Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Tetsuro",
+      "familyName": "Morimura",
+      "name": "Morimura, Tetsuro",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mitsuki",
+      "familyName": "Sakamoto",
+      "name": "Sakamoto, Mitsuki",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yuu",
+      "familyName": "Jinnai",
+      "name": "Jinnai, Yuu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kenshi",
+      "familyName": "Abe",
+      "name": "Abe, Kenshi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kaito",
+      "familyName": "Ariu",
+      "name": "Ariu, Kaito",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Reinforcement learning from human feedback (RLHF) plays a crucial role in aligning language models with human preferences. While the significance of dataset quality is generally recognized, explicit investigations into its impact within the RLHF framework, to our knowledge, have been limited. This paper addresses the issue of text quality within the preference dataset by focusing on direct preference optimization (DPO), an increasingly adopted reward-model-free RLHF method. We confirm that text quality significantly influences the performance of models optimized with DPO more than those optimized with reward-model-based RLHF. Building on this new insight, we propose an extension of DPO, termed filtered direct preference optimization (fDPO). fDPO uses a trained reward model to monitor the quality of texts within the preference dataset during DPO training. Samples of lower quality are discarded based on comparisons with texts generated by the model being optimized, resulting in a more accurate dataset. Experimental results demonstrate that fDPO enhances the final model performance. Our code is available at https://github.com/CyberAgentAILab/filtered-dpo."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "EMNLP 2024"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "4",
+    "dates": [
+     {
+      "date": "2024-04-22T03:05:19Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-04-23T00:56:55Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-04-23T11:56:45Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-04-24T00:41:05Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-07-04T07:40:53Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-07-08T00:27:41Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-12-03T17:22:01Z",
+      "dateType": "Submitted",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2024-12-04T01:59:50Z",
+      "dateType": "Updated",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2024-04",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2510.23590",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2510.23590",
+    "titles": [
+     {
+      "title": "Lightweight Robust Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Cheol Woo",
+      "familyName": "Kim",
+      "name": "Kim, Cheol Woo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Shresth",
+      "familyName": "Verma",
+      "name": "Verma, Shresth",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mauricio",
+      "familyName": "Tec",
+      "name": "Tec, Mauricio",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Milind",
+      "familyName": "Tambe",
+      "name": "Tambe, Milind",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Direct Preference Optimization (DPO) has become a popular method for fine-tuning large language models (LLMs) due to its stability and simplicity. However, it is also known to be sensitive to noise in the data and prone to overfitting. Recent works have proposed using distributionally robust optimization (DRO) to address potential noise and distributional shift in the data. However, these methods often suffer from excessive conservatism and high computational cost. We propose DPO-PRO (DPO with Preference Robustness), a robust fine-tuning algorithm based on DPO which accounts for uncertainty in the preference distribution through a lightweight DRO formulation. Unlike prior DRO-based variants, DPO-PRO focuses solely on uncertainty in preferences, avoiding unnecessary conservatism and incurring negligible computational overhead. We further show that DPO-PRO is equivalent to a regularized DPO objective that penalizes model overconfidence under weak preference signals. We evaluate DPO-PRO on standard alignment benchmarks and a real-world public health task. Experimental results show that our method consistently improves robustness to noisy preference signals compared to existing DPO variants."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "arXiv admin note: substantial text overlap with arXiv:2509.02709"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2025-10-27T17:55:06Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-10-28T15:33:59Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2025
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2404.11999",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2404.11999",
+    "titles": [
+     {
+      "title": "Token-level Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Yongcheng",
+      "familyName": "Zeng",
+      "name": "Zeng, Yongcheng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Guoqing",
+      "familyName": "Liu",
+      "name": "Liu, Guoqing",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Weiyu",
+      "familyName": "Ma",
+      "name": "Ma, Weiyu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ning",
+      "familyName": "Yang",
+      "name": "Yang, Ning",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Haifeng",
+      "familyName": "Zhang",
+      "name": "Zhang, Haifeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jun",
+      "familyName": "Wang",
+      "name": "Wang, Jun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Fine-tuning pre-trained Large Language Models (LLMs) is essential to align them with human values and intentions. This process often utilizes methods like pairwise comparisons and KL divergence against a reference LLM, focusing on the evaluation of full answers generated by the models. However, the generation of these responses occurs in a token level, following a sequential, auto-regressive fashion. In this paper, we introduce Token-level Direct Preference Optimization (TDPO), a novel approach to align LLMs with human preferences by optimizing policy at the token level. Unlike previous methods, which face challenges in divergence efficiency, TDPO incorporates forward KL divergence constraints for each token, improving alignment and diversity. Utilizing the Bradley-Terry model for a token-based reward system, TDPO enhances the regulation of KL divergence, while preserving simplicity without the need for explicit reward modeling. Experimental results across various text tasks demonstrate TDPO's superior performance in balancing alignment with generation diversity. Notably, fine-tuning with TDPO strikes a better balance than DPO in the controlled sentiment generation and single-turn dialogue datasets, and significantly improves the quality of generated responses compared to both DPO and PPO-based RLHF methods. Our code is open-sourced at https://github.com/Vance0124/Token-level-Direct-Preference-Optimization."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "5",
+    "dates": [
+     {
+      "date": "2024-04-18T08:49:38Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-04-19T00:26:49Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-05-28T14:37:40Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-05-29T00:55:29Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-06-02T16:21:59Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-06-04T01:03:54Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-06-27T15:27:41Z",
+      "dateType": "Submitted",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2024-06-28T00:50:42Z",
+      "dateType": "Updated",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2024-08-30T03:39:57Z",
+      "dateType": "Submitted",
+      "dateInformation": "v5"
+     },
+     {
+      "date": "2024-09-02T00:13:46Z",
+      "dateType": "Updated",
+      "dateInformation": "v5"
+     },
+     {
+      "date": "2024-04",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2410.20187",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2410.20187",
+    "titles": [
+     {
+      "title": "Uncertainty-Penalized Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Sam",
+      "familyName": "Houliston",
+      "name": "Houliston, Sam",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Alizée",
+      "familyName": "Pace",
+      "name": "Pace, Alizée",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Alexander",
+      "familyName": "Immer",
+      "name": "Immer, Alexander",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Gunnar",
+      "familyName": "Rätsch",
+      "name": "Rätsch, Gunnar",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Aligning Large Language Models (LLMs) to human preferences in content, style, and presentation is challenging, in part because preferences are varied, context-dependent, and sometimes inherently ambiguous. While successful, Reinforcement Learning from Human Feedback (RLHF) and Direct Preference Optimization (DPO) are prone to the issue of proxy reward overoptimization. Analysis of the DPO loss reveals a critical need for regularization for mislabeled or ambiguous preference pairs to avoid reward hacking. In this work, we develop a pessimistic framework for DPO by introducing preference uncertainty penalization schemes, inspired by offline reinforcement learning. The penalization serves as a correction to the loss which attenuates the loss gradient for uncertain samples. Evaluation of the methods is performed with GPT2 Medium on the Anthropic-HH dataset using a model ensemble to obtain uncertainty estimates, and shows improved overall performance compared to vanilla DPO, as well as better completions on prompts from high-uncertainty chosen/rejected responses."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Accepted at the NeurIPS 2024 FITML Workshop"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (stat.ML)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "subject": "Learning and adaptive systems in artificial intelligence",
+      "lang": "en",
+      "subjectScheme": "MSC"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2024-10-26T14:24:37Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10-29T00:27:27Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2510.18913",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2510.18913",
+    "titles": [
+     {
+      "title": "ADPO: Anchored Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Wang",
+      "familyName": "Zixian",
+      "name": "Zixian, Wang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "We present Anchored Direct Preference Optimization (ADPO), a policy alignment method derived from first principles of KL-regularized reinforcement learning. Unlike standard approaches that treat the reference policy merely as a regularizer, we show that the optimal policy in reinforcement learning from human feedback inherently operates in a differential coordinate system, optimizing relative advantage in the form of log ratios rather than absolute probabilities. ADPO explicitly parameterizes this optimal structure through anchored logits, effectively decoupling response quality from prior popularity and creating an implicit trust region through curvature scaling. We show that this formulation unifies supervised fine-tuning, reinforcement learning, and ranking-based objectives under a single geometric perspective. Theoretically, ADPO resolves the probability smearing problem of supervised fine-tuning while avoiding the mode-seeking instability characteristic of reverse-KL methods. Empirically, the listwise ranking variant of ADPO achieves state-of-the-art performance on reasoning tasks, outperforming GRPO by 30.9 percent on Qwen3-1.7B and demonstrating superior robustness under distribution shift."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (stat.ML)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "7",
+    "dates": [
+     {
+      "date": "2025-10-21T05:53:13Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-10-23T00:00:49Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-10-27T12:50:13Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2025-10-28T01:41:09Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2025-11-01T10:49:23Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2025-11-04T01:28:03Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2025-11-05T14:26:44Z",
+      "dateType": "Submitted",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2025-11-06T01:46:06Z",
+      "dateType": "Updated",
+      "dateInformation": "v4"
+     },
+     {
+      "date": "2025-11-06T06:55:06Z",
+      "dateType": "Submitted",
+      "dateInformation": "v5"
+     },
+     {
+      "date": "2025-11-07T01:25:11Z",
+      "dateType": "Updated",
+      "dateInformation": "v5"
+     },
+     {
+      "date": "2025-11-14T08:56:34Z",
+      "dateType": "Submitted",
+      "dateInformation": "v6"
+     },
+     {
+      "date": "2025-11-17T01:30:01Z",
+      "dateType": "Updated",
+      "dateInformation": "v6"
+     },
+     {
+      "date": "2026-01-12T06:15:58Z",
+      "dateType": "Submitted",
+      "dateInformation": "v7"
+     },
+     {
+      "date": "2026-01-13T02:06:04Z",
+      "dateType": "Updated",
+      "dateInformation": "v7"
+     },
+     {
+      "date": "2025-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2025
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2602.00931",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2602.00931",
+    "titles": [
+     {
+      "title": "Continuous-Utility Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Muhammad Ahmed",
+      "familyName": "Mohsin",
+      "name": "Mohsin, Muhammad Ahmed",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Muhammad",
+      "familyName": "Umer",
+      "name": "Umer, Muhammad",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Emily",
+      "familyName": "Fox",
+      "name": "Fox, Emily",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Large language model reasoning is often treated as a monolithic capability, relying on binary preference supervision that fails to capture partial progress or fine-grained reasoning quality. We introduce continuous utility direct preference optimization (CU-DPO), a framework that aligns models to a portfolio of prompt-based cognitive strategies by replacing binary labels with continuous scores that capture fine-grained reasoning quality. We prove that learning with K strategies yields a Theta(K log K) improvement in sample complexity over binary preferences and that DPO converges to the entropy-regularized utility-maximizing policy. To exploit this signal, we propose a two-stage pipeline: (i) strategy selection, which optimizes the model to choose the best strategy via best-vs-all comparisons, and (ii) execution refinement, which trains correct execution using margin-stratified pairs. The framework is domain-agnostic: any task admitting cognitively distinct solution strategies and a decomposable continuous utility signal can be incorporated into the portfolio. On mathematical reasoning benchmarks, CU-DPO improves strategy selection accuracy from 35-46% to 68-78% across seven base models, yielding downstream reasoning gains of up to +6.6 points on in-distribution datasets with effective out-of-distribution transfer. CU-DPO demonstrates consistent gains on code generation and causal reasoning benchmarks, confirming generalization beyond the mathematical domain."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Accepted to EMNLP 2026"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "3",
+    "dates": [
+     {
+      "date": "2026-01-31T23:15:32Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-02-03T01:54:49Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-04-23T07:38:14Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2026-04-24T00:30:30Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2026-10-06T20:51:14Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2026-10-08T00:13:08Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2026-02",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "publicationYear": 2026
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2411.07595",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2411.07595",
+    "titles": [
+     {
+      "title": "Entropy Controllable Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Motoki",
+      "familyName": "Omura",
+      "name": "Omura, Motoki",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yasuhiro",
+      "familyName": "Fujita",
+      "name": "Fujita, Yasuhiro",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Toshiki",
+      "familyName": "Kataoka",
+      "name": "Kataoka, Toshiki",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "In the post-training of large language models (LLMs), Reinforcement Learning from Human Feedback (RLHF) is an effective approach to achieve generation aligned with human preferences. Direct Preference Optimization (DPO) allows for policy training with a simple binary cross-entropy loss without a reward model. The objective of DPO is regularized by reverse KL divergence that encourages mode-seeking fitting to the reference policy. Nonetheless, we indicate that minimizing reverse KL divergence could fail to capture a mode of the reference distribution, which may hurt the policy's performance. Based on this observation, we propose a simple modification to DPO, H-DPO, which allows for control over the entropy of the resulting policy, enhancing the distribution's sharpness and thereby enabling mode-seeking fitting more effectively. In our experiments, we show that H-DPO outperformed DPO across various tasks, demonstrating superior results in pass@$k$ evaluations for mathematical tasks. Moreover, H-DPO is simple to implement, requiring only minor modifications to the loss calculation of DPO, which makes it highly practical and promising for wide-ranging applications in the training of LLMs."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "ICML 2025 Workshop on Models of Human Feedback for AI Alignment"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2024-11-12T07:09:44Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-11-13T01:25:47Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-06-13T12:47:42Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2025-06-16T00:41:04Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-11",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2506.03557",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2506.03557",
+    "titles": [
+     {
+      "title": "BPO: Revisiting Preference Modeling in Direct Preference Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Lin",
+      "familyName": "Sun",
+      "name": "Sun, Lin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chuang",
+      "familyName": "Liu",
+      "name": "Liu, Chuang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Peng",
+      "familyName": "Liu",
+      "name": "Liu, Peng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Bingyang",
+      "familyName": "Li",
+      "name": "Li, Bingyang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Weijia",
+      "familyName": "Lu",
+      "name": "Lu, Weijia",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ning",
+      "familyName": "Wu",
+      "name": "Wu, Ning",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Direct Preference Optimization (DPO) have emerged as a popular method for aligning Large Language Models (LLMs) with human preferences. While DPO effectively preserves the relative ordering between chosen and rejected responses through pairwise ranking losses, it often neglects absolute reward magnitudes. This oversight can decrease the likelihood of chosen responses and increase the risk of generating out-of-distribution responses, leading to poor performance. We term this issue Degraded Chosen Responses (DCR).To address this issue, we propose Balanced Preference Optimization (BPO), a novel framework that dynamically balances the optimization of chosen and rejected responses through two key components: balanced reward margin and gap adaptor. Unlike previous methods, BPO can fundamentally resolve DPO's DCR issue, without introducing additional constraints to the loss function. Experimental results on multiple mathematical reasoning tasks show that BPO significantly outperforms DPO, improving accuracy by +10.1% with Llama-3.1-8B-Instruct (18.8% to 28.9%) and +11.7% with Qwen2.5-Math-7B (35.0% to 46.7%). It also surpasses DPO variants by +3.6% over IPO (43.1%), +5.0% over SLiC (41.7%), and +3.1% over Cal-DPO (43.6%) on the same model. Remarkably, our algorithm requires only a single line of code modification, making it simple to implement and fully compatible with existing DPO-based frameworks."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2025-06-04T04:21:01Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-06-05T00:23:15Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-06",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2025
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 1418,
+  "totalPages": 29,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=direct+preference+optimization&provider-id=arxiv&sort=relevance&page%5Bsize%5D=50&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai",
+  "next": "https://api.datacite.org/dois?disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&page%5Bnumber%5D=2&page%5Bsize%5D=50&provider-id=arxiv&query=direct+preference+optimization"
+ }
+}

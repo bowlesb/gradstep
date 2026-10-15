@@ -45,7 +45,7 @@ function headers(backend: string, auth: string, hash: string): Record<string, st
   const origins = [...new Set([backend, auth].filter(Boolean).map(value => new URL(value).origin))];
   return {
     'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}' '${compilerScript().hash}' '${equationScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
-      `font-src 'self'`, `media-src blob:`, `connect-src https://arxiv.org ${origins.join(' ')}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
+      `font-src 'self'`, `media-src blob:`, `connect-src https://arxiv.org https://api.datacite.org ${origins.join(' ')}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
       `frame-ancestors 'none'`, `object-src 'none'`, `worker-src 'self'`].join('; '),
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
@@ -93,6 +93,9 @@ export default defineConfig(({ mode }) => {
   const auth = env.VITE_AUTH_URL ?? backend;
   return {
     plugins: [readerFrame(backend, auth)],
+    // The shared reader code hashes with `node:crypto`; in the browser (the metadata extractor, ARXIV_DEVICE_ONLY.md) it
+    // is the same SHA-256 adapter the device compiler bundle uses. Unit tests run in Node, which has the real module.
+    ...(mode === 'test' ? {} : { resolve: { alias: { 'node:crypto': fileURLToPath(new URL('../../scripts/arxiv-compiler/crypto.ts', import.meta.url)) } } }),
     server: { fs: { allow: [repository] } },
     build: { target: 'es2022', sourcemap: false, assetsInlineLimit: 0 },
     test: { include: ['tests/**/*.test.ts'], environment: 'node', testTimeout: 30_000 },

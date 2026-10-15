@@ -1,0 +1,1291 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.2210.03142",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2210.03142",
+    "titles": [
+     {
+      "title": "On Distillation of Guided Diffusion Models"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Chenlin",
+      "familyName": "Meng",
+      "name": "Meng, Chenlin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Robin",
+      "familyName": "Rombach",
+      "name": "Rombach, Robin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ruiqi",
+      "familyName": "Gao",
+      "name": "Gao, Ruiqi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Diederik P.",
+      "familyName": "Kingma",
+      "name": "Kingma, Diederik P.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Stefano",
+      "familyName": "Ermon",
+      "name": "Ermon, Stefano",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jonathan",
+      "familyName": "Ho",
+      "name": "Ho, Jonathan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Tim",
+      "familyName": "Salimans",
+      "name": "Salimans, Tim",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Classifier-free guided diffusion models have recently been shown to be highly effective at high-resolution image generation, and they have been widely used in large-scale diffusion frameworks including DALLE-2, Stable Diffusion and Imagen. However, a downside of classifier-free guided diffusion models is that they are computationally expensive at inference time since they require evaluating two diffusion models, a class-conditional model and an unconditional model, tens to hundreds of times. To deal with this limitation, we propose an approach to distilling classifier-free guided diffusion models into models that are fast to sample from: Given a pre-trained classifier-free guided model, we first learn a single model to match the output of the combined conditional and unconditional models, and then we progressively distill that model to a diffusion model that requires much fewer sampling steps. For standard diffusion models trained on the pixel-space, our approach is able to generate images visually comparable to that of the original model using as few as 4 sampling steps on ImageNet 64x64 and CIFAR-10, achieving FID/IS scores comparable to that of the original model while being up to 256 times faster to sample from. For diffusion models trained on the latent-space (e.g., Stable Diffusion), our approach is able to generate high-fidelity images using as few as 1 to 4 denoising steps, accelerating inference by at least 10-fold compared to existing methods on ImageNet 256x256 and LAION datasets. We further demonstrate the effectiveness of our approach on text-guided image editing and inpainting, where our distilled model is able to generate high-quality results using as few as 2-4 denoising steps."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "CVPR 2023, Award candidate"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "3",
+    "dates": [
+     {
+      "date": "2022-10-06T18:03:56Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2022-10-10T00:00:17Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2022-11-30T16:43:49Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2022-12-01T01:19:13Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2023-04-12T21:23:35Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2023-04-14T00:04:09Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2022-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2022",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2022
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2311.17042",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2311.17042",
+    "titles": [
+     {
+      "title": "Adversarial Diffusion Distillation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Axel",
+      "familyName": "Sauer",
+      "name": "Sauer, Axel",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Dominik",
+      "familyName": "Lorenz",
+      "name": "Lorenz, Dominik",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Andreas",
+      "familyName": "Blattmann",
+      "name": "Blattmann, Andreas",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Robin",
+      "familyName": "Rombach",
+      "name": "Rombach, Robin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "We introduce Adversarial Diffusion Distillation (ADD), a novel training approach that efficiently samples large-scale foundational image diffusion models in just 1-4 steps while maintaining high image quality. We use score distillation to leverage large-scale off-the-shelf image diffusion models as a teacher signal in combination with an adversarial loss to ensure high image fidelity even in the low-step regime of one or two sampling steps. Our analyses show that our model clearly outperforms existing few-step methods (GANs, Latent Consistency Models) in a single step and reaches the performance of state-of-the-art diffusion models (SDXL) in only four steps. ADD is the first method to unlock single-step, real-time image synthesis with foundation models. Code and weights available under https://github.com/Stability-AI/generative-models and https://huggingface.co/stabilityai/ ."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2023-11-28T18:53:24Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-11-29T01:39:13Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-11",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2412.08871",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2412.08871",
+    "titles": [
+     {
+      "title": "Inference-Time Diffusion Model Distillation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Geon Yeong",
+      "familyName": "Park",
+      "name": "Park, Geon Yeong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Sang Wan",
+      "familyName": "Lee",
+      "name": "Lee, Sang Wan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jong Chul",
+      "familyName": "Ye",
+      "name": "Ye, Jong Chul",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion distillation models effectively accelerate reverse sampling by compressing the process into fewer steps. However, these models still exhibit a performance gap compared to their pre-trained diffusion model counterparts, exacerbated by distribution shifts and accumulated errors during multi-step sampling. To address this, we introduce Distillation++, a novel inference-time distillation framework that reduces this gap by incorporating teacher-guided refinement during sampling. Inspired by recent advances in conditional sampling, our approach recasts student model sampling as a proximal optimization problem with a score distillation sampling loss (SDS). To this end, we integrate distillation optimization during reverse sampling, which can be viewed as teacher guidance that drives student sampling trajectory towards the clean manifold using pre-trained diffusion models. Thus, Distillation++ improves the denoising process in real-time without additional source data or fine-tuning. Distillation++ demonstrates substantial improvements over state-of-the-art distillation baselines, particularly in early sampling stages, positioning itself as a robust guided sampling process crafted for diffusion distillation models. Code: https://github.com/geonyeong-park/inference_distillation."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Code: https://github.com/geonyeong-park/inference_distillation"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2024-12-12T02:07:17Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-12-13T01:13:35Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-12",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2406.01954",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2406.01954",
+    "titles": [
+     {
+      "title": "Plug-and-Play Diffusion Distillation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Yi-Ting",
+      "familyName": "Hsiao",
+      "name": "Hsiao, Yi-Ting",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Siavash",
+      "familyName": "Khodadadeh",
+      "name": "Khodadadeh, Siavash",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kevin",
+      "familyName": "Duarte",
+      "name": "Duarte, Kevin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wei-An",
+      "familyName": "Lin",
+      "name": "Lin, Wei-An",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hui",
+      "familyName": "Qu",
+      "name": "Qu, Hui",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mingi",
+      "familyName": "Kwon",
+      "name": "Kwon, Mingi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ratheesh",
+      "familyName": "Kalarot",
+      "name": "Kalarot, Ratheesh",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion models have shown tremendous results in image generation. However, due to the iterative nature of the diffusion process and its reliance on classifier-free guidance, inference times are slow. In this paper, we propose a new distillation approach for guided diffusion models in which an external lightweight guide model is trained while the original text-to-image model remains frozen. We show that our method reduces the inference computation of classifier-free guided latent-space diffusion models by almost half, and only requires 1\\% trainable parameters of the base model. Furthermore, once trained, our guide model can be applied to various fine-tuned, domain-specific versions of the base diffusion model without the need for additional training: this \"plug-and-play\" functionality drastically improves inference computation while maintaining the visual fidelity of generated images. Empirically, we show that our approach is able to produce visually appealing results and achieve a comparable FID score to the teacher with as few as 8 to 16 steps."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) 2024 project page: https://5410tiffany.github.io/plug-and-play-diffusion-distillation.github.io/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2024-06-04T04:22:47Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-06-05T00:26:28Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-06-14T15:53:07Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-06-17T00:51:15Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-06",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2604.23552",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2604.23552",
+    "titles": [
+     {
+      "title": "On the Memorization of Consistency Distillation for Diffusion Models"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Bingqing",
+      "familyName": "Jiang",
+      "name": "Jiang, Bingqing",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Difan",
+      "familyName": "Zou",
+      "name": "Zou, Difan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion models are central to modern generative modeling, and understanding how they balance memorization and generalization is critical for reliable deployment. Recent work has shown that memorization in diffusion models is shaped by training dynamics, with generalization and memorization emerging at different stages of training. However, deployed diffusion models are often further distilled, introducing an additional training phase whose impact on memorization is not well understood. In this work, we analyze how distillation reshapes memorization behavior in diffusion models, taking consistency distillation as a representative framework. Empirically, we show that when applied to a teacher model that has memorized data, consistency distillation significantly reduces transferred memorization in the student while preserving, and sometimes improving, sample quality. To explain this behavior, we provide a theoretical analysis using a random feature neural network model [Bonnaire et al., 2025], showing that consistency distillation suppresses unstable feature directions associated with memorization while preserving stable, generalizable modes. Our findings suggest that distillation can serve not only as an acceleration tool, but also as a mechanism for improving the memorization-generalization trade-off."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "34 pages"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (stat.ML)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-04-26T06:22:53Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-04-28T00:48:29Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-04",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2026
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2505.18963",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2505.18963",
+    "titles": [
+     {
+      "title": "MGD$^3$: Mode-Guided Dataset Distillation using Diffusion Models"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Jeffrey A.",
+      "familyName": "Chan-Santiago",
+      "name": "Chan-Santiago, Jeffrey A.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Praveen",
+      "familyName": "Tirupattur",
+      "name": "Tirupattur, Praveen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Gaurav Kumar",
+      "familyName": "Nayak",
+      "name": "Nayak, Gaurav Kumar",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Gaowen",
+      "familyName": "Liu",
+      "name": "Liu, Gaowen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mubarak",
+      "familyName": "Shah",
+      "name": "Shah, Mubarak",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Dataset distillation has emerged as an effective strategy, significantly reducing training costs and facilitating more efficient model deployment. Recent advances have leveraged generative models to distill datasets by capturing the underlying data distribution. Unfortunately, existing methods require model fine-tuning with distillation losses to encourage diversity and representativeness. However, these methods do not guarantee sample diversity, limiting their performance. We propose a mode-guided diffusion model leveraging a pre-trained diffusion model without the need to fine-tune with distillation losses. Our approach addresses dataset diversity in three stages: Mode Discovery to identify distinct data modes, Mode Guidance to enhance intra-class diversity, and Stop Guidance to mitigate artifacts in synthetic samples that affect performance. Our approach outperforms state-of-the-art methods, achieving accuracy gains of 4.4%, 2.9%, 1.6%, and 1.6% on ImageNette, ImageIDC, ImageNet-100, and ImageNet-1K, respectively. Our method eliminates the need for fine-tuning diffusion models with distillation losses, significantly reducing computational costs. Our code is available on the project webpage: https://jachansantiago.github.io/mode-guided-distillation/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2025-05-25T03:40:23Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-05-27T00:49:41Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025-05",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2025",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2025
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2312.06899",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2312.06899",
+    "titles": [
+     {
+      "title": "LoRA-Enhanced Distillation on Guided Diffusion Models"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Pareesa Ameneh",
+      "familyName": "Golnari",
+      "name": "Golnari, Pareesa Ameneh",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion models, such as Stable Diffusion (SD), offer the ability to generate high-resolution images with diverse features, but they come at a significant computational and memory cost. In classifier-free guided diffusion models, prolonged inference times are attributed to the necessity of computing two separate diffusion models at each denoising step. Recent work has shown promise in improving inference time through distillation techniques, teaching the model to perform similar denoising steps with reduced computations. However, the application of distillation introduces additional memory overhead to these already resource-intensive diffusion models, making it less practical.\n To address these challenges, our research explores a novel approach that combines Low-Rank Adaptation (LoRA) with model distillation to efficiently compress diffusion models. This approach not only reduces inference time but also mitigates memory overhead, and notably decreases memory consumption even before applying distillation. The results are remarkable, featuring a significant reduction in inference time due to the distillation process and a substantial 50% reduction in memory consumption. Our examination of the generated images underscores that the incorporation of LoRA-enhanced distillation maintains image quality and alignment with the provided prompts. In summary, while conventional distillation tends to increase memory consumption, LoRA-enhanced distillation offers optimization without any trade-offs or compromises in quality."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2023-12-12T00:01:47Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-12-13T01:10:12Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023-12",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2023",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2023
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2410.04191",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2410.04191",
+    "titles": [
+     {
+      "title": "Accelerating Diffusion Models with One-to-Many Knowledge Distillation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Linfeng",
+      "familyName": "Zhang",
+      "name": "Zhang, Linfeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kaisheng",
+      "familyName": "Ma",
+      "name": "Ma, Kaisheng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Significant advancements in image generation have been made with diffusion models. Nevertheless, when contrasted with previous generative models, diffusion models face substantial computational overhead, leading to failure in real-time generation. Recent approaches have aimed to accelerate diffusion models by reducing the number of sampling steps through improved sampling techniques or step distillation. However, the methods to diminish the computational cost for each timestep remain a relatively unexplored area. Observing the fact that diffusion models exhibit varying input distributions and feature distributions at different timesteps, we introduce one-to-many knowledge distillation (O2MKD), which distills a single teacher diffusion model into multiple student diffusion models, where each student diffusion model is trained to learn the teacher's knowledge for a subset of continuous timesteps. Experiments on CIFAR10, LSUN Church, CelebA-HQ with DDPM and COCO30K with Stable Diffusion show that O2MKD can be applied to previous knowledge distillation and fast sampling methods to achieve significant acceleration. Codes will be released in Github."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2024-10-05T15:10:04Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10-08T00:37:25Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2410.07679",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2410.07679",
+    "titles": [
+     {
+      "title": "Relational Diffusion Distillation for Efficient Image Generation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Weilun",
+      "familyName": "Feng",
+      "name": "Feng, Weilun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chuanguang",
+      "familyName": "Yang",
+      "name": "Yang, Chuanguang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zhulin",
+      "familyName": "An",
+      "name": "An, Zhulin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Libo",
+      "familyName": "Huang",
+      "name": "Huang, Libo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Boyu",
+      "familyName": "Diao",
+      "name": "Diao, Boyu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Fei",
+      "familyName": "Wang",
+      "name": "Wang, Fei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yongjun",
+      "familyName": "Xu",
+      "name": "Xu, Yongjun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Although the diffusion model has achieved remarkable performance in the field of image generation, its high inference delay hinders its wide application in edge devices with scarce computing resources. Therefore, many training-free sampling methods have been proposed to reduce the number of sampling steps required for diffusion models. However, they perform poorly under a very small number of sampling steps. Thanks to the emergence of knowledge distillation technology, the existing training scheme methods have achieved excellent results at very low step numbers. However, the current methods mainly focus on designing novel diffusion model sampling methods with knowledge distillation. How to transfer better diffusion knowledge from teacher models is a more valuable problem but rarely studied. Therefore, we propose Relational Diffusion Distillation (RDD), a novel distillation method tailored specifically for distilling diffusion models. Unlike existing methods that simply align teacher and student models at pixel level or feature distributions, our method introduces cross-sample relationship interaction during the distillation process and alleviates the memory constraints induced by multiple sample interactions. Our RDD significantly enhances the effectiveness of the progressive distillation framework within the diffusion model. Extensive experiments on several datasets (e.g., CIFAR-10 and ImageNet) demonstrate that our proposed RDD leads to 1.47 FID decrease under 1 sampling step compared to state-of-the-art diffusion distillation methods and achieving 256x speed-up compared to DDIM strategy. Code is available at https://github.com/cantbebetter2/RDD."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Accepted by ACM MM 2024 Oral"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "3",
+    "dates": [
+     {
+      "date": "2024-10-10T07:40:51Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10-11T00:37:33Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-10-12T01:46:23Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-10-15T00:22:31Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-12-15T09:31:35Z",
+      "dateType": "Submitted",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-12-17T01:50:20Z",
+      "dateType": "Updated",
+      "dateInformation": "v3"
+     },
+     {
+      "date": "2024-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2407.12718",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2407.12718",
+    "titles": [
+     {
+      "title": "SlimFlow: Training Smaller One-Step Diffusion Models with Rectified Flow"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Yuanzhi",
+      "familyName": "Zhu",
+      "name": "Zhu, Yuanzhi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xingchao",
+      "familyName": "Liu",
+      "name": "Liu, Xingchao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Qiang",
+      "familyName": "Liu",
+      "name": "Liu, Qiang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion models excel in high-quality generation but suffer from slow inference due to iterative sampling. While recent methods have successfully transformed diffusion models into one-step generators, they neglect model size reduction, limiting their applicability in compute-constrained scenarios. This paper aims to develop small, efficient one-step diffusion models based on the powerful rectified flow framework, by exploring joint compression of inference steps and model size. The rectified flow framework trains one-step generative models using two operations, reflow and distillation. Compared with the original framework, squeezing the model size brings two new challenges: (1) the initialization mismatch between large teachers and small students during reflow; (2) the underperformance of naive distillation on small student models. To overcome these issues, we propose Annealing Reflow and Flow-Guided Distillation, which together comprise our SlimFlow framework. With our novel framework, we train a one-step diffusion model with an FID of 5.02 and 15.7M parameters, outperforming the previous state-of-the-art one-step diffusion model (FID=6.47, 19.4M parameters) on CIFAR10. On ImageNet 64$\\times$64 and FFHQ 64$\\times$64, our method yields small one-step diffusion models that are comparable to larger models, showcasing the effectiveness of our method in creating compact, efficient one-step diffusion models."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "ECCV 2024"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "2",
+    "dates": [
+     {
+      "date": "2024-07-17T16:38:45Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-07-18T00:56:54Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-07-18T03:23:13Z",
+      "dateType": "Submitted",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-07-19T00:20:57Z",
+      "dateType": "Updated",
+      "dateInformation": "v2"
+     },
+     {
+      "date": "2024-07",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2411.08378",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2411.08378",
+    "titles": [
+     {
+      "title": "Physics Informed Distillation for Diffusion Models"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Joshua Tian Jin",
+      "familyName": "Tee",
+      "name": "Tee, Joshua Tian Jin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kang",
+      "familyName": "Zhang",
+      "name": "Zhang, Kang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hee Suk",
+      "familyName": "Yoon",
+      "name": "Yoon, Hee Suk",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Dhananjaya Nagaraja",
+      "familyName": "Gowda",
+      "name": "Gowda, Dhananjaya Nagaraja",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chanwoo",
+      "familyName": "Kim",
+      "name": "Kim, Chanwoo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Chang D.",
+      "familyName": "Yoo",
+      "name": "Yoo, Chang D.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion models have recently emerged as a potent tool in generative modeling. However, their inherent iterative nature often results in sluggish image generation due to the requirement for multiple model evaluations. Recent progress has unveiled the intrinsic link between diffusion models and Probability Flow Ordinary Differential Equations (ODEs), thus enabling us to conceptualize diffusion models as ODE systems. Simultaneously, Physics Informed Neural Networks (PINNs) have substantiated their effectiveness in solving intricate differential equations through implicit modeling of their solutions. Building upon these foundational insights, we introduce Physics Informed Distillation (PID), which employs a student model to represent the solution of the ODE system corresponding to the teacher diffusion model, akin to the principles employed in PINNs. Through experiments on CIFAR 10 and ImageNet 64x64, we observe that PID achieves performance comparable to recent distillation methods. Notably, it demonstrates predictable trends concerning method-specific hyperparameters and eliminates the need for synthetic dataset generation during the distillation process. Both of which contribute to its easy-to-use nature as a distillation approach for Diffusion Models. Our code and pre-trained checkpoint are publicly available at: https://github.com/pantheon5100/pid_diffusion.git."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2024-11-13T07:03:47Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-11-14T01:23:04Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024-11",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2024",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2024
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2605.23605",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2605.23605",
+    "titles": [
+     {
+      "title": "DiLaDiff: Distilled Latent-Augmented Diffusion for Language Modeling"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Jean-Marie",
+      "familyName": "Lemercier",
+      "name": "Lemercier, Jean-Marie",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Tomas",
+      "familyName": "Geffner",
+      "name": "Geffner, Tomas",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Karsten",
+      "familyName": "Kreis",
+      "name": "Kreis, Karsten",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Morteza",
+      "familyName": "Mardani",
+      "name": "Mardani, Morteza",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Arash",
+      "familyName": "Vahdat",
+      "name": "Vahdat, Arash",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ante",
+      "familyName": "Jukić",
+      "name": "Jukić, Ante",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Diffusion language models intrinsically fail to capture correlations between decoded tokens, which leads to a harsh trade-off between sampling quality and throughput. To solve this issue, we propose DiLaDiff, a variant of masked diffusion language models with three components: (1) a continuous latent space with semantic capabilities, learned by an auto-encoder fine-tuned from an existing masked diffusion language model; (2) a latent diffusion model learning the prior over the encoder distribution; (3) a consistency model distilling the learned prior into a few-step latent generative model. We show that, even without distillation, our latent-guided diffusion model outperforms the masked diffusion baseline while significantly accelerating inference. Consistency distillation further lowers the computational overhead of continuous diffusion, such that the latent is generated in negligible time compared to discrete decoding."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computation and Language (cs.CL)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "schemeUri": "http://www.oecd.org/science/inno/38235147.pdf",
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-05-22T13:15:59Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-05-25T00:48:42Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-05",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026",
+      "dateType": "Issued"
+     }
+    ],
+    "publicationYear": 2026
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 1359,
+  "totalPages": 28,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=difusion~1+model~1+distilation~1&provider-id=arxiv&sort=relevance&page%5Bsize%5D=50&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&mailto=hello%40gradstep.ai",
+  "next": "https://api.datacite.org/dois?disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2CpublicationYear&page%5Bnumber%5D=2&page%5Bsize%5D=50&provider-id=arxiv&query=difusion~1+model~1+distilation~1"
+ }
+}

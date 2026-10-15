@@ -16,6 +16,19 @@ for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/
       throw Error(`Stale device compiler: ${path}. Run node scripts/build-arxiv-compiler.mjs.`);
   } else writeFileSync(root + path, result.outputFiles[0].contents);
 }
+// The native app's metadata extractor (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3): its own bundle, so reading a paper's
+// metadata never changes the compiler above or its identity. The browser imports the same TypeScript directly.
+const metadata = await build({ absWorkingDir: root, entryPoints: ['supabase/functions/_shared/reader/source-metadata-entry.ts'],
+  outfile: 'apps/apple/ScienceReader/Resources/arxiv-source-metadata.js', bundle: true, platform: 'browser', target: 'es2022',
+  format: 'iife', globalName: 'GradstepSourceMetadata', minify: true, legalComments: 'eof', write: false,
+  alias: { 'node:crypto': fileURLToPath(new URL('./arxiv-compiler/crypto.ts', import.meta.url)),
+    'node:zlib': fileURLToPath(new URL('./arxiv-compiler/zlib.ts', import.meta.url)) } });
+const metadataPath = 'apps/apple/ScienceReader/Resources/arxiv-source-metadata.js';
+if (process.argv.includes('--check')) {
+  let current = null; try { current = readFileSync(root + metadataPath); } catch { current = null; }
+  if (!current || !current.equals(Buffer.from(metadata.outputFiles[0].contents)))
+    throw Error(`Stale metadata extractor: ${metadataPath}. Run node scripts/build-arxiv-compiler.mjs.`);
+} else writeFileSync(root + metadataPath, metadata.outputFiles[0].contents);
 // The renderer the native app ships, so it can tell a bundle compiled by an older app from its own
 // (ReaderModel.openHTMLReader re-prepares those): the same identity the bundle manifest carries.
 const { ARXIV_BUILD_SHA256 } = await import('../supabase/functions/_shared/reader/arxiv-bundle.ts');

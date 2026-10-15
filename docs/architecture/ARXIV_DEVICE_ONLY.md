@@ -1,6 +1,7 @@
 # arXiv terms audit and device-only access design
 
-**Status: proposal.** Nothing here is implemented, migrated or deployed. **Date: 2026-10-15.**
+**Status:** rollout steps 1–3 and the search part of step 4 are implemented and switched off (§6.0); the rest is a
+proposal. Nothing here is deployed, applied to staging or switched on. **Date: 2026-10-15.**
 Owner request (2026-10-15): audit the app against arXiv's current terms; ensure user devices exclusively interact
 with arXiv servers and ours do not; stop server metadata calls to arXiv and have devices fetch what they need and
 pass it to our server; examine the related sites.
@@ -32,8 +33,11 @@ guidance (ticket AH-211376). Items marked for counsel need a lawyer, not another
 - **Recommendation.**
   - Content stays device-only, as today.
   - Per-paper metadata is extracted on the device from the arXiv HTML it already downloads, at zero extra arXiv
-    requests. Native devices fall back to the arXiv API; the browser falls back to DataCite.
+    requests. For a paper without HTML, a native device makes one paced export API request when the person opens
+    it; the browser sends nothing until the owner confirms DataCite.
   - Device metadata is account-scoped and never promoted to shared data unverified.
+  - **Governing rule (owner, 2026-10-15):** each device calls arXiv only as that user's own independent agent:
+    user-triggered, kept to that user, paced per device, honestly identified, never harvesting (§5.1).
   - Shared data (the Feed pool, search enrichment, licence corroboration) comes from **DataCite**
     (`provider-id=arxiv`). arXiv support itself named DataCite, and it is not an arXiv host.
   - A deploy-time and runtime egress guard enforces "no server request to `*.arxiv.org`".
@@ -401,11 +405,44 @@ Ratings: **Green** = consistent with the terms as written. **Amber** = defensibl
 
 ### 5.1 Boundary
 
+**Governing rule (owner, 2026-10-15): each device calls arXiv only as that user's own independent agent.**
+
+1. **User-triggered.** Every arXiv request is triggered by that user's action on that device: opening or downloading
+   a paper, adding one, or searching. The server never assigns fetches, crawl lists or work to devices. A server flag
+   says only whether a device should *send* what it already read, never what to fetch.
+2. **What a device fetches stays that user's.** No arXiv content goes to our server for others. Device-submitted
+   metadata is for that user's library only, and becomes shared data only through a DataCite match or operator review
+   (§5.4, step 5).
+3. **Per-device pacing.** One request at a time, about 3 s apart, cached, backing off on 429 and 503, and stopping
+   for 24 h after a 403 (§5.9).
+4. **Honest identification.** Native requests carry a Gradstep User-Agent (§5.9). The browser cannot set one.
+5. **No background harvesting.** Nothing fetches papers the user didn't choose. Automatic download covers only papers
+   the user added (on this or another of their devices), and requests nothing beyond the paper itself.
+
+How the clients honour it (rollout steps 1–3, §6.0):
+- **Rule 1.** Metadata is read from the page the device already downloaded for a paper the person opened or
+  downloaded. The export API lookup for a paper without HTML runs only when the person opens or downloads that paper
+  on this device (`ReaderModel.prepareOnDevice(_:automatic:)`), never from an automatic download. The `source_metadata`
+  capability carries no paper list.
+- **Rule 2.** `v1_submit_source_metadata` writes only the submitting account's import row. `worker_catalog_promote`
+  (DataCite evidence must match) and `admin_catalog_promote` (owner with MFA, a reason, audited) are the only ways
+  into `catalog_metadata`.
+- **Rule 3.** Native: `ArxivRequestPacer` for the export API (serial, 3 s apart, the longer of Retry-After and a
+  back-off doubling from 60 s to 24 h, persisted; answers cached per version) and `ArxivDeviceRefusal`: a 403 from
+  any arXiv host stops the reader's page and image requests and the export API for 24 h, across relaunches. Browser:
+  the reader's existing pacing plus the same 24 h stop after a 403, kept in `localStorage`
+  (`gradstep.arxiv.refused-until`). A paper's page keeps the reader's existing policy: documents 3 s apart, then that
+  page's figures at most 4 at a time, as a browser loads one page (open question 10).
+- **Rule 4.** Every native arXiv request, the reader's pages and images and the export API alike, sends
+  `Gradstep/<version> (<platform>; +https://gradstep.ai; mailto:hello@gradstep.ai)` (`ArxivAcquisitionPolicy.userAgent`).
+- **Rule 5.** Apart from the automatic download of papers the user added, no client code fetches anything in the
+  background. The browser makes no arXiv request for metadata at all.
+
 - **Invariant:** no Gradstep production server, function, worker, scheduled job or database extension sends a request
   to any `*.arxiv.org` host. This includes `arxiv.org`, `www`, `export`, `oaipmh`, `rss` and `static`.
 - **Devices** (native apps and the browser) are the only Gradstep software that contacts arXiv. Every request is
-  initiated by a user action: opening or preparing a paper, adding one, searching, or opening the Feed. Requests are
-  paced per device, cached, and send a descriptive identification where the platform allows it.
+  initiated by the person's action on that device: opening or downloading a paper, adding one, or searching.
+  Requests are paced per device, cached, and send a descriptive identification where the platform allows it.
 - **Server inputs from devices are untrusted.** A device can send identifiers and metadata it read. The server
   validates their form and bounds, keeps them account-scoped, and never promotes them into shared or global data or
   rights decisions without independent verification (DataCite, if approved) or operator review.
@@ -419,10 +456,10 @@ Ratings: **Green** = consistent with the terms as written. **Amber** = defensibl
 
 | Current | Replacement | Client(s) | Endpoint used by the device | Payload to our server | Server checks |
 |---|---|---|---|---|---|
-| **S1 and S2**: metadata stage (Atom API and OAI-PMH) on every import | (a) **Extract metadata from the arXiv HTML the device already downloads** when it prepares the paper; zero extra requests. (b) Paper with no HTML: native calls the export API `id_list` once (serial, paced, cached forever per version); the browser calls DataCite `/dois/10.48550/arXiv.<id>` (CORS). (c) Optional: a server-side DataCite lookup verifies the record and fills it for old builds | Native and browser | `arxiv.org/html/<id>v<n>` (already fetched); `export.arxiv.org/api/query?id_list=` (native only); `api.datacite.org` (browser, or server) | `source_metadata` (§5.3) attached to the import command or submitted afterwards | §5.4. Stored per account; `rights_mode` is decided only from verified evidence |
-| **S3**: Feed pool from arXiv RSS | **Recommended:** repoint the pool refresh to DataCite (`provider-id=arxiv`, the 12 pool categories, `created` since the last watermark, `page[size]=1000`, a UA with `mailto`), about 3–10 requests per run, every 2–6 h. **Strict alternative:** native devices fetch `rss.arxiv.org/rss/<cats>` once per daily update (ETag, jittered) and rank locally, while the browser reads DataCite directly | Server (DataCite) or devices | DataCite; or RSS (native only, no CORS) | Strict alternative only: nothing, or the IDs shown and interacted with | Recommended path: the same strict parse and bounds as `parsePoolRSS`, on DataCite JSON |
+| **S1 and S2**: metadata stage (Atom API and OAI-PMH) on every import | (a) **Extract metadata from the arXiv HTML the device already downloads** when it prepares the paper; zero extra requests. (b) Paper with no HTML: native calls the export API `id_list` once (serial, paced, cached forever per version) when the person opens or downloads it on that device. The browser sends nothing; its DataCite lookup (`/dois/10.48550/arXiv.<id>`, CORS) waits for the owner's DataCite decision. (c) Optional: a server-side DataCite lookup verifies the record and fills it for old builds | Native and browser | `arxiv.org/html/<id>v<n>` (already fetched); `export.arxiv.org/api/query?id_list=` (native only); `api.datacite.org` (browser, or server) | `source_metadata` (§5.3) submitted afterwards with `v1_submit_source_metadata` | §5.4. Stored per account; `rights_mode` is decided only from verified evidence |
+| **S3**: Feed pool from arXiv RSS | **Recommended:** repoint the pool refresh to DataCite (`provider-id=arxiv`, the 12 pool categories, `created` since the last watermark, `page[size]=1000`, a UA with `mailto`), about 3–10 requests per run, every 2–6 h. Owner direction (2026-10-15): the shared pool uses DataCite server-side, once for everyone. The strict alternative (every native device fetching `rss.arxiv.org` daily) is excluded by §5.1 rules 1 and 5 | Server (DataCite) or devices | DataCite; or RSS (native only, no CORS) | Strict alternative only: nothing, or the IDs shown and interacted with | Recommended path: the same strict parse and bounds as `parsePoolRSS`, on DataCite JSON |
 | **S4**: live RSS per Feed chip | Serve every chip from the pool. A category outside the pool ("More topics") uses one DataCite query per category, cached on the server for 1 h; strict alternative: native RSS | Server or native | DataCite or RSS | — | Category against a fixed taxonomy table |
-| **S5**: search via the export API | **Recommended:** the server keeps OpenAlex ranking (not arXiv) and enriches the ranked IDs with one batch DataCite request (`/dois?ids=10.48550/arXiv.a,…`) for version, subjects and abstract. The response contract is unchanged, so old builds keep working. **Optional later:** search entirely on the device (OpenAlex and DataCite both allow CORS; native may add one export API call for an exact typed ID); queries would then never reach our server | Server, later devices | DataCite and OpenAlex | — | — |
+| **S5**: search via the export API | **Recommended:** the server keeps OpenAlex ranking (not arXiv) and enriches the ranked IDs with one batch DataCite request (`/dois?ids=10.48550/arXiv.a,…`) for version, subjects and abstract. The response contract is unchanged, so old builds keep working. **Owner direction (2026-10-15), behind a flag:** search on the device, one query per search the person submits: native asks arXiv's API (paced, cached), the browser asks DataCite (CORS); §5.6. The server path stays for older builds | Devices (flagged); server for older builds | DataCite and OpenAlex | — | — |
 | **S6**: arXiv title search in find-paper (Ingest, add-paper, add-reference) | OpenAlex (as today) then a DataCite title query (`provider-id=arxiv`, `titles.title`) under the same strict `matchPaper` rules; Tavily stays the last fallback | Server | DataCite | — | — |
 | **S7**: `id_list` for IDs from Tavily | DataCite batch `ids=` lookup for the arXiv DOIs | Server | DataCite | — | — |
 | **S8**: `id_list` for IDs written in a reference | DataCite batch `ids=` lookup, with title-in-reference matching as now | Server | DataCite | — | — |
@@ -437,7 +474,8 @@ If DataCite is **not** approved for servers (open question 1), the server-side r
 
 ### 5.3 Device metadata contract
 
-Submitted with a new import command, or afterwards for an existing source membership:
+Submitted for an existing source membership with `v1_submit_source_metadata` (there is no `v6_begin_import`; the Add
+paths are unchanged):
 
 ```
 source_metadata: {
@@ -454,10 +492,14 @@ source_metadata: {
 }
 ```
 
-- Native: `ArxivHTMLReader.prepare` already parses the page; it adds the title, authors, abstract and the
-  `#license-tr` and `#watermark-tr` text. The extractor lives in the shared TypeScript compiler
-  (`_shared/reader/arxiv/front-matter.ts`, `authors.ts`), which both clients run, so the same code produces the same
-  record.
+- **As implemented (step 3):** one extractor, `supabase/functions/_shared/reader/arxiv/source-metadata.ts`, reads the
+  HTML and the export API's Atom answer. It is built as its own bundle for JavaScriptCore
+  (`apps/apple/ScienceReader/Resources/arxiv-source-metadata.js`, with a `TextEncoder` polyfill) and loads as a lazy
+  chunk in the browser, so the reader compiler, its digest and `ARXIV_RENDERER_REVISION` are unchanged. It returns
+  `null` rather than a guess when the watermark names another version or there is no title or author.
+- Original proposal, superseded by the bundle above: the extractor would have lived in the shared compiler
+  (`_shared/reader/arxiv/front-matter.ts`, `authors.ts`), adding the title, authors, abstract and the `#license-tr`
+  and `#watermark-tr` text to `ArxivHTMLReader.prepare`.
 - Licence text is mapped through a fixed table. Example: "CC BY 4.0" maps to
   `https://creativecommons.org/licenses/by/4.0/`, and "arXiv.org perpetual non-exclusive license" maps to
   `http://arxiv.org/licenses/nonexclusive-distrib/1.0/`. Unknown text maps to `null`, never a guess.
@@ -474,6 +516,9 @@ source_metadata: {
 2. **Internal consistency.** A modern ID's `YYMM` must not be after the version date. The v1 date month should equal
    `YYMM`; a mismatch is flagged, not refused. The revision may not go backwards for this account.
 3. **Scope.**
+   - As implemented: rate rule `source-metadata` at 120 per account and 2,000 for the environment per hour;
+     promotion provenance in a companion table, `catalog_metadata_provenance`, because catalog rows are immutable
+     records; showing device records in the library is step 5 (older builds' metadata decoders are strict).
    - Store in account-scoped columns on the membership (`import_requests`), never in shared `catalog_metadata`, the
      Feed pool or podcast catalog rows.
    - Only the submitting account sees it; other accounts with the same paper see their own record or the verified
@@ -496,7 +541,8 @@ source_metadata: {
 
 ### 5.5 Feed
 
-- **Recommended (DataCite pool).** `feed-refresh` gains a `datacite-arxiv-ml` source.
+- **Owner direction (2026-10-15): the DataCite pool, server-side, once for everyone.** `feed-refresh` gains a
+  `datacite-arxiv-ml` source (step 4, behind its own flag, off).
   - Mapping from DataCite: `doi` suffix → `source_id`; `version` → revision; `creators` → authors (given name plus
     family name); `descriptions[Abstract]` → abstract (first 2,000 characters); `subjects` with scheme `arXiv` →
     codes, via the trailing `(cs.LG)`.
@@ -504,7 +550,8 @@ source_metadata: {
   - `new` or `cross`: `new` when the first subject (the primary) is in the pool's categories, otherwise `cross`.
   - The lag is about 3 h after arXiv's announcement, versus about 2.5 h today with the 2-hourly RSS check.
   - Ranking, topics, Hugging Face popularity and serving are unchanged. The browser Feed needs no change.
-- **Strict device alternative.**
+- **Strict device alternative (excluded).** Scheduled fetches by every device break §5.1 rules 1 and 5; kept for the
+  record.
   - Native devices fetch the combined RSS for the reader's categories once per daily update. Each device adds a
     random 0–60 min delay after 00:00 ET and sends `If-None-Match`; the response is cached to its
     `Cache-Control: max-age`.
@@ -521,7 +568,72 @@ source_metadata: {
   paper (automatic download is on by default) and submits `source_metadata`; the library shows the device record.
 - **Add by DOI, link or text; Add to library on a reference; Ingest:** the server uses OpenAlex, Crossref and
   DataCite, never arXiv. The found arXiv ID is queued as today.
-- **Search:** server OpenAlex ranking plus DataCite enrichment (recommended), or device-side search later.
+- **Search without OpenAlex (owner decision, 2026-10-15: V1 without OpenAlex if the experience is roughly the same;
+  built in step 4, switched off; §5.6.1 has the evaluation).** The device searches for the person.
+  - Switches (migration 072): `pipeline_policy.device_search_enabled` (default `false`), returned as
+    `v1_reader_capabilities.device_search: {enabled, format: "device-search-v1"}`; off, or an unknown format, keeps
+    the server search. `pipeline_policy.openalex_enabled` (default `true`) keeps OpenAlex in the server's own search
+    (older builds) and its DOI lookups; off, the server searches DataCite with the same code and names a DOI through
+    Crossref alone (`identify.ts`).
+  - One shared module, `_shared/paper-search.ts`, builds the requests, decodes both answers into today's result rows
+    (the native and browser decoders are unchanged) and orders them. Native runs it in JavaScriptCore (the
+    `arxiv-source-metadata.js` bundle), the browser and the server import it.
+  - Native (`DeviceSearch`): only when the person submits a search. Requests: relevance over all the words
+    (`max_results` 50), then the three oldest titles with the phrase (2–8 words), and any word (`OR`) only when the
+    first finds fewer than 5. All go through the device's single export API queue (`ArxivRequestPacer`,
+    `ArxivDeviceRefusal`, the Gradstep User-Agent). Each query's results are kept on the device for 24 h (Caches,
+    never synced). An arXiv ID or link is one `id_list` request.
+  - Browser (`lib/device-search.ts`): DataCite (`provider-id=arxiv`, sparse fields, `mailto`, no credentials), the
+    same three roles, near spellings (`~1`) instead of any word; one search's requests at a time; each query kept in
+    the tab for 24 h. `connect-src` lists `https://api.datacite.org`. **The browser has no paper-search box today**
+    (only Add by ID, DOI or link); adding one is an interaction change for the owner (open question 11).
+  - The order, every factor a plain multiplier (`explainSearch` names them): the index's relevance order
+    (1 / (1 + rank / 10)); title words (+0.5 × the share of the query's words in the title, +0.5 for the phrase);
+    machine-learning categories ×1.15, outside computing and statistics ×0.7; an exact title or main title ×3; the
+    earliest paper titled with the phrase ×2 when its main title is the phrase, ×1.5 when the phrase has 3+ words and
+    the paper is in an ML category. No citation counts: neither index has them for arXiv papers.
+  - The query never reaches our server. Adding a result is today's Add. Nothing is prefetched for results the person
+    has not opened.
+
+### 5.6.1 Search evaluation (2026-10-15)
+
+`node scripts/search-eval.mjs` ran 32 queries (16 topic phrases, a 2-word and two long queries, 3 authors, 5 exact
+titles, an ID and an arXiv link, 3 misspellings) through today's server search (OpenAlex ranking, arXiv metadata, the
+same functions), the native device search and the browser search, with live requests from a developer machine
+(226 cached answers, arXiv paced at 3.2 s, plus nine one-off probes of query syntax). Results, the HTML side by side and the cache are in `.artifacts/search-eval/`. Claude
+judged each engine's top 5 (relevant 1, partly 0.5, not 0; `scripts/search-eval-judgments.json`); "expected" is a canonical paper named
+before the run for 20 of the queries.
+
+| | Today (OpenAlex + arXiv) | Native (arXiv API) | Browser (DataCite) |
+|---|---|---|---|
+| Relevance of the top 5 | 0.48 | 0.69 | 0.79 |
+| A relevant paper in the top 3 | 24/32 | 29/32 | 32/32 |
+| Expected paper in the top 10 / first | 12/20 / 8/20 | 13/20 / 12/20 | 13/20 / 13/20 |
+| Overlap with today's top 10 (mean) | — | 1.1 | 1.3 |
+| Median time to results | 4.3 s | 3.3 s | 1.6 s |
+| By kind (relevance of the top 5): topic / author / misspelling | 0.67 / 0.17 / 0 | 0.83 / 1.0 / 0.10 | 0.94 / 0.97 / 0.57 |
+
+- **Better without OpenAlex:** authors (OpenAlex returned unrelated famous papers for "Tri Dao", "Percy Liang", "Yann
+  LeCun"); arXiv links (today's server sends "https://arxiv.org/abs/1706.03762" to OpenAlex as words and replaces the
+  ID lookup with unrelated papers); specific topics where OpenAlex's "most cited" list pulls in off-topic classics
+  ("test time compute scaling" → PLINK and YOLOv4; "in-context learning" → DeepLab; "state space models" → word2vec);
+  the originals of named methods (chain of thought, NeRF, RAG, DPO, LoRA) through the earliest-title rule; and
+  latency.
+- **Worse without OpenAlex:** broad two-word topics whose landmark paper isn't titled with the phrase: "contrastive
+  learning" (SimCLR and MoCo only through OpenAlex), "mamba ssm" (Mamba itself), "reinforcement learning from human
+  feedback" (InstructGPT, Christiano et al.), "speculative decoding" (Leviathan et al.; Xia et al. leads everywhere).
+  The device lists are newer and on-topic; today's lean to cited classics. Overlap is low (about 1 in 10) because
+  of that, not because either list is off-topic.
+- **Misspellings:** arXiv's API has no near-spelling search (a measured `~` query returns nothing), so the native
+  broad (`OR`) answer is poor (0.10); DataCite's `~1` finds the right papers (0.57; "atention is all you ned" →
+  Attention Is All You Need first). Today's search returns nothing or unrelated papers.
+- **Exact titles and IDs:** first on every engine.
+- **Verdict:** roughly the same experience, better for authors, links, specific topics and speed, worse for the
+  landmark paper of a broad two-word topic. Tuning in order: (1) native misspellings: when the strict answer is short,
+  ask DataCite's near spellings (the owner accepted third-party calls that fit terms and scale) instead of arXiv's
+  `OR`; (2) native latency: show the relevance answer at once and reorder when the phrase answer arrives 3 s later;
+  (3) landmark papers: an explainable "well known" signal is the one gap (for example Hugging Face Papers upvotes
+  where the pool has them, or the year of the earliest title match as a tie-breaker), to be judged on this same set.
 
 ### 5.7 Tags
 
@@ -544,14 +656,14 @@ source_metadata: {
 
 - **Legacy APIs (export API, RSS, OAI) from a device:**
   - One serial queue per device with at least 3 s between request starts and one connection at a time.
-  - Only on user action; never background polling beyond the jittered daily RSS fetch in the strict Feed option.
+  - Only on the person's own action on that device (§5.1); never background polling.
 - **HTML and PDF:** keep the current policy: 3 s between documents and at most 4 concurrent assets of one page, like
   a browser loading one page.
-- **Errors:** add **403 handling**: stop all arXiv requests from this device for 24 h, say so plainly, and never
-  retry in rapid succession (the robots page treats that as an attack). On 429 or 503, honour `Retry-After`, with a
-  60 s minimum and exponential backoff to 24 h.
-- **Automatic download:** only papers this account added, one paper at a time, and paused while the device is
-  backing off.
+- **Errors:** **403 handling** (built in step 3 on both clients, §5.1 rule 3): stop all arXiv requests from this
+  device for 24 h, say so plainly, and never retry in rapid succession (the robots page treats that as an attack). On
+  429 or 503, honour `Retry-After`, with a 60 s minimum and exponential backoff to 24 h.
+- **Automatic download:** requests nothing beyond the paper itself (no export API lookup; implemented). Only papers
+  this account added, one paper at a time, and paused while the device is backing off.
 - **Identification:**
   - Native: set `User-Agent: Gradstep/<version> (<platform>; +https://gradstep.ai; mailto:hello@gradstep.ai)` on
     arXiv and DataCite requests. It identifies the app and carries no user identifier, and DataCite moves identified
@@ -564,7 +676,7 @@ source_metadata: {
   - RSS: honour `Cache-Control` and `ETag`.
   - Native already persists verified bundles. **The browser should persist verified bundles keyed by exact version**
     (IndexedDB or the Cache API, under the browser storage designs). Today every reload re-fetches the HTML and
-    images.
+    images. This belongs to the `readerCopies` store of `BROWSER_OFFLINE_STORAGE.md`, not to steps 1–3.
 - **Offline:** library metadata syncs from our server, so device-submitted records reach the user's other devices
   without new arXiv requests. Prepared papers stay readable offline as today.
 - **Aggregate estimate at 1,000 active readers**, recommended design: about 2 legacy API calls per native search
@@ -590,6 +702,12 @@ source_metadata: {
   - Relevance search is weaker than OpenAlex; keep OpenAlex for ranking.
   - Another dependency with its own outage risk.
   - DataCite's own name and marks are excluded from its CC0 waiver; we would not use them.
+- **Owner position (2026-10-15):** devices make every arXiv request. The shared Feed pool uses DataCite server-side,
+  once for everyone, and browser search uses DataCite directly. Later the same day the owner accepted server and
+  third-party calls that fit terms and scale, and asked for V1 without OpenAlex if the experience is roughly the same.
+  Built and switched off: browser search and the server's search for older builds use DataCite through
+  `_shared/datacite.ts` and `paper-search.ts` (§5.6); the browser's `connect-src` lists DataCite. The Feed pool's
+  DataCite source and server-side verification for promotion are not built yet.
 - **Recommendation:**
   - Use DataCite **server-side** for shared, global data: the Feed pool, out-of-pool categories, search enrichment,
     reference and Ingest lookups, licence corroboration and verification for promotion.
@@ -619,6 +737,77 @@ source_metadata: {
 ## 6. Rollout plan
 
 Ordered so that every shipped build keeps working at each step. Each step is reversible by its flag.
+
+### 6.0 Implemented so far (steps 1–3, switched off)
+
+Step 0 (copy, server User-Agents, the AH-211376 reply) is separate work. Nothing below is deployed, applied to
+staging or switched on.
+
+- **Step 1, guardrails in report mode.** `_shared/egress.ts` (`EGRESS_ARXIV=report|block`, default `report`; logs
+  `{event:'arxiv_egress', mode, host, caller, blocked}`, never the path or query; block mode checks every redirect hop)
+  is installed in all 18 Edge functions, the Cloud Run pipeline worker (server, run, podcast run), the store verifier
+  and the workflow checks job. `scripts/check-arxiv-egress.mjs` scans `supabase/functions`, `services`, `workers`,
+  `supabase/migrations`, `infra` and the two workflow job scripts. Allowed markers: `egress-ok: link`, `parse`,
+  `namespace` (XML namespaces), `prompt` (model instructions), `tavily-filter` and `device` (URLs only clients
+  request). SQL is flagged only inside statements that call `net.http_*` or the `http` extension. Report mode fails
+  only on call sites beyond the ratchet `scripts/arxiv-egress-baseline.json`; `--block` fails on any. The baseline
+  is 12 lines covering S1–S8: `arxiv.ts` 87 (S1) and 92 (S2); `feed-pool.ts` 31 (S3); `discover.ts` 258 (S4), 36,
+  57 and 226 (S5), and 334 and 339 twice (S6); `find-paper.ts` 83 (S7); `reference.ts` 144 (S8). It runs in the fast
+  tier.
+- **Step 2, server, additive.** Migration `202610150071_device_source_metadata.sql`: `arxiv_categories` (178 codes)
+  and `arxiv_licenses` (10 URIs); `pipeline_policy.arxiv_egress` (default `true`) and `source_metadata_enabled`
+  (default `false`); the `import_requests.device_metadata*` columns; `catalog_metadata_provenance`; the
+  `source-metadata` rate rule; `v1_submit_source_metadata` (refuses `source_metadata_disabled` while the flag is off);
+  `worker_catalog_promote` and `admin_catalog_promote`; `v1_reader_capabilities` adds
+  `source_metadata: {enabled, format: "arxiv-source-metadata-v1"}`. `_shared/source-metadata.ts` (contract and
+  validator) and `_shared/datacite.ts` (present and unused, §5.10).
+- **Step 3, clients behind `capabilities.source_metadata`.** The shared extractor (§5.3). Native: the reader hands the
+  page it downloaded to `SourceMetadataReporter`; a paper without HTML gets one export API lookup when the person
+  opens or downloads it; `ArxivRequestPacer` and `ArxivDeviceRefusal` (§5.1 rule 3). Browser: `observeArxivSources`
+  hands each downloaded page to `sourceMetadataReporter`, which loads the extractor only while the capability is on;
+  the 24 h stop after a 403. Not in this step: the browser's DataCite lookup (waits for the owner) and browser bundle
+  persistence (`readerCopies`).
+- **Step 4, search (switched off).** Migration `202610150072_device_search.sql` (`device_search_enabled` false,
+  `openalex_enabled` true, `worker_search_policy()` for the functions, `v1_reader_capabilities.device_search`);
+  `_shared/paper-search.ts`; native `DeviceSearch` behind `ReaderCapabilities.searchesOnDevice` in
+  `ReaderModel.runDiscovery`; browser `lib/device-search.ts` (no UI yet); `discover?q=` searches DataCite and
+  `identify.resolveDOI` skips OpenAlex when `openalex_enabled` is false; the browser CSP and the deploy gate list
+  `https://api.datacite.org`. Evaluation: §5.6.1 and `scripts/search-eval.mjs`.
+- **Active with every flag off** (owner's rules 3 and 4): the 24 h stop after arXiv answers 403, on both clients, and
+  the Gradstep User-Agent on the native reader's own requests. Everything else is inert until `source_metadata_enabled`
+  is set, apart from the capability check itself: a browser preparing papers asks our server's
+  `v1_reader_capabilities` at most once every 10 minutes. The browser's CSP lists DataCite, but nothing in the page
+  calls it while the search has no UI.
+- **Design changes from the proposal below.**
+  - Provenance is a companion table, not `origin` and `evidence_sha256` columns: `catalog_metadata` rows are immutable.
+  - No `v6_begin_import`; devices submit afterwards, and the Add paths are unchanged.
+  - The library shows device records from step 5, not step 2.
+  - A separate metadata bundle keeps the compiler byte for byte unchanged: the equivalence proof against `d05c813`
+    gave 114 sources and 212 runs identical, including 7 identical refusals.
+  - The browser has no DataCite fallback yet, and its CSP is unchanged.
+  - The egress scan also covers the workflow job scripts and has three more marker reasons.
+- **Known issue.** The compiler bundle's build resolves `fflate` through the untracked
+  `supabase/functions/node_modules/.deno`, so its freshness check depends on that directory being present.
+
+### 6.0.1 OpenAlex after step 4
+
+With both switches on, search and DOI naming no longer use OpenAlex. What still does, by area:
+- **Server code (no switch yet):** `find-paper.ts` (title lookups for Ingest, Add by text and chat's find-paper),
+  `reference.ts` (`byDOI` and the title route of Add to library on a reference), `web-source.ts` and
+  `metadata-pipeline.ts` (papers without an arXiv copy: `openalex:W…` works, their open-access PDF and metadata),
+  `discover.ts` (the switched-off search functions and `openAlexCandidates`, which `identify.ts` and `find-paper.ts`
+  share), and comments in `chat.ts`, `anthropic.ts` and `add-reference/index.ts`.
+- **Data model:** `openalex:W…` source IDs for web papers in migrations 019, 039 and later, the browser's
+  `library.ts` and `paper.ts`, native `PaperAdding.swift`, `LibraryMetadata.swift` and `AddPaperFixture.swift`, the admin
+  fixtures, and their tests. These identify stored papers and stay.
+- **Copy:** native Settings › Acknowledgements (`RootView.swift`: "OpenAlex — Search ranking, and finding open-access
+  copies…") and the privacy page (`web/site-next/privacy/index.html`: catalog details "from arXiv, OpenAlex and
+  Crossref"). Both describe today's behaviour and change when the switches do: search ranking leaves the OpenAlex
+  line, DataCite joins the browser's list, and the privacy page names DataCite for search.
+- **Documents:** `PRIVACY_AND_SYNC.md`, `PAPER_PIPELINE.md`, `DECISIONS.md`, `CHAT.md`, `PDF_UPLOADS.md`,
+  `LANDING_PAGE.md`, `LEGACY_GAP_AUDIT.md`, `IMPLEMENTATION_STATUS.md`, `TAGS.md`, `PROVIDER_SPENDING.md`,
+  `PIPELINE_RELIABILITY.md`, `PERSONALIZED_FEED.md`, `WORKFLOW_CHECKS.md`, the 2026-10-07 credit audit; tooling:
+  `scripts/workflow-checks.mjs` (`ingest.jmlr`), `scripts/smoke-web-import.mjs`, `scripts/search-eval.mjs`.
 
 ### 6.1 Steps and tests
 
@@ -656,15 +845,19 @@ Ordered so that every shipped build keeps working at each step. Each step is rev
    returns).
    - Extract metadata in the shared compiler during prepare and submit it.
    - Native: export API fallback for papers without HTML (serial queue, UA, cache); 403 back-off.
-   - Browser: DataCite fallback (CSP `connect-src` adds `https://api.datacite.org`); persist verified bundles by
-     version.
+   - Browser: metadata from the page it downloaded. As built, the DataCite fallback for a paper without HTML (CSP
+     `connect-src` would add `https://api.datacite.org`) waits for the owner, and persisting verified bundles by
+     version moves to the `readerCopies` work.
    - *Tests:* fast compiler tests (the extractor on the pinned corpus HTML: title, authors, abstract, licence,
      watermark; missing infobox → `null`); browser units for the DataCite fallback and pacing; one Simulator journey
      (Add → prepared → device title shown) and one browser fixture journey. Slow and opt-in per `TESTING.md`.
 4. **Server read paths off arXiv** (each behind its own flag, staging first).
-   - `discover`: search through OpenAlex plus DataCite; chips from the pool, with DataCite for out-of-pool categories
-     (cached 1 h).
+   - `discover`: search through DataCite alone when `openalex_enabled` is off (built, §5.6; the proposal was OpenAlex
+     plus DataCite); chips from the pool, with DataCite for out-of-pool categories (cached 1 h; not built).
    - `find-paper`, `reference` and `identify`: DataCite instead of the export API.
+   - Device search (§5.6), flag `device_search_enabled`, off: native export API per submitted search, browser
+     DataCite, both through the clients' pacing (built, §6.0). `identify` names DOIs through Crossref alone when
+     `openalex_enabled` is off (built).
    - `feed-refresh`: switch to the DataCite source. Keep the RSS source row for audit; `refresh_enabled` stays on.
    - *Tests:* fast contract tests showing `discover` responses are byte-compatible with the current decoder (native
      `Discovery.swift`, browser `feed.ts`). Workflow checks: the deploy suite plus a new `egress.no-arxiv` check that
@@ -721,6 +914,11 @@ Nothing needs a forced update, but builds before the metadata extractor never su
 - Existing `catalog_asset_approvals` evidence of format `arXivRaw`.
 
 ### 6.4 Migrations and columns (additive; numbers assigned at implementation)
+
+Step 2 shipped as `202610150071_device_source_metadata.sql` with the changes listed in §6.0. Still to come: the
+`feed_sources` DataCite row, `catalog_asset_approvals` evidence formats, `device_search_enabled` and the library
+projection.
+
 
 - `app_private.import_requests`:
   - `device_metadata jsonb` (bounded like the catalog);
@@ -799,6 +997,14 @@ Nothing needs a forced update, but builds before the metadata extractor never su
 8. **Developer tooling.** The reader sweep and corpus fetch on the owner's Mac contact arXiv, paced. Keep them, with
    the claim scoped to "production servers", or route sweeps through DataCite plus device-equivalent fetches only?
 9. **Label change.** Rename the "arXiv" search segment, per §7?
+10. **Reader page loads and rule 3.** The reader requests a paper's page 3 s after the previous one, then that page's
+    figures at most 4 at a time, as a browser does. Strictly one request every 3 s would make a 20-figure paper take
+    about a minute to open. Keep the page-visit policy for the reader, with rule 3 applied to the APIs?
+11. **A paper-search box in the browser.** The browser has no search today (Add takes an ID, DOI or link). Proposal:
+    the top-bar search gets the native app's Library / arXiv switch; the arXiv side runs `lib/device-search.ts`
+    (DataCite) and shows the Feed's result rows with + Add. An interaction change, so it waits for the owner.
+12. **Search tuning (§5.6.1).** Native near spellings through DataCite; show results before the phrase answer; and
+    whether a "well known" signal is wanted for broad two-word topics.
 
 ## References in this repository
 

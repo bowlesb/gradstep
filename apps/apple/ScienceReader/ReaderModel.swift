@@ -146,7 +146,7 @@ final class ReaderModel {
             }
             // The paper may already be in the library when the import row goes (build 44: LensErase stayed a cloud).
             for sourceID in finishedImportSources {
-                if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper) } }
+                if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper, automatic: true) } }
             }
             let now = importClock()
             importSteps.observe(libraryImports, now: now)
@@ -165,6 +165,8 @@ final class ReaderModel {
     private(set) var libraryIssue: String?
     private(set) var libraryHasSnapshot = false
     private var libraryService: LibraryService?
+    /// Sends device-read paper metadata for this account (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3), while the server asks.
+    @ObservationIgnored private var sourceMetadata: (accountID: UUID, reporter: SourceMetadataReporter)?
     private var libraryContextAuthenticated = false
     private var libraryPublicationGeneration: UInt64 = 0
     private var libraryRefreshAttempt: UUID?
@@ -774,7 +776,7 @@ final class ReaderModel {
         let known = Set(previous.map(\.id))
         for paper in papers where !known.contains(paper.id) {
             guard let sourceID = paper.sourceID, finishedImportSources.contains(sourceID) else { continue }
-            finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper) }
+            finishedImportSources.remove(sourceID); if autoDownloadNewPapers { prepareOnDevice(paper, automatic: true) }
         }
         // Installing verified bytes changes row presentation, not searchable
         // metadata. Keep the worker's snapshot free of reading bundles.
@@ -1903,12 +1905,16 @@ final class ReaderModel {
         let scope = sessionID
         discoveryTask = Task {
             do {
-                let results = try await backend.discover(query: query, accountID: accountID)
+                // While the server says so, the search runs from this device (ARXIV_DEVICE_ONLY.md §5.6); else the server's.
+                let onDevice = await self.libraryService?.capabilities?.searchesOnDevice == true
+                let results = onDevice ? try await DeviceSearch.shared.search(query) : try await backend.discover(query: query, accountID: accountID)
                 guard self.sessionID == scope, self.discoveryGeneration == generation else { return }
                 self.discoveryResults = results; self.discoveryState = .results
             } catch {
                 guard self.sessionID == scope, self.discoveryGeneration == generation, !(error is CancellationError) else { return }
-                self.discoveryState = .failed("arXiv search isn’t available right now. Try again in a moment.")
+                self.discoveryState = .failed((error as? DeviceSearch.Failure) == .paused
+                    ? "arXiv asked this device to wait, so Gradstep won’t search it for now. Try again later."
+                    : "arXiv search isn’t available right now. Try again in a moment.")
             }
         }
     }
@@ -2450,10 +2456,40 @@ final class ReaderModel {
         openLocalPaperIfNeeded()
     }
 
+    /// Where what this device reads about a paper goes, only while the server's `source_metadata` capability is on and the
+    /// paper is one of this account's arXiv imports (docs/architecture/ARXIV_DEVICE_ONLY.md §5.3); nil otherwise.
+    private func sourceMetadataTarget(for paper: Paper) async -> (reporter: SourceMetadataReporter, importID: UUID)? {
+        guard let membership = paper.sourceMembership, let backend, let accountID,
+              await libraryService?.capabilities?.submitsSourceMetadata == true, self.accountID == accountID else { return nil }
+        if sourceMetadata?.accountID != accountID {
+            sourceMetadata = (accountID, SourceMetadataReporter { importID, metadata, revision in
+                try await backend.submitSourceMetadata(accountID: accountID, importID: importID, metadata: metadata, revision: revision)
+            })
+        }
+        guard let reporter = sourceMetadata?.reporter else { return nil }
+        return (reporter, membership.membershipID)
+    }
+    /// The page's bytes, once the reader downloaded them to prepare the paper, read for its metadata: no extra request.
+    private func sourceMetadataSink(for paper: Paper, source: ArxivReaderSource) async -> (@Sendable (Data) -> Void)? {
+        guard let target = await sourceMetadataTarget(for: paper) else { return nil }
+        let reporter = target.reporter, importID = target.importID
+        return { html in Task.detached(priority: .utility) { await reporter.report(html: html, source: source, importID: importID) } }
+    }
+    /// A paper without HTML (arXiv answered 404): its metadata from one paced export API request made by this device,
+    /// only when the person opened or downloaded it here (never from an automatic download).
+    private func reportSourceMetadataWithoutHTML(_ paper: Paper, source: ArxivReaderSource) {
+        Task { [weak self] in
+            guard let self, let target = await self.sourceMetadataTarget(for: paper) else { return }
+            await target.reporter.reportWithoutHTML(source: source, importID: target.importID)
+        }
+    }
+
     /// Downloads and prepares a paper on this device without opening it: after an import this device watched finish,
     /// or from a Library row's cloud symbol or menu (owner, build 42: "either it's there… or the cloud icon in which
     /// case I need a button to download to device"). Progress shows in the row; opening it afterwards is immediate.
-    func prepareOnDevice(_ paper: Paper) {
+    /// `automatic`: the automatic download of a paper this account added, not the person's own action on this device; it
+    /// makes no arXiv request beyond the paper itself (ARXIV_DEVICE_ONLY.md §5.1).
+    func prepareOnDevice(_ paper: Paper, automatic: Bool = false) {
         guard let source = paper.arxivReaderSource, devicePreparationTasks[paper.id] == nil, localReaderOpeningID != paper.id,
               deviceCopy(for: paper) == .cloud, !workOwnership.isActivating, !libraryPublicationDeferred,
               let store = localPersistence.localReaderStore else { return }
@@ -2466,7 +2502,8 @@ final class ReaderModel {
                 Task { @MainActor in guard let self, self.sessionID == scope, self.devicePreparationTasks[paper.id] != nil else { return }; self.devicePreparations[paper.id] = fraction }
             }
             do {
-                let bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report)
+                let sink = await self.sourceMetadataSink(for: paper, source: source)
+                let bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report, onSource: sink)
                 try Task.checkCancellation()
                 guard self.sessionID == scope, self.papers.contains(where: { $0.id == paper.id }) else { return }
                 let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }
@@ -2476,6 +2513,7 @@ final class ReaderModel {
             } catch is CancellationError {
             } catch {
                 guard self.sessionID == scope else { return }
+                if case ArxivHTMLError.unavailable = error, !automatic { self.reportSourceMetadataWithoutHTML(paper, source: source) }
                 self.devicePreparationIssues[paper.id] = Self.preparationReason(error)
             }
         }
@@ -2651,7 +2689,8 @@ final class ReaderModel {
                         }
                     }
                 } else {
-                    bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report)
+                    let sink = await self.sourceMetadataSink(for: paper, source: source)
+                    bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report, onSource: sink)
                     try Task.checkCancellation()
                     guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
                     let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }
@@ -2666,6 +2705,7 @@ final class ReaderModel {
                 self.selectedPaper = displayed
             } catch {
                 guard self.sessionID == scope, self.localReaderOpeningID == paper.id, !(error is CancellationError) else { return }
+                if case ArxivHTMLError.unavailable = error { self.reportSourceMetadataWithoutHTML(paper, source: source) }
                 // A legacy item whose HTML cannot be prepared falls back to its server-processed bundle, once.
                 if legacy, paper.canReadStructured, !self.legacyBundleFallback.contains(paper.id) {
                     self.legacyBundleFallback.insert(paper.id)

@@ -1,3 +1,4 @@
+import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
@@ -6,6 +7,8 @@ import { paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
 import { publishedProfiles } from '../_shared/chat-profiles.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('chat');
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();

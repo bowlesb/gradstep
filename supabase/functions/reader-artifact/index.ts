@@ -1,9 +1,12 @@
 // Authorizes a customer's offline reader download and returns short-lived
 // bounded single-use member URLs (or explicitly legacy signed URLs) plus the
 // trusted manifest digest. The app verifies every byte before installation.
+import { installEgressGuard } from '../_shared/egress.ts';
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256, uuid } from '../_shared/http.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+installEgressGuard('reader-artifact');
 
 type Descriptor = { item_id: string; document_id: string; artifact_id: string; renderer_version: string; bucket: string;
   manifest_path: string; manifest_sha256: string; manifest_bytes: number; transport: 'legacy' | 'bounded-v1';
