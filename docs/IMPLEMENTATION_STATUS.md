@@ -31,7 +31,14 @@ Nine TestFlight items on build 42 and four chat messages within an hour (`docs/O
   screenshot) are left out. `ARXIV_RENDERER_REVISION` **6**.
 - **Proposals.** `docs/proposals/CHAT_TOOLS.md` (HTML answers, Mermaid, a "Visual answers" setting, figure crops).
 
-Evidence and deployment are recorded at the end of this section once the tests and build 43 are done.
+Evidence (commits `cc5d4a2`, `ff41d48`): compiler fragment tests 34/34; fast tier green; headless device compile ok
+for 2610.15542 (Apertus, 9.1 MiB), 2610.17288, 2610.10238, 2610.14075 and 2610.15371; sweep replay 0 of 58 fail;
+iPhone Simulator unit tests 45/45 (ImportProgress, LibraryMetadata, ArxivHTMLReader, ArxivCompilerFailure,
+ChatTitle, ReaderBundleLoader, LegacyArxivReader) plus the paragraph-marker title test; native journey
+`ReaderNavigationTests/testHTMLPaperInPageLinksOfferBack` passed; browser typecheck and chat tests green.
+Deployment: browser Pages **`38407158`** (live host serves it; the compiler chunk carries revision 6); TestFlight
+**build 43** iOS and Mac both VALID (20:49 PDT). Stored papers prepared by build 42 or earlier are prepared again
+once on first open.
 
 ## Refusals become degradations, the catalog heads the paper, two-word progress — 2026-10-15, ~03:45 UTC
 
