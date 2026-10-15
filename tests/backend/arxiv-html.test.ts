@@ -240,3 +240,114 @@ test('a title page a template left in error markers is read by macro: abstract a
  assert.ok(!/dreamx_logo|October 13|\[ \[|<sup><\/sup>/.test(html),'plumbing, the date line and empty marks are gone');
  assert.match(html,/left out 6 unsupported commands/);
 });
+
+// Audit 2026-10-15 (docs/proposals/READER_ARCHITECTURE_RETHINK.md): the shapes that refused real papers now degrade.
+const fragment = (body) => source.replace('<p id="p1">', body + '<p id="p1">');
+const blocksOf = (bundle) => validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256).index.blocks.map(b => [b.kind, b.text.slice(0, 40)]);
+
+test('an algorithm figure (caption plus a listing with math) is a table block, not a refusal', () => {
+ const bundle = build(fragment(`<figure id="alg1" class="ltx_float ltx_float_algorithm"><figcaption class="ltx_caption"><span class="ltx_tag">Algorithm 1 </span>Sampling</figcaption><div class="ltx_listing"><div class="ltx_listingline">repeat ${math} until done</div></div></figure>`));
+ const blocks = blocksOf(bundle);
+ assert.ok(blocks.some(([kind, text]) => kind === 'table' && /Sampling/.test(text) && /repeat/.test(text)), JSON.stringify(blocks.slice(0, 4)));
+ assert.equal(validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256).index.equations.length, 3);
+});
+
+test('an "equation" without math reads as a paragraph', () => {
+ const bundle = build(fragment('<table id="S5.Ex1" class="ltx_equation ltx_eqn_table"><tbody><tr class="ltx_equation ltx_eqn_row"><td class="ltx_eqn_cell"><span class="ltx_markedasmath">{dataset}__{planner}.json</span></td></tr></tbody></table>'));
+ assert.ok(blocksOf(bundle).some(([kind, text]) => kind === 'paragraph' && text.includes('{dataset}__{planner}.json')));
+});
+
+test('a figure inside a list item becomes its own block after the list; the item keeps its words', () => {
+ const bundle = build(fragment(`<ul class="ltx_itemize"><li class="ltx_item">First point <figure id="S1.F9" class="ltx_figure"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 9: Inside an item.</figcaption></figure></li><li class="ltx_item">Second point</li></ul>`));
+ const blocks = blocksOf(bundle);
+ const first = blocks.findIndex(([, text]) => text === 'First point'), figure = blocks.findIndex(([kind, text]) => kind === 'figure' && /Inside an item/.test(text));
+ assert.ok(first >= 0 && figure > first && blocks[first + 1][1] === 'Second point', JSON.stringify(blocks.slice(0, 6)));
+});
+
+test('a TikZ picture whose label holds a table reads as a table block', () => {
+ const bundle = build(fragment('<div class="ltx_para"><p class="ltx_p"><svg class="ltx_picture" viewBox="0 0 10 10"><foreignObject width="10" height="10"><table><tbody><tr><td>cell a</td><td>cell b</td></tr></tbody></table></foreignObject></svg></p></div>'));
+ assert.ok(blocksOf(bundle).some(([kind, text]) => kind === 'table' && /cell a/.test(text)));
+});
+
+test('without an h1 the catalog title heads the paper and its bold repeat is left out; a stub page is unavailable', () => {
+ const text = source.replace('<h1>Authored HTML fixture</h1><div class="ltx_authors">A. Author</div>', '<div class="ltx_para"><p class="ltx_p"><span class="ltx_text ltx_font_bold">A Bold Paragraph Title</span></p></div>');
+ const titled = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), title: 'A Bold Paragraph Title' });
+ const blocks = blocksOf(titled);
+ assert.deepEqual(blocks[0], ['heading', 'A Bold Paragraph Title']);
+ assert.ok(!blocks.some(([kind, t]) => kind === 'paragraph' && t === 'A Bold Paragraph Title'), 'the repeat is gone');
+ assert.throws(() => build(text), /arxiv_title/, 'no title anywhere');
+ const stub = '<html><body><article class="ltx_document"><div class="ltx_para"><p class="ltx_p">See pages 1-last of 0_main.pdf</p></div></article></body></html>';
+ assert.throws(() => composeArxivReader({ source: utf8(stub), sourceID: '2601.01234', revision: 2, images: new Map(), title: 'Adam' }), /arxiv_article/);
+});
+
+test('a top-level svg is a figure, not a tiny inline image', () => {
+ const text = fragment('<svg id="S1.F3" class="ltx_picture" viewBox="0 0 10 10"><rect width="4" height="4"/></svg>');
+ const inline = arxivInlineImages(text, url);
+ assert.deepEqual([...inline.keys()], ['#S1.F3'], 'the picture is the figure\'s own image');
+ const png = admitReaderImage(new Uint8Array(readFileSync(new URL('../fixtures/reader/assets/attention.png', import.meta.url))));
+ const images = new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }], ['#S1.F3', { ...png, inputSHA256: sha256Hex(utf8(inline.get('#S1.F3')!)) }]]);
+ const bundle = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images });
+ const checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ assert.equal(checked.index.figures.length, 2, 'the fixture figure and the svg');
+ assert.ok(!/reader-inline-image/.test(new TextDecoder().decode(bundle.members.get('index.html'))));
+});
+
+test('front matter reads first even when LaTeXML put a figure or a venue line before the title', () => {
+ const text = source.replace('<h1>Authored HTML fixture</h1>', '<div class="ltx_para"><p class="ltx_p">AI for Chip Design</p></div><figure id="S0.F1" class="ltx_figure"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 1: Samples.</figcaption></figure><h1>Authored HTML fixture</h1>');
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const blocks = checked.index.blocks.map(b => [b.kind, b.text]);
+ assert.deepEqual(blocks[0], ['heading', 'Authored HTML fixture']);
+ assert.equal(blocks[1][0], 'paragraph', 'the authors follow the title');
+ assert.equal(blocks.findIndex(([, t]) => t === 'AI for Chip Design') , 2, 'the venue line follows the front matter');
+ assert.ok(/Figure 1: Samples/.test(blocks[3][1]), JSON.stringify(blocks.slice(0, 5)));
+ assert.equal(checked.index.figures[0].caption, 'Figure 1: Samples.', 'figures are indexed in page order');
+});
+
+test('the library names head a paper whose HTML has no author block; a paragraph repeating them and an empty one are left out', () => {
+ const text = source.replace('<div class="ltx_authors">A. Author</div>', '<span class="ltx_rule" style="width:100%"> </span><div class="ltx_para"><p class="ltx_p"><span class="ltx_text ltx_font_bold">Ada Lovelace</span> <span class="ltx_text ltx_font_bold">Alan Turing</span></p></div>');
+ const bundle = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), authors: ['Ada Lovelace', 'Alan Turing'] });
+ const checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const blocks = checked.index.blocks.map(b => [b.kind, b.text]);
+ assert.deepEqual(blocks.slice(0, 2), [['heading', 'Authored HTML fixture'], ['paragraph', 'Ada Lovelace, Alan Turing']], JSON.stringify(blocks.slice(0, 4)));
+ assert.ok(!blocks.some(([, t]) => t === ''), 'no empty block');
+ assert.match(new TextDecoder().decode(bundle.members.get('index.html')), /class="reader-authors"[^>]*>Ada Lovelace, Alan Turing</);
+});
+
+test('a math mark beside a name and a footnote in running text keep their symbols', () => {
+ const dagger = '<math alttext="\\dagger" display="inline"><semantics><mo>†</mo><annotation encoding="application/x-tex">\\dagger</annotation></semantics></math>';
+ const text = source.replace('<div class="ltx_authors">A. Author</div>', `<div class="ltx_authors"><span class="ltx_creator ltx_role_author"><span class="ltx_personname">Zihao Pan<sup class="ltx_sup">1</sup><sup class="ltx_sup">${dagger}</sup></span></span></div>`)
+  .replace('<p id="p1">', '<p class="ltx_p">Results<span class="ltx_note ltx_role_footnotetext"><sup class="ltx_note_mark">†</sup><span class="ltx_note_outer"><span class="ltx_note_content"><sup class="ltx_note_mark">†</sup><span class="ltx_note_type">footnotetext: </span>Corresponding authors.</span></span></span> follow.</p><p id="p1">');
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const html = new TextDecoder().decode(bundle.members.get('index.html'));
+ assert.match(html, /Zihao Pan<sup>1,†<\/sup>/, html.slice(0, 600));
+ assert.ok(checked.index.blocks.some(b => b.text === 'Results† Corresponding authors. follow.'), JSON.stringify(checked.index.blocks.map(b => b.text).slice(0, 6)));
+ assert.ok(!html.includes('footnotetext'));
+});
+
+test('a block longer than the index allows is excerpted, never a refusal', () => {
+ const bundle = build(fragment(`<p class="ltx_p">${'Author Name, '.repeat(2000)}end.</p>`));
+ const long = blocksOf(bundle).find(([, t]) => t.startsWith('Author Name,'));
+ assert.ok(long, 'the block is there');
+ assert.ok(new TextDecoder().decode(bundle.members.get('index.html')).includes('end.'), 'the reader keeps the whole text');
+});
+
+test('panels laid out in a tabular of graphics are the figure\'s images; publication notes under the title are left out', () => {
+ const text = source.replace('<h1>Authored HTML fixture</h1>', '<h1>Authored HTML fixture</h1><span class="ltx_pubnotes ltx_pubnotes_meta"><span class="ltx_pubnotes_content"><span class="ltx_pubnote">Revised: October 5, 2026</span></span></span>')
+  .replace('<p id="p1">', '<figure id="S4.F1" class="ltx_figure"><table class="ltx_tabular"><tbody><tr><td><img src="2601.01234v2/figure.jpg"></td><td><img src="2601.01234v2/figure.jpg"></td></tr></tbody></table><figcaption>Figure 1: Two panels.</figcaption></figure><p id="p1">');
+ const bundle = build(text), checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const panels = checked.index.figures.find(f => f.caption === 'Figure 1: Two panels.');
+ assert.ok(panels && panels.asset_paths.length === 1, JSON.stringify(checked.index.figures));
+ assert.equal(checked.index.blocks[1].kind, 'paragraph', 'the authors follow the title');
+ assert.ok(!checked.index.blocks.some(b => /Revised:/.test(b.text)));
+ assert.ok(!checked.index.blocks.at(-1)!.text.startsWith('Note:'), 'nothing was left out');
+});
+
+test('a custom title page (2610.15371): the catalog title heads it, its logo is no figure, its rule is no block', () => {
+ const text = source.replace('<h1>Authored HTML fixture</h1><div class="ltx_authors">A. Author</div>', '<div class="ltx_titlepage"><p class="ltx_p"><span class="ltx_rule" style="width:345pt"> </span><span class="ltx_text"></span></p><p class="ltx_p"><img src="2601.01234v2/figure.jpg" class="ltx_graphics"></p><p class="ltx_p"><span class="ltx_text ltx_font_bold">A Sovereign Model</span></p><p class="ltx_p"><span class="ltx_text ltx_font_bold">Core Team:<span class="ltx_text ltx_font_medium"> Ada Lovelace, Alan Turing</span></span></p></div>');
+ const bundle = composeArxivReader({ source: utf8(text), sourceID: '2601.01234', revision: 2, images: new Map([[url + '/figure.jpg', { ...admitted, inputSHA256: sha256Hex(raw) }]]), authors: ['Ada Lovelace', 'Alan Turing'], title: 'A Sovereign Model' });
+ const checked = validateReaderBundle(bundle.manifestBytes, bundle.members, bundle.manifestSHA256);
+ const blocks = checked.index.blocks.map(b => [b.kind, b.text]);
+ assert.deepEqual(blocks.slice(0, 3), [['heading', 'A Sovereign Model'], ['paragraph', 'Ada Lovelace, Alan Turing'], ['paragraph', 'Core Team: Ada Lovelace, Alan Turing']], JSON.stringify(blocks.slice(0, 5)));
+ assert.equal(checked.index.figures.length, 1, 'the fixture figure only; the logo is not one');
+ assert.match(checked.index.blocks.at(-1)!.text, /left out 1 inline graphic/);
+});

@@ -17,11 +17,17 @@ export const MATH_OPTIONS = Object.freeze({
   include_mathml_word: false,
 });
 
+/** The device reader's arXiv HTML source limit: 8 MiB (was 2 MiB; owner, build 40: a 2.6 MB technical report,
+ * Apertus 1.5, was refused as over the limit). Measured on fresh papers by `scripts/reader-sweep.mjs`; copied by
+ * hand into `apps/web/src/lib/arxiv-reader.ts` (`ARXIV_LIMITS.sourceBytes`) and `ArxivAcquisitionPolicy.sourceBytes`.
+ * Not part of the Mathpix renderer identity below. */
+export const ARXIV_SOURCE_BYTES = 8 * 1024 * 1024;
+
 // Limits are sized for real papers (the DPO capture is a 116 KB MMD with 270
 // equations and four figures) while bounding hosted CPU/memory and native work.
 export const LIMITS = Object.freeze({
-  // 8 MiB (was 2 MiB; owner, build 40: a 2.6 MB technical report, Apertus 1.5, was refused as over the limit).
-  sourceBytes: 8 * 1024 * 1024,
+  // The Mathpix MMD source. Part of the renderer identity below, so the committed sample bundle depends on it.
+  sourceBytes: 2 * 1024 * 1024,
   archiveImages: 512,
   figures: 256,
   imagesPerFigure: 16,

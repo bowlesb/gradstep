@@ -2,7 +2,7 @@
 // source scripts/styles, or PDF handling. Acquisition supplies every image.
 import { classes, el, elements, HTML_SUFFIX, htmlPrefix, isMathToken, MATH_ELEMENTS, mathAttributeIsSafe,
   normalizeSpace, outText, parseHTML, render, serialize, textContent, walk, type DomNode, type OutNode } from './html.ts';
-import { INDEX_FORMAT, LIMITS } from './profile.ts';
+import { INDEX_FORMAT, LIMITS, ARXIV_SOURCE_BYTES } from './profile.ts';
 import { boundedText, check, excerpt, sha256Hex, utf8 } from './util.ts';
 import type { ReaderIndex } from './render.ts';
 
@@ -11,7 +11,7 @@ export const ARXIV_SOURCE_KIND = 'arxiv-html';
 export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
 /** Bumped whenever the compiled reader changes for the same source (2026-10-15: author blocks, template title pages),
  * so a device re-prepares papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 3;
+export const ARXIV_RENDERER_REVISION = 4;
 export const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+(?:\.[A-Z]{2})?\/\d{7})$/;
 export type HTMLImage = { path: string; width: number; height: number };
 type Child = OutNode | string;
@@ -40,7 +40,7 @@ export function arxivAssetURL(reference: string, sourceURL: string): string {
  * outright). Beyond this many the conversion is not trusted at all. */
 export const CONVERSION_ERROR_LIMIT = 1000;
 function article(source: string): { root: DomNode; dropped: number } {
-  check(utf8(source).length <= LIMITS.sourceBytes && source.length > 0, 'source_limit');
+  check(utf8(source).length <= ARXIV_SOURCE_BYTES && source.length > 0, 'source_limit');
   const root = parseHTML(source);
   const papers = elements(root, n => n.name === 'article' && has(n, 'ltx_document'));
   check(papers.length === 1, 'arxiv_article');
@@ -57,22 +57,22 @@ function article(source: string): { root: DomNode; dropped: number } {
 }
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
-export function arxivHTMLAssets(source: string, sourceURL: string): string[] {
+export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {
   // Exactly the images the compiled reader references (a dry compile with placeholder admissions), so acquisition,
   // asset coverage and provenance agree; a graphic the reader leaves out is never fetched. Structural refusals surface
   // here, before any image is downloaded.
   const placeholder = { path: `assets/${'0'.repeat(64)}.png`, width: 1, height: 1 };
-  const assets = convertArxivHTML(source, sourceURL, () => placeholder).imageURLs.filter(url => !url.startsWith('#'));
+  const assets = convertArxivHTML(source, sourceURL, () => placeholder, options).imageURLs.filter(url => !url.startsWith('#'));
   check(assets.length <= LIMITS.archiveImages, 'image_limit');
   return assets;
 }
 
 /** Inline vectors are source bytes, never remote asset URLs. The canonical
  * serialization is hashed in provenance before the device SVG admission. */
-export function arxivInlineImages(source: string, sourceURL: string): Map<string, string> {
+export function arxivInlineImages(source: string, sourceURL: string, options: ArxivConvertOptions = {}): Map<string, string> {
   // Exactly the pictures the compiled reader references (a dry compile), as for raster assets.
   const placeholder = { path: `assets/${'0'.repeat(64)}.png`, width: 1, height: 1 };
-  const wanted = new Set(convertArxivHTML(source, sourceURL, () => placeholder).imageURLs.filter(url => url.startsWith('#')).map(url => url.slice(1)));
+  const wanted = new Set(convertArxivHTML(source, sourceURL, () => placeholder, options).imageURLs.filter(url => url.startsWith('#')).map(url => url.slice(1)));
   const result = new Map<string, string>();
   for (const n of elements(article(source).root, n => n.name === 'svg')) {
     const id = n.attribs.id;
@@ -107,6 +107,8 @@ function svgTextLabels(n: DomNode): DomNode {
 export interface ArxivConvertOptions {
   /** The library's author names for this paper, used when the HTML's own names are graphics or missing. */
   authors?: readonly string[];
+  /** The catalog's title, used when the HTML has no `h1`. */
+  title?: string;
 }
 export function convertArxivHTML(source: string, sourceURL: string, resolveImage: (url: string) => HTMLImage, options: ArxivConvertOptions = {}): {
   index: ReaderIndex; html: string; imageURLs: string[];
@@ -146,7 +148,9 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   const imageURLs = new Set<string>();
   const figureImages = new Map<string, OutNode[]>();
   const bind = (n: DomNode, id: string) => { if (n.attribs?.id) aliases.set(n.attribs.id, id); };
-  const nextID = () => { check(blocks.length < LIMITS.blocks, 'block_limit'); return `b-${digest}-${blocks.length + 1}`; };
+  // Ids are issued, never reused: a block removed later (an empty paragraph, a repeated title) must not free its number.
+  let issued = 0;
+  const nextID = () => { check(blocks.length < LIMITS.blocks, 'block_limit'); issued += 1; return `b-${digest}-${issued}`; };
   function block(n: DomNode, name: string, kind: string, make: (id: string) => Child[], attrs: Record<string, string> = {}): OutNode {
     const id = nextID();
     const out = el(name, { ...attrs, id, 'data-reader-block': id, 'data-reader-kind': kind });
@@ -165,6 +169,8 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       for (const e of elements(n, () => true)) bind(e, id);
       const INLINE = ['em', 'i', 'strong', 'b', 'u', 's', 'sub', 'sup', 'code'];
       const MARKS = /[\d,†‡*§¶‖]/g, LEADING_MARKS = /^[\d,†‡*§¶‖\s]+/;
+      const MARK_SYMBOLS: Record<string, string> = { '†': '†', '‡': '‡', '*': '*', '∗': '*', '⋆': '*', '§': '§', '¶': '¶', '‖': '‖' };
+      const mathText = (m: DomNode): string => m.type === 'text' ? m.data : m.type !== 'tag' || ['annotation', 'annotation-xml'].includes(m.name) ? '' : children(m).map(mathText).join('').trim();
       const EMAIL = /\{[^}]*\}@[\w.-]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
       const notes: { mark: string; body: Child[] }[] = [], seenNotes = new Set<string>();
       const addresses: Child[][] = [];
@@ -175,7 +181,11 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       const walk = (c: DomNode): Child[] => {
         if (c.type === 'text') return [c.data];
         if (c.type !== 'tag') return [];
-        if (c.name === 'math') return [equation(c, id)];
+        if (c.name === 'math') {
+          // A mark set as math ($\dagger$ beside a name, 2610.12978) is its symbol; an equation span has no text.
+          const symbol = MARK_SYMBOLS[mathText(c)]; if (symbol) { drop(c); return [symbol]; }
+          return [equation(c, id)];
+        }
         if (['svg', 'img', 'object'].includes(c.name)) { omittedGraphics += 1; return drop(c); }
         if (has(c, 'ltx_note')) {
           const first = elements(c, x => has(x, 'ltx_note_mark'))[0];
@@ -214,6 +224,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
             if (!text) continue;
             if (typeof last === 'string') out[out.length - 1] = (last + text).replace(/\s+/g, ' '); else out.push(text);
           } else if (isSup(part)) {
+            if (!outText(part).trim()) continue; // a mark that was an icon (an envelope, 2610.12978)
             const last = out[out.length - 1];
             if (typeof last === 'string') { const trimmed = last.trimEnd(); if (trimmed) out[out.length - 1] = trimmed; else out.pop(); }
             const previous = out[out.length - 1];
@@ -372,6 +383,18 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       omittedGraphics += 1; for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m); return [];
     }
     check(!['table', 'figure'].includes(n.name), 'arxiv_nested_content');
+    // A footnote in running text (LaTeXML: the mark, then the content repeating the mark and a "footnotetext:" label,
+    // 2610.19864): the mark once, then its words.
+    if (has(n, 'ltx_note')) {
+      const mark = elements(n, x => x !== n && has(x, 'ltx_note_mark'))[0];
+      const content = elements(n, x => x !== n && has(x, 'ltx_note_content'))[0];
+      for (const x of elements(n, x => x !== n && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type'))))
+        for (const m of elements(x, y => y.name === 'math')) skippedMath.add(m);
+      const body = (content ? children(content) : children(n).filter(x => !has(x, 'ltx_note_mark')))
+        .filter(x => !(x.type === 'tag' && (has(x, 'ltx_note_mark') || has(x, 'ltx_note_type')))).flatMap(x => inline(x, owner, inAnchor, forceDisplay));
+      const markText = mark ? normalizeSpace(textContent(mark)) : '';
+      return markText ? [el('sup', {}, [markText]), ' ', ...body] : body;
+    }
     const content = () => children(n).flatMap(c => inline(c, owner, inAnchor || n.name === 'a', forceDisplay));
     if (n.name === 'br') return [el('br')];
     if (n.name === 'a') {
@@ -472,10 +495,10 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
         // teaser 0.65 em tall: "the figure is tiny").
         else if (child.name === 'p' && loneImage(child)) parts.push(figureImage(elements(child, c => ['img','object','svg'].includes(c.name))[0], id));
         else if (child.name === 'p') parts.push(el('p', {}, children(child).flatMap(c => inline(c,id))));
-        else if (['div','span'].includes(child.name)) children(child).forEach(visit);
+        else if (['div','span','table','thead','tbody','tfoot','tr','td','th'].includes(child.name)) children(child).forEach(visit);
         else parts.push(...inline(child,id));
       };
-      if (['img','object'].includes(n.name)) parts.push(figureImage(n,id));
+      if (['img','object','svg'].includes(n.name)) parts.push(figureImage(n,id));
       else children(n).forEach(visit);
       const output: Child[] = []; let run: Child[] = [];
       const flush = () => {
@@ -530,6 +553,9 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     if (isMarker(n)) { bind(n, blocks[blocks.length - 1]?.id ?? ''); return []; }
     // The date line under the header (the paper line already says the year and the arXiv revision).
     if (has(n, 'ltx_dates')) return [];
+    // Publication notes under the title (a revision date, a venue line, a DOI and ISBN: 2610.07591, 2610.19855) are
+    // catalog data, not the paper; the author block follows the title.
+    if (has(n, 'ltx_pubnotes')) { for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m); return []; }
     if (!titleSeen && ['div', 'p'].includes(n.name) && elements(n, c => isMarker(c)).length >= 2 && !elements(n, c => ['figure', 'table', 'h1'].includes(c.name)).length) {
       templatePreamble(n); return [];
     }
@@ -544,7 +570,8 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     if (n.name === 'h1') titleSeen = true;
     if (/^h[1-6]$/.test(n.name)) output = [block(n, n.name, 'heading', id => children(n).flatMap(c => inline(c, id)))];
     else if (n.name === 'figure') {
-      const tables = elements(n, c => c.name === 'table');
+      const insideSVG = (c: DomNode) => { for (let a = c.parent; a; a = a.parent) if (a.name === 'svg') return true; return false; };
+      const tables = elements(n, c => c.name === 'table' && !insideSVG(c));
       const images = elements(n, c => ['img','object','svg'].includes(c.name));
       const captions = children(n).filter(c => c.name === 'figcaption');
       if (captions.length > 1 && !tables.length && !elements(n, c => c !== n && c.name === 'figure').length) {
@@ -558,21 +585,30 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
           }
         }
         output.push(...panel.flatMap(flow));
+      } else if (tables.length && images.length && !elements(n, c => c !== n && c.name === 'figure').length
+          && tables.every(t => !normalizeSpace(textContent(t)).length)) {
+        // Panels laid out in a tabular whose cells hold only graphics (Batch Normalization's Figure 1, audit
+        // 2026-10-15: graphics in table cells were left out): the figure's own images, in cell order.
+        output = [imageFigure(n)];
       } else if (elements(n, c => c !== n && c.name === 'figure').length || (tables.length && images.length)) {
         // Compound figures keep their panel order and captions as separate,
         // non-nested reader blocks. A reference to the group opens its first panel.
         output = children(n).flatMap(flow);
-      } else if (!tables.length && images.length === 0 && captions.length === 1) {
+      } else if (!tables.length && images.length === 0 && captions.length === 1
+          && !children(n).some(c => c.name !== 'figcaption' && normalizeSpace(textContent(c)).length > 0)) {
         // A caption with no graphic of its own (LaTeXML's \\captionof after an unwrapped \\includegraphics, as in
         // 2610.17288's Figure 1): the caption paragraph, right under the figure the paragraph before it became.
+        // A figure whose other children carry text (an algorithm's listing, a tabular in a paragraph) is a table
+        // block below instead (audit 2026-10-15: nine of fifteen refusals were listings dropped here).
         output = [block(n, 'p', 'paragraph', id => children(captions[0]).flatMap(c => inline(c, id)), { class: 'reader-caption' })];
       } else if (tables.length || images.length === 0) {
         output = [block(n, 'div', 'table', id => children(n).flatMap(c => tableContents(c, id)), { class: 'reader-table' })];
       } else output = [imageFigure(n)];
     } else if (has(n, 'ltx_equation') || has(n, 'ltx_equationgroup')) {
       const maths = elements(n, c => c.name === 'math');
-      check(maths.length > 0, 'arxiv_equation');
-      output = [block(n, 'p', 'equation', id => {
+      // An "equation" that is only text (a file-name pattern marked as math, 2610.19830) reads as a paragraph.
+      if (!maths.length) output = [block(n, 'p', 'paragraph', id => children(n).flatMap(c => inline(c, id)))];
+      else output = [block(n, 'p', 'equation', id => {
         const parts: Child[] = [];
         for (const math of maths) parts.push(equation(math, id, true));
         const tags = elements(n, c => has(c, 'ltx_tag_equation') || has(c, 'ltx_tag_equationgroup'));
@@ -588,14 +624,23 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     else if (n.name === 'pre') output = [block(n, 'pre', 'code', () => [el('code', {}, [textContent(n)])])];
     else if (n.name === 'ul' || n.name === 'ol') {
       const list = el(n.name, has(n, 'ltx_biblist') ? { class: 'reader-references' } : {}, []);
+      const pending: DomNode[] = [];
       for (const item of children(n)) {
         if (item.type === 'text' && !item.data.trim() || item.type === 'comment') continue;
         check(item.name === 'li', 'arxiv_list');
         // An item holding a table (KAN's enumerated comparisons) keeps it as a table inside the item.
         const tabular = elements(item, c => c !== item && c.name === 'table').length > 0;
-        list.children.push(block(item, 'li', 'list', id => children(item).flatMap(c => tabular ? tableContents(c, id) : inline(c, id))));
+        // A figure inside an item (PaLM's first figure) becomes its own block after the list; the item keeps its words.
+        const holdsFigure = (c: DomNode) => c.name === 'figure' || elements(c, x => x !== c && x.name === 'figure').length > 0;
+        const figures = children(item).filter(holdsFigure);
+        list.children.push(block(item, 'li', 'list', id => children(item).filter(c => !holdsFigure(c)).flatMap(c => tabular ? tableContents(c, id) : inline(c, id))));
+        pending.push(...figures);
       }
-      output = [list];
+      // Compiled after every item so the index order matches the page (a block is numbered when it is made).
+      output = [list, ...pending.flatMap(flow)];
+    } else if (n.name !== 'figcaption' && n.name !== 'math' && !has(n, 'ltx_authors') && loneImage(n) && onTitlePage(n)) {
+      // A logo on a custom title page (2610.15371's company mark above the title) is no figure: left out and counted.
+      omittedGraphics += 1; for (const m of elements(n, c => c.name === 'math')) skippedMath.add(m); output = [];
     } else if (n.name !== 'figcaption' && n.name !== 'math' && !has(n, 'ltx_authors') && loneImage(n)) {
       // A TikZ picture that is really a framed text box (LaTeXML: `svg.ltx_picture` whose foreignObjects hold the
       // text): its words read as paragraphs and the frame is left out and counted. Any other lone graphic is a figure.
@@ -603,7 +648,9 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
       const labels = picture ? elements(picture, c => c.name === 'foreignObject').filter(fo => normalizeSpace(textContent(fo)).length > 0) : [];
       if (picture && labels.length) {
         omittedGraphics += 1;
-        output = labels.map(fo => block(fo, 'p', 'paragraph', id => children(fo).flatMap(c => inline(c, id))));
+        output = labels.map(fo => elements(fo, c => c.name === 'table').length
+          ? block(fo, 'div', 'table', id => children(fo).flatMap(c => tableContents(c, id)), { class: 'reader-table' })
+          : block(fo, 'p', 'paragraph', id => children(fo).flatMap(c => inline(c, id))));
         if (picture.attribs?.id && output.length) bind(picture, output[0].attribs.id);
       } else output = [imageFigure(n)];
     }
@@ -617,12 +664,69 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
           : n.name === 'figcaption' ? { class: 'reader-caption' } : {})];
     } else if (n.name === 'hr') output = [el('hr')];
     else if (['article', 'section', 'div', 'header', 'footer', 'aside'].includes(n.name)) output = children(n).flatMap(flow);
-    else if (n.name === 'img' || n.name === 'object') output = [imageFigure(n)];
+    else if (n.name === 'img' || n.name === 'object' || n.name === 'svg') output = [imageFigure(n)];
     else output = [block(n, 'p', 'paragraph', id => inline(n, id))];
     if (blocks.length > before && n.attribs?.id && !aliases.has(n.attribs.id)) bind(n, blocks[before].id);
     return recovered.length ? [...recovered, ...output] : output;
   }
+  // No `h1` (a template that set the title as a bold paragraph, 2610.19861): the catalog's title heads the paper and
+  // a paragraph that merely repeats it is left out. A page that is only a pointer to the PDF (a stub) is no paper.
+  const metadataTitle = typeof options.title === 'string' ? normalizeSpace(options.title).slice(0, 2000) : '';
+  const synthetic = new Set<OutNode>();
+  if (!elements(root, n => n.name === 'h1').length && metadataTitle) {
+    const heading = block(root, 'h1', 'heading', () => [metadataTitle]); synthetic.add(heading); top.push(heading); titleSeen = true;
+  }
   top.push(...flow(root));
+  // The index lists blocks, equations and figures in page order; after a move, the order is read back from the page.
+  const reorder = () => {
+    const order = new Map<string, number>();
+    const walk = (node: Child) => {
+      if (typeof node !== 'object') return;
+      const id = node.attribs['data-reader-block'] ?? node.attribs['data-reader-equation']; if (id) order.set(id, order.size);
+      node.children.forEach(walk);
+    };
+    top.forEach(walk);
+    const at = (id: string) => order.get(id) ?? Number.MAX_SAFE_INTEGER;
+    blocks.sort((a, b) => at(a.id) - at(b.id)); equations.sort((a, b) => at(a.id) - at(b.id)); figures.sort((a, b) => at(a.id) - at(b.id));
+  };
+  const fold = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const remove = (entry: { id: string; node: OutNode }) => {
+    const at = blocks.indexOf(entry); if (at >= 0) blocks.splice(at, 1);
+    const index = top.indexOf(entry.node); if (index >= 0) top.splice(index, 1);
+  };
+  // Front matter first: a figure or a venue line LaTeXML placed before the title (DDPM's samples, SGAnalog's
+  // "AI for Chip Design") follows the title, the authors and the abstract instead (sweep, 2026-10-15).
+  const h1At = top.findIndex(node => node.name === 'h1');
+  if (h1At > 0) {
+    const front = (node: OutNode) => node.name === 'h1' || (node.name === 'p' && node.attribs.class === 'reader-authors')
+      || (/^h[2-6]$/.test(node.name) && fold(outText(node)) === 'abstract');
+    let end = h1At; while (end < top.length && front(top[end])) end += 1;
+    // The abstract's paragraph(s), when a heading named it.
+    if (end > h1At + 1 && /^h[2-6]$/.test(top[end - 1].name)) while (end < top.length && top[end].name === 'p' && top[end].attribs.class !== 'reader-authors') end += 1;
+    const before = top.splice(0, h1At); top.splice(end - h1At, 0, ...before); reorder();
+  }
+  // No author block in the HTML (a template that set the names in a tabular, 2610.19861): the library's names head
+  // the paper after its title, and a paragraph that merely lists them again is left out.
+  if (metadataAuthors.length && !blocks.some(b => b.node.attribs.class === 'reader-authors')) {
+    const names = metadataAuthors.join(', ');
+    const authors = block(root, 'p', 'paragraph', () => [names], { class: 'reader-authors' }); synthetic.add(authors);
+    const titleAt = top.findIndex(node => node.name === 'h1');
+    top.splice(titleAt + 1, 0, authors); reorder();
+    const listed = fold(metadataAuthors.join(' '));
+    for (const entry of blocks.filter(b => b.kind === 'paragraph' && b.node !== authors && fold(outText(b.node)) === listed)) remove(entry);
+  }
+  // A paragraph with nothing in it (a horizontal rule, an empty LaTeXML paragraph) is no block.
+  const substance = (node: Child): boolean => typeof node === 'string' ? node.trim().length > 0
+    : node.name === 'img' || node.name === 'a' || node.attribs['data-reader-equation'] !== undefined || node.children.some(substance);
+  const targeted = new Set(links.map(link => aliases.get(link.target)));
+  for (const entry of blocks.filter(b => b.kind === 'paragraph' && top.includes(b.node) && !targeted.has(b.id) && !substance(b.node))) remove(entry);
+  if (metadataTitle && blocks[0]?.node.name === 'h1' && blocks[0].node.children[0] === metadataTitle) {
+    const repeat = blocks.find((b, i) => i > 0 && b.kind === 'paragraph' && fold(outText(b.node)) === fold(metadataTitle));
+    if (repeat) remove(repeat);
+  }
+  // A page that is only a pointer to the PDF (Adam v9: "See pages 1-last of … .pdf") is no paper, however the catalog heads it.
+  const own = blocks.filter(b => !synthetic.has(b.node));
+  check(own.length >= 3 || own.some(b => b.kind !== 'heading' && normalizeSpace(outText(b.node)).length > 200), 'arxiv_article');
   if (dropped > 0 || omittedGraphics > 0) {
     // Said in the paper itself, as its last paragraph, so a reader knows what the HTML omitted.
     const parts = [dropped > 0 ? `${dropped} unsupported ${dropped === 1 ? 'command' : 'commands'}` : '',
@@ -645,10 +749,16 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
     level: Number(b.node.name.slice(1)), title: boundedText(normalizeSpace(outText(b.node)), LIMITS.headingBytes, 'heading_limit') }));
   check(headings.length <= LIMITS.headings, 'heading_limit');
   const index: ReaderIndex = { format: INDEX_FORMAT, title, headings, equations, figures,
-    blocks: blocks.map(b => ({ id: b.id, kind: b.kind, text: boundedText(normalizeSpace(outText(b.node)), LIMITS.textBytes, 'arxiv_block_text') })) };
+    // A block longer than the index allows (a bibliography entry listing hundreds of authors) is excerpted, as the
+    // validator compares (audit 2026-10-15); control characters still refuse.
+    blocks: blocks.map(b => ({ id: b.id, kind: b.kind, text: boundedText(excerpt(normalizeSpace(outText(b.node)), LIMITS.textBytes), LIMITS.textBytes, 'arxiv_block_text') })) };
   const html = htmlPrefix(title) + top.map(render).join('') + HTML_SUFFIX;
   check(utf8(html).length <= LIMITS.htmlBytes && imageURLs.size <= LIMITS.archiveImages, 'html_limit');
   return { index, html, imageURLs: [...imageURLs].sort() };
+}
+function onTitlePage(node: DomNode): boolean {
+  for (let p: DomNode | null = node; p; p = p.parent) if (p.type === 'tag' && has(p, 'ltx_titlepage')) return true;
+  return false;
 }
 function nearest(node: DomNode, name: string): DomNode | null {
   for (let p = node.parent; p; p = p.parent) if (p.name === name) return p;

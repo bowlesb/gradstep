@@ -360,40 +360,37 @@ enum LibraryImportStep: Equatable, Sendable {
     /// The list's name for the step.
     var title: String {
         switch self {
-        case .queued: "Waiting to start"; case .finding: "Finding the paper"; case .preparing: "Getting the PDF"
-        case .downloading: "Downloading the PDF"; case .converting: "Reading equations and figures"
-        case .building: "Preparing it for reading"; case .waiting: "Waiting to continue"
+        // Two words (owner, 2026-10-15): "Downloading…" while the PDF downloads, "Preparing…" for every other step.
+        case .downloading: "Downloading…"
+        case .queued, .finding, .preparing, .converting, .building, .waiting: "Preparing…"
         }
     }
     /// Short enough for a table column.
     var shortTitle: String {
         switch self {
-        case .downloading: "Downloading"; case .converting: "Reading equations"; case .building: "Preparing"
-        case .queued, .waiting: "Waiting"; default: title
+        case .downloading: "Downloading…"; default: "Preparing…"
         }
     }
     /// One word, beside a spinner in the table's Progress column.
     var tableTitle: String {
         switch self {
-        case .queued, .waiting: "Waiting"; case .finding: "Finding"; case .preparing: "Getting"
-        case .downloading: "Downloading"; case .converting: "Reading"; case .building: "Preparing"
+        case .downloading: "Downloading"; default: "Preparing"
         }
     }
-    /// "Downloading the PDF…"; waiting has no ellipsis.
+    /// "Downloading…" or "Preparing…", the same in both widths.
     func label(short: Bool) -> String {
-        let name = short ? shortTitle : title
-        return self == .queued || self == .waiting ? name : name + "…"
+        short ? shortTitle : title
     }
-    /// The status line with how long the step has run: "Downloading PDF · 1 min", then past three minutes
-    /// "Downloading PDF · Taking longer than usual". In the first minute, the plain label.
+    /// The status line with how long the step has run: "Downloading… · 1 min", then past three minutes
+    /// "Downloading… · Taking longer than usual". In the first minute, the plain label.
     func status(short: Bool, elapsed: ImportStepElapsed?) -> String {
         guard let suffix = elapsed?.label else { return label(short: short) }
         return (short ? shortTitle : title) + " · " + suffix
     }
-    /// What VoiceOver reads: "Downloading PDF, 4 minutes, taking longer than usual".
+    /// What VoiceOver reads: "Downloading, 4 minutes, taking longer than usual" (no ellipsis spoken).
     func spokenStatus(elapsed: ImportStepElapsed?) -> String {
-        guard let time = elapsed?.spokenLabel else { return title }
-        return title + ", " + time
+        guard let time = elapsed?.spokenLabel else { return tableTitle }
+        return tableTitle + ", " + time
     }
 }
 
@@ -542,7 +539,7 @@ extension LibraryImportRecord {
     var isActive: Bool { [.resolving, .acquiring].contains(phase) }
     /// The step a retry starts again from, shown as soon as Retry is tapped: downloading again when the paper's
     /// details are known (the server resumes it as acquiring), else finding it.
-    var retryStep: LibraryImportStep { metadataID == nil ? .finding : .downloading }
+    var retryStep: LibraryImportStep { errorCode == .downloadRetrying || metadataID != nil ? .downloading : .finding }
 }
 
 /// Everything the Table shows for one library entry.

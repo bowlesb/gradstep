@@ -167,6 +167,8 @@ final class ReaderModel {
     private var readerOpenAttempt: UUID?
     private var readerOpenBinding: ReaderArtifactBinding?
     private(set) var openingPaperID: UUID?
+    /// The paper being prepared on this device: one fraction, "Downloading…" then "Preparing…" (ArxivHTMLReader.phase).
+    private(set) var openingProgress: Double?
     private(set) var readerOpenIssue: String?
     private var readerDownloadAttempt: (id: UUID, documentID: UUID)?
     private(set) var offlineCacheIssue: String?
@@ -950,7 +952,7 @@ final class ReaderModel {
     func libraryStatus(for entry: LibraryListEntry) -> LibraryRowFacts.Status {
         switch entry {
         case .paper(let paper):
-            if openingPaperID == paper.id { return .active("Opening…") }
+            if openingPaperID == paper.id { return .active(openingProgress.map { ArxivHTMLReader.phase(for: $0) } ?? "Preparing…") }
             if paper.isLocalPDF { return .info(localPaperRecords.contains(where: { $0.identity.sourceID == paper.sourceID }) ? "PDF on this device" : "PDF needed on this device") }
             if !paper.canReadStructured, paper.arxivReaderSource == nil { return .problem("Reader unavailable") }
             switch offlineStatus(for: paper) {
@@ -960,12 +962,13 @@ final class ReaderModel {
             case .none: return paper.isSample ? .none : .info(paper.arxivReaderSource != nil ? "Opens from arXiv" : "Not downloaded")
             }
         case .pending(let item):
-            if localPaperDownloads.contains(item.id) { return .active("Downloading on this device…") }
+            if localPaperDownloads.contains(item.id) { return .active("Downloading…") }
             if localPaperRecord(for: item) != nil { return .info("On this device") }
             if isRetrying(item) { return .active(item.retryStep.label(short: true)) }
             switch item.phase {
             case .resolving, .acquiring: return .active(item.libraryShortStatus)
-            case .failed where item.isRetryingAutomatically: return .active(item.libraryShortStatus)
+            // Retrying by itself: the step it is retrying, in the two words the table uses (owner, 2026-10-15).
+            case .failed where item.isRetryingAutomatically: return .active(item.retryStep.label(short: true))
             case .failed, .membershipConflict: return .problem(item.libraryShortStatus)
             default: return .info(item.libraryShortStatus)
             }
@@ -2444,15 +2447,18 @@ final class ReaderModel {
         localReaderTask?.cancel()
         guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
         let scope = sessionID, persistence = localPersistence
-        localReaderOpeningID = paper.id; openingPaperID = paper.id; readerOpenIssue = nil
+        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil
         // The same paper, whichever row it is shown from (a legacy item keeps its document identity).
         let same: (Paper) -> Bool = { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }
         localReaderTask = Task { [weak self] in
             guard let self else { return }
             defer {
                 if self.sessionID == scope, self.localReaderOpeningID == paper.id {
-                    self.localReaderOpeningID = nil; self.localReaderTask = nil; self.openingPaperID = nil
+                    self.localReaderOpeningID = nil; self.localReaderTask = nil; self.openingPaperID = nil; self.openingProgress = nil
                 }
+            }
+            let report: @Sendable (Double) -> Void = { [weak self] fraction in
+                Task { @MainActor in guard let self, self.sessionID == scope, self.localReaderOpeningID == paper.id else { return }; self.openingProgress = fraction }
             }
             do {
                 let bundle: VerifiedReaderBundle
@@ -2464,7 +2470,7 @@ final class ReaderModel {
                         // Compiled by an older app: prepared again by this one and the old copy removed. Off the network
                         // (or arXiv busy) the stored copy still reads; the next opening tries again.
                         do {
-                            let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames)
+                            let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report)
                             try Task.checkCancellation()
                             guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
                             let commit = try persistence.acceptLocalReaderWrite { store in
@@ -2480,7 +2486,7 @@ final class ReaderModel {
                         }
                     }
                 } else {
-                    bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames)
+                    bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report)
                     try Task.checkCancellation()
                     guard self.sessionID == scope, self.papers.contains(where: same) else { throw CancellationError() }
                     let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }

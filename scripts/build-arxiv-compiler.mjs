@@ -19,8 +19,16 @@ for (const path of ['apps/apple/ScienceReader/Resources/arxiv-reader.js', 'apps/
 // (ReaderModel.openHTMLReader re-prepares those): the same identity the bundle manifest carries.
 const { ARXIV_BUILD_SHA256 } = await import('../supabase/functions/_shared/reader/arxiv-bundle.ts');
 const { ARXIV_RENDERER_ID, ARXIV_RENDERER_REVISION } = await import('../supabase/functions/_shared/reader/arxiv-html.ts');
-const identity = JSON.stringify({ renderer_id: ARXIV_RENDERER_ID, revision: ARXIV_RENDERER_REVISION, build_sha256: ARXIV_BUILD_SHA256 }, null, 1) + '\n';
+// The compiled code's own digest travels with the identity: a compiler whose code changed under the same
+// ARXIV_RENDERER_REVISION would reopen bundles it no longer produces (audit 2026-10-15), so the build refuses it.
+const { createHash } = await import('node:crypto');
+const codeSHA256 = createHash('sha256').update(Buffer.from(result.outputFiles[0].contents)).digest('hex');
+const identity = JSON.stringify({ renderer_id: ARXIV_RENDERER_ID, revision: ARXIV_RENDERER_REVISION, build_sha256: ARXIV_BUILD_SHA256, code_sha256: codeSHA256 }, null, 1) + '\n';
 const buildPath = 'apps/apple/ScienceReader/Resources/arxiv-reader-build.json';
+let previous = null; try { previous = JSON.parse(readFileSync(root + buildPath, 'utf8')); } catch { previous = null; }
+if (previous && previous.revision === ARXIV_RENDERER_REVISION && previous.code_sha256 && previous.code_sha256 !== codeSHA256) {
+  throw Error(`The device compiler's code changed but ARXIV_RENDERER_REVISION is still ${ARXIV_RENDERER_REVISION}: bump it in supabase/functions/_shared/reader/arxiv-html.ts so devices prepare their stored papers again.`);
+}
 if (process.argv.includes('--check')) {
   if (readFileSync(root + buildPath, 'utf8') !== identity) throw Error(`Stale device compiler identity: ${buildPath}. Run node scripts/build-arxiv-compiler.mjs.`);
 } else writeFileSync(root + buildPath, identity);

@@ -109,7 +109,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     // item included; its server bundle is the fallback when arXiv has no usable HTML for that revision.
     const bundle = () => loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); });
     const source = readingSource(item);
-    (source ? prepareArxivReader(source, controller.signal, setLoaded, { authors: item.metadata?.authors ?? [] }).catch(e => item.kind === 'item' && e instanceof ArxivReaderError && !controller.signal.aborted ? bundle() : Promise.reject(e))
+    (source ? prepareArxivReader(source, controller.signal, setLoaded, { authors: item.metadata?.authors ?? [], title: item.metadata?.title }).catch(e => item.kind === 'item' && e instanceof ArxivReaderError && !controller.signal.aborted ? bundle() : Promise.reject(e))
       : bundle()).then(verified => {
       if (controller.signal.aborted) return;
       cache.set(cacheKey, verified);
@@ -300,8 +300,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         ) : srcdoc ? (
           <iframe ref={frame} className="reader-frame" title={title} sandbox="allow-scripts" srcDoc={srcdoc} data-testid="reader-frame" />
         ) : (
-          <div className="empty" role="status"><p>Opening the paper…</p>
-            <progress max={1} value={loaded} aria-label="Downloading the paper" /></div>
+          <div className="empty" role="status"><p>{loaded < 0.8 ? 'Downloading…' : 'Preparing…'} {Math.floor(loaded * 100)}%</p>
+            <progress max={1} value={loaded} aria-label={`${loaded < 0.8 ? 'Downloading' : 'Preparing'} ${Math.floor(loaded * 100)} percent`} /></div>
         )}
         {quote && selection && bundle && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
           {SELECTION_ACTIONS.map(({ action, title }) => <button key={action} className="secondary small" onClick={() => {

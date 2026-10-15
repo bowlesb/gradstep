@@ -43,11 +43,20 @@ function parseAtom(xml) {
   return out;
 }
 async function atom(query) {
-  const r = await fetch(`https://export.arxiv.org/api/query?${query}`, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(60_000) });
-  if (!r.ok) throw new Error(`arXiv API ${r.status}`);
-  return parseAtom(await r.text());
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(`https://export.arxiv.org/api/query?${query}`, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(60_000) });
+    if (r.ok) return parseAtom(await r.text());
+    if ((r.status === 429 || r.status >= 500) && attempt < 3) { const wait = Number(r.headers.get('retry-after')) || 15; console.log(`arXiv API ${r.status}; waiting ${wait} s`); await sleep(wait * 1000); continue; }
+    throw new Error(`arXiv API ${r.status}`);
+  }
 }
+const REPLAY = arg('replay', '');
 let papers = [];
+if (REPLAY) {
+  // The same papers as an earlier report (their metadata travels in the report), from the cached sources: no API calls.
+  const earlier = JSON.parse(readFileSync(REPLAY, 'utf8'));
+  papers.push(...earlier.results.filter(r => r.meta).map(r => ({ id: r.key.replace(/v\d+$/, ''), revision: r.meta.revision, title: r.meta.title, summary: r.meta.summary, authors: r.meta.authors })));
+}
 if (RECENT > 0) {
   const per = Math.ceil(RECENT / CATS.length);
   for (const cat of CATS) {
@@ -70,7 +79,7 @@ if (STAGING > 0) {
   for (let i = 0; i < ids.length; i += 20) { papers.push(...await atom(`id_list=${ids.slice(i, i + 20).join(',')}&max_results=20`)); await sleep(3000); }
 }
 const seen = new Set(); papers = papers.filter(p => !seen.has(p.id) && seen.add(p.id));
-if (!papers.length) { console.error('no papers: pass --recent=N, --ids=…, or --from-staging=N'); process.exit(2); }
+if (!papers.length) { console.error('no papers: pass --recent=N, --ids=…, --from-staging=N or --replay=<report.json>'); process.exit(2); }
 console.log(`${papers.length} papers`);
 
 // ---- checks -------------------------------------------------------------------------------------------------------
@@ -141,11 +150,11 @@ for (const paper of papers) {
       if (r.status === 200) { source = await r.text(); if (source.length <= 8_388_608) writeFileSync(path, source); }
     } catch (e) { status = e.name; }
   }
-  const row = { key, title: paper.title, authors: paper.authors.length, status, findings: [], blocks: [] };
+  const row = { key, title: paper.title, authors: paper.authors.length, status, findings: [], blocks: [], meta: { revision: paper.revision, title: paper.title, authors: paper.authors, summary: paper.summary } };
   if (!source) { row.findings.push({ check: 'html', severity: 'unavailable', detail: `no HTML (${status}); the app offers the PDF` }); results.push(row); continue; }
   if (Buffer.byteLength(source) > 8_388_608) { row.findings.push({ check: 'limit', severity: 'fail', detail: `${Buffer.byteLength(source)} bytes of HTML, over the device source limit` }); results.push(row); continue; }
   try {
-    const out = convertArxivHTML(source, arxivHTMLURL(paper.id, paper.revision), stub, { authors: paper.authors });
+    const out = convertArxivHTML(source, arxivHTMLURL(paper.id, paper.revision), stub, { authors: paper.authors, title: paper.title });
     row.blocks = out.index.blocks.slice(0, 5).map(b => `${b.kind}: ${b.text.slice(0, 70)}`);
     row.findings = checks({ ...paper, source }, out, out.html);
   } catch (e) {

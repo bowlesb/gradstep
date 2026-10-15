@@ -147,7 +147,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     if(!chat)return;
     chat.setSourcePapers(new Map(library.entries.filter(isSourcePaper).map(paper=>[paper.id,{reference:paperReference(paper)!,load:async()=>{
       const key=readerCacheKey(account,paper),saved=readerCache.get(key);if(saved)return saved;
-      const bundle=await prepareArxivReader(paperReference(paper)!,chat.signal,undefined,{authors:paper.metadata?.authors??[]});chat.signal.throwIfAborted();
+      const bundle=await prepareArxivReader(paperReference(paper)!,chat.signal,undefined,{authors:paper.metadata?.authors??[],title:paper.metadata?.title});chat.signal.throwIfAborted();
       readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
     }}])));
   },[chat,library.entries,readerCache,account]);
@@ -359,7 +359,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
       : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }} deviceSource={isSourcePaper(item) ? async signal => {
         // The paper's own text on this device (migration 066): the verified bundle's numbered context, as the chat sends it.
-        const key = readerCacheKey(account, item); const bundle = readerCache.get(key) ?? await prepareArxivReader(paperReference(item)!, signal, undefined, { authors: item.metadata?.authors ?? [] });
+        const key = readerCacheKey(account, item); const bundle = readerCache.get(key) ?? await prepareArxivReader(paperReference(item)!, signal, undefined, { authors: item.metadata?.authors ?? [], title: item.metadata?.title });
         const context = localChatContext(paperReference(item)!, bundle);
         return { text: { format: 'paper-context-v2', text: context.text }, identity: { source: 'arxiv', source_id: context.source_id, revision: context.revision, manifest_sha256: context.manifest_sha256, title: item.metadata?.title ?? undefined, authors: item.metadata?.authors ?? [] } };
       } : undefined} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}

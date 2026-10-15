@@ -82,33 +82,38 @@ struct ImportProgress: Equatable, Sendable {
         return left <= 0 ? .almostDone : .left(seconds: Int(left.rounded(.up)))
     }
 
+    /// Two words and a percentage (owner, 2026-10-15: "we only need Downloading… and Preparing… with a total
+    /// percentage value"): "Downloading…" while the PDF downloads, "Preparing…" for every other step. The percent is
+    /// the server's, counted on as before; a wait or a scheduled retry shows "retrying" beside it instead of a time.
+    static func label(for step: LibraryImportStep) -> String { step == .downloading ? "Downloading…" : "Preparing…" }
+    static func compactLabel(for step: LibraryImportStep) -> String { step == .downloading ? "Downloading" : "Preparing" }
+
     func presentation(at now: Date) -> ImportProgressPresentation {
+        let title = Self.label(for: step), spokenTitle = Self.compactLabel(for: step)
         if retrying {
-            let reason = retryTitle ?? "Couldn’t download yet"
-            return ImportProgressPresentation(step: step, title: reason, detail: nil, percent: nil,
-                                              timeText: "Trying again automatically", compactTimeText: "Trying again automatically", isSlow: false,
-                                              accessibilityLabel: "\(reason), trying again automatically", compactTitleOverride: retryCompactTitle ?? "Retrying soon")
+            return ImportProgressPresentation(step: step, title: title, detail: nil, percent: nil,
+                                              timeText: "retrying", compactTimeText: "retrying", isSlow: false,
+                                              accessibilityLabel: "\(spokenTitle), trying again automatically", compactTitleOverride: Self.compactLabel(for: step))
         }
         guard let detail else {
-            // Older servers: the step and how long it has run here, exactly as before.
-            let elapsed = stepSince.map { ImportStepElapsed(since: $0, now: now) }
-            return ImportProgressPresentation(step: step, title: step.title, detail: nil, percent: nil, timeText: elapsed?.label,
-                                              compactTimeText: elapsed?.label, isSlow: elapsed?.isSlow ?? false,
-                                              accessibilityLabel: step.spokenStatus(elapsed: elapsed))
+            // Older servers: the step without a percent.
+            return ImportProgressPresentation(step: step, title: title, detail: nil, percent: nil, timeText: nil,
+                                              compactTimeText: nil, isSlow: false, accessibilityLabel: spokenTitle,
+                                              compactTitleOverride: Self.compactLabel(for: step))
         }
-        let extra = Self.detailText(step: step, detail: detail)
         if isWaiting(at: now) {
-            // No near-complete percent while nothing moves: the step, a spinner and what it waits for.
-            let wait = step == .waiting ? nil : waitText
-            let spoken = [step.title, extra, wait.map { ($0.prefix(1).lowercased() + $0.dropFirst()).replacingOccurrences(of: " · ", with: ", ") }]
-                .compactMap { $0 }.joined(separator: ", ")
-            return ImportProgressPresentation(step: step, title: step.title, detail: extra, percent: nil, timeText: wait,
-                                              compactTimeText: wait, isSlow: true, accessibilityLabel: spoken)
+            // Nothing moves: the word, a spinner, and "retrying" when the server is backing off.
+            let wait: String? = detail.delayed ? "retrying" : nil
+            return ImportProgressPresentation(step: step, title: title, detail: nil, percent: nil, timeText: wait,
+                                              compactTimeText: wait, isSlow: true,
+                                              accessibilityLabel: [spokenTitle, wait].compactMap { $0 }.joined(separator: ", "),
+                                              compactTitleOverride: Self.compactLabel(for: step))
         }
-        let percent = percent(at: now), time = timeLeft(at: now)
-        let spoken = [step.title, extra, percent.map { "\($0) percent" }, time?.spoken].compactMap { $0 }.joined(separator: ", ")
-        return ImportProgressPresentation(step: step, title: step.title, detail: extra, percent: percent, timeText: time?.text,
-                                          compactTimeText: time?.compactText, isSlow: time == .slow, accessibilityLabel: spoken)
+        let percent = percent(at: now)
+        let spoken = [spokenTitle, percent.map { "\($0) percent" }].compactMap { $0 }.joined(separator: ", ")
+        return ImportProgressPresentation(step: step, title: title, detail: nil, percent: percent, timeText: nil,
+                                          compactTimeText: nil, isSlow: timeLeft(at: now) == .slow, accessibilityLabel: spoken,
+                                          compactTitleOverride: Self.compactLabel(for: step))
     }
 
     /// "page 12 of 27" or "27 pages" while reading; the PDF's size (or pages) while downloading.

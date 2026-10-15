@@ -2,6 +2,68 @@
 
 Updated 2026-10-14 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Refusals become degradations, the catalog heads the paper, two-word progress — 2026-10-15, ~03:45 UTC
+
+Owner (chat): "maybe you could ask for an audit by a subagent" and "let's simplify [the paper prep step]. We only
+need Downloading… and Preparing… with a total percentage value". `docs/OWNER_FEEDBACK.md` "Chat, 2026-10-15
+(builds 39–40)" rows 4–6; the audit is in `docs/proposals/READER_ARCHITECTURE_RETHINK.md` "Independent audit".
+
+- **Converter (rethink step 1).** Every audit finding applied, each with a fragment test: the caption-only figure
+  branch only when nothing else has text; a text-only "equation" is a paragraph; a figure inside a list item follows
+  the list; a TikZ label holding a table is a table; a top-level `svg` is a figure; over-long blocks are excerpted;
+  a paper without an `h1` is headed by the catalog title (a stub page stays `source-unavailable`); the library's
+  names head a paper whose HTML has no author block; front matter reads first when LaTeXML put a figure or a venue
+  line before the title; publication notes under the title (a revision date, a venue, DOI, ISBN) are left out; a
+  math mark beside a name is its symbol and an icon mark is no mark; a footnote in running text keeps its mark
+  once; empty paragraphs (rules) are no blocks; panels laid out in a tabular of graphics are the figure's images.
+  A logo on a custom title page is no figure (2610.15371, the owner's 19:42 screenshot on build 41: refused as
+  `arxiv_title`; it opens now with the catalog title). Block ids are issued from a counter, never reused after a
+  removal. `ARXIV_RENDERER_REVISION` **4** (stored bundles are prepared again once). Both apps pass the catalog
+  record (authors, title) to the asset-planning call as well as the compile, so a paper without an `h1` plans too.
+- **Refusals say why.** iOS carries the compiler's reason code (`ArxivHTMLError.compiler`, `ArxivCompilerFailure`:
+  the browser frame's categories and words) and logs the code (`os.Logger`, category `arxiv-reader`; never source
+  text). `tests/backend/reader-failure-categories.test.ts` extracts every converter code and requires a category on
+  both surfaces and the same table in both.
+- **Sweep.** The same 58 papers: **0 fail**, 2 warnings (51 unsupported commands in 2610.07591; a `\boxed` leak),
+  3 without HTML — against 16 refusals and 1 failure before. Report
+  `.artifacts/reader-sweep/sweep-2026-10-15T02-38-58-581Z.json`; `--replay=<report>` reruns a report's papers from
+  the cached sources.
+- **Limits.** The arXiv source limit (8 MiB) is `ARXIV_SOURCE_BYTES` in `profile.ts`, apart from the Mathpix
+  renderer's `LIMITS.sourceBytes` (2 MiB again), which is part of that renderer's identity: raising it in `af9d9e5`
+  had changed the identity of the committed Mathpix sample and failed the backend tier. Restored; the committed
+  sample matches again.
+- **Progress.** Library rows and the opening paper say "Downloading…" or "Preparing…" with one percentage
+  (`ImportProgress.presentation`, `LibraryImportStep`, `ReaderModel.openingProgress` and `ArxivHTMLReader.phase`;
+  web `progress.ts` and `Reader.tsx`); a download the server will retry reads "Downloading…".
+
+Evidence: compiler fragment tests 29/29 (37 with the Mathpix renderer file); fast tier green (compiler freshness,
+backend, browser units); iPhone Simulator ImportProgressTests, LibraryMetadataTests, ArxivHTMLReaderTests,
+ReaderBundleLoaderTests 30/30. Native and browser reader journeys and the deployment are recorded at the end of this
+section once run.
+
+## Stale bundles re-prepared, 8 MiB sources, the fresh-paper sweep, the rethink — 2026-10-15, ~03:00 UTC (commit `af9d9e5`)
+
+Owner (chat, builds 39–40): the PRISM header still old (a bundle stored by the older build was reopened as is),
+Apertus 1.5 refused as over the limit, "set up a test suite so you detect more of these issues proactively", and
+"it might be time for a rethink of what the architecture is… how quality is assured for each" with the suggestion of
+a subagent audit. `docs/OWNER_FEEDBACK.md` "Chat, 2026-10-15 (builds 39–40)" has the rows.
+
+- **Compiler identity in the store.** `scripts/build-arxiv-compiler.mjs` writes `arxiv-reader-build.json` beside the
+  compiler; `ArxivCompilerIdentity` reads it; `openHTMLReader` prepares a stored bundle again when its manifest names
+  another compiler (offline, the stored copy still reads). `ARXIV_RENDERER_REVISION` 3. The Xcode project is
+  regenerated (`xcodegen generate`) so the new resource ships; the identity test passes.
+- **Limits.** Source cap 8 MiB on the compiler, the browser and the native acquisition (Apertus: 863 blocks, 149 ms).
+- **Sweep.** `scripts/reader-sweep.mjs` (TESTING.md "Slow, reader sweep"). First run, 58 papers: 16 refused
+  (`arxiv_math_coverage` 9, `arxiv_nested_content` 2, `arxiv_title` 2, `arxiv_equation` 1, `arxiv_block_text` 1), 1
+  empty author mark, 41 warnings (mostly the sweep's own macro check, since refined). Report under
+  `.artifacts/reader-sweep/`.
+- **Rethink.** `docs/proposals/READER_ARCHITECTURE_RETHINK.md`: components, real contracts, a quality gate each, and
+  a three-step plan whose first step — refusals become degradations with a ledger, the header from catalog
+  metadata, the sweep as the gate — follows the independent audit now in progress.
+
+Deployment: TestFlight **build 41** iOS VALID (19:13 PDT), Mac uploaded 19:25 PDT; browser Pages **`49a4000e`**;
+both carry the identity, the limit and everything before.
+
 ## Template-broken title pages read by macro — 2026-10-15, ~02:00 UTC (commit `8d481e9`; deployed)
 
 Owner screenshot (build 39, arXiv 2610.18356 "Urbex"): abstract above the title, "[ [" after the authors, a bare

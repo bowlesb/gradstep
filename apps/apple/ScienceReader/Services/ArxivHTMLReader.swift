@@ -1,9 +1,12 @@
 import Foundation
+import os
 import ScienceReaderCore
 import WebKit
 
 enum ArxivHTMLError: Error, Sendable {
     case unavailable, retryLater, retrieval, invalid, tooLarge
+    /// The device compiler refused the paper with one of its finite reason codes (never source text).
+    case compiler(String)
     var message: String {
         switch self {
         case .unavailable: "HTML reader unavailable for this version. You can still open the source or its PDF on this device."
@@ -11,8 +14,48 @@ enum ArxivHTMLError: Error, Sendable {
         case .retrieval: "Couldn’t retrieve this paper from arXiv. Check your connection and try again."
         case .invalid: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
         case .tooLarge: "This paper exceeds the device reader’s current preparation limits. You can still open its PDF."
+        case .compiler(let code): ArxivCompilerFailure.message(for: code)
         }
     }
+}
+
+/// The compiler's reason codes by category: the same table as the browser's compiler frame
+/// (`apps/web/src/reader/arxiv-compiler-host.js`; `tests/backend/reader-failure-categories.test.ts` keeps the two
+/// equal and every converter code listed). A refusal used to collapse to one message with nothing logged (audit,
+/// 2026-10-15; owner screenshot of 2610.15371: no way to tell what had refused).
+enum ArxivCompilerFailure {
+    static let categories: [(name: String, codes: [String])] = [
+        ("source-incomplete", ["arxiv_conversion_error"]),
+        ("source-unavailable", ["arxiv_article", "arxiv_identity"]),
+        ("limit", ["source_limit", "bundle_limit", "manifest_limit", "html_limit", "block_limit", "heading_limit", "image_limit", "image_total_limit", "image_dimensions", "svg_dimensions", "base64_limit"]),
+        ("math", ["arxiv_math_attribute", "arxiv_math_element", "arxiv_math_style", "arxiv_math_semantics", "arxiv_math_source", "arxiv_math_mismatch", "arxiv_math_empty", "arxiv_math_coverage", "arxiv_math_duplicate", "arxiv_equation"]),
+        ("figure", ["arxiv_asset_url", "arxiv_asset_type", "arxiv_inline_svg", "arxiv_asset", "arxiv_asset_set", "arxiv_asset_missing", "arxiv_asset_coverage", "image_decode", "image_timeout", "svg_attribute", "svg_doctype", "svg_element", "svg_fragment", "svg_id", "svg_invalid", "svg_resource", "svg_style"]),
+        ("reference", ["arxiv_duplicate_id", "arxiv_unresolved_fragment", "arxiv_fragment"]),
+        ("formatting", ["arxiv_nested_content", "arxiv_list", "arxiv_table_span", "arxiv_caption", "arxiv_figure", "arxiv_node", "arxiv_title", "arxiv_block_text", "arxiv_alt"]),
+    ]
+    static func category(for code: String) -> String { categories.first { $0.codes.contains(code) }?.name ?? "unknown" }
+    /// The reader's words for the category, the same as the browser's.
+    static func message(for code: String) -> String {
+        let text: String = switch category(for: code) {
+        case "source-incomplete": "arXiv’s HTML for this version contains a conversion error."
+        case "source-unavailable": "arXiv did not return readable HTML for this version."
+        case "limit": "This paper exceeds the device reader’s preparation limits."
+        case "math": "The HTML reader couldn’t preserve an equation in this paper."
+        case "figure": "A figure in this paper couldn’t be prepared on this device."
+        case "reference": "The HTML reader couldn’t resolve this paper’s internal references."
+        case "formatting": "The HTML reader doesn’t yet support part of this paper’s formatting."
+        default: "This version’s HTML couldn’t be prepared completely."
+        }
+        return text + " You can still open its PDF on this device."
+    }
+    /// The reason code in a WebKit JavaScript exception, when the compiler threw one (its error's message is the
+    /// code, so the message ends with it); a browser error of its own ("undefined is not an object") is none.
+    static func code(in error: Error) -> String? {
+        guard let message = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String,
+              let range = message.range(of: "[a-z][a-z0-9]*_[a-z0-9_]+$", options: .regularExpression) else { return nil }
+        return String(message[range])
+    }
+    static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ScienceReader", category: "arxiv-reader")
 }
 
 /// The compiler this app ships (scripts/build-arxiv-compiler.mjs writes `arxiv-reader-build.json` beside it): a stored
@@ -135,29 +178,41 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
 
     /// `authors`: the library's author names for this paper; the compiler shows them when the HTML's own names are
     /// graphics or missing (a team logo). Every device of one library passes the same names, so the bundle is the same.
-    func prepare(_ source: ArxivReaderSource, authors: [String] = []) async throws -> VerifiedReaderBundle {
+    /// Preparation as the reader sees it: one fraction, "Downloading…" through the HTML and its assets (0–0.8), then
+    /// "Preparing…" through the compile and the image admission (0.8–1).
+    static func phase(for fraction: Double) -> String { fraction < 0.8 ? "Downloading…" : "Preparing…" }
+
+    func prepare(_ source: ArxivReaderSource, authors: [String] = [], title: String? = nil, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> VerifiedReaderBundle {
         defer { close() }
+        progress(0.02)
         let html = try await acquire(source.htmlURL, source, ArxivAcquisitionPolicy.sourceBytes)
+        progress(0.12)
         try await load()
-        let arguments: [String: Any] = ["source": html.base64EncodedString(), "sourceID": source.sourceID, "revision": source.revision]
-        let references = try await call("return JSON.stringify(GradstepArxivReader.assets(source, sourceID, revision));", arguments: arguments)
+        // The catalog record goes with both calls: a paper whose HTML has no `h1` or no author block is headed from it.
+        var options: [String: Any] = ["authors": Array(authors.map { String($0.prefix(256)) }.prefix(64))]
+        if let title, !title.isEmpty { options["title"] = String(title.prefix(2000)) }
+        let arguments: [String: Any] = ["source": html.base64EncodedString(), "sourceID": source.sourceID, "revision": source.revision, "options": options]
+        let references = try await call("return JSON.stringify(GradstepArxivReader.assets(source, sourceID, revision, options));", arguments: arguments)
         guard let data = references.data(using: .utf8) else { throw ArxivHTMLError.invalid }
         let urls = try JSONDecoder().decode([String].self, from: data)
         guard urls.count <= ArxivAcquisitionPolicy.assets, Set(urls).count == urls.count else { throw ArxivHTMLError.invalid }
-        let inputs = try await fetchAssets(urls, source: source, used: html.count)
+        let inputs = try await fetchAssets(urls, source: source, used: html.count) { done, count in progress(0.12 + 0.68 * (count == 0 ? 1 : Double(done) / Double(count))) }
+        progress(0.82)
         var args = arguments; args["inputs"] = inputs
-        args["options"] = ["authors": Array(authors.map { String($0.prefix(256)) }.prefix(64))]
         let package = try await call("return JSON.stringify(await GradstepArxivReader.prepare(source, sourceID, revision, inputs, options));", arguments: args)
         try Task.checkCancellation()
         guard let bytes = package.data(using: .utf8) else { throw ArxivHTMLError.invalid }
         let bundle = try DeviceReaderPackage.decode(bytes)
         guard bundle.arxivSource == source else { throw ArxivHTMLError.invalid }
-        return try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: bundle) }.value
+        progress(0.94)
+        let admitted = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: bundle) }.value
+        progress(1)
+        return admitted
     }
 
     /// The declared assets of one paper, in declaration order, at most `assetConcurrency` in flight and within the
     /// total byte budget. One failure cancels the others.
-    private func fetchAssets(_ urls: [String], source: ArxivReaderSource, used: Int) async throws -> [[String: String]] {
+    private func fetchAssets(_ urls: [String], source: ArxivReaderSource, used: Int, progress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> [[String: String]] {
         let assets = try urls.map { reference -> URL in
             guard source.admitsAsset(reference), let url = URL(string: reference) else { throw ArxivHTMLError.invalid }
             return url
@@ -174,8 +229,10 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
                 group.addTask { (index, try await acquire(assets[index], source, bound)) }
             }
             for _ in 0..<ArxivAcquisitionPolicy.assetConcurrency { start() }
+            var done = 0
             while let (index, data) = try await group.next() {
                 try Task.checkCancellation()
+                done += 1; progress(done, assets.count)
                 total += data.count
                 guard total <= ArxivAcquisitionPolicy.totalBytes else { throw ArxivHTMLError.tooLarge }
                 inputs[index] = ["url": urls[index], "base64": data.base64EncodedString()]
@@ -210,7 +267,15 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
                 case .success(let value):
                     if let text = value as? String { self?.finish(.success(text)) }
                     else { self?.finish(.failure(ArxivHTMLError.invalid)) }
-                case .failure: self?.finish(.failure(ArxivHTMLError.invalid))
+                case .failure(let error):
+                    // The code, never the exception text (it may carry source text or browser details).
+                    if let code = ArxivCompilerFailure.code(in: error) {
+                        ArxivCompilerFailure.log.error("device compiler refused the paper: \(code, privacy: .public) (\(ArxivCompilerFailure.category(for: code), privacy: .public))")
+                        self?.finish(.failure(ArxivHTMLError.compiler(code)))
+                    } else {
+                        ArxivCompilerFailure.log.error("device compiler call failed without a reason code")
+                        self?.finish(.failure(ArxivHTMLError.invalid))
+                    }
                 }
             }
         }

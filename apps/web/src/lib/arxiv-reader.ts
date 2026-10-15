@@ -107,7 +107,7 @@ export function shareInflight<T extends Preparation>(registry: Map<string, T>, k
 }
 const preparations = new Map<string, Preparation>();
 
-export interface ArxivPrepareOptions { /** The library's author names for this paper (`ArxivConvertOptions.authors`). */ authors?: readonly string[] }
+export interface ArxivPrepareOptions { /** The library's author names and title for this paper (`ArxivConvertOptions`). */ authors?: readonly string[]; title?: string }
 async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress: (fraction: number) => void, options: ArxivPrepareOptions): Promise<VerifiedBundle> {
  const url = arxivHTMLURL(ref);
  const html = await retrieveArxiv(url, ARXIV_LIMITS.sourceBytes, true, signal); abort(signal);
@@ -116,7 +116,7 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
  frame.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${compiler.hash}'; img-src data:; connect-src 'none'; style-src 'none'; base-uri 'none'"><script>${compiler.script}</script>`;
  const loaded = new Promise<void>((resolve, reject) => { frame.onload = () => resolve(); frame.onerror = () => reject(new ArxivReaderError('The device compiler could not start.')); });
  document.body.append(frame);
- const call = async (method: 'assets' | 'prepare', inputs?: { url: string; base64: string }[], compile?: { authors: string[] }): Promise<unknown> => {
+ const call = async (method: 'assets' | 'prepare', inputs?: { url: string; base64: string }[], compile?: { authors: string[]; title?: string }): Promise<unknown> => {
   abort(signal);
   return await new Promise((resolve, reject) => {
    const channel = new MessageChannel(); let timer: ReturnType<typeof setTimeout>;
@@ -130,10 +130,15 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
  };
  try {
   await Promise.race([loaded, wait(15000, signal).then(() => { throw new ArxivReaderError('The device compiler could not start.'); })]);
-  const assets = await call('assets');
-  const inputs = await fetchArxivAssets(assets, url, ARXIV_LIMITS.totalBytes - html.length, signal, progress);
+  // The catalog record goes with both calls: a paper whose HTML has no `h1` or no author block is headed from it.
   const authors = (options.authors ?? []).filter(a => typeof a === 'string').slice(0, 64).map(a => a.slice(0, 256));
-  const p = await call('prepare', inputs, { authors }) as { manifest: string; manifestSHA256: string; members: { path: string; base64: string }[] };
+  const compile = { authors, ...(typeof options.title === 'string' ? { title: options.title.slice(0, 2000) } : {}) };
+  const assets = await call('assets', undefined, compile);
+  // One fraction for the reader: downloading (the HTML, then its assets) to 0.8, preparing (the compile) to 1.
+  progress(0.12);
+  const inputs = await fetchArxivAssets(assets, url, ARXIV_LIMITS.totalBytes - html.length, signal, fraction => progress(0.12 + 0.68 * fraction));
+  progress(0.82);
+  const p = await call('prepare', inputs, compile) as { manifest: string; manifestSHA256: string; members: { path: string; base64: string }[] };
   abort(signal);
   if (!p || typeof p.manifest !== 'string' || p.manifest.length > 349528 || !Array.isArray(p.members) || p.members.length > 512) throw new ArxivReaderError('Invalid reader bundle.');
   const members = new Map<string, Bytes>(); let total = 0;

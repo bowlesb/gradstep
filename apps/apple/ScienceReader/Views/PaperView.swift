@@ -247,7 +247,7 @@ struct PaperView: View {
                             actions: { Button("Try again") { readerFailed = false; loadingPaper = true; reloadID = UUID() } }
                             .background(Color(uiColor: .systemBackground))
                     } }
-                    .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
+                    .overlay { if loadingPaper { ProgressView("Preparing…").allowsHitTesting(false) } }
                     .background { findShortcut }
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
@@ -270,7 +270,15 @@ struct PaperView: View {
                         selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) }))
                 } else if model.selectedPaper != nil {
                     if model.openingPaperID == model.selectedPaper?.id {
-                        ProgressView("Opening paper…").accessibilityIdentifier("paper.openingLocalCopy")
+                        // One fraction, two words (owner, 2026-10-15): "Downloading… 37%", then "Preparing… 94%".
+                        if let fraction = model.openingProgress {
+                            ProgressView(value: fraction) { Text("\(ArxivHTMLReader.phase(for: fraction)) \(Int((fraction * 100).rounded(.down)))%").monospacedDigit() }
+                                .frame(maxWidth: 260).padding(.horizontal, 24)
+                                .accessibilityLabel("\(ArxivHTMLReader.phase(for: fraction)) \(Int((fraction * 100).rounded(.down))) percent")
+                                .accessibilityIdentifier("paper.openingLocalCopy")
+                        } else {
+                            ProgressView("Preparing…").accessibilityIdentifier("paper.openingLocalCopy")
+                        }
                     } else if let issue = model.readerOpenIssue {
                         ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
                             description: { Text(issue) }

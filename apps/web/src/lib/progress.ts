@@ -4,12 +4,13 @@ import type { Import, ProgressDetail } from './library';
 
 export type Step = 'queued' | 'finding' | 'preparing' | 'downloading' | 'converting' | 'building' | 'waiting';
 
+// Two words and a percentage (owner, 2026-10-15): "Downloading…" while the PDF downloads, "Preparing…" otherwise.
 export const stepTitle: Record<Step, string> = {
-  queued: 'Waiting to start', finding: 'Finding the paper', preparing: 'Getting the PDF', downloading: 'Downloading the PDF',
-  converting: 'Reading equations and figures', building: 'Preparing it for reading', waiting: 'Waiting to continue',
+  queued: 'Preparing…', finding: 'Preparing…', preparing: 'Preparing…', downloading: 'Downloading…',
+  converting: 'Preparing…', building: 'Preparing…', waiting: 'Preparing…',
 };
 export const stepTableTitle: Record<Step, string> = {
-  queued: 'Waiting', waiting: 'Waiting', finding: 'Finding', preparing: 'Getting', downloading: 'Downloading', converting: 'Reading', building: 'Preparing',
+  queued: 'Preparing', waiting: 'Preparing', finding: 'Preparing', preparing: 'Preparing', downloading: 'Downloading', converting: 'Preparing', building: 'Preparing',
 };
 
 /** Failed to download, and the server will try again by itself (migration 027): shown as under way. */
@@ -137,20 +138,19 @@ function formatBytes(bytes: number): string {
 
 export function progressView(i: Import, mark: Mark | undefined, now: number): ProgressView | null {
   if (retryingAutomatically(i)) {
-    return { step: 'downloading', title: 'Couldn’t download yet', detail: null, percent: null, time: 'Trying again automatically', compactTime: 'Trying again',
-      label: 'Couldn’t download yet, trying again automatically' };
+    return { step: 'downloading', title: 'Downloading…', detail: null, percent: null, time: 'retrying', compactTime: 'retrying',
+      label: 'Downloading, trying again automatically' };
   }
   const step = importStep(i);
   if (!step) return null;
   const detail = i.progress_detail;
-  let extra: string | null = null;
-  if (detail && step === 'converting' && detail.pages) extra = detail.pages_done ? `page ${detail.pages_done} of ${detail.pages}` : detail.pages === 1 ? '1 page' : `${detail.pages} pages`;
-  if (detail && step === 'downloading') extra = detail.bytes ? formatBytes(detail.bytes) : detail.pages ? (detail.pages === 1 ? '1 page' : `${detail.pages} pages`) : null;
   const percent = mark && detail ? shownPercent(mark, now) : null;
+  // A wait or a scheduled retry says "retrying" beside the word; no time estimates, no page counts.
   const t = timeLeft(detail ? mark : undefined, now);
-  const time = t ? timeText(t, false) : null;
-  return { step, title: stepTitle[step], detail: extra, percent, time, compactTime: t ? timeText(t, true) : null,
-    label: [stepTitle[step], extra, percent !== null ? `${percent} percent` : null, time?.toLowerCase()].filter(Boolean).join(', ') };
+  const retrying = detail?.delayed ? 'retrying' : null;
+  void t; void formatBytes;
+  return { step, title: stepTitle[step], detail: null, percent: detail?.delayed ? null : percent, time: retrying, compactTime: retrying,
+    label: [stepTableTitle[step], !detail?.delayed && percent !== null ? `${percent} percent` : null, retrying].filter(Boolean).join(', ') };
 }
 
 /** Seconds until the next import check, by seconds since polling began (native `importPollDelay`). */

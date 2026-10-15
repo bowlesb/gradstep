@@ -3,7 +3,7 @@
 import { zlibSync } from 'fflate';
 import { arxivHTMLAssets, arxivHTMLURL, arxivInlineImages } from './arxiv-html.ts';
 import { composeArxivReader, type ArxivImage } from './arxiv-bundle.ts';
-import { LIMITS } from './profile.ts';
+import { LIMITS, ARXIV_SOURCE_BYTES } from './profile.ts';
 import { check, decodeUTF8, sha256Hex, utf8 } from './util.ts';
 import { validateHTML } from './html-validate.ts';
 import { inspectImage } from '../images.ts';
@@ -110,16 +110,22 @@ async function raster(input: Uint8Array, svg: boolean): Promise<ArxivImage> {
   } finally { clearTimeout(timer); image.removeAttribute('src'); }
 }
 
-export function assets(source64: string, sourceID: string, revision: number): string[] {
-  return arxivHTMLAssets(decodeUTF8(decode64(source64, LIMITS.sourceBytes)), arxivHTMLURL(sourceID, revision));
-}
-export async function prepare(source64: string, sourceID: string, revision: number, inputs: { url: string; base64: string }[], options?: { authors?: unknown }) {
+/** The catalog record the compile may lean on (names that were graphics, a paper without an `h1`), bounded. */
+function convertOptions(options?: { authors?: unknown; title?: unknown }) {
   const authors = Array.isArray(options?.authors) ? options!.authors.filter((a): a is string => typeof a === 'string').slice(0, 64).map(a => a.slice(0, 256)) : [];
-  const source = decode64(source64, LIMITS.sourceBytes), urls = assets(source64, sourceID, revision);
+  const title = typeof options?.title === 'string' ? options.title.slice(0, 2000) : undefined;
+  return { authors, title };
+}
+export function assets(source64: string, sourceID: string, revision: number, options?: { authors?: unknown; title?: unknown }): string[] {
+  return arxivHTMLAssets(decodeUTF8(decode64(source64, ARXIV_SOURCE_BYTES)), arxivHTMLURL(sourceID, revision), convertOptions(options));
+}
+export async function prepare(source64: string, sourceID: string, revision: number, inputs: { url: string; base64: string }[], options?: { authors?: unknown; title?: unknown }) {
+  const { authors, title } = convertOptions(options);
+  const source = decode64(source64, ARXIV_SOURCE_BYTES), urls = assets(source64, sourceID, revision, options);
   check(Array.isArray(inputs) && inputs.length === urls.length && new Set(inputs.map(i => i.url)).size === inputs.length &&
     inputs.every(i => urls.includes(i.url)), 'arxiv_asset_set');
   const images = new Map<string, ArxivImage>(); let bytes = source.length, pixels = 0;
-  const inline = arxivInlineImages(decodeUTF8(source), arxivHTMLURL(sourceID, revision));
+  const inline = arxivInlineImages(decodeUTF8(source), arxivHTMLURL(sourceID, revision), { authors, title });
   check(inputs.length + inline.size <= LIMITS.archiveImages, 'image_limit');
   function* decodeInputs() {
     for (const input of inputs) yield {key:input.url,data:decode64(input.base64,LIMITS.memberBytes),svg:/\.svg$/i.test(new URL(input.url).pathname)};
@@ -130,7 +136,7 @@ export async function prepare(source64: string, sourceID: string, revision: numb
     const image = await raster(data, input.svg); pixels += image.width * image.height;
     check(pixels <= LIMITS.totalImagePixels, 'image_total_limit'); images.set(input.key, image);
   }
-  const bundle = composeArxivReader({ source, sourceID, revision, images, authors });
+  const bundle = composeArxivReader({ source, sourceID, revision, images, authors, title });
   validateHTML(bundle.members.get('index.html')!, bundle.index,
     new Map(JSON.parse(decodeUTF8(bundle.manifestBytes)).members.filter((m: { role: string }) => m.role === 'image')
       .map((m: { path: string; width: number; height: number }) => [m.path, { width: m.width, height: m.height }])), true);

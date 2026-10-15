@@ -1,6 +1,6 @@
 import { ARXIV_PROVENANCE_FORMAT, ARXIV_RENDERER_ID, ARXIV_RENDERER_REVISION, ARXIV_SOURCE_KIND,
   arxivHTMLAssets, arxivHTMLURL, arxivInlineImages, convertArxivHTML } from './arxiv-html.ts';
-import { BUNDLE_FORMAT, LIMITS, READER_CSS } from './profile.ts';
+import { BUNDLE_FORMAT, LIMITS, READER_CSS, ARXIV_SOURCE_BYTES } from './profile.ts';
 import { THIRD_PARTY_NOTICES } from './notice.ts';
 import { canonicalBytes, check, decodeUTF8, HEX64, sha256Hex, utf8 } from './util.ts';
 
@@ -11,6 +11,8 @@ export interface ArxivBundleInput {
   source: Uint8Array; sourceID: string; revision: number; images: Map<string, ArxivImage>;
   /** The library's author names (see `ArxivConvertOptions.authors`); part of the bundle, so the same on every device of one library. */
   authors?: readonly string[];
+  /** The catalog's title (see `ArxivConvertOptions.title`). */
+  title?: string;
 }
 export const ARXIV_CSS = READER_CSS + '\nfigure img.reader-inline-image,body.reader-figure-detail figure img.reader-inline-image{display:inline-block;width:auto;height:.65em;max-width:none;margin:0 .15em;border-radius:0;vertical-align:baseline;background:transparent}\n';
 export const ARXIV_BUILD_SHA256 = sha256Hex(canonicalBytes({ renderer: ARXIV_RENDERER_ID,
@@ -18,11 +20,12 @@ export const ARXIV_BUILD_SHA256 = sha256Hex(canonicalBytes({ renderer: ARXIV_REN
 
 /** Compose already decoded/admitted device images. Consumers independently verify the whole bundle. */
 export function composeArxivReader(input: ArxivBundleInput) {
-  check(input.source instanceof Uint8Array && input.source.length > 0 && input.source.length <= LIMITS.sourceBytes, 'source_limit');
+  check(input.source instanceof Uint8Array && input.source.length > 0 && input.source.length <= ARXIV_SOURCE_BYTES, 'source_limit');
   check(input.images instanceof Map && input.images.size <= LIMITS.archiveImages, 'image_limit');
   const source = decodeUTF8(input.source), url = arxivHTMLURL(input.sourceID, input.revision);
-  const inline = arxivInlineImages(source, url);
-  const required = [...arxivHTMLAssets(source, url), ...inline.keys()].sort();
+  const options = { authors: input.authors, title: input.title };
+  const inline = arxivInlineImages(source, url, options);
+  const required = [...arxivHTMLAssets(source, url, options), ...inline.keys()].sort();
   check(required.length === input.images.size && required.every(url => input.images.has(url)), 'arxiv_asset_set');
   const published = new Map<string, ArxivImage>();
   const references = new Map<string, { path: string; width: number; height: number }>();
@@ -44,7 +47,7 @@ export function composeArxivReader(input: ArxivBundleInput) {
   });
   const rendered = convertArxivHTML(source, url, reference => {
     const image = references.get(reference); check(image, 'arxiv_asset_missing'); return image;
-  }, { authors: input.authors });
+  }, options);
   check(JSON.stringify(rendered.imageURLs) === JSON.stringify(required), 'arxiv_asset_coverage');
   const sourceSHA256 = sha256Hex(input.source);
   const provenance = canonicalBytes({ format: ARXIV_PROVENANCE_FORMAT,

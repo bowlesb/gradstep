@@ -5,11 +5,11 @@
 function compilerFailure(error) {
  const code = error?.message;
  if (code === 'arxiv_conversion_error') return 'source-incomplete';
- if (code === 'arxiv_article') return 'source-unavailable';
+ if (['arxiv_article','arxiv_identity'].includes(code)) return 'source-unavailable';
  if (['source_limit','bundle_limit','manifest_limit','html_limit','block_limit','heading_limit',
   'image_limit','image_total_limit','image_dimensions','svg_dimensions','base64_limit'].includes(code)) return 'limit';
  if (['arxiv_math_attribute','arxiv_math_element','arxiv_math_style','arxiv_math_semantics',
-  'arxiv_math_source','arxiv_math_mismatch','arxiv_math_empty','arxiv_math_coverage','arxiv_equation'].includes(code)) return 'math';
+  'arxiv_math_source','arxiv_math_mismatch','arxiv_math_empty','arxiv_math_coverage','arxiv_math_duplicate','arxiv_equation'].includes(code)) return 'math';
  if (['arxiv_asset_url','arxiv_asset_type','arxiv_inline_svg','arxiv_asset','arxiv_asset_set',
   'arxiv_asset_missing','arxiv_asset_coverage','image_decode','image_timeout','svg_attribute',
   'svg_doctype','svg_element','svg_fragment','svg_id','svg_invalid','svg_resource','svg_style'].includes(code)
@@ -24,7 +24,7 @@ addEventListener('message', async event => {
  const port = event.ports[0], p = event.data;
  try {
   if (!p || !['assets','prepare'].includes(p.method)) throw Error('invalid');
-  const result = p.method === 'assets' ? GradstepArxivReader.assets(p.source,p.sourceID,p.revision)
+  const result = p.method === 'assets' ? GradstepArxivReader.assets(p.source,p.sourceID,p.revision,p.options)
    : await GradstepArxivReader.prepare(p.source,p.sourceID,p.revision,p.inputs,p.options);
   port.postMessage({ok:true,result});
  } catch (error) { port.postMessage({ok:false,failure:compilerFailure(error)}); }

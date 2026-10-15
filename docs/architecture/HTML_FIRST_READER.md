@@ -125,7 +125,8 @@ asset's URL/input digest and published member digest, adapter revision/build dig
 It contains no provider job, PDF hash or claimed page count. Notices retain applicable adapter dependencies and
 source attribution. Keep fetched-at time in the local acquisition record, outside deterministic output identity.
 
-Initial limits reuse the MathML profile: 2 MiB source, 8 MiB output HTML, 4 MiB index, 256 KiB manifest and provenance,
+Limits: 8 MiB source (`ARXIV_SOURCE_BYTES`; 2 MiB until 2026-10-15, when a 2.6 MB technical report was refused;
+copied by hand into both apps' acquisition policies), and from the MathML profile 8 MiB output HTML, 4 MiB index, 256 KiB manifest and provenance,
 32 MiB bundle, 512 members, 20,000 blocks, 1,000 headings, 4,000 equations, 256 figures and 64 million total image
 pixels. Acquisition also bounds cumulative input asset bytes and decoded pixels; final bundle limits alone are
 insufficient. Real-paper measurements can motivate a versioned limit change, not an unbounded fallback.
@@ -413,6 +414,20 @@ heading and paragraph right after the authors; `contribution`/`thanks`/`footnote
 marks; lines of the form `1]Institution` become marked affiliations; everything else is left out with the macros
 (counted in the closing note). Affiliations with no letter or digit (a template's "[") are dropped, and the
 `ltx_dates` line is left out, since the paper line says the year and revision.
+
+### Degradations, not refusals — 2026-10-15 (rethink step 1)
+
+The converter refuses a paper only for safety or size (`arxiv_article` for a page that is only a pointer to the PDF,
+the source and bundle limits, duplicate ids, unresolvable references, unsafe MathML). A structure it does not
+recognise degrades instead and the paper still opens: a figure in a list item follows the list, a TikZ label holding
+a table is a table, a top-level picture is a figure, a tabular of graphics is the figure's panels, a text-only
+"equation" is a paragraph, an over-long block is excerpted, a math or icon mark beside a name reads as its symbol or
+not at all, a footnote keeps its mark once, empty paragraphs and publication notes under the title are left out.
+The header leans on the catalog record both apps pass with the source (`authors`, `title`) to the asset-planning
+call and the compile: the catalog title heads a paper without an `h1` (a repeated bold paragraph is dropped), the
+library's names head a paper with no author block, and front matter reads first when LaTeXML put a figure or a venue
+line before the title. What the HTML left out is said in the paper's closing note. The fresh-paper sweep
+(`scripts/reader-sweep.mjs`, TESTING.md) is the gate: 0 of 58 refused on 2026-10-15 against 16 the day before.
 
 ### Paper availability on a device — 2026-10-15 (owner question: "should we make it more obvious whether you do or do not have a pdf on a device?")
 

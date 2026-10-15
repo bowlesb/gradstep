@@ -61,7 +61,7 @@ describe('import progress (IMPORT_PROGRESS.md wording)', () => {
     if (reading.kind !== 'import') throw new Error();
     expect(importStep(reading)).toBe('converting');
     const view = progressView(reading, { stateSeq: 9, intent: 1, detail: reading.progress_detail, receivedAt: 0, floor: 0 }, 5_000);
-    expect(view).toMatchObject({ title: 'Reading equations and figures', detail: 'page 6 of 15', time: 'About 20 s left' });
+    expect(view).toMatchObject({ title: 'Preparing…', detail: null, time: null });
     expect(view!.percent).toBeGreaterThanOrEqual(46);
     const failed = decodeEntry(imported({ phase: 'failed', error_code: 'download_failed', retryable: true }));
     if (failed.kind !== 'import') throw new Error();

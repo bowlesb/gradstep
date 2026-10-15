@@ -60,7 +60,10 @@ corpus rather than on what the owner opens today.
 ## Plan
 
 1. **Now (this night):** refusals → degradations with a ledger; metadata-first header; the sweep as the gate; raise
-   the measured limits; the store's compiler identity. Ship as build 41.
+   the measured limits; the store's compiler identity. **Applied** (build 42 and the browser; renderer revision 4):
+   the sweep's 58 papers went from 16 refusals to 0; the catalog title heads a paper without an `h1` and the
+   library's names a paper without an author block; the closing note is the ledger so far (unsupported commands,
+   left-out graphics).
 2. **Next:** split `arxiv-html.ts` (1,000+ lines) into front matter, body, math, figures and tables modules, each
    with its own fragment tests; delete heuristics the metadata header makes unnecessary.
 3. **Then:** the sweep and the import canary run on a schedule with a one-line summary in IMPLEMENTATION_STATUS.md;
@@ -70,3 +73,41 @@ corpus rather than on what the owner opens today.
 
 The security posture (device-only content, no server PDFs, a validated output vocabulary), the bundle format, the
 index the chat and podcasts read, and the reader bridge. The rethink is about where understanding may fail safely.
+
+## Independent audit (subagent, 2026-10-15, read-only; reproduced every claim on the 56 cached sweep sources)
+
+Findings that changed the plan above, in the auditor's words where they matter:
+
+- Nine of the fifteen refusals come from one branch: the caption-only figure case added for 2610.17288 also takes
+  `figure.ltx_float_algorithm` (caption + `div.ltx_listing`) and a tabular in a paragraph, emits only the caption and
+  drops the listing, whose math is then "uncovered" (`arxiv_math_coverage`). Take that branch only when nothing but
+  the caption has text. **Applied.**
+- `arxiv_equation`: an equation table with no `<math>` (a file-name pattern marked as math). Paragraph. **Applied.**
+- `arxiv_block_text`: one bibliography entry over 20,000 bytes; the validator compares against an excerpt already.
+  Excerpt. **Applied.**
+- `arxiv_title`: no `h1` (a bold paragraph title; a stub page "See pages 1-last of … .pdf"). Head with the catalog
+  title; a stub is `source-unavailable`. **Applied** (title option; both apps to pass it).
+- `arxiv_nested_content`: a figure inside a list item (PaLM) and a table inside a TikZ `foreignObject`. Hoist the
+  figure after the list; read labels with the table path; tables inside an `svg` are the picture's. **Applied.**
+- Not refused but broken: a top-level `svg` figure rendered 0.65 em tall (nine of 41 compiled papers, every prompt
+  figure of Chain-of-Thought). **Applied** (`svg` is a figure).
+- Silent losses the sweep does not count yet: algorithm bodies without math, graphics inside table cells (541 cells in
+  6 of 56 sources), `span.ltx_tabular` cell boundaries lost ("ModelAccGPT91.0", 10 of 56). **Applied** for a tabular
+  whose cells hold only graphics (the figure's panels). **Next:** a silent-loss ledger per paper in the sweep (source
+  figure/tabular/listing counts vs the index), graphics in cells with text, `span.ltx_tabular` as tables.
+- The renderer identity hashed id, revision, CSS and notices, not the code; an unbumped behaviour change reopens
+  stale bundles. **Applied:** the identity carries the code digest and the build refuses an unbumped change.
+- Error surfacing: iOS collapses every compiler failure to one message and logs nothing; the web keeps a hand-made
+  category list. **Applied:** `ArxivHTMLError.compiler(code)` with the browser's categories and words, logged; a
+  backend test extracts every converter code and requires both tables to be complete and equal.
+- Coupling the auditor confirmed: the header rebuilt from markup (150 lines of author heuristics plus a template
+  reader) where the catalog already has title, authors and abstract; limits hand-copied into three places; the
+  arXiv converter importing the Mathpix profile. These are step 2. One consequence surfaced at once: the arXiv
+  source limit lived in the Mathpix renderer's `LIMITS`, which that renderer's identity hashes, so raising it
+  silently changed the committed Mathpix sample's identity. The arXiv limit is its own constant now
+  (`ARXIV_SOURCE_BYTES`).
+- Found by the sweep after the audit, applied the same way: publication notes between the title and the authors
+  (a revision date, a venue, DOI, ISBN), an icon used as a mark, a `\footnotetext` leaking its label, a figure or a
+  venue line before the title, empty paragraphs from horizontal rules.
+- Leave alone: acquisition pacing and limits, the validator grammar and serializer fixed point, dry-compile asset
+  planning, the store's identity path, the MathML attribute whitelist, the sweep's checks.

@@ -3,7 +3,7 @@ import { MATHPIX_PROFILE } from '../mathpix.ts';
 import { validateHTML } from './html-validate.ts';
 import { admitReaderImage } from './images.ts';
 import { THIRD_PARTY_NOTICES } from './notice.ts';
-import { BUNDLE_FORMAT, INDEX_FORMAT, LIMITS, PROVENANCE_FORMAT, READER_CSS, RENDERER_ID, SOURCE_KIND } from './profile.ts';
+import { BUNDLE_FORMAT, INDEX_FORMAT, LIMITS, PROVENANCE_FORMAT, READER_CSS, RENDERER_ID, SOURCE_KIND, ARXIV_SOURCE_BYTES } from './profile.ts';
 import { canonicalBytes, check, CONTROL, decodeUTF8, excerpt, fail, HEX64, idIsSafe, memberPathIsSafe, sameBytes, sha256Hex, utf8 } from './util.ts';
 import type { ReaderIndex } from './render.ts';
 import { ARXIV_PROVENANCE_FORMAT, ARXIV_RENDERER_ID, ARXIV_SOURCE_KIND, arxivAssetURL, arxivHTMLURL } from './arxiv-html.ts';
@@ -108,7 +108,7 @@ function validateArxivProvenance(bytes: Uint8Array, renderer: Record<string, unk
   check(value.format === (extended ? ARXIV_PROVENANCE_FORMAT : 'arxiv-html-reader-provenance-v1'), 'provenance_format');
   const input = record(value.source, ['arxiv_id', 'revision', 'url', 'bytes', 'sha256'], 'provenance_source');
   check(typeof input.arxiv_id === 'string' && integer(input.revision, 1, 2147483647) &&
-    input.url === arxivHTMLURL(input.arxiv_id, input.revision) && integer(input.bytes, 1, LIMITS.sourceBytes) && input.sha256 === source.sha256, 'provenance_source');
+    input.url === arxivHTMLURL(input.arxiv_id, input.revision) && integer(input.bytes, 1, ARXIV_SOURCE_BYTES) && input.sha256 === source.sha256, 'provenance_source');
   const build = record(value.renderer, ['id', 'build_sha256'], 'provenance_renderer');
   check(build.id === renderer.id && build.build_sha256 === renderer.build_sha256, 'provenance_renderer');
   check(Array.isArray(value.image_inputs) && value.image_inputs.length <= LIMITS.archiveImages, 'provenance_images');

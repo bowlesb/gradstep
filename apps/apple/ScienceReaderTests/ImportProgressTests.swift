@@ -30,11 +30,11 @@ final class ImportProgressTests: XCTestCase {
 
     func testStepsUseTheReadersWords() throws {
         let cases: [(String, LibraryImportStep, String, String)] = [
-            ("finding", .finding, "Finding the paper", "Finding"),
-            ("downloading", .downloading, "Downloading the PDF", "Downloading"),
-            ("reading_equations", .converting, "Reading equations and figures", "Reading"),
-            ("preparing", .building, "Preparing it for reading", "Preparing"),
-            ("waiting", .waiting, "Waiting to continue", "Waiting"),
+            ("finding", .finding, "Preparing…", "Preparing"),
+            ("downloading", .downloading, "Downloading…", "Downloading"),
+            ("reading_equations", .converting, "Preparing…", "Preparing"),
+            ("preparing", .building, "Preparing…", "Preparing"),
+            ("waiting", .waiting, "Preparing…", "Preparing"),
         ]
         for (wire, step, title, word) in cases {
             // The detail's step wins over the coarse progress, which may lag or be less exact.
@@ -57,21 +57,21 @@ final class ImportProgressTests: XCTestCase {
 
     func testTheStepLineSaysWhichPageOrHowBig() {
         let reading = progress(.init(step: .readingEquations, percent: 62, etaSeconds: 40, pages: 27, pagesDone: 12)).presentation(at: now)
-        XCTAssertEqual(reading.line, "Reading equations and figures (page 12 of 27)")
-        XCTAssertEqual(reading.status, "62% · About 40 s left")
+        XCTAssertEqual(reading.line, "Preparing…", "Two words and a percentage: no page counts or times")
+        XCTAssertEqual(reading.status, "62%")
         XCTAssertEqual(reading.fraction, 0.62)
-        XCTAssertEqual(reading.accessibilityLabel, "Reading equations and figures, page 12 of 27, 62 percent, about 40 seconds left")
+        XCTAssertEqual(reading.accessibilityLabel, "Preparing, 62 percent")
 
         let started = progress(.init(step: .readingEquations, percent: 30, etaSeconds: 50, pages: 27, pagesDone: 0)).presentation(at: now)
-        XCTAssertEqual(started.line, "Reading equations and figures (27 pages)", "No pages done yet: the page count")
+        XCTAssertEqual(started.line, "Preparing…")
         let size = progress(.init(step: .downloading, percent: 14, etaSeconds: 52, pages: 45, bytes: 40_817_183), step: .downloading)
             .presentation(at: now)
-        XCTAssertEqual(size.line, "Downloading the PDF (\(ByteCountFormatter.string(fromByteCount: 40_817_183, countStyle: .file)))")
+        XCTAssertEqual(size.line, "Downloading…")
         let pagesOnly = progress(.init(step: .downloading, percent: 14, etaSeconds: 52, pages: 1), step: .downloading).presentation(at: now)
-        XCTAssertEqual(pagesOnly.line, "Downloading the PDF (1 page)")
+        XCTAssertEqual(pagesOnly.line, "Downloading…")
         let preparing = progress(.init(step: .preparing, percent: 91, etaSeconds: 6, pages: 12), step: .building).presentation(at: now)
-        XCTAssertEqual(preparing.line, "Preparing it for reading", "Nothing to add while preparing")
-        XCTAssertEqual(preparing.status, "91% · A few seconds left")
+        XCTAssertEqual(preparing.line, "Preparing…")
+        XCTAssertEqual(preparing.status, "91%")
     }
 
     // MARK: Time left
@@ -119,16 +119,16 @@ final class ImportProgressTests: XCTestCase {
     func testUncertainEstimatesAreNotCountedDown() {
         // No page count yet: a typical paper's time, said loosely.
         let finding = progress(.init(step: .finding, percent: 0, etaSeconds: 47), step: .finding)
-        XCTAssertEqual(finding.presentation(at: now + 10).status, "\(finding.percent(at: now + 10)!)% · Usually under a minute")
+        XCTAssertEqual(finding.presentation(at: now + 10).status, "\(finding.percent(at: now + 10)!)%")
         XCTAssertEqual(finding.timeLeft(at: now + 30), .typical(seconds: 47))
         XCTAssertEqual(finding.timeLeft(at: now + 95), .slow)
         // Backing off after an error, or paused: no estimate and no percent (build 16 #10), and it says so.
         let delayed = progress(.init(step: .readingEquations, percent: 41, delayed: true, pages: 25, pagesDone: 9))
         let shown = delayed.presentation(at: now + 600)
-        XCTAssertEqual(shown.status, "Taking longer than usual")
+        XCTAssertEqual(shown.status, "retrying")
         XCTAssertTrue(shown.isSlow)
         XCTAssertNil(shown.percent, "No percent while it waits: the row shows a spinner")
-        XCTAssertEqual(shown.accessibilityLabel, "Reading equations and figures, page 9 of 25, taking longer than usual")
+        XCTAssertEqual(shown.accessibilityLabel, "Preparing, retrying")
         // A detail without an estimate (not delayed): quiet, until the step has run three minutes here.
         let quiet = progress(.init(step: .readingEquations, percent: 41, pages: 25), stepSince: now)
         XCTAssertNil(quiet.timeLeft(at: now + 60))
@@ -160,8 +160,8 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertEqual(finding.percent(at: now + 80), 15)
         let late = finding.presentation(at: now + 200)
         XCTAssertNil(late.percent, "Well past the estimate: no percent")
-        XCTAssertEqual(late.timeText, "Taking longer than usual")
-        XCTAssertEqual(late.status, "Taking longer than usual")
+        XCTAssertNil(late.timeText, "No time estimates (two words and a percentage)")
+        XCTAssertNil(late.status)
 
         // The server says it is backing off: what it is waiting for, even if an earlier count reached 99.
         let backingOff = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 5, delayed: true), receivedAt: now,
@@ -169,19 +169,19 @@ final class ImportProgressTests: XCTestCase {
         let shown = backingOff.presentation(at: now + 1)
         XCTAssertNil(shown.percent)
         XCTAssertNil(shown.fraction, "An indeterminate spinner, not a bar")
-        XCTAssertEqual(shown.timeText, "Waiting for arXiv · retrying")
-        XCTAssertEqual(shown.compactTimeText, "Waiting for arXiv · retrying")
-        XCTAssertEqual(shown.accessibilityLabel, "Finding the paper, waiting for arXiv, retrying")
+        XCTAssertEqual(shown.timeText, "retrying")
+        XCTAssertEqual(shown.compactTimeText, "retrying")
+        XCTAssertEqual(shown.accessibilityLabel, "Preparing, retrying")
         let web = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 5, delayed: true), receivedAt: now)
-        XCTAssertEqual(web.presentation(at: now).timeText, "Waiting to retry")
+        XCTAssertEqual(web.presentation(at: now).timeText, "retrying")
         let download = ImportProgress(step: .downloading, detail: .init(step: .downloading, percent: 20, delayed: true), receivedAt: now)
-        XCTAssertEqual(download.presentation(at: now).timeText, "Waiting to retry")
+        XCTAssertEqual(download.presentation(at: now).timeText, "retrying")
 
         // The tracker names arXiv for an arXiv import.
         var tracker = ImportProgressTracker()
         let item = try record(progress: "finding", detail: ["step": "finding", "percent": 5, "delayed": true])
         tracker.observe([item], now: now)
-        XCTAssertEqual(tracker.progress(of: item, stepSince: nil, now: now)?.presentation(at: now).timeText, "Waiting for arXiv · retrying")
+        XCTAssertEqual(tracker.progress(of: item, stepSince: nil, now: now)?.presentation(at: now).timeText, "retrying")
     }
 
     func testTrackerKeepsTheBarFromGoingBackUntilARetry() throws {
@@ -226,12 +226,12 @@ final class ImportProgressTests: XCTestCase {
         let first = old.presentation(at: now + 30)
         XCTAssertNil(first.fraction, "No bar: the spinner")
         XCTAssertNil(first.status)
-        XCTAssertEqual(first.accessibilityLabel, "Downloading the PDF")
+        XCTAssertEqual(first.accessibilityLabel, "Downloading")
         let later = old.presentation(at: now + 200)
-        XCTAssertEqual(later.timeText, "Taking longer than usual")
-        XCTAssertTrue(later.isSlow)
-        XCTAssertEqual(later.accessibilityLabel, "Downloading the PDF, 3 minutes, taking longer than usual")
-        XCTAssertEqual(old.presentation(at: now + 90).timeText, "1 min")
+        XCTAssertNil(later.timeText, "Older servers: the word alone, no elapsed time")
+        XCTAssertFalse(later.isSlow)
+        XCTAssertEqual(later.accessibilityLabel, "Downloading")
+        XCTAssertNil(old.presentation(at: now + 90).timeText)
     }
 
     func testADownloadTheServerWillRetryIsNotADeadFailure() throws {
@@ -243,12 +243,12 @@ final class ImportProgressTests: XCTestCase {
             "error_code": "download_retrying", "auto_retry_at": "2026-10-07T10:00:00Z"] as [String: Any]))
         XCTAssertTrue(value.isRetryingAutomatically)
         let shown = try XCTUnwrap(ImportProgressTracker().progress(of: value, stepSince: nil, now: now)).presentation(at: now)
-        XCTAssertEqual(shown.title, "Couldn’t download yet")
-        XCTAssertEqual(shown.timeText, "Trying again automatically")
+        XCTAssertEqual(shown.title, "Downloading…")
+        XCTAssertEqual(shown.timeText, "retrying")
         XCTAssertNil(shown.fraction, "Waiting, not measured: the spinner")
         XCTAssertFalse(shown.isSlow)
         let model = ReaderModel(configuration: nil)
-        XCTAssertEqual(model.libraryStatus(for: .pending(value)), .active("Retrying soon"), "Under way in the table, not a problem")
+        XCTAssertEqual(model.libraryStatus(for: .pending(value)), .active("Downloading…"), "Under way in the table, not a problem")
     }
 
     func testMetadataAndRenderRetriesKeepTheirReasonAndNeverPretendToDownload() throws {
@@ -261,10 +261,11 @@ final class ImportProgressTests: XCTestCase {
             let value = try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: row))
             XCTAssertTrue(value.isRetryingAutomatically)
             let shown = try XCTUnwrap(ImportProgressTracker().progress(of: value, stepSince: nil, now: now)).presentation(at: now)
-            XCTAssertEqual(shown.title, reason)
-            XCTAssertEqual(shown.compactTitle, compact)
-            XCTAssertEqual(shown.timeText, "Trying again automatically")
-            XCTAssertEqual(shown.accessibilityLabel, "\(reason), trying again automatically")
+            _ = (reason, compact)
+            XCTAssertEqual(shown.title, "Preparing…", "A metadata or render retry never pretends to download")
+            XCTAssertEqual(shown.compactTitle, "Preparing")
+            XCTAssertEqual(shown.timeText, "retrying")
+            XCTAssertEqual(shown.accessibilityLabel, "Preparing, trying again automatically")
             XCTAssertNil(shown.fraction)
             XCTAssertNil(LibraryImportAction.available(for: value, retrying: false), "Scheduled work doesn't compete with a Retry button")
             XCTAssertFalse(LibraryFilter.failed.includesImport(value.phase, retryingAutomatically: value.isRetryingAutomatically))
@@ -285,9 +286,9 @@ final class ImportProgressTests: XCTestCase {
         model.installLibraryMetadataFixture(papers: [], imports: [reading], sequences: [:], activity: [:], offline: [:])
         let facts = model.libraryFacts(for: .pending(reading))
         let shown = try XCTUnwrap(facts.importProgress).presentation(at: now + 20)
-        XCTAssertEqual(shown.line, "Reading equations and figures (page 12 of 27)")
-        XCTAssertEqual(shown.status, "80% · About 20 s left")
-        XCTAssertEqual(model.libraryStatus(for: .pending(reading)), .active("Reading equations…"))
+        XCTAssertEqual(shown.line, "Preparing…")
+        XCTAssertEqual(shown.status, "80%")
+        XCTAssertEqual(model.libraryStatus(for: .pending(reading)), .active("Preparing…"))
 
         clock = now + 30
         let ready = try record(id, phase: "ready", progress: nil, state: 2)
