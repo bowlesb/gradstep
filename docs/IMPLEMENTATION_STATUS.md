@@ -2,6 +2,25 @@
 
 Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Equation view, parity, reading mode, arXiv step 0 — 2026-10-15, ~17:10 UTC
+
+- **TestFlight 54** iOS (09:59 PDT) and Mac (10:05 PDT) both VALID, built from a clean checkout of `1938621`; browser
+  Pages **`4d66d4f3`** (live asset check passed).
+- **Equation view** on all surfaces (EQUATION_VIEW.md): the equation large (100–400 %, scroll sideways), each symbol
+  from the paper with its ¶ or as general meaning, More background, Ask in chat; chat actions on the chat's cache.
+- **Parity audit** (owner: "make sure all changes I've been testing on the iPhone app are properly updated on Mac,
+  iPad and web"): native and browser gaps fixed (see the two "Parity audit" commits); iPad full run 113 journeys,
+  re-run with layout-aware navigation; Mac Catalyst unit suite 407 run; triage of the remaining iPad journeys in progress.
+  Mac UI journeys cannot start here without macOS automation permission (an owner setting).
+- **Line width and reading mode** (READING_MODE.md): Comfortable / Wide / Full width on Mac, iPad and the browser;
+  a full-screen reading mode (⇧⌘R on the Mac, F in the browser).
+- **arXiv** (ARXIV_DEVICE_ONLY.md, proposal): the required acknowledgement and disclaimer on every product surface,
+  Gradstep User-Agents with a reachable contact on every server (functions and the Cloud Run worker redeployed),
+  stale copy corrected. Steps 1–3 (guardrails in report mode, additive device-metadata support, DataCite client,
+  all switched off) in progress; owner decisions open (DataCite for shared data, legacy server copies, episode source
+  retention).
+- **Account deletion** sweeps private episode folders (migration 070, on staging).
+
 ## Monitoring for 100 → 1,000 people, and figure parts inline — 2026-10-15, ~14:40 UTC
 
 Owner: "the crops should be inline, right as the chat discusses each one" and "Imagine the graphs I need to monitor,
