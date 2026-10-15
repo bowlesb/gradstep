@@ -585,7 +585,9 @@ final class ReaderModel {
     private var chatStudyMaps: [UUID: StudyMap] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
-    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?)?
+    /// `prefix`: the reader completes the prompt with their own question (Ask in chat from the equation view), so the
+    /// quote goes with a message that starts with it rather than one that equals it.
+    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?, prefix: Bool)?
     var chatConsentPrompt: ChatConsentPrompt?
     /// Paper podcasts: Listen catalog, player, downloads, private generation (Services/PodcastCenter.swift).
     let podcasts = PodcastCenter()
@@ -3079,7 +3081,7 @@ final class ReaderModel {
         // The quote (and the passage it came from, saved on the new conversation) travels with this exact prompt
         // and composer only.
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote,
-            action: action.chatAction, origin: origin) }
+            action: action.chatAction, origin: origin, prefix: false) }
         if !isSignedIn { openSignIn() }
         // The question is saved first; first-use cloud consent then binds the
         // answer request to that captured, saved turn.
@@ -3123,8 +3125,9 @@ final class ReaderModel {
         if parents.isEmpty, let activeConversation, let root = privateState.revisions(for: activeConversation).first { parents = [root.id] }
         recordCurrentDraftBranch()
         guard let submission = chatWorkspace.beginSubmission(in: chatContext) else { return }
-        let pending = pendingSelection.flatMap {
-            $0.composerID == submission.composerID && $0.prompt.trimmingCharacters(in: .whitespacesAndNewlines) == submission.text ? $0 : nil
+        let pending = pendingSelection.flatMap { pending in
+            let prompt = pending.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            return pending.composerID == submission.composerID && (pending.prefix ? submission.text.hasPrefix(prompt) : prompt == submission.text) ? pending : nil
         }
         let selection = pending?.quote
         if pendingSelection?.composerID == submission.composerID { pendingSelection = nil }
@@ -3219,6 +3222,96 @@ final class ReaderModel {
               chatMessages.last?.id == offered.messageID else { return [] }
         return offered.questions
     }
+    // MARK: Equation view (2026-10-15, docs/architecture/EQUATION_VIEW.md)
+
+    /// One equation of a paper on this device, resolved for its view: its markup in the bundle's page, number, LaTeX,
+    /// paragraph and the numbered paper the requests carry (nil when the paper isn't a source membership here).
+    func equationContext(for request: EquationViewRequest) -> EquationViewContext? {
+        guard let paper = papers.first(where: { $0.id == request.paperID }) ?? (selectedPaper?.id == request.paperID ? selectedPaper : nil),
+              let bundle = paper.readerBundle, let equation = bundle.index.equations.first(where: { $0.id == request.equationID }) else { return nil }
+        let markup = bundle.data(for: bundle.manifest.entrypoint).flatMap { String(data: $0, encoding: .utf8) }
+            .flatMap { EquationMarkup.element(in: $0, equationID: equation.id) }
+        let number = markup.flatMap(EquationMarkup.number(in:))
+        let paragraph = bundle.index.blocks.firstIndex { $0.id == equation.blockID }.map { $0 + 1 }
+        let localContext = paper.sourceMembership.flatMap { try? LocalPaperChatContext(reference: $0, bundle: bundle) }
+        return EquationViewContext(paperID: paper.id, bundle: bundle, equationID: equation.id, blockID: equation.blockID, markup: markup,
+                                   number: number, label: EquationMarkup.label(number: number), latex: equation.latex, paragraph: paragraph,
+                                   localContext: localContext)
+    }
+
+    /// The profile an equation request carries: what a new chat about the paper would ask with (Settings › Chat defaults,
+    /// when the server's table offers it), so the request reads the same cached paper as that chat.
+    var equationProfile: ChatProfileChoice {
+        guard let table = chatProfileTable else { return .standard }
+        return table.offers(chatDefaultProfile) ? chatDefaultProfile : table.defaultChoice
+    }
+    var hasCloudConsent: Bool { accountID.map { chatConsent.hasAccepted($0) } ?? false }
+    /// The chat's own consent, accepted from the equation view; false when it couldn't be saved.
+    func acceptCloudConsent() -> Bool {
+        guard let accountID else { return false }
+        do { try chatConsent.accept(accountID); return true } catch { return false }
+    }
+
+    /// The answers kept on this device: in memory for the session, and sealed with the account's local key next to its
+    /// reader data, so a reopened equation shows them without a new request.
+    func equationAnswer(_ key: EquationResultKey) -> EquationAnswer? {
+        if let kept = equationAnswers[key] { return kept }
+        let stored = equationResultStore()?.read(key)
+        if let stored { equationAnswers[key] = stored }
+        return stored
+    }
+    func keepEquationAnswer(_ answer: EquationAnswer, for key: EquationResultKey) {
+        equationAnswers[key] = answer
+        try? equationResultStore()?.write(answer, for: key)
+    }
+    private func equationResultStore() -> EquationResultStore? {
+        if let equationStore { return equationStore }
+        guard let configuration, let device, let accountID, device.accountID == accountID,
+              let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        let directory = base.appendingPathComponent("\(configuration.environment)/\(accountID.wire)/equation-answers", isDirectory: true)
+        #if DEBUG && FIXTURE_HOST
+        // Journeys start without kept answers, as with their drafts.
+        if ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture") { try? FileManager.default.removeItem(at: directory) }
+        #endif
+        equationStore = try? EquationResultStore(directory: directory, accountID: accountID, localKey: device.localStoreKey)
+        return equationStore
+    }
+
+    /// One equation request's events on the chat's transport (no conversation is made); nil when signed out.
+    func equationStream(_ request: ChatGenerationRequest) async throws -> AsyncThrowingStream<ChatStreamEvent, Error>? {
+        guard let transport = chatTransport, let accountID else { return nil }
+        return try await transport.chatStream(request, accountID: accountID)
+    }
+
+    /// What the equation view asked for as it closed.
+    func applyEquationOutcome(_ outcome: EquationViewOutcome) {
+        switch outcome {
+        case .paragraph(let paperID, let marker): goToCitedBlock(marker, paperID: paperID)
+        case .askInChat(let context): askAboutEquation(context)
+        }
+    }
+
+    /// Ask in chat: a new chat about the paper with the equation as its passage and the composer focused, nothing sent;
+    /// the reader's question follows "About Equation (4) [¶12]: ".
+    func askAboutEquation(_ context: EquationViewContext) {
+        guard let paper = papers.first(where: { $0.id == context.paperID }) ?? (selectedPaper?.id == context.paperID ? selectedPaper : nil) else { return }
+        if selectedPaper?.id != paper.id { select(paper) }
+        selectedQuote = context.latex
+        let carried = chatProfile
+        newChat(general: false)
+        if carried != chatDefaultProfile { setChatProfile(carried) }
+        chatInput = "About \(context.label)" + (context.paragraph.map { " [¶\($0)]" } ?? "") + ": "
+        tab = .chat; wideMode = .reader; readerChatHidden = false
+        let selection = ReaderSelection(manifestSHA256: context.bundle.manifestSHA256,
+                                        parts: [.init(kind: "equation", blockID: context.blockID, equationID: context.equationID)])
+        let origin = readerDocumentScope.flatMap { scope in
+            scope.manifestSHA256 == context.bundle.manifestSHA256 ? PassageOrigin(scope: scope, selection: selection, quote: context.latex) : nil
+        }
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: context.latex, action: nil, origin: origin, prefix: true) }
+        if !isSignedIn { openSignIn() } else { requestComposerFocus() }
+    }
+
+
     // MARK: Study (experimental, 2026-10-14)
 
     /// Study needs the paper numbered on this device (its HTML reader bundle), as the server's tutor cites [¶N].
@@ -3404,6 +3497,7 @@ final class ReaderModel {
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
+                case .equation: break
                 case .done(let stopReason, _, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile)
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
@@ -3602,7 +3696,7 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
-        storeSummary = nil; operatorRoles = []; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
@@ -3671,6 +3765,9 @@ final class ReaderModel {
 
     var showStore = false
     private(set) var storeSummary: StoreSummary?
+    /// Equation view answers this session, by paper revision, equation, action and profile (sealed copies on disk).
+    @ObservationIgnored private var equationAnswers: [EquationResultKey: EquationAnswer] = [:]
+    @ObservationIgnored private var equationStore: EquationResultStore?
     private(set) var operatorRoles: [String] = []
     /// This Apple Account's plan was bought by another (open) account: plans are
     /// not offered here, so a purchase can't land on the other account.

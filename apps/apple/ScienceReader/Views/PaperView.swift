@@ -171,6 +171,9 @@ struct PaperView: View {
     /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
     @State private var figureReference: ReaderFigureReference?
     @State private var figureReferenceToShow: String?
+    /// The equation view (docs/architecture/EQUATION_VIEW.md) and what it asked for as it closed (a paragraph, the chat).
+    @State private var equation: EquationViewRequest?
+    @State private var equationFollowUp: EquationViewOutcome?
     /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
     @State private var findRequestID: UUID?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
@@ -241,7 +244,11 @@ struct PaperView: View {
                                          guard model.readerDocumentScope == readerScope else { return }
                                          model.selectionAction(action, selection: chosen, scope: readerScope)
                                          selection = nil; selectionClearID = UUID()
-                                     }, hasSelection: selection != nil, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
+                                     }, hasSelection: selection != nil, onEquation: { id in
+                                         guard model.readerDocumentScope == readerScope else { return }
+                                         equation = EquationViewRequest(paperID: paper.id, equationID: id)
+                                         selection = nil; selectionClearID = UUID()
+                                     }, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
                                      }, passage: model.passageJump(for: paper), onPassage: { id, found in
                                          if model.readerDocumentScope == readerScope { model.finishPassage(id, found: found) }
@@ -440,6 +447,15 @@ struct PaperView: View {
                 }
                 .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
                 .macSheetKeys()
+            }
+            // The equation view: large, sized and scrolled as the reader likes, each symbol described. A symbol's
+            // paragraph or Ask in chat is applied once the sheet has gone.
+            .sheet(item: $equation, onDismiss: {
+                if let followUp = equationFollowUp { model.applyEquationOutcome(followUp) }
+                equationFollowUp = nil
+            }) { request in
+                EquationView(model: model, request: request) { outcome in equationFollowUp = outcome; equation = nil }
+                    .macSheetKeys()
             }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
@@ -735,6 +751,8 @@ struct PaperWebView: UIViewRepresentable {
     var onMenuAction: ((SelectionAction, ReaderSelection) -> Void)? = nil
     /// Text or an equation is selected (the Mac's right-click menu offers the actions only then).
     var hasSelection = false
+    /// "Equation" chosen in a tapped equation's menu, with its ID in the bundle (the equation view).
+    var onEquation: ((String) -> Void)? = nil
     /// A new value shows the find bar (the paper only; a figure's view has none).
     var findRequestID: UUID? = nil
     /// Passages with conversations, underlined; a tap on one reports its conversations (PaperPassages.swift).
@@ -797,6 +815,7 @@ struct PaperWebView: UIViewRepresentable {
             web.menuAction = { [weak coordinator, weak web] action in
                 if let coordinator, let web { coordinator.runMenuAction(action, in: web) }
             }
+            web.onOpenEquation = { [weak coordinator] id in coordinator?.parent.onEquation?(id) }
             web.onEquationMenuDismissed = { [weak web] id in
                 web?.callAsyncJavaScript("window.__scienceReaderClearEquation(id);", arguments: ["id": id], in: nil, in: .defaultClient,
                                          completionHandler: nil)

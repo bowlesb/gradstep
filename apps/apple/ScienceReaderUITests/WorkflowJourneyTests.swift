@@ -457,6 +457,119 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["figureParts.part.2"].waitForExistence(timeout: 5), "the full view opens")
     }
 
+    /// The equation view (owner, 2026-10-15; EQUATION_VIEW.md): Equation sits right after Explain in Chat on a tapped
+    /// equation; the view shows it large with its size and sideways scrolling, what it says and each symbol, background
+    /// on request, a symbol's paragraph with Back, and Ask in chat with the equation as the passage, nothing sent.
+    func testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture"]
+        app.launch()
+        let paperTab = app.buttons["tab.paper"]
+        if paperTab.waitForExistence(timeout: 10) { paperTab.tap() }
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15), "The fixture opens the numbered HTML paper")
+        // The display equation's number is part of the equation: a tap on it selects the equation.
+        let openEquation = { () -> XCUIElement in
+            let number = web.staticTexts["(1)"].firstMatch
+            XCTAssertTrue(number.waitForExistence(timeout: 10), "The paper's numbered equation")
+            number.tap()
+            let item = app.revealEditMenuItem("Equation")
+            XCTAssertTrue(item.exists, "Equation is offered on a tapped equation")
+            return item
+        }
+        let item = openEquation()
+        let explain = app.editMenuItem("Explain in Chat")
+        // Right after Explain in Chat: below it in the menu's list, or beside it in a horizontal menu.
+        XCTAssertTrue(explain.exists)
+        XCTAssertTrue(explain.frame.maxY <= item.frame.minY + 1 || explain.frame.maxX <= item.frame.minX + 1, "right after Explain in Chat")
+        capture(app, "Equation in a tapped equation's menu")
+        item.tap()
+        XCTAssertTrue(app.navigationBars["Equation (1)"].waitForExistence(timeout: 5), "The view is titled with the equation's number")
+        let symbol = app.descendants(matching: .any)["equation.symbol.1"]
+        XCTAssertTrue(symbol.waitForExistence(timeout: 8), "The symbols are described")
+        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].exists)
+        XCTAssertTrue(app.staticTexts["equation.summary"].exists)
+        XCTAssertTrue(app.buttons["equation.symbolSource.1"].exists, "a symbol the paper defines links to its paragraph")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "General meaning")).firstMatch.exists, "a symbol it doesn't is marked so")
+        XCTAssertTrue(app.staticTexts["equation.credits"].exists, "the credits used, quietly")
+        // Size and sideways scrolling.
+        let size = app.staticTexts["equation.sizeValue"]
+        XCTAssertEqual(size.label, "160 %")
+        app.buttons["equation.larger"].tap(); app.buttons["equation.larger"].tap()
+        XCTAssertEqual(size.label, "200 %")
+        let scroll = app.switches["equation.scroll"]
+        XCTAssertTrue(scroll.exists)
+        let before = scroll.value as? String
+        if scroll.switches.firstMatch.exists { scroll.switches.firstMatch.tap() } else { scroll.tap() }
+        XCTAssertNotEqual(scroll.value as? String, before, "Scroll sideways turns on")
+        capture(app, "Equation view: large, symbols described")
+        app.buttons["equation.smaller"].tap(); app.buttons["equation.smaller"].tap()
+        XCTAssertEqual(size.label, "160 %")
+        // Background, only when asked for.
+        XCTAssertFalse(app.descendants(matching: .any)["equation.backgroundText"].exists)
+        let background = app.buttons["equation.background"]
+        for _ in 0..<3 where !background.isHittable { app.swipeUp() }
+        background.tap()
+        let text = app.descendants(matching: .any)["equation.backgroundText"]
+        XCTAssertTrue(text.waitForExistence(timeout: 8), "Background streams in")
+        let finished = NSPredicate { _, _ in text.label.contains("synthetic fixture answer") }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: finished, object: nil)], timeout: 8), .completed)
+        capture(app, "Equation view: background")
+        // A symbol's paragraph: the view closes and the paper goes there (with Back when the reader had moved from the
+        // top; this short paper is read from the top, so none is offered).
+        for _ in 0..<3 where !app.buttons["equation.symbolSource.1"].isHittable { app.swipeDown() }
+        app.buttons["equation.symbolSource.1"].tap()
+        XCTAssertTrue(app.navigationBars["Equation (1)"].waitForNonExistence(timeout: 5), "The view closes")
+        XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The paper is shown")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "doesn’t have")).firstMatch.waitForExistence(timeout: 2),
+                       "The paragraph is found")
+        capture(app, "A symbol's paragraph in the paper")
+        if app.buttons["reader.citation.back"].exists { app.buttons["reader.citation.back"].tap() }
+        // Reopened: the answers kept on the device show at once, then Ask in chat.
+        openEquation().tap()
+        XCTAssertTrue(symbol.waitForExistence(timeout: 3), "kept symbols")
+        XCTAssertTrue(app.descendants(matching: .any)["equation.backgroundText"].exists, "kept background, no new request")
+        let ask = app.buttons["equation.askInChat"]
+        for _ in 0..<4 where !ask.isHittable { app.swipeUp() }
+        ask.tap()
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 8), "The chat opens")
+        let prefilled = NSPredicate { _, _ in (composer.value as? String ?? "").hasPrefix("About Equation (1) [¶5]") }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: prefilled, object: nil)], timeout: 5), .completed,
+                       "The composer starts with the equation: \(composer.value as? String ?? "")")
+        XCTAssertFalse(app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
+                       "nothing is sent")
+        capture(app, "Ask in chat from the equation view")
+    }
+
+    /// The equation view in the wide layout (iPad landscape, the Mac): a sheet over the reader and its chat column.
+    func testEquationViewInTheWideLayout() throws {
+        XCUIDevice.shared.orientation = UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture"]
+        app.launch()
+        // The wide layout's Reader mode; a phone's Paper tab.
+        let reader = app.segmentedControls.buttons["Reader"]
+        if reader.waitForExistence(timeout: 5) { reader.tap() } else if app.buttons["tab.paper"].exists { app.buttons["tab.paper"].tap() }
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        let number = web.staticTexts["(1)"].firstMatch
+        XCTAssertTrue(number.waitForExistence(timeout: 10)); number.tap()
+        let item = app.revealEditMenuItem("Equation")
+        XCTAssertTrue(item.exists); item.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8))
+        app.buttons["equation.background"].tap()
+        let text = app.descendants(matching: .any)["equation.backgroundText"]
+        XCTAssertTrue(text.waitForExistence(timeout: 8))
+        let finished = NSPredicate { _, _ in text.label.contains("synthetic fixture answer") }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: finished, object: nil)], timeout: 8), .completed)
+        capture(app, "Equation view, wide layout")
+        app.buttons["equation.done"].tap()
+        XCTAssertTrue(app.buttons["equation.done"].waitForNonExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     func testAnAnswerDiagramOpensFromTheAnswerAndFromAllDiagrams() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

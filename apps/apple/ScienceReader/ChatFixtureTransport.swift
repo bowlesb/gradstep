@@ -8,13 +8,15 @@ import ScienceReaderCore
 /// `broken_diagram`: a diagram Mermaid can't parse, and a correction (`diagram_fix`) that still can't be.
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
 /// `figure_parts`: an answer about the sample's Figure 1 that marks where its two parts go, and the parts.
+/// `equation`: plain answers; the equation view's requests (actions `equation`, `equation_background`) are answered in
+/// every mode — symbols as the live server sends them, background as a short cited text.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 /// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
 /// `--chat-fixture-no-profiles` behaves like a server without them.
 struct ChatFixtureTransport: ChatTransport {
     enum Mode: String, Sendable {
         case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, brokenDiagram = "broken_diagram", sources, research
-        case figureParts = "figure_parts"
+        case figureParts = "figure_parts", equation
     }
     let mode: Mode
 
@@ -38,6 +40,17 @@ struct ChatFixtureTransport: ChatTransport {
 
     [[part 2]]
     The right half shows the result.
+
+    This is a synthetic fixture answer; no AI request was made.
+    """
+
+    static let equationSymbols = EquationSymbols(summary: "The square of x: x multiplied by itself, the paper's first numbered equation.", symbols: [
+        .init(symbol: "x", latex: "x", meaning: "The quantity being squared, introduced in the introduction.", source: .paper, paragraph: 4),
+        .init(symbol: "²", latex: "^2", meaning: "The exponent 2: the value is multiplied by itself.", source: .general)])
+    static let equationBackground = """
+    Squaring appears wherever a size must be positive whatever its sign, as in a squared error [¶4].
+
+    - It grows faster than the value itself, so large values dominate.
 
     This is a synthetic fixture answer; no AI request was made.
     """
@@ -70,6 +83,20 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.done(stopReason: "end_turn", credits: 4, model: "claude-sonnet-5-5", profile: request.profile.id))
                         continuation.finish(); return
                     }
+                    if request.action == .equation {
+                        try await Task.sleep(for: .milliseconds(400))
+                        continuation.yield(.equation(Self.equationSymbols))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
+                        continuation.finish(); return
+                    }
+                    if request.action == .equationBackground {
+                        try await Task.sleep(for: .milliseconds(300))
+                        for piece in Self.pieces(of: Self.equationBackground, size: 16) {
+                            continuation.yield(.delta(piece)); try await Task.sleep(for: .milliseconds(25))
+                        }
+                        continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
+                        continuation.finish(); return
+                    }
                     if request.action == .diagramFix {
                         try await Task.sleep(for: .milliseconds(1500))
                         continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram))
@@ -97,7 +124,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts:
+                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation:
                         try await Task.sleep(for: .milliseconds(300))
                         // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
                         let cited = request.localContext != nil

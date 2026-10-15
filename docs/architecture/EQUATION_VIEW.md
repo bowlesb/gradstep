@@ -67,8 +67,11 @@ usable JSON the words come as one `delta` instead: show them as the description.
 
 ## On the device
 
-Results are kept on the device per paper revision (manifest), equation id, action and model, in the app's cache (not
-synced, not in chat history): reopening an equation shows them without a new request. The symbols request starts when
+Results are kept on the device per paper revision (manifest), equation id, action and chat profile (model, effort,
+length: a different length writes a different background), in the app's cache (not synced, not in chat history):
+reopening an equation shows them without a new request. Apple apps: sealed with the account's local key in
+`<environment>/<account>/equation-answers` (complete file protection, excluded from backup, at most 400;
+`EquationResultStore`). The symbols request starts when
 the view opens (the view's purpose; a few credits with the paper cached); background only on its button. Nothing is
 sent without chat consent: the view asks for it as chat does.
 

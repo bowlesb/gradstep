@@ -142,7 +142,8 @@ private struct MacSheetKeys: ViewModifier {
 /// The reader's web view. Selected text gets the system edit menu (the context menu on the Mac) with Copy first,
 /// then the selection actions — Explain in Chat, Why it matters, Related papers, Add paper — then the system's
 /// Look Up, Translate, Share… A tapped equation opens the same menu beside it: Copy LaTeX, Copy as text and the
-/// actions (owner feedback, build 16 #4/#5, replacing the bar that sat under the paper).
+/// actions (owner feedback, build 16 #4/#5, replacing the bar that sat under the paper), with Equation (its own view)
+/// right after Explain in Chat.
 final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     /// The paper's own view (not a figure's): runs a selection action on what is selected when it is chosen.
     var menuAction: ((SelectionAction) -> Void)?
@@ -153,6 +154,9 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     @MainActor static weak var paper: ReaderWebView?
     /// Called with the bridge's equation ID when that equation's menu closes without an action (its outline goes too).
     var onEquationMenuDismissed: ((String) -> Void)?
+    /// "Equation" in a tapped equation's menu, right after Explain in Chat: opens the equation view for that equation
+    /// (docs/architecture/EQUATION_VIEW.md). Nil offers no such item.
+    var onOpenEquation: ((String) -> Void)?
     private lazy var equationMenu = UIEditMenuInteraction(delegate: self)
     /// The equation whose menu is open: its quote, where it is, its ID in the page, and this presentation's token.
     private var equation: (quote: String, rect: CGRect, equationID: String, id: String)?
@@ -243,8 +247,15 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
         }
         // The menu is closing because of the action: the equation stays selected until the action has read it.
         let run: (SelectionAction) -> Void = { [weak self] action in self?.equation = nil; menuAction(action) }
+        var actions = Self.actions(SelectionAction.equationActions, run: run)
+        if let open = onOpenEquation {
+            let view = UIAction(title: "Equation", image: UIImage(systemName: "function"), identifier: UIAction.Identifier("reader.equation.view")) { [weak self] _ in
+                self?.equation = nil; open(equation.equationID)
+            }
+            actions.insert(view, at: min(1, actions.count))
+        }
         return UIMenu(children: [UIMenu(options: .displayInline, children: [copy]),
-                                 UIMenu(options: .displayInline, children: Self.actions(SelectionAction.equationActions, run: run)),
+                                 UIMenu(options: .displayInline, children: actions),
                                  UIMenu(options: .displayInline, children: [copyText])])
     }
 

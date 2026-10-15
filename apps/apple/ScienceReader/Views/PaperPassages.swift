@@ -146,8 +146,9 @@ extension ReaderModel {
     }
 
     /// An answer's `[¶N]` citation: the paper the chat is about opens (if needed) and lands on that block.
-    func goToCitedBlock(_ marker: Int) {
-        guard marker >= 1, let paperID = chatPaperID ?? selectedPaper?.id, let paper = papers.first(where: { $0.id == paperID }) else { return }
+    /// `paperID`: the paper the citation belongs to (the equation view's), else the chat's or the open one.
+    func goToCitedBlock(_ marker: Int, paperID chosen: UUID? = nil) {
+        guard marker >= 1, let paperID = chosen ?? chatPaperID ?? selectedPaper?.id, let paper = papers.first(where: { $0.id == paperID }) else { return }
         if selectedPaper?.id != paper.id { select(paper) }
         referenceNotice = nil
         // The anchor is transient: the block is named by its number and resolved when the paper is shown.

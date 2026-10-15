@@ -20,7 +20,13 @@ public enum ChatRequestError: Error, Equatable {
 /// and `diagramFix` (one corrected diagram for one the device could not parse) need the chat function of 2026-10-07.
 /// `study` (2026-10-14, experimental): a tutored turn on the paper numbered on this device; it carries the reader's
 /// knowledge map (`StudyMap`) and needs no selection.
-public enum ChatAction: String, Equatable, Sendable { case ingest, related, relevance, diagramFix = "diagram_fix", study }
+/// `equation` and `equationBackground` (2026-10-15): the equation view's symbols and its optional background, on the
+/// paper numbered on this device with the chat's own profile, so they share the chat's cached paper
+/// (docs/architecture/EQUATION_VIEW.md). They are no conversation: no title, no follow-ups.
+public enum ChatAction: String, Equatable, Sendable {
+    case ingest, related, relevance, diagramFix = "diagram_fix", study, equation, equationBackground = "equation_background"
+    public var isEquation: Bool { self == .equation || self == .equationBackground }
+}
 
 public struct ChatGenerationRequest: Equatable, Sendable {
     /// v3 (2026-10-15) also names the figure a question is about (ChatConsentView); readers who accepted v2 are asked once more.
@@ -126,7 +132,8 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
             capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers, figureRequests: localContext != nil), profile: profile == .standard ? nil : profile,
-            topic_title: topicTitle ? true : nil, follow_ups: action == .diagramFix || action == .ingest || action == .study ? nil : true,
+            topic_title: topicTitle && action?.isEquation != true ? true : nil,
+            follow_ups: action == .diagramFix || action == .ingest || action == .study || action?.isEquation == true ? nil : true,
             study: action == .study ? study ?? .empty : nil,
             figures: figures.isEmpty ? nil : figures.map { Figure(id: $0.id, paragraph: $0.paragraph, caption: $0.caption, media_type: $0.mediaType,
                                                                  data: $0.data, width: $0.width, height: $0.height) }))
@@ -175,6 +182,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
     /// Study: the updated knowledge map after a tutored answer (servers from 2026-10-14), sent before `done`; kept
     /// with the open chat only.
     case study(StudyMap)
+    /// The equation view's symbols (action `equation`, servers from 2026-10-15), sent once before `done`.
+    case equation(EquationSymbols)
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     /// `credits`: what the failed answer cost (0 when the provider never started it; servers from 2026-10-14).
@@ -342,6 +351,10 @@ public struct ChatSSEParser: Sendable {
             struct StudyMapBox: Decodable { let data: Data; init(from decoder: Decoder) throws { data = try JSONEncoder().encode(AnyJSON(from: decoder)) } }
             guard let study = try? JSONDecoder().decode(Study.self, from: payload), let map = StudyMap.validated(study.map.data) else { return nil }
             return .study(map)
+        case "equation":
+            // Informational: symbols that are not usable are dropped (the view then says it couldn't describe them).
+            guard let symbols = EquationSymbols.validated(payload) else { return nil }
+            return .equation(symbols)
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }
