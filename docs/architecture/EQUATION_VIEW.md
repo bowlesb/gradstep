@@ -9,9 +9,10 @@ the chat."
 
 ## Where it opens
 
-Tapping an equation already selects it and offers Explain in Chat, Why it matters, Related papers. A new first action,
-**Equation** (`function` symbol on Apple), opens the view; the others are unchanged and keep their order after it. The
-browser's selection bar gains the same button when the selection is one equation.
+Tapping an equation already selects it and offers Explain in Chat, Why it matters, Related papers. A new action,
+**Equation** (`function` symbol on Apple), sits right after Explain in Chat and opens the view; the others are unchanged
+and keep their order. The browser's selection bar gains the same button, in the same place, when the selection is one
+equation.
 
 ## What it shows, top to bottom
 
