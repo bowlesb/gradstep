@@ -197,10 +197,9 @@ html.resizing iframe { pointer-events: none; }
 .contents-row { display: flex; flex-direction: column; gap: 1px; width: 100%; min-height: 0; text-align: left; border-radius: 0; padding: 6px 12px;
   border-left: 2px solid transparent; font-size: 12.5px; line-height: 1.4; color: var(--text); }
 .contents-row:hover { background: var(--accent-muted); }
-.contents-row-caption, .contents-row-math { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.contents-row-caption { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .contents-row-caption strong, .contents-row-title { font-weight: 600; color: var(--text); }
-.contents-row-detail, .contents-row-math { color: var(--muted); }
-.contents-row-math { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-style: italic; font-size: 13px; }
+.contents-row-detail { color: var(--muted); }
 .contents-tiles { display: inline-flex; align-items: center; gap: 6px; min-height: 0; margin: 2px 0 4px; padding: 5px 14px; font-size: 12.5px; font-weight: 500;
   color: var(--accent); border-radius: 0; }
 .contents-tiles:hover { text-decoration: underline; }
@@ -415,10 +414,6 @@ progress.mini { height: 3px; margin-top: 4px; }
 .shortcuts dd { margin: 0; color: var(--muted); }
 
 .figure-viewer { display: flex; flex-direction: column; gap: 12px; }
-.figure-head { display: flex; align-items: center; gap: 10px; }
-.figure-head h2 { margin: 0; font-size: 15px; flex: 1; }
-.figure-head .link { display: inline-flex; align-items: center; gap: 2px; min-height: 0; }
-.figure-actions { display: flex; align-items: center; gap: 6px; }
 .figure-frame { width: 100%; height: 72dvh; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: block; }
 .figure-frame.compact { height: min(46dvh, 460px); }
 /* The figure view (FIGURE_VIEW.md): the page scrolls as one, the walkthrough at a reading width under the figure. */
@@ -612,7 +607,7 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .chat-options-heading { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .chat-options-heading h2 { margin: 0; }
 .chat-options-heading .link { display: inline-flex; align-items: center; gap: 2px; min-height: 0; flex-basis: 100%; padding: 0; }
-.info-tip-text.open { display: block; position: absolute; left: -6px; top: calc(100% + 4px); z-index: 50; width: max-content; max-width: min(300px, 78vw); padding: 10px 12px;
+.info-tip-text.open { display: block; white-space: pre-line; position: absolute; left: -6px; top: calc(100% + 4px); z-index: 50; width: max-content; max-width: min(300px, 78vw); padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--pop); font-size: 12.5px; line-height: 1.45; white-space: normal; }
 /* Operator tools (owner, build 58): one grey Admin group, shown only to owner and support. */
 .menu-admin { display: flex; flex-direction: column; gap: 2px; margin: 2px -4px; padding: 4px; border-radius: 8px; background: var(--row-hover); }
@@ -660,7 +655,7 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .reader-reference-notice { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface); color: var(--text); box-shadow: var(--pop); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .reader-reference-notice > span { flex: 1 1 180px; }
-@media (max-width: 600px) { .reader-reference-detail .figure-frame { height: 48dvh; } .reader-reference-detail .figure-head { flex-wrap: wrap; } }
+@media (max-width: 600px) { .reader-reference-detail .figure-frame { height: 48dvh; } }
 /* Answer options (the chat's ⋯) and Settings › AI chat options (chat redesign, build 57): Model and Length only. */
 .dialog.answer-options { width: min(92vw, 380px); }
 .answer-options-body { display: flex; flex-direction: column; gap: 14px; }
@@ -761,8 +756,6 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .equation-view { display: flex; flex-direction: column; gap: 14px; min-width: 0; flex: none; }
 /* The section scrolled to stays clear of the panel's top edge; the footer never covers the end of the answer. */
 .equation-background-section { scroll-margin-top: 8px; padding-bottom: 8px; }
-.equation-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.equation-head h2 { margin: 0; font-size: 18px; }
 .equation-stage { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-2); min-width: 0; }
 .equation-frame { display: block; width: 100%; border: 0; background: transparent; }
 .equation-stage > .fine { padding: 18px; }
@@ -786,9 +779,6 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .equation-background { min-width: 0; }
 .equation-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
 .equation-link .source-address { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; font-size: 12.5px; }
-/* Explain and Ask in chat side by side under the equation (owner, build 59). */
-.equation-actions { display: flex; gap: 10px; }
-.equation-actions > button { flex: 1 1 0; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 @media (max-width: 640px) { .dialog.equation-dialog { width: 100vw; border-radius: 0; border: 0; } .equation-symbols li { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 /* Back after a jump names where it returns ("Back to 3 Method"); "Back" alone when the paper column is narrow. The X
    dismisses the offer without going back (PaperView). */
@@ -859,3 +849,78 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .delete-account input { font: inherit; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); letter-spacing: .08em; }
 .account-deleted { border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px; margin: 4px 0 14px; background: var(--surface-2); }
 .account-deleted p { margin: 0 0 4px; }
+
+/* An information sheet's one top row (owner, build 62; docs/DESIGN.md "Sheet top row"): its controls at the start, a
+   round close X at the end, on a quiet translucent bar that stays at the top while the sheet scrolls (the browser's
+   take on the apps' Liquid Glass; solid where transparency is reduced). No Done, no action bar under the content. */
+.sheet-top { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; margin: -20px -20px 0; padding: 12px 14px 12px 16px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: 14px 14px 0 0; }
+/* Where the sheet's body is the scroller (its 20 px padding inside), the row sticks at the body's top edge. */
+.figure-dialog .sheet-top, .equation-dialog .sheet-top { top: -20px; }
+@media (prefers-reduced-transparency: reduce) { .sheet-top { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+.sheet-top-start { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.sheet-top-start::-webkit-scrollbar { display: none; }
+.sheet-top h2 { margin: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-top .icon-button.sheet-close, .sheet-top .icon-button.sheet-back { flex: none; width: 34px; height: 34px; min-height: 34px; border-radius: 50%;
+  color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent); }
+.sheet-top .icon-button.sheet-close:hover:not(:disabled), .sheet-top .icon-button.sheet-back:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 12%, transparent); }
+/* Explain in Chat and AI Explainer: quiet capsules; AI Explainer the tinted one. */
+.sheet-action { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 500;
+  white-space: nowrap; color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent); }
+.sheet-action:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 11%, transparent); }
+.sheet-action.prominent { color: var(--accent); background: var(--accent-muted); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.sheet-action.prominent:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.sheet-action:disabled { opacity: .55; }
+@media (max-width: 420px) { .sheet-action { padding: 6px 11px; font-size: 13px; } .sheet-action .icon { display: none; } }
+/* An explainer's title: a small menu of the paper's other equations or figures (title ⌄). */
+.explainer-heading { margin: 0; font-size: 18px; display: flex; align-items: center; min-width: 0; }
+.explainer-heading .menu-anchor { flex: none; max-width: 100%; }
+.figure-viewer > .explainer-heading { width: 100%; max-width: 760px; align-self: center; }
+.title-menu-button { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 8px); min-height: 32px; padding: 2px 8px; margin-left: -8px; border-radius: 8px;
+  font: inherit; font-weight: 600; color: inherit; background: transparent; border: 1px solid transparent; }
+.title-menu-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-menu-button .icon { flex: none; color: var(--muted); }
+.title-menu-button:hover:not(:disabled), .title-menu-button.on { background: var(--row-hover); }
+.menu-item[role=menuitemradio][aria-checked=true] { color: var(--accent); font-weight: 600; }
+/* Prev, Show in paper, next under a figure (the apps' bottom bar). */
+.figure-nav { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.figure-count { font-variant-numeric: tabular-nums; }
+/* Contents › Equations › View as tiles: one frame holding every tile, scrolling inside the sheet. */
+.equation-tiles { display: flex; flex-direction: column; gap: 12px; }
+.equation-tiles-frame { display: block; width: 100%; height: min(72dvh, 760px); border: 0; background: transparent; }
+/* The failure screen: one title, one line of reason, Open PDF, the code behind an ⓘ. */
+.reader-failure p[role=alert] { margin: 0; color: var(--muted); max-width: 440px; }
+.reader-failure > .icon { color: var(--muted); }
+.reader-failure-actions { display: flex; align-items: center; justify-content: center; gap: 8px; }
+/* Reader version details. */
+.reader-version { display: flex; flex-direction: column; gap: 14px; }
+.reader-version-facts { margin: 0; display: grid; gap: 0; border: 1px solid var(--line); border-radius: 10px; }
+.reader-version-facts > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; }
+.reader-version-facts > div + div { border-top: 1px solid var(--line); }
+.reader-version-facts dt { color: var(--muted); }
+.reader-version-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.reader-version h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+.reader-version-changes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 32dvh; overflow-y: auto; }
+.reader-version-changes li { display: flex; flex-direction: column; gap: 1px; }
+.reader-version-changes span { color: var(--muted); }
+.reader-version-update { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.reader-version-update .primary { display: inline-flex; align-items: center; gap: 6px; }
+.reader-version-update [role=status] { display: inline-flex; align-items: center; gap: 8px; }
+.reader-version-failure p { margin: 0; }
+.reader-version-failure p:first-child { color: var(--problem); }
+.reader-version-latest { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); }
+/* Your assets › Equation explanations / Figure explanations. */
+.explanation-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.explanation-row-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explanation-row > .icon:first-child { color: var(--muted); flex: none; }
+/* Diagram full size: drawn across the width, pinch or drag over it (a layer above the opaque frame). */
+.diagram-canvas { position: relative; width: 100%; height: 100%; }
+.diagram-canvas > .diagram-frame { width: 100%; height: 100%; }
+.diagram-viewport.fit-width .diagram-canvas { margin: 0 auto; }
+.diagram-gesture { position: absolute; inset: 0; touch-action: none; cursor: grab; }
+.diagram-gesture:active { cursor: grabbing; }
+.diagram-tools { align-items: center; }
+.diagram-hint { margin-right: auto; min-width: 0; }
+.diagram-tools button { flex: none; }
+@media (max-width: 480px) { .diagram-hint { display: none; } }

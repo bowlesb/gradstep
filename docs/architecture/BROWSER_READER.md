@@ -120,7 +120,7 @@ frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx
 | Panes | Left rail · center · chat pane. Drag a divider (pointer captured, so the paper frame can't swallow it; arrow keys; double-click resets); dragging well past the minimum collapses it to the legacy edge handle (⋮⋮). Widths and per-route visibility are kept in this browser (`localStorage` `gradstep.layout.v1`; unavailable storage falls back to defaults). Defaults follow the legacy modes: Library and Feed without chat, a paper with chat. The center keeps ≥ 440 px: the chat narrows first, then becomes a drawer. Below 1,100 px the chat is a drawer; below 760 px the rail is too. |
 | Top bar | Rail toggle, brand, Library · Feed · Chats, library search (centered), Add paper, appearance (light/dark; System in the account menu), chat-pane toggle, account. While searching, native's Library / arXiv switch and Cancel sit under the field; the arXiv side is paper search (`ui/PaperSearch.tsx`, ARXIV_DEVICE_ONLY.md §5.6): the server's `discover?q=`, or DataCite from the browser once `device_search` is on. |
 | Library | Rail: All papers, Unread, Reading, Failed, Archived and the tags, with counts (chips with a tag menu when the rail is hidden). Center: table Title (2 lines) · Authors · Year · Tags (click to filter) · Added · Opened · Progress. M1 dropped columns by container width; the [local column follow-up](#library-column-follow-up--local-verification-2026-10-08-utc) replaces that with explicit choices and horizontal scrolling. Live import progress and Retry / Remove / "Get credits in the app" stay inline. Search, filter and sort survive opening a paper; while reading, position reports don't re-sort the library. |
-| Paper | Rail tabs: Contents and Library (compact list, the legacy Browse; top-bar search switches to it). Contents has its own quiet segmented tabs, as the apps' Contents sheet (owner, build 59): **Contents** (default; the bridge's outline depths, current section from reading-position reports), **Figures** ("View as tiles" opens the figure gallery; rows "Figure 1 — caption" cut at two lines open that figure with its whole caption and Show in paper), **Tables** (the captioned tables the index lists, reader revision 16, beside tables published as images, in page order; a table row opens the table with its whole caption, Discuss in chat and Show in paper, which goes there with Back; an earlier bundle lists the image tables only), **Equations** ("Equation (n)" and the LaTeX read as text; a row goes to it in the paper with Back via the bridge's `__scienceReaderShowEquation`). Empty tabs say "No figures/tables/equations". The figure page (a Contents row, the gallery, a tapped figure) has **Explain** and **Ask in chat** under the figure: the walkthrough on request ([FIGURE_VIEW.md](FIGURE_VIEW.md#browser--as-built-phase-3-2026-10-16)). Toolbar: Contents, title, citation Back, Find, Figures (count), text size, Chat. |
+| Paper | Rail tabs: Contents and Library (compact list, the legacy Browse; top-bar search switches to it). Contents has its own quiet segmented tabs, as the apps' Contents sheet (owner, build 59): **Contents** (default; the bridge's outline depths, current section from reading-position reports), **Figures** ("View as tiles" opens the figure gallery; rows "Figure 1 — caption" cut at two lines open that figure with its whole caption and Show in paper), **Tables** (the captioned tables the index lists, reader revision 16, beside tables published as images, in page order; a table row opens the table with its whole caption, Discuss in chat and Show in paper, which goes there with Back; an earlier bundle lists the image tables only), **Equations** (owner, build 62: rows read just "Equation (n)", or "Equation · 3.2 Method" for one the paper doesn't number — no LaTeX; **View as tiles** first, as Figures has, opening every display equation typeset by the reader's own MathML and styles in one sandboxed document, not a frame per tile (`ui/EquationTiles.tsx`, `equationTilesDocument`, tile mode of `equation-shim.js`), each tile named as its row; a row or a tile goes to the equation in the paper with Back via the bridge's `__scienceReaderShowEquation`). Empty tabs say "No figures/tables/equations". Toolbar: Contents, title, citation Back, Find, Figures (count), text size, Chat. |
 | Find | App-owned code in `frame-shim.js` (the bridge is unchanged): case-insensitive matches across inline elements but never across blocks, CSS custom highlights, the current match in the upper third, starting from the reading place; Enter/Shift-Enter; ≤ 1,000 matches. |
 | Figures | Gallery of the verified images (data URIs of verified bytes), one figure in its own sandboxed figure frame, ←/→, Escape back to the gallery, Show in paper (bridge `__scienceReaderShowFigure`, with citation Back). |
 | Appearance | The frame's `prefers-color-scheme` follows the system (the iframe's `color-scheme` didn't change it in Chromium), so the shim rewrites the documents' own `prefers-color-scheme` conditions to the chosen scheme and restores them for System; tested by toggling both ways. |
@@ -250,10 +250,58 @@ The native app loads a verified bundle into a `WKWebView` with content JavaScrip
    the saved reading place. Account/item/artifact/availability changes still retire the old reader.
 
 Contents, citation jumps with Back, the paper's own contents lists, figures and math fitting therefore behave as in
-the app. Selections offer Explain, Why it matters, Related and Add paper. Reference taps still report "Not yet available in the browser".
+the app. Selections offer Explain, Why it matters, Related and Add paper; a tapped equation adds **AI Explainer** right
+after Explain (owner, build 62: it was "Equation"), which opens the equation view and asks for the explanation at once,
+after the chat's consent. Reference taps still report "Not yet available in the browser".
 The reader toolbar also exposes the same paper action menu as the Library: edit tags, archive/unarchive, and remove
 from the library. It uses the existing epoch-checked library commands and the same conflict/retry dialog; no new
-database layout or server capability is required.
+database layout or server capability is required. For an arXiv paper its first item is **Reader version details**
+(below).
+
+### Build 62 parity (2026-10-16; local fixtures only, not deployed)
+
+The owner's build-62 feedback ([OWNER_FEEDBACK.md](../OWNER_FEEDBACK.md) "Build 62"; [DESIGN.md](../DESIGN.md) "Sheet
+top row" and "Explain actions"), with the apps' wording:
+
+- **One top row** (`SheetTop` in `ui/common.tsx`) on the figure page, the equation view, a figure or table reference and
+  the new sheets: the page's actions on the left — **Explain in Chat** (an unsent draft in the paper's chat; it was
+  "Ask in chat"/"Discuss in chat") and **AI Explainer** (the walkthrough or the symbol explanation, asked only then; it
+  was "Explain"), quiet capsules — and a round **X** on the right, on a translucent bar that stays at the top while the
+  sheet scrolls (solid with reduced transparency). No Done and no action bar under the content. The figure page keeps
+  ‹ n of N › and Show in paper under the figure (the apps' bottom bar); from the gallery a round ‹ in the row returns
+  to it. A figure reference tapped in the text offers both actions too; its AI Explainer opens the figure page asking
+  at once.
+- **An explainer's heading is a menu** (title ⌄, `MenuButton` with `text`): the equation view's lists the paper's
+  display equations as Contents does, the walkthrough's lists its figures; one switched to shows what this tab already
+  has for it and otherwise waits for AI Explainer (nothing is asked unasked).
+- **One failure screen**: "Read this paper as its PDF", one line of reason ("arXiv has no web version of this paper."
+  or "Its web version couldn't be prepared in this browser."), **Open PDF** (arxiv.org/pdf in a new tab, as before)
+  and the failure's code behind an ⓘ (`ArxivReaderError.code`: the compiler's listed reason, now posted by
+  `arxiv-compiler-host.js` beside its category, or this browser's own — `timeout`, `compiler_start`, `result_invalid`,
+  `unavailable`, …). Only when arXiv was busy or unreachable does the screen say "Couldn't reach arXiv" with **Try
+  again** (and its code). The browser has no on-device PDF model, so it offers no second button.
+- **Reader version details** (`ui/ReaderVersion.tsx`, `lib/reader-versions.ts`; [READER_VERSIONS.md](READER_VERSIONS.md)):
+  this paper's version and this browser's, both named from the apps' `reader-versions.json` and
+  `arxiv-reader-build.json` (imported, one list), what changed since, and **Update this paper** when the copy is
+  older. The browser prepares a paper afresh each time it opens, so its copy is normally this browser's version; an
+  older one is a server copy kept from before (a legacy item while arXiv was unreachable). Update prepares it again
+  while the copy on screen stays, then swaps it in near the same place; a failure shows its reason and code. No
+  banner ever interrupts the reader.
+- **Your assets › Equation explanations / Figure explanations** (`ui/ExplanationsDialog.tsx`): what this tab
+  explained (`ChatSession.explanations`, recorded when an explanation or walkthrough finishes; memory only), newest
+  first, each equation or figure once with its paper; "None yet" when empty; an ⓘ says the apps keep them on the
+  device and this browser keeps them until the tab closes. A row opens the paper there (the reader's `explainer`
+  request), where the kept answer shows without a new request.
+- **Diagram full size** (`DiagramFrame fit="width"`): drawn across the width at first, never larger than its own size
+  (the frame reports its drawing's viewBox), a tall one scrolling down; pinch on a touch screen, ctrl/⌘ + wheel (a
+  trackpad pinch) or Safari's gesture zooms about the fingers or pointer, a drag pans, a double-click (or Fit) returns
+  to the start. A transparent layer above the opaque frame reads the gestures, so the frame still takes no input.
+
+Journeys (desktop and phone, light and dark screenshots): `e2e/figure-view.spec.ts`, `e2e/equation-view.spec.ts`,
+`e2e/arxiv-html.spec.ts` (the failure screen), `e2e/build-62.spec.ts` (version details with a failed and a successful
+update; explanations reopened), `e2e/account-assets.spec.ts`, `e2e/chat.spec.ts` (diagram gestures). Units:
+`tests/reader-versions.test.ts`, `tests/paper-contents.test.ts`, `tests/figure-view.test.ts`,
+`tests/arxiv-reader-error.test.ts`.
 
 ## Keys in the browser
 
@@ -307,7 +355,8 @@ succeeding is insufficient.
   "Held for answers in progress" when credits are reserved) and **Subscription plan** (Pro, Standard, or None), each
   with an ⓘ saying what credits pay for and that credits and plans are bought in the Gradstep app on iPhone, iPad or
   Mac. The browser sells nothing and computes nothing: a value it couldn't read shows a dash, the last value read stays
-  while a new read is under way. **Your assets** holds Chats (All chats, as the top bar's Chats) and **Diagrams**: All
+  while a new read is under way. **Your assets** holds Chats (All chats, as the top bar's Chats), **Equation
+  explanations** and **Figure explanations** (build 62, this tab's; above) and **Diagrams**: All
   diagrams (`ui/DiagramsDialog.tsx`) lists every diagram, visual and figure breakdown from the reader's chats, newest
   first (`PrivateState.savedDiagrams`, as native `diagrams()`; a deleted chat takes its diagrams), and one opens as in
   its answer, with Full size. Text sizes stay where the reader reads and chats (A−/A+), as on the apps. Journey:

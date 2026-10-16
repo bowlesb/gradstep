@@ -1,6 +1,29 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+
+## Browser: build 62 parity — 2026-10-16, ~17:30 UTC (local fixtures only; not deployed)
+
+- The browser matches the apps' build-62 changes with their wording
+  ([BROWSER_READER.md](architecture/BROWSER_READER.md#build-62-parity-2026-10-16-local-fixtures-only-not-deployed)):
+  one top row on the figure page, the equation view and a figure/table reference — **Explain in Chat** and **AI
+  Explainer** on the left, a round X on the right, no Done or action bar; a tapped equation's "Equation" is now **AI
+  Explainer** and asks at once (consent first); an explainer's heading is a menu of the paper's equations or figures
+  (one switched to waits for AI Explainer); Contents › Equations rows read "Equation (n)" / "Equation · section" with
+  **View as tiles** (one sandboxed document typeset by the reader's MathML/CSS); **one failure screen** ("Read this
+  paper as its PDF", one reason, Open PDF, code behind ⓘ; "Couldn't reach arXiv" with Try again only when busy or
+  unreachable); ⋯ › **Reader version details** (versions from the apps' `reader-versions.json`, Update this paper keeping
+  the copy until ready, a failure with reason and code); Your assets › **Equation explanations** / **Figure
+  explanations** (this tab's, None yet, ⓘ; a row reopens the paper there without a request); diagram Full size starts
+  across the width and pinches, ctrl/⌘-wheels, drags and double-clicks back.
+- No apps or server changes. The compiler host now posts its listed failure code beside the category (compiler bundle
+  unchanged).
+- Evidence: `npm test` (fast tier, browser units 51 files); Playwright desktop + phone: figure-view 8/8, equation-view
+  10/10, arxiv-html 4/4, build-62 4/4, account-assets, owner-58, server-copies-retired, reader-drafts, reader, layout,
+  study, chat, library-actions; screenshots reviewed light and dark (`.artifacts/web-build62/`, `.artifacts/figure-*`,
+  `.artifacts/equation-view-*`, `.artifacts/contents-equation-tiles-*`, `.artifacts/web-chat/*-tall-diagram-*`).
+- Not done here: the browser has no on-device PDF model, so its failure screen has no second button; the tablet
+  projects were not run.
 
 ## Contents in one glass row, Equations by number with tiles, kept explanations in Your assets, diagrams zoom (TestFlight 62 feedback, items 9–13) — 2026-10-16 (apps; not shipped)
 

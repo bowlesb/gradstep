@@ -31,8 +31,8 @@ test('Discuss a figure keeps text and passage through reload, and waits for expl
   if (await page.locator('.pane-right.overlay').count()) await page.keyboard.press('Escape');
   await page.getByTestId('figures').click();
   await page.getByRole('list', { name: 'Figures' }).getByRole('button').first().click();
-  // The figure page's Ask in chat (beside Explain since the figure view, FIGURE_VIEW.md).
-  await page.getByRole('button', { name: 'Ask in chat', exact: true }).click();
+  // The figure page's Explain in Chat (its top row since build 62, FIGURE_VIEW.md).
+  await page.getByRole('button', { name: 'Explain in Chat', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(message(page)).toBeFocused();
   await expect(message(page)).toHaveValue(/^About “.+”: My own unsent question$/s);

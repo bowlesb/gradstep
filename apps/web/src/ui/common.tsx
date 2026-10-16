@@ -30,8 +30,13 @@ export function Dialog({ open, onClose, title, children, wide = false, className
 /** An icon button that opens a small menu under it (the chat's ⋯, All chats' ≡): the first item takes focus; arrow
  * keys, Home and End move; Esc closes it (and only it, inside a dialog) and returns focus to the button; Tab or a
  * click elsewhere closes it. `children` gets `close` for items that act. */
-export function MenuButton({ icon, label, testID, className, disabled = false, children }: {
-  icon: IconName; label: string; testID?: string; className?: string; disabled?: boolean; children: (close: (focus?: boolean) => void) => ReactNode;
+export function MenuButton({ icon, label, testID, className, disabled = false, text, align = 'end', children }: {
+  icon: IconName; label: string; testID?: string; className?: string; disabled?: boolean;
+  /** A title menu (an explainer's "Figure 3 ⌄"): the words with a chevron instead of the icon. */
+  text?: string;
+  /** Which edge of the button the menu lines up with: `start` for a control at a row's start. */
+  align?: 'start' | 'end';
+  children: (close: (focus?: boolean) => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null), button = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
@@ -43,14 +48,15 @@ export function MenuButton({ icon, label, testID, className, disabled = false, c
     if (!open || !m || !b) return;
     const place = () => {
       const r = b.getBoundingClientRect(), below = innerHeight - r.bottom - 12, above = r.top - 12, up = below < 220 && above > below;
-      m.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+      if (align === 'start') { m.style.right = ''; m.style.left = `${Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8))}px`; }
+      else { m.style.left = ''; m.style.right = `${Math.max(8, innerWidth - r.right)}px`; }
       m.style.maxHeight = `${Math.max(160, up ? above : below)}px`;
       if (up) { m.style.top = ''; m.style.bottom = `${innerHeight - r.top + 6}px`; } else { m.style.bottom = ''; m.style.top = `${r.bottom + 6}px`; }
     };
     place();
     addEventListener('resize', place);
     return () => removeEventListener('resize', place);
-  }, [open]);
+  }, [open, align]);
   useEffect(() => {
     if (!open) return;
     menu.current?.querySelector<HTMLElement>('[role^=menuitem]:not(:disabled)')?.focus();
@@ -68,11 +74,24 @@ export function MenuButton({ icon, label, testID, className, disabled = false, c
     else if (event.key === 'Tab') setOpen(false);
   };
   return <div className={`menu-anchor${className ? ` ${className}` : ''}`} ref={box}>
-    <button ref={button} type="button" className={`icon-button${open ? ' on' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={label} title={label}
+    <button ref={button} type="button" className={`${text ? 'title-menu-button' : 'icon-button'}${open ? ' on' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={label} title={label}
       data-testid={testID} disabled={disabled} onClick={() => setOpen(o => !o)}
-      onKeyDown={event => { if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !open) { event.preventDefault(); setOpen(true); } }}><Icon name={icon} /></button>
+      onKeyDown={event => { if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !open) { event.preventDefault(); setOpen(true); } }}>
+      {text ? <><span>{text}</span><Icon name="chevronDown" size={14} /></> : <Icon name={icon} />}</button>
     {open && <div ref={menu} className="menu popup-menu" role="menu" aria-label={label} onKeyDown={keys}>{children(close)}</div>}
   </div>;
+}
+
+/** An information sheet's one top row (owner, build 62; docs/DESIGN.md "Sheet top row"): its controls at the start —
+ * a title menu, the page's actions — and a round close X at the end. No Done, no separate action bar. */
+export function SheetTop({ children, onClose, closeLabel = 'Close', closeDisabled = false, testID }: {
+  children?: ReactNode; onClose: () => void; closeLabel?: string; closeDisabled?: boolean; testID?: string;
+}) {
+  return <header className="sheet-top">
+    <div className="sheet-top-start">{children}</div>
+    <button type="button" className="icon-button sheet-close" onClick={onClose} disabled={closeDisabled} aria-label={closeLabel} title={closeLabel}
+      data-testid={testID}><Icon name="close" /></button>
+  </header>;
 }
 
 /** An ⓘ just to the right of a row's words (owner, build 57: descriptive sentences behind an info icon): a click or
@@ -81,12 +100,13 @@ export function MenuButton({ icon, label, testID, className, disabled = false, c
 export function InfoTip({ text, testID }: { text: string; testID?: string }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null), note = useRef<HTMLSpanElement>(null), id = useId();
-  // Kept inside the dialog (or window) it opens in: shifted left when it would run past the right edge.
+  // Kept inside the dialog (or the box marked `data-info-bounds`, or the window) it opens in: shifted left when it would
+  // run past the right edge.
   useLayoutEffect(() => {
     const n = note.current; if (!n) return;
     n.style.left = ''; n.style.top = ''; n.style.bottom = '';
     if (!open) return;
-    const frame = (n.closest('dialog') ?? document.documentElement).getBoundingClientRect(), r = n.getBoundingClientRect();
+    const frame = (n.closest('dialog, [data-info-bounds]') ?? document.documentElement).getBoundingClientRect(), r = n.getBoundingClientRect();
     const over = r.right - (Math.min(frame.right, innerWidth) - 12);
     if (over > 0) n.style.left = `${-6 - Math.min(over, r.left - Math.max(frame.left, 0) - 12)}px`;
     // Above its ⓘ when it would run past the bottom of its dialog (or window) and there is room above.

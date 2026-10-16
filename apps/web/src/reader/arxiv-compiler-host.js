@@ -19,6 +19,14 @@ function compilerFailure(error) {
   'arxiv_node','arxiv_title','arxiv_block_text','arxiv_alt'].includes(code)) return 'formatting';
  return 'unknown';
 }
+// The listed code itself, for the reader's ⓘ: only a code compilerFailure names crosses (never another message); a
+// browser decode error is named by its kind.
+function compilerCode(error) {
+ if (compilerFailure(error) === 'unknown') return null;
+ const code = error?.message;
+ if (typeof code === 'string' && /^[a-z][a-z0-9_]{2,63}$/.test(code) && compilerFailure({ message: code }) !== 'unknown') return code;
+ return error?.name === 'EncodingError' ? 'image_encoding' : error?.name === 'SecurityError' ? 'image_security' : null;
+}
 addEventListener('message', async event => {
  if (event.source !== parent || event.ports.length !== 1) return;
  const port = event.ports[0], p = event.data;
@@ -27,6 +35,6 @@ addEventListener('message', async event => {
   const result = p.method === 'assets' ? GradstepArxivReader.assets(p.source,p.sourceID,p.revision,p.options)
    : await GradstepArxivReader.prepare(p.source,p.sourceID,p.revision,p.inputs,p.options);
   port.postMessage({ok:true,result});
- } catch (error) { port.postMessage({ok:false,failure:compilerFailure(error)}); }
+ } catch (error) { port.postMessage({ok:false,failure:compilerFailure(error),code:compilerCode(error)}); }
  finally { port.close(); }
 });

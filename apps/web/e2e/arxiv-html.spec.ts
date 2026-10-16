@@ -133,13 +133,22 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  expect(both[1].figures[0].caption).toBe('Figure 1: A test figure.');
  await expect(page.getByTestId('chat-pane')).not.toContainText('Let me look at Figure 1.');
 });
-// Build 57 (2610.20399): arXiv has no HTML for this version. The reader says so and offers the PDF, which the browser
-// opens from arXiv itself; Try again can't help, so it isn't offered.
-test('a paper without arXiv HTML offers its PDF from arXiv, not Try again',async({page,request})=>{
+// One failure screen (owner, build 62: "there should be just one"; "remove the try again"): "Read this paper as its
+// PDF", one line of reason and Open PDF, which the browser opens from arXiv itself; the code behind an ⓘ. Only when arXiv
+// was busy or unreachable is Try again offered ("Couldn't reach arXiv"), and it then opens the paper.
+test('one failure screen: no web version, one that couldn’t be prepared, and arXiv unreachable with Try again',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  await request.post(`${fixtureOrigin}/__reset`);
- const asked:string[]=[];
- await page.route('https://arxiv.org/**',async route=>{asked.push(route.request().url());await route.fulfill({status:404,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:'<p>No HTML</p>'});});
+ const asked:string[]=[];let answer:'missing'|'broken'|'busy'|'ok'='missing';
+ await page.route('https://arxiv.org/**',async route=>{
+  const url=route.request().url();asked.push(url);
+  const headers={'access-control-allow-origin':'*'};
+  if(url.endsWith('/figure.jpg'))return route.fulfill({status:200,contentType:'image/jpeg',headers,body:raster});
+  if(answer==='missing')return route.fulfill({status:404,contentType:'text/html',headers,body:'<p>No HTML</p>'});
+  if(answer==='broken')return route.fulfill({status:500,contentType:'text/html',headers,body:'<p>Server error</p>'});
+  if(answer==='busy')return route.fulfill({status:503,contentType:'text/html',headers:{...headers,'retry-after':'3','access-control-expose-headers':'retry-after'},body:'<p>Busy</p>'});
+  return route.fulfill({status:200,contentType:'text/html',headers,body:html});
+ });
  await page.route(`${fixtureOrigin}/rest/v1/rpc/v3_library_page`,async route=>{
   const response=await route.fetch(),body=await response.json();
   const row=body.entries.find((e:{kind:string})=>e.kind==='item');
@@ -153,11 +162,38 @@ test('a paper without arXiv HTML offers its PDF from arXiv, not Try again',async
  await page.getByTestId('code').fill('123456');await page.getByTestId('verify').click();
  await page.getByTestId('use-recovery-code').click();await page.getByTestId('recovery-code').fill(RECOVERY_CODE);await page.getByTestId('recover').click();
  await page.getByTestId('library-table').getByRole('link',{name:'A PDF-only paper',exact:true}).click();
- await expect(page.getByRole('heading',{name:'No web version of this paper'})).toBeVisible({timeout:20000});
+ const screen=page.getByTestId('reader-failure'),shots=`../../.artifacts/web-build62`;
+
+ // No web version: the reason, Open PDF from arXiv in a new tab; no Try again, no code (the reason is the whole story).
+ await expect(screen.getByRole('heading',{name:'Read this paper as its PDF'})).toBeVisible({timeout:20000});
+ await expect(screen.getByRole('alert')).toHaveText('arXiv has no web version of this paper.');
  const pdf=page.getByTestId('reader-open-pdf');
- await expect(pdf).toHaveAttribute('href','https://arxiv.org/pdf/2601.01234v2');
- await expect(pdf).toHaveAttribute('target','_blank');
- await expect(page.getByRole('button',{name:'Try again'})).toHaveCount(0);
+ await expect(pdf).toHaveText('Open PDF');await expect(pdf).toHaveAttribute('href','https://arxiv.org/pdf/2601.01234v2');await expect(pdf).toHaveAttribute('target','_blank');
+ await expect(page.getByRole('button',{name:'Try again'})).toHaveCount(0);await expect(page.getByTestId('reader-failure-info')).toHaveCount(0);
  expect(asked).toEqual(['https://arxiv.org/html/2601.01234v2']);
- await page.screenshot({path:`../../.artifacts/html-browser-no-html-${test.info().project.name}.png`});
+ await page.screenshot({path:`${shots}/failure-no-html-${test.info().project.name}.png`});
+
+ // Couldn't be prepared: the same screen and Open PDF; its code behind the ⓘ.
+ answer='broken';await page.reload();
+ await expect(screen.getByRole('heading',{name:'Read this paper as its PDF'})).toBeVisible({timeout:20000});
+ await expect(screen.getByRole('alert')).toHaveText('Its web version couldn’t be prepared in this browser.');
+ await expect(page.getByTestId('reader-open-pdf')).toBeVisible();await expect(page.getByRole('button',{name:'Try again'})).toHaveCount(0);
+ await page.getByTestId('reader-failure-info').click();
+ await expect(screen.getByText('Code: unavailable')).toBeVisible();
+ await page.screenshot({path:`${shots}/failure-prepare-${test.info().project.name}.png`});
+ await page.emulateMedia({colorScheme:'dark'});
+ await page.screenshot({path:`${shots}/failure-prepare-${test.info().project.name}-dark.png`});
+ await page.emulateMedia({colorScheme:'light'});
+
+ // arXiv busy: Couldn't reach arXiv and Try again (its code behind the ⓘ); once arXiv answers, Try again opens the paper.
+ answer='busy';await page.reload();
+ await expect(screen.getByRole('heading',{name:'Couldn’t reach arXiv'})).toBeVisible({timeout:20000});
+ await expect(screen.getByRole('alert')).toHaveText('arXiv is busy. Try preparing this paper again later.');
+ await expect(page.getByTestId('reader-open-pdf')).toHaveCount(0);
+ await page.getByTestId('reader-failure-info').click();await expect(screen.getByText('Code: arxiv_busy')).toBeVisible();
+ await page.keyboard.press('Escape');
+ await page.screenshot({path:`${shots}/failure-busy-${test.info().project.name}.png`});
+ answer='ok';await page.waitForTimeout(3500);
+ await screen.getByRole('button',{name:'Try again'}).click();
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});await expect(screen).toHaveCount(0);
 });

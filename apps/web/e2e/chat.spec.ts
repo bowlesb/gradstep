@@ -159,7 +159,8 @@ test('opaque diagram blocks embedded media, source navigation and remote CSS', a
   await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
   const frame = page.getByRole('dialog').frameLocator('iframe[title=Diagram]'); await expect(frame.locator('#diagram svg')).toBeVisible();
   await expect(frame.locator('#diagram image, #diagram foreignObject, #diagram script, #diagram [href], #diagram [*|href]')).toHaveCount(0);
-  await frame.locator('#diagram svg').click();
+  // A click lands on the gesture layer above the opaque frame (build 62); the frame's own guard still stops one sent to it.
+  await page.getByTestId('diagram-gesture').click(); await frame.locator('#diagram svg').dispatchEvent('click');
   // Exercise the frame's network policy directly, even if a future Mermaid release emits remote CSS.
   await frame.locator('body').evaluate(node => {
     (window as any).blockedDiagramResource = false;
@@ -171,13 +172,14 @@ test('opaque diagram blocks embedded media, source navigation and remote CSS', a
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 });
 
-test('a tall diagram fits its viewport with every node visible on desktop and phone', async ({ page, request }, info) => {
+test('a diagram at full size starts across the width, then pinches, wheels, drags and double-clicks back, on desktop and phone', async ({ page, request }, info) => {
   test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
   await request.post(`${API}/__chat-fixture`, { data: { mode: 'tall_diagram' } });
   await login(page); await send(page, 'Draw the complete gradient descent loop', true);
   await page.getByRole('button', { name: 'Full size' }).click(); // the diagram is drawn in the answer; full size opens it (build 46)
   const frame = page.getByRole('dialog').frameLocator('iframe[title=Diagram]');
   await expect(frame.locator('#diagram svg')).toBeVisible();
+  // Every node is drawn inside the frame.
   const geometry = await frame.locator('body').evaluate(() => ({
     width: innerWidth, height: innerHeight,
     nodes: [...document.querySelectorAll('#diagram svg .node')].map(node => {
@@ -190,19 +192,50 @@ test('a tall diagram fits its viewport with every node visible on desktop and ph
     expect(box.right).toBeLessThanOrEqual(geometry.width); expect(box.bottom).toBeLessThanOrEqual(geometry.height);
   }
   await expect(frame.locator('#diagram')).toContainText('Finish');
+  // Across the width at first (owner, build 62), never larger than it is drawn: within the viewport's width, a tall one
+  // scrolling down.
+  const viewport = page.getByRole('region', { name: 'Diagram viewport', exact: true });
+  const room = await viewport.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight, scroll: node.scrollHeight }));
+  const frameBox = () => page.getByRole('dialog').locator('iframe[title=Diagram]').boundingBox().then(b => b!);
+  expect((await frameBox()).width).toBeLessThanOrEqual(room.width + 1);
   await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram.png` });
   const firstNode = frame.locator('#diagram svg .node').first();
   const beforeZoom = (await firstNode.boundingBox())!;
   await page.getByRole('button', { name: 'Zoom in diagram', exact: true }).click();
   await page.getByRole('button', { name: 'Zoom in diagram', exact: true }).click();
   expect((await firstNode.boundingBox())!.height).toBeGreaterThan(beforeZoom.height * 1.8);
-  const viewport = page.getByRole('region', { name: 'Diagram viewport', exact: true });
-  const scroll = await viewport.evaluate(node => ({ left: node.scrollLeft, top: node.scrollTop, extra: node.scrollHeight - node.clientHeight }));
-  expect(scroll.left).toBeGreaterThan(0); expect(scroll.top).toBeGreaterThan(0); expect(scroll.extra).toBeGreaterThan(0);
+  const scroll = await viewport.evaluate(node => ({ top: node.scrollTop, extra: node.scrollHeight - node.clientHeight, wide: node.scrollWidth > node.clientWidth, left: node.scrollLeft }));
+  expect(scroll.top).toBeGreaterThan(0); expect(scroll.extra).toBeGreaterThan(0);
+  if (scroll.wide) expect(scroll.left).toBeGreaterThan(0);
   await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram-zoomed.png` });
   await page.getByRole('button', { name: 'Fit diagram', exact: true }).click();
   expect(await viewport.evaluate(node => node.scrollTop + node.scrollLeft)).toBe(0);
   expect((await firstNode.boundingBox())!.height).toBeCloseTo(beforeZoom.height, 0);
+
+  // Over the diagram (a layer above its opaque frame): ctrl + wheel (a trackpad pinch) zooms about the pointer.
+  const layer = page.getByTestId('diagram-gesture');
+  const at = (await layer.boundingBox())!, centre = { x: at.x + Math.min(at.width, room.width) / 2, y: at.y + Math.min(at.height, room.height) / 2 };
+  await page.mouse.move(centre.x, centre.y);
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control');
+  await expect.poll(async () => (await firstNode.boundingBox())!.height).toBeGreaterThan(beforeZoom.height * 1.5);
+  // A drag pans.
+  const before = await viewport.evaluate(node => node.scrollTop);
+  await page.mouse.move(centre.x, centre.y); await page.mouse.down(); await page.mouse.move(centre.x, centre.y - 120, { steps: 6 }); await page.mouse.up();
+  expect(await viewport.evaluate(node => node.scrollTop)).toBeGreaterThan(before + 60);
+  // A double-click goes back to the start.
+  await layer.dblclick({ position: { x: 20, y: 20 } });
+  await expect.poll(async () => (await firstNode.boundingBox())!.height).toBeCloseTo(beforeZoom.height, 0);
+  expect(await viewport.evaluate(node => node.scrollTop + node.scrollLeft)).toBe(0);
+  // Two fingers apart zoom in (pointer events as a touch screen sends them).
+  const touch = async (type: string, id: number, x: number, y: number) => layer.dispatchEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: x, clientY: y, bubbles: true });
+  await touch('pointerdown', 1, centre.x - 20, centre.y); await touch('pointerdown', 2, centre.x + 20, centre.y);
+  for (const spread of [40, 70, 100]) await touch('pointermove', 2, centre.x + spread, centre.y);
+  await touch('pointerup', 2, centre.x + 100, centre.y); await touch('pointerup', 1, centre.x - 20, centre.y);
+  await expect.poll(async () => (await firstNode.boundingBox())!.height).toBeGreaterThan(beforeZoom.height * 2);
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram-pinched.png` });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram-pinched-dark.png` });
+  await page.emulateMedia({ colorScheme: 'light' });
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByTestId('chat-assistant')).toBeVisible();
 });

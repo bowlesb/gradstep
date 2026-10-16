@@ -53,6 +53,14 @@ describe('equation rows', () => {
       { id: 'e3', label: 'Equation', text: 'a = b' },
     ]);
   });
+  it('names an unnumbered equation by its section (owner, build 62: rows read just "Equation (n)", no LaTeX)', () => {
+    const rows = contentsEquations({
+      equations: [equation('u1', 'a = b'), { ...equation('u2', 'c = d'), block_id: 'p3' }, { ...equation('n1', 'e = f'), block_id: 'p3' }],
+      headings: [{ id: 'h1', title: '1 Introduction', level: 1 }, { id: 'h2', title: '3.2 Method', level: 2 }] as any,
+      blocks: [{ id: 'b' }, { id: 'h1' }, { id: 'p1' }, { id: 'h2' }, { id: 'p3' }] as any,
+    }, id => (id === 'n1' ? '(4)' : null));
+    expect(rows.map(r => r.label)).toEqual(['Equation', 'Equation · 3.2 Method', 'Equation (4)']);
+  });
   it('keeps a row to 160 characters', () => {
     const [row] = contentsEquations({ equations: [equation('e', 'a+'.repeat(200))] }, () => null);
     expect([...row.text]).toHaveLength(160);

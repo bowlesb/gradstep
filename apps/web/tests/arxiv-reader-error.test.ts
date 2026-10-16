@@ -24,10 +24,12 @@ it('distinguishes source, adapter, figure and limit failures without forwarding 
   ['arxiv_unresolved_fragment', 'reference', 'internal references'],
   ['image_total_limit', 'limit', 'limits'],
  ]) {
-  expect(await failure(new Error(code))).toEqual({ok:false, failure:category});
+  // The listed code crosses too, for the reader's ⓘ (READER_VERSIONS.md); never the exception's own text.
+  expect(await failure(new Error(code))).toEqual({ok:false, failure:category, code});
   expect(arxivPreparationMessage(category)).toContain(phrase);
  }
- expect(await failure(new Error('private source text https://example.test/secret'))).toEqual({ok:false,failure:'unknown'});
+ expect(await failure(new Error('private source text https://example.test/secret'))).toEqual({ok:false,failure:'unknown',code:null});
+ expect(await failure(new Error('arxiv_conversion_error https://example.test/secret'))).toEqual({ok:false,failure:'unknown',code:null});
  expect(arxivPreparationMessage('private source text')).not.toContain('private');
  expect(arxivPreparationMessage('__proto__')).toContain('could not be prepared');
  expect(arxivPreparationMessage(null)).toContain('could not be prepared');

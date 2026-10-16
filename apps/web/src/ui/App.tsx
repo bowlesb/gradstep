@@ -17,12 +17,13 @@ import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
 import { ChatOptionsDialog, type ChatOptionsView } from './ChatProfile';
 import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
-import type { ChatSession } from '../lib/chat-session';
+import type { ChatSession, Explanation } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
 import { Brand, Dialog, InfoTip } from './common';
 import { DiagramsDialog } from './DiagramsDialog';
+import { ExplanationsDialog } from './ExplanationsDialog';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
 import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
@@ -116,7 +117,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const library = useLibrary(account,devicePDFs);
   // The reader has the same paper action surface as Library. Keeping a separate owner avoids
   // two portals competing when a library menu is still closing during navigation.
-  const readerActions = useLibraryActions(library);
+  // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
+  const readerCommands = useRef<ReaderCommands | null>(null);
+  const readerActions = useLibraryActions(library, undefined, useMemo(() => ({ label: 'Reader version details', testID: 'reader-version-details',
+    applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() }), []));
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
@@ -156,6 +160,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [howGradstepWorks, setHowGradstepWorks] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [diagramsOpen, setDiagramsOpen] = useState(false);
+  // Your assets › Equation explanations / Figure explanations, and the one a row reopens in its paper.
+  const [explanationsOpen, setExplanationsOpen] = useState<Explanation['kind'] | null>(null);
+  const [explainer, setExplainer] = useState<{ id: string; documentID: string; kind: Explanation['kind']; targetID: string; at: number } | null>(null);
   const [help, setHelp] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const report = useCallback(() => setReportOpen(true), []);
@@ -258,7 +265,6 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     addEventListener('pointerdown', down, true); addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
     return () => { removeEventListener('pointerdown', down, true); removeEventListener('pointerup', up, true); removeEventListener('pointercancel', up, true); };
   }, []);
-  const readerCommands = useRef<ReaderCommands | null>(null);
   const openReader = useCallback((paper: ReaderPaper, anchor?: TextAnchor) => navigate(`/paper/${paper.id}`, () => {
     setLastPaper(paper.id);
     setPassage(anchor ? { id: crypto.randomUUID(), documentID: paperIdentity(paper), anchor, at: Date.now() } : null);
@@ -536,7 +542,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // A direct paper URL can finish loading the library before local decryption. Mounting the
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
+      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} extra={!!readingSource(item)} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
         onAsked={podcasts.asked} openWith={listenAgain?.itemID === item.id ? listenAgain : null} onOpened={() => setListenAgain(null)} deviceSource={readingSource(item) ? async signal => {
         // The paper's own text on this device (migration 066): the verified bundle's numbered context, as the chat sends it.
         // An arXiv paper from before the HTML-first reader sends it too, named by its library item (migration 081: the
@@ -552,6 +558,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       } : undefined} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
+        explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
@@ -614,7 +621,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             <Icon name="panelRight" /></button>
           <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
-            onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null} />
+            onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
+            onExplanations={chat ? setExplanationsOpen : null} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -651,6 +659,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </RegionBoundary>
       {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       {chat && <RegionBoundary region="diagrams" label="All diagrams" compact resetKey={diagramsOpen} onReport={report}><DiagramsDialog chat={chat} open={diagramsOpen} onClose={() => setDiagramsOpen(false)} /></RegionBoundary>}
+      {chat && explanationsOpen && <RegionBoundary region="explanations" label="Explanations" compact onReport={report}><ExplanationsDialog chat={chat} kind={explanationsOpen}
+        onClose={() => setExplanationsOpen(null)}
+        paperTitle={documentID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === documentID); return paper ? paper.metadata?.title ?? 'Untitled paper' : null; }}
+        onOpen={e => {
+          const paper = library.entries.find((p): p is ReaderPaper => isReaderPaper(p) && p.visible && paperIdentity(p) === e.documentID);
+          if (!paper) return false;
+          setExplanationsOpen(null);
+          setExplainer({ id: crypto.randomUUID(), documentID: e.documentID, kind: e.kind, targetID: e.targetID, at: Date.now() });
+          void openPaper(paper);
+          return true;
+        }} /></RegionBoundary>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
       <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
@@ -709,8 +728,8 @@ function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view
   return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null }) {
+function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
   // AI credits and Subscription plan, read again each time the menu opens (native Settings › AI credits); the last values
@@ -762,6 +781,9 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivac
           <div className="menu-group" role="group" aria-label="Your assets"><p className="fine menu-heading">Your assets</p>
             <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onChats(); }} data-testid="assets-chats"><Icon name="chats" size={14} /> Chats</button>
             <button role="menuitem" className="menu-item" disabled={!onDiagrams} onClick={() => { setOpen(false); onDiagrams?.(); }} data-testid="assets-diagrams"><Icon name="chart" size={14} /> Diagrams</button>
+            {/* Owner, build 62: the AI Explainer's answers too (this tab's; the apps keep theirs on the device). */}
+            <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('equation'); }} data-testid="assets-equations"><Icon name="function" size={14} /> Equation explanations</button>
+            <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('figure'); }} data-testid="assets-figures"><Icon name="image" size={14} /> Figure explanations</button>
           </div>
           <div className="menu-row" role="group" aria-label="Appearance">
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>

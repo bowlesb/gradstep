@@ -16,8 +16,10 @@ import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
+import { EquationTiles } from './EquationTiles';
 import { FigureViewer } from './Figures';
-import { Dialog } from './common';
+import { ReaderVersionDialog, type ReaderUpdate } from './ReaderVersion';
+import { Dialog, InfoTip, MenuButton, SheetTop } from './common';
 import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 import { useWorkspaceControls } from './Shell';
@@ -29,7 +31,8 @@ import { LINE_WIDTH_KEY, LineWidthControl, readLineWidth, type ReadingMode } fro
 const EquationView = lazy(() => import('./EquationView'));
 
 export type ReaderCache = Map<string, VerifiedBundle>; // owned by one signed-in session, memory only
-export interface ReaderCommands { find: () => void; escape: () => boolean; /** The next (1) or previous (-1) section. */ section?: (delta: number) => void }
+export interface ReaderCommands { find: () => void; escape: () => boolean; /** The next (1) or previous (-1) section. */ section?: (delta: number) => void;
+  /** The paper's ⋯ › Reader version details (READER_VERSIONS.md). */ versionDetails?: () => void }
 const FONT_KEY = 'gradstep.reader.fontSize';
 const readFont = () => readStored(FONT_KEY, 18, v => typeof v === 'number' && v >= 13 && v <= 28);
 
@@ -41,6 +44,14 @@ function publicationLine(item: ReaderPaper): string | null {
   if (venue) parts.push(venue.length > 80 ? venue.slice(0, 79) + '…' : venue);
   if (item.source_id) parts.push(item.source === 'web' ? 'Open access' : `arXiv ${item.source_id}${item.source_revision ? 'v' + item.source_revision : ''}`);
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** A short code for why the paper couldn't be shown (READER_VERSIONS.md), for the failure screen's ⓘ. Never text. */
+function failureCode(error: unknown): string {
+  if (error instanceof ArxivReaderError) return error.code;
+  if (error instanceof BackendError) return error.code;
+  if (error instanceof BundleError) return 'package_invalid';
+  return 'unknown';
 }
 
 function failure(error: unknown): string {
@@ -63,6 +74,8 @@ function failure(error: unknown): string {
 type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: ReaderPaper; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
   marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
+  /** A kept explanation reopened from Your assets: its equation view or figure page, once the paper is ready. */
+  explainer?: { id: string; kind: 'equation' | 'figure'; targetID: string; at: number } | null; onExplainerHandled?: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => void; onMarkedChat: (id: string) => void;
   /** Prepares an unsent draft; true only once the host accepted/persisted it. Never a paid Send. */
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
@@ -84,13 +97,15 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // Beside a failure: the paper's PDF from arXiv ('only': arXiv has no HTML for this version, so Try again can't help).
-  const [pdfOffer, setPdfOffer] = useState<'pdf' | 'only' | null>(null);
+  // 'network': arXiv was busy or unreachable, where Try again is the useful action (the apps' "Couldn't reach arXiv").
+  const [pdfOffer, setPdfOffer] = useState<'pdf' | 'only' | 'network' | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -108,9 +123,19 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [referenceNotice, setReferenceNotice] = useState<{ text: string; operationID: string; message: string; kind: 'working' | 'done' | 'not_found' | 'failed' } | null>(null);
   const referenceRequest = useRef<AbortController | null>(null);
   useEffect(() => () => referenceRequest.current?.abort(), []);
-  const [figure, setFigure] = useState<{ id: string | null; open: boolean }>({ id: null, open: false });
-  // The equation view: the tapped equation, and the passage Ask in chat starts from.
-  const [equation, setEquation] = useState<{ id: string; quote: string; anchor: TextAnchor | null } | null>(null);
+  // `explain`: AI Explainer opened the page, so the walkthrough is asked for at once.
+  const [figure, setFigure] = useState<{ id: string | null; open: boolean; explain?: boolean }>({ id: null, open: false });
+  // The equation view: the equation shown, the passage Explain in Chat starts from, and whether AI Explainer opened it.
+  const [equation, setEquation] = useState<{ id: string; quote: string; anchor: TextAnchor | null; explain: boolean } | null>(null);
+  // Contents › Equations › View as tiles.
+  const [equationTiles, setEquationTiles] = useState(false);
+  // ⋯ › Reader version details, and its Update this paper (the copy on screen stays until the new one is ready).
+  const [versionOpen, setVersionOpen] = useState(false);
+  const [update, setUpdate] = useState<ReaderUpdate | null>(null);
+  const updateRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => updateRequest.current?.abort(), []);
+  // The updated copy reopens near the place read in the one it replaced (a different manifest, so the place is approximate).
+  const restoreAcross = useRef(false);
   const [finding, setFinding] = useState(false);
   const [findText, setFindText] = useState('');
   const [found, setFound] = useState<{ count: number; index: number } | null>(null);
@@ -156,8 +181,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       setBundle(verified);
     }, e => {
       if (controller.signal.aborted) return;
-      setError(failure(e));
-      setPdfOffer(source && e instanceof ArxivReaderError && e.kind !== 'network' ? (e.kind === 'no-html' ? 'only' : 'pdf') : null);
+      setError(failure(e)); setErrorCode(failureCode(e));
+      setPdfOffer(source && e instanceof ArxivReaderError ? (e.kind === 'network' ? 'network' : e.kind === 'no-html' ? 'only' : 'pdf') : null);
     });
     return () => controller.abort();
   }, [account, item.id, cache, cacheKey, attempt]);
@@ -198,6 +223,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       find: openFind,
       escape: () => { if (finding) { closeFind(); return true; } return false; },
       section: delta => sectionStep.current(delta),
+      versionDetails: () => setVersionOpen(true),
     };
     return () => { commands.current = null; };
   }, [commands, openFind, closeFind, finding]);
@@ -220,7 +246,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           appliedPresentation.current = initialPresentation;
           // Updates that arrived while the bundle loaded must precede the saved-place restoration.
           applyPresentation();
-          if (saved?.location && saved.manifest === bundle?.manifestSHA256) command('restore', saved.location);
+          if (saved?.location && (saved.manifest === bundle?.manifestSHA256 || restoreAcross.current)) command('restore', saved.location);
+          restoreAcross.current = false;
           onActivity(item.id, { ...(saved ?? { progress: 0 }), opened: Date.now() });
           break;
         case 'position': {
@@ -270,6 +297,18 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256, block));
   }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled, bundle]);
   const quote = bundle && selection ? resolveQuote(bundle, selection) : null;
+  const appliedExplainer = useRef<string | null>(null);
+  useEffect(() => {
+    if (!explainer || !bundle || !bridgeReady || appliedExplainer.current === explainer.id) return;
+    appliedExplainer.current = explainer.id;
+    onExplainerHandled?.();
+    if (Date.now() - explainer.at > 60_000) return;
+    if (explainer.kind === 'equation') {
+      const target = equationTarget(explainer.targetID);
+      if (target) setEquation(target); else setNotice('This equation isn’t in this copy of the paper.');
+    } else if (bundle.index.figures.some(f => f.id === explainer.targetID)) setFigure({ id: explainer.targetID, open: true });
+    else setNotice('This figure isn’t in this copy of the paper.');
+  }, [explainer, bundle, bridgeReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeLineWidth = (next: typeof lineWidth) => { setLineWidth(next); writeStored(LINE_WIDTH_KEY, next); };
   // J / K and the bar's arrows: the next or previous section from the one being read.
@@ -313,6 +352,29 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const showEquation = (id: string) => {
     command('showEquation', id, reduced());
     if (workspace && !workspace.left.inline) workspace.show('left', false);
+  };
+  const updateCopy = () => {
+    const source = readingSource(item);
+    if (!source || update?.running) return;
+    updateRequest.current?.abort();
+    const controller = new AbortController(); updateRequest.current = controller;
+    setUpdate({ running: true });
+    prepareArxivReader(source, controller.signal, undefined, { authors: item.metadata?.authors ?? [], title: item.metadata?.title }).then(verified => {
+      if (controller.signal.aborted) return;
+      cache.set(cacheKey, verified);
+      restoreAcross.current = true; frameReady.current = false; setBridgeReady(false);
+      setError(null); setPdfOffer(null); setErrorCode(null);
+      setBundle(verified); setUpdate({ running: false, updated: true });
+    }, e => { if (!controller.signal.aborted) setUpdate({ running: false, failure: failure(e), code: failureCode(e) }); });
+  };
+  // An equation shown without being tapped (switched to in the equation view, a kept explanation): its passage as a
+  // tap would make it, for Explain in Chat.
+  const equationTarget = (id: string, explain = false) => {
+    const e = bundle?.index.equations.find(x => x.id === id);
+    if (!bundle || !e) return null;
+    const tapped: Selection = { manifest: bundle.manifestSHA256, parts: [{ kind: 'equation', blockID: e.block_id, equationID: e.id }], context: null };
+    const quote = resolveQuote(bundle, tapped) ?? e.latex;
+    return { id, quote, anchor: passageAnchor(item.artifact_id, tapped, quote, item.kind === 'import' ? bundle.manifestSHA256 : undefined), explain };
   };
   // A paragraph the equation view names ("From the paper ¶12"): the reader lands on it with Back offered, as a chat citation does.
   const goToCited = (marker: number) => {
@@ -395,16 +457,30 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         </form>
       )}
       <div className="paper-stage">
-        {error ? (
-          <div className="empty">
-            {pdfOffer === 'only' && <h2>No web version of this paper</h2>}
-            <p role="alert">{error}</p>
-            {/* The browser asks arXiv for the PDF itself, as for any arXiv request (ARXIV_DEVICE_ONLY.md). */}
-            {pdfOffer && pdfSource && <a className="primary" href={`https://arxiv.org/pdf/${pdfSource.sourceID}v${pdfSource.revision}`}
-              target="_blank" rel="noopener noreferrer" data-testid="reader-open-pdf">Open PDF</a>}
-            {pdfOffer !== 'only' && <button className="secondary" onClick={() => { setError(null); setPdfOffer(null); setAttempt(a => a + 1); }}>Try again</button>}
+        {error ? ((pdfOffer === 'pdf' || pdfOffer === 'only') && pdfSource ? (
+          // One screen whatever stopped the reader (owner, build 62: "there should be just one"; "remove the try again"):
+          // the paper's PDF, opened from arXiv by this browser (ARXIV_DEVICE_ONLY.md); the reason's code behind an ⓘ.
+          <div className="empty reader-failure" data-testid="reader-failure" data-info-bounds>
+            <Icon name="book" size={32} />
+            <h2>Read this paper as its PDF</h2>
+            <p role="alert">{pdfOffer === 'only' ? 'arXiv has no web version of this paper.' : 'Its web version couldn’t be prepared in this browser.'}</p>
+            <div className="reader-failure-actions">
+              <a className="primary" href={`https://arxiv.org/pdf/${pdfSource.sourceID}v${pdfSource.revision}`}
+                target="_blank" rel="noopener noreferrer" data-testid="reader-open-pdf">Open PDF</a>
+              {pdfOffer === 'pdf' && errorCode && <InfoTip text={`${error}\n\nCode: ${errorCode}`} testID="reader-failure-info" />}
+            </div>
           </div>
-        ) : srcdoc ? (
+        ) : (
+          // arXiv busy or unreachable (its PDF would fail the same way), or a paper that isn't from arXiv: Try again.
+          <div className="empty reader-failure" data-testid="reader-failure" data-info-bounds>
+            {pdfOffer === 'network' && <h2>Couldn’t reach arXiv</h2>}
+            <p role="alert">{error}</p>
+            <div className="reader-failure-actions">
+              <button className="primary" onClick={() => { setError(null); setPdfOffer(null); setErrorCode(null); setAttempt(a => a + 1); }}>Try again</button>
+              {pdfOffer === 'network' && errorCode && <InfoTip text={`${error}\n\nCode: ${errorCode}`} testID="reader-failure-info" />}
+            </div>
+          </div>
+        )) : srcdoc ? (
           <iframe ref={frame} className="reader-frame" title={title} sandbox="allow-scripts" srcDoc={srcdoc} data-testid="reader-frame" />
         ) : (
           <div className="empty" role="status"><p>{loaded < 0.8 ? 'Downloading…' : 'Preparing…'} {Math.floor(loaded * 100)}%</p>
@@ -416,12 +492,13 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             const paragraph = bundle.index.blocks.findIndex(b => b.id === selection.parts[0]?.blockID) + 1;
             if (anchor) { onSelection(action, quote, anchor, paragraph > 0 ? paragraph : undefined); setSelection(null); command('clearSelection'); }
           }}>{title}</button>,
-            // One tapped equation: its own view, right after Explain (EQUATION_VIEW.md).
+            // One tapped equation: AI Explainer, right after Explain, opens its view and asks at once (owner, build 62:
+            // "Replace Explain with AI Explainer"; EQUATION_VIEW.md).
             ...(action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID ? [
               <button key="equation" className="secondary small" data-testid="equation-open" onClick={() => {
                 const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
-                setEquation({ id: selection.parts[0].equationID!, quote, anchor }); setSelection(null); command('clearSelection');
-              }}>Equation</button>] : [])])}
+                setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: true }); setSelection(null); command('clearSelection');
+              }}>AI Explainer</button>] : [])])}
         </div>}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
@@ -435,22 +512,28 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         </div>}
       </div>
       {contentsSlot && bundle && bridgeReady && createPortal(<Contents headings={headings} active={active} bundle={bundle} onJump={jump}
-        onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation}
+        onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation} onEquationTiles={() => setEquationTiles(true)}
         onTable={t => setTableDetail({ id: t.id, label: t.number ?? 'Table', goTitle: 'Show in paper' })} />, contentsSlot)}
       {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}
         onAdd={() => void addReference(reference.text)} onDiscuss={discuss ? () => discuss(reference.text, reference.blockID) : undefined} />}
       {bundle && figureReference && <FigureReferenceDetail bundle={bundle} reference={figureReference} theme={theme} fontSize={font}
         onClose={() => setFigureReference(null)} onGo={() => { setFigureReference(null); command('showFigure', figureReference.id, reduced(), true); }}
-        onDiscuss={discuss} />}
+        onDiscuss={discuss} onExplain={figureView && bundle.index.figures.some(f => f.id === figureReference.id)
+          ? () => { setFigureReference(null); setFigure({ id: figureReference.id, open: true, explain: true }); } : undefined} />}
       {bundle && tableDetail && <FigureReferenceDetail bundle={bundle} reference={tableDetail} theme={theme} fontSize={font}
-        onClose={() => setTableDetail(null)} onDiscuss={discuss} onGo={() => {
+        onClose={() => setTableDetail(null)} onDiscuss={discuss} onExplain={figureView && bundle.index.figures.some(f => f.id === tableDetail.id)
+          ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true, explain: true }); } : undefined} onGo={() => {
           setTableDetail(null); command('showFigure', tableDetail.id, reduced(), true); if (workspace && !workspace.left.inline) workspace.show('left', false);
         }} />}
-      {bundle && equation && <Suspense fallback={null}><EquationView bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
+      {bundle && equation && <Suspense fallback={null}><EquationView key={equation.id} bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
+        autoExplain={equation.explain} onSwitch={id => setEquation(equationTarget(id))}
         onClose={() => setEquation(null)} onCite={marker => { setEquation(null); goToCited(marker); }}
         onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
+      {versionOpen && <ReaderVersionDialog bundle={bundle} update={update} onUpdate={updateCopy} onClose={() => setVersionOpen(false)} />}
+      {bundle && equationTiles && <EquationTiles bundle={bundle} theme={theme} onClose={() => setEquationTiles(false)}
+        onEquation={id => { setEquationTiles(false); showEquation(id); }} />}
       {bundle && figure.open && (
-        <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
+        <FigureViewer bundle={bundle} theme={theme} initial={figure.id} explain={figure.explain} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
           onCite={marker => { setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
           onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
@@ -466,9 +549,9 @@ const CONTENTS_TABS: readonly [ContentsTab, string][] = [['contents', 'Contents'
  * consistent styling in the rows and be clickable into the paper"), as the app's PaperContentsSheet. A figure or table
  * row opens that figure or table with its whole caption; an equation row goes to it in the paper with Back. Tables are
  * the captioned tables the index lists (revision 16) beside those arXiv published as images (contentsTables). */
-function Contents({ headings, active, bundle, onJump, onFigure, onTable, onTiles, onEquation }: {
+function Contents({ headings, active, bundle, onJump, onFigure, onTable, onTiles, onEquation, onEquationTiles }: {
   headings: Heading[]; active: string | null; bundle: VerifiedBundle; onJump: (id: string) => void;
-  onFigure: (id: string) => void; onTable: (table: ContentsFigure) => void; onTiles: () => void; onEquation: (id: string) => void;
+  onFigure: (id: string) => void; onTable: (table: ContentsFigure) => void; onTiles: () => void; onEquation: (id: string) => void; onEquationTiles: () => void;
 }) {
   const [tab, setTab] = useState<ContentsTab>('contents');
   const list = useRef<HTMLOListElement>(null), tabs = useRef<HTMLDivElement>(null);
@@ -511,8 +594,10 @@ function Contents({ headings, active, bundle, onJump, onFigure, onTable, onTiles
           </ol>
         </nav> : <p className="contents-empty">No sections</p>)
         : tab === 'equations' ? (!equations ? <p className="contents-empty" role="status">Preparing…</p> : equations.length ? <ul className="contents-rows" aria-label="Equations">
+          {/* Owner, build 62: "Equation 1, Equation 2" without the equation's text, and a tile view like Figures'. */}
+          <li><button className="contents-tiles" onClick={onEquationTiles} data-testid="contents-equation-tiles"><Icon name="grid" size={14} />View as tiles</button></li>
           {equations.map((e, i) => <li key={e.id}><button className="contents-row" onClick={() => onEquation(e.id)} data-testid={`contents-equation-${i}`}>
-            <span className="contents-row-title">{e.label}</span>{e.text && <span className="contents-row-math">{e.text}</span>}</button></li>)}
+            <span className="contents-row-title">{e.label}</span></button></li>)}
         </ul> : <p className="contents-empty">No equations</p>)
         : rows.length ? <ul className="contents-rows" aria-label={tab === 'tables' ? 'Tables' : 'Figures'}>
           {/* Owner, build 59: "a link to the same squares based view". */}
@@ -568,9 +653,12 @@ function ReferenceActions({ reference, frame, onClose, onAdd, onDiscuss }: {
 }
 
 /** Created only for a validated new-bridge message, so the legacy bridge never opens unsupported table/code detail. */
-function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss }: {
+/** A figure, table or code block on its own: one top row — Explain in Chat and, for a figure or table the figure view
+ * can read, AI Explainer (its walkthrough on the figure page) — and the X (owner, build 62; DESIGN.md "Sheet top row");
+ * Show in paper (or Go to …) under it. */
+function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss, onExplain }: {
   bundle: VerifiedBundle; reference: ReaderFigureReference; theme: 'light' | 'dark'; fontSize: number;
-  onClose: () => void; onGo: () => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>;
+  onClose: () => void; onGo: () => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>; onExplain?: () => void;
 }) {
   const doc = useMemo(() => frameDocument(bundle, { parentOrigin: location.origin, figureID: reference.id, theme, fontSize }), [bundle, reference.id, theme, fontSize]);
   const [busy, setBusy] = useState(false), [issue, setIssue] = useState<string | null>(null);
@@ -586,12 +674,17 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
   };
   return <Dialog open onClose={() => { if (!busy) onClose(); }} title={reference.label} wide>
     <div className="reader-reference-detail">
-      <div className="figure-head"><h2>{reference.label}</h2><button className="primary small" disabled={busy} onClick={onClose}>Done</button></div>
+      <SheetTop onClose={onClose} closeDisabled={busy} testID="figure-reference-close">
+        {onDiscuss && <button className="sheet-action" disabled={busy} onClick={() => void discuss()} data-testid="figure-reference-ask"
+          title="Opens the paper’s chat with this as the passage; nothing is sent"><Icon name="chat" size={15} />{busy ? 'Saving draft…' : 'Explain in Chat'}</button>}
+        {onExplain && <button className="sheet-action prominent" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
+          title="Walks through it part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
+        {!onDiscuss && !onExplain && <h2>{reference.label}</h2>}
+      </SheetTop>
       <iframe className="figure-frame" title={reference.label} sandbox="allow-scripts" srcDoc={doc} />
       {issue && <p className="issue" role="alert">{issue}</p>}
-      <div className="dialog-actions">
-        {onDiscuss && <button className="secondary small" disabled={busy} onClick={() => void discuss()}>{busy ? 'Saving draft…' : 'Discuss in chat'}</button>}
-        <button className="primary small" disabled={busy} onClick={onGo} data-testid="figure-reference-go">{reference.goTitle}</button>
+      <div className="figure-nav">
+        <button className="secondary small" disabled={busy} onClick={onGo} data-testid="figure-reference-go">{reference.goTitle}</button>
       </div>
     </div>
   </Dialog>;

@@ -48,6 +48,8 @@ const paths = {
   map: <><polygon points="3 6 3 21 9 18 15 21 21 18 21 3 15 6 9 3 3 6" /><line x1="9" y1="3" x2="9" y2="18" /><line x1="15" y1="6" x2="15" y2="21" /></>,
   // The equation view's Explain (the app's "sparkles").
   sparkles: <><path d="M10 3.5l1.7 4.8 4.8 1.7-4.8 1.7L10 16.5l-1.7-4.8L3.5 10l4.8-1.7z" /><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z" /></>,
+  // Reader version details: this paper uses the latest reader.
+  check: <polyline points="20 6 9 17 4 12" />,
   // Contents › Figures › View as tiles.
   grid: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
 } satisfies Record<string, ReactNode>;

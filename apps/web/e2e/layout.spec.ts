@@ -101,9 +101,9 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(grid.locator('img').first()).toBeVisible();
       if (width === 1440) await shot(page, `figures-${name}`);
       await grid.getByRole('button').first().click();
-      await expect(page.getByRole('heading', { name: 'Figure 1 of 4' })).toBeVisible();
+      await expect(page.getByTestId('figure-count')).toHaveText('1 of 4');
       await page.keyboard.press('ArrowRight');
-      await expect(page.getByRole('heading', { name: 'Figure 2 of 4' })).toBeVisible();
+      await expect(page.getByTestId('figure-count')).toHaveText('2 of 4');
       await page.keyboard.press('Escape');
       await expect(grid).toBeVisible();
       await grid.getByRole('button').nth(2).click();

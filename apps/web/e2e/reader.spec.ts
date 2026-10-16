@@ -120,7 +120,7 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
 
   await frame.locator('figure img').first().click();
   await expect(page.locator('iframe.figure-frame')).toBeVisible();
-  await page.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
 
   // The paper chat stays beside the reader, with a drawer on narrow windows.
   const chat = page.getByTestId('pane-right');

@@ -6,7 +6,10 @@ import { buildPaperContext, PAPER_CONTEXT_FORMAT } from './paper-context';
 /** `kind`: what the reader offers instead (build 57, 2610.20399): 'no-html' (arXiv has no HTML for this version: its PDF
  * only), 'network' (arXiv busy, refused or unreachable: its PDF would fail the same way), 'prepare' (its PDF, beside Try again). */
 export class ArxivReaderError extends Error {
- constructor(message: string, readonly kind: 'no-html' | 'network' | 'prepare' | 'asset' = 'prepare') { super(message); }
+ constructor(message: string, readonly kind: 'no-html' | 'network' | 'prepare' | 'asset' = 'prepare', private readonly reason?: string) { super(message); }
+ /** A short code for what went wrong, for the reader's ⓘ and Reader version details (READER_VERSIONS.md): the compiler's
+  * reason code when it gave one, else this browser's own (`timeout`, `compiler_start`, `result_invalid`, …). Never text. */
+ get code(): string { return this.reason ?? CODES.get(this.message) ?? (this.kind === 'no-html' ? 'no_html' : this.kind === 'network' ? 'retrieval' : 'unknown'); }
 }
 
 /** Who hears about a page this browser downloaded to prepare a paper (source-metadata.ts, while the server asks for
@@ -31,6 +34,7 @@ const TOO_LARGE = 'This paper exceeds the device reader’s preparation limits.'
 const UNREACHABLE = 'Couldn’t retrieve this paper from arXiv. Check your connection and try again.';
 const REFUSED = 'arXiv refused requests from this browser, so Gradstep won’t ask arXiv from here again for a day. Papers already prepared in this tab still open.';
 export const ARXIV_REFUSAL = Object.freeze({ pauseMs: 86_400_000, key: 'gradstep.arxiv.refused-until' });
+const CODES = new Map([[BUSY, 'arxiv_busy'], [UNAVAILABLE, 'unavailable'], [NO_HTML, 'no_html'], [TOO_LARGE, 'too_large'], [UNREACHABLE, 'retrieval'], [REFUSED, 'arxiv_refused']]);
 
 let nextDocumentRequest = 0;
 let busyUntil = 0;
@@ -168,14 +172,15 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
    const channel = new MessageChannel(); let timer: ReturnType<typeof setTimeout>;
    const cleanup = () => { clearTimeout(timer); channel.port1.close(); signal.removeEventListener('abort', stop); };
    const stop = () => { cleanup(); reject(signal.reason); };
-   timer = setTimeout(() => { cleanup(); reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still open its PDF on this device.')); }, 90000);
+   timer = setTimeout(() => { cleanup(); reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still open its PDF on this device.', 'prepare', 'timeout')); }, 90000);
    signal.addEventListener('abort', stop, { once: true });
-   channel.port1.onmessage = e => { cleanup(); e.data?.ok ? resolve(e.data.result) : reject(new ArxivReaderError(arxivPreparationMessage(e.data?.failure))); };
+   channel.port1.onmessage = e => { cleanup(); e.data?.ok ? resolve(e.data.result) : reject(new ArxivReaderError(arxivPreparationMessage(e.data?.failure), 'prepare',
+    typeof e.data?.code === 'string' && /^[a-z][a-z0-9_]{2,63}$/.test(e.data.code) ? e.data.code : `compiler_${typeof e.data?.failure === 'string' && /^[a-z-]{1,24}$/.test(e.data.failure) ? e.data.failure.replace(/-/g, '_') : 'unknown'}`)); };
    frame.contentWindow!.postMessage({ method, source: toBase64(html), sourceID: ref.sourceID, revision: ref.revision, inputs, options: compile }, '*', [channel.port2]);
   });
  };
  try {
-  await Promise.race([loaded, wait(15000, signal).then(() => { throw new ArxivReaderError('The device compiler could not start.'); })]);
+  await Promise.race([loaded, wait(15000, signal).then(() => { throw new ArxivReaderError('The device compiler could not start.', 'prepare', 'compiler_start'); })]);
   // The catalog record goes with both calls: a paper whose HTML has no `h1` or no author block is headed from it.
   const authors = (options.authors ?? []).filter(a => typeof a === 'string').slice(0, 64).map(a => a.slice(0, 256));
   const compile = { authors, ...(typeof options.title === 'string' ? { title: options.title.slice(0, 2000) } : {}) };
@@ -186,12 +191,12 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
   progress(0.82);
   const p = await call('prepare', inputs, compile) as { manifest: string; manifestSHA256: string; members: { path: string; base64: string }[] };
   abort(signal);
-  if (!p || typeof p.manifest !== 'string' || p.manifest.length > 349528 || !Array.isArray(p.members) || p.members.length > 512) throw new ArxivReaderError('Invalid reader bundle.');
+  if (!p || typeof p.manifest !== 'string' || p.manifest.length > 349528 || !Array.isArray(p.members) || p.members.length > 512) throw new ArxivReaderError('Invalid reader bundle.', 'prepare', 'result_invalid');
   const members = new Map<string, Bytes>(); let total = 0;
-  for (const m of p.members) { if (typeof m.path !== 'string' || typeof m.base64 !== 'string' || m.base64.length > 22369624 || members.has(m.path)) throw new ArxivReaderError('Invalid reader bundle.'); const bytes = fromBase64(m.base64); total += bytes.length; if (total > ARXIV_LIMITS.totalBytes) throw new ArxivReaderError('Reader bundle is too large.'); members.set(m.path, bytes); }
+  for (const m of p.members) { if (typeof m.path !== 'string' || typeof m.base64 !== 'string' || m.base64.length > 22369624 || members.has(m.path)) throw new ArxivReaderError('Invalid reader bundle.', 'prepare', 'result_invalid'); const bytes = fromBase64(m.base64); total += bytes.length; if (total > ARXIV_LIMITS.totalBytes) throw new ArxivReaderError('Reader bundle is too large.', 'prepare', 'too_large'); members.set(m.path, bytes); }
   const bundle = await verifyBundle(fromBase64(p.manifest), p.manifestSHA256, members);
   const provenance = JSON.parse(fromUtf8(members.get(bundle.manifest.source.provenance_path)!));
-  if (provenance.source.url !== url) throw new ArxivReaderError('Wrong source revision.'); abort(signal); progress(1); return bundle;
+  if (provenance.source.url !== url) throw new ArxivReaderError('Wrong source revision.', 'prepare', 'source_mismatch'); abort(signal); progress(1); return bundle;
  } finally { frame.remove(); }
 }
 

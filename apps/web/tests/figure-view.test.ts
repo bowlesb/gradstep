@@ -173,4 +173,21 @@ describe('the figure view in the chat session', () => {
     expect((await other.figure(member, { figureID: 'b-3' }, 'figure_simpler', () => {}, new AbortController().signal)).issue).toBe('invalid_request');
     expect(server.requests).toHaveLength(0);
   });
+  it('lists what this tab explained for Your assets: each figure or equation once, newest first; a failure is not listed', async () => {
+    const chat = await setup([[{ type: 'figure', walkthrough: event as any }, { type: 'done', stopReason: 'end_turn', credits: 5, charged: true }],
+      [{ type: 'delta', text: 'Simpler.' }, { type: 'done', stopReason: 'end_turn', credits: 1, charged: true }],
+      [{ type: 'delta', text: 'It squares x.' }, { type: 'done', stopReason: 'end_turn', credits: 2, charged: true }],
+      [{ type: 'done', stopReason: 'end_turn', credits: 0, charged: false, reason: 'provider' }]]);
+    expect(chat.explanations('figure')).toEqual([]); expect(chat.explanations('equation')).toEqual([]);
+    await chat.figure(member, { figureID: 'b-3' }, 'figure', () => {}, new AbortController().signal);
+    // A part asked again doesn't list the figure twice.
+    await chat.figure(member, { figureID: 'b-3', part: { key: '0:(a):Three stages', label: '(a)', title: 'Three stages', text: 'A reward model first.' } }, 'figure_simpler', () => {}, new AbortController().signal);
+    expect(chat.explanations('figure')).toEqual([{ kind: 'figure', documentID: member, manifest: bundle.manifestSHA256, targetID: 'b-3', label: 'Figure 1', at: expect.any(Number) }]);
+    await chat.equation(member, { equationID: 'e1', latex: 'x^2', number: '(1)' }, 'equation', () => {}, new AbortController().signal);
+    expect(chat.explanations('equation')).toEqual([{ kind: 'equation', documentID: member, manifest: bundle.manifestSHA256, targetID: 'e1', label: 'Equation (1)', at: expect.any(Number) }]);
+    const failed = await chat.equation(member, { equationID: 'e2', latex: 'y', number: null }, 'equation', () => {}, new AbortController().signal);
+    expect(failed.phase).toBe('failed');
+    expect(chat.explanations('equation').map(e => e.targetID)).toEqual(['e1']);
+    expect(chat.explanations('figure').map(e => e.targetID)).toEqual(['b-3']);
+  });
 });
