@@ -1486,7 +1486,7 @@ struct PrivacyView: View {
             // by arXiv's terms" (docs/architecture/ARXIV_DEVICE_ONLY.md).
             Section {
                 Text("Papers open from the official web version or PDF that arXiv publishes. Your device downloads them directly from arXiv when you open a paper, and prepares them for reading on the device, for you alone. A PDF you keep is stored encrypted on that device.")
-                Text("Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.")
+                Text("Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv and keep no copies of papers; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.")
                 Text("Requests to arXiv are spaced out, name Gradstep, and stop for a day if arXiv asks this device to slow down, as arXiv’s API Terms of Use require. Each paper stays under its authors’ license, with a link back to arXiv.")
                 Link("arXiv API Terms of Use", destination: URL(string: "https://info.arxiv.org/help/api/tou.html")!)
                 Text(ArxivAcknowledgement.statement).foregroundStyle(.secondary)
