@@ -16,6 +16,20 @@ Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables lis
   this Mac, neighbouring journeys (Contents, gallery, figure reference, equation view, figure parts) pass. Fixtures
   only: no live walkthrough from the app yet.
 
+## TestFlight 62 and the figure view live from the app — 2026-10-16, ~10:00 UTC
+
+- **Build 62** (8a93ce3), iPhone/iPad and Mac uploaded and VALID (10:06 UTC): the figure view (Explain and Ask in chat on every figure and table
+  page; walkthrough part by part with crops; Explain more simply, Show in the paper, Ask in chat about this), Contents ›
+  Tables listing the paper's real tables (index `tables`, reader revision 16), an image arXiv doesn't serve is that
+  figure's note (revision 16), Listen on legacy arXiv items, Mac ⌘N and ⌘W fixed, diagrams that can't be drawn keep
+  their height, Contents jumps after its sheet closes. Not in 62: thin spaces between touching `[¶N]` (789204b).
+- **Evidence on merged code**: iPhone 17 Pro FigureView, PaperTools and Workflow journeys 40/40; iPad Pro 13 FigureView
+  and PaperTools 8/8 (a table from Contents offers Explain); Mac FigureView 2/2 and MacKeyboardTests 4/4; app unit tests
+  on Mac 430 XCTest + 21 Swift Testing; ScienceReaderCore 330.
+- **Live from the app** (`live-journey.mjs --figure-view`, iPhone 17 Pro Simulator, staging; the whole journey passes): DPO Figure 1 explained
+  after consent, the walkthrough reading the image's own details (the jazz-poem prompt, the trophy, the arrow labels)
+  with `[¶N]` links. Live boxes: InfoVis Figure 2 got two, each on its band (FIGURE_VIEW.md "Open").
+
 ## Browser deployed; Add paper refunds; checks — 2026-10-16, ~08:30 UTC
 
 - **Browser deployed** to app.gradstep.ai (~08:25 UTC, two phases verified) from main 17590db: reader revision 16 with
