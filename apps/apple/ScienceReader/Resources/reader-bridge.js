@@ -1600,6 +1600,15 @@
   // selection, citations, figures and reading positions are untouched.
   const CONTEXT = 32;
   const equationSource = new Map(config?.equations.map(value => [value.id, value]) || []);
+  // Contents › Equations (owner, build 59): an equation, centred and highlighted like a figure, with Back.
+  window.__scienceReaderShowEquation = (id, reduced) => {
+    if (!config || config.figure_id || !equationSource.has(id)) return false;
+    const element = document.getElementById(id);
+    if (!element) return false;
+    const range = document.createRange(); range.selectNode(element.closest('[data-reader-block]') || element);
+    jumpToReference({id, range}, null);
+    return true;
+  };
   const collapse = value => String(value || '').replace(/\s+/g, ' ').trim();
   let paperText = null;
   if (config && !config.figure_id) {

@@ -66,7 +66,8 @@ enum EquationViewOutcome {
 
     init(context: EquationViewContext, model: ReaderModel) { self.context = context; self.model = model }
 
-    /// Shows what this device kept; asks for the symbols when it kept none.
+    /// Shows what this device kept. Nothing is asked of the AI until the reader asks for it (owner, build 59: "The AI
+    /// explanation should only come if you ask for it").
     func start() {
         guard let model else { return }
         for action in [ChatAction.equation, .equationBackground] {
@@ -74,8 +75,10 @@ enum EquationViewOutcome {
                 set(action, Part(state: .done, text: kept.text, symbols: kept.symbols, credits: kept.credits))
             }
         }
-        if symbols.state == .idle { run(.equation) }
     }
+
+    /// Explain: the summary and each symbol (the AI, on request).
+    func explain() { if symbols.state != .loading, symbols.state != .done { run(.equation) } }
 
     func showBackground() { if background.state != .loading, background.state != .done { run(.equationBackground) } }
     func retry(_ action: ChatAction) { run(action) }
@@ -205,14 +208,25 @@ struct EquationView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 display(session.context)
-                symbols(session)
-                backgroundSection(session)
-                Button { finish(.askInChat(session.context)) } label: {
-                    Label("Ask in chat", systemImage: "bubble.left.and.text.bubble.right").frame(maxWidth: .infinity, minHeight: 44)
+                // Owner, build 59: the explanation on request, and Ask in chat in view from the start.
+                HStack(spacing: 10) {
+                    if session.symbols.state == .idle {
+                        Button { session.explain() } label: {
+                            Label("Explain", systemImage: "sparkles").frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityHint("Describes the equation and each of its symbols. Uses credits.")
+                        .accessibilityIdentifier("equation.explain")
+                    }
+                    Button { finish(.askInChat(session.context)) } label: {
+                        Label("Ask in chat", systemImage: "bubble.left.and.text.bubble.right").frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Opens the paper’s chat with this equation selected")
+                    .accessibilityIdentifier("equation.askInChat")
                 }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Opens the paper’s chat with this equation selected")
-                .accessibilityIdentifier("equation.askInChat")
+                symbols(session)
+                if session.symbols.state == .done { backgroundSection(session) }
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 20).padding(.vertical, 16)
@@ -295,10 +309,6 @@ struct EquationView: View {
                                 assistant: true, onCite: cite(session))
             }
             status(part, session: session, action: .equation, working: "Describing the symbols…")
-            if part.state == .done, let credits = part.credits {
-                Text("Described with \(model.equationProfile.model.rawValue.capitalized) · \(credits) \(credits == 1 ? "credit" : "credits")")
-                    .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("equation.credits")
-            }
         }
     }
 
@@ -347,9 +357,6 @@ struct EquationView: View {
                                     identifier: "equation.backgroundText", assistant: true, onCite: part.state == .loading ? nil : cite(session))
                 }
                 status(part, session: session, action: .equationBackground, working: "Writing the background…")
-                if part.state == .done, let credits = part.credits {
-                    Text("\(credits) \(credits == 1 ? "credit" : "credits")").font(.footnote).foregroundStyle(.secondary)
-                }
             }
         }
     }

@@ -18,8 +18,10 @@ final class MacKeyboardTests: XCTestCase {
     func testCommandWPreservesDirtyTagsAndTheWindowButClosesACleanSheet() {
         let app = reader()
         func editTags() {
-            app.buttons["Paper options"].tap()
-            app.buttons["Edit tags"].tap()
+            // On the Mac the paper's ⋯ is a pop-up button and its rows are menu items.
+            app.popUpButtons["Paper options"].click()
+            let item = app.menuItems.matching(NSPredicate(format: "title BEGINSWITH[c] %@", "Edit tags")).firstMatch
+            XCTAssertTrue(item.waitForExistence(timeout: 5)); item.click()
             XCTAssertTrue(app.textFields["tags.field"].waitForExistence(timeout: 5))
         }
         editTags()
@@ -29,7 +31,8 @@ final class MacKeyboardTests: XCTestCase {
 
         editTags()
         let field = app.textFields["tags.field"]
-        field.tap(); field.typeText("Keyboard regression tag")
+        field.click(); field.typeText("Keyboard regression tag")
+        XCTAssertEqual(field.value as? String, "Keyboard regression tag", "The tag text went into the field")
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(field.exists, "A tag still being typed is unsaved work too")
         XCTAssertEqual(field.value as? String, "Keyboard regression tag")
@@ -39,7 +42,7 @@ final class MacKeyboardTests: XCTestCase {
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(field.exists && tag.exists, "Cmd-W must preserve the unsaved edit")
         XCTAssertTrue(app.windows.firstMatch.exists, "The guarded shortcut must not close the window")
-        app.buttons["Cancel"].tap()
+        app.buttons["Cancel"].click()
         XCTAssertTrue(field.waitForNonExistence(timeout: 5), "Explicit Cancel can still discard the edit")
         XCTAssertTrue(app.webViews.firstMatch.exists)
     }
@@ -47,7 +50,7 @@ final class MacKeyboardTests: XCTestCase {
     func testBrowseOffersFindInPaperAndASeparateLibrarySearch() {
         let app = reader()
         app.typeKey("4", modifierFlags: .command)
-        XCTAssertTrue(app.searchFields["library.search"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["library.search"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.webViews.firstMatch.exists)
         app.menuBars.menuBarItems["Edit"].click()
         XCTAssertTrue(app.menuItems["Find in Paper…"].waitForExistence(timeout: 5))
@@ -69,7 +72,7 @@ final class MacKeyboardTests: XCTestCase {
 
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Theme"].waitForExistence(timeout: 5))
-        app.segmentedControls.buttons["Reader"].click()
+        app.wideMode("Reader").click()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(composer.exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
@@ -81,7 +84,7 @@ final class MacKeyboardTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--add-paper-fixture"]
         app.launch()
-        let search = app.searchFields["library.search"]
+        let search = app.descendants(matching: .any)["library.search"].firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         app.typeKey("f", modifierFlags: .command)
         app.typeText("Attention")
@@ -91,9 +94,9 @@ final class MacKeyboardTests: XCTestCase {
         XCTAssertTrue(search.exists, "Search owns its navigation keys; typing must not open a table row")
 
         app.typeKey("n", modifierFlags: .command)
-        XCTAssertTrue(app.textFields["import.reference"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["import.reference"].firstMatch.waitForExistence(timeout: 5))
         app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.textFields["import.reference"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["import.reference"].firstMatch.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.windows.firstMatch.exists)
         XCTAssertTrue(search.exists)
     }

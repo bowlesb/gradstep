@@ -209,6 +209,35 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(wait { heading.exists && abs(heading.frame.minY - web.frame.minY) < 80 }, "The entry jumps to its heading")
     }
 
+    /// Contents with Figures, Tables and Equations tabs (owner, build 59): Contents first; each list's rows go into
+    /// the paper with Back.
+    func testContentsTabsListFiguresTablesAndEquations() throws {
+        let app = openSample(appearance: "dark")
+        let web = app.webViews.firstMatch
+        app.buttons["Table of contents"].tap()
+        let tabs = app.segmentedControls["contents.tabs"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        XCTAssertTrue(tabs.buttons["Contents"].isSelected, "Contents is chosen on opening")
+        XCTAssertTrue(app.descendants(matching: .any)["contents.list.contents"].exists)
+        capture(app, "Contents tab")
+        tabs.buttons["Figures"].tap()
+        let figure = app.buttons["contents.figure.0"]
+        XCTAssertTrue(figure.waitForExistence(timeout: 5), "Figures lists the paper's figures")
+        XCTAssertTrue(figure.label.hasPrefix("Figure 1"), figure.label)
+        capture(app, "Figures tab")
+        tabs.buttons["Tables"].tap()
+        sleep(1); capture(app, "Tables tab")
+        tabs.buttons["Equations"].tap()
+        let equation = app.buttons["contents.equation.0"]
+        XCTAssertTrue(equation.waitForExistence(timeout: 5), "Equations lists the display equations")
+        XCTAssertTrue(equation.label.hasPrefix("Equation") && !equation.label.contains("label"), equation.label)
+        capture(app, "Equations tab")
+        equation.tap()
+        XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "A row closes Contents")
+        XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The equation is shown in the paper")
+        capture(app, "An equation from Contents")
+    }
+
     // MARK: - Figure gallery (gap 6)
 
     func testFigureGalleryOpensAFigureAndShowsItInThePaperWithBack() throws {

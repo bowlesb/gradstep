@@ -28,6 +28,8 @@ struct PaperJumpRequest: Equatable, Identifiable {
         /// "Go to figure" from a figure reference ("Fig. 1" in the text): a figure, table or algorithm, centered and
         /// highlighted, with Back to the reference.
         case referencedFigure
+        /// Contents › Equations: a display equation, centered and highlighted, with Back.
+        case equation
     }
     let id = UUID()
     let locationKey: String
@@ -445,21 +447,11 @@ struct PaperView: View {
                 }
             }
             .sheet(isPresented: $showContents) {
-                NavigationStack {
-                    let nested = model.headings.contains { $0.depth > 0 }
-                    List(model.headings) { heading in
-                        Button {
-                            if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: heading.id) }
-                            showContents = false
-                        } label: {
-                            ContentsRow(heading: heading, nested: nested)
-                        }
-                        .accessibilityValue(nested ? "Level \(heading.depth + 1)" : "")
-                        // Outside the button, so its row (and the separator under it) starts at the text.
-                        .padding(.leading, CGFloat(heading.depth) * contentsIndent)
-                    }.navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
-                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
-                }.presentationDetents([.medium, .large]).macSheetKeys()
+                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle) { target, id in
+                    if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
+                    showContents = false
+                }
+                .macSheetKeys()
             }
             .sheet(isPresented: $showFigures, onDismiss: {
                 // After the gallery has gone, so the jump and its highlight are seen.
@@ -1070,6 +1062,7 @@ struct PaperWebView: UIViewRepresentable {
             let script = switch request.target {
             case .figure: "return window.__scienceReaderShowFigure(id,reduced);"
             case .referencedFigure: "return window.__scienceReaderShowFigure(id,reduced,true);"
+            case .equation: "return window.__scienceReaderShowEquation(id,reduced);"
             case .heading: "return window.__scienceReaderJumpToHeading(id,reduced);"
             }
             web.callAsyncJavaScript(script, arguments: ["id": request.headingID, "reduced": parent.reduceMotion],

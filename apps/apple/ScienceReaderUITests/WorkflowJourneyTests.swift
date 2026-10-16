@@ -515,13 +515,18 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Equation in a tapped equation's menu")
         item.tap()
         XCTAssertTrue(app.navigationBars["Equation (1)"].waitForExistence(timeout: 5), "The view is titled with the equation's number")
+        // Owner, build 59: the AI explains only when asked; Ask in chat is in view from the start.
         let symbol = app.descendants(matching: .any)["equation.symbol.1"]
+        XCTAssertFalse(symbol.waitForExistence(timeout: 2), "Nothing is asked of the AI on opening")
+        XCTAssertTrue(app.buttons["equation.askInChat"].isHittable, "Ask in chat is in view at once")
+        capture(app, "Equation view on opening")
+        app.buttons["equation.explain"].tap()
         XCTAssertTrue(symbol.waitForExistence(timeout: 8), "The symbols are described")
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].exists)
         XCTAssertTrue(app.staticTexts["equation.summary"].exists)
         XCTAssertTrue(app.buttons["equation.symbolSource.1"].exists, "a symbol the paper defines links to its paragraph")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "General meaning")).firstMatch.exists, "a symbol it doesn't is marked so")
-        XCTAssertTrue(app.staticTexts["equation.credits"].exists, "the credits used, quietly")
+        XCTAssertFalse(app.staticTexts["equation.credits"].exists, "no credit counts in the view (owner, build 59)")
         // Size and sideways scrolling.
         let size = app.staticTexts["equation.sizeValue"]
         XCTAssertEqual(size.label, "160 %")
@@ -587,6 +592,8 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(number.waitForExistence(timeout: 10)); number.tap()
         let item = app.revealEditMenuItem("Equation")
         XCTAssertTrue(item.exists); item.tap()
+        let explain = app.buttons["equation.explain"]
+        XCTAssertTrue(explain.waitForExistence(timeout: 5)); explain.tap()
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8))
         app.buttons["equation.background"].tap()
         let text = app.descendants(matching: .any)["equation.backgroundText"]
