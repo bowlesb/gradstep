@@ -1,0 +1,264 @@
+[
+  {
+    "id": "muon-explain",
+    "paper": "muon",
+    "type": "explain",
+    "question": "What problem does residual correction solve, and how do SMRC and PMRC use it differently?",
+    "figure": null,
+    "reference": "A gradient-derived low-rank subspace can become dominated by stochastic noise and discard useful true-gradient directions. Both methods keep momentum only in projected coordinates but add the current orthogonal residual gradient, QG with Q=I−PPᵀ, back to the update. SMRC uses the lifted projected momentum Pm; PMRC applies the matrix sign to projected momentum before lifting it. Thus the memory reduction concerns optimizer states, not a claim that all training tensors or updates are low rank. SMRC is analyzed with a virtual iterate, whereas the nonlinear matrix-sign update requires weighted momentum tracking for PMRC. Both attain order T^(−1/4), with PMRC using a mixed nuclear/Frobenius stationarity measure.",
+    "key_points": [
+      {
+        "point": "Noise can dominate a gradient-derived subspace and useful directions outside it are discarded.",
+        "paragraphs": [
+          8,
+          35,
+          37
+        ]
+      },
+      {
+        "point": "Both retain projected momentum and add QG rather than maintaining full-space momentum.",
+        "paragraphs": [
+          36,
+          37,
+          57,
+          60
+        ]
+      },
+      {
+        "point": "SMRC lifts m; PMRC lifts msign(M).",
+        "paragraphs": [
+          36,
+          57,
+          60
+        ]
+      },
+      {
+        "point": "The optimizer-state complexity is O((m+n)r), not the memory of the whole training job.",
+        "paragraphs": [
+          9,
+          92
+        ]
+      },
+      {
+        "point": "Virtual iterates for SMRC; weighted momentum tracking and mixed geometry for PMRC.",
+        "paragraphs": [
+          38,
+          61,
+          64
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claims residual momentum is stored in full dimension.",
+      "Claims all gradients or parameter updates are low rank.",
+      "Treats matrix sign as elementwise sign."
+    ],
+    "notes": ""
+  },
+  {
+    "id": "muon-derivation",
+    "paper": "muon",
+    "type": "derivation",
+    "question": "Starting from Algorithm 1 and the virtual iterate U_t, derive U_{t+1}−U_t for a fixed basis. Why does this help the analysis?",
+    "figure": null,
+    "reference": "Let c=(1−β)/β and Q=I−PPᵀ. Algorithm 1 gives m_t=(1−β)m_{t−1}+βPᵀG_t and W_{t+1}−W_t=−η(Pm_t+γQG_t). Substituting U_t=W_t−cηPm_{t−1} yields U_{t+1}−U_t=−η(1+c)Pm_t+cηPm_{t−1}−ηγQG_t. Since 1+c=1/β, the momentum-history terms cancel and the result is −η(PPᵀ+γQ)G_t. This auxiliary trajectory absorbs momentum and exposes a projected-plus-residual stochastic gradient step; U is only an analysis device. It does not make gradients evaluated at U_t or imply the two components evolve independently: G_t is still queried at W_t.",
+    "key_points": [
+      {
+        "point": "Correct m and W recurrences with the paper’s β convention.",
+        "paragraphs": [
+          36
+        ]
+      },
+      {
+        "point": "U_t uses m_{t−1}, not m_t, and c=(1−β)/β.",
+        "paragraphs": [
+          38,
+          40
+        ]
+      },
+      {
+        "point": "Substitution cancels historical momentum to give −η(PPᵀ+γQ)G_t.",
+        "paragraphs": [
+          36,
+          38
+        ]
+      },
+      {
+        "point": "U is not computed by the algorithm; residual updates still affect future gradients at W.",
+        "paragraphs": [
+          38
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Reverses the β and 1−β convention.",
+      "Drops the residual term or produces γPPᵀ instead of γQ.",
+      "Claims the oracle is queried at U_t."
+    ],
+    "notes": "The algebra is derived from the cited recurrences, not quoted as a separate theorem. Equivalent expressions −η[γI+(1−γ)PPᵀ]G_t are correct."
+  },
+  {
+    "id": "muon-false-premise",
+    "paper": "muon",
+    "type": "false_premise",
+    "question": "Since PMRC beats full-space Muon at every scale in Table 1, how large is its validation-loss improvement at 1.3B?",
+    "figure": null,
+    "reference": "The premise is false: Table 1 reports PMRC as best among the memory-efficient methods, not better than full-space Muon. At 1.3B, Muon validation loss is 2.495 and PMRC is 2.570, so PMRC is worse by 0.075, not improved. PMRC does improve over AdamW’s 2.613 by 0.043 and over GUM’s 2.656 by 0.086. This is a memory/quality tradeoff: Table 6 reports peak allocated GPU memory 53.44 GiB for PMRC versus 55.52 GiB for Muon. The table’s bold and underline comparison excludes the full-space methods.",
+    "key_points": [
+      {
+        "point": "Corrects the scope: best memory-efficient method, not every optimizer.",
+        "paragraphs": [
+          79,
+          85
+        ]
+      },
+      {
+        "point": "Muon 2.495, PMRC 2.570 at 1.3B validation, a 0.075 disadvantage.",
+        "paragraphs": [
+          79
+        ]
+      },
+      {
+        "point": "Memory tradeoff: 53.44 versus 55.52 GiB peak allocated GPU memory.",
+        "paragraphs": [
+          455
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Calls 0.075 a validation improvement.",
+      "Uses training losses 2.414 and 2.500 instead.",
+      "Calls peak allocated memory optimizer-state memory."
+    ],
+    "notes": ""
+  },
+  {
+    "id": "muon-detail",
+    "paper": "muon",
+    "type": "detail_deep",
+    "question": "What two changes does Appendix E.2.1 make for practical PMRC, and what settings and timing evidence are given?",
+    "figure": null,
+    "reference": "The practical variant caps the residual correction relative to the projected Muon direction, to control early loss fluctuations when the residual is too large. It uses γ̂=min{γ,ρ sqrt(||PZ||_F²/max(||R||_F²,ε))}, with ρ=4 and ε=10^(−30), retaining γ when the residual is already small. It also retains Muon’s inherited 0.2 sqrt(max{m,n}) learning-rate scaling and weight decay. The second change replaces exact SVD refreshes with a warm-started subspace approximation: row-normalize (P_prev)ᵀG, multiply G by its transpose, then orthonormalize using QR (implemented with SCQR). Table 3 measures roughly 3 ms per matrix versus roughly 58 ms for exact SVD on LLaMA-350M shapes on one RTX PRO 6000. That is projector-refresh latency, not an end-to-end training speedup.",
+    "key_points": [
+      {
+        "point": "Residual cap formula and rationale; does not always replace γ with a fixed constant.",
+        "paragraphs": [
+          442,
+          446
+        ]
+      },
+      {
+        "point": "ρ=4 and ε=10^(−30); shape scaling and decay inherited from Muon.",
+        "paragraphs": [
+          444,
+          447
+        ]
+      },
+      {
+        "point": "Warm-started row-normalization plus QR/SCQR substitutes for exact SVD.",
+        "paragraphs": [
+          448,
+          449,
+          450
+        ]
+      },
+      {
+        "point": "Around 3 versus 58 ms per matrix on the stated GPU, not full training.",
+        "paragraphs": [
+          451,
+          452
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Says SVD is computed exactly at each refresh.",
+      "Describes 19× faster total training.",
+      "Omits the min with γ or reverses the numerator and denominator."
+    ],
+    "notes": ""
+  },
+  {
+    "id": "muon-critical",
+    "paper": "muon",
+    "type": "critical",
+    "question": "Does Theorem 3 prove PMRC reaches a global minimum, and does its rate automatically apply to the practical capped implementation?",
+    "figure": null,
+    "reference": "No. Theorem 3 gives a time-averaged expected mixed stationarity measure, ||Pᵀ∇F||_*+||Q∇F||_F, of order T^(−1/4), not a global objective-optimality guarantee. It assumes L-smoothness, lower boundedness and unbiased stochastic gradients with bounded variance, a fixed orthonormal basis, and specified schedules β=Θ(T^(−1/2)), η=Θ(T^(−3/4)), γ=Θ(T^(1/4)), with Lηγ≤1. In nonconvex optimization stationarity need not identify a global minimum. Appendix E.2.1 changes the residual coefficient using a cap and uses an approximate basis refresh. The reported theorem is for Algorithm 3; one should not silently extend that exact guarantee to every practical modification without a separate argument. The practical experiments supply empirical evidence, not a proof of global optimality.",
+    "key_points": [
+      {
+        "point": "Mixed stationarity norm and time-averaged expectation, not objective gap/global minimum.",
+        "paragraphs": [
+          63,
+          64
+        ]
+      },
+      {
+        "point": "Smoothness, lower boundedness, unbiased bounded-variance gradients and orthonormal basis.",
+        "paragraphs": [
+          25,
+          27,
+          29,
+          63
+        ]
+      },
+      {
+        "point": "States β, η, γ schedules and stability condition correctly.",
+        "paragraphs": [
+          63
+        ]
+      },
+      {
+        "point": "Distinguishes Algorithm 3’s theorem from capped, approximately refreshed practical variant.",
+        "paragraphs": [
+          63,
+          81,
+          441,
+          446,
+          448
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claims convexity is assumed.",
+      "Claims convergence to a global minimum.",
+      "Claims the capped implementation has the exact theorem without justification."
+    ],
+    "notes": "The nonconvex stationarity/global-minimum distinction is mathematical interpretation. Do not penalize noting that approximate QR bases remain orthonormal; that alone does not prove the altered residual schedule."
+  },
+  {
+    "id": "muon-unanswerable",
+    "paper": "muon",
+    "type": "unanswerable",
+    "question": "How many US dollars did the complete 1.3B PMRC pretraining run cost? Please give the paper’s exact total.",
+    "figure": null,
+    "reference": "The paper does not report an exact dollar total for that run. It gives eight H20 GPUs, 20,480 steps, batch size 1,280, sequence length 1,024, and about 26.84 billion training tokens, but these do not determine dollars without wall-clock usage and an applicable GPU price. The approximately 3 ms projector-refresh measurements concern individual matrix shapes on another GPU and cannot be used as total training runtime. One can describe the compute setup or propose a separately labeled estimate if missing inputs are supplied, but must not invent an exact cost.",
+    "key_points": [
+      {
+        "point": "Explicitly says the exact dollar cost is unreported.",
+        "paragraphs": [
+          84,
+          454
+        ]
+      },
+      {
+        "point": "Identifies actual reported setup/tokens rather than fabricating money.",
+        "paragraphs": [
+          84,
+          454
+        ]
+      },
+      {
+        "point": "Explains runtime and GPU price are needed; projector latency is not run time.",
+        "paragraphs": [
+          451,
+          452
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Gives a fabricated exact price.",
+      "Treats 3 ms projector timing as the duration of a training step or whole run."
+    ],
+    "notes": "Negative fact checked across the full numbered paper; cited paragraphs identify available quantities, not a statement that cost was omitted."
+  }
+]

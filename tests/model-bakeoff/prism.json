@@ -1,0 +1,309 @@
+[
+  {
+    "id": "prism-explain",
+    "paper": "prism",
+    "type": "explain",
+    "question": "What exactly is \"precision forcing\" in this paper, and why would it help a VLA policy with things like submillimeter connector insertion?",
+    "figure": null,
+    "reference": "Precision forcing is the paper's training principle of supervising not only the demonstrated action but also the precision its execution requires, so learning concentrates on consequential errors and the policy can recognize from its input when high precision is needed [¶11]. It targets what the authors call Flow-Time Starvation: standard flow-matching training averages errors uniformly over contexts and flow times, so brief precision-critical moments (e.g. a 0.15 mm insertion) get little supervision even though the same normalized error is harmless in transport but decisive in alignment, and a tenfold tighter tolerance makes the squared tolerance-normalized consequence 100x larger [¶4, ¶10, ¶27]. Errors at different flow times also propagate unequally to the generated action, most strongly near the clean end (in this paper τ=0 is clean, τ=1 is noise) [¶10, ¶29, ¶53]. PRISM implements it with three training-only parts. PPS computes an offline frame-level demand label ρ ∈ [0,1] from proprioception (relative slowness of joint/end-effector motion × gripper engagement × gates) [¶57, ¶59–¶62]. PSW multiplies each sample's flow-matching loss by $w_i = 1 + \\gamma\\rho_i\\Psi_i$, with $\\Psi_i = (1-\\tau_i)^p(1-e^{-\\mathrm{SNR}_i/\\tau_0})$ emphasizing the clean end only once the action signal is visible; since $w_i \\in [1, 1+\\gamma]$ it adds supervision but never removes it [¶66–¶69]. CPR trains a small MLP head to predict ρ from pooled VLM features so the condition representation itself encodes precision demand, while PSW keeps using the offline ρ [¶71–¶74]. No sensors are added and the architecture and inference are unchanged [¶4, ¶21, ¶57]. It helps because the gradient budget shifts toward errors that matter: drive-insertion success rises 0.35→0.95 in the cumulative ablation [¶97] and mean MSSM success 0.38→0.87 (vs 0.65 for DAgger) [¶92], while general benchmarks are preserved or improved [¶89].",
+    "key_points": [
+      {
+        "point": "Precision forcing = supervising not just the demonstrated action but the precision its execution requires (concentrate learning on consequential errors and make precision demand recognizable from the policy's condition).",
+        "paragraphs": [
+          11
+        ]
+      },
+      {
+        "point": "Problem it fixes (Flow-Time Starvation): uniform flow-matching loss averaged across contexts and flow times under-supervises brief precision-critical moments; equal normalized errors have very different physical consequences under tight tolerances, and their effect on the executed action depends on flow time (largest near the clean end).",
+        "paragraphs": [
+          4,
+          10,
+          27,
+          53
+        ]
+      },
+      {
+        "point": "PPS: an offline, frame-level precision-demand label ρ ∈ [0,1] computed from robot proprioceptive trajectories (joint/end-effector slowness, gripper engagement, acquisition/quiescence gates), fixed before training.",
+        "paragraphs": [
+          57,
+          59,
+          61,
+          62
+        ]
+      },
+      {
+        "point": "PSW: per-sample loss weight w = 1 + γρΨ, where Ψ combines clean-end emphasis (1−τ)^p with an SNR visibility gate; w ∈ [1, 1+γ], so it only adds supervision and never down-weights other samples.",
+        "paragraphs": [
+          66,
+          67,
+          69
+        ]
+      },
+      {
+        "point": "CPR: an auxiliary MLP head predicts ρ from the pooled VLM condition representation (sigmoid output, squared-error loss, weight λ_CPR), shaping the representation to encode precision demand; PSW uses the offline ρ, not the prediction.",
+        "paragraphs": [
+          71,
+          72,
+          73,
+          74
+        ]
+      },
+      {
+        "point": "Training-only change: no new sensors and no inference-time module; architecture, ODE solver and inference are unchanged.",
+        "paragraphs": [
+          4,
+          21,
+          57,
+          75
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Describing precision forcing as teacher forcing, numerical/floating-point precision, or precision-vs-recall",
+      "Saying PRISM adds force/tactile sensors, new observation modalities, or a new inference-time module/architecture change",
+      "Saying PSW uses CPR's predicted ρ̂ (it uses the offline PPS label ρ)",
+      "Saying PSW down-weights routine/coarse samples (weights are ≥ 1; it only adds supervision)",
+      "Saying ρ comes from human annotation, images, or is learned online during training",
+      "Saying extra emphasis is placed near the noise end (τ≈1); in this paper τ=0 is clean and emphasis is at the clean end",
+      "Invented numbers (e.g. wrong success rates or hyperparameters)"
+    ],
+    "notes": "A learner-level answer need not give the formulas, but must convey the three components (PPS, PSW, CPR) correctly and that the change is training-only. Mentioning results is a plus, not required; if cited they must match (0.35→0.95 cumulative ablation on drive insertion; mean MSSM 0.38→0.87 / 38.3%→86.7%). Hyperparameters if mentioned: p=2, τ0=1, γ=3, λ_CPR=0.1 [¶87]."
+  },
+  {
+    "id": "prism-figure",
+    "paper": "prism",
+    "type": "figure",
+    "question": "In Figure 10, how much bigger is the endpoint sensitivity in the cleanest flow-time interval than in the noisier ones? And is the connector-insertion stage actually more sensitive than cable pickup?",
+    "figure": 28,
+    "reference": "In all three panels the cleanest interval (τ ∈ [0, 0.2], plotted at τ=0.1) has an endpoint sensitivity of about 0.06: roughly 0.060 for cable pickup, about 0.065 for bimanual handover, and about 0.061 for connector insertion. Every noisier interval sits below about 0.01: roughly 0.002–0.004 for pickup and insertion, and about 0.005–0.009 for handover. So the clean end is roughly an order of magnitude larger: about 7x for handover and about 15–30x for pickup and insertion. The two perturbation energies (0.0004 and 0.0025) give nearly overlapping curves. Handover is the only stage with a small non-monotone bump (near τ=0.5, about 0.008–0.009) and a wide bootstrap band (about 0.004–0.017). Elsewhere the curves are flat or slowly decreasing. Connector insertion is not more sensitive in these raw curves: its clean-end peak is essentially the same as cable pickup's and slightly below handover's. The curves are unweighted endpoint action MSE per unit perturbation energy [¶201, ¶202], and the clean-end response is similar across stages, which reflects a shared flow-time propagation effect [¶201]. The strong fine-stage dominance in Figure 2(b) comes from multiplying these responses by the inverse-tolerance ratios 1, 4.375 and 291.67 [¶201, ¶53]. In other words, it comes from the tolerances, not from insertion propagating errors more strongly.",
+    "key_points": [
+      {
+        "point": "From the image: the clean-end interval (τ≈0.1 / [0,0.2]) peak is ≈0.06 in every stage — pickup ≈0.060, handover ≈0.065 (highest), insertion ≈0.061.",
+        "paragraphs": [
+          202,
+          201
+        ]
+      },
+      {
+        "point": "From the image: all other intervals are below ≈0.01 (≈0.002–0.004 for pickup/insertion, ≈0.005–0.009 for handover), so the clean end is roughly an order of magnitude larger (≈7x for handover to ≈15–30x for pickup/insertion).",
+        "paragraphs": [
+          202
+        ]
+      },
+      {
+        "point": "Connector insertion is NOT more sensitive than cable pickup in raw (unweighted) terms; the peaks are about equal across stages, consistent with a shared flow-time propagation effect.",
+        "paragraphs": [
+          201,
+          202
+        ]
+      },
+      {
+        "point": "The two energy settings (0.0004 vs 0.0025) give nearly identical curves.",
+        "paragraphs": [
+          201,
+          202
+        ]
+      },
+      {
+        "point": "The fine-stage dominance shown in Figure 2(b) comes from weighting these responses by inverse-tolerance ratios 1, 4.375, 291.67 (tolerances 43.75, 10, 0.15 mm), not from larger raw sensitivity.",
+        "paragraphs": [
+          201,
+          53
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claiming the connector-insertion curve is much higher than cable pickup (e.g. tens or hundreds of times) — that confuses Figure 10 with the tolerance-weighted Figure 2(b) / 412.36 bar in Figure 2(a)",
+      "Saying sensitivity peaks at the noisy end (τ≈0.9 / τ=1); here τ=0 is clean",
+      "Saying the higher-energy (0.0025) curve is substantially higher or lower than the 0.0004 curve",
+      "Reading the peak as ~0.6 or ~0.006 (wrong order of magnitude) or other invented values",
+      "Claiming all three panels decrease monotonically with no feature (handover has a small bump near τ=0.5 with a wide band) — minor",
+      "Describing the y-axis as tolerance-weighted or Cartesian displacement (it is unweighted action-space MSE per unit energy)"
+    ],
+    "notes": "Image is legible at native ~1.46 MP. Tolerances: peaks ±0.005 (accept 0.055–0.07); low values ±0.003; the ratio may be stated anywhere from ~5x to ~40x or as 'about an order of magnitude'. x-axis points 0.1, 0.3, …, 0.9 are midpoints of five equal-width intervals [¶200], so 'τ∈[0,0.2]' and 'τ≈0.1' are both correct. Saying handover is marginally highest is correct but not required; saying the peaks are 'about equal' is acceptable. The handover bump is a minor point. The text alone says the clean end is largest; the specific magnitudes and per-stage comparison require the image."
+  },
+  {
+    "id": "prism-figure_layout",
+    "paper": "prism",
+    "type": "figure_layout",
+    "question": "Can you walk me through each part of Figure 3? I'm not sure how the pieces connect.",
+    "figure": 3,
+    "reference": "Figure 3 has two halves separated by a dashed line: (a) 'Offline precision estimation' on the left and (b) 'Precision forcing during VLA training' on the right [¶54]. In (a), three key frames of the drive-insertion task (cable pickup, bimanual handover, connector insertion) run along a time arrow above a 'Trajectory-derived signals' box with joint motion, end-effector motion and gripper engagement (a step-like on/off trace); joint and end-effector motion feed 'relative slowness' and gripper engagement feeds 'motion validity' [¶59–¶62]. These go into Proprioceptive Precision Scoring (PPS), which outputs the 'Offline Precision Demand ρ', drawn as two rows of key frames with colour strips on a Low (blue) → High (red) scale, the later near-drive/insertion strip being mostly yellow–orange (high) and the earlier one mostly blue–teal [¶57]. At the top of (b) is the VLA backbone: camera images pass through a Vision Encoder and, with the language instruction ('Insert the cable into the motor drive.') and 'Discretized State' tokens ([STATE] 79 66 212 …), are tokenized into the Vision Language Model, while an Action Expert takes the noisy action and produces the output action. The bottom-left CPR box pools the VLM prefix hidden states with a prefix padding mask (1/0) via mask-aware mean pooling into a pooled condition feature, and a Precision Predictor (Linear → SiLU → Linear → Sigmoid) outputs the predicted demand ρ̂, regressed onto ρ with a precision regression loss [¶71–¶72, ¶156]. The bottom-right PSW box turns the ground-truth action chunk's RMS plus the flow time into a flow-time visibility Ψ, which together with the offline precision demand ρ forms the precision weighting that multiplies the flow-matching loss L_FM from the output action, giving the precision-weighted loss [¶47, ¶66–¶68]. Both losses join in a 'Combined Training Objective' ($\\mathcal{L}=\\mathcal{L}_{PSW}+\\lambda_{CPR}\\mathcal{L}_{CPR}$), and neither changes inference [¶54, ¶57, ¶74].",
+    "key_points": [
+      {
+        "point": "Two parts: (a) offline precision estimation on the left and (b) precision forcing during VLA training on the right (from the image and caption).",
+        "paragraphs": [
+          54
+        ]
+      },
+      {
+        "point": "(a): drive-insertion key frames (cable pickup → bimanual handover → connector insertion) over time; trajectory-derived signals joint motion, end-effector motion and gripper engagement; joint/EE motion → 'relative slowness', gripper → 'motion validity'; PPS outputs offline precision demand ρ shown as colour strips under key frames (Low→High colormap). From the image.",
+        "paragraphs": [
+          54,
+          59,
+          62
+        ]
+      },
+      {
+        "point": "(b) top: VLA backbone with camera images through a vision encoder, a language instruction, and discretized state tokens into the Vision Language Model, plus a separate Action Expert that takes the noisy action and produces the output action. From the image.",
+        "paragraphs": [
+          54
+        ]
+      },
+      {
+        "point": "CPR path: prefix hidden states + padding mask → mask-aware mean pooling → pooled condition feature → precision predictor MLP (Linear–SiLU–Linear–Sigmoid) → ρ̂, trained against ρ with a precision regression loss.",
+        "paragraphs": [
+          54,
+          71,
+          72,
+          156
+        ]
+      },
+      {
+        "point": "PSW path: action RMS (from the GT action chunk) and flow time → flow-time visibility Ψ; combined with offline ρ into a precision weight that multiplies L_FM → precision-weighted loss. The offline ρ (not ρ̂) feeds PSW.",
+        "paragraphs": [
+          54,
+          57,
+          66,
+          73
+        ]
+      },
+      {
+        "point": "Both losses feed one combined training objective; both are training-only and inference is unchanged.",
+        "paragraphs": [
+          54,
+          57,
+          74
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Saying PSW's weight uses CPR's predicted ρ̂ instead of the offline ρ",
+      "Saying PPS is computed from camera images (it uses proprioceptive/trajectory signals; images in (a) are just key frames for context)",
+      "Describing the precision predictor as a transformer/attention head or a single linear layer, or omitting the sigmoid output",
+      "Saying CPR pools Action Expert features (it pools VLM prefix hidden states)",
+      "Inventing panels (c)/(d) or describing Figure 1's bar charts or Figure 5's panels as part of Figure 3",
+      "Saying the figure shows an inference-time precision module or that inference changes",
+      "Saying the combined objective includes a KL/contrastive term or more than one auxiliary loss"
+    ],
+    "notes": "Image is 2056x1029 (~2.1 MP); reference checked against the shipped browser preparation (1516×759, approximately 1.15 MP). Exact colour descriptions of the ρ strips need not match; describing them as 'colour-coded precision demand along the trajectory, higher near insertion' is sufficient. Describing the three camera images as 'multi-view observations' is fine. An answer that only paraphrases the caption, without the inner structure of the CPR and PSW boxes and the backbone inputs, should lose the corresponding key points."
+  },
+  {
+    "id": "prism-false_premise",
+    "paper": "prism",
+    "type": "false_premise",
+    "question": "Since PRISM's CPR precision predictor is what signals the action expert to be extra careful at test time, I assume CPR accounts for most of the improvement on drive connector insertion — how much of the gain does it give?",
+    "figure": null,
+    "reference": "Both assumptions are wrong. CPR is not used at test time: its MLP head and auxiliary labels are discarded after training, inference uses the unchanged backbone and ODE solver, and even during training PSW weights samples with the offline PPS label ρ rather than CPR's prediction ρ̂ [¶57, ¶73, ¶75]; CPR acts only indirectly, by shaping the VLM condition representation during training [¶71, ¶73]. CPR is also not the largest contributor. In the cumulative ablation on drive insertion (Table 4), CPR raises success 0.35→0.45 (+0.10; attempts 4.1→3.5), precision weighting (+ρ) gives the biggest jump 0.45→0.70 (+0.25), clean-end emphasis (+τ) adds +0.15 to 0.85, and SNR gating +0.10 to 0.95 [¶94, ¶95, ¶97]. So CPR accounts for about 0.10 of the 0.60 total gain, roughly one-sixth. The mechanism analysis agrees: CPR alone lowers overall residuals but worsens two lower-demand PPS bins, and only adding PSW improves every bin, so the authors describe the two as complementary [¶101]. Caveat: the increments are order-dependent (cumulative) and based on 20 real-robot trials [¶84].",
+    "key_points": [
+      {
+        "point": "CPR is training-only: the prediction head/auxiliary labels are discarded after training; there is no inference-time module and inference is unchanged.",
+        "paragraphs": [
+          57,
+          75
+        ]
+      },
+      {
+        "point": "PSW uses the offline PPS label ρ, not CPR's prediction ρ̂; CPR's prediction does not feed back into weighting.",
+        "paragraphs": [
+          57,
+          73
+        ]
+      },
+      {
+        "point": "Cumulative ablation: CPR adds only +0.10 (0.35→0.45); the largest increment is precision weighting +ρ (0.45→0.70, +0.25); then clean-end +τ (0.85) and SNR gating (0.95).",
+        "paragraphs": [
+          95,
+          97
+        ]
+      },
+      {
+        "point": "CPR alone worsens two lower-demand PPS bins; PSW is needed to improve every bin — CPR and PSW play complementary roles.",
+        "paragraphs": [
+          101
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Accepting that CPR runs at inference or conditions the action expert at test time",
+      "Accepting that CPR provides most of the gain, or stating any CPR-only success rate other than 0.45",
+      "Naming SNR gating or clean-end emphasis as the largest single increment (it is +ρ precision weighting, +0.25)",
+      "Saying PSW uses ρ̂",
+      "Inventing a non-cumulative per-component ablation (e.g. 'PSW alone gives X') that the paper does not report",
+      "Reporting the total gain incorrectly (it is 0.35→0.95 on drive insertion)"
+    ],
+    "notes": "The paper's text at ¶94 says the cumulative ablation is in 'Table 5', but the numbers are in Table 4 (¶95); Table 5 is the state-conditioning ablation. Do not penalize a model for citing either table name as long as the numbers are right. Ordering-dependence caveat and 'about one-sixth' framing are optional. Attempts: 4.1 → 3.5 (CPR) → 2.7 → 2.4 → 2.1 — optional."
+  },
+  {
+    "id": "prism-critical",
+    "paper": "prism",
+    "type": "critical",
+    "question": "How convincing is the evidence that PRISM really works? What do the experiments show, and what don't they show?",
+    "figure": null,
+    "reference": "What the experiments show: on three real-robot MSSM tasks, PRISM on π0.5 raises end-to-end success from 0.35/0.35/0.45 to 0.95/0.80/0.85 (mean 0.38→0.87) versus 0.65/0.60/0.70 for DAgger, with no extra demonstrations (DAgger adds 100 corrective ones per task) and shorter completion times [¶84, ¶91, ¶92]. In simulation, RLBench-10 means rise by +0.10 (StarVLA) and +0.12 (π0.5), and LIBERO averages are preserved or slightly improved [¶77, ¶87, ¶89]. Limits: the real-robot evidence is 3 tasks on one platform (Marvin dual-arm), one backbone (π0.5), and 20 trials per task per method, with no confidence intervals or repeated training seeds reported [¶80, ¶84, ¶91]. Large gaps such as 0.35→0.95 are unlikely to be noise, but 1–3-trial differences (e.g. 0.85→0.95 in the ablation, or the γ sweep) are within sampling error. Real-robot baselines are only π0.5 and π0.5+DAgger; force/tactile methods and other loss-reweighting schemes are discussed as related work but not compared head-to-head [¶84, ¶145, ¶148]. The ablations and γ study all use drive insertion, the reported hyperparameters are that task's configuration, and objects start at predefined locations [¶87, ¶94, ¶103, ¶186, ¶197]. LIBERO gains are small (+0.8/+0.6 points) near saturation, with slight per-suite drops (e.g. π0.5 Spatial 98.8→98.6) [¶87, ¶89]. Mechanism evidence is indirect: PPS is a behavioural proxy from proprioception rather than measured tolerance, the CPR–PPS correlation (Spearman 0.915) shows the network learns that proxy, and the 19-task PPS study is qualitative visualization [¶59, ¶63, ¶100, ¶158]. The theory is a linearized first-order bound approximated by a separable surrogate, and Figure 2(b) is a constructed tolerance-weighted proxy [¶35, ¶65, ¶201]. The authors' stated limitation is the two-stage workflow: PPS is computed offline before training, and learning it jointly is future work [¶105].",
+    "key_points": [
+      {
+        "point": "Real-robot scale: 3 MSSM tasks, one dual-arm platform, π0.5 backbone only, 500 demos and 20 trials per task per method; no confidence intervals/seeds reported, so small differences (1–3 trials) are not statistically meaningful though the large gains (e.g. 0.35→0.95, mean 0.38→0.87) are substantial.",
+        "paragraphs": [
+          80,
+          84,
+          91,
+          92
+        ]
+      },
+      {
+        "point": "Baselines on the real robot are only π0.5 and π0.5+DAgger (100 extra corrective demos/task); PRISM beats DAgger without extra data, but no force/tactile or alternative loss-reweighting (e.g. Min-SNR) methods are compared head-to-head.",
+        "paragraphs": [
+          84,
+          92,
+          145,
+          148
+        ]
+      },
+      {
+        "point": "Ablations (cumulative components, state conditioning, γ sweep) are all on drive connector insertion only; hyperparameters (p=2, τ0=1, γ=3, λ_CPR=0.1) are given for that configuration.",
+        "paragraphs": [
+          87,
+          94,
+          103,
+          197
+        ]
+      },
+      {
+        "point": "Simulation: clear RLBench-10 gains (+0.10/+0.12) but LIBERO is near saturation with small average gains (+0.8/+0.6 points) and slight per-suite drops, supporting 'preserves or improves' rather than large general gains.",
+        "paragraphs": [
+          77,
+          87,
+          89
+        ]
+      },
+      {
+        "point": "Mechanism/proxy caveats: PPS is a behavioural proxy (not physical tolerance); CPR–PPS correlation (0.915/0.931) shows proxy learnability; 19-task PPS evidence is qualitative; theory is linearized and the weighting is a separable surrogate.",
+        "paragraphs": [
+          59,
+          63,
+          65,
+          100,
+          158
+        ]
+      },
+      {
+        "point": "Stated limitation: two-stage workflow — PPS targets computed offline before training; joint learning left to future work.",
+        "paragraphs": [
+          105
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claiming results are averaged over multiple seeds or reported with confidence intervals/error bars (Table 3 has none; only the Figure 10 diagnostic has bootstrap intervals)",
+      "Stating trial counts other than 20 per task per method (e.g. 50 or 100 trials)",
+      "Claiming StarVLA was evaluated on the real robot, or that real-robot tests used multiple robot platforms",
+      "Claiming PRISM was compared head-to-head with ForceVLA/tactile methods or Min-SNR/P2 weighting",
+      "Claiming PRISM requires force/tactile sensors or changes inference",
+      "Saying the paper reports no limitations, or inventing limitations it does not state as stated ones (e.g. 'authors admit it fails on LIBERO')",
+      "Claiming PRISM lowered general-task averages on LIBERO or RLBench",
+      "Misreporting headline numbers (correct: mean 38.3%→86.7%; DAgger 65%)"
+    ],
+    "notes": "Judge on whether the answer balances real strengths (large real-robot gains over DAgger with no extra data; training-only change; general benchmarks preserved) with concrete limits. Not every caveat is required; an excellent answer hits sample size/trial count, single backbone/platform for real robot, limited baselines, single-task ablations, small LIBERO gains, proxy nature of PPS, and the stated two-stage limitation. Whether RLBench/LIBERO baseline numbers for other methods were reproduced or copied is not stated in the paper — do not reward claims either way. Evaluative judgments (e.g. 'likely beyond noise') are acceptable if framed as inference."
+  }
+]

@@ -2,6 +2,15 @@
 
 Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Default chat model evaluation (owner direction, 2026-10-16; evaluation pending)
+
+The owner prioritizes **intelligence per dollar**, including Chinese providers; integration and maintenance cost
+must not exclude a contender. The recovered conversation explicitly approves OpenRouter access and **up to $25
+for contestants plus grading**. Keep the default unchanged until a paper-specific comparison supplies evidence.
+The local harness uses a tighter $18 admission cap plus the existing $20 provider key limit. No operating-budget
+increase or customer-provider rollout follows from this research. Protocol, corrected assumptions and readiness:
+[model comparison](reviews/MODEL_COMPARISON_20261016.md). At takeover OpenRouter has $0 credit and no inference has run.
+
 ## Server paper copies deleted (owner decided 2026-10-16)
 
 "Yes, we can even delete them now, so it's obvious we have zero on our system": every historical paper copy on the

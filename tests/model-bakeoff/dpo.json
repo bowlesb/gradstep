@@ -1,0 +1,298 @@
+[
+  {
+    "id": "dpo-derivation",
+    "paper": "dpo",
+    "type": "derivation",
+    "question": "How do they get the gradient of the DPO loss in Section 4 (the one with the sigma weight in front) from the loss in Eq. 7? Can you show me the steps?",
+    "figure": null,
+    "reference": "Start from Eq. 7 [¶33] and write the per-example loss as $-\\log\\sigma(z)$ with $z=\\hat r_\\theta(x,y_w)-\\hat r_\\theta(x,y_l)$, where $\\hat r_\\theta(x,y)=\\beta\\log\\frac{\\pi_\\theta(y|x)}{\\pi_{ref}(y|x)}$ is the implicit reward [¶38]. By the chain rule, $\\nabla_\\theta\\log\\sigma(z)=\\frac{\\sigma'(z)}{\\sigma(z)}\\nabla_\\theta z$ (the form of Eq. 22, ¶171). The sigmoid identities $\\sigma'(z)=\\sigma(z)(1-\\sigma(z))$ and $1-\\sigma(z)=\\sigma(-z)$ [¶172] give $\\frac{\\sigma'(z)}{\\sigma(z)}=\\sigma(-z)=\\sigma(\\hat r_\\theta(x,y_l)-\\hat r_\\theta(x,y_w))$. Because $\\pi_{ref}$ does not depend on $\\theta$, $\\nabla_\\theta z=\\beta\\,[\\nabla_\\theta\\log\\pi_\\theta(y_w|x)-\\nabla_\\theta\\log\\pi_\\theta(y_l|x)]$. Together: $\\nabla_\\theta\\mathcal L_{DPO}=-\\beta\\,\\mathbb E\\big[\\sigma(\\hat r_\\theta(x,y_l)-\\hat r_\\theta(x,y_w))\\,(\\nabla_\\theta\\log\\pi(y_w|x)-\\nabla_\\theta\\log\\pi(y_l|x))\\big]$, which is the Section 4 gradient [¶37]. A descent step therefore raises the likelihood of $y_w$, lowers that of $y_l$, and weights each pair more heavily when the implicit reward ranks the dispreferred completion higher [¶38]. Caveat: Appendix A.4 as printed is not consistent with this. Its Eq. 21 [¶169] puts $y_l$ first inside the sigmoid (swapped relative to Eq. 7), and its final line [¶173] ends with weight $\\sigma(\\hat r_\\theta(x,y_w)-\\hat r_\\theta(x,y_l))$, the opposite of ¶37. The Section 4 form [¶37] is the correct gradient of Eq. 7.",
+    "key_points": [
+      {
+        "point": "Sets up the loss from Eq. 7 as $-\\mathbb E[\\log\\sigma(z)]$ with $z=\\hat r_\\theta(x,y_w)-\\hat r_\\theta(x,y_l)$ and $\\hat r_\\theta=\\beta\\log(\\pi_\\theta/\\pi_{ref})$",
+        "paragraphs": [
+          33,
+          38
+        ]
+      },
+      {
+        "point": "Applies the chain rule $\\nabla\\log\\sigma(z)=\\frac{\\sigma'(z)}{\\sigma(z)}\\nabla z$ and the identities $\\sigma'=\\sigma(1-\\sigma)$, $1-\\sigma(z)=\\sigma(-z)$, so the factor is $\\sigma(-z)$",
+        "paragraphs": [
+          171,
+          172
+        ]
+      },
+      {
+        "point": "$\\pi_{ref}$ has no $\\theta$-dependence, so $\\nabla_\\theta z=\\beta(\\nabla\\log\\pi_\\theta(y_w|x)-\\nabla\\log\\pi_\\theta(y_l|x))$, giving the leading $\\beta$",
+        "paragraphs": [
+          37,
+          173
+        ]
+      },
+      {
+        "point": "Final result: $\\nabla\\mathcal L_{DPO}=-\\beta\\,\\mathbb E[\\sigma(\\hat r_\\theta(x,y_l)-\\hat r_\\theta(x,y_w))(\\nabla\\log\\pi(y_w|x)-\\nabla\\log\\pi(y_l|x))]$, with the weight's argument ordered $y_l$ minus $y_w$",
+        "paragraphs": [
+          37
+        ]
+      },
+      {
+        "point": "Interpretation: gradient descent increases the likelihood of y_w and decreases that of y_l, weighted more when the implicit reward misorders the pair. A naive version without this weight degenerates (Table 3)",
+        "paragraphs": [
+          37,
+          38
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Ending with weight $\\sigma(\\hat r(x,y_w)-\\hat r(x,y_l))$ (copying Appendix A.4's printed final line ¶173) while claiming it equals the Section 4 gradient",
+      "Saying the weight is larger when the model already ranks the pair correctly",
+      "Dropping the leading $\\beta$, or differentiating through $\\pi_{ref}$ as though it depended on $\\theta$",
+      "A wrong sigmoid identity (e.g. $\\sigma'=\\sigma(1+\\sigma)$) or a sign error under which descent decreases the likelihood of y_w",
+      "Bringing in sampling from the policy, a learned reward model r_phi, or PPO into the gradient",
+      "Wrong equation references (e.g. calling the DPO loss Eq. 5 or Eq. 6, or saying the gradient derivation is in Appendix A.1/A.2)"
+    ],
+    "notes": "The main-text gradient (¶37, unnumbered) is the correct derivative of Eq. 7. Appendix A.4 (¶169–¶174) has a typo: Eq. 21 swaps y_w and y_l relative to Eq. 7, and the printed final expression (¶173) has weight sigma(r̂_w − r̂_l), which contradicts ¶37 even though ¶174 says it yields the Section 4 form. Flagging this discrepancy is a plus but not required. Reproducing the appendix's final weight as correct is a substantive error. Any notation is fine (e.g. writing 1−σ(z) instead of σ(−z)) as long as the final weight equals σ(r̂(y_l) − r̂(y_w)). Citing Eq. 22 for the chain-rule step is good but not required."
+  },
+  {
+    "id": "dpo-detail",
+    "paper": "dpo",
+    "type": "detail",
+    "question": "If I wanted to reproduce their DPO run on the Reddit TL;DR summarization task, what beta, optimizer, learning rate and batch size did they use?",
+    "figure": null,
+    "reference": "Appendix B [¶201] gives the defaults: $\\beta=0.1$, batch size 64, and RMSprop with learning rate 1e-6, warmed up linearly from 0 to 1e-6 over 150 steps. It then says that for TL;DR summarization they use $\\beta=0.5$ and keep the other parameters the same. The TL;DR run therefore used $\\beta=0.5$, RMSprop, learning rate 1e-6 with a 150-step linear warmup, and batch size 64. DPO fine-tuned the same GPT-J SFT model as PPO and Preferred-FT (CarperAI/openai_summarize_tldr_sft) [¶67, ¶72], and the authors say they did not meaningfully tune β [¶67]. The paper does not give the number of epochs or training steps for the TL;DR run.",
+    "key_points": [
+      {
+        "point": "beta = 0.5 for TL;DR summarization (an override of the default beta = 0.1)",
+        "paragraphs": [
+          201
+        ]
+      },
+      {
+        "point": "Optimizer is RMSprop with learning rate 1e-6",
+        "paragraphs": [
+          201
+        ]
+      },
+      {
+        "point": "Learning rate is linearly warmed up from 0 to 1e-6 over 150 steps",
+        "paragraphs": [
+          201
+        ]
+      },
+      {
+        "point": "Batch size 64 (same as the default)",
+        "paragraphs": [
+          201
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "beta = 0.1 for TL;DR (that is the default for other runs, not summarization)",
+      "Giving the IMDb sentiment beta sweep {0.05, 0.1, 1, 5} as the TL;DR setting",
+      "Adam or AdamW as the optimizer",
+      "Any learning rate other than 1e-6 (e.g. 5e-7, 1e-5)",
+      "Any batch size other than 64 (e.g. 32, 128), or confusing it with the PPO batch of 1024 samples per step from the IMDb setup (¶205)",
+      "Inventing epochs, training steps, weight decay, gradient accumulation, precision or hardware that the paper does not report"
+    ],
+    "notes": "All four required values are in ¶201. Mentioning the GPT-J SFT starting checkpoint (¶67, footnote 4 at ¶72) or that beta was not meaningfully tuned (¶67) is a plus, not required. An answer that says the number of TL;DR training epochs/steps is not reported is correct."
+  },
+  {
+    "id": "dpo-figure",
+    "paper": "dpo",
+    "type": "figure",
+    "question": "In the left plot of Figure 3 (Anthropic-HH dialogue), how does DPO compare with Best of 128 at each sampling temperature? The caption makes it sound like DPO is the only method above the 50% line. Is that what the plot actually shows?",
+    "figure": 3,
+    "reference": "The left panel plots GPT-4 win rate against the dataset's chosen responses at three sampling temperatures: 0.25, about 0.7 (just left of the 0.75 tick) and 1.0. The dashed line marks 0.5. DPO (yellow/gold) is about 0.37 at T=0.25, below the line. It is about 0.60 at T≈0.7 and about 0.63 at T=1.0. Best of 128 (green) is about 0.54 at 0.25, about 0.59–0.60 at 0.7 and about 0.61 at 1.0. Best of 128 clearly beats DPO at T=0.25. The two lines cross near T≈0.7, where they are essentially tied, and DPO is slightly higher at T=1.0, with error bars (about ±0.03) that overlap. Best of 128 is above 0.5 at all three temperatures, so the plot does not show DPO as the only method above 50%. The text's more precise claim is that DPO is the only computationally efficient method that improves over the preferred completions, with similar or better performance than the computationally demanding Best of 128 baseline [¶68]. Preferred-FT (pink, about 0.30/0.42/0.37) and 2-shot Pythia-2.8B (teal, about 0.16/0.25/0.21) are below 0.5 at every temperature. No PPO curve is plotted.",
+    "key_points": [
+      {
+        "point": "DPO is about 0.37 at T=0.25 (below 0.5), about 0.60 at T≈0.7 and about 0.63 at T=1.0, so its win rate rises with temperature",
+        "paragraphs": [
+          60
+        ]
+      },
+      {
+        "point": "Best of 128 is about 0.54 / 0.59–0.60 / 0.61 at T=0.25 / ≈0.7 / 1.0, above 0.5 at every temperature",
+        "paragraphs": [
+          60
+        ]
+      },
+      {
+        "point": "Best of 128 clearly beats DPO at T=0.25. They are roughly tied at T≈0.7, and DPO is only slightly ahead at T=1.0, within overlapping error bars",
+        "paragraphs": [
+          60,
+          68
+        ]
+      },
+      {
+        "point": "The 'only method' claim holds only with the text's qualifier: DPO is the only computationally efficient method that improves over the preferred completions. Best of 128 also exceeds 0.5 but is computationally demanding",
+        "paragraphs": [
+          62,
+          68
+        ]
+      },
+      {
+        "point": "Preferred-FT and Pythia-2.8B stay below 0.5 at all temperatures",
+        "paragraphs": [
+          60
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claiming DPO beats Best of 128 at every temperature, or that DPO is above 0.5 at T=0.25",
+      "Claiming Best of 128 is below the 0.5 line (taking the caption literally)",
+      "Saying DPO's win rate falls as temperature rises, or that its best temperature is 0.25 (that pattern belongs to the TL;DR plot in Figure 2)",
+      "Placing data points at T=0.0 or T=0.5 (this panel has points only at 0.25, ≈0.7 and 1.0)",
+      "Quoting TL;DR numbers (DPO ~61%, PPO ~57%) as dialogue results",
+      "Describing a PPO curve in this panel (none is plotted; the paper says the off-the-shelf PPO HH model did not beat base Pythia-2.8B, ¶68)"
+    ],
+    "notes": "Values were read from the image with pixel measurements. Tolerance is ±0.03 on each value. The middle temperature can be read as 0.7 or ~0.75: the points sit slightly left of the 0.75 tick, and Table 7 and Figure 3-right use T=0.7. At T≈0.7, any answer calling DPO and Best of 128 about equal is correct. At T=1.0, either 'DPO slightly higher' or 'about equal / within error bars' is acceptable, but 'Best of 128 clearly higher at 1.0' is wrong. The judge should reward answers that read the plot rather than repeating the caption."
+  },
+  {
+    "id": "dpo-false_premise",
+    "paper": "dpo",
+    "type": "false_premise",
+    "question": "Why did DPO generalize worse than PPO when they tested the summarization models on CNN/DailyMail news articles? Is it because PPO got to train on extra unlabeled prompts?",
+    "figure": null,
+    "reference": "The premise is backwards. In the out-of-distribution test (Section 6.3), DPO outperformed PPO on CNN/DailyMail. GPT-4 win rates against the ground-truth summaries were 0.36 for DPO vs 0.26 for PPO at temperature 0, and 0.31 vs 0.23 at temperature 0.25 (Table 1) [¶70, ¶71]. The authors say DPO 'continues to outperform the PPO policy by a significant margin' [¶70]. PPO did use additional unlabeled Reddit TL;DR prompts that DPO does not use, but DPO did better anyway, so that extra data was not a winning advantage here [¶70]. Evaluation reused the GPT-4 (C) prompt with 'forum post' replaced by 'news article', at the best TL;DR temperatures 0 and 0.25 [¶70]. Both methods still lose to the reference summaries (win rates below 0.5). The authors treat the result only as initial evidence and list out-of-distribution generalization and self-labeling with unlabeled prompts as open questions [¶78].",
+    "key_points": [
+      {
+        "point": "Corrects the premise: DPO beat PPO on CNN/DailyMail, not the reverse",
+        "paragraphs": [
+          70
+        ]
+      },
+      {
+        "point": "Table 1: DPO 0.36 vs PPO 0.26 at temp 0; DPO 0.31 vs PPO 0.23 at temp 0.25 (GPT-4 win rate vs ground-truth summaries)",
+        "paragraphs": [
+          71
+        ]
+      },
+      {
+        "point": "PPO used additional unlabeled Reddit TL;DR prompts that DPO did not, yet DPO still did better",
+        "paragraphs": [
+          70
+        ]
+      },
+      {
+        "point": "Setup: TL;DR-trained policies evaluated on CNN/DailyMail test articles with the GPT-4 (C) prompt ('forum post' -> 'news article') at temperatures 0 and 0.25",
+        "paragraphs": [
+          70
+        ]
+      },
+      {
+        "point": "Authors call this initial evidence; more comprehensive study of out-of-distribution generalization is needed",
+        "paragraphs": [
+          78
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Accepting the premise and explaining why DPO generalized worse",
+      "Wrong Table 1 numbers, or swapping the DPO and PPO rows",
+      "Claiming DPO beat the ground-truth summaries (both win rates are below 0.5)",
+      "Claiming DPO used the unlabeled prompts or that PPO did not",
+      "Claiming the paper establishes that DPO generalizes better in general (it calls this initial evidence)",
+      "Saying the evaluation used human raters or ROUGE instead of GPT-4"
+    ],
+    "notes": "The essential behavior is to correct the premise explicitly before anything else. Table 1 values should be cited exactly (rounding to ±0.01 is fine). Mentioning the GPT-4 (C) prompt detail or the ¶78 caveat is a plus."
+  },
+  {
+    "id": "dpo-unanswerable",
+    "paper": "dpo",
+    "type": "unanswerable",
+    "question": "How much less compute did DPO actually need than PPO in their experiments, e.g. GPU hours or wall-clock training time for the GPT-J summarization models?",
+    "figure": null,
+    "reference": "The paper does not report this. It gives no GPU hours, wall-clock times, hardware (GPU type or count), memory use, or measured speedup for DPO vs PPO on any task. Its compute claims are qualitative. DPO is 'computationally lightweight' and removes the need to sample from the LM during fine-tuning [¶4]. The RLHF pipeline trains multiple LMs and samples from the policy inside the training loop, at significant computational cost [¶9]. Best of N is computationally impractical or expensive because it samples N completions per query at test time [¶62, ¶223]. DPO is called the only computationally efficient method that improves over the preferred completions on Anthropic HH [¶68]. The nearest quantitative training details are hyperparameters (β, batch size 64, RMSprop, lr 1e-6, 150 warmup steps) [¶201] and fine-tuning-step curves showing DPO converging relatively quickly (Figure 3 right) [¶68]. The acknowledgements only say Stanford CRFM provided part of the compute [¶80].",
+    "key_points": [
+      {
+        "point": "States clearly that the paper reports no GPU hours, wall-clock time, hardware, memory or numeric DPO-vs-PPO speedup (Appendix B gives only hyperparameters; acknowledgements only credit CRFM for compute)",
+        "paragraphs": [
+          201,
+          80
+        ]
+      },
+      {
+        "point": "Paper's qualitative claim: DPO is computationally lightweight and needs no sampling from the LM during fine-tuning",
+        "paragraphs": [
+          4
+        ]
+      },
+      {
+        "point": "RLHF/PPO cost comes from training multiple LMs and sampling from the policy in the training loop",
+        "paragraphs": [
+          9
+        ]
+      },
+      {
+        "point": "Best of N is computationally expensive/impractical at test time, and DPO is described as the only computationally efficient method that beats the preferred completions on HH",
+        "paragraphs": [
+          62,
+          68,
+          223
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Any specific GPU-hour, wall-clock, cost or speedup figure attributed to the paper (e.g. 'DPO trained 3x faster')",
+      "Naming hardware (e.g. 'A100s', '8 GPUs', TPUs) as reported in the paper",
+      "Presenting a memory comparison (e.g. number of models held in memory) as a measured result from the paper",
+      "Treating Figure 3-right's fine-tuning-step curve as a wall-clock or compute comparison with PPO",
+      "Answering confidently without saying the paper does not report it"
+    ],
+    "notes": "Verified by searching the full text for GPU, A100, TPU, hour, wall-clock, FLOP, memory, speed and faster. The only 'GPU' is in the title of reference [27]. A good answer says the paper doesn't give it, then summarizes the qualitative claims with citations. General background (e.g. that PPO-based RLHF typically needs reward/value models and online generation) is acceptable only if it is clearly labeled as not from this paper."
+  },
+  {
+    "id": "dpo-visual",
+    "paper": "dpo",
+    "type": "visual",
+    "question": "Can you show me how a DPO training step works, from the preference data to the loss on one pair, as a diagram I can read on my phone?",
+    "figure": null,
+    "reference": "A correct visual is a short top-to-bottom flow. (1) An offline preference dataset $\\mathcal D=\\{(x,y_w,y_l)\\}$, either sampled from $\\pi_{ref}$ and labeled by humans or a reused public dataset [¶38]. (2) Two models: the trainable policy $\\pi_\\theta$ and a frozen reference $\\pi_{ref}$. $\\pi_{ref}=\\pi^{SFT}$ when available; otherwise it is obtained by maximum likelihood on the preferred completions [¶38]. (3) For each pair, compute the log-probabilities of $y_w$ and $y_l$ under both models [¶200]. (4) Form implicit rewards $\\hat r_\\theta(x,y)=\\beta\\log\\frac{\\pi_\\theta(y|x)}{\\pi_{ref}(y|x)}$ [¶38]. (5) Loss $-\\log\\sigma(\\hat r_\\theta(x,y_w)-\\hat r_\\theta(x,y_l))$, i.e. Eq. 7 [¶33]. In the paper's code this is `-F.logsigmoid(beta * (pi_logratios - ref_logratios))` [¶200]. (6) The gradient step raises $\\log\\pi_\\theta(y_w|x)$ and lowers $\\log\\pi_\\theta(y_l|x)$, weighted by $\\sigma(\\hat r_\\theta(x,y_l)-\\hat r_\\theta(x,y_w))$, which is larger when the implicit reward orders the pair wrongly [¶37, ¶38]. The visual should make clear that there is no separately trained reward model, no RL loop, and no sampling from the policy during training [¶4, ¶7, ¶26]. An optional side-by-side contrast is the RLHF pipeline: SFT → reward model (Eq. 2) → PPO on Eq. 3 [¶17–¶24].",
+    "key_points": [
+      {
+        "point": "Input is an offline preference dataset of (x, y_w, y_l). pi_ref = pi_SFT when available, otherwise trained by MLE on the preferred completions",
+        "paragraphs": [
+          38
+        ]
+      },
+      {
+        "point": "Both the trainable pi_theta and the frozen pi_ref score y_w and y_l (log-probabilities)",
+        "paragraphs": [
+          33,
+          200
+        ]
+      },
+      {
+        "point": "Implicit reward $\\hat r=\\beta\\log(\\pi_\\theta/\\pi_{ref})$ and loss $-\\log\\sigma(\\hat r(y_w)-\\hat r(y_l))$ (Eq. 7), with the correct sign and order",
+        "paragraphs": [
+          33,
+          38,
+          200
+        ]
+      },
+      {
+        "point": "The update increases the likelihood of y_w and decreases y_l, weighted by $\\sigma(\\hat r(y_l)-\\hat r(y_w))$, which is larger when the pair is mis-ordered",
+        "paragraphs": [
+          37,
+          38
+        ]
+      },
+      {
+        "point": "No explicit reward model, no RL/PPO, and no sampling from the policy during fine-tuning",
+        "paragraphs": [
+          4,
+          10,
+          26
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Including the training of a separate reward model, or a PPO/RL stage, as part of DPO",
+      "Showing completions sampled from pi_theta during training",
+      "Showing pi_ref being updated, or leaving pi_ref out entirely",
+      "A wrong loss: reversed difference (y_l minus y_w inside the log-sigmoid), missing beta, beta dividing the log-ratio, or the log/sigmoid dropped",
+      "Saying the per-example weight is larger when the model already ranks the pair correctly",
+      "A layout that can't be read on a phone (e.g. very wide tables or ASCII art that need horizontal scrolling)"
+    ],
+    "notes": "Any format (Mermaid, SVG, ASCII, numbered vertical flow) is fine if it is narrow and vertical. The RLHF contrast is optional. The paper states pi_theta is initialized to pi_SFT only for RLHF (¶24), not explicitly for DPO, so it is not required. Saying pi_theta starts from the SFT/reference model should not be penalized. The judge should weigh correctness of the components and the loss over visual polish."
+  }
+]

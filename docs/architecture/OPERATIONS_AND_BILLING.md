@@ -279,9 +279,30 @@ By account: the owner's testing $7.11; synthetic accounts (workflow checks, live
 whole paper written on a paper's first question, or the first after the 1-hour cache lapses) against 2.32 M cheap cache
 reads and 0.11 M output tokens; a cold figure walkthrough is ~35–60 credits (~$0.20–0.30), a warm one ~5.
 
-This is far less than a prepaid balance, so other usage shares it. Known: the staging key in `.env.providers` was
-copied from the NAS Science Reader project's provider file (`scripts/read-nas-provider-config.py`), so the NAS app's
-calls (if it still runs) draw on the same key; and Anthropic credits belong to the **organization**, so every
-workspace and key in it (other projects, any Claude Code use billed to the API) draws on the same balance. Our ledger
-cannot see those. Next steps (owner): read Console › Usage grouped by API key/workspace; give Science Reader staging its
-own workspace and key with a workspace spend limit, as this document's least-privilege rule already requires.
+**Evidence limit, corrected during takeover:** these figures do not establish what depleted the prepaid balance.
+We have not reconciled the opening balance, top-ups, provider invoice or direct development-script calls. The key's
+historical source was the NAS project file (`scripts/read-nas-provider-config.py`); that does not prove the NAS app
+is currently running or spending. No NAS access was performed during takeover. Organization-level billing and
+other API keys are possible contributors, not measured attribution. A Claude subscription quota is also distinct
+from the application's API balance. Reconcile Anthropic's Usage by key/workspace before assigning the missing spend.
+The $7.11/$4.53 account split is based on account-email patterns, not an independently audited classification.
+Cache token totals mix models, historical rates and cache durations, so multiplying all 2.54 M by today's Sonnet
+hourly-write price would not give a valid dollar breakdown. Dedicated Science Reader credentials remain required.
+
+
+## Model comparison reservation — 2026-10-16 takeover
+
+The owner approved OpenRouter and **up to $25 total including grading** in the recovered Claude conversation.
+Current experiment admission cap: **$18**; the existing provider-enforced, non-resetting key limit is **$20**.
+Read-only account check at takeover: purchased credit **$0**, provider usage **$0**, outstanding inference
+reservations **$0**. No recurring commitment was added, no inference was sent, and the $100/month operating
+budget is unchanged. The maximum planned experiment exposure is $18; a measured cost forecast and remaining
+monthly headroom must be reconciled before any later expansion. The initial cold/warm workload cost forecast
+remains unmeasured; list token prices are not an answer-cost forecast.
+
+`scripts/model-bakeoff.mjs` keeps an atomic per-request spend/hold ledger under `.artifacts/bakeoff/`, separate from
+the staging database ledger because these are local research calls through OpenRouter. Missing usage retains a
+full reservation, including after interruption; report actual and outstanding amounts together. The provider key
+limit is required in addition to local admission. Do not count an OpenRouter balance top-up as consumed model
+usage, or silently count this experiment as free just because it bypasses staging. See
+[comparison protocol](../reviews/MODEL_COMPARISON_20261016.md).

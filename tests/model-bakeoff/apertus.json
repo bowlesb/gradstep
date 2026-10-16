@@ -1,0 +1,255 @@
+[
+  {
+    "id": "apertus-detail_deep",
+    "paper": "apertus",
+    "type": "detail_deep",
+    "question": "For the main reinforcement-learning stage (the RL run that feeds the released models), what learning rate and clipping range did they use, and was there a KL penalty?",
+    "figure": null,
+    "reference": "Section 4.5 describes the RL stage but leaves its hyperparameters to Appendix G. There, the production RL stage uses AdamW with a learning rate of $1\\times10^{-6}$, asymmetric clipping of (0.2, 0.28), i.e. a lower clip of 0.2 and a higher upper clip of 0.28, and no KL penalty [¶702]. The same paragraph lists the rest of the setup: a fully asynchronous trainer on FSDP2 with FlashAttention-3, eight rollouts per prompt served by SGLang, leave-one-out advantage estimation, filtering of groups with zero reward variance, and geometric-mean loss aggregation. The 8B trains for 480 steps (about one million trajectories) and the 70B for 180 steps [¶702, ¶211]. The run also uses no length penalty [¶210]. Don't confuse this with the separate RL ablation of Section 4.7 (Table 12). That ablation used NeMo RL/GRPO with DAPO asymmetric clipping, no KL, and a constant learning rate of $2\\times10^{-6}$ [¶257].",
+    "key_points": [
+      {
+        "point": "The production RL learning rate is 1e-6 (AdamW).",
+        "paragraphs": [
+          702
+        ]
+      },
+      {
+        "point": "Clipping is asymmetric, (0.2, 0.28): lower 0.2, upper 0.28.",
+        "paragraphs": [
+          702
+        ]
+      },
+      {
+        "point": "There is no KL penalty in the production RL stage.",
+        "paragraphs": [
+          702
+        ]
+      },
+      {
+        "point": "Optional context: eight rollouts per prompt (SGLang), leave-one-out advantages, zero-variance group filtering, geometric-mean loss aggregation, fully asynchronous FSDP2 trainer; 480 steps for the 8B (~1M trajectories) and 180 for the 70B.",
+        "paragraphs": [
+          702,
+          211
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Gives the learning rate as 2e-6. That is the Section 4.7 RL ablation (Table 12, ¶257), not the production stage.",
+      "Gives 1e-7 (SDPO), 5e-6 or 2.5e-6 (online DPO) as the RL learning rate.",
+      "Claims a KL penalty (for example beta = 0.1, which is online DPO) or a length penalty in the RL stage.",
+      "Claims symmetric PPO clipping at 0.2 (or epsilon = 0.2 only), or invents other clip values.",
+      "Claims 12 or 16 rollouts per prompt (those are online DPO for the 8B and SDPO).",
+      "Says the report does not give the RL hyperparameters. Appendix G (¶702) gives them."
+    ],
+    "notes": "Answer location: Appendix G, ¶702, about 83% of the way through the text. Section 4.5 (¶209–¶215) describes RL without these numbers, and the Section 4.7 ablation (¶257) gives a different, distracting configuration (lr 2e-6, DAPO clipping without numbers). Full credit needs lr 1e-6, clip (0.2, 0.28) and no KL penalty. Extra correct details from ¶702 are fine. An answer that gives only the lr and clipping but omits the KL point loses a little."
+  },
+  {
+    "id": "apertus-synthesis",
+    "paper": "apertus",
+    "type": "synthesis",
+    "question": "I read that ordinary SFT wrecked the model's long-context retrieval. How big was the drop, what did they do to fix it, and by the end of post-training did the released 8B get back to its pre-SFT RULER score at the full ~256K-token context?",
+    "figure": null,
+    "reference": "SFT at 16,384 tokens biases attention toward local patterns. For the 8B, RULER at 262,144 tokens (the 256k column) fell from 54.8 for the long-context pretrained base to 8.3 after SFT, while short-context scores were unaffected [¶191, ¶330]. The 70B fell similarly, from 51.0 to 12.0 [¶330]. The fix was a dedicated long-context SFT stage at the full 262,144-token sequence length. Each model kept its SFT learning rate, held constant (6e-5 for the 8B, 1e-5 for the 70B), and the best checkpoint across context lengths was carried into RL [¶191]. Its mixture was about 30.3% long-context multimodal, 63.2% short-context multimodal, 5.4% short-context text and 1.0% long-context text, the last being synthetic CWE, DocOrder and needle tasks [¶193, ¶190]. Recovery was substantial but not complete at the longest length. For the 8B at 256k, RULER went 44.9 after long-context SFT, 48.8 after RL, 50.4 after DPO and 50.5 after SDPO (the released checkpoint), still about 4 points below the base's 54.8 [¶330]. At 8k–64k the post-trained 8B exceeds its base, and 128k is roughly level (61.1 vs 61.5) [¶330]. RL and preference optimization improved long-context scores even though neither trains on long documents [¶145, ¶329]. The released 70B is its DPO checkpoint (no SDPO) and reaches 45.6 at 256k against a base of 51.0 [¶231, ¶330].",
+    "key_points": [
+      {
+        "point": "After SFT at 16,384 tokens, the 8B's RULER at 262,144 (256k) tokens dropped from 54.8 to 8.3 (the 70B from 51.0 to 12.0); short-context scores were unaffected.",
+        "paragraphs": [
+          191,
+          330
+        ]
+      },
+      {
+        "point": "Fix: a dedicated long-context SFT stage at the full 262,144-token length, with the production SFT learning rate held constant (6e-5 for the 8B, 1e-5 for the 70B) and the best checkpoint selected for RL.",
+        "paragraphs": [
+          191
+        ]
+      },
+      {
+        "point": "The long-context SFT mixture is mostly multimodal (30.3% long-context multimodal, 63.2% short-context multimodal, 5.4% short text, 1.0% long text from synthetic CWE/DocOrder/ArtificialNeedles tasks).",
+        "paragraphs": [
+          193,
+          190
+        ]
+      },
+      {
+        "point": "8B RULER@256k recovers to 44.9 (long-context SFT), 48.8 (RL), 50.4 (DPO) and 50.5 (SDPO, released). That is below the base's 54.8, so recovery at the longest length is not complete.",
+        "paragraphs": [
+          330
+        ]
+      },
+      {
+        "point": "RL and preference optimization still raised long-context scores although neither stage trains on long documents.",
+        "paragraphs": [
+          145,
+          329
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claims the released 8B fully recovered or surpassed its base RULER score at 256k. It reaches about 50.5 vs 54.8; ¶329's word 'restores' is not literal at 256k.",
+      "Mixes up the numbers, e.g. gives the base as 54.8 for the 70B, or says the drop was to 12.0 for the 8B.",
+      "Says the fix was RoPE rescaling or more continued pretraining instead of a long-context SFT stage at 262,144 tokens.",
+      "Says long-context SFT used a new or decayed learning rate, or a 16k sequence length.",
+      "Claims the released 70B went through SDPO, or gives its final 256k score as anything other than about 45.6.",
+      "Claims RL or DPO trained on long documents."
+    ],
+    "notes": "The pieces are far apart: the drop and fix in Section 4.3 (¶190–¶193), the full recovery trajectory in Table 36 of Section 5.7 (¶330), RL/DPO helping long context in Section 3.4 (¶145), and which 70B checkpoint ships in ¶231. The '256k' column of Table 36 equals 262,144 tokens. If the answer treats the DPO checkpoint (50.4) as the 8B's final score, that is a minor slip only if it notes SDPO is the release. Whether the answer gives the mixture percentages is less important than the drop numbers, the fix and the 'not fully recovered at 256k' conclusion."
+  },
+  {
+    "id": "apertus-explain",
+    "paper": "apertus",
+    "type": "explain",
+    "question": "In plain terms, how did they turn the text-only Apertus 1.0 into a model that can read images and audio and reason? Walk me through the training recipe.",
+    "figure": null,
+    "reference": "Apertus 1.5 keeps the Apertus 1.0 architecture and continues training the 1.0 8B and 70B checkpoints. Images and audio enter only through the tokenizer [¶13, ¶107]. The Emu3.5 tokenizer turns each 16×16-pixel patch into one code from a 131,072-entry codebook (a 512×512 image becomes 1,024 tokens). WavTokenizer emits 40 audio tokens per second from a 4,096-entry codebook [¶47, ¶50]. These codes are added to the vocabulary (131,072 grows to 266,440 entries), so the transformer applies the same next-token objective with no vision or audio encoder in the forward pass [¶37, ¶40, ¶43]. Continued pretraining (about 4T tokens for the 8B, 2T for the 70B) runs in four stages [¶4, ¶107]:\n- Stage 1 trains on unpaired images, audio and text, with loss on all modalities.\n- Stage 2 trains on paired image–text and audio–transcript data, with loss on text only.\n- Stage 3 is a cooldown on higher-quality data, including some instruction data, still with text targets only.\n- A final extension grows the context from 8,192 to 262,144 tokens in four steps [¶124, ¶125, ¶126, ¶131].\n\nSo the models understand images and audio but only generate text; the released LM head drops the image and audio output rows [¶123, ¶124]. Post-training then runs SFT, long-context SFT, RL with verifiable rewards, DPO and SDPO charter alignment. The 70B ships without SDPO, and its DPO is offline then online, while the 8B uses online DPO only [¶15, ¶149, ¶219, ¶231]. In SFT, a reasoning trace is added only for prompts an auxiliary model fails in all eight attempts [¶163]. 'Thinking' is a chat-template flag that opens a reasoning span, not a separate model [¶22, ¶155].",
+    "key_points": [
+      {
+        "point": "Multimodality enters through discrete tokens in an extended vocabulary. The architecture is unchanged, there is no vision or audio encoder, and the same next-token objective is used; training continues from the Apertus 1.0 checkpoints.",
+        "paragraphs": [
+          13,
+          37,
+          40,
+          43,
+          107
+        ]
+      },
+      {
+        "point": "Images use the Emu3.5 tokenizer (one code per 16×16 patch, 131,072-code codebook); audio uses WavTokenizer (40 tokens/s, 4,096-code codebook).",
+        "paragraphs": [
+          47,
+          50
+        ]
+      },
+      {
+        "point": "Continued pretraining stages: (1) unpaired image/audio/text with all-modality loss, (2) paired data with text-only loss, (3) higher-quality cooldown with text-only loss, (4) long-context extension 8,192 → 262,144 tokens. About 4T tokens for the 8B, 2T for the 70B.",
+        "paragraphs": [
+          4,
+          111,
+          124,
+          125,
+          126,
+          131
+        ]
+      },
+      {
+        "point": "The models understand images and audio but output only text; image and audio tokens are prediction targets only in Stage 1, and the released head keeps only text rows.",
+        "paragraphs": [
+          123,
+          124
+        ]
+      },
+      {
+        "point": "Post-training: SFT → long-context SFT → RLVR → DPO → SDPO charter alignment. The 8B uses online DPO plus SDPO; the 70B uses offline then online DPO and ships without SDPO.",
+        "paragraphs": [
+          15,
+          149,
+          219,
+          231
+        ]
+      },
+      {
+        "point": "Reasoning: thinking is a per-request chat-template flag (reasoning span), not a separate model, and SFT gives reasoning traces only to prompts the auxiliary model fails at pass@8 (capability filtering).",
+        "paragraphs": [
+          22,
+          155,
+          163
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Says they use a CLIP/ViT-style vision encoder or a LLaVA-style projector. The report explicitly avoids encoders (¶38, ¶40, ¶46).",
+      "Says the models were trained from scratch rather than by continued pretraining of Apertus 1.0.",
+      "Says the models generate images or audio, or that image/audio tokens are prediction targets in all stages.",
+      "Says thinking is a separate model or checkpoint.",
+      "Says the 70B also went through SDPO, or that the 8B used offline DPO.",
+      "Gets the order of the paired/unpaired stages wrong (unpaired comes first), or invents an architecture change (e.g. new cross-attention layers)."
+    ],
+    "notes": "This is a learner-level overview, so the judge should reward clear structure (tokenizer, then four pretraining stages, then five post-training stages, plus the thinking flag) over exhaustive numbers. Exact codebook sizes and token counts are nice but not mandatory. The 8B/70B differences (SDPO, DPO variant) and the text-only output are the most commonly missed specifics. Note that ¶87 says the output projection is extended during training; ¶123 says the extra output rows are pruned in the release. Both are consistent with 'text-only output in the released model'."
+  },
+  {
+    "id": "apertus-figure",
+    "paper": "apertus",
+    "type": "figure",
+    "question": "Looking at the RL training curves (validation accuracy vs. optimizer step), which benchmark shows the biggest improvement for the 8B model during RL, roughly from what to what, and how does its final value compare with the 70B on that benchmark?",
+    "figure": 14,
+    "reference": "The figure is Figure 11. It shows validation accuracy with thinking off, mean@4 on 100-prompt subsamples, against optimizer steps on a log scale [¶212, ¶211]. The 8B's largest gain is on MATH500. It rises from about 4–5% at the first plotted point (step 10) to about 60–62% at the end of its run (about 480 steps), a gain of more than 50 points. The 70B starts much higher, at about 42%, and rises to about 64–65% by the end of its shorter run (about 180–200 steps). So the 8B finishes only a few points (about 2–5) below the 70B, after more than twice as many steps. The 8B curve is still rising at the end, consistent with the report's remark that the 8B scores show no plateau [¶211]. For comparison, the 8B's gains on the other panels are much smaller: IFbench about 20→42%, GSM8k about 65→85%, HumanEval about 39→57%, IFEval about 79.5→88%.",
+    "key_points": [
+      {
+        "point": "MATH500 is the benchmark with the biggest 8B gain in Figure 11.",
+        "paragraphs": [
+          212
+        ]
+      },
+      {
+        "point": "8B MATH500 goes from about 4–5% (first plotted point, step 10) to about 60–62% at the end (about 480 steps).",
+        "paragraphs": [
+          212,
+          211
+        ]
+      },
+      {
+        "point": "70B MATH500 goes from about 42% to about 64–65%, with its run ending around 180–200 steps.",
+        "paragraphs": [
+          212,
+          211
+        ]
+      },
+      {
+        "point": "The 8B ends a few points below the 70B and is still climbing (no plateau).",
+        "paragraphs": [
+          211
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Names IFbench, GSM8k, HumanEval or IFEval as the 8B's biggest gain.",
+      "Reports Table 26/23 numbers (e.g. MATH-500 43.2 → 47.0, or 51.2) as the values read from the curves. Those are full-benchmark evaluations, not this subsampled validation curve.",
+      "Says the 8B ends above the 70B on MATH500, or that the 70B starts near the 8B's level.",
+      "Gives values far outside the tolerances (e.g. the 8B starting at about 40% or ending at about 80%).",
+      "Claims the curves have plateaued for the 8B."
+    ],
+    "notes": "figure = 14 is the 14th entry in reader.json's figures array (paper Figure 11, ¶212). Tolerances: 8B MATH500 start 2–8%, end 57–64%; 70B start 38–46%, end (or peak) 61–67%; 'within a few points' covers a 0–7 point final gap. The x-axis is log-scaled and begins at step 10, so 'start' means the first plotted point; that wording is fine. The very low 8B start contrasts with the 43.2 MATH-500 of the SFT checkpoint in Table 26. The report does not explain this gap; the caption notes that validation relies on the verifiable answer tool and on 100-prompt subsamples. An answer may mention this but must not state an invented explanation as the report's."
+  },
+  {
+    "id": "apertus-unanswerable",
+    "paper": "apertus",
+    "type": "unanswerable",
+    "question": "Roughly how much did it cost in dollars to train Apertus 1.5, and what was its carbon footprint in tonnes of CO2?",
+    "figure": null,
+    "reference": "The report gives neither a monetary cost (no dollars, francs or price per GPU-hour) nor an emissions figure in tonnes of CO2. What it does report is compute and energy [¶370]:\n- Logged production segments total about 225,000 GPU-hours for the 8B continued-pretraining stages and 1.50 million for the 70B.\n- Including the long-context extensions, the total is about 2 million GPU-hours, or about 1.1 GWh at an assumed 560 W per GH200. That compares with about 5 GWh for the from-scratch Apertus 1.0 pretraining.\n- The estimate excludes post-training, evaluation, ablations and idle time. Over the whole project, 9 million GPU-hours were allocated, an estimated 5 GWh.\n\nFor emissions, it says only that Alps draws on carbon-free hydropower and is cooled with lake water in a closed cycle [¶370]. Training ran on Alps GH200 nodes (256 for the 8B, 512 for the 70B) [¶361], and the work was supported by a CSCS grant [¶418]. Any dollar or CO2-tonnage figure would be the answerer's own estimate, not something the report states.",
+    "key_points": [
+      {
+        "point": "The report gives no monetary training cost and no CO2 tonnage.",
+        "paragraphs": [
+          370
+        ]
+      },
+      {
+        "point": "It reports compute and energy instead: about 225,000 GPU-hours (8B continued pretraining), 1.50M (70B), about 2M GPU-hours total including long-context extension, about 1.1 GWh; post-training, evaluation, ablations and idle time are excluded.",
+        "paragraphs": [
+          370
+        ]
+      },
+      {
+        "point": "Over the whole project, 9M GPU-hours were allocated, about 5 GWh; Alps uses carbon-free hydropower and lake-water cooling.",
+        "paragraphs": [
+          370
+        ]
+      },
+      {
+        "point": "Hardware context: Alps GH200 nodes, 256 for the 8B and 512 for the 70B.",
+        "paragraphs": [
+          361
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "States any dollar, euro or CHF cost as if the report gave it (e.g. 'about $4M').",
+      "States a CO2 figure in tonnes as if reported, or claims the report quantifies emissions.",
+      "Presents a self-computed estimate (GPU-hours × assumed price) without clearly labeling it as outside the report.",
+      "Claims the 2M GPU-hours or 1.1 GWh covers the whole project including post-training.",
+      "Swaps the 8B and 70B GPU-hour figures, or invents GPU-hour or energy numbers."
+    ],
+    "notes": "Verified by searching the full text for $, USD, CHF, dollar, franc, euro, price, monetary, cost, carbon, CO2 and emission: none gives a training cost or an emissions tonnage. 'Cost' appears only in the token, compute or performance sense, and Table N.1 points to Section 6 for 'training emissions', which reports energy only. A good answer says the report doesn't state either figure and points to the GPU-hour and energy numbers and the hydropower note. Saying emissions are presumably low because of hydropower is acceptable if framed as the report's qualitative statement, not a number. A clearly labeled back-of-envelope dollar estimate should not be penalized heavily, but one presented as the report's figure should be."
+  }
+]

@@ -1031,8 +1031,10 @@ Owner, same day: "Are you sure Haiku 5.5 is really smart enough? are there other
 Prices re-read from the providers' own pages 2026-10-16 ($/M input · output): Haiku 5.5 0.10 · 0.50 (≤100k prompt);
 DeepSeek Flash 0.15 · 0.60 off-peak, 0.30 · 1.20 peak, image input; Gemini 3.8 Flash 0.75 · 3.75, doubling to
 1.50 · 7.50 on 2027-01-01, cache reads 0.075 plus 0.50/M per hour of storage; Gemini 3.5 Flash-Lite 0.30 · 2.50;
-Gemini 2.5 Flash-Lite 0.10 · 0.40 (older generation). No other provider is cheaper than Haiku for this workload, and
-each would be a new processor (consent, privacy label) and, for Gemini or OpenAI, a new adapter. Anthropic's pricing
+Gemini 2.5 Flash-Lite 0.10 · 0.40 (older generation). That initial shortlist was incomplete. The owner subsequently requested a broader quality-per-dollar evaluation,
+including Chinese providers, without using adapter maintenance as an exclusion criterion. The earlier claim that
+no provider is cheaper than Haiku is withdrawn; compare actual tokenization, reasoning, length tiers and cache
+charges on the same workload. A customer rollout would still need the corresponding consent and adapter. Anthropic's pricing
 page confirms Sonnet 5.5 cache reads at $0.10/M (the rate card is right). Third-party benchmark sites put Sonnet ahead on
 reasoning and nearly level on long-context reading, so Haiku's quality is measured on our tasks before it becomes the
 default: the four `--eval` questions plus harder DPO questions with known answers (a misconception to correct, the
@@ -1071,3 +1073,14 @@ is too low" at 17:09 UTC).
   Conversation and Last read with the paper as the second line.
 - Evidence: vitest; Playwright `chat-redesign`, `chat-controls`, `study` (desktop and phone) and the chat-adjacent
   journeys, against the local fixture backend only (no staging request from the browser yet).
+
+
+## Broader model comparison — 2026-10-16 takeover, unpaid
+
+The earlier under-$1 Haiku-only plan is superseded by the owner's OpenRouter evaluation authorization (up to $25,
+including judges). [Protocol and verified readiness](../reviews/MODEL_COMPARISON_20261016.md): 27 questions on five
+exact paper revisions; 13 settings across 11 models; the production prompt builder, actual browser figure
+preparation, blind grading, durable spend reservations and provider-side key limit. At this checkpoint all 27
+requests pass dry construction and all contestant routes pass catalogue checks, but **no paid answer or quality
+ranking exists** because available credit is zero. Sonnet remains the default. Neither recent publication dates
+nor first-party routing prove training-set exclusion or unquantized weights.

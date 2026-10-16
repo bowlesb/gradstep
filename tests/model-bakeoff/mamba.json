@@ -1,0 +1,287 @@
+[
+  {
+    "id": "mamba-explain",
+    "paper": "mamba",
+    "type": "explain",
+    "question": "Why does Mamba make Δ, B and C depend on the input? What does that actually buy the model, and what does it cost?",
+    "figure": null,
+    "reference": "Prior structured SSMs are linear time-invariant: $(\\Delta, A, B, C)$, and therefore $(\\bar A, \\bar B)$, are the same at every step, so the model cannot change what enters or stays in its state based on content [¶30-¶32, ¶51]. That is enough for vanilla Copying, which only needs time-awareness, but it fails Selective Copying and Induction Heads: there the spacing between relevant tokens varies, and a static convolution kernel cannot model it [¶51, ¶57]. The paper treats sequence modeling as compressing context into a small state, and argues that good compression needs selectivity, meaning the ability to focus on or filter out inputs [¶47, ¶52]. Mamba makes $\\Delta, B, C$ functions of the input: $s_B=\\mathrm{Linear}_N(x)$, $s_C=\\mathrm{Linear}_N(x)$, $s_\\Delta=\\mathrm{Broadcast}_D(\\mathrm{Linear}_1(x))$, $\\tau_\\Delta=\\mathrm{softplus}$. They gain a length dimension $L$, so the SSM becomes time-varying [¶55-¶56]. $\\Delta$ acts as a generalized RNN gate. A large $\\Delta$ resets the state and focuses on the current input; a small $\\Delta$ keeps the state and ignores the input. Selective $B$ and $C$ control what enters the state and what reaches the output. $A$ is left non-selective because it acts only through $\\bar A=\\exp(\\Delta A)$ [¶84-¶85, ¶93-¶95]. Selection is the decisive change. Without gating, Selective Copying accuracy rises from 18.3% (S4) to 97.0% (S6), and Mamba with S6 reaches 99.8%. In the LM ablation, perplexity falls from 10.93 with no selective parameters to 8.71 with all three, and $\\Delta$ matters most [¶119, ¶173, ¶179]. The cost: time-varying parameters break the equivalence to a global convolution, which is the efficient training path every prior SSM relied on. A naive recurrence would materialize a state of shape (B, L, D, N), N times larger than the input or output [¶32, ¶55, ¶61, ¶65]. The authors recover efficiency with a hardware-aware selective scan. A fused kernel loads $\\Delta, A, B, C$ from HBM into SRAM, discretizes and runs a work-efficient parallel scan there, and writes only the (B, L, D) output back. Intermediate states are recomputed in the backward pass, which keeps memory at FlashAttention-Transformer level [¶72-¶74, ¶368-¶373]. Training stays linear in L. The paper reports up to 3× faster than prior convolution-based methods on A100, and 20-40× faster than a standard PyTorch scan [¶11, ¶162].",
+    "key_points": [
+      {
+        "point": "Prior SSMs are LTI: Δ, A, B, C (and hence Ā, B̄) are fixed across time, so the state cannot be updated in an input-dependent way. Such models solve vanilla Copying (time-awareness) but fail Selective Copying and Induction Heads, whose variable spacing static convolution kernels cannot model.",
+        "paragraphs": [
+          30,
+          31,
+          32,
+          51,
+          57
+        ]
+      },
+      {
+        "point": "Selection makes Δ, B, C functions of the input (s_B = Linear_N(x), s_C = Linear_N(x), s_Δ = Broadcast_D(Linear_1(x)), τ_Δ = softplus). They gain a length dimension L and the SSM becomes time-varying, so the model can focus on or filter out inputs and compress context into its state.",
+        "paragraphs": [
+          10,
+          52,
+          55,
+          56
+        ]
+      },
+      {
+        "point": "Roles: Δ generalizes an RNN gate (large Δ resets the state and focuses on the current input; small Δ keeps the state and ignores the input). Selective B and C control whether an input enters the state and whether the state reaches the output. A is not made selective because it acts only through Ā = exp(ΔA).",
+        "paragraphs": [
+          84,
+          85,
+          93,
+          94,
+          95
+        ]
+      },
+      {
+        "point": "Evidence: Selective Copying accuracy rises from 18.3% (S4, no gate) to 97.0% (S6, no gate), and Mamba+S6 reaches 99.8%. In the LM ablation, perplexity goes from 10.93 with no selective parameters to 8.71 with Δ, B, C all selective; Δ is the most important single parameter.",
+        "paragraphs": [
+          119,
+          173,
+          179
+        ]
+      },
+      {
+        "point": "Cost: time-varying parameters lose the equivalence to a global convolution, the efficiency path all prior SSMs relied on. The recurrent alternative naively materializes a hidden state of shape (B, L, D, N), N times larger than the input and output (O(BLDN)).",
+        "paragraphs": [
+          32,
+          34,
+          55,
+          61,
+          65
+        ]
+      },
+      {
+        "point": "Fix: a hardware-aware selective scan. Kernel fusion loads Δ, A, B, C from HBM into SRAM, discretizes and runs a parallel scan there, and writes only the (B, L, D) output. Intermediate states are recomputed in the backward pass, giving FlashAttention-level memory. Cost stays linear in L; the paper reports up to 3× faster than prior methods on A100 and 20-40× faster than a standard PyTorch scan.",
+        "paragraphs": [
+          11,
+          72,
+          73,
+          74,
+          162,
+          368,
+          373
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Says Mamba makes the state matrix A input-dependent. The paper keeps A non-selective and explains why (¶94).",
+      "Says selective SSMs are still trained as a convolution/FFT, or that the convolution form is preserved after adding selection.",
+      "Says architectural (multiplicative) gating as in H3/Hyena already provides selection. The paper argues such gating does not act along the sequence axis and helps only partially (H3+S4 57.0%, Mamba+S4 56.4% on Selective Copying).",
+      "Says the fast kernel materializes the full (B, L, D, N) state in HBM, or that the speedup comes from approximating the recurrence.",
+      "Attributes quadratic cost or a KV cache to Mamba, or invents speedup/accuracy numbers not in the paper."
+    ],
+    "notes": "Must-haves are the LTI/Selective Copying motivation, input-dependent Δ/B/C making the model time-varying, the loss of the convolution form, and the hardware-aware scan (SRAM fusion, parallel scan, recomputation). Exact numbers (Table 1, Table 7, 3×, 20-40×) strengthen an answer but are not all required. Summary-level citations to ¶4 or ¶11 are acceptable. The pseudo-code of Algorithms 1-2 is garbled in ¶58-¶59, so answers must not invent algorithm lines beyond ¶55-¶56."
+  },
+  {
+    "id": "mamba-equation",
+    "paper": "mamba",
+    "type": "equation",
+    "question": "Can you walk me through equation (4)? What is it computing, and what does each symbol mean?",
+    "figure": null,
+    "reference": "Equation (4) is the zero-order hold (ZOH) discretization rule. It turns the continuous-time parameters $(\\Delta, A, B)$ into discrete ones: $\\bar A=\\exp(\\Delta A)$ and $\\bar B=(\\Delta A)^{-1}(\\exp(\\Delta A)-I)\\cdot\\Delta B$ [¶25-¶26]. $A$ ($N\\times N$, diagonal in practice) and $B$ ($N\\times 1$) define the continuous system $h'(t)=Ah(t)+Bx(t)$, $y(t)=Ch(t)$ (eq. 1), with latent state $h\\in\\mathbb{R}^N$. $\\Delta$ is the discretization step size (timestep), $I$ is the identity, and $C$ ($1\\times N$) is not discretized [¶23-¶24, ¶28, ¶33-¶34, ¶93]. The model computes with the resulting $\\bar A, \\bar B$, either as the recurrence $h_t=\\bar A h_{t-1}+\\bar B x_t$, $y_t=Ch_t$ (eq. 2) or as the equivalent convolution kernel $\\bar K=(C\\bar B, C\\bar A\\bar B,\\dots,C\\bar A^k\\bar B,\\dots)$ (eq. 3) [¶24, ¶28]. Mechanically, discretization is just the first step of the forward pass. It also links SSMs to continuous-time properties such as resolution invariance and proper normalization, and to RNN gating [¶27]. In Mamba, $\\Delta$ depends on the input, so eq. (4) yields a different $\\bar A_t, \\bar B_t$ at each step. A large $\\Delta$ resets the state and focuses on the current input; a small $\\Delta$ keeps the state and ignores the input. $A$ itself is not made selective because it enters only through $\\exp(\\Delta A)$ [¶93-¶94]. Worked example (Theorem 1, Appendix C): with $N=1$, $A=-1$, $B=1$, $\\Delta=\\mathrm{softplus}(\\mathrm{Linear}(x_t))$, ZOH gives $\\bar A_t=1-\\sigma(\\mathrm{Linear}(x_t))$ and $\\bar B_t=\\sigma(\\mathrm{Linear}(x_t))$. That is the gated recurrence $h_t=(1-g_t)h_{t-1}+g_t x_t$ [¶84-¶85, ¶357-¶364].",
+    "key_points": [
+      {
+        "point": "Eq. (4) is the zero-order hold (ZOH) discretization rule, Ā = exp(ΔA) and B̄ = (ΔA)^{-1}(exp(ΔA) − I)·ΔB. It maps the continuous parameters (Δ, A, B) to the discrete parameters (Ā, B̄).",
+        "paragraphs": [
+          25,
+          26
+        ]
+      },
+      {
+        "point": "Symbols: A (N×N, diagonal in practice) and B (N×1) parameterize the continuous system h'(t) = Ah(t) + Bx(t), y(t) = Ch(t), with latent state h ∈ R^N. Δ is the discretization step size/timestep, I is the identity, and C (1×N) is not discretized.",
+        "paragraphs": [
+          23,
+          24,
+          28,
+          33,
+          34,
+          93
+        ]
+      },
+      {
+        "point": "Ā and B̄ are then used in the discrete recurrence h_t = Ā h_{t−1} + B̄ x_t, y_t = C h_t (eq. 2), or equivalently in the convolution kernel K̄ = (CB̄, CĀB̄, …, CĀ^k B̄, …) (eq. 3).",
+        "paragraphs": [
+          24,
+          28
+        ]
+      },
+      {
+        "point": "In Mamba, Δ is input-dependent, so Ā and B̄ vary per time step. Large Δ resets the state and focuses on the current input; small Δ keeps the state and ignores the input. A affects the model only through Ā = exp(ΔA), so making Δ selective suffices.",
+        "paragraphs": [
+          93,
+          94
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Gives a different rule as eq. (4), e.g. Euler (Ā = I + ΔA), bilinear/Tustin, or B̄ = ΔB presented as what the paper's eq. (4) says.",
+      "Claims C is discretized (a 'C̄') or that eq. (4) computes the output y.",
+      "Describes Δ as a learning rate or a fixed hyperparameter. It is a learned discretization timestep, and in Mamba it is input-dependent via softplus.",
+      "Confuses eq. (4) with the recurrence (2) or the convolution kernel (3).",
+      "Claims the selection mechanism makes A input-dependent."
+    ],
+    "notes": "The display-math block in ¶24 is garbled in extraction (labels 1a/1b/2a/3b interleaved). Accept the paper's prose numbering: (1) continuous system, (2) recurrence, (3) convolution, (4) ZOH. Accept 'step size', 'timestep' or 'sampling interval' for Δ. Noting that exp is a matrix exponential (elementwise for diagonal A) is a fine extra, not required. The Theorem 1 worked example and the ¶27 remarks are strong bonuses, not required key points."
+  },
+  {
+    "id": "mamba-detail",
+    "paper": "mamba",
+    "type": "detail",
+    "question": "The paper says Mamba's selective SSM layer is as memory-efficient as a Transformer with FlashAttention. Concretely, how much activation memory per token does a selective SSM layer store, compared with an attention layer and an MLP layer?",
+    "figure": null,
+    "reference": "Each selective SSM layer stores about 16 bytes of activations per token [¶379]. In an optimized Transformer, an attention layer (FlashAttention) stores about 12 bytes per token and an MLP layer about 20 bytes per token, 32 bytes for the pair, assuming mixed-precision FP16/BF16 training [¶379]. So two selective SSM layers (about 32 bytes) use roughly the same activation memory as one attention layer plus one MLP layer. That is the basis for the claim that the selective SSM layer has the same memory requirement as an optimized FlashAttention Transformer [¶377, ¶379]. It fits Mamba's use of two blocks per Transformer 'layer' to match parameters [¶78]. It works through recomputation: the (B, L, D, N) intermediate scan states are not saved but recomputed in the backward pass, and cheap activations (activation-function outputs, the short convolution) are not stored [¶74, ¶376-¶377]. In the measured benchmark (125M models, length 2048, one A100 80GB), Mamba's training memory is comparable to a FlashAttention-2 Transformer and slightly higher, e.g. 38.2 GB vs 34.5 GB at batch size 32 [¶491, ¶497].",
+    "key_points": [
+      {
+        "point": "A selective SSM layer stores about 16 bytes of activations per token.",
+        "paragraphs": [
+          379
+        ]
+      },
+      {
+        "point": "An attention layer (with FlashAttention) stores about 12 bytes/token and an MLP layer about 20 bytes/token, 32 bytes total, assuming mixed-precision (FP16/BF16) training.",
+        "paragraphs": [
+          379
+        ]
+      },
+      {
+        "point": "Hence two selective SSM layers ≈ one attention + one MLP layer in activation memory. This is the basis of the 'same memory requirement as an optimized Transformer with FlashAttention' claim.",
+        "paragraphs": [
+          377,
+          379
+        ]
+      },
+      {
+        "point": "This relies on recomputation: the (B, L, D, N) intermediate scan states are not saved but recomputed in the backward pass, and cheap-to-recompute activations (activation outputs, short convolution) are also not stored.",
+        "paragraphs": [
+          74,
+          376,
+          377
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Gives numbers other than ~16 (SSM), ~12 (attention), ~20 (MLP), ~32 (attention+MLP) bytes per token, or swaps the attention and MLP figures.",
+      "Says the layer stores the full N-times-expanded (B, L, D, N) state for backprop.",
+      "Claims Mamba uses substantially less training memory than the FlashAttention Transformer. Table 15 shows comparable, slightly higher numbers for Mamba (e.g. 38.2 GB vs 34.5 GB at batch 32).",
+      "Answers only with the vague 'same memory as FlashAttention' claim, or discusses inference KV-cache memory instead of training activation memory."
+    ],
+    "notes": "Core answer: about 16 bytes/token per selective SSM layer, vs 12 (attention) + 20 (MLP) = 32 for a Transformer attention+MLP pair. The sentence starts in ¶377 and continues in ¶379 after Table 11 interrupts it, so finding it tests long-context reading. The paper says 'per token'. Do not penalize an answer that adds the caveat that this is per layer, or possibly per model-dimension element. Key point 4 (recomputation) and the Table 15 numbers are supporting details: reward them but do not fail an answer that gets points 1-3 right without them."
+  },
+  {
+    "id": "mamba-figure",
+    "paper": "mamba",
+    "type": "figure",
+    "question": "In the inference throughput chart, how many tokens per second does Mamba 1.4B reach at its largest batch size, and how does that compare with the best the Transformer 1.3B manages? Where does the '5× higher throughput' claim come from?",
+    "figure": 9,
+    "reference": "In the right panel of Figure 8, Mamba 1.4B (blue) throughput keeps rising with batch size, reaching about 1814 tokens/s at batch size 128 (about 1688 at 64 and 1445 at 32) [¶163]. Transformer 1.3B (orange) peaks at about 364 tokens/s at batch size 32 and is marked OOM (out of memory) at batch sizes 64 and 128. The '5×' figure therefore compares best achievable throughputs: about 1814 / 364 ≈ 5 [¶162-¶163]. At equal batch sizes the gap is smaller: about 140 vs 79 tokens/s at batch 1 (under 2×), and about 1445 vs 364 at batch 32 (about 4×). The paper's explanation is that Mamba has no KV cache, so it can run much larger batches [¶162]. The same pattern holds at the larger size. Transformer 6.7B (red) peaks at about 120 tokens/s at batch 16 and is OOM from batch 32. The untrained Mamba 6.9B (green) reaches about 515 tokens/s at batch 128, more than Transformer 1.3B's best, which matches the claim in ¶162 [¶162, ¶495]. Setup: prompt length 2048, 128 generated tokens, one A100 80GB, with the baseline Transformers from Hugging Face transformers [¶495-¶496].",
+    "key_points": [
+      {
+        "point": "Mamba 1.4B (blue) throughput rises with batch size, reaching ≈1814 tokens/s at batch size 128 (≈1688 at 64, ≈1445 at 32).",
+        "paragraphs": [
+          163
+        ]
+      },
+      {
+        "point": "Transformer 1.3B (orange) peaks at ≈364 tokens/s at batch size 32 and runs out of memory (OOM) at batch sizes 64 and 128.",
+        "paragraphs": [
+          162,
+          163
+        ]
+      },
+      {
+        "point": "The ~5× claim is the ratio of best achievable throughputs (≈1814 / 364 ≈ 5). At equal small batch sizes the gap is much smaller (batch 1: ≈140 vs ≈79 tokens/s, under 2×).",
+        "paragraphs": [
+          162,
+          163
+        ]
+      },
+      {
+        "point": "Reason: without a KV cache Mamba can use much larger batches. Transformer 6.7B (red) peaks at ≈120 tokens/s at batch 16 and is OOM from batch 32, while the untrained Mamba 6.9B (green) reaches ≈515 tokens/s at batch 128, above Transformer 1.3B's best.",
+        "paragraphs": [
+          162,
+          495
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Swaps colors or series, e.g. attributes the ~1800 tokens/s bars to a Transformer, or the green (Mamba 6.9B) bars to Transformer 1.3B.",
+      "Says Transformer 1.3B is OOM at batch 32, or that Transformer 6.7B runs at batch 32 or above.",
+      "Claims the 5× advantage holds at every batch size, including batch 1.",
+      "Reads the left panel (scan vs convolution vs attention time) or treats the chart as training throughput.",
+      "Calls the Mamba 6.9B a trained model; the paper says it is untrained.",
+      "States values from general knowledge instead of the chart, e.g. claims Mamba exceeds 2000 tokens/s or that Transformer 1.3B reaches ~500."
+    ],
+    "notes": "Figure index 9 in reader.json is Figure 8 (Efficiency Benchmarks); the question concerns its right panel. Printed bar labels for batch sizes 1, 2, 4, 8, 16, 32, 64, 128: Mamba 1.4B 140, 247, 441, 744, 1089, 1445, 1688, 1814. Transformer 1.3B 79, 132, 199, 265, 323, 364, OOM, OOM. Mamba 6.9B 58, 101, 172, 261, 364, 443, 490, 515. Transformer 6.7B 46, 66, 91, 109, 120, OOM, OOM, OOM. Accept values within ±5% when quoted from the labels, or ±10% when estimated from bar heights. The OOM batch sizes must be exact. Any reasonable explanation of '5×' as peak-vs-peak, or as roughly 4-5× at the Transformer's largest feasible batch, is acceptable. The text alone (¶162) says only '4-5×' and does not give per-batch values."
+  },
+  {
+    "id": "mamba-critical",
+    "paper": "mamba",
+    "type": "critical",
+    "question": "Does this paper actually show that Mamba beats Transformers across the board, at every model size and on every kind of data? What does the evidence support, and what limitations do the authors admit?",
+    "figure": null,
+    "reference": "No. The evidence is strong but bounded. The language-model results cover only small models: scaling laws at about 125M-1.3B parameters and pretrained models up to 2.8B. The authors say this is below the 7B+ scale of strong open LLMs, RWKV and RetNet, and that whether Mamba still compares favorably at larger sizes, and what engineering scaling would need, remains open [¶127, ¶130, ¶190]. Against the strong Transformer++ recipe, the scaling-law result is parity, 'the first attention-free model to match', with the edge appearing mainly as sequence length grows [¶121, ¶127]. In zero-shot evaluations Mamba is best-in-class at each size, and Mamba-2.8B matches models twice its size on average: 63.3 vs GPT-J-6B 63.0, OPT-6.7B 62.9, Pythia-6.9B 61.7. Those larger models still win individual tasks, e.g. GPT-J-6B on HellaSwag (66.3 vs 66.1) and WinoGrande (64.1 vs 63.5), and OPT-6.7B on PIQA (76.3 vs 75.2) [¶130]. Selection does not help on every modality. Under 'No Free Lunch' the authors note that it can impede performance where LTI SSMs excel. On raw audio waveforms, switching S4 to S6 significantly hampers performance, and the main audio experiment had to use the complex parameterization [¶154, ¶188, ¶475-¶478]. Many long-context wins exclude Transformers entirely. DNA context-length scaling compares only HyenaDNA and Mamba because attention is too expensive; attention on induction heads was tested only up to 2^14 because of memory; and Transformers were not tried in SC09's outer blocks [¶122, ¶140, ¶160]. The authors also list untested downstream affordances: fine-tuning, adaptation, prompting, in-context learning, instruction tuning, RLHF and quantization [¶189]. Efficiency claims carry caveats too. The scan beats FlashAttention-2 only beyond about 2K length, training memory is comparable to but slightly above an optimized Transformer, and the 6.9B throughput result uses an untrained model [¶162, ¶491, ¶495, ¶497].",
+    "key_points": [
+      {
+        "point": "Scale: LM evidence stops at small sizes (scaling laws ≈125M-1.3B; pretrained models up to 2.8B). The authors explicitly say this is below the 7B+ scale of strong open models, and that whether Mamba still compares favorably at larger sizes, plus the engineering scaling may need, is open.",
+        "paragraphs": [
+          127,
+          130,
+          190
+        ]
+      },
+      {
+        "point": "Against Transformer++ the scaling-law claim is parity ('first attention-free model to match'), with the edge mainly at longer sequence length. Mamba is best-in-class per size in Table 3, and Mamba-2.8B matches 2×-larger models on average (63.3 vs GPT-J-6B 63.0, OPT-6.7B 62.9, Pythia-6.9B 61.7), but larger models still win some tasks (e.g. GPT-J-6B HellaSwag 66.3 vs 66.1, WinoGrande 64.1 vs 63.5; OPT-6.7B PIQA 76.3 vs 75.2).",
+        "paragraphs": [
+          121,
+          127,
+          130
+        ]
+      },
+      {
+        "point": "Not every modality ('No Free Lunch'): selection that helps discrete data (text, DNA) can hurt where LTI SSMs excel. On raw audio waveforms S4→S6 significantly hampers performance, and the main audio experiment switched to the complex parameterization.",
+        "paragraphs": [
+          154,
+          188,
+          475,
+          477,
+          478
+        ]
+      },
+      {
+        "point": "Many long-context comparisons omit Transformers: DNA context-length scaling compares only HyenaDNA vs Mamba (attention too expensive); induction-heads attention models were tested only to 2^14 due to memory; Transformers were not tested in SC09's outer blocks.",
+        "paragraphs": [
+          122,
+          140,
+          160
+        ]
+      },
+      {
+        "point": "Authors flag untested downstream affordances: fine-tuning, adaptation, prompting, in-context learning, instruction tuning, RLHF and quantization.",
+        "paragraphs": [
+          189
+        ]
+      },
+      {
+        "point": "Efficiency caveats: the fused scan beats FlashAttention-2 only beyond ~2K sequence length; training memory is comparable to but slightly above an optimized Transformer (Table 15); the 6.9B throughput result uses an untrained model.",
+        "paragraphs": [
+          162,
+          491,
+          495,
+          497
+        ]
+      }
+    ],
+    "errors_to_penalize": [
+      "Claims the paper shows Mamba beating Transformers at 7B+ scale, or 'at every scale'.",
+      "Claims Mamba-2.8B beats every larger model on every benchmark.",
+      "Claims selection helps on all modalities including raw audio, or omits the continuous-signal/audio tradeoff when listing limitations.",
+      "Claims Transformers were benchmarked at million-length DNA or audio contexts.",
+      "Attributes to this paper limitations from later literature that it does not state, e.g. weaker associative recall/copying than Transformers, or MMLU and long-context retrieval failures.",
+      "Claims the paper evaluated instruction tuning, RLHF or quantization."
+    ],
+    "notes": "A good answer is balanced. Mamba matches or beats the tested baselines at the tested sizes and has strong DNA/audio-pretraining/long-context results, but the evidence does not support 'beats Transformers at every scale and on every task'. Full coverage of all six key points is not required for a high grade; points 1, 3 and at least one of 2/4 are the core. Acceptable extras: (a) Great Apes Table 13 shows Mamba is not better at short contexts (at 2^14 HyenaDNA 41.17% vs Mamba-1.4M 27.66%; at 2^12 28.43% vs 27.50%), with large wins only at long lengths (2^20: 54.87% vs 71.67% and 81.31%) [¶464]. (b) The hybrid Mamba-MHA is slightly better than pure Mamba [¶415]. (c) Mamba's DNA learning rate sat at the top of the sweep, so results may be suboptimal [¶451]. (d) The intro's stronger wording ('exceeds ... including very strong modern Transformer training recipes', ¶17) is in tension with 'match' in ¶127."
+  }
+]
