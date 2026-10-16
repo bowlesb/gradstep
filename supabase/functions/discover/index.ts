@@ -1,9 +1,10 @@
-// Authenticated arXiv search for the Library's "arXiv" segment and the Feed. Shares the
-// global arXiv request pacing with the paper pipeline.
+// Authenticated paper search for the Library's "ML paper search" segment (clients that don't search for
+// themselves) and the Feed. Requests to arXiv, while the switches still allow them, share the global arXiv pacing.
 //   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata); with `openalex_enabled` off (migration 072),
 //                   DataCite, ordered by paper-search.ts as the browser orders it, and no request to arXiv
 //   ?category=X     a Feed chip: from the shared pool when the feed switch serves this reader
-//                   (migrations 043/046, with topics and upvotes), else arXiv's live RSS as before
+//                   (migrations 043/046, with topics and upvotes), else the category's newest papers live:
+//                   from DataCite once the Feed's source is DataCite (migration 074), arXiv's RSS before
 //   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool, and
 //                   `feed.topics`, the reader's specific topic chips (feed-interests.ts)
 //   ?feed=topic&topic=NAME  one of those topics, ranked for the reader
@@ -22,7 +23,8 @@ import { FEED_RANKING_VERSION, poolResultV2, rankForYou, withDetails, type Candi
 import { compoundsParameter, interestTopics, resolveTopic, type TopicStats } from '../_shared/feed-interests.ts';
 import { displayTopics, feedTopics } from '../_shared/feed-topics.ts';
 import { DataCiteError, dataciteGet } from '../_shared/datacite.ts';
-import { runSearch, SearchNotFound } from '../_shared/paper-search.ts';
+import { dataCiteCategoryURL } from '../_shared/feed-datacite.ts';
+import { parseDataCiteSearch, runSearch, SearchNotFound } from '../_shared/paper-search.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('discover');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
@@ -94,9 +96,23 @@ Deno.serve(async request => {
       }
     }
     const query = params.get('q') ?? '';
+    // The switches (migrations 072/074); unreadable switches keep the earlier behaviour.
+    const policy = await service.rpc('worker_search_policy');
+    const switches = policy.error ? null : policy.data as { openalex?: unknown; feed_source?: unknown } | null;
+    if (recent && category && switches?.feed_source === 'datacite') {
+      // A chip the pool doesn't answer: the category's newest papers of the last week from DataCite, never arXiv.
+      let found;
+      try {
+        found = parseDataCiteSearch(await dataciteGet(dataCiteCategoryURL(category, new Date().toISOString().slice(0, 10)),
+          { signal: AbortSignal.timeout(10_000) })).slice(0, 25);
+      } catch { throw new PublicError(503, 'search_unavailable'); }
+      const known = forYou ? new Map((await details(service, found.map(result => result.source_id)) ?? []).map(detail => [detail.source_id, detail.upvotes])) : null;
+      const results = found.map(({ citations: _, full_abstract, abstract_truncated, ...rest }) => ({ ...rest,
+        ...(fullAbstracts ? { full_abstract, abstract_truncated } : {}), ...(known ? { upvotes: known.get(rest.source_id) ?? null } : {}) }));
+      return Response.json({ results, ...(forYou ? { feed: { for_you: true } } : {}) }, { headers });
+    }
     if (!recent) {
-      const policy = await service.rpc('worker_search_policy');
-      if (!policy.error && (policy.data as { openalex?: unknown } | null)?.openalex === false) {
+      if (switches?.openalex === false) {
         let found;
         try {
           found = await runSearch('datacite', query, async ask => {

@@ -1,0 +1,527 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.2610.20542",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20542",
+    "titles": [
+     {
+      "title": "The quasi-convex Rockafellar theorem"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Luigi",
+      "familyName": "De Pascale",
+      "name": "De Pascale, Luigi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Paul",
+      "familyName": "Pegon",
+      "name": "Pegon, Paul",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Rockafellar showed that every cyclically monotone operator is contained in the subdifferential of a convex function, and characterized the maximal ones. We establish the quasi-convex analogue of this theorem, with no assumption on the operator: in any separable Banach space, a setting we show to be sharp, every cyclically quasi-monotone operator is contained in the normal cone operator of a quasi-convex function. In finite dimension, we characterize maximal cyclically quasi-monotone operators and show that they are maximal quasi-monotone. Unlike in the convex case, the potential is not unique, and we build it from a preference relation obtained through successive preorders. As applications, we extend Afriat's theorem on revealed preferences in economics to infinite data sets, and obtain Kantorovich-type potentials for a supremal optimal transport problem."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "32 pages"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Optimization and Control (math.OC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Functional Analysis (math.FA)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Mathematics",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "subject": "Primary 26B25, 47H05, Secondary 49J52, 49Q22, 91B08, 91B16",
+      "lang": "en",
+      "subjectScheme": "MSC"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:36:17Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:34:39Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:03:34Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20539",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20539",
+    "titles": [
+     {
+      "title": "A Decomposition-Based Data-Driven Branch-and-Bound Approach for Black-Box Global Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Damilola",
+      "familyName": "Fasiku",
+      "name": "Fasiku, Damilola",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wentao",
+      "familyName": "Tang",
+      "name": "Tang, Wentao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Many scientific and engineering applications require the global optimization of expensive black-box functions. In high-dimensional settings, however, achieving computational scalability is a major challenge. To address this challenge, we propose a distributed spatial branch-and-bound framework that exploits partially separable structure for the global optimization of box-constrained black-box problems. The proposed framework adopts a two-layer structure in which branching is performed only on a lower-dimensional set of coupling variables in an outer layer. Within each outer node, the remaining non-overlapping (private) variables, which appear independently across blocks, have their domains partitioned and explored in parallel within an inner layer, resulting in a naturally parallelizable framework that is well suited for implementation on multi-core CPU architectures. At each node, valid upper bounds are obtained via sampling, with optional refinement using a local solver, while lower bounds are computed using data-driven convex underestimators constructed over partitions of the private variables. A residual-based correction and finite-sample validity analysis provide conditions under which the partitionwise underestimators are valid lower bounds, while the proposed branching and refinement mechanism establishes convergence to an $ε$-global optimum. Numerical studies on benchmark and ODE-constrained parameter-estimation problems demonstrate improvements in both sampling efficiency and computational performance relative to monolithic approaches."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Optimization and Control (math.OC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Mathematics",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:33:19Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:34:28Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:03:30Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20422",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20422",
+    "titles": [
+     {
+      "title": "On the Complexity of Linear Programs with Parametric Constraint Matrices"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Laurie",
+      "familyName": "Boveroux",
+      "name": "Boveroux, Laurie",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Margarida",
+      "familyName": "Carvalho",
+      "name": "Carvalho, Margarida",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Andrea",
+      "familyName": "Lodi",
+      "name": "Lodi, Andrea",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Quentin",
+      "familyName": "Louveaux",
+      "name": "Louveaux, Quentin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "While sensitivity analysis for linear programs with parametric right- hand side vectors is well established, cases involving parametric constraint matrices remain less explored. To address this gap, we investigate linear programs where the constraint matrix depends linearly on a scalar parameter. Our goal is to compute the minimum and maximum optimal values of these parametric linear programs within a fixed parameter range. This corresponds to solving two bilevel programs. We show that both decision versions of these optimization problems are NP-complete by proving both NP-hardness and membership in NP. We additionally identify three sufficient conditions on the parametric matrix under which the bilevel programs are no longer NP-hard. We introduce a reformulation for both problems, together with a Farkas-based certificate for the lower-level feasibility condition, and compare the execution time for solving them on standard benchmark instances. The experiments highlight a practical dichotomy. Although both bilevel optimizations are NP-hard, computing the parameter value corresponding to the minimum of the linear program is fast, whereas computing the value corresponding to the maximum is not. We relate this asymmetry to the parametric equality constraints, whose free dual variables leave the relaxation of the maximum reformulation unbounded."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Optimization and Control (math.OC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Computational Complexity (cs.CC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Mathematics",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T16:15:45Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:28:57Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:00:49Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20420",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20420",
+    "titles": [
+     {
+      "title": "Dual-Inertial Bregman Methods with Energy-Based Safeguarding"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Kangming",
+      "familyName": "Chen",
+      "name": "Chen, Kangming",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "We develop a dual-inertial framework for convex optimization that introduces inertia in dual coordinates while retaining the Bregman proximal-type oracles. For unrestarted iterations, uniformly bounded positive directional variation gives a last-iterate $\\cO((1+\\log k)/k^2)$ rate, improving to $\\cO(k^{-2})$ under additional weighted summability. A computable safeguarded algorithm gives a global $\\cO(N^{-1})$ objective-gap bound for the best accepted point, where $N$ counts all proximal oracle calls. Under local strong-convexity and kernel regularity conditions, all three safeguarded methods restart finitely and attain a final-epoch last-iterate $\\cO(N^{-2})$ rate. Numerical experiments compare objective accuracy and computational cost on entropy regression and nonnegative least squares. Comparative numerical experiments illustrate the performance advantages of the proposed methods."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Optimization and Control (math.OC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Mathematics",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "subject": "90C25, 90C30, 49M37, 65K05, 68Q25",
+      "lang": "en",
+      "subjectScheme": "MSC"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T16:15:02Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:28:55Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:00:46Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20416",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20416",
+    "titles": [
+     {
+      "title": "Tracking a Small Set of Experts in Online Convex Optimization"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Angelos",
+      "familyName": "Assos",
+      "name": "Assos, Angelos",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Anand",
+      "familyName": "Brahmbhatt",
+      "name": "Brahmbhatt, Anand",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Elad",
+      "familyName": "Hazan",
+      "name": "Hazan, Elad",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "For the fundamental problem of prediction from expert advice, Freund asked whether one could compete with a comparator that switches $k$ times among only $m$ experts. For a discrete set of experts, this problem was resolved by Bousquet and Warmuth (2020), who gave an efficient algorithm with optimal regret matching the information-theoretic limit.\n We study the analogous problem in online convex optimization, where the action space is continuous. An inefficient algorithm can be derived by discretizing the action space and applying the Bousquet--Warmuth algorithm, giving regret of $\\widetilde{O}(md+k)$, while the best known efficient algorithm for this problem has regret $\\widetilde{O}(dk)$. We show that this computational inefficiency is inherent, establishing a separation between the information-theoretic and polynomial-time regret achievable for this problem. Specifically, under the hypergraphic planted-clique conjecture, we show that for every polynomial-time algorithm there exist instances for which it incurs at least $(k\\sqrt d)^{1-o(1)}$ regret."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Optimization and Control (math.OC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (stat.ML)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "subject": "FOS: Mathematics",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T16:13:03Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:28:45Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:00:40Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20413",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20413",
+    "titles": [
+     {
+      "title": "When Does Momentum Help in Reinforcement Learning with Verifiable Rewards?"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Kaifei",
+      "familyName": "Wang",
+      "name": "Wang, Kaifei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zikang",
+      "familyName": "Shan",
+      "name": "Shan, Zikang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Liwei",
+      "familyName": "Wang",
+      "name": "Wang, Liwei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yinyu",
+      "familyName": "Ye",
+      "name": "Ye, Yinyu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Han",
+      "familyName": "Zhong",
+      "name": "Zhong, Han",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Momentum is a classical tool for accelerating convex optimization and a standard component of modern large language model training. Yet recent empirical work has questioned the usefulness of first-moment momentum in reinforcement learning with verifiable rewards (RLVR). We study this question through a bandit formulation of RLVR with bias-corrected exponential moving average (EMA) momentum, where the EMA coefficient $β$ controls how quickly the weights on past gradients decay. When policy gradients are evaluated exactly, we prove that increasing $β$ within a range that prevents overshoot strictly accelerates optimization. When gradients are estimated from sampled responses, a positive expected gain can be obscured by sampling fluctuations. We show that as the learning rate $η$ decreases, the expected gain with fixed $β$ vanishes faster than these fluctuations, whereas increasing $β$ to keep $η/(1-β)$ within the safe regime preserves a nonvanishing gain that eventually dominates them. Bandit simulations quantitatively validate these predictions. RLVR experiments on Qwen3-4B-Base using SGD with EMA and AdamW support our principle of choosing larger coefficients in practical LLM post-training. On Qwen2.5-32B with AdamW, simply increasing $β_1$ improves mean validation accuracy by nearly $2$ percentage points over the conventional choice, demonstrating the principle's effectiveness at a larger model scale."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Optimization and Control (math.OC)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (stat.ML)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     },
+     {
+      "subject": "FOS: Mathematics",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T16:11:14Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:28:42Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:00:36Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 317,
+  "totalPages": 13,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=%28subjects.subject%3A%22math.OC%22%29+AND+created%3A%5B2026-10-08T00%3A00%3A00Z+TO+*%5D&provider-id=arxiv&sort=-created&page%5Bsize%5D=25&page%5Bnumber%5D=1&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2Ccreated%2CpublicationYear%2CcitationCount"
+ }
+}
