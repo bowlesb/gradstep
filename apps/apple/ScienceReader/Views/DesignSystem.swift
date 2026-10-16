@@ -192,3 +192,42 @@ struct ChipLabel: View {
         .frame(minHeight: 44).contentShape(Rectangle())
     }
 }
+
+/// An ⓘ just to the right of a row's words (owner, build 57: "Extra info, ie descriptive sentences should be available
+/// when an info icon is clicked on… typically just to the right of text on a row"): the explanation in a popover, which
+/// is a small bubble on iPhone too.
+struct InfoButton: View {
+    let text: String
+    var identifier: String? = nil
+    @State private var shown = false
+    var body: some View {
+        Button { shown = true } label: {
+            Image(systemName: "info.circle").font(.system(size: 15, weight: .regular)).foregroundStyle(.secondary)
+                .frame(width: 30, height: 30).contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("More information")
+        .accessibilityHint(text)
+        .accessibilityIdentifier(identifier ?? "info")
+        .popover(isPresented: $shown, arrowEdge: .top) {
+            Text(text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                .padding(16).frame(idealWidth: 300, maxWidth: 340)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+/// A row's words with an ⓘ after them.
+struct LabelWithInfo: View {
+    let title: String
+    let info: String
+    var identifier: String? = nil
+    var body: some View {
+        HStack(spacing: 2) { Text(title); InfoButton(text: info, identifier: identifier) }
+    }
+}
+
+extension Color {
+    /// The Admin section's grey rows in Settings (owner, build 57), set apart from the reader's own settings.
+    static var adminRow: Color { Color(uiColor: .systemGray5) }
+}

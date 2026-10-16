@@ -128,8 +128,9 @@ final class WorkflowJourneyTests: XCTestCase {
         selectChatContext(app, "Paper chat")
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
         app.buttons["Chat history"].tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
+        // Close is in All chats' ≡ (owner, build 57).
+        app.buttons["chat.history.options"].tap(); app.buttons["chat.history.close"].tap()
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
         // Away and back: the chat's Return to paper (phone), or another view and Reader (wide: the paper is beside).
         app.returnToPaper()
@@ -186,7 +187,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(chatContext(app), "General chat")
         XCTAssertEqual(input.value as? String, "A separate general draft")
         app.buttons["Chat history"].tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
         app.buttons["A retained paper discussion"].tap()
 
         let transcript = app.tables["chat.transcript"]
@@ -289,7 +290,7 @@ final class WorkflowJourneyTests: XCTestCase {
         // consumed the captured draft even if a later receipt checkpoint lags.
         relaunch()
         app.buttons["Chat history"].tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons[paperDraft].waitForExistence(timeout: 5))
         app.buttons[paperDraft].tap()
         XCTAssertTrue(sentQuestion().firstMatch.waitForExistence(timeout: 5))

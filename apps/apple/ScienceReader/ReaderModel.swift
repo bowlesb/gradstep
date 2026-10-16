@@ -420,7 +420,9 @@ final class ReaderModel {
     /// The last fetch failed (the control offers Try again).
     private(set) var chatProfileTableFailed = false
     @ObservationIgnored private var chatProfileFetch: UUID?
-    /// Settings › Chat defaults: what a new chat starts with (this device only).
+    /// Answer options (the chat's ⋯ menu, chat redesign 2026-10-16): shown over the chat.
+    var showAnswerOptions = false
+    /// Settings › AI chat options: what a new chat starts with (this device only).
     var chatDefaultProfile: ChatProfileChoice = ReaderModel.storedChatDefault() {
         didSet { UserDefaults.standard.set(chatDefaultProfile.id, forKey: Self.chatDefaultKey) }
     }
@@ -457,7 +459,8 @@ final class ReaderModel {
         let conversationID = turn.conversationID
         let wanted = turn.profile ?? pendingChatProfiles[turn.composerID] ?? Self.answeredProfile(in: branch) ?? chatDefaultProfile
         let titled = state.revisions(for: conversationID).first?.payload.titleSource != nil
-        return (table.offers(wanted) ? wanted : table.defaultChoice, !titled, true)
+        // The reader chooses model and length; effort is the server's for each question when it offers that (2026-10-16).
+        return (table.requested(wanted), !titled, true)
     }
 
     /// Fetches the server's table once per session (again after a failure, when the controls open).
@@ -559,7 +562,9 @@ final class ReaderModel {
     var showAllChats = false { didSet { if !showAllChats { allChatsPaperID = nil } } }
     /// The paper All chats was opened from (its paper or chat screen): it starts filtered to that paper's chats.
     private(set) var allChatsPaperID: UUID?
-    func openAllChats(paper: UUID?) { allChatsPaperID = paper; showAllChats = true }
+    /// All chats opens on All (owner, build 57); `thisPaper` (a paper's own "Chats about this paper") opens on its chats.
+    private(set) var allChatsStartsOnPaper = false
+    func openAllChats(paper: UUID?, thisPaper: Bool = false) { allChatsPaperID = paper; allChatsStartsOnPaper = thisPaper && paper != nil; showAllChats = true }
     /// A paper's saved conversations, most recently used first (the chat title menu's "Chats about this paper").
     func conversations(about paperID: UUID) -> [ConversationSummary] {
         ChatHistoryQuery.rows(conversationSummaries, paperTitles: [:], filter: .thisPaper, paperID: paperID, search: "", sort: .default)
@@ -3368,7 +3373,7 @@ final class ReaderModel {
     /// when the server's table offers it), so the request reads the same cached paper as that chat.
     var equationProfile: ChatProfileChoice {
         guard let table = chatProfileTable else { return .standard }
-        return table.offers(chatDefaultProfile) ? chatDefaultProfile : table.defaultChoice
+        return table.requested(chatDefaultProfile)
     }
     var hasCloudConsent: Bool { accountID.map { chatConsent.hasAccepted($0) } ?? false }
     /// The chat's own consent, accepted from the equation view; false when it couldn't be saved.

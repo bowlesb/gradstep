@@ -16,15 +16,20 @@ final class ChatHistoryTableTests: XCTestCase {
         if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
-        // The chat tab starts on the sample paper's chat, so All chats opens on "This paper" (its one chat).
-        let thisPaper = app.buttons["chat.history.filter.thisPaper"]
-        if thisPaper.waitForExistence(timeout: 3) {
-            XCTAssertTrue(thisPaper.isSelected); XCTAssertEqual(count(app), "1 of 30 chats")
-            app.buttons["chat.history.filter.all"].tap()
-        }
+        XCTAssertTrue(options(app).waitForExistence(timeout: 5))
+        // All leads the chips and is chosen (owner, build 57), even from the sample paper's chat.
+        XCTAssertTrue(app.buttons["chat.history.filter.all"].isSelected)
         XCTAssertTrue(row(1, app).waitForExistence(timeout: 5))
         return app
+    }
+
+    /// The ≡ beside the search field (owner, build 57: no title, no Done).
+    private func options(_ app: XCUIApplication) -> XCUIElement { app.buttons["chat.history.options"] }
+    private func close(_ app: XCUIApplication) {
+        options(app).tap()
+        let close = app.buttons["chat.history.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5)); close.tap()
+        XCTAssertTrue(options(app).waitForNonExistence(timeout: 5))
     }
 
     /// Fixture conversation `n`'s row.
@@ -82,7 +87,7 @@ final class ChatHistoryTableTests: XCTestCase {
         XCTAssertEqual(count(app), "22 of 30 chats")
         app.buttons["chat.history.filter.all"].tap()
 
-        let search = app.searchFields.firstMatch
+        let search = app.textFields["chat.history.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("DPO")
         let narrowed = NSPredicate { _, _ in app.staticTexts["chat.history.count"].label == "4 of 30 chats" }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: narrowed, object: nil)], timeout: 5), .completed)
@@ -96,16 +101,16 @@ final class ChatHistoryTableTests: XCTestCase {
     func testTapOpensTheConversationAndLongPressOffersItsPaper() {
         let app = launch()
         row(1, app).tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(options(app).waitForNonExistence(timeout: 5))
         let reply = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
             "chat.message.text.", "What happens without the scaling?")).firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 5), "The conversation opened")
 
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
-        // From a paper chat, All chats starts on that paper's chats.
+        // From a paper chat, All chats offers that paper's chats after All.
         XCTAssertTrue(app.buttons["chat.history.filter.thisPaper"].waitForExistence(timeout: 5))
-        app.buttons["chat.history.filter.all"].tap()
+        XCTAssertTrue(app.buttons["chat.history.filter.all"].isSelected)
         XCTAssertTrue(row(4, app).waitForExistence(timeout: 5))
         row(4, app).press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["Delete conversation"].waitForExistence(timeout: 5))
@@ -113,7 +118,7 @@ final class ChatHistoryTableTests: XCTestCase {
         XCTAssertTrue(openPaper.exists)
         attach("All chats row actions")
         openPaper.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(options(app).waitForNonExistence(timeout: 5))
     }
 
     /// Owner feedback, build 14 #7: selection-action chats are titled by the action and the passage, in the table and in
@@ -124,7 +129,7 @@ final class ChatHistoryTableTests: XCTestCase {
         XCTAssertEqual(row(8, app).label, "Define · m̂_t / (√v̂_t)")
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Explain in plain terms")).firstMatch.exists)
         row(8, app).tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(options(app).waitForNonExistence(timeout: 5))
         let title = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Define · m̂_t / (√v̂_t)")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 5), "The chat's title is the short one too")
         attach("Chat titled by its selection action")
@@ -133,7 +138,7 @@ final class ChatHistoryTableTests: XCTestCase {
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
         XCTAssertTrue(app.buttons["chat.history.filter.all"].waitForExistence(timeout: 5)); app.buttons["chat.history.filter.all"].tap()
-        let search = app.searchFields.firstMatch
+        let search = app.textFields["chat.history.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("Wick")
         XCTAssertTrue(row(13, app).waitForExistence(timeout: 5))
         XCTAssertEqual(row(13, app).label, "Add paper · [3] T. D. Lee and G. C. Wick. Negative metric…")
@@ -144,7 +149,7 @@ final class ChatHistoryTableTests: XCTestCase {
     func testAPapersOwnChatsFromItsChatAndItsPaper() {
         let app = launch()
         row(1, app).tap()   // "Why scale the dot products…", about Attention Is All You Need (three chats: 1, 11, 22)
-        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(options(app).waitForNonExistence(timeout: 5))
 
         let titleMenu = app.buttons["chat.context"]
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 5)); titleMenu.tap()
@@ -160,12 +165,15 @@ final class ChatHistoryTableTests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5), "The other chat opened")
 
         app.buttons["Chat history"].tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(options(app).waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["All chats"].exists, "No title bar: the search field and ≡ are the top")
+        XCTAssertFalse(app.buttons["Done"].exists, "Close is in ≡")
         let thisPaper = app.buttons["chat.history.filter.thisPaper"]
         XCTAssertTrue(thisPaper.waitForExistence(timeout: 5))
-        XCTAssertTrue(thisPaper.isSelected, "Opened from a paper chat: This paper")
+        XCTAssertTrue(app.buttons["chat.history.filter.all"].isSelected, "All is the default (owner, build 57)")
+        XCTAssertLessThan(app.buttons["chat.history.filter.all"].frame.minX, thisPaper.frame.minX, "All leads the chips")
+        thisPaper.tap()
         XCTAssertEqual(count(app), "3 of 30 chats", "The count says how many are this paper's")
-        XCTAssertLessThan(thisPaper.frame.minX, app.buttons["chat.history.filter.all"].frame.minX, "This paper leads the chips")
         XCTAssertLessThanOrEqual(app.buttons["chat.history.filter.general"].frame.maxX, app.windows.firstMatch.frame.maxX - 15,
                                  "All four chips fit on the phone")
         XCTAssertTrue(row(1, app).exists && row(11, app).exists && row(22, app).exists)
@@ -174,25 +182,25 @@ final class ChatHistoryTableTests: XCTestCase {
         attach("All chats opened from a paper: This paper")
         app.buttons["chat.history.filter.all"].tap()
         XCTAssertEqual(count(app), "30 chats", "One tap shows everything")
-        app.buttons["Done"].tap()
+        close(app)
 
         // From the paper itself: its options list its chats, opening on This paper.
         app.show("paper")
-        let options = app.buttons["Paper options"]
-        XCTAssertTrue(options.waitForExistence(timeout: 5)); options.tap()
+        let paperOptions = app.buttons["Paper options"]
+        XCTAssertTrue(paperOptions.waitForExistence(timeout: 5)); paperOptions.tap()
         let chats = app.buttons["paper.chats"]
         XCTAssertTrue(chats.waitForExistence(timeout: 5))
         XCTAssertTrue(chats.label.contains("Chats about this paper"), chats.label)
         chats.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
-        XCTAssertEqual(count(app), "3 of 30 chats")
+        XCTAssertTrue(options(app).waitForExistence(timeout: 5))
+        XCTAssertEqual(count(app), "3 of 30 chats", "The paper's own Chats about this paper opens on them")
 
         // General chat and the Library open All chats unfiltered, without the chip.
-        app.buttons["Done"].tap()
+        close(app)
         app.show("library")
         app.buttons["Library options"].tap()
         app.buttons["All chats"].tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(options(app).waitForExistence(timeout: 5))
         XCTAssertEqual(count(app), "30 chats")
         XCTAssertFalse(app.buttons["chat.history.filter.thisPaper"].exists)
     }

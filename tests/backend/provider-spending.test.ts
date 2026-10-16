@@ -277,3 +277,22 @@ test('reference lookup reserves zero credits, fences operation replay, and prese
   assert.equal(h.calls.filter(call => call.name === 'worker_settle_operation').length, 1);
   assert.ok(!JSON.stringify(h.calls).includes(privateText));
 });
+
+test('a DeepSeek chat round is admitted under DeepSeek at its own hold, priced at its peak rates; Claude rounds in the same operation stay Anthropic', async () => {
+  const h = fixture();
+  const generate = admittedAnthropic(h.deps, async request => ({ ...complete(), model: request.model, messageID: 'b2f0', requestID: null,
+    attempts: [{ model: request.model, estimated: false, usage: { input: 1_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 30_000, output: 400 } }] }));
+  const deepseek = chatRequestParams({ instructions: 'Test instructions', paper: null, selection: null, turns: [{ role: 'user', text: privateText }],
+    model: { id: 'deepseek-flash', effort: 'medium', fallbacks: false }, maxTokens: 10_000 });
+  await generate(deepseek, streamOptions());
+  await generate(params(), streamOptions());
+  const begins = h.calls.filter(c => c.name === 'worker_provider_attempt_begin').map(c => c.params);
+  const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => c.params);
+  assert.deepEqual(begins.map(b => [b.p_provider, b.p_route, b.p_model]), [['deepseek', 'chat', 'deepseek-flash'], ['anthropic', 'chat', 'claude-sonnet-5-5']]);
+  assert.equal(begins[0].p_ceiling_microusd, holdFor(promptCharacters(deepseek), 10_000, 'deepseek-flash').microusd);
+  assert.equal(begins[0].p_ceiling_microusd, Math.ceil((Math.ceil(promptCharacters(deepseek) / 3) * 0.3 + 10_000 * 1.2) * 2), 'two attempts at DeepSeek\'s peak rates');
+  assert.notEqual(begins[0].p_attempt_id, begins[1].p_attempt_id);
+  // 1,000 cache misses at $0.30, 30,000 hits at $0.006, 400 output at $1.20 per million; DeepSeek's message id as the request id.
+  assert.equal(finishes[0].p_actual_microusd, Math.ceil(1_000 * 0.3 + 30_000 * 0.006 + 400 * 1.2));
+  assert.equal(finishes[0].p_provider_request_id, 'b2f0');
+});

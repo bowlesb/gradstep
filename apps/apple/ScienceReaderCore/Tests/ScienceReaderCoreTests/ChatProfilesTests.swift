@@ -39,6 +39,32 @@ import Testing
         #expect(!table.offers(ChatProfileChoice(model: .opus, effort: .low, length: .standard)))
     }
 
+    /// Chat redesign (2026-10-16): with the server's automatic effort and DeepSeek in the table, a request asks for
+    /// the reader's model and length with `auto`; an older table keeps the stored effort, so nothing breaks before it.
+    @Test func requestsUseTheAutomaticEffortWhenTheTableOffersIt() throws {
+        let old = try #require(ChatProfileTable.decode(try fixture("chat-profiles-v1")))
+        #expect(old.requested(.standard) == .standard)
+        #expect(old.requested(ChatProfileChoice(model: .opus, effort: .auto, length: .brief)) == ChatProfileChoice(model: .opus, effort: .low, length: .brief))
+        #expect(old.offeredModels == [.haiku, .sonnet, .opus])
+        #expect(old.requested(ChatProfileChoice(model: .deepseek, effort: .auto, length: .standard)) == .standard, "not offered: the server's default")
+        var json = try #require(try JSONSerialization.jsonObject(with: try fixture("chat-profiles-v1")) as? [String: Any])
+        var profiles = try #require(json["profiles"] as? [[String: Any]])
+        for model in ["haiku", "sonnet", "opus", "deepseek"] {
+            for length in ["brief", "standard", "detailed"] {
+                profiles.append(["model": model, "effort": "auto", "length": length, "credits": ["low": 1, "high": 3, "max": 9]])
+            }
+        }
+        json["profiles"] = profiles
+        json["models"] = (json["models"] as? [[String: Any]] ?? []) + [["id": "deepseek", "label": "DeepSeek", "detail": "Lowest cost; handles figures"]]
+        let table = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
+        #expect(table.requested(.standard) == ChatProfileChoice(model: .sonnet, effort: .auto, length: .standard))
+        #expect(table.requested(ChatProfileChoice(model: .deepseek, effort: .low, length: .brief)).id == "deepseek-auto-brief")
+        #expect(table.offeredModels == [.haiku, .sonnet, .opus, .deepseek])
+        #expect(table.estimate(model: .deepseek, length: .detailed) == .init(low: 1, high: 3, max: 9))
+        #expect(table.label(.deepseek) == "DeepSeek" && ChatProfileText.summary(.standard, table: table) == "Sonnet · Standard")
+        #expect(ChatProfileText.modelName("deepseek-flash") == "DeepSeek V4.1 Flash")
+    }
+
     @Test func choicesRoundTripTheirServerIdentifiers() {
         for model in ChatProfileChoice.Model.allCases {
             for effort in ChatProfileChoice.Effort.allCases {
@@ -53,11 +79,11 @@ import Testing
     }
 
     @Test func theLineUnderAnAnswerNamesItsProfileAndAFallbackModel() {
-        #expect(ChatProfileText.answeredBy(model: "claude-sonnet-5-5", profile: "sonnet-low-standard") == "Sonnet · Low · Standard")
-        #expect(ChatProfileText.answeredBy(model: "claude-sonnet-5", profile: "sonnet-medium-brief") == "Sonnet · Medium · Brief · by Claude Sonnet 5")
-        #expect(ChatProfileText.answeredBy(model: "claude-opus-4-8", profile: "opus-high-detailed") == "Opus · High · Detailed · by Claude Opus 4.8")
+        #expect(ChatProfileText.answeredBy(model: "claude-sonnet-5-5", profile: "sonnet-low-standard") == "Sonnet · Standard")
+        #expect(ChatProfileText.answeredBy(model: "claude-sonnet-5", profile: "sonnet-medium-brief") == "Sonnet · Brief · by Claude Sonnet 5")
+        #expect(ChatProfileText.answeredBy(model: "claude-opus-4-8", profile: "opus-high-detailed") == "Opus · Detailed · by Claude Opus 4.8")
         #expect(ChatProfileText.answeredBy(model: "claude-opus-5-5", profile: nil) == "Claude Opus 5.5")
-        #expect(ChatProfileText.answeredBy(model: nil, profile: "haiku-low-brief") == "Haiku · Low · Brief")
+        #expect(ChatProfileText.answeredBy(model: nil, profile: "haiku-low-brief") == "Haiku · Brief")
         #expect(ChatProfileText.answeredBy(model: nil, profile: nil) == nil)
         #expect(ChatProfileText.answeredBy(model: "claude-sonnet-5-5", profile: "diagram_fix") == "Claude Sonnet 5.5")
         #expect(ChatProfileText.modelName("claude-haiku-4-5-20251001") == "Claude Haiku 4.5")

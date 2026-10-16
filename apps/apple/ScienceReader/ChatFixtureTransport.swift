@@ -162,8 +162,11 @@ struct ChatFixtureTransport: ChatTransport {
                             if Self.serverHasProfiles {
                                 if request.topicTitle { continuation.yield(.title(Self.topicTitle(for: request))) }
                                 continuation.yield(.followUps(Self.followUps))
-                                continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model),
-                                                         profile: request.profile.id))
+                                // The server records the effort it chose for an automatic request (low, in the fixture).
+                                var answered = request.profile
+                                if answered.effort == .auto { answered.effort = .low }
+                                continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: answered.model),
+                                                         profile: answered.id))
                             } else {
                                 continuation.yield(.done(stopReason: "end_turn", credits: 2))
                             }
@@ -253,8 +256,31 @@ struct ChatFixtureTransport: ChatTransport {
 
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
         guard Self.serverHasProfiles,
-              let table = ChatProfileTable.decode(Data(Self.profiles.utf8)) else { throw ChatTransportError.rejected("method_unavailable") }
+              let table = ChatProfileTable.decode(ProcessInfo.processInfo.arguments.contains("--chat-fixture-auto-profiles") ? Self.automaticProfiles
+                                                  : Data(Self.profiles.utf8)) else { throw ChatTransportError.rejected("method_unavailable") }
         return table
+    }
+
+    /// `--chat-fixture-auto-profiles`: the table after the chat redesign (2026-10-16) — the same version and default, plus
+    /// the automatic effort and DeepSeek, appended. An automatic profile's estimate is the usual effort's (brief and
+    /// standard: low; detailed: medium) with the highest effort's maximum; DeepSeek's are the fixture's own.
+    static var automaticProfiles: Data {
+        guard var json = (try? JSONSerialization.jsonObject(with: Data(profiles.utf8))) as? [String: Any],
+              var rows = json["profiles"] as? [[String: Any]] else { return Data(profiles.utf8) }
+        func credits(_ model: String, _ effort: String, _ length: String) -> [String: Int]? {
+            rows.first { $0["model"] as? String == model && $0["effort"] as? String == effort && $0["length"] as? String == length }?["credits"] as? [String: Int]
+        }
+        for length in ["brief", "standard", "detailed"] {
+            for model in ["haiku", "sonnet", "opus"] {
+                guard let usual = credits(model, length == "detailed" ? "medium" : "low", length), let most = credits(model, "high", length) else { continue }
+                rows.append(["model": model, "effort": "auto", "length": length, "credits": ["low": usual["low"] ?? 0, "high": usual["high"] ?? 0, "max": most["max"] ?? 0]])
+            }
+            rows.append(["model": "deepseek", "effort": "auto", "length": length, "credits": ["low": 1, "high": 1, "max": length == "detailed" ? 2 : 1]])
+        }
+        json["profiles"] = rows
+        json["models"] = ((json["models"] as? [[String: Any]]) ?? []) + [["id": "deepseek", "label": "DeepSeek", "detail": "Lowest cost; handles figures"]]
+        json["efforts"] = ((json["efforts"] as? [[String: Any]]) ?? []) + [["id": "auto", "label": "Automatic", "detail": "Chosen for each question"]]
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? Data(profiles.utf8)
     }
 
     /// A topic title like the server's: from the question, deterministic for tests.

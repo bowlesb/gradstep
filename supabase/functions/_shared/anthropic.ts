@@ -41,6 +41,12 @@ const HAIKU_4_5: TokenRates = Object.freeze({ input: 1, cacheWrite5m: 1.25, cach
 // cache hits as cache reads; no cache-write price). Off-peak bills less; the card never under-prices.
 const DEEPSEEK_V4_PRO: TokenRates = Object.freeze({ input: 1.32, cacheWrite5m: 1.32, cacheWrite1h: 1.32, cacheRead: 0.044, output: 3.96 });
 const DEEPSEEK_FLASH: TokenRates = Object.freeze({ input: 0.3, cacheWrite5m: 0.3, cacheWrite1h: 0.3, cacheRead: 0.006, output: 1.2 });
+/** The tariff a DeepSeek chat quote records: DeepSeek's PEAK list prices for `deepseek-flash` ($0.30/M input cache miss,
+ * $0.006/M cache hit, $1.20/M output), https://api-docs.deepseek.com/quick_start/pricing/ re-read 2026-10-16. */
+export const DEEPSEEK_TARIFF = 'deepseek-peak-list-prices-2026-10-16';
+/** DeepSeek chat answers: two attempts' headroom. There is no fallback, but its tokenizer and tool template cannot be
+ * counted before the request (no count endpoint), so the byte estimate gets twice the margin a Claude prompt gets. */
+export const DEEPSEEK_HOLD_ATTEMPTS = 2;
 export const UNKNOWN_MODEL_RATES: TokenRates = OPUS_5;
 const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({
   'claude-sonnet-5-5': SONNET, 'claude-sonnet-5': SONNET_5, 'claude-opus-5-5': OPUS_5_5, 'claude-opus-5': OPUS_5,
@@ -86,6 +92,7 @@ export const FALLBACK_HOLD_FACTOR = 3;
  * Sonnet 5.5 (the default, unchanged): its own rates, three attempts' headroom. Opus 5.5: its fallbacks' higher
  * Opus 5 rates for the requested attempt and one fallback. Haiku 5.5: no fallback, one attempt at the tier the
  * estimated prompt falls in (the byte estimate never undercounts tokens, so it never picks the cheaper tier wrongly).
+ * DeepSeek V4.1 Flash (chat, 2026-10-16): its own peak rates, `DEEPSEEK_HOLD_ATTEMPTS` (2).
  * Any other model: the unknown rate card, three attempts.
  */
 export function holdRule(model: string, promptTokens: number): { rates: TokenRates; attempts: number } {
@@ -93,6 +100,7 @@ export function holdRule(model: string, promptTokens: number): { rates: TokenRat
     case CHAT_MODEL: return { rates: SONNET, attempts: FALLBACK_HOLD_FACTOR };
     case 'claude-opus-5-5': return { rates: OPUS_5, attempts: 2 };
     case 'claude-haiku-5-5': return { rates: ratesFor(model, promptTokens).rates, attempts: 1 };
+    case 'deepseek-flash': return { rates: DEEPSEEK_FLASH, attempts: DEEPSEEK_HOLD_ATTEMPTS };
     default: return { rates: UNKNOWN_MODEL_RATES, attempts: FALLBACK_HOLD_FACTOR };
   }
 }
@@ -278,7 +286,7 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
   turns: readonly ChatTurn[]; selection: string | null; tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number;
   /** The question's figures (chat-figures.ts), placed before its text in the last turn. */
   figures?: readonly Anthropic.Beta.Messages.BetaContentBlockParam[];
-  /** A reader's chosen model and effort (chat-profiles.ts); the default is today's Sonnet 5.5 at `low`. */
+  /** A reader's chosen model and effort (chat-profiles.ts, `auto` already resolved); the default is today's Sonnet 5.5 at `low`. */
   model?: { id: string; effort: 'low' | 'medium' | 'high'; fallbacks: boolean } })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
   const model = input.model ?? { id: CHAT_MODEL, effort: CHAT_EFFORT, fallbacks: true };

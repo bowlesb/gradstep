@@ -93,9 +93,9 @@ graph." This is the first slice, built to learn from; the product angle is still
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study](#study--2026-10-14-experimental-staging)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study?: {concepts, links, focus, journey, next}} ` (`study` is required with `action: "study"` and refused otherwise; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study](#study--2026-10-14-experimental-staging)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study?: {concepts, links, focus, journey, next}} ` (`study` is required with `action: "study"` and refused otherwise; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study {map}` (2026-10-14, [Study](#study--2026-10-14-experimental-staging)), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code, credits?}` (`credits` since 2026-10-14: what the failed answer cost the reader; 0 when the provider never started it, and nothing is charged then) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study {map}` (2026-10-14, [Study](#study--2026-10-14-experimental-staging)), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code, credits?}` (`credits` since 2026-10-14: what the failed answer cost the reader; 0 when the provider never started it, and nothing is charged then) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
@@ -363,7 +363,8 @@ new field.
 
 **Request fields** (part of the request digest when present):
 
-- `profile`: exactly `{"model": "haiku"|"sonnet"|"opus", "effort": "low"|"medium"|"high", "length": "brief"|"standard"|"detailed"}`.
+- `profile`: exactly `{"model": "haiku"|"sonnet"|"opus"|"deepseek", "effort": "low"|"medium"|"high"|"auto", "length": "brief"|"standard"|"detailed"}`
+  (`deepseek` and `auto` since 2026-10-16: [automatic effort and DeepSeek](#server-implementation--2026-10-16-staging-migration-078-chat-function-redeployed)).
   Any other key or value is `invalid_request` (before any hold). Absent, `null` and the default
   `{sonnet, low, standard}` are the same request with the same digest. Clients send it only when it isn't the default.
 - `topic_title: true` asks for a topic title; absent, `null` or `false` don't.
@@ -538,7 +539,7 @@ by (Opus 5/4.8, $5/$25), not Opus 5.5's.
 
 - Plaintext leaving the device per answer: the question, earlier turns of that branch (bounded as above), an optional selected passage and, for paper chat, the paper MMD that the server already holds. Under consent v3, the image of a figure or table the question names ("Figures in chat"). Prompts are built on the device from decrypted history; nothing else (notes, other chats, keys) is sent.
 - The function stores no chat text: no tables, queues or logs. Logs carry only event names, operation IDs, counts and codes. The answer returns to the device, which seals it with the existing encrypted append path.
-- Anthropic processes and may retain request content under its API terms; no zero-retention claim is made. Consent copy says so.
+- Anthropic processes and may retain request content under its API terms; no zero-retention claim is made. Consent copy says so. Since 2026-10-16 a reader may choose DeepSeek (consent v4): DeepSeek then processes the answer's request (question, earlier turns, selection, paper text, figures) under its API terms, while the title and follow-up suggestions still go to Anthropic.
 - First-use consent is per environment/account in the device Keychain (`<env>.<account>.cloud-ai-consent` = `cloud-ai-v2`, the current consent text; a stored `cloud-ai-v1` is re-asked), not in chat history. The question is saved locally first; consent then binds the request to that saved turn. Declining keeps the question and offers “Get answer”.
 
 ## Native behavior and failures
@@ -752,6 +753,150 @@ three lines at the right of the search bar… done can be an option remove it. A
 - Filter chips: **All** first and chosen by default, then This paper (when opened from a paper), Paper chats, General.
 - The time column is **Last read**.
 - With the Paper column chosen, the conversation's second line is its passage or newest answer, never the paper title.
+
+### Server implementation — 2026-10-16 (staging; migration 078, chat function redeployed)
+
+Status: deployed to staging on 2026-10-16 (~03:20–03:28 UTC): migration `202610160078_chat_deepseek.sql` applied and
+verified, the `chat` function deployed with `CHAT_DEEPSEEK=hidden` for the recorded check below and then with
+`CHAT_DEEPSEEK=on`; the deploy suite passed both times (19 passed, `chat.smoke` included). The clients' answer options,
+consent v4 and settings are the client agents' work; until they ship, nothing a reader can send changes.
+
+**Automatic effort** (`chat-profiles.ts`: `parseChoice`, `autoEffort`, `resolveChoice`). A request may name
+`effort: "auto"`; `low`, `medium` and `high` stay valid. `runChat` resolves it from the newest question, the selected
+passage and the attached figures before anything is held, then builds, holds, quotes and records the resolved profile
+(`sonnet-medium-standard`): the quote's `effort` is never `auto`, so `chat_quotes` is unchanged. The request digest
+keeps `"effort":"auto"` (what was sent), so `{sonnet, auto, standard}` is its own request even when it resolves to the
+default. Every path that consumes the profile reads the resolved one (the answer's model, effort and allowance, the
+equation view, Study, the hold and quote); titles, follow-ups and Study maps keep their own fixed Haiku requests.
+Rules, deterministic and pure (a table of 25 questions in `tests/backend/chat-profiles.test.ts`):
+
+| Length | Effort picked |
+|---|---|
+| Brief | low |
+| Standard | medium when the question asks for reasoning, carries an equation (in the question or the selected passage) or has a figure attached; otherwise low |
+| Detailed | high when the question asks for reasoning; otherwise medium |
+
+"Asks for reasoning": derive/derivation, prove/proof, show that/why/how, step by step, walk me through, why
+does/is/do/are/… (and the negated forms), compare/comparison/versus/vs./difference between, trade-off, intuition,
+explain … equation/term/formula/expression/objective/loss/derivation/theorem/lemma/proof/bound, how does/do/… work.
+"An equation": a LaTeX command (`\frac`, `\sigma`), `\( \)` or `\[ \]` or `$…$`, a sub- or superscript (`x_i`), a
+single-letter variable set equal to something, or a mathematical symbol or Greek letter. Only the question is read
+for reasoning (a passage saying "we derive" asks nothing). `done` carries the resolved `profile` and, for an `auto`
+request only, `effort` (the pick); `chat_answer` logs `auto_effort` and `provider`.
+
+**Published table** (`GET functions/v1/chat`, still `chat-profiles-v1` with the default `sonnet-low-standard`, because
+builds 57/58 refuse any other version or an unknown default). Additive only: the 27 Claude profiles first and byte for
+byte as before; then DeepSeek's nine explicit profiles; then 12 `auto` profiles (one per model and length); 48 in all,
+so everything is within the 64 the old decoders read. Old decoders skip unknown model and effort ids and ignore
+unknown keys; `tests/backend/chat-profiles.test.ts` decodes the new table with a frozen copy of the build 57/58 rules
+against the table those builds shipped with (`tests/fixtures/chat-profiles-v1-build57.json`) and requires the same
+result, and the live table was checked the same way on staging. New fields for new clients:
+
+```json
+{"version":"chat-profiles-v1", "default":{"model":"sonnet","effort":"low","length":"standard"},
+ "default_auto":{"model":"sonnet","effort":"auto","length":"standard"},
+ "models":[…,{"id":"deepseek","label":"DeepSeek","detail":"Low cost; processed by DeepSeek","api_model":"deepseek-flash",
+   "provider":"deepseek","consent_version":"cloud-ai-v4"}],          // every model also carries "provider"
+ "efforts":[…,{"id":"auto","label":"Automatic","detail":"Chosen for each question"}],
+ "profiles":[…27 Claude…, …9 deepseek-{low,medium,high}-{length}…,
+   {"id":"sonnet-auto-standard","model":"sonnet","effort":"auto","length":"standard","api_model":"claude-sonnet-5-5",
+    "max_output_tokens":10000,"credits":{"low":4,"high":24,"max":41}}, …]}
+```
+
+An `auto` profile shows the estimate of the effort usually picked for its length (brief → low, standard → low,
+detailed → medium) and the maximum and allowance of the highest it can pick (low, medium, high). Clients should start
+new chats from `default_auto`, send `effort: "auto"`, offer DeepSeek only when the table lists it, and send it only with
+consent `cloud-ai-v4`. DeepSeek's detail is not "lowest cost": at list prices Claude Haiku 5.5 ($0.10/$0.50 per million
+input/output tokens) is cheaper than DeepSeek Flash even off-peak ($0.15/$0.60); DeepSeek's estimates sit between
+Haiku's and Sonnet's (Standard: 1–3 credits, at most 5; Sonnet 4–24, at most 37).
+
+`CHAT_DEEPSEEK` (infra `chat_deepseek`, `deploy-staging.py --chat-deepseek on|hidden|off`): `on` publishes and accepts
+DeepSeek, `hidden` accepts it without publishing it (for the recorded check), `off` does neither; DeepSeek also needs
+`DEEPSEEK_API_KEY`, now a function secret (the podcast worker keeps its own copy on Cloud Run). A DeepSeek choice the
+server does not accept is `invalid_request`; the deploy check `config.function-secrets` compares the switch with infra.
+
+**DeepSeek request** (`deepseek.ts`: `deepseekChatParams`, `streamDeepSeekChat`; `chat/index.ts` routes by model). The
+answer's Anthropic-shaped request goes through the same SDK to `https://api.deepseek.com/anthropic/v1/messages` with
+DeepSeek's key and `model: "deepseek-flash"`, adaptive thinking and `output_config.effort` as for Claude, the paper
+block with its one-hour `cache_control` (accepted, ignored; DeepSeek caches on its own), figure images in base64 and
+our client tools (`create_diagram`, `create_visual`, `show_figure_parts`, `look_at_figure`, `search_web`). It drops
+Anthropic's betas and refusal fallbacks, never carries Anthropic's server `web_search` tool (stripped in the adapter,
+never offered by `runChat`, never a failover target), and sends our Tavily results as text blocks (DeepSeek does not
+accept `search_result`). Every DeepSeek attempt is priced as the requested model (DeepSeek bills by the name sent).
+The title, follow-up suggestions and Study map stay on Claude Haiku 5.5. A live probe on 2026-10-16 (two tiny calls,
+under $0.001) established the usage shape: `input_tokens` are cache misses and `cache_read_input_tokens` hits (a repeat
+read 384 of 574 from cache), no cache writes; thinking streams as `thinking` blocks and counts as output; the response
+names `deepseek-flash`; there is no request-id header (the message id is recorded); a 1360×501 figure was 411 input
+tokens (held as 1,600).
+
+**Prices and holds.** Tariff `deepseek-peak-list-prices-2026-10-16` in the quote ($0.30 per million input tokens on a
+cache miss, $0.006 on a hit, $1.20 output; [DeepSeek's pricing](https://api-docs.deepseek.com/quick_start/pricing/),
+re-read 2026-10-16; off-peak is half, so readers and the budget are never under-charged). Held at those rates with two
+attempts' headroom (`DEEPSEEK_HOLD_ATTEMPTS`: no fallback, but no token count before the request either), so a DPO
+answer holds about 59 credits with search offered (its first round's ceiling about $0.10) against a measured
+$0.004–0.013.
+
+**Accounting.** Each DeepSeek round is admitted as provider `deepseek` on the `chat` route (migration 078 admits only
+`deepseek-flash` there; any other DeepSeek model or route stays `invalid_provider_route`, and a DeepSeek attempt that
+reserves provider searches is denied `native_search_unbounded`), with pricing snapshot
+`deepseek-token-rates-peak-20261016`; its Haiku title and suggestions are Anthropic attempts in the same operation.
+Each attempt writes its own `provider_usage_events` row under its provider; migration 078 keeps the chat function's
+operation summary (now recorded under the answering provider) out when model attempts already carry the spend. Health:
+calls to `api.deepseek.com` are counted under `deepseek` with their own breaker, so a DeepSeek outage never opens
+Anthropic's (and an answer refused by it ends as `provider_unavailable` with `retry_after`, unbilled).
+
+**Consent `cloud-ai-v4`.** v3's text plus DeepSeek, named as the processor when the reader chooses it. The server
+accepts v1–v4; v4 behaves as v3 for Claude answers (Tavily and figures named); a DeepSeek choice under v1–v3 ends as
+`error {code: "consent_required"}` before any hold (after the request is counted against the rate limit). Proposed
+wording for the clients (the v3 list, with the first sentence and one bullet changed and one added):
+
+- Opening line: "Answers come from Claude, an AI model by Anthropic, or from DeepSeek when you choose it in Answer
+  options. To answer, Gradstep sends:"
+- New bullet: "When you choose DeepSeek, your question, the paper's text and any figure go to DeepSeek, which writes the
+  answer; Claude still writes the chat's title and suggested follow-up questions"
+- Closing paragraph: "Anthropic, or DeepSeek when you choose it, processes this to write the answer and may keep it for
+  a limited time under its API terms; search services see only the searches and may keep them under their own terms.
+  Gradstep's servers pass it through without saving it; your saved conversation stays encrypted with your device keys."
+
+**Replacement for "chat uses Claude only"** (How Gradstep works, SettingsPages.swift and HowGradstepWorks.tsx): "Chat
+answers come from Anthropic's Claude models, or from DeepSeek when you choose it in Answer options (Claude still writes
+the chat's title and suggested questions); podcast scripts can also be written by DeepSeek when you choose it for an
+episode."
+
+### Recorded check of DeepSeek — 2026-10-16 (staging, before it was published)
+
+`node scripts/chat-live-smoke.mjs --profile=deepseek-auto-standard --eval` with `CHAT_DEEPSEEK=hidden`: a disposable
+account (deleted through account-delete), the DPO v3 metadata membership and its numbered local context v2, four
+questions each in a new conversation under consent v4; every `\( \)` and `\[ \]` segment typeset with the browser's
+temml (errors thrown), citations resolved against the paper's blocks, the quote and provider attempts read back from
+the database. Report: `.artifacts/chat-eval/2026-10-16T03-26-41-846Z-deepseek-auto-standard.json`.
+
+| Question | Profile picked | Equations (valid/all) | [¶N] resolvable | Tools | First text / total | Credits | DeepSeek cost |
+|---|---|---|---|---|---|---|---|
+| Why does DPO need a reference model, and which equation defines the loss? | deepseek-medium-standard | 30/30 | 29/29 | — | 7.9 s / 15.9 s | 3 | $0.0124 |
+| Derive the DPO loss from the KL-constrained objective, step by step. | deepseek-medium-standard | 48/48 | 40/40 | visual (3,050 B) | 22.6 s / 38.5 s | 2 | $0.0084 |
+| Show me how the DPO training pipeline works, as a visual. | deepseek-low-standard | 23/23 | 17/17 | Mermaid flowchart | 8.0 s / 15.1 s | 3 | $0.0121 |
+| What does Figure 1 show? Walk me through each part of it. (Figure 1 attached) | deepseek-medium-standard | 3/3 | 7/7 | 4 figure parts, `[[part N]]` markers | 10.1 s / 19.7 s | 1 | $0.0038 |
+
+All five checks passed: (a) equations: 104 of 104 segments typeset, no `$` delimiters (six display equations used
+`\tag{n}`, which temml typesets; native SwiftMath support for `\tag` is unverified and worth a client check); (b) citations: 93 markers, all
+resolvable, placed after the statements they support (Eq. 7 at [¶33], the SFT reference at [¶24]); (c) the figure
+answer read the image itself (the example prompt "write me a poem about the history of jazz", the trophy on the
+preferred response, the teal "maximum likelihood" and red "reinforcement learning" labels; none of it is in the text)
+and its four part boxes crop the right regions; (d) the visual and diagram tool calls and `show_figure_parts` parsed
+and relayed; (e) every answer streamed (700–2,071 `delta` events). Quotes recorded `deepseek-*-standard`,
+`deepseek-flash`, the DeepSeek tariff; every DeepSeek attempt's `actual_microusd` equals its tokens at peak rates
+exactly; one usage row per attempt, none twice. Whole check: 9 credits, $0.038 of provider spend (Haiku titles and
+suggestions included). Noted: DeepSeek thinks before it writes, so the first text came 8–23 s in (medium effort).
+
+The same four questions on Sonnet `auto` (`--profile=sonnet-auto-standard --eval`, after DeepSeek was published; report
+`.artifacts/chat-eval/2026-10-16T03-30-18-172Z-sonnet-auto-standard.json`) are also the live check of automatic effort
+on the default new clients will use: it picked medium, medium, low and medium (the same picks as for DeepSeek), every
+quote recorded the resolved `sonnet-*-standard` profile and effort, `done.effort` named the pick, and all settled.
+Sonnet: equations 70/70, citations 71/71 resolvable, a visual (1,433 B) for the pipeline question, the figure read
+from the image but no `show_figure_parts` call this time, first text 2.0–2.9 s, 57 credits and $0.273 (the first
+answer wrote the paper to the one-hour cache: $0.207). DeepSeek gave longer, more heavily cited answers for about a
+seventh of the cost, and slower first text.
 
 ### Browser (2026-10-16, local fixtures; not deployed)
 

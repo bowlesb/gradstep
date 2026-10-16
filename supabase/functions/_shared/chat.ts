@@ -4,10 +4,11 @@
 import {
   ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
-  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF,
+  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF, DEEPSEEK_TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
-import { isDefaultChoice, parseChoice, PROFILE_VERSION, resolveProfile, type ChatProfile, type Choice } from './chat-profiles.ts';
+import { DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, providerForModel, resolveChoice, resolveProfile,
+  type ChatProfile, type RequestedChoice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_TIMEOUT_MS, studyMap, studyMapForPrompt, studyMapRequestParams, type StudyMap, UPDATE_STUDY_MAP_TOOL } from './chat-study.ts';
@@ -20,11 +21,17 @@ import type Anthropic from '@anthropic-ai/sdk';
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
  * v1 (builds up to TestFlight 11) names only Anthropic's, so v1 answers never use Tavily. */
 export const CONSENT_VERSION = 'cloud-ai-v2';
-/** v3 (2026-10-15) also names the figure a question is about: only v3 requests may carry figure images. */
+/** v3 (2026-10-15) also names the figure a question is about: only v3 (and later) requests may carry figure images. */
 export const FIGURE_CONSENT_VERSION = 'cloud-ai-v3';
-export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION];
-/** v2 and v3 name Tavily; v1 (builds up to TestFlight 11) names only Anthropic's search. */
-const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION;
+/** v4 (2026-10-16) is v3 plus DeepSeek, named as the processor when the reader chooses it: only v4 may choose DeepSeek. */
+export { DEEPSEEK_CONSENT_VERSION };
+export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION];
+/** v2 and later name Tavily; v1 (builds up to TestFlight 11) names only Anthropic's search. */
+const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION;
+/** v3 and v4 name the figure a question is about. */
+export const namesFigures = (version: string) => version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION;
+/** Only v4 names DeepSeek. */
+export const namesDeepSeek = (version: string) => version === DEEPSEEK_CONSENT_VERSION;
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_TURNS = 60;
 export const MAX_MESSAGE_BYTES = 200_000;
@@ -32,8 +39,9 @@ export const MAX_SELECTION_SCALARS = 4_000;
 export const MAX_PAPER_BYTES = 2 * 1024 * 1024;
 export const GENERATION_DEADLINE_MS = 130_000;
 
+/** `consent_required` (2026-10-16): the request chose a model its consent version does not name (DeepSeek before v4). */
 export type ChatErrorCode = 'insufficient_credits' | 'platform_budget_exhausted' | 'rate_limited' | 'document_unavailable'
-  | 'provider_unavailable' | 'refused' | 'invalid_request' | 'operation_replayed' | 'service_unavailable';
+  | 'provider_unavailable' | 'refused' | 'invalid_request' | 'operation_replayed' | 'service_unavailable' | 'consent_required';
 
 export class ChatFailure extends Error {
   readonly code: ChatErrorCode;
@@ -64,8 +72,9 @@ export interface ChatRequest {
   visuals: boolean;
   /** The question's figure images (chat-figures.ts): paper chat, consent v3 only. */
   figures: FigureImage[];
-  /** The reader's model, effort and length (chat-profiles.ts); null = the default profile (today's request). */
-  choice: Choice | null;
+  /** The reader's model, effort and length as sent (chat-profiles.ts; effort may be `auto`, resolved by `resolveChoice`
+   * before the hold); null = the default profile (today's request). */
+  choice: RequestedChoice | null;
   /** Also write a topic title for the conversation (chat-title.ts). */
   topicTitle: boolean;
   /** Also suggest follow-up questions after the answer (chat-follow-ups.ts); never for Ingest or a repair. */
@@ -187,10 +196,12 @@ export function validateChatRequest(input: unknown): ChatRequest {
     capabilities = [...new Set(body.capabilities.map(value => typeof value === 'string' && value.length <= 32 ? value : invalid()))]
       .filter(value => (CLIENT_CAPABILITIES as readonly string[]).includes(value)).sort();
   }
-  let choice: Choice | null;
+  let choice: RequestedChoice | null;
   try { choice = parseChoice(body.profile); } catch { invalid(); }
-  // The default profile, named or not, is the same request (and the same digest).
+  // The default profile, named or not, is the same request (and the same digest). `auto` is its own request.
   if (choice && isDefaultChoice(choice)) choice = null;
+  // DeepSeek processes the request only when the reader's consent names it (v4).
+  if (choice?.model === 'deepseek' && !namesDeepSeek(consentVersion)) throw new ChatFailure('consent_required');
   if (body.topic_title !== undefined && body.topic_title !== null && typeof body.topic_title !== 'boolean') invalid();
   const topicTitle = body.topic_title === true;
   if (body.follow_ups !== undefined && body.follow_ups !== null && typeof body.follow_ups !== 'boolean') invalid();
@@ -206,7 +217,7 @@ export function validateChatRequest(input: unknown): ChatRequest {
   let figures: FigureImage[];
   try { figures = figureImages(body.figures); } catch { invalid(); }
   // Figures only in a paper chat whose consent names them, and never with Add paper or a diagram repair.
-  if (figures!.length && (consentVersion !== FIGURE_CONSENT_VERSION || mode !== 'paper' || action === 'ingest' || action === 'diagram_fix' || isEquationAction(action))) invalid();
+  if (figures!.length && (!namesFigures(consentVersion) || mode !== 'paper' || action === 'ingest' || action === 'diagram_fix' || isEquationAction(action))) invalid();
   return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, figures: figures!, choice, topicTitle, followUps,
     ...(localContext ? { localContext } : {}), ...(study ? { study } : {}) };
 }
@@ -425,8 +436,9 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'study'; data: { map: StudyMap } }
   /** The equation view's checked symbols (EQUATION_VIEW.md). */
   | { event: 'equation'; data: EquationSymbols }
-  /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile. */
-  | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string } }
+  /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile, `auto`
+   * resolved; `effort`: the effort the server picked, present only when the request asked for `auto`. */
+  | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string; effort?: string } }
   /** `credits` (2026-10-14): what a failed answer still cost the reader (0 when the provider never started it). */
   | { event: 'error'; data: { code: ChatErrorCode; credits?: number; retry_after?: number } };
 
@@ -441,8 +453,11 @@ export interface ChatDependencies {
   rpc(name: string, params: Record<string, unknown>): Promise<unknown>;
   /** Returns the stored object bytes, or null when it is missing. */
   loadPaper(bucket: string, path: string, expectedBytes?: number): Promise<Uint8Array | null>;
-  /** Null when the provider is not configured in this environment. */
+  /** Null when the provider is not configured in this environment. Serves every model in the profile table: Claude
+   * models through Anthropic, `deepseek-*` through DeepSeek's Anthropic-compatible API (the caller routes by model). */
   generate: ((params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) | null;
+  /** DeepSeek may answer (CHAT_DEEPSEEK on or hidden, with a key). Off, a DeepSeek choice is `invalid_request`. */
+  deepseek?: boolean;
   sha256Hex(bytes: Uint8Array): Promise<string>;
   log(entry: LogEntry): void;
   now?: () => number;
@@ -510,6 +525,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   };
   let request: ChatRequest;
   try { request = validateChatRequest(body); } catch (error) { await admitted(); throw error; }
+  // The reader's model, effort and length, `auto` resolved from the length and this question before anything is held
+  // (chat-profiles.ts autoEffort); the quote, the request and the answer all carry the resolved profile.
+  const choice = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
+  const profile = resolveProfile(choice);
   // Ingest, Why it matters (the paper only), Study (the paper only) and diagram repairs never search.
   const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
@@ -520,8 +539,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   await admitted();
 
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
+  // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
+  if (profile.provider === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
   const tavily = await tavilyReady === true;
-  const nativeSearch = search && deps.nativeSearch === true;
+  // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
+  const nativeSearch = search && deps.nativeSearch === true && profile.provider === 'anthropic';
   const searchOffered = tavily || nativeSearch;
   // Related always searches before it answers: say so at once, not after the paper loads and the model's
   // first round has chosen its queries (that first status used to arrive ~4 s in).
@@ -531,8 +553,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const study = request.action === 'study';
   // The equation view's symbols are one JSON object, held back and checked before the device sees them.
   const symbolsOnly = request.action === 'equation';
-  // The reader's model, effort and length; a repair always uses the default model with its own small allowance.
-  const profile = resolveProfile(request.choice);
+  // The resolved profile (above); a repair always uses the default model with its own small allowance.
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? EQUATION_MAX_TOKENS : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
     { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
@@ -541,7 +562,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const offersParts = request.visuals && request.mode === 'paper' && request.action !== 'ingest' && !repair;
   // A device that can answer a figure request (and may send figures: consent v3) is offered look_at_figure with the parts
   // tool, whether or not this question has a figure, so the tools (part of the cached prefix) stay the same per device.
-  const offersLook = offersParts && request.capabilities.includes('figure_requests') && request.consentVersion === FIGURE_CONSENT_VERSION;
+  const offersLook = offersParts && request.capabilities.includes('figure_requests') && namesFigures(request.consentVersion);
   const trailing = [instructions.action, figureInstructions(request.figures, offersParts, offersLook), repair || study || symbolsOnly ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
@@ -697,13 +718,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
   else if (creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
   await settle(deps, request.operationID, credits, actual);
-  await recordUsage(deps, request.operationID, outcome, actual);
+  await recordUsage(deps, request.operationID, outcome, actual, providerForModel(params.model));
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode,
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
     failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
+    // Whether the effort in `profile` was picked by the server (`auto`), and who answered.
+    auto_effort: request.choice?.effort === 'auto', provider: profile.provider,
     // Whether a title was written (never the title itself), and how many follow-ups were suggested (never their text).
     title: !titleParams ? 'not_requested' : title?.text ? 'written' : title?.outcome.status === 'complete' ? 'unusable' : 'failed',
     ...(followUpHold ? { follow_ups: !suggested ? 'skipped' : suggested.questions ? 'written' : suggested.outcome.status === 'complete' ? 'unusable' : 'failed',
@@ -825,8 +848,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     const stopReason = outcome.stopReason === 'tool_use' ? 'end_turn' : outcome.stopReason ?? 'end_turn';
     // Which model answered (the serving model of the last attempt, a fallback when one ran) and with which profile.
     const served = answeringModel(outcome);
+    // `profile` is the resolved profile; `effort` (2026-10-16) names the effort the server picked when the request said `auto`.
     emit({ event: 'done', data: { stop_reason: stopReason, credits, usage, ...(served ? { model: served } : {}),
-      profile: repair ? 'diagram_fix' : profile.id } });
+      profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}) } });
     return;
   }
   // How long the reader should wait: the provider's own Retry-After (or our breaker's cool-off), else a short default.
@@ -840,8 +864,11 @@ export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rat
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
   maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null): Record<string, string | number | null> {
+  // The tariff of the answering model's prices: DeepSeek's peak list prices for a DeepSeek answer (its title and
+  // suggestions stay on Claude Haiku, held at Anthropic's card), Anthropic's otherwise.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
-    effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length, tariff: TARIFF,
+    effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
+    tariff: providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
@@ -1073,7 +1100,10 @@ async function recordSearchUsage(deps: ChatDependencies, operationID: string, st
   } catch { deps.log({ event: 'chat_usage_record_failed', operation_id: operationID, provider: 'tavily' }); }
 }
 
-async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number) {
+/** The operation's usage summary under the answering provider. Each admitted attempt already wrote its own usage row
+ * (`attempt:<id>`, under its own provider: a DeepSeek answer's Haiku title is an Anthropic row), so the database keeps
+ * this summary only for operations without attempts (migration 034; DeepSeek since migration 078). */
+async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number, provider: 'anthropic' | 'deepseek' = 'anthropic') {
   if (!outcome.attempts.length) return;
   const units = {
     estimated: !outcome.exact, stop_reason: outcome.stopReason, refusal_category: outcome.refusalCategory, failure: outcome.failure,
@@ -1084,7 +1114,7 @@ async function recordUsage(deps: ChatDependencies, operationID: string, outcome:
   };
   try {
     await deps.rpc('worker_record_provider_usage', {
-      p_account_id: deps.accountID, p_operation_id: operationID, p_provider: 'anthropic',
+      p_account_id: deps.accountID, p_operation_id: operationID, p_provider: provider,
       p_provider_event_id: outcome.messageID ?? `operation:${operationID}`,
       p_model: outcome.model ?? outcome.attempts[0].model ?? 'unknown', p_units: units, p_microusd: microusd,
     });

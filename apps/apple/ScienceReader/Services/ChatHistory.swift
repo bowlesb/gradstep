@@ -28,7 +28,8 @@ enum ChatHistoryField: String, CaseIterable, Sendable {
         switch self {
         case .conversation: "Conversation"
         case .paper: "Paper"
-        case .lastUsed: "Last used"
+        // Owner, build 57: "Last read not last used".
+        case .lastUsed: "Last read"
         case .started: "Started"
         case .messages: "Messages"
         case .kind: "Kind"
@@ -42,7 +43,7 @@ enum ChatHistoryField: String, CaseIterable, Sendable {
         switch self {
         case .conversation: "The chat’s title (its topic, or the first question)"
         case .paper: "The paper it is about, or General"
-        case .lastUsed: "When you last asked or got an answer"
+        case .lastUsed: "When you last read or asked in the chat"
         case .started: "When the conversation began"
         case .messages: "Questions and answers"
         case .kind: "Paper chat or general chat"

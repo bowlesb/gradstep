@@ -2,6 +2,25 @@
 
 Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Automatic effort and DeepSeek in chat (server) — 2026-10-16, ~03:30 UTC
+
+- Build 57 feedback ("the effort level should be chosen intelligently"; "deep seek should be an option. We need one
+  that supports images"), server half, on **staging**: migration 078 applied and verified; `chat` deployed with
+  `CHAT_DEEPSEEK=hidden`, checked, then `on`; deploy suite 19/19 both times. Clients still to ship (answer options,
+  consent v4, settings).
+- **Automatic effort**: `effort: "auto"` resolves before the hold (Brief low; Standard medium for reasoning, an equation
+  or a figure; Detailed high for reasoning); quote, request, `done.profile`/`done.effort` carry the pick. Live: four
+  Sonnet `auto` answers picked medium/medium/low/medium and settled (57 credits, $0.273).
+- **DeepSeek** (`deepseek-flash` via DeepSeek's Anthropic-compatible API): consent `cloud-ai-v4` only
+  (`consent_required` otherwise), peak list prices, own admission, usage rows and breaker; Tavily is its only search.
+  Recorded check on DPO before publishing: equations 104/104 typeset, 93/93 citations resolvable, figure read from the
+  image with 4 parts, visual and Mermaid tools parsed, streaming; $0.038 for four answers, each attempt's cost equal to
+  its tokens at peak rates ([CHAT](architecture/CHAT.md#recorded-check-of-deepseek--2026-10-16-staging-before-it-was-published)).
+- **Published table** stays `chat-profiles-v1`, default `sonnet-low-standard`; 27 Claude profiles first and unchanged,
+  then 9 DeepSeek and 12 `auto` profiles, `default_auto`, `provider` per model. Live GET verified: equal to the checked-in
+  fixture, and the build 57/58 decoders' view unchanged.
+- Local: `npm test`, the database final phase with `chat_deepseek.sql`, `deno check` of chat and podcast entry points.
+
 ## Papers without arXiv HTML open their PDF — 2026-10-16, ~02:55 UTC
 
 - Build 57 report (Cortex, 2610.20399v1): arXiv has no HTML for it ("No HTML for '2610.20399v1'… conversion failure").

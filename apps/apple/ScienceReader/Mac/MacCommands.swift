@@ -166,7 +166,7 @@ struct GradstepCommands: Commands {
             // The paper's "…" menu, item for item (PaperView), so nothing on screen is missing from the menu bar.
             Button("Listen") { if let paper = model.selectedPaper { model.podcasts.listen(to: paper) } }
                 .disabled(model.selectedPaper.map { !model.podcasts.canListen(to: $0) } ?? true)
-            Button("Chats About This Paper") { if let paper = model.selectedPaper { model.openAllChats(paper: paper.id) } }
+            Button("Chats About This Paper") { if let paper = model.selectedPaper { model.openAllChats(paper: paper.id, thisPaper: true) } }
                 .disabled(model.selectedPaper.map { (model.paperChatCounts[$0.id] ?? 0) == 0 } ?? true)
             Button("Edit Tags…") { if let paper = model.selectedPaper { model.editTags(for: paper) } }
                 .disabled(model.selectedPaper.map(\.isSample) ?? true)

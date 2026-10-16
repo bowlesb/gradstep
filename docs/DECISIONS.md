@@ -177,7 +177,10 @@ paper paths; the fact that providers receive plaintext needed for a requested co
 holds and settlement; shared OCR/podcast reuse; and the account/platform spending gates. It does not promise zero
 provider retention or imply that a lower-priced model is automatically equivalent. See
 [DATA_HANDLING_AND_COSTS](architecture/DATA_HANDLING_AND_COSTS.md). DeepSeek remains a research candidate only;
-no routing or price policy changes follow from the rate comparison.
+no routing or price policy changes follow from the rate comparison. Superseded by owner requests: podcast scripts may
+use DeepSeek when chosen (2026-10-14), and chat may too (TestFlight build 57, 2026-10-16: "deep seek should be an
+option. We need one that supports images"), opt-in per chat under consent `cloud-ai-v4`, at DeepSeek's peak list
+prices, after a recorded quality check ([CHAT](architecture/CHAT.md#recorded-check-of-deepseek--2026-10-16-staging-before-it-was-published)).
 
 ## On-device paper processing (research, reversible) — 2026-10-09
 

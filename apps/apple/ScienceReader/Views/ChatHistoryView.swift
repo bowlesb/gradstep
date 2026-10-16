@@ -80,8 +80,8 @@ struct ChatHistoryView: View {
     @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
     @State private var search = ""
     @State private var filter: ChatHistoryFilter
-    /// Opened from a paper (its paper or chat screen): "This paper" is offered, and chosen first. Kept for the sheet's
-    /// life, so the table doesn't change while it closes.
+    /// Opened from a paper (its paper or chat screen): "This paper" is offered after All. Kept for the sheet's life, so
+    /// the table doesn't change while it closes.
     @State private var paperID: UUID?
     @State private var sort = ChatHistorySort.default
     @State private var deleting: ChatHistoryRow?
@@ -91,10 +91,11 @@ struct ChatHistoryView: View {
     @State private var scroll = TableScrollState()
     @State private var showColumns = false
 
-    init(model: ReaderModel, paperID: UUID? = nil) {
+    init(model: ReaderModel, paperID: UUID? = nil, startsOnPaper: Bool = false) {
         self.model = model
         _paperID = State(initialValue: paperID)
-        _filter = State(initialValue: paperID == nil ? .all : .thisPaper)
+        // Owner, build 57: "put All to the left and make that the default"; a paper's own "Chats about this paper" opens on those.
+        _filter = State(initialValue: startsOnPaper && paperID != nil ? .thisPaper : .all)
     }
 
     var body: some View {
@@ -115,29 +116,12 @@ struct ChatHistoryView: View {
                     list(rows: rows, drafts: drafts, titles: titles, total: summaries.count)
                 }
             }
-            .navigationTitle("All chats").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("All chats").toolbar(.hidden, for: .navigationBar)
+            // Owner, build 57: "the search bar at the top with the three lines at the right of the search bar… done can be
+            // an option remove it. All chats message can also go. simplify".
+            .safeAreaInset(edge: .top, spacing: 0) { topRow(searchable: !summaries.isEmpty) }
             .renameConversationAlert(model: model, conversation: $renaming)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-                // The table's options: its columns (build 16 #3).
-                if tableShown && !summaries.isEmpty {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            Menu {
-                                Picker("Sort by", selection: Binding(get: { sort.field }, set: { field in
-                                    sort = ChatHistorySort(field: field, ascending: field.ascendingFirst)
-                                })) {
-                                    ForEach(ChatHistoryField.allCases, id: \.self) { Text($0.title).tag($0) }
-                                }.pickerStyle(.inline)
-                            } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
-                            MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
-                        } label: { Image(systemName: "ellipsis") }
-                        .accessibilityLabel("All chats options").accessibilityIdentifier("chat.history.options")
-                    }
-                }
-            }
             .sheet(isPresented: $showColumns) { columnsSheet }
-            .modifier(ChatSearch(text: $search, enabled: !summaries.isEmpty))
             .alert("Delete this conversation?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                    presenting: deleting) { row in
                 Button("Delete", role: .destructive) { Task { await model.deleteConversation(row.id) } }
@@ -149,6 +133,51 @@ struct ChatHistoryView: View {
         }
         .presentationDetents([.large])
         .modifier(ChatHistorySizing())
+    }
+
+    // MARK: Top
+
+    /// The search field and, at its right, ≡ with the options: Sort by, Columns, Close.
+    private func topRow(searchable: Bool) -> some View {
+        HStack(spacing: 10) {
+            if searchable {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search chats", text: $search).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .submitLabel(.search).accessibilityIdentifier("chat.history.search")
+                    if !search.isEmpty {
+                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                            .buttonStyle(.plain).accessibilityLabel("Clear search")
+                    }
+                }
+                .padding(.horizontal, 14).frame(minHeight: 44)
+                .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+            } else {
+                Spacer(minLength: 0)
+            }
+            Menu {
+                if tableShown && searchable {
+                    Menu {
+                        Picker("Sort by", selection: Binding(get: { sort.field }, set: { field in
+                            sort = ChatHistorySort(field: field, ascending: field.ascendingFirst)
+                        })) {
+                            ForEach(ChatHistoryField.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }.pickerStyle(.inline)
+                    } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
+                    MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
+                }
+                Section { MenuRow("Close", systemImage: "xmark") { dismiss() }.accessibilityIdentifier("chat.history.close") }
+            } label: {
+                Image(systemName: "line.3.horizontal").font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44).modifier(GlassCircle()).contentShape(Circle())
+            }
+            .buttonStyle(.plain).foregroundStyle(.primary)
+            .accessibilityLabel("All chats options").accessibilityIdentifier("chat.history.options")
+        }
+        .padding(.horizontal, DesignMetrics.margin).padding(.top, 12).padding(.bottom, 8)
+        .background(Color(uiColor: .systemBackground))
+        // Esc closes, as Done did.
+        .background { Button("") { dismiss() }.keyboardShortcut(.cancelAction).hidden().accessibilityHidden(true) }
     }
 
     // MARK: List
@@ -271,9 +300,9 @@ struct ChatHistoryView: View {
         .background(Color(uiColor: .systemBackground))
     }
 
-    /// "This paper" (offered only when opened from a paper, and chosen then) leads, so it is never scrolled out of view.
+    /// All first (the default), then "This paper" when opened from a paper, Paper chats and General.
     private var chips: some View {
-        let options = (paperID == nil ? [] : [ChatHistoryFilter.thisPaper]) + ChatHistoryFilter.allCases.filter { $0 != .thisPaper }
+        let options = [ChatHistoryFilter.all] + (paperID == nil ? [] : [.thisPaper]) + [.paper, .general]
         return ForEach(options) { option in
             ChipButton(title: option.title, selected: filter == option) {
                 withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { filter = option }
@@ -382,9 +411,9 @@ struct ChatHistoryView: View {
     // MARK: Rows
 
     private func conversationRow(_ row: ChatHistoryRow, visible: [ChatTableColumn], arrangement: TableArrangement) -> some View {
-        // The Paper column on screen without scrolling (in the region's first view while the columns scroll).
-        let fitting = Set(ChatTableLayout.visible(chosenColumns, width: rowWidth, scale: scale).map(\.field))
-        let paperShown = arrangement.usesColumnRegion ? fitting.contains(.paper) : visible.contains { $0.field == .paper }
+        // With the Paper column chosen the paper is only in its column (owner, build 57: "The paper should only be in its
+        // column not duplicated on left column"), even while it is scrolled aside.
+        let paperShown = chosenColumns.contains(.paper)
         return Button {
             model.openConversation(row.id); dismiss()
         } label: {
@@ -565,17 +594,6 @@ struct ChatHistoryLargeRow: View {
             Text(detail).font(.footnote).foregroundStyle(.secondary)
         }
         .padding(.vertical, 5)
-    }
-}
-
-/// Search appears only when there is something to search.
-private struct ChatSearch: ViewModifier {
-    @Binding var text: String
-    let enabled: Bool
-    func body(content: Content) -> some View {
-        if enabled {
-            content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
-        } else { content }
     }
 }
 

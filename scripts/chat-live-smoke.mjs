@@ -6,12 +6,15 @@
 // account-delete, as a reader would, and confirms the auth user is gone. About $0.25 of provider spend per run.
 //
 //   node scripts/chat-live-smoke.mjs [--questions=1|2] [--index=.artifacts/bundles/<id>/reader.json]
+//   node scripts/chat-live-smoke.mjs --profile=sonnet-auto-standard            (automatic effort: done names the pick)
+//   node scripts/chat-live-smoke.mjs --profile=deepseek-auto-standard --eval   (the recorded DeepSeek check, under $0.10)
 //
 // --questions=2 sends the first suggested follow-up as a second turn (exercises the prompt cache). --index names any
 // compiled reader index for arXiv 2305.18290 (default: the DPO bundle under .artifacts/bundles); the server only sees
 // its text, so a device-compiled bundle gives the same evidence.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,6 +32,30 @@ const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9
 const LOOK = process.argv.includes('--look');
 /** `--equation`: the equation view's two requests on DPO's loss (EQUATION_VIEW.md): symbols, then background. */
 const EQUATION = process.argv.includes('--equation');
+/** `--profile=deepseek-auto-standard` (model-effort-length): the answer profile to ask with (2026-10-16: effort may be
+ * `auto`; DeepSeek goes with consent cloud-ai-v4, which names it). */
+const PROFILE = (() => {
+  const value = process.argv.find(a => a.startsWith('--profile='))?.slice(10);
+  if (!value) return null;
+  const [model, effort, length] = value.split('-');
+  if (!model || !effort || !length) { console.error('--profile=model-effort-length'); process.exit(2); }
+  return { model, effort, length };
+})();
+/** `--eval`: the recorded model check (CHAT.md "DeepSeek in chat"): four questions on DPO, each a new conversation, with
+ * the profile from --profile: equations (every \( \) and \[ \] segment typeset by the browser's temml, no $ delimiters),
+ * [¶N] citations that resolve, a visual or diagram that parses, Figure 1 attached and read (its example prompt is only in
+ * the image) with figure parts, and streaming; then each answer's quote and provider attempts from the database.
+ * Writes .artifacts/chat-eval/<time>.json (checks and numbers; the answers print to the console only). */
+const EVAL = process.argv.includes('--eval');
+const EVAL_QUESTIONS = [
+  { key: 'equations', question: 'Why does the DPO objective need a reference model, and which equation defines the loss?' },
+  { key: 'derivation', question: 'Derive the DPO loss from the KL-constrained reward maximization objective, step by step.' },
+  { key: 'visual', question: 'Show me how the DPO training pipeline works, as a visual I can read on my phone.' },
+  { key: 'figure', question: 'What does Figure 1 show? Walk me through each part of it.', figure: 1 },
+];
+const results = [];
+// The browser's math renderer (apps/web), to check that every equation an answer writes typesets.
+const temml = EVAL ? (await import(`${resolve(dirname(fileURLToPath(import.meta.url)), '..')}/apps/web/node_modules/temml/dist/temml.mjs`)).default : null;
 let forced = 0;
 const INDEX = process.argv.find(a => a.startsWith('--index='))?.slice(8) ?? `${ROOT}/.artifacts/bundles/ecbc0a04588f/reader.json`;
 const dotenv = path => Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
@@ -110,12 +137,14 @@ try {
   const turns = [];
   let equationAction = null, equationLatex = '';
   let followUps = [], studyMap = { concepts: [], links: [], focus: null, journey: [], next: 'calibrate' };
-  const ask = async question => {
+  const ask = async (question, figureNumber = 0) => {
     turns.push({ role: 'user', text: question });
-    const figures = forced ? figureImages(forced) : FIGURE && turns.length === 1 ? figureImages(FIGURE) : [];
+    const figures = forced ? figureImages(forced) : (figureNumber || FIGURE) && turns.length === 1 ? figureImages(figureNumber || FIGURE) : [];
     let requested = null;
-    const body = { operation_id: randomUUID(), consent_version: figures.length || LOOK ? 'cloud-ai-v3' : 'cloud-ai-v2', mode: 'paper', local_context, messages: turns,
+    const consent = PROFILE?.model === 'deepseek' ? 'cloud-ai-v4' : figures.length || LOOK ? 'cloud-ai-v3' : 'cloud-ai-v2';
+    const body = { operation_id: randomUUID(), consent_version: consent, mode: 'paper', local_context, messages: turns,
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
+      ...(PROFILE ? { profile: PROFILE } : {}),
       ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } } : { follow_ups: true }) };
     if (equationAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
@@ -124,7 +153,7 @@ try {
       apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
     log(`chat HTTP ${r.status} ${r.headers.get('content-type')}`);
     if (r.status !== 200) { log(await r.text()); throw new Error('chat request failed'); }
-    let answer = '', buffer = '', first = 0; const events = []; let done = null; followUps = [];
+    let answer = '', buffer = '', first = 0; const events = []; let done = null, failure = null, parts = null, visual = null, diagram = null; followUps = [];
     const reader = r.body.getReader(); const decoder = new TextDecoder();
     const dispatch = frame => {
       let name = 'message', data = '';
@@ -135,8 +164,10 @@ try {
       if (name === 'text' || name === 'delta') { if (!first) first = Date.now(); answer += payload.text ?? payload.delta ?? ''; }
       else if (name === 'followups') followUps = payload.questions ?? [];
       else if (name === 'study') { studyMap = payload.map; log(`study map: ${studyMap.concepts.length} concepts ${JSON.stringify(studyMap.concepts.map(c => `${c.label}:${c.state}`))} links ${studyMap.links.length} focus ${studyMap.focus} next ${studyMap.next} journey ${studyMap.journey.join('>')}`); }
-      else if (name === 'figure_parts') log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`);
-      else if (name === 'visual') log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`);
+      else if (name === 'figure_parts') { parts = payload; log(`figure parts: “${payload.title}” on ${payload.figure} ¶${payload.paragraph}: ${payload.parts.map(p => `${p.label} [${p.box.map(n => n.toFixed(2)).join(',')}]`).join(' | ')}`); }
+      else if (name === 'visual') { visual = payload; log(`visual: “${payload.title}”, ${Buffer.byteLength(payload.html)} bytes of HTML, elements ${[...new Set((payload.html.match(/<([a-z][a-z0-9]*)/gi) || []).map(t => t.slice(1).toLowerCase()))].join(' ')}`); }
+      else if (name === 'diagram') { diagram = payload; log(`diagram: “${payload.title}”, ${payload.source.split('\n')[0]}`); }
+      else if (name === 'error') { failure = payload; log(`event error ${JSON.stringify(payload)}`); }
       else if (name === 'figure_request') { requested = payload.figure; log(`figure request: ${payload.figure}`); }
       else if (name === 'equation') log(`equation: “${payload.summary}” ${payload.symbols.length} symbols: ${payload.symbols.map(x => `${x.symbol} (${x.source}${x.paragraph ? ` ¶${x.paragraph}` : ''}): ${x.meaning}`).join(' | ')}`);
       else if (name === 'done') done = payload;
@@ -156,6 +187,23 @@ try {
     log(`citations: [${cites.join(', ')}] (${cites.filter(n => n >= 1 && n <= index.blocks.length).length} resolvable of ${cites.length})`);
     log(`follow-ups (${followUps.length}): ${JSON.stringify(followUps)}`);
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
+    if (EVAL) {
+      // Every math segment as the browser typesets it (temml, errors thrown), and no dollar delimiters.
+      const segments = [...answer.matchAll(/\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g)].map(m => ({ tex: m[1] ?? m[2], display: m[2] !== undefined }));
+      const invalid = segments.filter(s => { try { temml.renderToString(s.tex, { displayMode: s.display, throwOnError: true, trust: false, maxExpand: 1000 }); return false; } catch { return true; } });
+      const dollars = /(^|[^\\])\$[^$\n]+\$/.test(answer.replace(/```[\s\S]*?```/g, ''));
+      const deltas = events.filter(e => e === 'delta').length;
+      results.push({ operation_id: body.operation_id, profile: done?.profile ?? null, effort: done?.effort ?? null, model: done?.model ?? null,
+        credits: done?.credits ?? null, error: failure?.code ?? null, stop_reason: done?.stop_reason ?? null,
+        first_text_s: first ? Number(((first - started) / 1000).toFixed(1)) : null, total_s: Number(seconds), deltas, characters: answer.length,
+        math_segments: segments.length, math_invalid: invalid.length, math_invalid_examples: invalid.slice(0, 3).map(s => s.tex.slice(0, 80)), dollar_delimiters: dollars,
+        citations: cites.length, citations_resolvable: cites.filter(n => n >= 1 && n <= index.blocks.length).length,
+        visual: visual ? Buffer.byteLength(visual.html) : null, diagram: diagram ? diagram.source.split('\n')[0].slice(0, 40) : null,
+        figure_parts: parts ? parts.parts.length : null, figure_attached: figures.length,
+        // Figure 1's example prompt ("write me a poem about the history of jazz") is only in the image, never in the text.
+        image_read: figures.length ? /jazz|poem/i.test(answer) || !!parts?.parts.some(p => /jazz|poem/i.test(`${p.label} ${p.note}`)) : null,
+        follow_ups: followUps.length, usage: done?.usage ?? null });
+    }
     // The model asked for a figure: the same question again with it (the first answer was only the request).
     if (LOOK && requested && !figures.length && /^Figure \d+$/.test(requested)) {
       turns.pop(); forced = Number(requested.split(' ')[1]);
@@ -171,6 +219,8 @@ try {
     equationLatex = loss.latex.replace(/\\(begin|end)\{equation\*?\}/g, '').trim();
     log(`equation ${loss.id} ¶${index.blocks.findIndex(b => b.id === loss.block_id) + 1}: ${equationLatex.slice(0, 120)}…`);
     for (const action of ['equation', 'equation_background']) { equationAction = action; turns.length = 0; await ask('Equation (7)'); }
+  } else if (EVAL) {
+    for (const item of EVAL_QUESTIONS) { turns.length = 0; log(`=== ${item.key} ===`); await ask(item.question, item.figure ?? 0); results.at(-1).key = item.key; }
   } else if (STUDY) {
     await ask('Start studying this paper.');
     await ask('I think the reference model is the model you start from, and the loss compares how much more likely the chosen answer is than the rejected one under the policy versus the reference.');
@@ -181,6 +231,37 @@ try {
   }
   const after = await rpc('v1_credit_balance', {}, token);
   log(`balance after: ${after.available} available, ${after.held ?? 0} held (spent ${balance.available - after.available} credits)`);
+  if (EVAL) {
+    // Each answer's frozen quote and provider attempts (read-only management query; staging only).
+    let rows = { quotes: [], attempts: [] };
+    try {
+      const managementToken = execFileSync('security', ['find-generic-password', '-s', 'Supabase CLI', '-w'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      secrets.add(managementToken);
+      const ids = results.map(r => r.operation_id).filter(id => /^[0-9a-f-]{36}$/.test(id)).map(id => `'${id}'`).join(',');
+      const sql = async query => {
+        const r = await http(`https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`, { method: 'POST', headers: { Authorization: `Bearer ${managementToken}` },
+          body: { query, read_only: true } });
+        if (r.status >= 300) throw new Error(`management query HTTP ${r.status}`);
+        return r.json;
+      };
+      rows.quotes = await sql(`select operation_id::text op, profile, model, effort, length, tariff, max_output_tokens, credit_ceiling, spend_ceiling_microusd
+        from app_private.chat_quotes where operation_id in (${ids})`);
+      rows.attempts = await sql(`select operation_id::text op, provider, model, state, ceiling_microusd, actual_microusd, actual_units, pricing_snapshot->>'tariff' tariff
+        from app_private.provider_attempts where operation_id in (${ids}) order by created_at`);
+    } catch (error) { log(`usage rows unavailable: ${error.message}`); }
+    for (const r of results) {
+      r.quote = rows.quotes.find(q => q.op === r.operation_id) ?? null;
+      r.attempts = rows.attempts.filter(a => a.op === r.operation_id).map(({ op: _op, ...a }) => a);
+      r.provider_usd = r.attempts.reduce((sum, a) => sum + Number(a.actual_microusd ?? 0), 0) / 1e6;
+      log(`${r.key}: ${r.profile} ${r.credits} credits, $${r.provider_usd.toFixed(5)} (${r.attempts.map(a => `${a.provider}/${a.model}:${a.state}:${a.actual_microusd}`).join(', ')}); `
+        + `math ${r.math_segments - r.math_invalid}/${r.math_segments}${r.dollar_delimiters ? ' $!' : ''}; citations ${r.citations_resolvable}/${r.citations}; `
+        + `visual ${r.visual ?? '-'} diagram ${r.diagram ?? '-'} parts ${r.figure_parts ?? '-'} image ${r.image_read ?? '-'}; deltas ${r.deltas}, first ${r.first_text_s} s, total ${r.total_s} s`);
+    }
+    const dir = `${ROOT}/.artifacts/chat-eval`; mkdirSync(dir, { recursive: true });
+    const file = `${dir}/${new Date().toISOString().replace(/[:.]/g, '-')}-${PROFILE ? `${PROFILE.model}-${PROFILE.effort}-${PROFILE.length}` : 'default'}.json`;
+    writeFileSync(file, JSON.stringify({ profile: PROFILE, ran_at: new Date().toISOString(), results }, null, 1));
+    log(`recorded ${file.slice(ROOT.length + 1)}`);
+  }
 } catch (error) { exit = 1; log(`FAILED: ${error.message}`); }
 finally {
   // 5. Cleanup through account-delete, then confirm the auth user is gone.

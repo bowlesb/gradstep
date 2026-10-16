@@ -12,6 +12,8 @@ struct ChatTranscript: View {
     @State private var hasNewMessages = false
     @State private var jump = TranscriptJump()
     @State private var paperActions = ChatPaperActions()
+    /// The starters' draw: a new one for each new chat, kept while that empty chat is shown (chat redesign 2026-10-16).
+    @State private var starterSeed = UInt32.random(in: .min ... .max)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -31,7 +33,16 @@ struct ChatTranscript: View {
                 })
                 .id(scope)
             if messages.isEmpty {
-                emptyState.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(16).padding(.top, insets.top)
+                if showsStarters {
+                    // Gemini's empty chat (owner, build 57): a soft glow rising behind the lower part, the starters
+                    // just above the message box.
+                    StarterGlow().allowsHitTesting(false).accessibilityHidden(true)
+                    ChatStarterList(starters: starters) { model.useFollowUp($0) }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, insets.bottom + 4)
+                } else {
+                    emptyState.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(16).padding(.top, insets.top)
+                }
             }
             Button {
                 jump = TranscriptJump(animated: !reduceMotion)
@@ -44,8 +55,19 @@ struct ChatTranscript: View {
             .allowsHitTesting(!followsLatest && !messages.isEmpty)
             .accessibilityHidden(followsLatest || messages.isEmpty)
         }
-        .onChange(of: scope) { _, _ in followsLatest = true; hasNewMessages = false }
+        .onChange(of: scope) { _, _ in followsLatest = true; hasNewMessages = false; starterSeed = .random(in: .min ... .max) }
         .onChange(of: messages.last?.id) { _, _ in if !followsLatest { hasNewMessages = true } }
+    }
+
+    /// An empty chat that can be asked: starters instead of a notice.
+    private var showsStarters: Bool {
+        !model.chatWasDeleted && !model.chatHasRemovedMessages && (model.generalChat || model.canUsePaperChat) && model.chatStudyMap == nil
+    }
+    /// Three starters for this chat: about its paper (from the paper's reading index, when on this device), else general.
+    private var starters: [ChatStarters.Starter] {
+        let paper = model.generalChat ? nil : (model.chatPaper?.readerBundle.map { ChatStarters.paper($0.index) }
+            ?? ChatStarters.Paper(figures: [], tables: [], equations: 0, headings: []))
+        return ChatStarters.choose(paper, seed: starterSeed)
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -55,22 +77,70 @@ struct ChatTranscript: View {
             ContentUnavailableView("Messages removed", systemImage: "bubble.left", description: Text("You can add a new message to this conversation."))
         } else if !model.generalChat && !model.canUsePaperChat {
             ContentUnavailableView("Choose a paper", image: GradstepSymbol.paper, description: Text("Open a paper from your library, or use General chat."))
-        } else {
-            ContentUnavailableView {
-                Label(model.generalChat ? "Explore an idea" : "Ask about this paper", image: GradstepSymbol.chat)
-            } description: {
-                Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question.")
-            } actions: {
-                // Study (experimental, 2026-10-14): a tutor for this paper, offered when the paper is numbered on this device.
-                if model.canStudyPaper, model.chatStudyMap == nil {
-                    VStack(spacing: 6) {
-                        Button("Study this paper") { Task { await model.startStudy() } }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule).accessibilityIdentifier("chat.study.start")
-                        Text("A tutor asks one question at a time, teaches what you miss, and maps what you know. Experimental.")
-                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+    }
+}
+
+/// Starter questions above the message box (Gemini's layout): a line icon and one line of text each, no heading. A tap
+/// puts the question in the message box; nothing is sent until the reader sends it.
+private struct ChatStarterList: View {
+    let starters: [ChatStarters.Starter]
+    let use: (String) -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(starters.enumerated()), id: \.element) { index, starter in
+                Button { use(starter.text) } label: {
+                    HStack(spacing: 16) {
+                        Image(systemName: Self.symbol(starter.icon)).font(.system(size: 19, weight: .regular))
+                            .foregroundStyle(.secondary).frame(width: 28)
+                        Text(starter.text).font(.body).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
                     }
+                    .padding(.vertical, 11).padding(.horizontal, 12).contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityHint("Puts this question in the message box")
+                .accessibilityIdentifier("chat.starter.\(index)")
             }
+        }
+        .padding(.horizontal, 16)
+        .readableColumn()
+        .accessibilityElement(children: .contain).accessibilityLabel("Suggested questions")
+        .accessibilityIdentifier("chat.starters")
+    }
+
+    static func symbol(_ icon: String) -> String {
+        switch icon {
+        case "target": "scope"
+        case "gear": "gearshape"
+        case "figure": "photo"
+        case "function": "function"
+        case "table": "tablecells"
+        case "chart": "chart.line.uptrend.xyaxis"
+        case "question": "questionmark.bubble"
+        case "book": "book"
+        case "lightbulb": "lightbulb"
+        case "compare": "arrow.left.arrow.right"
+        case "map": "map"
+        default: "sparkle"
+        }
+    }
+}
+
+/// The soft accent glow behind the lower part of an empty chat (Gemini's), stronger in the dark.
+private struct StarterGlow: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        if !reduceTransparency {
+            GeometryReader { proxy in
+                EllipticalGradient(colors: [Color.accentColor.opacity(colorScheme == .dark ? 0.30 : 0.12), Color.accentColor.opacity(0)],
+                                   center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.75)
+                    .frame(width: proxy.size.width * 1.6, height: proxy.size.height * 0.9)
+                    .position(x: proxy.size.width / 2, y: proxy.size.height)
+            }
+            .ignoresSafeArea()
         }
     }
 }

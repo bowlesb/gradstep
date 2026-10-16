@@ -5,8 +5,11 @@ import Foundation
 /// `GET functions/v1/chat`) and charges at the chosen model's rates; this build only sends the choice and displays
 /// the server's estimates. Contract: docs/architecture/CHAT.md#models-effort-and-length.
 public struct ChatProfileChoice: Codable, Equatable, Hashable, Sendable {
-    public enum Model: String, Codable, CaseIterable, Sendable { case haiku, sonnet, opus }
-    public enum Effort: String, Codable, CaseIterable, Sendable { case low, medium, high }
+    /// `deepseek` (chat redesign 2026-10-16): DeepSeek V4.1 Flash, offered only when the server's table lists it.
+    public enum Model: String, Codable, CaseIterable, Sendable { case haiku, sonnet, opus, deepseek }
+    /// `auto` (chat redesign 2026-10-16): the server picks low, medium or high for each question. The reader no longer
+    /// chooses effort; older builds' explicit efforts stay valid.
+    public enum Effort: String, Codable, CaseIterable, Sendable { case low, medium, high, auto }
     public enum Length: String, Codable, CaseIterable, Sendable { case brief, standard, detailed }
 
     public var model: Model
@@ -32,22 +35,26 @@ public struct ChatProfileChoice: Codable, Equatable, Hashable, Sendable {
 
 public extension ChatProfileChoice.Model {
     /// Built-in names, used until (or when) the server's table is unavailable.
-    var label: String { switch self { case .haiku: "Haiku"; case .sonnet: "Sonnet"; case .opus: "Opus" } }
+    var label: String { switch self { case .haiku: "Haiku"; case .sonnet: "Sonnet"; case .opus: "Opus"; case .deepseek: "DeepSeek" } }
     var detail: String {
         switch self {
         case .haiku: "Fastest and cheapest"
         case .sonnet: "Strong answers at a moderate cost"
         case .opus: "Most capable; costs the most"
+        case .deepseek: "Lowest cost; handles figures"
         }
     }
+    /// Who processes a question asked with this model (Settings › AI chat options).
+    var processor: String { self == .deepseek ? "DeepSeek" : "Anthropic" }
 }
 public extension ChatProfileChoice.Effort {
-    var label: String { switch self { case .low: "Low"; case .medium: "Medium"; case .high: "High" } }
+    var label: String { switch self { case .low: "Low"; case .medium: "Medium"; case .high: "High"; case .auto: "Automatic" } }
     var detail: String {
         switch self {
         case .low: "Thinks only when needed; quickest"
         case .medium: "Thinks through harder questions"
         case .high: "Thinks carefully; slowest"
+        case .auto: "Chosen for each question"
         }
     }
 }
@@ -141,6 +148,25 @@ public struct ChatProfileTable: Equatable, Sendable {
     public func detail(_ effort: ChatProfileChoice.Effort) -> String { efforts[effort]?.detail ?? effort.detail }
     public func detail(_ length: ChatProfileChoice.Length) -> String { lengths[length]?.detail ?? length.detail }
 
+    /// What a request asks for: the reader's model and length with the effort the server chooses (`auto`) when the
+    /// table offers it; else the choice as stored, else its low-effort form, else the server's default. Effort is no
+    /// longer the reader's choice (chat redesign 2026-10-16).
+    public func requested(_ choice: ChatProfileChoice) -> ChatProfileChoice {
+        var automatic = choice; automatic.effort = .auto
+        if offers(automatic) { return automatic }
+        if offers(choice) { return choice }
+        var low = choice; low.effort = .low
+        return offers(low) ? low : defaultChoice
+    }
+    /// The models the table offers (any length), in the app's order.
+    public var offeredModels: [ChatProfileChoice.Model] {
+        ChatProfileChoice.Model.allCases.filter { m in estimates.keys.contains { $0.model == m } }
+    }
+    /// The estimate shown for a model and length: the automatic effort's when offered, else low effort's.
+    public func estimate(model: ChatProfileChoice.Model, length: ChatProfileChoice.Length) -> Estimate? {
+        estimates[ChatProfileChoice(model: model, effort: .auto, length: length)] ?? estimates[ChatProfileChoice(model: model, effort: .low, length: length)]
+    }
+
     /// "Usually 4–24 credits · up to 37", "About 1 credit · up to 2"; nil when the server doesn't offer the choice.
     public func estimateText(_ choice: ChatProfileChoice) -> String? {
         guard let estimate = estimates[choice] else { return nil }
@@ -156,14 +182,13 @@ public enum ChatProfileText {
         return "\(usual) · up to \(estimate.max)"
     }
 
-    /// The compact control's label: "Sonnet · Low · Standard".
+    /// The reader's choice: "Sonnet · Standard" (effort is the server's, chat redesign 2026-10-16).
     public static func summary(_ choice: ChatProfileChoice, table: ChatProfileTable? = nil) -> String {
-        [table?.label(choice.model) ?? choice.model.label, table?.label(choice.effort) ?? choice.effort.label,
-         table?.label(choice.length) ?? choice.length.label].joined(separator: " · ")
+        [table?.label(choice.model) ?? choice.model.label, table?.label(choice.length) ?? choice.length.label].joined(separator: " · ")
     }
 
-    /// The line under an answer: its profile ("Sonnet · Low · Standard"), and the model when another one wrote it (a
-    /// refusal fallback): "Sonnet · Low · Standard · by Claude Sonnet 5". Nil for answers saved without either.
+    /// The line under an answer: its profile ("Sonnet · Standard"), and the model when another one wrote it (a
+    /// refusal fallback): "Sonnet · Standard · by Claude Sonnet 5". Nil for answers saved without either.
     public static func answeredBy(model: String?, profile: String?, table: ChatProfileTable? = nil) -> String? {
         let choice = profile.flatMap(ChatProfileChoice.init(id:))
         var parts: [String] = []
@@ -177,12 +202,13 @@ public enum ChatProfileText {
 
     /// The API model each choice asks for (chat-profiles-v1).
     public static func apiModel(for model: ChatProfileChoice.Model) -> String {
-        switch model { case .haiku: "claude-haiku-5-5"; case .sonnet: "claude-sonnet-5-5"; case .opus: "claude-opus-5-5" }
+        switch model { case .haiku: "claude-haiku-5-5"; case .sonnet: "claude-sonnet-5-5"; case .opus: "claude-opus-5-5"; case .deepseek: "deepseek-flash" }
     }
 
     /// "claude-sonnet-5" → "Claude Sonnet 5"; anything unexpected is shown bounded, as sent.
     public static func modelName(_ id: String) -> String {
         let trimmed = String(id.prefix(64))
+        if trimmed.hasPrefix("deepseek-") { return trimmed == "deepseek-flash" ? "DeepSeek V4.1 Flash" : "DeepSeek" }
         guard trimmed.hasPrefix("claude-") else { return trimmed }
         let words = trimmed.dropFirst("claude-".count).split(separator: "-").map(String.init)
         guard let family = words.first, !family.isEmpty else { return trimmed }
