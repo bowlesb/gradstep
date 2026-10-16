@@ -104,6 +104,42 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
     }
 }
 
+/// The server's `figure_detail` event (format `figure-detail-v1`, owner, TestFlight 62: "Extract the subfigure and more
+/// context"): one part of the walkthrough, the region it occupies (always) and a closer reading of it.
+public struct FigureDetail: Codable, Equatable, Sendable {
+    public static let format = "figure-detail-v1"
+    public let format: String
+    public let label: String
+    public let title: String
+    /// Markdown with `\( \)` math and `[¶N]` citations.
+    public let text: String
+    public let paragraphs: [Int]
+    public let box: FigureWalkthrough.Box
+
+    public init(label: String, title: String, text: String, paragraphs: [Int] = [], box: FigureWalkthrough.Box) {
+        format = Self.format; self.label = label; self.title = title; self.text = text; self.paragraphs = paragraphs; self.box = box
+    }
+
+    /// The event's JSON, checked as the server checks it: a title (or label) and text, and a box inside the image. Nil
+    /// otherwise (no crop can be cut).
+    public static func validated(_ data: Data) -> FigureDetail? {
+        struct Raw: Decodable {
+            struct RawBox: Decodable { let x: Double?; let y: Double?; let w: Double?; let h: Double? }
+            let format: String; let label: String?; let title: String?; let text: String?; let paragraphs: [Int]?; let box: RawBox?
+        }
+        guard data.count <= 32 * 1024, let raw = try? JSONDecoder().decode(Raw.self, from: data), raw.format == format,
+              let b = raw.box, let x = b.x, let y = b.y, let w = b.w, let h = b.h else { return nil }
+        let box = FigureWalkthrough.Box(x: x, y: y, w: w, h: h)
+        var label = FigureWalkthrough.line(raw.label, FigureWalkthrough.maximumLabel), title = FigureWalkthrough.line(raw.title, FigureWalkthrough.maximumTitle)
+        if title.isEmpty { title = label; label = "" }
+        let text = FigureWalkthrough.prose(raw.text, FigureWalkthrough.maximumText)
+        guard box.isValid, !title.isEmpty, !text.isEmpty else { return nil }
+        var numbers: [Int] = []
+        for n in raw.paragraphs ?? [] where (1...100_000).contains(n) && !numbers.contains(n) && numbers.count < FigureWalkthrough.maximumParagraphs { numbers.append(n) }
+        return FigureDetail(label: label, title: title, text: text, paragraphs: numbers, box: box)
+    }
+}
+
 extension ChatGenerationRequest {
     /// A figure view request: one turn naming the figure ("Figure 1", or "Figure 1 Left panel" for one part), the caption
     /// (or the part's text) as the selection, exactly this figure's image, and the chat's own profile and visual-answers
@@ -122,13 +158,17 @@ extension ChatGenerationRequest {
 public struct FigureAnswer: Codable, Equatable, Sendable {
     /// The walkthrough (action `figure`); nil when the server sent words instead, and for `figure_simpler`.
     public var walkthrough: FigureWalkthrough?
-    /// A part explained more simply, or the words sent instead of a walkthrough.
+    /// One part extracted (action `figure_detail`); nil when the server sent its words without a box. Answers kept
+    /// before it existed decode without it.
+    public var detail: FigureDetail?
+    /// A part explained more simply, or the words sent instead of a walkthrough or a detail.
     public var text: String
     public var model: String?
     /// What it explains, for Settings › Your assets (EquationView.swift).
     public var subject: ExplanationSubject?
-    public init(walkthrough: FigureWalkthrough? = nil, text: String = "", model: String? = nil, subject: ExplanationSubject? = nil) {
-        self.walkthrough = walkthrough; self.text = text; self.model = model; self.subject = subject
+    public init(walkthrough: FigureWalkthrough? = nil, detail: FigureDetail? = nil, text: String = "", model: String? = nil,
+                subject: ExplanationSubject? = nil) {
+        self.walkthrough = walkthrough; self.detail = detail; self.text = text; self.model = model; self.subject = subject
     }
 }
 

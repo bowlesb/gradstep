@@ -206,8 +206,10 @@ final class LiveJourneyTests: XCTestCase {
         let row = paperRow(app)
         XCTAssertTrue(row.waitForExistence(timeout: 120), "The added paper did not appear")
         row.tap()
-        let noWebVersion = app.staticTexts["No web version of this paper"]
-        XCTAssertTrue(noWebVersion.waitForExistence(timeout: 120), "The screen did not say the paper has no web version")
+        // One screen for any paper the reader can't show (owner, build 62): its PDF, or the on-device model; no Try again.
+        let screen = app.staticTexts["Read this paper as its PDF"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 120), "The screen did not offer the paper's PDF")
+        XCTAssertTrue(app.staticTexts["arXiv has no web version of this paper."].exists, "The reason, in one line")
         XCTAssertFalse(app.buttons["Try again"].exists, "Trying again can't help a paper arXiv has no HTML for")
         capture(app, "No web version")
         let openPDF = app.buttons["paper.openPDF"]

@@ -167,6 +167,18 @@ public final class DevicePDFRoute {
                 let rgb = DevicePDFRaster.rgb(image); other = (page, dpi, rgb); source = rgb
             } else { source = nil }
             guard let source else { return NSNull() }
+            // A formula's crop is cleaned when the converter asks (`clean: { em, margin }` in pixels at this resolution):
+            // the cut tails of the lines above and below go, the ink is trimmed and given a margin, and the image's
+            // place on the page comes back with it so the converter sizes and aligns it (DevicePDFRaster.cleanFormula).
+            let clean = request.objectForKeyedSubscript("clean")
+            if let clean, clean.isObject, let em = clean.objectForKeyedSubscript("em")?.toNumber()?.doubleValue, em.isFinite, em > 0, em <= 1000,
+               let margin = clean.objectForKeyedSubscript("margin")?.toNumber()?.intValue, (0...200).contains(margin) {
+                let (png, placed) = timed("images") { () -> (Data, [Int]) in
+                    let cleaned = DevicePDFRaster.cleanFormula(DevicePDFRaster.crop(source, rect), em: em, margin: margin)
+                    return (DevicePDFRaster.png(cleaned.image), [rect[0] + cleaned.rect[0], rect[1] + cleaned.rect[1], rect[0] + cleaned.rect[2], rect[1] + cleaned.rect[3]])
+                }
+                return ["png": png.base64EncodedString(), "width": placed[2] - placed[0], "height": placed[3] - placed[1], "rect": placed] as [String: Any]
+            }
             let png = timed("images") { DevicePDFRaster.png(DevicePDFRaster.crop(source, rect)) }
             return ["png": png.base64EncodedString(), "width": rect[2] - rect[0], "height": rect[3] - rect[1]] as [String: Any]
         }

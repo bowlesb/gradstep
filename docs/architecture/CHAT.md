@@ -132,7 +132,8 @@ match is added with `v2_begin_web_import` (source `openalex:W…`) **only if the
 `capabilities: ["web_import"]`** (body field; unknown capability values are ignored, malformed ones rejected; part
 of the request digest when present). Other capabilities: `visual_answers`, `figure_requests`, `stop_signal` (below)
 and `figure_view` (2026-10-16: the apps send it on every paper chat request, never Add paper or a repair, so the figure
-view's walkthrough shares the chat's cached tools; [FIGURE_VIEW.md](FIGURE_VIEW.md)). The app sends `web_import` on Ingest requests from builds that show web papers. Older
+view's walkthrough shares the chat's cached tools; [FIGURE_VIEW.md](FIGURE_VIEW.md); its actions are `figure`,
+`figure_simpler` and, since TestFlight 62's feedback, `figure_detail`, one part extracted with more context). The app sends `web_import` on Ingest requests from builds that show web papers. Older
 builds get "needs the latest Science Reader version"; a match without an open copy gets "isn't openly available".
 The presence check reads `v3_library_page` (all sources). The paper worker then reads the work from
 `api.openalex.org` itself (metadata and up to three open-access PDF locations, never arXiv-hosted) and converts a
@@ -1008,6 +1009,23 @@ Sonnet: equations 70/70, citations 71/71 resolvable, a visual (1,433 B) for the 
 from the image but no `show_figure_parts` call this time, first text 2.0–2.9 s, 57 credits and $0.273 (the first
 answer wrote the paper to the one-hour cache: $0.207). DeepSeek gave longer, more heavily cited answers for about a
 seventh of the cost, and slower first text.
+
+### DeepSeek at low effort, and choosing the default (2026-10-16 ~16:05 UTC)
+
+Owner: "We should consider making DeepSeek, or another provider, the default… which models have highest bang for buck…
+if people run out of credits all the time it will be annoying." `--profile=deepseek-low-standard --eval`
+(`.artifacts/chat-eval/2026-10-16T16-04-48-898Z-deepseek-low-standard.json`): 1 credit per answer, equations 80/80
+typeset, citations 57/57 resolvable (the first answer cited none), Figure 1 read from the image with 3 parts; but the
+pipeline question drew no visual, and first text still came 7.5–14.9 s in (8–23 s at medium): DeepSeek's latency is
+the service's, not the effort's.
+
+At list prices (rate card in `anthropic.ts`, $/M tokens: input · 1-hour cache write · cache read · output) Sonnet 5.5 is
+2 · 4 · 0.10 · 10, DeepSeek Flash (peak) 0.30 · 0.30 · 0.006 · 1.20, Haiku 5.5 0.10 · 0.20 · 0.01 · 0.50 (×5 above 100k
+prompt tokens). A paper's first question writes the paper to the cache: ~$0.19 on Sonnet (≈40 credits), ~$0.01 on
+Haiku. Haiku 5.5 is fastest and cheapest, reads images and keeps Anthropic as the only processor (no consent change);
+it has not been run through `--eval` yet (the staging Anthropic balance ran out the same afternoon). Next: the same eval
+and a figure walkthrough on Haiku, then pick the default (published table `default`/`default_auto`; a Haiku default is a
+known profile older builds accept, a DeepSeek default would need consent v4 from every reader).
 
 ### Browser (2026-10-16, local fixtures; not deployed)
 

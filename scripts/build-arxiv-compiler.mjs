@@ -46,3 +46,8 @@ if (previous && previous.revision === ARXIV_RENDERER_REVISION && previous.code_s
 if (process.argv.includes('--check')) {
   if (readFileSync(root + buildPath, 'utf8') !== identity) throw Error(`Stale device compiler identity: ${buildPath}. Run node scripts/build-arxiv-compiler.mjs.`);
 } else writeFileSync(root + buildPath, identity);
+// Reader version details (owner, build 62) name each stored paper's version from this list: the shipped identity must
+// be in it (docs/architecture/READER_VERSIONS.md).
+const versions = JSON.parse(readFileSync(root + 'apps/apple/ScienceReader/Resources/reader-versions.json', 'utf8')).versions;
+if (!versions.some(v => v.revision === ARXIV_RENDERER_REVISION && v.build_sha256 === ARXIV_BUILD_SHA256))
+  throw Error(`apps/apple/ScienceReader/Resources/reader-versions.json has no entry for revision ${ARXIV_RENDERER_REVISION} (${ARXIV_BUILD_SHA256}): add one with its date and a one-line note.`);

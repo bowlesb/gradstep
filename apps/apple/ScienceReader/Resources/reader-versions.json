@@ -1,0 +1,19 @@
+{
+ "renderer_id": "gradstep-arxiv-html-mathml-v2",
+ "versions": [
+  {"revision": 16, "date": "2026-10-16", "build_sha256": "9d7263668a36a544d08ee215c77c6dffab6810f9411f74137fb9ecf4d711a8cf", "note": "Contents › Tables lists the paper's tables; an image arXiv doesn't serve leaves a note in its figure instead of stopping the paper."},
+  {"revision": 15, "date": "2026-10-15", "build_sha256": "3eefe897dc8e20764a38a9c9760d07a0cbc2f7552d0d760a28ebf9067b4f49e7", "note": "A figure the device can't prepare says so in place instead of stopping the paper; very large drawings are drawn smaller."},
+  {"revision": 14, "date": "2026-10-15", "build_sha256": "ce80fedc76b0324e4b449fadc7fc6659b8d723969d5f37b2718fe014e281f4fa", "note": "Figures missing from arXiv's page say so; placeholder author lists give way to the paper's real authors."},
+  {"revision": 13, "date": "2026-10-15", "build_sha256": "4060b81af60a3ea89761de0f50cfb30922804b8cc00d224621fb090b56948cf3", "note": "Unusual math styling is left out rather than stopping the paper."},
+  {"revision": 12, "date": "2026-10-15", "build_sha256": "794474e08c8607ba829d017bb1e29ed1686be369aeefd99f9ab4553c67a57279", "note": "Panels under one caption read as one figure."},
+  {"revision": 11, "date": "2026-10-15", "build_sha256": "99e972cca577fcfe3ab9c71292cf0f91a32e176476ad9bcc7fe456ad960ca7ac", "note": "The converter reorganised; the papers read the same."},
+  {"revision": 10, "date": "2026-10-15", "build_sha256": "2b6518f5e3846aaed982714699c733f92f283b10b8bc524cec105cc41602d16d", "note": "Shared checks with the on-device PDF reader."},
+  {"revision": 9, "date": "2026-10-14", "build_sha256": "8fc01196985c25d3ef5f48f05b96d618f72d796a401eed678df635286a7d5272", "note": "Title pages and author tables; very large images left out."},
+  {"revision": 8, "date": "2026-10-14", "build_sha256": "134b234042148aedc7941e4acc12d8a596c62d67fd1c26ff7da57f1064c45f52", "note": "Fewer papers refused on first open."},
+  {"revision": 7, "date": "2026-10-14", "build_sha256": "d9c549cadd20bc8edd9f0c8c58baa59b1df5f7466c84c3eb1e4cabcadd0d0ffc", "note": "Citations that can't be resolved and leftover macros are removed; the reader sets math colours."},
+  {"revision": 6, "date": "2026-10-14", "build_sha256": "fc7a4102535af6a664ce979e91ec9b96462eed9c1469f3a6ba07d42bc138ea16", "note": "Author names and affiliations laid out more cleanly."},
+  {"revision": 5, "date": "2026-10-14", "build_sha256": "80b4326dbe194f6260c587f0278ba8e15bf7178323d0e1f8c76430ce2bd8aa6d", "note": "Earlier reader improvements."},
+  {"revision": 4, "date": "2026-10-14", "build_sha256": "1f43a601438a6ceec4e7c7f434c763eecc40a80b78e4a7b0fd37948c25a07aee", "note": "Earlier reader improvements."},
+  {"revision": 3, "date": "2026-10-14", "build_sha256": "ed41c824b04d0084edd0821453ccb2d3ae6b04aaf73e1ad94adaaa2214cab5a9", "note": "The first reader version shipped to testers."}
+ ]
+}

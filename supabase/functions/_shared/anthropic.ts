@@ -343,7 +343,13 @@ export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreatePa
   return new TextEncoder().encode(json).byteLength * 3 + images * IMAGE_HOLD_TOKENS * 3;
 }
 
-export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected';
+/** `provider_billing`: the provider refused for the account's own balance ("Your credit balance is too low", staging
+ * 2026-10-16 ~15:00 UTC: every Claude request failed until the owner topped it up); counted for Health › Attention. */
+export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected' | 'provider_billing';
+/** Anthropic's refusal for the account's prepaid balance (HTTP 400 `invalid_request_error`). */
+export function isBillingRejection(status: number, message: unknown): boolean {
+  return (status === 400 || status === 402) && /credit balance|billing|insufficient (?:balance|credit)/i.test(String(message ?? ''));
+}
 export interface ProviderOutcome {
   /** complete: the provider returned a final message (including a refusal). */
   status: 'complete' | 'failed';
@@ -499,7 +505,8 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     // or timeout can follow processing: retain uncertainty, even before start.
     if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)) {
       const rejected = [400, 401, 403, 404, 413, 422, 429].includes(error.status);
-      const outcome = partial(error.status >= 500 || error.status === 429 ? 'provider_error' : 'provider_rejected', !rejected);
+      const outcome = partial(error.status >= 500 || error.status === 429 ? 'provider_error'
+        : isBillingRejection(error.status, error.message) ? 'provider_billing' : 'provider_rejected', !rejected);
       return { ...outcome, httpStatus: error.status, retryAfterMs: retryAfterMs(error.headers) };
     }
     return partial('provider_error', true);

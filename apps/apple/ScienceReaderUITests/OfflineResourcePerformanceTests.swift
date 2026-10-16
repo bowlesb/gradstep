@@ -175,7 +175,7 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             XCTAssertEqual(opened?.event(.open)?.count, expectedPayload)
             XCTAssertNotNil(opened?.event(.readerReady))
             XCTAssertTrue(rendered, "The real verified renderer must finish; a generic empty WebView is insufficient.")
-            XCTAssertFalse(app.staticTexts["Couldn’t open this paper"].exists)
+            XCTAssertFalse(app.staticTexts["Read this paper as its PDF"].exists)
 
             // Use the verified index and ordinary Contents sheet after the
             // opening interval; no programmatic DOM jump substitutes for it.

@@ -8,13 +8,13 @@ import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
-import { isFigureAction, parseFigureWalkthrough, type FigureWalkthrough } from './figure-view';
+import { isFigureAction, parseFigureDetail, parseFigureWalkthrough, type FigureDetail, type FigureWalkthrough } from './figure-view';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
 export const CONSENT_VERSION = 'cloud-ai-v4';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler';
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail';
 /** The equation and figure views: no conversation, so no title or suggestions (chat.ts `isViewAction` on the server). */
 export const isViewAction = (action: ChatAction | null | undefined) => isEquationAction(action) || isFigureAction(action);
 export interface ChatTurn { role: Role; text: string }
@@ -120,6 +120,8 @@ export type StreamEvent =
   | { type: 'equation'; symbols: EquationSymbols }
   /** The figure view's walkthrough (action `figure`, servers from 2026-10-16; figure-view.ts). */
   | { type: 'figure'; walkthrough: FigureWalkthrough }
+  /** One part extracted (action `figure_detail`, owner, TestFlight 62): its region and a closer reading. */
+  | { type: 'figure_detail'; detail: FigureDetail }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). `charged` and, when false, `reason`
    * (servers from 2026-10-16): whether the reader paid for it (CHAT.md, "When an answer stops early"). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string; charged?: boolean; reason?: string }
@@ -239,6 +241,11 @@ export class SSEParser {
         // Informational: a walkthrough that is not usable is dropped, never fatal (the view then shows the words).
         const walkthrough = parseFigureWalkthrough(v);
         return walkthrough ? { type: 'figure', walkthrough } : null;
+      }
+      case 'figure_detail': {
+        // Informational: a detail without a usable region is dropped (the view then shows the words, without a crop).
+        const detail = parseFigureDetail(v);
+        return detail ? { type: 'figure_detail', detail } : null;
       }
       case 'study': {
         // A map that is not whole is dropped; the answer and the previous map are unaffected.

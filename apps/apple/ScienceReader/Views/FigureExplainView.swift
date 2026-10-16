@@ -170,7 +170,7 @@ struct FigureExplainView: View {
     }
 
     private func sectionCard(_ section: FigureWalkthrough.Section, index: Int, session: FigureExplainSession) -> some View {
-        let number = index + 1, simpler = session.simpler[index]
+        let number = index + 1, simpler = session.simpler[index], detail = session.details[index]
         return VStack(alignment: .leading, spacing: 10) {
             // A tap on the part's heading opens its menu (owner: "tap on different parts of the response and ask to back
             // up a bit, or link back into the paper"); a long press or right-click anywhere on the part does too.
@@ -215,6 +215,7 @@ struct FigureExplainView: View {
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) { Rectangle().fill(Color.accentColor.opacity(0.35)).frame(width: 3) }
             }
+            if let detail { detailBlock(detail, number: number, index: index, session: session) }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
@@ -223,11 +224,43 @@ struct FigureExplainView: View {
         .accessibilityIdentifier("figureView.section.\(number)")
     }
 
+    /// One part extracted (owner, TestFlight 62: "opens up a loader below, gets the info, and puts it below"): the region
+    /// cropped from the image that was sent, then the closer reading; the words alone when no region could be given.
+    @ViewBuilder private func detailBlock(_ detail: FigureExplainSession.Part, number: Int, index: Int, session: FigureExplainSession) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Up close", systemImage: "viewfinder").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            if let box = detail.detail?.box, let image = session.image, let crop = Self.crop(image, box) {
+                Image(decorative: crop, scale: 1).resizable().scaledToFit()
+                    .frame(maxWidth: CGFloat(crop.width) * 2, maxHeight: min(320, CGFloat(crop.height) * 2))
+                    .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("This part of \(context.label), up close")
+                    .accessibilityIdentifier("figureView.section.\(number).detailCrop")
+            }
+            let words = detail.detail?.text ?? detail.text
+            if detail.state == .done, !words.isEmpty {
+                ChatMessageText(source: words, fontSize: bodySize, streaming: false, speaker: "Assistant",
+                                identifier: "figureView.section.\(number).detail", assistant: true, onCite: cite)
+                if detail.detail == nil {
+                    Text("Couldn’t crop this part; here is the closer reading.").font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("figureView.section.\(number).detailNoCrop")
+                }
+            }
+            status(detail, working: "Extracting this part…", retry: { session.retryDetail(index) })
+        }
+        .padding(.leading, 12)
+        .overlay(alignment: .leading) { Rectangle().fill(Color.accentColor.opacity(0.35)).frame(width: 3) }
+    }
+
     @ViewBuilder private func menuItems(_ section: FigureWalkthrough.Section, index: Int, session: FigureExplainSession) -> some View {
-        let state = session.simpler[index]?.state
+        let state = session.simpler[index]?.state, extracted = session.details[index]?.state
         Button { session.simplify(index) } label: { Label("Explain more simply", systemImage: "arrow.uturn.backward") }
             .disabled(state == .loading || state == .done)
             .accessibilityIdentifier("figureView.simpler")
+        Button { session.extract(index) } label: { Label("Extract the subfigure and more context", systemImage: "viewfinder") }
+            .disabled(extracted == .loading || extracted == .done)
+            .accessibilityIdentifier("figureView.extract")
         Button {
             finish(section.paragraphs.first.map { .paragraph(paperID: context.paperID, marker: $0) } ?? .figure(paperID: context.paperID, figureID: context.figureID))
         } label: { Label("Show in the paper", systemImage: "doc.text.magnifyingglass") }
