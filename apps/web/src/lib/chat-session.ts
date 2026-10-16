@@ -1,5 +1,5 @@
 import { localChatContext } from './arxiv-reader';
-import { chatFigureImages, composeFigure, figureLabel, storedFigurePartsText, type FigureParts } from './chat-figures';
+import { chatFigureImages, composeFigure, figureImage, figureLabel, storedFigurePartsText, type FigureParts } from './chat-figures';
 import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
 // rebinds a task. When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md,
@@ -23,6 +23,7 @@ import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
+import { figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
 
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
@@ -577,6 +578,71 @@ export class ChatSession {
     void this.refreshBalance();
     return result;
   }
+  // ---------- The figure view (FIGURE_VIEW.md) ----------
+
+  private figureResults = new Map<string, FigureResult>();
+  private profileKey(): string { const p = this.equationProfile(); return `${p.model}-${p.effort}-${p.length}`; }
+  /** A finished walkthrough (or, with `part`, that part more simply) with the current default model (memory only). */
+  savedFigure(manifest: string, figureID: string, action: FigureAction, part = ''): FigureResult | null {
+    return this.figureResults.get(figureKey(manifest, figureID, action, this.profileKey(), part)) ?? null;
+  }
+  /** One figure-view request, sent exactly as this browser's chat sends a question about the paper (its default profile,
+   * capabilities, consent and the numbered paper on this device) with this figure's image, as a chat question naming it
+   * carries it, so the server reads the same cached prefix. `figure`: the walkthrough (the caption as the selection);
+   * `figure_simpler`: one part again, more simply (that part's text as the selection). No conversation or history is
+   * made; the finished result is kept in memory for this session, with the image it was about (crops are cut from it). */
+  async figure(documentID: string, input: { figureID: string; part?: { key: string; label: string; title: string; text: string } }, action: FigureAction,
+    update: (result: FigureResult) => void, signal: AbortSignal): Promise<FigureResult> {
+    this.allowed();
+    let result: FigureResult = { phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null };
+    const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
+    if (this.retiredStorage) return finish('storage_retired');
+    if (!this.deps.readConsent()) return finish('consent_required');
+    if (action === 'figure_simpler' && !input.part?.text.trim()) return finish('invalid_request');
+    // A source membership's paper, or a legacy arXiv item's (named by its library item, as its chat).
+    const reference = this.reference(documentID), local = reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
+    const named = reference ?? local?.reference;
+    if (!local || !named) return finish('local_reader_unavailable');
+    update(result);
+    const table = await this.profiles.load();
+    const profile = table ? this.defaultProfile : STANDARD_PROFILE;
+    let bundle: VerifiedBundle;
+    try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
+    if (signal.aborted || this.signal.aborted) return finish('cancelled');
+    const key = figureKey(bundle.manifestSHA256, input.figureID, action, `${profile.model}-${profile.effort}-${profile.length}`, input.part?.key ?? '');
+    const saved = this.figureResults.get(key);
+    if (saved) { update(saved); return saved; }
+    const figure = bundle.index.figures.find(f => f.id === input.figureID);
+    const image = figure ? await figureImage(bundle, figure) : null;
+    if (!figure || !image) return finish('figure_unavailable');
+    if (signal.aborted || this.signal.aborted) return finish('cancelled');
+    result = { ...result, image: { data: image.data, width: image.width, height: image.height } }; update(result);
+    const name = figureName(bundle, figure.id);
+    const quote = action === 'figure' ? (figure.caption || figure.alt || name) : input.part!.text;
+    const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: figureTurn(name, action === 'figure_simpler' ? (input.part!.label || input.part!.title) : undefined) }],
+      quote, action, { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
+    try { request.localContext = localChatContext(named, bundle); } catch { return finish('local_reader_unavailable'); }
+    request.figures = [image];
+    const controller = cancellation([this.signal, signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
+    try {
+      for await (const event of this.deps.stream(this.account, request, controller.signal)) {
+        if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
+        else if (event.type === 'figure') { result = { ...result, walkthrough: event.walkthrough }; update(result); }
+        else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
+        else if (event.type === 'done') {
+          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason };
+          finish(result.walkthrough || result.text.trim() ? null : 'provider_unavailable'); break;
+        }
+      }
+      if (result.phase === 'loading') finish('transport');
+    } catch (error) {
+      finish(controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled'
+        : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
+    } finally { clearTimeout(deadline); controller.dispose(); }
+    if (result.phase === 'done') this.figureResults.set(key, result);
+    void this.refreshBalance();
+    return result;
+  }
   private track(task: Promise<void>): Promise<void> { this.tasks.add(task); void task.finally(() => this.tasks.delete(task)).catch(() => {}); return task; }
 
   // ---------- Sending ----------
@@ -869,7 +935,7 @@ export class ChatSession {
         else if (event.type === 'study') nextMap = event.map;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
-        else if (event.type === 'equation') { /* the equation view's own event; a chat never asks for it */ }
+        else if (event.type === 'equation' || event.type === 'figure') { /* the equation and figure views' own events; a chat never asks for them */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; end = { credits: event.credits, charged: event.charged }; break; }
         this.publish();

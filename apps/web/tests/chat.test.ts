@@ -80,9 +80,12 @@ describe('chat requests and streams', () => {
       selection: { quote: 'a passage' }, action: 'ingest', capabilities: ['web_import', 'visual_answers', 'stop_signal'] });
     // Visual answers (2026-10-15): always a list, so one without visual_answers says the reader turned them off.
     // stop_signal (2026-10-16) on every request: this browser records the reader's Stop (CHAT.md "When an answer stops early").
-    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null)).capabilities).toEqual(['visual_answers', 'stop_signal']);
-    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null, null, { visualAnswers: false })).capabilities).toEqual(['stop_signal']);
+    // figure_view (2026-10-16) on every paper chat, whatever the Visual answers setting (FIGURE_VIEW.md: the walkthrough
+    // tool is part of the cached prefix); never with Add paper, a diagram repair or a general chat.
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null)).capabilities).toEqual(['visual_answers', 'figure_view', 'stop_signal']);
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null, null, { visualAnswers: false })).capabilities).toEqual(['figure_view', 'stop_signal']);
     expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], 'x', 'diagram_fix')).capabilities).toEqual(['visual_answers', 'stop_signal']);
+    expect(requestBody(makeRequest('op', null, [{ role: 'user', text: 'q' }], null)).capabilities).toEqual(['visual_answers', 'stop_signal']);
     expect(() => makeRequest('op', null, [{ role: 'assistant', text: 'x' }], null)).toThrow();
   });
   it('parses deltas across chunk boundaries, ignores pings and unknown events, and refuses malformed known ones', () => {

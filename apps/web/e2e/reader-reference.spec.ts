@@ -91,7 +91,7 @@ test('Discuss waits for the host draft and leaves the reference recoverable on f
   // Gallery Discussion uses the same callback, with the verified caption, and never calls selection/Send.
   await page.getByTestId('figures').click();
   await page.getByRole('list', { name: 'Figures' }).getByRole('button').first().click();
-  await page.getByRole('button', { name: 'Discuss in chat' }).click();
+  await page.getByRole('button', { name: 'Ask in chat', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Test composer' })).toHaveValue(/^About “.+”: About “.+”: Existing unsent draft$/);
 });

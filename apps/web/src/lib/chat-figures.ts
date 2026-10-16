@@ -130,18 +130,24 @@ export async function chatFigureImages(question: string, selection: string | nul
   }
   const out: ChatFigureImage[] = [];
   for (const figure of figures) {
-    // A figure of several panels goes as one image, its panels stacked (2610.19525's Figure 1, (a) and (b)).
-    const paths = figure.asset_paths.slice(0, MAX_PANELS), path = paths[0];
-    const panels = paths.map(p => ({ bytes: bundle.contents.get(p), mediaType: mediaTypeOf(bundle, p) }));
-    const paragraph = bundle.index.blocks.findIndex(b => b.id === figure.block_id) + 1;
-    if (!path || panels.some(p => !p.bytes) || paragraph < 1) continue;
-    const source = panels.length > 1 ? await composeFigure(panels as { bytes: Uint8Array; mediaType: string }[]) : null;
-    const prepared = panels.length > 1 ? (source ? await prepareSource(source) : null) : await prepareFigure(panels[0].bytes!, panels[0].mediaType);
-    if (!prepared) continue;
-    out.push({ id: `F${out.length + 1}`, paragraph, caption: [...figure.caption].slice(0, 1200).join(''), mediaType: 'image/jpeg', ...prepared,
-      blockID: figure.block_id, assetPath: path, assetPaths: paths });
+    const image = await figureImage(bundle, figure, `F${out.length + 1}`);
+    if (image) out.push(image);
   }
   return out;
+}
+
+/** One figure of the open paper as a question carries it: a figure of several panels goes as one image, its panels
+ * stacked (2610.19525's Figure 1, (a) and (b)); null when its image can't be prepared here. */
+export async function figureImage(bundle: VerifiedBundle, figure: VerifiedBundle['index']['figures'][number], id = 'F1'): Promise<ChatFigureImage | null> {
+  const paths = figure.asset_paths.slice(0, MAX_PANELS), path = paths[0];
+  const panels = paths.map(p => ({ bytes: bundle.contents.get(p), mediaType: mediaTypeOf(bundle, p) }));
+  const paragraph = bundle.index.blocks.findIndex(b => b.id === figure.block_id) + 1;
+  if (!path || panels.some(p => !p.bytes) || paragraph < 1) return null;
+  const source = panels.length > 1 ? await composeFigure(panels as { bytes: Uint8Array; mediaType: string }[]) : null;
+  const prepared = panels.length > 1 ? (source ? await prepareSource(source) : null) : await prepareFigure(panels[0].bytes!, panels[0].mediaType);
+  if (!prepared) return null;
+  return { id, paragraph, caption: [...figure.caption].slice(0, 1200).join(''), mediaType: 'image/jpeg', ...prepared,
+    blockID: figure.block_id, assetPath: path, assetPaths: paths };
 }
 
 // ---------- Where an answer's parts go (owner, 2026-10-15: "the crops should be inline") ----------
