@@ -10,9 +10,12 @@ test('bake-off concurrent admissions count outstanding calls and preserve them a
   try {
     const path = join(dir, 'ledger.json'), ledger = new SpendLedger(path, 1);
     const first = ledger.reserve(0.6, { model: 'one' });
+    ledger.identify(first, 'gen-fixture');
     assert.throws(() => ledger.reserve(0.6, { model: 'two' }), /Budget admission refused/);
     ledger.settle(first, undefined);
     const resumed = new SpendLedger(path, 1);
+    assert.equal(resumed.rows[0].generation, 'gen-fixture');
+    assert.throws(() => resumed.identify(first, 'different-generation'), /identity changed/);
     assert.equal(resumed.outstanding, 0.6);
     assert.throws(() => resumed.reserve(0.5, {}), /Budget admission refused/);
     resumed.settle(first, 0.1);

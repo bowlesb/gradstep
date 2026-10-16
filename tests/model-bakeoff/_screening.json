@@ -1,0 +1,11 @@
+{
+  "selected_at": "2026-10-16T20:20:00Z",
+  "reason": "Same 12 questions for all 13 settings before finalist expansion, reserving grading funds within the $10 funded balance.",
+  "questions": [
+    "apertus-synthesis", "apertus-unanswerable",
+    "dpo-derivation", "dpo-detail", "dpo-figure", "dpo-visual",
+    "mamba-equation", "mamba-figure",
+    "muon-detail", "muon-critical",
+    "prism-figure_layout", "prism-false_premise"
+  ]
+}

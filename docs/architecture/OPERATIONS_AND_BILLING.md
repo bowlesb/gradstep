@@ -306,3 +306,12 @@ full reservation, including after interruption; report actual and outstanding am
 limit is required in addition to local admission. Do not count an OpenRouter balance top-up as consumed model
 usage, or silently count this experiment as free just because it bypasses staging. See
 [comparison protocol](../reviews/MODEL_COMPARISON_20261016.md).
+
+**Funded continuation, 2026-10-16 20:16 UTC:** OpenRouter reports a $10 top-up, $0 prior usage, and the unchanged
+$20 non-resetting key limit. No new recurring commitment. Working admission is reduced to $9 total, with $7 for
+the contestant phase to leave grading room; this does not increase the $100 operating budget or $25 research
+authorization. The six-answer smoke settled at **$0.03148947**, $0 unresolved. A matched 12-question screening
+across all 13 settings is in progress, then selected extensions within the remaining funding. The running ledger
+is `.artifacts/bakeoff/spend-ledger.json`; its current holds are reservations, not consumed usage. Final actuals
+and outstanding amounts must be recorded after the run. Initial planning range is $5–9 including grading and
+extensions, conditional on measured costs and admission; do not top up automatically to finish.

@@ -67,6 +67,12 @@ export class SpendLedger {
   get actual() { return this.rows.reduce((s, r) => s + (r.cost ?? 0), 0); }
   get outstanding() { return this.rows.reduce((s, r) => s + (r.cost == null ? r.hold : 0), 0); }
   save() { writeFileSync(`${this.path}.tmp`, JSON.stringify(this.rows, null, 2)); renameSync(`${this.path}.tmp`, this.path); }
+  identify(id, generation) {
+    const r = this.rows.find(r => r.id === id);
+    if (!r || typeof generation !== 'string' || !generation) throw new Error('Invalid generation identity');
+    if (r.generation && r.generation !== generation) throw new Error('Generation identity changed');
+    r.generation = generation; this.save();
+  }
   reserve(hold, details) {
     if (!Number.isFinite(hold) || hold < 0) throw new Error('Invalid hold');
     if (this.rows.some(r => r.overrun)) throw new Error('Prior reservation overrun requires reconciliation');

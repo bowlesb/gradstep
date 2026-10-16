@@ -1,9 +1,29 @@
 # Paper-chat model comparison, 2026-10-16
 
-Status: the interrupted Claude work is recovered. **No contestant answers or measured quality ranking yet.**
-OpenRouter reports zero purchased credit and zero usage. The owner approved up to $25 including grading;
-the experiment uses a tighter $18 admission cap and the existing $20 provider-enforced key limit.
-Sonnet remains the app default. Browser and TestFlight releases proceed independently of this experiment.
+Status, resumed 2026-10-16 20:16 UTC: OpenRouter now has **$10 purchased credit**. The six-answer smoke completed
+for **$0.03148947**, with no unresolved charges. The comparison is running; **no quality ranking yet**.
+The owner approved up to $25 including grading; this funded phase uses a tighter **$9 total admission cap**
+(contestant phase capped at $7 to reserve grading room) and the existing $20 provider-enforced key limit.
+Sonnet remains the app default. Browser and TestFlight 63 are shipped independently of this experiment.
+
+### Funded screening and extension
+
+Before the full matrix, every setting receives the same 12 questions in `_screening.json`, covering all five papers:
+long-context synthesis and an unanswerable question, a derivation, exact training settings, two plot readings,
+an equation, a visual request, appendix details, a theorem limitation, a layout and a false premise.
+The six smoke answers are reused, including the weak ones; there are no selective quality retries.
+Blind grading follows, then the remaining 15 questions go to promising settings and a Sonnet control if the funded
+budget permits. Report screening and finalist coverage separately; never compare a 12-question mean to a
+27-question mean. A reliable low-cost answer is the objective, not raw score divided by price regardless of errors.
+Use correctness/faithfulness, material mistakes, answer availability, latency and cost together. Review the close
+finalists with a second judge and manual source checks. Small samples do not establish general model superiority.
+
+The smoke exposed a product limitation: `look_at_figure` can name a native HTML table the current chat image finder
+does not supply. Such a call with no answer is retained as an empty answer, not retried until it succeeds or silently
+excluded. Generation ids are now kept with the durable holds so later interrupted calls can be reconciled through
+[OpenRouter's generation metadata](https://openrouter.ai/docs/api/api-reference/generations/get-generation).
+Cold/warm charges must be separated: medium/high settings of the same underlying model can share a cached prefix,
+so their observed average bills are not independent cold-start comparisons.
 
 ## Question set and protocol
 
@@ -104,4 +124,5 @@ The five prepared figure images were also visually checked against the recovered
 Verification: all 27 requests construct successfully without inference; all 13 contestant settings have matching
 catalogue routes; five new fast tests cover reservation concurrency/restart/unknown cost/overrun, price tiers,
 reference validation and malformed grades. An attempted paid command stops in preflight on zero credit.
-No paid quality claim follows from those checks.
+No paid quality claim follows from those checks. The funded screening above supersedes the initial zero-credit
+checkpoint; final measured results will be recorded separately after grading.
