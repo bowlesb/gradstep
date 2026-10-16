@@ -20,6 +20,9 @@ Gradstep separates local paper storage, encrypted synchronization and requested 
   broad deletion occurred. Browser PDFs stay in the selected device file/tab and must be chosen again after reopening.
 - A paper chat sends the question, selected passage, conversation context and verified reader text to the chosen
   cloud model under explicit consent. Stored-history encryption does not hide requested computation from that provider.
+  Since 2026-10-16 the chosen model may be DeepSeek's (consent `cloud-ai-v4` names it): DeepSeek then receives the
+  answer's request, including any figure image, while Anthropic's Claude Haiku still writes the chat's title and
+  suggested follow-up questions from the question and a short excerpt.
 - A future local PDF model is not installed yet. There is no Mathpix fallback or OCR charge for local HTML preparation.
 - Optional web search sends search queries to the configured search provider. Provider retention and handling
   follow that provider's terms; Gradstep does not promise zero provider retention.
@@ -46,6 +49,15 @@ The current chat profiles are server-enforced:
 - **Haiku** is the fast, lower-cost choice for simpler work.
 - **Sonnet** is the default balance of quality and cost.
 - **Opus** is reserved for harder reasoning.
+- **DeepSeek** (DeepSeek V4.1 Flash, `deepseek-flash`, since 2026-10-16 on staging): a low-cost model from another
+  provider, offered only when the reader chooses it under consent `cloud-ai-v4`, priced at DeepSeek's peak list rates
+  and admitted, recorded and circuit-broken as provider `deepseek` (docs/architecture/CHAT.md "DeepSeek in chat").
+  It passed a recorded check on DPO (equations, citations, a figure question, visual tools) before it was offered. At
+  list prices Claude Haiku 5.5 is still the cheapest per token; DeepSeek sits between Haiku and Sonnet.
+
+Effort is chosen by the server for each question when the client asks for `auto` (new clients do): low for Brief,
+medium for Standard questions that ask for reasoning or carry an equation or figure, high for Detailed reasoning
+questions. The quote and the answer record the effort used.
 
 The server records the model that actually answered, including an approved fallback. A cheaper provider is not a
 drop-in replacement for scientific reading. Before adding DeepSeek or another provider, we must compare equation
@@ -68,6 +80,12 @@ longer answer, extra validation pass or fallback can erase part of the apparent 
 [official pricing documentation](https://platform.claude.com/docs/en/about-claude/pricing) describes the
 Sonnet cache-read multipliers and the same token accounting principle.
 
-**Update 2026-10-14:** DeepSeek is now enabled for one use only: writing podcast episode scripts, when the reader chooses it as the writer (docs/architecture/PAPER_PODCASTS.md; migrations 063–065). Chat does not use it. This comparison itself enabled no traffic. Any future trial must be opt-in at the server profile level,
+**Update 2026-10-14:** DeepSeek is now enabled for one use only: writing podcast episode scripts, when the reader chooses it as the writer (docs/architecture/PAPER_PODCASTS.md; migrations 063–065). Chat does not use it.
+
+**Update 2026-10-16:** chat may now use `deepseek-flash` too, when the reader chooses DeepSeek (owner request on
+TestFlight build 57; migration 078). It is opt-in per chat, bounded by the same credit and provider-spend controls,
+and was published only after the recorded check in docs/architecture/CHAT.md: on four DPO questions it typeset every
+equation, cited only passages that exist, read a figure from its image and called the visual and figure-parts tools,
+for $0.038 against $0.273 for the same questions on Sonnet. Its first text arrives later (8–23 s at medium effort). This comparison itself enabled no traffic. Any future trial must be opt-in at the server profile level,
 bounded by the same credit and provider-spend controls, and accepted only after the quality and data-handling
 review passes.

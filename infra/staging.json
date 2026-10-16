@@ -76,6 +76,7 @@
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,
+  "chat_deepseek": "on",
   "app_store": {
     "bundle_id": "com.sciencereader.ios",
     "environments": [
