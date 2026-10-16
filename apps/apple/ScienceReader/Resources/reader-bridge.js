@@ -43,19 +43,32 @@
   const MIN_SCALE = 0.75;
   const fitted = new Set();
   let lastPosition = null;
+  // Wide tables and equations scroll sideways in flat boxes (owner, build 58: "I really dislike this gradient": the
+  // scroll shadows are gone). An edge with more of the box beyond it shows a hairline.
+  const SCROLLERS = '.reader-display,.reader-table,.reader-inline-wide';
+  const scrollEdges = box => {
+    const hidden = box.scrollWidth - box.clientWidth;
+    box.classList.toggle('sr-more-left', hidden > 1 && box.scrollLeft > 1);
+    box.classList.toggle('sr-more-right', hidden > 1 && box.scrollLeft < hidden - 1);
+  };
+  const markScrollEdges = () => {
+    for (const box of document.querySelectorAll('.sr-more-left,.sr-more-right')) box.classList.remove('sr-more-left', 'sr-more-right');
+    for (const box of document.querySelectorAll(SCROLLERS)) scrollEdges(box);
+  };
   const installLayout = () => {
     const style = document.createElement('style');
     style.textContent = [
       'mtd[columnalign=left]{text-align:left}mtd[columnalign=right]{text-align:right}mtd[columnalign=center]{text-align:center}',
-      ':root{--sr-bg:#fff}@media(prefers-color-scheme:dark){:root{--sr-bg:#0f0f0f}}',
-      '.reader-display,.reader-table,.reader-inline-wide{background:linear-gradient(to right,var(--sr-bg) 30%,transparent) left/40px 100% no-repeat local,'
-        + 'linear-gradient(to left,var(--sr-bg) 30%,transparent) right/40px 100% no-repeat local,'
-        + 'radial-gradient(farthest-side at 0 50%,rgba(127,127,127,.35),transparent) left/12px 100% no-repeat scroll,'
-        + 'radial-gradient(farthest-side at 100% 50%,rgba(127,127,127,.35),transparent) right/12px 100% no-repeat scroll}',
+      ':root{--sr-bg:#fff;--sr-edge:rgba(60,60,67,.22)}@media(prefers-color-scheme:dark){:root{--sr-bg:#0f0f0f;--sr-edge:rgba(235,235,245,.2)}}',
+      '.sr-more-left{box-shadow:inset 1px 0 0 var(--sr-edge)}.sr-more-right{box-shadow:inset -1px 0 0 var(--sr-edge)}'
+        + '.sr-more-left.sr-more-right{box-shadow:inset 1px 0 0 var(--sr-edge),inset -1px 0 0 var(--sr-edge)}',
       '.reader-display.reader-tagged{padding-right:0}.reader-display.reader-tagged>.reader-tag{position:sticky;right:0;align-self:stretch;display:flex;align-items:center;padding:0 6px 0 .5em;background:var(--sr-bg)}',
       '.reader-inline-wide{display:inline-block;max-width:100%;overflow-x:auto;overflow-y:hidden;vertical-align:middle}',
     ].join('');
     document.head.append(style);
+    document.addEventListener('scroll', event => {
+      if (event.target instanceof Element && event.target.matches(SCROLLERS)) scrollEdges(event.target);
+    }, {capture: true, passive: true});
     for (const cell of document.querySelectorAll('mtd:not([columnalign])')) {
       const row = cell.parentElement, table = row?.parentElement;
       const source = row?.getAttribute('columnalign') || (table?.tagName.toLowerCase() === 'mtable' ? table.getAttribute('columnalign') : null);
@@ -96,6 +109,7 @@
       fitted.add(math);
     }
     for (const span of wide) span.classList.add('reader-inline-wide');
+    markScrollEdges();
   };
   window.__scienceReaderFit = () => { if (config && !config.figure_id) fitMath(); };
 
@@ -1168,7 +1182,7 @@
     await document.fonts.ready;
     await Promise.all([...document.images].map(image => image.decode()));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    if (config?.figure_id) return true;
+    if (config?.figure_id) { markScrollEdges(); return true; }
     window.__scienceReaderFit();
     // Rotation or split-view width changes refit while keeping the place.
     let width = document.documentElement.clientWidth;
