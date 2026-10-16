@@ -1,6 +1,21 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (server paper copies deleted; reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (figure view server on staging; server paper copies deleted; reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+
+## Figure view, server — 2026-10-16, ~07:45 UTC (staging)
+
+- Chat actions `figure` (a walkthrough: one checked `figure_walkthrough` call relayed as a `figure` event,
+  `figure-walkthrough-v1`) and `figure_simpler` (one part again, streamed) on the chat's cached prefix
+  ([FIGURE_VIEW.md](architecture/FIGURE_VIEW.md#server--as-built-phase-1-2026-10-16-staging), with the exact JSON).
+  New capability `figure_view`: a build with the view sends it on every paper chat so its chats carry the tool; not a
+  forced tool (Sonnet 5.5 refuses one). Migration **082** (after 081, ledger verified) lets settlement record the two
+  actions; `chat` deployed (deploy suite 20/20).
+- Live: DPO Figure 1, InfoVis Figures 4 and 13, InfoVis Table 1 (rendered as an image), Mistral 7B Figure 5: 2–5
+  sections each, read from the images; 4–5 credits per walkthrough and 3–4 per "more simply" with the paper cached
+  (a walkthrough after a chat question read the 49,199 cached tokens the question wrote); 9–12 s. $0.82 of provider
+  spend in all.
+- **Open:** the model gave no crop box in 8 walkthroughs, so box placement is unchecked live (phase 4); apps and
+  browser not built (phases 2–3).
 
 ## Server paper copies deleted on staging — 2026-10-16, 06:36 UTC
 

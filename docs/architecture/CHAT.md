@@ -574,6 +574,8 @@ into a connection that then failed is charged as finished.
 | **Study turn** | the tutor's reply finished | as an answer | **Map update**: asked only after a finished reply; relayed → paid; failed, unusable or later than 12 s → Gradstep's, and the map stays as it was |
 | **Equation view** (symbols) | the model's JSON, or its words shown as the description | cut at its 2,000-token allowance (`limit`); no words at all (`provider`) | — |
 | **Equation background** | finished prose | as an answer | — |
+| **Figure view** (walkthrough, FIGURE_VIEW.md) | the checked walkthrough, or its words shown as the description | cut at its allowance (`limit`); nothing usable to show (`provider`) | — |
+| **Figure view, more simply** | finished prose | as an answer | — |
 | **Diagram repair** (`diagram_fix`) | a finished turn with the corrected diagram | as an answer | — |
 | **Add paper** (Ingest) | the model identified the citation | as an answer | The lookup and add run after settlement: a lookup or add that fails afterwards is reported in the answer but not refunded (open item below) |
 | **Podcast episode** (unchanged, migration 048) | `ready`: known usage, at most the length's maximum | failed for any reason (script, speech, evidence check, provider, retries exhausted), `unknown_provider`, quarantined: 0 credits, the cost recorded as the job's `platform_loss_microusd` | **Cancel** (the reader stops it): known usage so far, at most the maximum — the part they chose to stop |

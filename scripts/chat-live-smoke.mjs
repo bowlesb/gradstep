@@ -8,6 +8,16 @@
 //   node scripts/chat-live-smoke.mjs [--questions=1|2] [--index=.artifacts/bundles/<id>/reader.json]
 //   node scripts/chat-live-smoke.mjs --profile=sonnet-auto-standard            (automatic effort: done names the pick)
 //   node scripts/chat-live-smoke.mjs --profile=deepseek-auto-standard --eval   (the recorded DeepSeek check, under $0.10)
+//   node scripts/chat-live-smoke.mjs --figure-view=1 --warm                     (the figure view on DPO's Figure 1)
+//   node scripts/chat-live-smoke.mjs --paper=2610.16784v1 --index=<bundle>/reader.json --figure-view=4 --table-view=1
+//
+// --figure-view=N (FIGURE_VIEW.md): the figure view's requests on figure N, prepared as the browser prepares a figure
+// (stacked panels, at most 1,568 px and 1.15 MP, JPEG on white): the walkthrough (`figure`), then one part again, more
+// simply (`figure_simpler`, on the first section with a box, else the second). --table-view=N does the same for table N,
+// rendered from the bundle's own HTML in headless Chromium as a device shows it. --warm asks one chat question first, so
+// the walkthrough's cache read shows it shares the chat's cached prefix. Writes the image sent, the image with the
+// walkthrough's boxes drawn and numbered, and a JSON record (sections, boxes, credits, seconds, usage) under
+// .artifacts/figure-view/. --paper=<id>v<rev> names the arXiv paper the --index bundle is (default DPO 2305.18290v3).
 //
 // --questions=2 sends the first suggested follow-up as a second turn (exercises the prompt cache). --index names any
 // compiled reader index for arXiv 2305.18290 (default: the DPO bundle under .artifacts/bundles); the server only sees
@@ -32,6 +42,16 @@ const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9
 const LOOK = process.argv.includes('--look');
 /** `--equation`: the equation view's two requests on DPO's loss (EQUATION_VIEW.md): symbols, then background. */
 const EQUATION = process.argv.includes('--equation');
+/** `--figure-view=N`, `--table-view=N`, `--warm`, `--paper=<id>v<rev>`: the figure view (see the header). */
+const FIGURE_VIEW = Number(process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? 0);
+const TABLE_VIEW = Number(process.argv.find(a => a.startsWith('--table-view='))?.slice(13) ?? 0);
+const WARM = process.argv.includes('--warm');
+const PAPER = (() => {
+  const value = process.argv.find(a => a.startsWith('--paper='))?.slice(8) ?? '2305.18290v3';
+  const m = /^(\d{4}\.\d{4,5})v(\d+)$/.exec(value);
+  if (!m) { console.error('--paper=<arXiv id>v<revision>'); process.exit(2); }
+  return { key: value, id: m[1], revision: Number(m[2]) };
+})();
 /** `--profile=deepseek-auto-standard` (model-effort-length): the answer profile to ask with (2026-10-16: effort may be
  * `auto`; DeepSeek goes with consent cloud-ai-v4, which names it). */
 const PROFILE = (() => {
@@ -82,13 +102,187 @@ async function rpc(name, params, token) {
 
 // 1. Context from the cached DPO bundle (text only reaches the server; digests are opaque to it).
 const { buildPaperContext, CITATION_PATTERN } = await import(`${ROOT}/apps/web/src/lib/paper-context.ts`);
-if (!existsSync(INDEX)) { console.error(`no reader index at ${INDEX}; pass --index=<path to a compiled reader.json for 2305.18290>`); process.exit(2); }
+if (!existsSync(INDEX)) { console.error(`no reader index at ${INDEX}; pass --index=<path to a compiled reader.json for ${PAPER.id}>`); process.exit(2); }
+if (PAPER.id !== '2305.18290' && !process.argv.some(a => a.startsWith('--index='))) { console.error(`pass --index=<reader.json of ${PAPER.key}>`); process.exit(2); }
 const index = JSON.parse(readFileSync(INDEX, 'utf8'));
 const text = buildPaperContext(index);
-const lock = JSON.parse(readFileSync(`${ROOT}/tests/corpus/reader-lock.json`, 'utf8')).papers.find(p => p.key === '2305.18290v3');
+const lock = JSON.parse(readFileSync(`${ROOT}/tests/corpus/reader-lock.json`, 'utf8')).papers.find(p => p.key === PAPER.key);
+// Opaque to the server (format-checked only): the source's digest when the corpus lock has it, else the index's.
+const source_sha256 = lock?.html?.sha256 ?? createHash('sha256').update(readFileSync(INDEX)).digest('hex');
 // Opaque to the server (format-checked only): the index digest stands in for the device's manifest digest.
 const manifest_sha256 = createHash('sha256').update(readFileSync(INDEX)).digest('hex');
 log(`context: ${index.blocks.length} blocks, ${Buffer.byteLength(text)} bytes`);
+
+// ---------- The figure view (FIGURE_VIEW.md): --figure-view=N, --table-view=N, --warm ----------
+// A build with the figure view: its chats and its figure requests send the same capabilities and profile, so the server's
+// tools (figure_walkthrough among them) and cached prefix are the chat's.
+const FIGURE_DEVICE = ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'];
+const FIGURE_PROFILE = PROFILE ?? { model: 'sonnet', effort: 'auto', length: 'standard' };
+let chromium = null;
+async function browserPage() {
+  if (!chromium) {
+    const { createRequire } = await import('node:module');
+    chromium = await createRequire(`${ROOT}/apps/web/package.json`)('playwright').chromium.launch();
+  }
+  const page = await chromium.newPage({ deviceScaleFactor: 2 });
+  await page.setContent('<!doctype html><meta charset="utf-8"><body>');
+  return page;
+}
+/** The figure as the browser's chat prepares it (apps/web/src/lib/chat-figures.ts): panels stacked at the widest panel's
+ * width with 2 % white gaps, scaled to at most 1,568 px and 1.15 MP, JPEG 0.85 on white. */
+async function prepareFigureImage(parts) {
+  const page = await browserPage();
+  try {
+    return await page.evaluate(async parts => {
+      const bitmaps = await Promise.all(parts.map(p => createImageBitmap(new Blob([Uint8Array.from(atob(p.data), c => c.charCodeAt(0))], { type: p.type }))));
+      let source = bitmaps[0];
+      if (bitmaps.length > 1) {
+        const width = Math.max(...bitmaps.map(b => b.width)), gap = Math.max(1, Math.round(width * 0.02));
+        const heights = bitmaps.map(b => Math.round(b.height * width / b.width)), height = heights.reduce((a, b) => a + b, 0) + gap * (bitmaps.length - 1);
+        const canvas = new OffscreenCanvas(width, height), ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
+        let top = 0; bitmaps.forEach((b, i) => { ctx.drawImage(b, 0, top, width, heights[i]); top += heights[i] + gap; });
+        source = canvas;
+      }
+      const long = Math.max(source.width, source.height), short = Math.min(source.width, source.height);
+      const limit = Math.min(1568, Math.sqrt(1_150_000 * long / short), long), scale = limit / long;
+      const w = Math.max(1, Math.round(source.width * scale)), h = Math.max(1, Math.round(source.height * scale));
+      const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(source, 0, 0, w, h);
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+      const data = await new Promise(resolve => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(',')[1]); r.readAsDataURL(blob); });
+      return { data, width: w, height: h };
+    }, parts);
+  } finally { await page.close(); }
+}
+/** Table N as the reader shows it: the bundle's own HTML and stylesheet, the table's block captured as an image. */
+async function tableImage(n) {
+  const block = index.blocks.find(b => b.kind === 'table' && new RegExp(`^\\s*Table\\s*${n}\\b`).test(b.text ?? ''));
+  if (!block) throw new Error(`no Table ${n} in the bundle`);
+  const page = await browserPage();
+  try {
+    // Wide enough for the whole table: no column scrolled out of view (the reader's column scrolls a wide table sideways).
+    await page.setViewportSize({ width: 1600, height: 1200 });
+    await page.goto(`file://${dirname(INDEX)}/index.html`);
+    const caption = await page.evaluate(id => {
+      const root = document.getElementById(id), table = root.querySelector('table');
+      document.body.style.maxWidth = 'none';
+      for (const node of [root, ...root.querySelectorAll('*')]) { node.style.overflow = 'visible'; node.style.maxWidth = 'none'; }
+      // The caption wraps to the table's width, so the image is the table and its caption, not a page-wide strip.
+      if (table) root.style.width = `${Math.ceil(table.getBoundingClientRect().width) + 8}px`;
+      return root.querySelector('.reader-caption, figcaption')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+    }, block.id) ?? (block.text ?? '').slice(0, 300);
+    const element = page.locator(`[id="${block.id}"]`).first();
+    const png = await element.screenshot({ type: 'png' });
+    return { paragraph: index.blocks.indexOf(block) + 1, caption, parts: [{ data: png.toString('base64'), type: 'image/png' }], label: `table${n}` };
+  } finally { await page.close(); }
+}
+function figureSource(n) {
+  const figure = index.figures.find(f => new RegExp(`^\\s*Figure\\s*${n}\\b`).test(f.caption));
+  if (!figure) throw new Error(`no Figure ${n} in the bundle`);
+  const manifest = JSON.parse(readFileSync(`${dirname(INDEX)}/manifest.json`, 'utf8'));
+  const parts = figure.asset_paths.map(path => ({ data: readFileSync(`${dirname(INDEX)}/${path}`).toString('base64'),
+    type: manifest.members.find(m => m.path === path)?.media_type ?? (path.endsWith('.png') ? 'image/png' : 'image/jpeg') }));
+  return { paragraph: index.blocks.findIndex(b => b.id === figure.block_id) + 1, caption: figure.caption, parts, label: `figure${n}` };
+}
+/** One chat request, its events read as the apps read them. */
+async function figureRequest(body, token) {
+  const started = Date.now();
+  const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
+    apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
+  if (r.status !== 200) { log(await r.text()); throw new Error(`chat HTTP ${r.status}`); }
+  const out = { events: [], text: '', figure: null, done: null, error: null, first: 0 };
+  const reader = r.body.getReader(), decoder = new TextDecoder(); let buffer = '';
+  const dispatch = frame => {
+    let name = 'message', data = '';
+    for (const line of frame.split('\n')) { if (line.startsWith('event:')) name = line.slice(6).trim(); else if (line.startsWith('data:')) data += line.slice(5).trim(); }
+    if (!data) return;
+    const payload = JSON.parse(data); out.events.push(name);
+    if (!out.first && name !== 'status') out.first = Date.now();
+    if (name === 'delta') out.text += payload.text; else if (name === 'figure') out.figure = payload;
+    else if (name === 'done') out.done = payload; else if (name === 'error') out.error = payload;
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let i; while ((i = buffer.indexOf('\n\n')) >= 0) { dispatch(buffer.slice(0, i)); buffer = buffer.slice(i + 2); }
+  }
+  if (buffer.trim()) dispatch(buffer);
+  out.seconds = Number(((Date.now() - started) / 1000).toFixed(1)); out.firstSeconds = out.first ? Number(((out.first - started) / 1000).toFixed(1)) : null;
+  log(`events ${out.events.join(',')} | ${out.seconds} s (first event ${out.firstSeconds} s) | done ${JSON.stringify(out.done ?? out.error)}`);
+  return out;
+}
+/** The walkthrough's boxes drawn on the image that was sent, numbered by section, so they can be checked by eye. */
+async function drawBoxes(image, sections, file) {
+  const page = await browserPage();
+  try {
+    const png = await page.evaluate(async ({ image, sections }) => {
+      const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(image.data), c => c.charCodeAt(0))], { type: 'image/jpeg' }));
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height), ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      const colors = ['#d62728', '#1f77b4', '#2ca02c', '#9467bd'];
+      let k = 0;
+      sections.forEach((s, i) => {
+        if (!s.box) return;
+        const color = colors[k++ % colors.length], x = s.box.x * bitmap.width, y = s.box.y * bitmap.height, w = s.box.w * bitmap.width, h = s.box.h * bitmap.height;
+        ctx.lineWidth = Math.max(3, Math.round(bitmap.width / 300)); ctx.strokeStyle = color; ctx.strokeRect(x, y, w, h);
+        const tag = `${i + 1} ${s.label || s.title}`.slice(0, 40), size = Math.max(14, Math.round(bitmap.width / 60));
+        ctx.font = `bold ${size}px sans-serif`;
+        const width = ctx.measureText(tag).width + 8;
+        ctx.fillStyle = color; ctx.fillRect(x, Math.max(0, y - size - 6), width, size + 6);
+        ctx.fillStyle = '#fff'; ctx.fillText(tag, x + 4, Math.max(size, y - 4));
+      });
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      return await new Promise(resolve => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(',')[1]); r.readAsDataURL(blob); });
+    }, { image, sections });
+    writeFileSync(file, Buffer.from(png, 'base64'));
+  } finally { await page.close(); }
+}
+async function figureViews({ local_context, token }) {
+  const dir = `${ROOT}/.artifacts/figure-view`; mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const record = { paper: PAPER.key, profile: FIGURE_PROFILE, ran_at: new Date().toISOString(), runs: [] };
+  const base = { consent_version: 'cloud-ai-v3', mode: 'paper', local_context, capabilities: FIGURE_DEVICE, profile: FIGURE_PROFILE };
+  if (WARM) {
+    log('=== warm: one chat question from the same device (writes the paper to the cache) ===');
+    const chat = await figureRequest({ ...base, operation_id: randomUUID(), messages: [{ role: 'user', text: 'In two sentences, what is this paper\'s main contribution?' }] }, token);
+    record.runs.push({ kind: 'chat', seconds: chat.seconds, credits: chat.done?.credits ?? null, usage: chat.done?.usage ?? null, events: [...new Set(chat.events)] });
+  }
+  const targets = [...(FIGURE_VIEW ? [figureSource(FIGURE_VIEW)] : []), ...(TABLE_VIEW ? [await tableImage(TABLE_VIEW)] : [])];
+  for (const target of targets) {
+    const prepared = await prepareFigureImage(target.parts);
+    const name = target.label.replace('figure', 'Figure ').replace('table', 'Table ');
+    const figures = [{ id: 'F1', paragraph: target.paragraph, caption: [...target.caption].slice(0, 1200).join(''), media_type: 'image/jpeg', ...prepared }];
+    writeFileSync(`${dir}/${PAPER.key}-${target.label}-sent.jpg`, Buffer.from(prepared.data, 'base64'));
+    log(`=== ${name} (¶${target.paragraph}, ${prepared.width}×${prepared.height}, ${Math.round(prepared.data.length * 3 / 4 / 1024)} KB): walkthrough ===`);
+    const walk = await figureRequest({ ...base, operation_id: randomUUID(), action: 'figure', selection: { quote: figures[0].caption }, messages: [{ role: 'user', text: name }], figures }, token);
+    const w = walk.figure;
+    if (w) {
+      log(`summary: ${w.summary}`);
+      w.sections.forEach((s, i) => log(`  ${i + 1}. ${s.label ? `${s.label} ` : ''}${s.title} [¶${s.paragraphs.join(',¶')}]${s.box ? ` box x=${s.box.x} y=${s.box.y} w=${s.box.w} h=${s.box.h}` : ''} (${[...s.text].length} chars)`));
+      console.log('--- walkthrough ---\n' + redact(w.sections.map((s, i) => `${i + 1}. ${s.label} ${s.title}\n${s.text}`).join('\n\n')) + '\n--- end ---');
+      await drawBoxes(prepared, w.sections, `${dir}/${PAPER.key}-${target.label}-boxes.png`);
+      log(`boxes drawn: .artifacts/figure-view/${PAPER.key}-${target.label}-boxes.png`);
+    } else console.log('--- words (no walkthrough) ---\n' + redact(walk.text) + '\n--- end ---');
+    record.runs.push({ kind: 'figure', target: name, paragraph: target.paragraph, image: { width: prepared.width, height: prepared.height, kb: Math.round(prepared.data.length * 3 / 4 / 1024) },
+      seconds: walk.seconds, events: [...new Set(walk.events)], credits: walk.done?.credits ?? null, charged: walk.done?.charged ?? null, effort: walk.done?.effort ?? null,
+      model: walk.done?.model ?? null, usage: walk.done?.usage ?? null, error: walk.error, walkthrough: w });
+    // One part again, more simply: the first section with a box, else the second.
+    const part = w ? (w.sections.find(s => s.box) ?? w.sections[1] ?? w.sections[0]) : null;
+    if (part) {
+      log(`=== ${name}: explain more simply "${part.label} ${part.title}" ===`);
+      const simpler = await figureRequest({ ...base, operation_id: randomUUID(), action: 'figure_simpler', selection: { quote: part.text }, messages: [{ role: 'user', text: `${name} ${part.label}`.trim() }], figures }, token);
+      console.log('--- simpler ---\n' + redact(simpler.text) + '\n--- end ---');
+      record.runs.push({ kind: 'figure_simpler', target: name, section: `${part.label} ${part.title}`.trim(), seconds: simpler.seconds, first_text_s: simpler.firstSeconds,
+        events: [...new Set(simpler.events)], credits: simpler.done?.credits ?? null, charged: simpler.done?.charged ?? null, usage: simpler.done?.usage ?? null,
+        characters: simpler.text.length, error: simpler.error });
+    }
+  }
+  const file = `${dir}/${stamp}-${PAPER.key}.json`;
+  writeFileSync(file, JSON.stringify(record, null, 1));
+  log(`recorded ${file.slice(ROOT.length + 1)}`);
+}
 
 // 2. Disposable account with synthetic credits.
 const email = `gradstep-smoke-agentv2-${randomUUID()}@example.invalid`, password = randomBytes(36).toString('base64url');
@@ -110,7 +304,7 @@ try {
   // 3. DPO v3 metadata membership (source_only, no PDF).
   const membershipID = randomUUID();
   const page = await rpc('v3_library_page', { p_cursor: null, p_limit: 100 }, token);
-  await rpc('v2_begin_import', { p_operation_id: membershipID, p_source_id: '2305.18290', p_observed_cursor: page.baseline_cursor ?? 0, p_requested_revision: 3 }, token);
+  await rpc('v2_begin_import', { p_operation_id: membershipID, p_source_id: PAPER.id, p_observed_cursor: page.baseline_cursor ?? 0, p_requested_revision: PAPER.revision }, token);
   let member;
   for (let n = 0; n < 60; n++) {
     const r = await rpc('v3_library_page', { p_cursor: null, p_limit: 100 }, token);
@@ -118,7 +312,7 @@ try {
     if (member?.phase === 'source_only' || member?.phase === 'failed') break;
     await sleep(3000);
   }
-  if (member?.phase !== 'source_only' || member.source_revision !== 3) throw new Error(`membership phase ${member?.phase ?? 'missing'} ${member?.error_code ?? ''}`);
+  if (member?.phase !== 'source_only' || member.source_revision !== PAPER.revision) throw new Error(`membership phase ${member?.phase ?? 'missing'} ${member?.error_code ?? ''}`);
   log(`membership ${membershipID} source_only: ${member.metadata?.title}`);
 
   // The bundle's figure N as the app sends it (the DPO figures are JPEGs within the provider's resolution already).
@@ -132,8 +326,8 @@ try {
   };
 
   // 4. Questions.
-  const local_context = { format: 'reader-local-context-v2', membership_id: membershipID, source: 'arxiv', source_id: '2305.18290', revision: 3,
-    manifest_sha256, source_sha256: lock.html.sha256, text };
+  const local_context = { format: 'reader-local-context-v2', membership_id: membershipID, source: 'arxiv', source_id: PAPER.id, revision: PAPER.revision,
+    manifest_sha256, source_sha256, text };
   const turns = [];
   let equationAction = null, equationLatex = '';
   let followUps = [], studyMap = { concepts: [], links: [], focus: null, journey: [], next: 'calibrate' };
@@ -213,7 +407,9 @@ try {
     }
     turns.push({ role: 'assistant', text: answer });
   };
-  if (EQUATION) {
+  if (FIGURE_VIEW || TABLE_VIEW) {
+    await figureViews({ local_context, token, ask });
+  } else if (EQUATION) {
     const loss = index.equations.find(e => e.display && /DPO/.test(e.latex) && /\\sigma/.test(e.latex));
     if (!loss) throw new Error('no DPO loss equation in the bundle');
     equationLatex = loss.latex.replace(/\\(begin|end)\{equation\*?\}/g, '').trim();
@@ -264,6 +460,7 @@ try {
   }
 } catch (error) { exit = 1; log(`FAILED: ${error.message}`); }
 finally {
+  await chromium?.close().catch(() => {});
   // 5. Cleanup through account-delete, then confirm the auth user is gone.
   let deleted = null;
   if (token) deleted = await http(`${env.SUPABASE_URL}/functions/v1/account-delete`, { method: 'POST', body: { confirm: 'delete my account' },

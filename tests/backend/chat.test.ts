@@ -11,7 +11,7 @@ import { publishedProfiles } from '../../supabase/functions/_shared/chat-profile
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
 import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
-import { figureBox, figureMaxTokens, figureWalkthrough, figureWalkthroughText } from '../../supabase/functions/_shared/chat-figure-view.ts';
+import { figureBox, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes } from '../../supabase/functions/_shared/chat-figure-view.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
@@ -2241,6 +2241,7 @@ test('figure_walkthrough input: sections kept in order, bounded, boxes inside th
   assert.deepEqual(walkthrough.sections[0], { label: '(a)', title: 'The RLHF pipeline', text: 'Three stages [¶12]. A made-up block .\n\nThen a reward model [¶13].',
     paragraphs: [12, 13], box: { x: 0, y: 0.1, w: 0.1, h: 0.1 } });
   assert.deepEqual(walkthrough.sections.map(s => s.box?.x ?? null), [0, null, null, 0.2, 0.4, 0.6, null], 'the box too small is dropped, the fifth box too');
+  assert.equal(offeredBoxes(input), 6, 'the log counts the boxes the model offered');
   // At most 12 sections; a long text ends at a sentence before 1,500 characters; long labels and titles are shortened.
   const many = figureWalkthrough({ summary: 's', sections: Array.from({ length: 13 }, (_, i) => ({ label: 'L'.repeat(70), title: 'T'.repeat(130),
     text: `Sentence ${i} is here. `.repeat(100), paragraphs: [] })) }, 14)!;
@@ -2264,7 +2265,7 @@ test('the walkthrough is held back, checked and relayed once; without one the wo
   assert.deepEqual(h.events[0].data, { format: 'figure-walkthrough-v1', summary: 'RLHF against DPO.', sections: [
     { label: '(a)', title: 'RLHF', text: 'Three stages [¶12].', paragraphs: [12], box: { x: 0.02, y: 0.1, w: 0.45, h: 0.5 } },
     { label: '(b)', title: 'DPO', text: 'One stage [¶13].', paragraphs: [13] }] });
-  assert.deepEqual(h.logs, [{ event: 'chat_figure_walkthrough', operation_id: operation, called: true, sections: 2, boxes: 1 }]);
+  assert.deepEqual(h.logs, [{ event: 'chat_figure_walkthrough', operation_id: operation, called: true, sections: 2, boxes: 1, boxes_offered: 1 }]);
   assert.equal(settledWith(h).p_action, 'figure'); assert.equal(settledWith(h).p_ending, 'completed'); assert.ok(Number(settledWith(h).p_actual_credits) > 0);
   assert.equal((h.events[1].data as { charged: boolean }).charged, true);
   // Parts, a diagram or a visual the model adds are never relayed in the view.

@@ -1,4 +1,4 @@
-# The figure view: a walkthrough of a figure, on request (plan, 2026-10-16)
+# The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
 Owner, TestFlight build 59: "a UX that is quite similar to the one for equations, instead of requesting for a breakdown
 of the equations it creates a breakdown of the figures, it knows how to crop the different sections out, but most likely
@@ -57,9 +57,9 @@ walkthrough right after chatting reads the paper from the prompt cache:
 | `selection.quote` | the caption |
 | `messages` | one user turn: `Figure 3` |
 | `action` | `figure` (the walkthrough) or `figure_simpler` (one section again, more simply; `selection.quote` = that section's text) |
-| `profile`, `capabilities`, `consent_version` | as the chat sends them (consent v3+ names figures) |
+| `profile`, `capabilities`, `consent_version` | as the chat sends them (consent v3+ names figures), with `figure_view` (as built, below) |
 
-`figure` has the model call one tool, `figure_walkthrough` (forced), whose input the server checks
+`figure` has the model call one tool, `figure_walkthrough` (asked for by the instructions, not forced: see "Server — as built"), whose input the server checks
 (`chat-figure-view.ts`): `{format: "figure-walkthrough-v1", summary, sections: [{label, title, text, paragraphs: [N],
 box?: {x, y, w, h}}]}` — 1–12 sections, text ≤ 1,500 characters each with `[¶N]` inside the paper, boxes within the
 image and at least 4 % of each side, at most 4 boxes. It relays one `figure` event, then `done`. Unusable output falls
@@ -78,7 +78,7 @@ without a new request. The boxes are kept, never the crops. Nothing is sent with
 
 ## Phases
 
-1. **Server** — `figure` and `figure_simpler` actions with the checked tool, tests (cached prefix byte-identical,
+1. **Server** (built and live on staging 2026-10-16: "Server — as built" below) — `figure` and `figure_simpler` actions with the checked tool, tests (cached prefix byte-identical,
    validation, fallback), staging deploy, live smoke on DPO Figure 1, a multi-panel plot (2610.16784 InfoVis Figure 4) and
    a table, recording cost and time.
 2. **Apps** — the buttons on the figure page, the walkthrough view with inline crops and the section menu, the local
@@ -93,3 +93,132 @@ without a new request. The boxes are kept, never the crops. Nothing is sent with
 - Up to 4 crops, chosen by the model; none is fine.
 - "Back up a bit" = Explain more simply, inline under the section (the walkthrough stays in place); deeper questions go
   to chat.
+
+## Server — as built (phase 1, 2026-10-16; staging)
+
+Deployed to **staging**: migration 082 (after 081, ledger verified) and the `chat` function (deploy suite 20/20 each
+time). Code: `supabase/functions/_shared/chat-figure-view.ts`, `chat.ts`; tests in `tests/backend/chat.test.ts` and
+`tests/database/figure_view_actions.sql`. Two changes from the plan above, both forced by the cache and the model:
+
+- **A capability, `figure_view`.** `figure` and `figure_simpler` must find the tool `figure_walkthrough` among the
+  request's tools, and the tools are the first part of the cached prefix, so the tool has to be in the chat's tools
+  too. It is offered in every paper chat (not Add paper, not a repair) whose request says `figure_view` under consent
+  v3 or later, whatever the Visual answers setting. Builds without the capability keep exactly the tools (and cache)
+  they had. **A build with the figure view sends `figure_view` on every paper chat request and on both actions, with
+  the chat's other capabilities and profile unchanged**; otherwise the tools differ and the walkthrough writes the
+  paper to the cache again. A figure action without it is `invalid_request`.
+- **Not forced.** Sonnet 5.5 and Opus 5.5 answer a forced `tool_choice` (`tool`/`any`) with a 400, and forcing would
+  also need thinking off. The request keeps the chat's `tool_choice` (auto) and adaptive thinking; the instructions
+  after the paper ask for one `figure_walkthrough` call and nothing else. A model that writes words instead is the
+  fallback below (seen once, on a table image that was cut off; the instructions now say to call the tool even then).
+
+### Request
+
+```json
+{"operation_id":"…","consent_version":"cloud-ai-v3","mode":"paper",
+ "local_context":{"format":"reader-local-context-v2","membership_id":"…","source":"arxiv","source_id":"2305.18290","revision":3,
+   "manifest_sha256":"…","source_sha256":"…","text":"[¶1] …"},
+ "capabilities":["visual_answers","figure_requests","figure_view","stop_signal"],
+ "profile":{"model":"sonnet","effort":"auto","length":"standard"},
+ "action":"figure",
+ "selection":{"quote":"Figure 1: DPO optimizes for human preferences while avoiding reinforcement learning. …"},
+ "messages":[{"role":"user","text":"Figure 1"}],
+ "figures":[{"id":"F1","paragraph":7,"caption":"Figure 1: DPO optimizes …","media_type":"image/jpeg","data":"<base64>","width":1376,"height":275}]}
+```
+
+- `figure`: `selection.quote` is the caption (a table's caption for a table), the message names the figure.
+- `figure_simpler`: the same with `"action":"figure_simpler"`, `selection.quote` = that section's `text`, and the
+  message naming the part (`"Figure 1 Right panel"`). The same image goes again (it is what the model reads).
+- Rejected (`invalid_request`): no or two figures, consent v1/v2, no `figure_view`, no selection, more than one turn,
+  `topic_title`, `follow_ups`, mode general, a server `document_id`, an unnumbered (v1) context.
+- `capabilities` and `profile` exactly as the device's chat sends them. Effort `auto` resolves to medium (a figure is
+  attached). The walkthrough's output allowance is 6,000 plus the effort's thinking (low 8,000, medium 10,000, high
+  14,000), whatever the length; `figure_simpler` uses the reader's length like an answer.
+
+### Response
+
+`figure` relays one event, then `done`:
+
+```
+event: figure
+data: {"format":"figure-walkthrough-v1","summary":"Figure 1 contrasts the standard RLHF pipeline (left, red panel) with DPO (right, teal panel). …",
+       "sections":[{"label":"Left panel","title":"RLHF: preference data, reward model, then RL","text":"The red panel is titled … This is the Bradley-Terry fit of Eq. 2 [¶21]. …","paragraphs":[9,18,21,24,23]},
+                   {"label":"(b)","title":"…","text":"…","paragraphs":[13],"box":{"x":0.5,"y":0,"w":0.5,"h":1}}]}
+
+event: done
+data: {"stop_reason":"end_turn","credits":4,"usage":{…},"model":"claude-sonnet-5-5","profile":"sonnet-medium-standard","effort":"medium","charged":true}
+```
+
+- `summary`: string, at most 800 characters (may be empty). `sections`: 1–12, in the model's order.
+- Each section: `label` (at most 60 characters; **may be empty**: a part with no name of its own), `title` (at most 120,
+  never empty), `text` (Markdown with `\( \)` math and `[¶N]` markers, at most 1,500 characters), `paragraphs` (the
+  `[¶N]` numbers that discuss it, each inside the paper, at most 8; may be empty), `box` (optional).
+- `box`: `{x, y, w, h}`, fractions of the image that was sent (x, y its top-left corner), rounded to 4 decimals, inside
+  the image, each side at least 0.04, never the whole image; at most 4 in a walkthrough. Crop on the device from the
+  same image the request carried (for stacked panels, the composed image).
+- The check degrades rather than refuses: a section without text is left out, a box that doesn't fit is dropped (the
+  section stays), the first 12 sections and 4 boxes are kept, a `[¶N]` outside the paper is removed, a long text is
+  cut at its last sentence before 1,500 characters, a long label or title is shortened with "…".
+- **No usable walkthrough**: the words come as one `delta` (the call's own words, summary then each section's text,
+  else the model's text), then `done`: show them as the description.
+- `figure_simpler` streams `delta`s, then `done`, like the equation's background.
+- No other tool result is relayed for either action (parts, diagrams, visuals, figure requests).
+- Billing as every chat action (CHAT.md "When an answer stops early"): a walkthrough or words shown is `completed`
+  and charged; cut off at its allowance is `done {charged:false, reason:"limit"}`; a finished turn with nothing to
+  show is `done {charged:false, reason:"provider"}`; errors as for chat. Builds that predate the view ignore the
+  `figure` event (they never send the actions).
+- An ordinary chat answer that calls `figure_walkthrough` anyway gets no `figure` event; if it wrote nothing else, its
+  words become the answer. Logs: `chat_figure_walkthrough` / `_invalid_output` with `called`, `sections`, `boxes`,
+  `boxes_offered` (counts only, never text).
+- **Database**: migration 082 adds `figure` and `figure_simpler` to `chat_endings.action` and `worker_settle_chat`
+  (079 refused any other action, so a figure-view settlement would have waited for the stale-hold sweep).
+- **Browser fixture**: `apps/web/e2e/fixture-backend.mjs` validates both actions like the server and answers `figure`
+  with a three-section walkthrough (one boxed) and `figure_simpler` with streamed words.
+
+### Evidence
+
+- `tests/backend/chat.test.ts`: validation; the cached prefix — model, thinking, tools (with `figure_walkthrough`) and
+  the system blocks through the paper's one-hour breakpoint — byte-identical across a chat question, a chat question
+  with the figure, `figure` and `figure_simpler` (web search on); no `tool_choice`; a build without the capability
+  keeps its old tools; visuals off keeps the tool; the checked input (order, bounds, boxes, citations); relay, words
+  fallback, nothing shown and `max_tokens` not charged; `figure_simpler`; a stray call in a chat answer.
+  `tests/database/figure_view_actions.sql` (with 079's `contained_overruns.sql`, every migration through 082).
+  `npm test` passed.
+- Live on staging, `node scripts/chat-live-smoke.mjs --figure-view=N [--table-view=N] [--warm]` (new: the image
+  prepared as the browser prepares it, the boxes drawn on it, a JSON record under `.artifacts/figure-view/`). Sonnet
+  5.5, effort auto → medium. Credits are what the reader paid; the cache numbers are the provider's.
+
+| Figure | Image | Sections | Boxes | Credits | Time | Cache |
+|---|---|---|---|---|---|---|
+| DPO Figure 1 (after a chat question, `--warm`) | 1376×275 | 2: Left panel (RLHF), Right panel (DPO) | 0 | 4 | 8.8 s | read 49,199 tokens the chat question wrote (that question: 40 credits) |
+| → more simply, "Right panel" | | 3,013 characters | | 4 | 11.1 s (text at 2.4 s) | read |
+| InfoVis Figure 4, four sunbursts (first request on the paper) | 1200×959 | 5: how to read the rings, then each panel | 0 | 47 | 10.8 s | wrote 54,214 |
+| InfoVis Figure 4 (final instructions) | 1200×959 | 5 | 0 | 5 | 10.7 s | read 54,214 |
+| → more simply, "Top left T2I" | | 2,513 characters | | 4 | 10.0 s (3.4 s) | read |
+| InfoVis Table 1, rendered from the bundle as a device shows it | 1206×953 | 4: how to read it, proprietary, open-source, InfoVis row | 0 | 5 | 10.9 s | read |
+| → more simply, "Proprietary" | | 2,460 characters | | 4 | 11.1 s | read |
+| InfoVis Figure 13, four failure-case panels | 1140×1009 | 4: (a)–(d) | 0 | 5 | 9.8 s | read |
+| Mistral 7B Figure 5, four plots (after the box wording change) | 961×664 | 4: one per panel | 0 | 16 | 9.0 s | wrote 15,581 |
+
+- What the walkthroughs read from the images, not the captions: DPO's example prompt ("write me a poem about the history
+  of jazz"), the trophy and the arrow labels ("label rewards", "sample completions"); every Table 1 value quoted
+  matched the table (8.42 / 8.01 / 7.02 … 7.94); Figure 13's garbled legend ("Diontspair", "Streamg +HERMEFK") and
+  annotations. One slip: a Table 1 sentence mixed Qwen-Image-Edit's SC and PQ columns.
+- Cache: the walkthrough after a chat question read the whole paper the chat wrote, at a different effort (low → medium);
+  every later walkthrough and explanation read it (4–5 credits, 3–4 for more simply), matching the plan's estimate.
+- First runs found two things, both fixed: the walkthrough cited only in `paragraphs` (the instructions now ask for
+  `[¶N]` in the text: every section of the 7 later walkthroughs has them), and the smoke's table capture cut the table's right columns (the
+  model then wrote words, not the tool: the instructions now say to call it even then).
+- Total provider spend for this work on staging: $0.82 (22 chat operations, the deploy suite's included).
+
+### Open
+
+- **No boxes yet.** In 8 walkthroughs (33 sections; 9 requests counting the cut-off table) the model gave no box, including InfoVis Figure 4's leader-line
+  labels and Figure 13's garbled legend, after two wording changes (the instructions after the paper, then the tool's
+  `box` description). Whether boxes land on the right regions is therefore unchecked live; the smoke draws them
+  (`<paper>-<figure>-boxes.png`, checked offline with a hand-placed box) and the log now counts `boxes_offered`, so a
+  box the check drops would show. Phase 4 should decide between this (crops rare) and a firmer rule, e.g. "a figure
+  with more than one panel and small print gets at least one box".
+- Tables in the reader are HTML: the device must make the table's image (as the smoke does from the bundle) before it
+  can send one.
+- The tool's `box` wording changed after the DPO and InfoVis runs (one paper write per paper on staging since).

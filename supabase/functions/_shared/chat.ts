@@ -16,7 +16,7 @@ import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
-import { FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureMaxTokens, figureWalkthrough, figureWalkthroughText,
+import { FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes,
   isFigureAction, type FigureWalkthrough } from './chat-figure-view.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
@@ -906,7 +906,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // model's words are the description, so the reader still sees what was paid for (counts only in the log).
     if (walkthroughOnly && !signal.aborted) {
       deps.log({ event: walkthrough ? 'chat_figure_walkthrough' : 'chat_figure_walkthrough_invalid_output', operation_id: request.operationID,
-        called: !!walkthroughCall, sections: walkthrough?.sections.length ?? 0, boxes: walkthrough?.sections.filter(s => s.box).length ?? 0 });
+        called: !!walkthroughCall, sections: walkthrough?.sections.length ?? 0, boxes: walkthrough?.sections.filter(s => s.box).length ?? 0,
+        boxes_offered: walkthroughCall ? offeredBoxes(walkthroughCall.input) : 0 });
       if (walkthrough) emit({ event: 'figure', data: walkthrough });
       else if (walkthroughWords) emit({ event: 'delta', data: { text: walkthroughWords } });
     }

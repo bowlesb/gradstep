@@ -42,8 +42,9 @@ export const FIGURE_WALKTHROUGH_TOOL: Anthropic.Beta.Messages.BetaTool = {
         title: { type: 'string', description: 'What this part shows, in a few words (under 80 characters).' },
         text: { type: 'string', description: 'The walkthrough of this part in Markdown, with [¶N] citations; at most about 1,200 characters.' },
         paragraphs: { type: 'array', items: { type: 'integer' }, description: 'The N of each [¶N] paragraph that discusses this part.' },
-        box: { type: 'object', description: 'Only for a small detail of a large figure the text points at: the region as fractions of the '
-          + 'image (x, y: its top-left corner; w, h: its width and height; each side at least 0.04). At most 4 in a walkthrough.',
+        box: { type: 'object', description: 'A region of the image the reader sees enlarged above this section. Give one when the text points '
+          + 'at a detail that is hard to see at the figure\'s full size (in a large or dense figure: a small inset, a thin slice, a tiny label '
+          + 'or marker). x, y: its top-left corner; w, h: its width and height; fractions of the image, each side at least 0.04. At most 4 in a walkthrough.',
         properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
       }, required: ['label', 'title', 'text', 'paragraphs'] } },
     },
@@ -52,13 +53,13 @@ export const FIGURE_WALKTHROUGH_TOOL: Anthropic.Beta.Messages.BetaTool = {
 };
 
 export const FIGURE_INSTRUCTIONS = `The reader opened the figure view on the attached figure (F1; the <selected_passage> block is its caption) and asked for a walkthrough of it. Read the image itself, closely: every panel, axis, tick label, legend entry, colour, marker, line style, arrow and annotation.
-Call figure_walkthrough once with the whole walkthrough. Write no other text, use no other tool and do not search the web.
+Call figure_walkthrough once with the whole walkthrough, even when part of the image is unclear or cut off (say so in the text). Write no other text, use no other tool and do not search the web.
 - summary: two or three plain sentences: what the figure shows and the point it makes in the paper.
 - sections: one per sub-figure, panel or region, in reading order (the figure's own labels (a), (b)…, else left to right, top to bottom). Leave none out; panels that repeat one pattern may share a section (at most ${FIGURE_LIMITS.sections} sections). A figure with a single panel gets a section for each part worth reading on its own: the axes and what they measure, each group of curves, bars or boxes, a notable region, the legend.
 - label: the part as the figure names it ("(a)", "Left", "Top row", "Inset"), empty when it has no name; title: what that part shows, in a few words.
-- text: explain every detail a careful reader needs, in plain words: what is plotted against what, units and scales (log axes, normalisation, ranges), what each colour, marker, line style or arrow encodes, the values, trends or exceptions to notice, and how this part supports the paper's claim. Say what the image shows, not only what the caption says. Cite the paragraphs that discuss it as [¶N] (only markers that exist in the paper) and list their numbers in paragraphs. At most about 1,200 characters.
+- text: explain every detail a careful reader needs, in plain words: what is plotted against what, units and scales (log axes, normalisation, ranges), what each colour, marker, line style or arrow encodes, the values, trends or exceptions to notice, and how this part supports the paper's claim. Say what the image shows, not only what the caption says. Cite the paragraphs that discuss it by writing their [¶N] markers in the text, right after the statement each supports, as in an answer (only markers that exist in the paper), and list their numbers in paragraphs. Use the room: usually 500 to 1,200 characters, the most for a dense panel.
 - A table shown as a figure: a first section on how to read it (what the rows and columns are, the units, what bold, underline or colour marks), then a section for each comparison or result it supports.
-- box: only when the text points the reader at a small detail in a large figure (a small inset, where two curves cross, a tiny label or marker): the region as fractions of the image, x and y its top-left corner, w and h its width and height, tight around the detail, each side at least ${FIGURE_LIMITS.minSide}. At most ${FIGURE_LIMITS.boxes} boxes in the whole walkthrough; most sections have none, and a small or simple figure needs none.`;
+- box: a crop of the image the reader sees enlarged above the section. When the figure is large or dense (several panels, small print), give a box to each section whose text points at a detail that is hard to see at the figure's full size (a small inset, where two curves cross, a thin slice, a tiny label or marker); such a figure usually has one to three. The region as fractions of the image, x and y its top-left corner, w and h its width and height, tight around the detail, each side at least ${FIGURE_LIMITS.minSide}. At most ${FIGURE_LIMITS.boxes} boxes in the whole walkthrough; most sections have none, and a small or simple figure needs none.`;
 
 export const FIGURE_SIMPLER_INSTRUCTIONS = `The reader is reading a walkthrough of the attached figure (F1) and asked for one part of it, in the <selected_passage> block, to be explained more simply ("back up a bit"). Explain only that part again, for someone meeting it for the first time: where to look in the image and what is there, in plain words; the background it relies on, each idea briefly (what the axes or quantities mean, why this kind of plot or measure is used, any term the passage takes for granted); then what to notice and why it matters to the paper, with a small concrete example when it helps. Do not walk through the rest of the figure and do not repeat the passage. Cite the paper as usual. Do not use any tool and do not search the web.`;
 
@@ -131,6 +132,13 @@ export function figureWalkthrough(input: unknown, paragraphs: number): FigureWal
   }
   if (!sections.length) return null;
   return { format: FIGURE_FORMAT, summary: prose(v.summary, FIGURE_LIMITS.summaryChars, paragraphs), sections };
+}
+
+/** How many sections of the model's input carried a box at all (a count for the log: boxes offered but dropped show a
+ * model writing them in a form the check refuses). */
+export function offeredBoxes(input: unknown): number {
+  const sections = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>).sections : null;
+  return Array.isArray(sections) ? sections.filter(s => !!s && typeof s === 'object' && (s as Record<string, unknown>).box != null).length : 0;
 }
 
 /** The walkthrough as Markdown: the words a reader still gets when the walkthrough can't be shown as one (an ordinary
