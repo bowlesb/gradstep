@@ -683,3 +683,60 @@ passage that names one) carries that figure's image, so the model reads the figu
   `[[part 1]]` before the three RLHF steps and `[[part 2]]` before the DPO pipeline, 28 credits, 14.8 s. Journeys:
   `WorkflowJourneyTests/testFigurePartsAreInlineWhereTheAnswerDiscussesThem` (`--chat-fixture-mode=figure_parts`) and
   `e2e/arxiv-html.spec.ts` (text, part, text, part, text in order).
+
+## Chat redesign from build 57 feedback — 2026-10-16
+
+Owner, TestFlight build 57 (four reports, 2026-10-16 02:41–02:48 UTC), with Gemini screenshots as the design reference:
+"the user should set the length, and the effort level should be chosen intelligently based on a sensible default";
+"deep seek should be an option. We need one that supports images"; "an option to set the current options as the
+default for chats, which should also be available in settings (same options here and in chat)"; "a link Read about AI
+chat options… where the same options are listed (defaults can be chosen) but more detail is provided on how many
+credits are likely to be used"; "literally nothing else is needed on this UI"; "We can't have the typing window
+awkwardly to the right side"; "put the chat settings in the top right drop down with the other options. Please also put
+in there Enter Study Mode"; "Change Chat to Ask Anything about the Paper"; "Use the Gemini screen shot to provide starter
+questions, have a list of good ones, not always the same boring ones."
+
+One design, expressed on iPhone, iPad, Mac and the browser:
+
+1. **Answer options** (the sheet/popover): Model — Haiku · Sonnet · Opus · DeepSeek, with its one-line detail; Length —
+   Brief · Standard · Detailed, with its detail; **Use for new chats** (shown when the chat's choice differs from the
+   default; afterwards "New chats start with these"); a link **About AI chat options** that opens Settings › AI chat
+   options. Nothing else: no effort control, no credit estimate, no Reset.
+2. **Effort is automatic.** New clients send `effort: "auto"`; the server picks low, medium or high from the length and
+   the question (below) before it holds credits, and holds and records the effort it picked. Older builds keep sending
+   explicit efforts, which stay valid.
+3. **Settings › AI chat options** (renamed from Chat defaults): the same Model and Length pickers, setting the defaults
+   new chats start with; then per-model detail (what it is good at, who processes the request) and the credit table
+   from the server's published estimates (usually X–Y credits per question for each model and length, and the most
+   one answer can cost); one line saying effort is chosen automatically.
+4. **The chat's ⋯ menu** gains **Answer options…** (subtitle: the current "Sonnet · Standard") and **Study mode**
+   (enter; **End study mode** while studying). The composer no longer carries the options chip; the empty chat no
+   longer carries the Study button or its description.
+5. **The composer** is one full-width pill: the field, then Send (Stop while answering) inside the pill on the right.
+   Nothing beside the pill: the keyboard is dismissed by scrolling the transcript, tapping outside the field, or Esc.
+   Placeholder: **Ask anything about the paper** (paper chat), **Ask anything** (general chat), **Your answer** (study).
+6. **Starter questions** (Gemini's layout): in an empty chat, three rows directly above the composer, each a small icon
+   and one line of text, left-aligned, no heading. A tap fills the message box and focuses it; nothing is sent until
+   the reader sends (as follow-ups). A soft accent glow rises behind the lower part of the empty chat (dark and light).
+   - Chosen on the device from a pool (`tests/fixtures/chat-starters.json` holds the pool and the selection cases both
+     clients test against): three different categories, at least one about this paper's own structure when it has any
+     (a figure, a numbered equation, a table or a method section), drawn afresh for each new chat and stable while
+     that empty chat is shown.
+   - Paper categories: overview, method, figure, equation, table, results, critique, background. General chat: a pool
+     of ML research starters.
+
+### Automatic effort (server)
+
+`effort: "auto"` resolves before the hold: Brief → low. Standard → low, or medium when the question asks for reasoning
+(derive, prove, show that, step by step, why does/is, compare, trade-off, intuition, explain equation/term, how does …
+work) or carries an equation or figures. Detailed → medium, or high when the question asks for reasoning. The quote and
+the answer record the resolved profile (`sonnet-medium-standard`); the published table lists `auto` profiles with the
+estimate of the effort usually picked and the maximum of the highest.
+
+### DeepSeek in chat
+
+`deepseek` → `deepseek-flash` (DeepSeek V4.1 Flash: image input, tools, thinking, streaming; 1M context) through
+DeepSeek's Anthropic-compatible API (`https://api.deepseek.com/anthropic`), so the request is the Anthropic request with
+another base URL, key and model. Priced at DeepSeek's peak list rates. Allowed only under a consent version that names
+DeepSeek; web search through Tavily (our tool), never a provider search tool. Offered only after a recorded check of
+equation handling, figure questions, citations ([¶n]) and the visual tool on the evaluation papers.
