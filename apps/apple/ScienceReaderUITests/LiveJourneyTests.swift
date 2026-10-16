@@ -11,6 +11,8 @@ final class LiveJourneyTests: XCTestCase {
     private var arxivID: String { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_ARXIV"] ?? "2305.18290" }
     private var titlePrefix: String { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_TITLE"] ?? "Direct Preference Optimization" }
     private var question: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_QUESTION"] }
+    /// `--figure-view`: Contents › Figures › the first figure › Explain, against the staging chat (FIGURE_VIEW.md).
+    private var explainsFigure: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_FIGURE_VIEW"] == "1" }
     private var searchQuery: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_SEARCH"] }
     private var deletesAccount: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_DELETE"] == "1" }
     private var openTiming: [String] { (ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_OPEN_TIMING"] ?? "").split(separator: "|").map(String.init) }
@@ -130,6 +132,24 @@ final class LiveJourneyTests: XCTestCase {
         capture(app, "Downloaded reader")
         app.buttons["Table of contents"].tap()
         sleep(1); capture(app, "Contents")
+        if explainsFigure {
+            // The figure view's walkthrough from the app itself: the request the server checks, the sections it relays.
+            app.segmentedControls["contents.tabs"].buttons["Figures"].tap()
+            let figure = app.buttons["contents.figure.0"]
+            XCTAssertTrue(figure.waitForExistence(timeout: 10)); figure.tap()
+            let explain = app.buttons["figureView.explain"]
+            XCTAssertTrue(explain.waitForExistence(timeout: 10)); explain.tap()
+            let consent = app.buttons["chat.consent.accept"]
+            if consent.waitForExistence(timeout: 10) { capture(app, "Consent"); consent.tap() }
+            let first = app.descendants(matching: .any)["figureView.section.1"]
+            XCTAssertTrue(first.waitForExistence(timeout: 120), "The walkthrough's first part")
+            XCTAssertFalse(app.descendants(matching: .any)["figureView.failure"].exists)
+            sleep(2); capture(app, "Figure walkthrough (live)")
+            app.swipeUp(); sleep(1); capture(app, "Figure walkthrough, further down (live)")
+            // Back to the figure, then Contents' Done below closes the sheet.
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(explain.waitForExistence(timeout: 10))
+        }
         let done = app.buttons["Done"]
         if done.waitForExistence(timeout: 5) { done.tap() }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)], timeout: 10), .completed)

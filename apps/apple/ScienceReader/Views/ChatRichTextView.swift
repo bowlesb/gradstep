@@ -332,10 +332,14 @@ struct ChatSelectableText: UIViewRepresentable {
         guard string.contains("[¶"), let pattern = try? NSRegularExpression(pattern: #"\[¶(\d{1,5})\]"#) else { return text }
         let result = NSMutableAttributedString(attributedString: text)
         let font = UIFont.systemFont(ofSize: size * 0.82, weight: .medium)
-        for match in pattern.matches(in: string, range: NSRange(string.startIndex..., in: string)).reversed() {
+        let matches = pattern.matches(in: string, range: NSRange(string.startIndex..., in: string))
+        // "[¶23][¶24]" read as one "¶23¶24": a thin space between citations that touch (figure view, live 2026-10-16).
+        let touching = Set(matches.map(\.range.location))
+        for match in matches.reversed() {
             guard let marker = Int((string as NSString).substring(with: match.range(at: 1))), marker >= 1,
                   let url = URL(string: "\(citeScheme)://\(marker)") else { continue }
-            result.replaceCharacters(in: match.range, with: "¶\(marker)")
+            let gap = touching.contains(match.range.upperBound) ? "\u{2009}" : ""
+            result.replaceCharacters(in: match.range, with: "¶\(marker)" + gap)
             let shown = NSRange(location: match.range.location, length: ("¶\(marker)" as NSString).length)
             result.addAttributes([.link: url, .font: font], range: shown)
         }

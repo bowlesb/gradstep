@@ -9,6 +9,8 @@
 // --reference=11:PaLM adds the paper first, follows citation 11 → Add to library and waits for
 // the cited paper to become readable (one Add paper answer, about $0.10 on DPO).
 // --pdf-only --arxiv=2610.20399 --title=Cortex: a paper arXiv has no HTML for says so and Open PDF shows its PDF (build 57).
+// --figure-view: after Contents, Figures › the first figure › Explain against staging (FIGURE_VIEW.md; one walkthrough,
+// about $0.05–0.25 depending on whether the paper is already cached).
 // --derived=/private/tmp/... uses that DerivedData folder (default .artifacts/lead-derived).
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -75,6 +77,7 @@ const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), st
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_EMAIL: email, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PASSWORD: password,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_ARXIV: arxiv, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_TITLE: title,
   ...(args.question ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_QUESTION: args.question } : {}),
+  ...(args['figure-view'] ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_FIGURE_VIEW: '1' } : {}),
   ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}),
   ...(args.delete ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_DELETE: '1' } : {}),
   ...(args.store ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_STORE: '1' } : {}),
