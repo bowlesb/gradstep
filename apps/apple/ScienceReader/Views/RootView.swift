@@ -340,7 +340,7 @@ struct LibraryView: View {
                             model.searchExternal ? Image(systemName: "magnifyingglass") : Image(GradstepSymbol.library)
                         }
                     } description: {
-                        Text(model.searchExternal ? "Search arXiv to add a paper." : "Add a paper to read and ask questions.")
+                        Text(model.searchExternal ? "Search ML papers to add one." : "Add a paper to read and ask questions.")
                     } actions: {
                         Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
@@ -366,14 +366,14 @@ struct LibraryView: View {
             }
             // Owner decision (2026-10-05, build 8 follow-up): one header row instead of the navigation
             // bar's title row and search drawer. At rest: search, Add and one options menu. While
-            // searching: Cancel, and the Library/arXiv switch under the field.
+            // searching: Cancel, and the Library / ML paper search switch under the field (named by the owner, 2026-10-16).
             .safeAreaInset(edge: .top, spacing: 0) { header }
             .tabBarSpace()
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
             }
-            // Mac menu bar: Edit › Search Library (⌘F) / Search arXiv (⌥⌘F).
+            // Mac menu bar: Edit › Search Library (⌘F) / Search ML Papers (⇧⌘F).
             .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
                 if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
             }
@@ -433,7 +433,7 @@ struct LibraryView: View {
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search arXiv" : "Search your library",
+                LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search your library",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
                     .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
                     .chromeSurface(Capsule())
@@ -449,7 +449,7 @@ struct LibraryView: View {
                 }
             }
             if searching {
-                Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }
+                Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
                     .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
             }
         }
@@ -1595,7 +1595,7 @@ struct SlowSearchIndicator: View {
     }
 }
 
-/// arXiv search results for the Library's "arXiv" segment. Adding stays in
+/// Paper search results for the Library's "ML paper search" segment. Adding stays in
 /// search and appears as a pending import in the library.
 struct DiscoveryList: View {
     @Bindable var model: ReaderModel
@@ -1604,10 +1604,10 @@ struct DiscoveryList: View {
         switch model.discoveryState {
         case .idle:
             ContentUnavailableView("Find papers", systemImage: "magnifyingglass",
-                                   description: Text("Search arXiv by title, author, topic or ID, then add a paper to your library."))
+                                   description: Text("Search ML papers by title, author, topic or arXiv ID, then add a paper to your library."))
                 .accessibilityIdentifier("discover.idle")
         case .searching:
-            VStack { Spacer(); ProgressView("Searching arXiv…"); Spacer() }.accessibilityIdentifier("discover.searching")
+            VStack { Spacer(); ProgressView("Searching ML papers…"); Spacer() }.accessibilityIdentifier("discover.searching")
         case .failed(let message):
             ContentUnavailableView { Label("Couldn’t search", systemImage: "exclamationmark.magnifyingglass") }
                 description: { Text(message) } actions: { Button("Try again") { model.runDiscovery() } }
@@ -1704,7 +1704,7 @@ struct AcknowledgementsView: View {
         ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
         ("htmlparser2, Temml", "Prepare a paper's arXiv HTML for the reader on this device, and typeset formulas the on-device model reads. Each reading carries these notices.", "MIT License"),
         ("arXiv", "Papers' official HTML versions, downloaded by this device, and their metadata. Papers keep their authors' licenses; shared episodes are limited to CC BY and CC0 papers.", "arXiv API terms"),
-        ("OpenAlex", "Search ranking and details of papers that aren't on arXiv.", "CC0 data"),
+        ("DataCite", "ML paper search and the shared Feed: the records arXiv registers for its papers.", "CC0 data"),
     ]
     var body: some View {
         List {

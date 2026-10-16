@@ -76,17 +76,37 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No matching papers"].waitForExistence(timeout: 5))
         app.buttons["search.clear"].tap()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
-        // The Library/arXiv switch belongs to searching: it shows while the field is active.
+        // The Library / ML paper search switch belongs to searching: it shows while the field is active.
         // (By its identifier: the wide layout's mode control has a "Library" segment too.)
         let scope = app.segmentedControls["library.searchScope"]
-        if !scope.buttons["arXiv"].exists { search.tap() }
-        XCTAssertTrue(scope.buttons["arXiv"].waitForExistence(timeout: 5))
-        scope.buttons["arXiv"].tap()
+        if !scope.buttons["ML paper search"].exists { search.tap() }
+        XCTAssertTrue(scope.buttons["ML paper search"].waitForExistence(timeout: 5))
+        scope.buttons["ML paper search"].tap()
         XCTAssertTrue(app.staticTexts["Find papers"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[sampleID].exists, "External search must never relabel local rows")
         scope.buttons["Library"].tap()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
         capture(app, "Library populated and sparse metadata rows")
+    }
+
+    /// The search switch's name (owner, 2026-10-16: "Call it ML Paper search") beside "Library", at the default and
+    /// the largest text size: whole, on screen and tappable (run on the narrowest iPhone for the screenshots).
+    func testSearchScopeNameFitsAtDefaultAndLargestTextSizes() throws {
+        for size in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+            let app = launch(additionalArguments: ["-UIPreferredContentSizeCategoryName", size.rawValue])
+            let search = app.searchFields.firstMatch
+            XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap()
+            let scope = app.segmentedControls["library.searchScope"]
+            let external = scope.buttons["ML paper search"]
+            XCTAssertTrue(external.waitForExistence(timeout: 5))
+            XCTAssertTrue(external.isHittable && scope.buttons["Library"].isHittable)
+            XCTAssertLessThanOrEqual(scope.frame.maxX, app.windows.firstMatch.frame.maxX)
+            capture(app, "Search switch, \(size.rawValue)")
+            external.tap()
+            XCTAssertTrue(app.staticTexts["Find papers"].waitForExistence(timeout: 5))
+            capture(app, "ML paper search, \(size.rawValue)")
+            app.terminate()
+        }
     }
 
     func testChatKeyboardContextHistoryAndReturnPreserveDrafts() throws {

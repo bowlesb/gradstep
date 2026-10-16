@@ -73,5 +73,10 @@ if fence.is_file() or args.reader_issuer_fence_candidate:
     # committed lifecycle fixtures do not alter unrelated suites' global counts.
     module('reader_issuer_fence').verify()
 
+# The search switches (migration 075) record themselves against the owner: one exists before they apply.
+switch = ROOT / 'supabase/migrations/202610160075_device_search_on.sql'
+phase([*[p for p in cutover_migrations if p.name < switch.name], ROOT / 'tests/database/feed_datacite_owner.sql',
+       *[p for p in cutover_migrations if p.name >= switch.name], ROOT / 'tests/database/feed_datacite.sql'], [])
+
 # Retained legacy accounting is verified before the explicit runtime cutover.
 phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql', ROOT / 'tests/database/admin_health.sql', ROOT / 'tests/database/budget_period.sql', ROOT / 'tests/database/chat_study_quotes.sql', ROOT / 'tests/database/podcast_script_repair.sql', ROOT / 'tests/database/podcast_deepseek_profiles.sql', ROOT / 'tests/database/podcast_writer_choice.sql', ROOT / 'tests/database/podcast_device_sources.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql', ROOT / 'tests/database/device_source_metadata.sql', ROOT / 'tests/database/device_search.sql', ROOT / 'tests/database/provider_resilience.sql', ROOT / 'tests/database/podcast_source_deletion.sql'], [])

@@ -26,7 +26,7 @@
 
 <main id="main" class="legal wrap">
   <h1>Privacy</h1>
-  <p class="updated">Private beta &middot; last updated 15 October 2026</p>
+  <p class="updated">Private beta &middot; last updated 16 October 2026</p>
   <p class="intro">Gradstep is a reader for machine-learning papers on iPhone, iPad and Mac, and in a web browser. This page explains what the apps and our servers handle during the private beta, who processes it, and the choices you have.</p>
 
   <nav class="toc" aria-label="On this page">
@@ -43,7 +43,7 @@
   <h2 id="papers">Papers and PDFs</h2>
   <p>Your device fetches a paper&rsquo;s official HTML version from arXiv and prepares it for reading on the device. Our servers don&rsquo;t fetch, store or convert it.</p>
   <p>A PDF you add, choose, drop or download is opened and kept only on your device. It is never uploaded to our servers. In a browser, a PDF stays in the file you chose and the tab it is open in. An experimental option in the apps prepares a PDF with models that run on the device itself.</p>
-  <p>When you add a paper, our servers look up its catalog details (title, authors, abstract, version and licence) from arXiv, OpenAlex and Crossref. When you add a paper from a reference in another paper, the reference&rsquo;s text is sent to Crossref, OpenAlex and arXiv to identify it. Searches you type in the Feed go to arXiv and OpenAlex.</p>
+  <p>When you add a paper, our servers look up its catalog details (title, authors, abstract, version and licence) from arXiv, OpenAlex and Crossref. When you add a paper from a reference in another paper, the reference&rsquo;s text is sent to Crossref, OpenAlex and arXiv to identify it. Paper search runs from your device: the apps send what you type to arXiv and DataCite, and a browser sends it to DataCite, without passing it through our servers. (Earlier app versions send it to our servers, which ask DataCite.) The Feed&rsquo;s list of new papers comes from DataCite&rsquo;s records of arXiv papers, which our servers read once for everyone.</p>
   <p>Before 13 October 2026, papers were fetched and converted on our servers. Those conversions are still stored and may be used when you ask about one of those papers or make an episode of it. Conversions of openly licensed papers may be shared with other readers.</p>
 
   <h2 id="library">Your library</h2>
@@ -72,7 +72,7 @@
   <p>Plans and credit packs are sold through the App Store. Apple processes payment; we receive transaction details to add credits to your account and keep a record of credit use.</p>
 
   <h2>Reports and support</h2>
-  <p>If you send a report from the app, we store its text and any screenshots you attach, privately, to investigate it. Reports are visible to our support staff, who sign in with two-factor authentication.</p>
+  <p>If you send a report from the app, we store its text and any screenshots you attach, privately, to investigate it. Reports are visible to our support staff, who sign in with two-factor authentication. Reports are kept until you delete your account.</p>
 
   <h2>What we don&rsquo;t do</h2>
   <ul>
@@ -90,10 +90,13 @@
   </ul>
 
   <h2 id="delete">Deleting your account</h2>
-  <p>You can delete your account in the iPhone, iPad or Mac app (Settings &rarr; Account &rarr; Delete account). We then delete your library, your encrypted history, your devices and keys, your private papers and episodes and the text they were made from, your reports, your activity records and your sign-in details. Records of paid work, such as credit and usage totals and the episodes you paid for, are kept linked only to an internal number, no longer to your email or sign-in. Shared paper conversions and catalog episodes that other readers use remain.</p>
+  <p>You can delete your account in the app or in the browser: on iPhone, iPad or Mac, Settings &rarr; Account &rarr; Delete account; in the browser, the account menu &rarr; Delete account. The device or browser you delete from also removes its own copy and keys, and your other devices are signed out. We then delete your library, your encrypted history, your devices and keys, your private papers and episodes and the text they were made from, your reports, your activity records and your sign-in details. Records of paid work, such as credit and usage totals and the episodes you paid for, are kept linked only to an internal number, no longer to your email or sign-in. Shared paper conversions and catalog episodes that other readers use remain.</p>
+
+  <h2>Backups</h2>
+  <p>Our database is backed up daily and each backup is kept for 7 days, so data you delete leaves our backups within a week.</p>
 
   <h2>Contact</h2>
-  <p>Questions about privacy: <a href="mailto:privacy@gradstep.ai">privacy@gradstep.ai</a>.</p>
+  <p>Questions about privacy: <a href="mailto:hello@gradstep.ai">hello@gradstep.ai</a>.</p>
 </main>
 
 <footer class="site">

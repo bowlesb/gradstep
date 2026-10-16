@@ -1,0 +1,1651 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.2610.20610",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20610",
+    "titles": [
+     {
+      "title": "Can Learning to Answer Spatial Questions Improve Novel-View Generation?"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Jahyeok",
+      "familyName": "Koo",
+      "name": "Koo, Jahyeok",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hyeonseo",
+      "familyName": "Yu",
+      "name": "Yu, Hyeonseo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Seungho",
+      "familyName": "Jang",
+      "name": "Jang, Seungho",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jaewoo",
+      "familyName": "Jung",
+      "name": "Jung, Jaewoo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jiwon",
+      "familyName": "Kang",
+      "name": "Kang, Jiwon",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Seokju",
+      "familyName": "Cho",
+      "name": "Cho, Seokju",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Seungryong",
+      "familyName": "Kim",
+      "name": "Kim, Seungryong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Generating novel views from limited observations requires preserving both the appearance and spatial structure of a scene. Although recent approaches exploit fine-grained geometric cues, they do not explicitly model high-level semantic and spatial properties such as object identity, attributes, and inter-object relationships. In this work, we investigate whether 3D language understanding can provide complementary supervision for novel-view generation. We introduce Ask4NV, built on a pretrained unified multimodal model with a Mixture-of-Transformers (MoT) architecture. Our model incorporates camera geometry into both VAE and ViT representations and leverages understanding features during generation through joint self-attention with a modality-aware attention masking strategy. Experiments demonstrate strong image quality and geometric consistency in novel-view generation, alongside competitive 3D language understanding. Further analysis shows that joint training improves cross-view correspondence in VAE representations and similarity in a 3D-aware feature space."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Project Page: https://cvlab-kaist.github.io/Ask4NV/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:58Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:15Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:05:03Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20609",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20609",
+    "titles": [
+     {
+      "title": "SafeDriveVLA: Navigation-Conditioned World Model Dreaming for Conflict-Aware End-to-End Autonomous Driving"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Shaoyuan",
+      "familyName": "Xie",
+      "name": "Xie, Shaoyuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zihan",
+      "familyName": "Zhang",
+      "name": "Zhang, Zihan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jingxuan",
+      "familyName": "Wang",
+      "name": "Wang, Jingxuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jiashu",
+      "familyName": "Qu",
+      "name": "Qu, Jiashu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiaoqing",
+      "familyName": "Liang",
+      "name": "Liang, Xiaoqing",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lingdong",
+      "familyName": "Kong",
+      "name": "Kong, Lingdong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Junchi",
+      "familyName": "Lu",
+      "name": "Lu, Junchi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Henrik I.",
+      "familyName": "Christensen",
+      "name": "Christensen, Henrik I.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Qi Alfred",
+      "familyName": "Chen",
+      "name": "Chen, Qi Alfred",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Vision-Language-Action (VLA) models are gaining attention in autonomous driving, inheriting commonsense priors from large language models (LLMs) and widening the navigation interface from a fixed command set to free-form natural-language instructions. However, this open-ended interface exposes a new vulnerability surface: an inattentive driver may issue instructions that are unsafe given the current scene, and a malicious user may issue dangerous ones on purpose. We present the first benchmark suite that evaluates navigation following and conflict awareness together, along with adversarial robustness. Existing VLAs fall short on both: SimLingo completes no language-instructed lane change in closed loop, and all models degrade sharply under conflicting signals. We propose SafeDriveVLA, the first driving VLA that (1) explicitly predicts a three-level navigation-compliance mode to decouple conflict reasoning from action generation, and (2) uses navigation-conditioned world model dreaming to inform this prediction. Unlike prior world models that roll out expert or planned actions, ours dreams of strictly following the navigation signal, showing when following is safe. SafeDriveVLA reaches 88.16 Driving Score (DS) and 68.64% Success Rate (SR) on Bench2Drive, lifts closed-loop language following by 49.3% and reduces collisions under unsafe instructions from 60 to 38 compared to the best SimLingo variant. Video demonstrations are available on our project page."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Accepted at CoRL 2026. Project page: https://safedrive-vla.github.io/SafeDriveVLA/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Robotics (cs.RO)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:56Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:14Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:05:02Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20608",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20608",
+    "titles": [
+     {
+      "title": "Representation Conditioning for Generation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Saeed",
+      "familyName": "Razavi",
+      "name": "Razavi, Saeed",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xingjian",
+      "familyName": "Leng",
+      "name": "Leng, Xingjian",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Liang",
+      "familyName": "Zheng",
+      "name": "Zheng, Liang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Representation-alignment methods effectively accelerate the diffusion transformer training. REPA, for example, uses a pretrained vision encoder to supervise an intermediate layer through an MLP projection head which is discarded after training. It aims to import semantics from the vision encoder to the diffusion backbone. While this objective is achieved at early layers by back-propagating the alignment loss, there is no guarantee that later layers, supervised by the velocity prediction loss alone, can well access such semantics. We propose a simple solution, representation conditioning (RECON), to improve semantics in later layers. During training, we feed the pretrained vision encoder tokens into later layers; during inference, because we no longer have the clean image, we reuse the MLP head (as a proxy to the vision encoder) and project its output tokens to the later layers. Our method adds no parameters and leads to much faster convergence: RECON is $63\\times$ faster than SiT and $25\\times$ faster than REPA. Code is available at https://github.com/saeidrazavi/RECON"
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Project Page: https://recondiffusion.github.io/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:52Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:12Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:05:01Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20607",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20607",
+    "titles": [
+     {
+      "title": "Hierarchical Residual Policy Learning for Real-World Mobile Manipulation with Sparse Human Guidance"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Zhefei",
+      "familyName": "Gong",
+      "name": "Gong, Zhefei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hefeifei",
+      "familyName": "Jiang",
+      "name": "Jiang, Hefeifei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zehao",
+      "familyName": "Wang",
+      "name": "Wang, Zehao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jiachen",
+      "familyName": "Li",
+      "name": "Li, Jiachen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Mobile Manipulation (MoMa) is a cornerstone of autonomous robotic systems, yet real-world fine-tuning remains a formidable challenge because of high-dimensional action spaces and intricate coupling between heterogeneous modules. In this paper, we propose HiRe-MoMa (Hierarchical Residual Mobile Manipulation), a systematic framework for stable and sample-efficient real-world fine-tuning of complex MoMa systems. At its core, HiRe-MoMa adopts a Hierarchical Residual Architecture that fine-tunes a frozen base policy. A Policy-Agnostic Residual learns additive corrections atop the base policy, while Hierarchical Decoupling splits the residual into mobile-base and manipulator-arm heads with unidirectional conditioning, mitigating gradient interference and aligning corrections with the platform's physical hierarchy. To improve sample efficiency in data-expensive real-world settings, we propose Expert-Guided Value Alignment, which leverages sparse human interventions with under 20% training coverage to reshape the critic's value landscape, effectively guiding autonomous exploration through expert priors. Extensive real-world experiments on the TIAGo++ platform demonstrate that HiRe-MoMa consistently enhances task performance with only around 30 minutes of online interaction, regardless of the base policy architecture. To our knowledge, this is among the first frameworks to enable efficient on-robot fine-tuning for mobile manipulation in the real world, providing a practical paradigm for deploying complex robotic systems in dynamic, human-centric environments. Further details can be found on our project website: https://hire-moma.github.io/"
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Conference on Robot Learning (CoRL 2026); Project Website: https://hire-moma.github.io/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Robotics (cs.RO)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:52Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:10Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:59Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20606",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20606",
+    "titles": [
+     {
+      "title": "Modeling and Understanding Neural Weights of Humanoid Policies with Diffusion"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Huixuan",
+      "familyName": "Cheng",
+      "name": "Cheng, Huixuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Bike",
+      "familyName": "Zhang",
+      "name": "Zhang, Bike",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Shankar",
+      "familyName": "Sastry",
+      "name": "Sastry, Shankar",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Koushil",
+      "familyName": "Sreenath",
+      "name": "Sreenath, Koushil",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Recent advances in robot learning have driven rapid progress in humanoid control, enabling increasingly agile behaviors in the real world. However, humanoid control networks are typically obtained through conventional training procedures, while comparatively little attention has been given to directly modeling the distribution of their learned weights and generating functional networks in weight space. In this work, we investigate whether high-performing humanoid control networks can be generatively modeled directly through their weights. We adopt a latent diffusion framework that couples a linear autoencoder with a Diffusion Transformer. The autoencoder compresses actor network parameters into a compact latent space, and the Diffusion Transformer models the distribution of these latents. Trained on networks collected from reinforcement learning for the Unitree G1 robot, our approach generates deployable networks that perform various motions in the real world, including walking, dancing, and spin kick. Beyond generation, we further study the learned weight space to better understand the structure captured by these humanoid control networks. We identify a structural principle in the first-layer weights that consistently reflects the robot's kinematic prior. Notably, this kinematic prior emerges under both Reinforcement Learning (RL) and Imitation Learning (IL) training, suggesting that it is not specific to a particular optimization process but may instead reflect common knowledge associated with humanoid embodiment. Together, these results demonstrate the feasibility of generative modeling in humanoid network weight space, while providing initial insights into the information encoded by their learned weights. Additional results are available on our project website: https://humanoid-weight-diffusion.github.io/"
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Project page: https://humanoid-weight-diffusion.github.io/"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Robotics (cs.RO)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:52Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:09Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:58Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20604",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20604",
+    "titles": [
+     {
+      "title": "VITAL: From Visual Motion to Precise Action"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Ao",
+      "familyName": "Liang",
+      "name": "Liang, Ao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Youquan",
+      "familyName": "Liu",
+      "name": "Liu, Youquan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mingxiao",
+      "familyName": "Li",
+      "name": "Li, Mingxiao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wei",
+      "familyName": "Chow",
+      "name": "Chow, Wei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lingdong",
+      "familyName": "Kong",
+      "name": "Kong, Lingdong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yue",
+      "familyName": "Liao",
+      "name": "Liao, Yue",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Dongyue",
+      "familyName": "Lu",
+      "name": "Lu, Dongyue",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yu",
+      "familyName": "Yang",
+      "name": "Yang, Yu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wei",
+      "familyName": "Yin",
+      "name": "Yin, Wei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Runnan",
+      "familyName": "Chen",
+      "name": "Chen, Runnan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "World-action models aim to turn visual anticipation into driving decisions, yet typically train action experts on trajectory representations defined independently of visual dynamics. This motivates deriving action targets directly from visual motion. We first examine a simpler setting in which trajectories are reconstructed from recorded future images. Even without the need for future prediction, reconstruction captures the dominant maneuver but leaves centimeter-scale errors. We therefore introduce VITAL (Vision-Induced Tokens for Action Learning), an action tokenizer that couples a visually derived motion scaffold with a compact residual encoding the trajectory error left by that scaffold. This representation makes visual motion the principal prediction target and gives small metric corrections a separate, normalized learning scale. Using flow matching, the action expert jointly predicts both components from the current image, ego state, and navigation command, without generating future images at inference. The same residual coordinates support bounded reinforcement post-training that refines execution while keeping the predicted visual scaffold fixed. With only one action denoising step, VITAL achieves 90.8 PDMS on NAVSIM v1 navtest, within 0.13 points of its ten-step score at 3.29x the end-to-end inference speed. Without retraining, it achieves 91.1 EPDMS on NAVSIM v2 navtest and 38.6 on navhard. Project page: https://worldbench.github.io/vital"
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Technical Report; 37 pages, 14 figures, 19 tables; Project Page at https://worldbench.github.io/vital GitHub at https://github.com/worldbench/VITAL"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:49Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:06Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:55Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20603",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20603",
+    "titles": [
+     {
+      "title": "CommerceGen-Studio: An End-to-End Framework for Commercial-Grade Main-Image Generation"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Xiaoli",
+      "familyName": "Xu",
+      "name": "Xu, Xiaoli",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zhengtao",
+      "familyName": "Wu",
+      "name": "Wu, Zhengtao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zhengze",
+      "familyName": "Xu",
+      "name": "Xu, Zhengze",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Tao",
+      "familyName": "Liu",
+      "name": "Liu, Tao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yongchao",
+      "familyName": "Du",
+      "name": "Du, Yongchao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zuan",
+      "familyName": "Gao",
+      "name": "Gao, Zuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xingjian",
+      "familyName": "Wang",
+      "name": "Wang, Xingjian",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hao",
+      "familyName": "Yan",
+      "name": "Yan, Hao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Mengting",
+      "familyName": "Chen",
+      "name": "Chen, Mengting",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Wei",
+      "familyName": "Li",
+      "name": "Li, Wei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Bo",
+      "familyName": "Zheng",
+      "name": "Zheng, Bo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "We present CommerceGen-Studio, an end-to-end framework for generating commercial-grade main images for e-commerce Stock Keeping Units (SKUs). Our framework is organized along a three-stage pipeline of information extraction, semantic rewriting, and multi-condition generation: Prompt-Eval-Refine-Loop Agent (PERL-Agent) distills heterogeneous SKU metadata into concise selling-point text lists through an iterative closed loop of VLM and LLM roles scored by a reference-free rubric. Layout Thinker Optimization (LTO) aligns the rewriter with both caption and rendered-image quality via alternating domain-specific policy optimization. SKU-DiT, trained under Reinforce-Distill-Reinforce (RDR) progressive training, conditions jointly on the white-background product image, the trademark crop, and the structured layout to hold subject fidelity, trademark integrity, and character-level text accuracy together. The framework runs in production at a scale of millions of main images per day with a latency of a few seconds per image, which we believe makes it among the first systems of this kind to operate at commercial scale. We also release CommerceGen-Bench, a benchmark of hard cases collected from live traffic across all product categories. On it, our framework achieves the highest overall scores among the evaluated open-source baselines on both editing tracks, with and without prompt enhancement. It also matches much larger closed-source models, and beats several of them at Instruction Following and Product Integration - the two properties that determine whether an image can be published."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "19 pages, system report"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:48Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:37:04Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:54Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20598",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20598",
+    "titles": [
+     {
+      "title": "DynThinker: Unifying Static 3D and Dynamic 4D Spatial Reasoning"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Qihang",
+      "familyName": "Cao",
+      "name": "Cao, Qihang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Haoyuan",
+      "familyName": "Li",
+      "name": "Li, Haoyuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zihan",
+      "familyName": "Guo",
+      "name": "Guo, Zihan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Sensen",
+      "familyName": "Gao",
+      "name": "Gao, Sensen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zihui",
+      "familyName": "Gao",
+      "name": "Gao, Zihui",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Huixin",
+      "familyName": "Zhang",
+      "name": "Zhang, Huixin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Fan",
+      "familyName": "He",
+      "name": "He, Fan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jianhua",
+      "familyName": "Han",
+      "name": "Han, Jianhua",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hang",
+      "familyName": "Xu",
+      "name": "Xu, Hang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiaodan",
+      "familyName": "Liang",
+      "name": "Liang, Xiaodan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jia-Wang",
+      "familyName": "Bian",
+      "name": "Bian, Jia-Wang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Achieving general spatial intelligence requires a unified understanding of both static 3D and dynamic 4D. However, we find that existing models struggle to excel at both: 3D post-training can weaken dynamic understanding, while 4D-specialized models often lack strong static 3D reasoning. Our analysis reveals that this spatial--dynamic interference is highly non-uniform across parameter groups, with the balance between static and dynamic capabilities particularly sensitive to changes in late-layer MLPs. To address this interference, we propose DynThinker, a unified framework for jointly strengthening static and dynamic spatial reasoning. Decoupled Exponential Moving Average (D-EMA) applies configurable group-wise averaging to constrain drift in interference-sensitive pretrained parameters while preserving flexibility for capability enhancement. Spatial-Dynamic Fusion (SDF) complements D-EMA by selectively integrating spatial and temporal priors from a dynamic geometry encoder into intermediate VLM representations under semantic guidance. Across ten metrics spanning nine static 3D and dynamic 4D benchmarks, DynThinker achieves the highest average score among all evaluated models. Notably, DynThinker achieves 56.0 on ReVSI, 67.2 on DSR-Bench, and 51.2 and 40.1 under the sample-wise and group-wise evaluation protocols of DSI-Bench, respectively, setting new state-of-the-art results among the compared open-source models across all four evaluations within a unified model."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:31Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:59Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:47Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20597",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20597",
+    "titles": [
+     {
+      "title": "Co-Evolving Acting and Forecasting for Language Agents"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Haofei",
+      "familyName": "Yu",
+      "name": "Yu, Haofei",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yixing",
+      "familyName": "Chen",
+      "name": "Chen, Yixing",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yining",
+      "familyName": "Zhao",
+      "name": "Zhao, Yining",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xuyan",
+      "familyName": "Ye",
+      "name": "Ye, Xuyan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yuxiang",
+      "familyName": "Liu",
+      "name": "Liu, Yuxiang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zhigang",
+      "familyName": "Hua",
+      "name": "Hua, Zhigang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yan",
+      "familyName": "Xie",
+      "name": "Xie, Yan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Shuang",
+      "familyName": "Yang",
+      "name": "Yang, Shuang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jiaxuan",
+      "familyName": "You",
+      "name": "You, Jiaxuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Training language agents is bottlenecked by the high cost of long-horizon rollouts, yet standard agentic reinforcement learning (RL) learns only from a terminal scalar reward, leaving the supervision in intermediate steps largely unused. Prior work exploits this supervision through value targets that estimate per-step success probabilities or observation targets that fit environment response. Both are hard to construct well: (1) value targets come from the same single scalar signal for each step in the trajectory, and (2) observation targets, such as web pages and terminal logs, are long and noisy and reach only one step ahead. We propose \\name, which adds a third kind of multi-step action targets. On successful on-policy trajectories, \\name trains the policy backbone to generate the action sequences that follows each history. Each action is also supervised when forecast from the preceding histories, forming a temporal ensemble that the shared backbone absorbs during training, and this enables acting and forecasting to co-evolve. The policy still acts one step at a time at inference, with no overhead. Across five benchmarks (ALFWorld, ScienceWorld, WebShop, $τ^2$-bench, and AppWorld), \\name (1) achieves stronger aggregate performance than GRPO and RL baselines with predictive auxiliary targets across simulated environments, while improving overall performance on both realistic applications; (2) delivers up to $1.9\\times$ and $2.0\\times$ higher sample efficiency than ECHO and GRPO, respectively, on ScienceWorld; and (3) achieves these gains with a single policy backbone, without additional models, separate pretraining, or inference overhead. The codebase is available at https://github.com/ulab-uiuc/CoPE."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:28Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:58Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:46Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20596",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20596",
+    "titles": [
+     {
+      "title": "CoWear: Towards Collaborative Wearable Inertial Localization with Multiple Smart Devices"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Zhuoyuan",
+      "familyName": "She",
+      "name": "She, Zhuoyuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zhanpeng",
+      "familyName": "Zhang",
+      "name": "Zhang, Zhanpeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yapeng",
+      "familyName": "Chen",
+      "name": "Chen, Yapeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jiale",
+      "familyName": "Wang",
+      "name": "Wang, Jiale",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xin",
+      "familyName": "Xie",
+      "name": "Xie, Xin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ming",
+      "familyName": "Xia",
+      "name": "Xia, Ming",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Consumer smart devices observe the same human motion from different body locations, yet existing inertial-localization benchmarks rarely provide synchronized heterogeneous wearables with device-specific motion ground truth. We present CoWear, a dataset and reference framework for collaborative inertial localization using a smartphone, smartwatch, and smart glasses. The dataset contains over 30 participants, over 300 walking sessions, and more than 30 hours and 100 km of aggregate device trajectories, with each device individually tracked by motion capture. To enable collaboration across distinct body motions, we train role-specific estimators to predict the displacement of a common reference device over synchronized temporal windows. Their predictions are transformed to the world frame using gyroscope integration and fused according to learned uncertainty. Experiments using phone, glasses, and watch as reference targets show that multi-device fusion consistently improves both displacement and trajectory rollout accuracy over individual-device estimation. CoWear provides a dataset and reproducible baseline for studying collaborative inertial localization across heterogeneous consumer wearables."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "8 pages, 5 figures"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Robotics (cs.RO)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:19Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:57Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:45Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20592",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20592",
+    "titles": [
+     {
+      "title": "GeoThinker-$F$: Endogenous Predictive World Representations for Fast Spatial Intelligence"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Haoyuan",
+      "familyName": "Li",
+      "name": "Li, Haoyuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Qihang",
+      "familyName": "Cao",
+      "name": "Cao, Qihang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Huanyuan",
+      "familyName": "Zhou",
+      "name": "Zhou, Huanyuan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xin",
+      "familyName": "Hu",
+      "name": "Hu, Xin",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Sijia",
+      "familyName": "Chen",
+      "name": "Chen, Sijia",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zihan",
+      "familyName": "Guo",
+      "name": "Guo, Zihan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Kun",
+      "familyName": "Xiang",
+      "name": "Xiang, Kun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yunshuang",
+      "familyName": "Nie",
+      "name": "Nie, Yunshuang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Tao",
+      "familyName": "Tang",
+      "name": "Tang, Tao",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xinlong",
+      "familyName": "Zheng",
+      "name": "Zheng, Xinlong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jia-Wang",
+      "familyName": "Bian",
+      "name": "Bian, Jia-Wang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xianming",
+      "familyName": "Liu",
+      "name": "Liu, Xianming",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Xiaodan",
+      "familyName": "Liang",
+      "name": "Liang, Xiaodan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Existing geometry-aware Multimodal Large Language Models (MLLMs) increasingly rely on external 3D encoders to provide structural priors, but executing these additional encoder paths at inference introduces substantial latency and computational overhead. We propose GeoThinker-$F$, an efficient framework that internalizes spatiotemporal perception by transforming causal MLLM hidden states into predictive latent world representations. Our key insight is that intermediate semantic representations contain sufficient information to predict useful representations of current geometry and future semantics, without requiring an exact reproduction of features from a dedicated 3D encoder. To realize this idea, GeoThinker-$F$ adopts a decoupled two-stage training strategy. In the first stage, the MLLM backbone is frozen while lightweight Latent Frame Prediction (LFP) heads learn from an offline 3D geometry expert and next-frame semantic targets. In the second stage, the external expert is removed, and the model is jointly optimized to generate and selectively integrate its self-predicted priors through a specialized Spatial-Grounded Temporal (SGT) Fusion module. Extensive evaluations show that GeoThinker-$F$ eliminates runtime dependence on external 3D geometry encoders while maintaining competitive performance across diverse spatial intelligence benchmarks. It achieves up to a $3.6\\times$ inference speedup, reducing latency from $1.45\\,\\mathrm{s}$ to $0.40\\,\\mathrm{s}$ while retaining strong spatial reasoning performance."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:59:03Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:50Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:40Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20590",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20590",
+    "titles": [
+     {
+      "title": "Feed-Forward Multi-View Feature Coding for 3D Gaussian Splatting"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Seungmi",
+      "familyName": "Choi",
+      "name": "Choi, Seungmi",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ji-Hyoun",
+      "familyName": "Choi",
+      "name": "Choi, Ji-Hyoun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Suhyun",
+      "familyName": "Jo",
+      "name": "Jo, Suhyun",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Tae-Gwon",
+      "familyName": "Park",
+      "name": "Park, Tae-Gwon",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hui Yong",
+      "familyName": "Kim",
+      "name": "Kim, Hui Yong",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Feed-forward 3D Gaussian Splatting (3DGS) methods enable efficient reconstruction of 3D scenes from sparse multi-view images in a single forward pass, without scene-specific optimization. However, existing feed-forward scene-coding pipelines first generate a complete Gaussian representation and then encode its geometry and appearance attributes separately, often involving non-differentiable operations. The resulting 'generate-then-compress' pipeline requires complex attribute-specific codec designs and limits rate-distortion performance by restricting the exploitation of cross-attribute redundancy. We propose multi-view feature coding for Gaussian splatting (MFGS), an end-to-end feed-forward framework for scene coding. Instead of compressing an explicit Gaussian representation, MFGS extracts multi-view features from the input images and encodes them into a compact bitstream. Through end-to-end rate-distortion training, MFGS learns compact multi-view features that jointly represent geometry and appearance, enabling the receiver to predict Gaussian attributes from the decoded features. We further introduce importance-guided Gaussian selection to accommodate different rendering budgets, allowing the receiver to adjust the number of Gaussians used for rendering from the same bitstream. Across RE10K, ACID, and DL3DV, MFGS achieves 99.76-99.86% bitrate savings over the generate-then-compress pipeline, as measured by BD-rate, while reducing total GMACs by 52-55% and providing an approximately 12 times end-to-end speedup."
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Vision and Pattern Recognition (cs.CV)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:58:28Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:40Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:37Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20588",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20588",
+    "titles": [
+     {
+      "title": "Your Transformer Is Secretly Elastic"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Walter",
+      "familyName": "Simoncini",
+      "name": "Simoncini, Walter",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Dheeraj",
+      "familyName": "Varghese",
+      "name": "Varghese, Dheeraj",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Gertjan J.",
+      "familyName": "Burghouts",
+      "name": "Burghouts, Gertjan J.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Cees G. M.",
+      "familyName": "Snoek",
+      "name": "Snoek, Cees G. M.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "Scaling up transformers has produced models with broad capabilities, deployed across heterogeneous hardware and fluctuating workloads. Yet, model families offer only a few fixed sizes (e.g., S, B, L), forcing users to commit to a model based on hardware and latency constraints. This rigidity is often suboptimal under varying query loads. We introduce a retraining-free method that elastifies pre-trained transformers into a single model that adapts on-the-fly across a continuum of computational budgets. Our key contribution is a differentiable relaxation of the functional unit-ranking problem: unlike prior work, which optimizes a single importance weight per MLP block or attention head, we rank every individual MLP neuron and attention head jointly, on a common scale, by minimizing the model's loss under soft pruning across many sparsity targets, all at once. Across 27 vision and text transformer encoders ranging from 22M to 8B parameters, our method yields smooth degradation up to 60% sparsity and outperforms one-shot baselines under deep pruning. For example, pruning DINOv3 ViT-H+/16 to 50% sparsity removes 427M parameters while reducing ImageNet-1k linear-probing accuracy by only 0.8%, without the need for weight correction or retraining. At 60% sparsity, a pruned AugReg ViT-B/16 model achieves up to $1.80\\times$ higher throughput and $1.26\\times$ lower single-query latency on an A100 GPU. Elastic models are produced in minutes, with construction time scaling sub-linearly with parameter count."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "Code available at https://github.com/WalterSimoncini/secretly-elastic"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:58:08Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:35Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:34Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2610.20587",
+   "type": "dois",
+   "attributes": {
+    "doi": "10.48550/arxiv.2610.20587",
+    "titles": [
+     {
+      "title": "Price of Anarchy of First-Price Auctions in Agentic Markets"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Shubhendu",
+      "familyName": "Trivedi",
+      "name": "Trivedi, Shubhendu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jacob",
+      "familyName": "Eisenstein",
+      "name": "Eisenstein, Jacob",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Alekh",
+      "familyName": "Agarwal",
+      "name": "Agarwal, Alekh",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Ian",
+      "familyName": "Gemp",
+      "name": "Gemp, Ian",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Michael",
+      "familyName": "Kaisers",
+      "name": "Kaisers, Michael",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Adam",
+      "familyName": "Fisch",
+      "name": "Fisch, Adam",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ],
+    "descriptions": [
+     {
+      "descriptionType": "Abstract",
+      "description": "An agentic market is a decentralized serving-time market where AI agents bid to claim each user prompt. An agent's bid is based on its expected value for the prompt, which is the expectation of the reward for its response minus its inference costs. First-price auctions (FPAs), in which the highest bidder pays its bid and receives the prompt, are a natural way to allocate prompts in such a market, since they are simple and transparent to run, and do not require central knowledge of private capabilities and costs. However, FPAs are not truthful: participants may bid less than their true value in the hope of a larger profit, and the prompt may then be allocated to someone other than the bidder who values it the most. This welfare loss is quantified by the $\\textit{price-of-anarchy}$ (PoA). In this paper, we argue that agentic markets are likely to possess features that reduce the price-of-anarchy. The first is a $\\textit{competitive floor}$, which occurs when multiple bidders usually value the prompt above some baseline share of the optimal welfare (e.g., because the best models are often distilled into cheaper alternatives, which perform similarly). We show that competition among them then limits the welfare loss, which can be driven to zero as the floor rises. The second feature is $\\textit{near-independence}$ of values after conditioning on the prompt, which occurs when most of the predictable variation in the expected value is determined by the difficulty of the prompt. As the value distribution approaches conditional independence, we can derive an efficiency guarantee that approaches a factor of $1 - 1/e^2$ of the optimal welfare. Thus, both features give rise to welfare lower bounds that are significantly better than the well-known general case of $1 - 1/e$. We validate these results empirically using auctions with strategic bidders simulated on the EmbedLLM prompt routing dataset."
+     },
+     {
+      "descriptionType": "Other",
+      "description": "40 pages"
+     }
+    ],
+    "subjects": [
+     {
+      "subject": "Computer Science and Game Theory (cs.GT)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Artificial Intelligence (cs.AI)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "Machine Learning (cs.LG)",
+      "lang": "en",
+      "subjectScheme": "arXiv"
+     },
+     {
+      "subject": "FOS: Computer and information sciences",
+      "subjectScheme": "Fields of Science and Technology (FOS)"
+     }
+    ],
+    "version": "1",
+    "dates": [
+     {
+      "date": "2026-10-14T17:57:57Z",
+      "dateType": "Submitted",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10-15T01:36:32Z",
+      "dateType": "Updated",
+      "dateInformation": "v1"
+     },
+     {
+      "date": "2026-10",
+      "dateType": "Available",
+      "dateInformation": "v1"
+     }
+    ],
+    "created": "2026-10-15T03:04:33Z",
+    "publicationYear": 2026,
+    "citationCount": 0
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 2938,
+  "totalPages": 15,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=%28subjects.subject%3A%22cs.LG%22+OR+subjects.subject%3A%22cs.CL%22+OR+subjects.subject%3A%22cs.CV%22+OR+subjects.subject%3A%22cs.AI%22+OR+subjects.subject%3A%22stat.ML%22+OR+subjects.subject%3A%22cs.RO%22+OR+subjects.subject%3A%22cs.IR%22+OR+subjects.subject%3A%22cs.NE%22+OR+subjects.subject%3A%22cs.MA%22+OR+subjects.subject%3A%22cs.SD%22+OR+subjects.subject%3A%22eess.AS%22+OR+subjects.subject%3A%22eess.IV%22%29+AND+created%3A%5B2026-10-14T00%3A00%3A00Z+TO+*%5D&provider-id=arxiv&sort=-created&page%5Bsize%5D=200&page%5Bnumber%5D=1&disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2Ccreated%2CpublicationYear%2CcitationCount",
+  "next": "https://api.datacite.org/dois?disable-facets=true&fields%5Bdois%5D=doi%2Ctitles%2Ccreators%2Cdescriptions%2Csubjects%2Cversion%2Cdates%2Ccreated%2CpublicationYear%2CcitationCount&page%5Bnumber%5D=2&page%5Bsize%5D=200&provider-id=arxiv&query=%28subjects.subject%3A%22cs.LG%22+OR+subjects.subject%3A%22cs.CL%22+OR+subjects.subject%3A%22cs.CV%22+OR+subjects.subject%3A%22cs.AI%22+OR+subjects.subject%3A%22stat.ML%22+OR+subjects.subject%3A%22cs.RO%22+OR+subjects.subject%3A%22cs.IR%22+OR+subjects.subject%3A%22cs.NE%22+OR+subjects.subject%3A%22cs.MA%22+OR+subjects.subject%3A%22cs.SD%22+OR+subjects.subject%3A%22eess.AS%22+OR+subjects.subject%3A%22eess.IV%22%29+AND+created%3A%5B2026-10-14T00%3A00%3A00Z+TO+%2A%5D"
+ }
+}

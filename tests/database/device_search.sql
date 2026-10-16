@@ -16,10 +16,13 @@ grant execute on all functions in schema test to anon,authenticated,service_role
 \set A '72000000-0000-0000-0000-00000000000a'
 insert into auth.users(id,email) values(:'A','a@gradstep.test.org');
 
--- Defaults: device search off, OpenAlex still used by the server.
+-- Migration 075 switched search on (owner decision 2026-10-16); feed_datacite.sql checks that switch. The column
+-- defaults are 072's, before it: device search off, OpenAlex still used by the server, the Feed from arXiv's RSS.
+select test.assert((select device_search_enabled and not openalex_enabled from app_private.pipeline_policy where singleton),'switched by 075');
+update app_private.pipeline_policy set device_search_enabled=default,openalex_enabled=default,feed_source=default where singleton;
 select test.assert((select device_search_enabled=false and openalex_enabled from app_private.pipeline_policy where singleton),'defaults keep today''s search');
 set role service_role;
-select test.assert(public.worker_search_policy()='{"openalex":true,"device_search":false}'::jsonb,'the functions see the defaults');
+select test.assert(public.worker_search_policy()='{"openalex":true,"device_search":false,"feed_source":"arxiv_rss"}'::jsonb,'the functions see the defaults');
 reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
@@ -39,6 +42,6 @@ select set_config('request.jwt.claim.sub',:'A',false);
 select test.assert((public.v1_reader_capabilities()->'device_search'->>'enabled')::boolean,'capability on with the switch');
 reset role;
 set role service_role;
-select test.assert(public.worker_search_policy()='{"openalex":false,"device_search":true}'::jsonb,'the functions see the switches');
+select test.assert(public.worker_search_policy()='{"openalex":false,"device_search":true,"feed_source":"arxiv_rss"}'::jsonb,'the functions see the switches');
 reset role;
 rollback;

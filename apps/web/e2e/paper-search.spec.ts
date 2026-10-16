@@ -24,7 +24,7 @@ const record=(id:string,version:number,title:string,family:string,given:string,y
  dates:[{date:`${year}-01-15T00:00:00Z`,dateType:'Submitted',dateInformation:'v1'}],publicationYear:year}});
 const noOverflow=async(page:Page)=>expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
 
-test('search arXiv beside the library: the switch, states, order, In library opens the paper, Add shows its percent (server search while device search is off)',async({page,request})=>{
+test('ML paper search beside the library: the switch, states, order, In library opens the paper, Add shows its percent (server search while device search is off)',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const datacite:string[]=[];page.on('request',r=>{if(r.url().startsWith('https://api.datacite.org'))datacite.push(r.url());});
  await serveArxiv(page);
@@ -35,8 +35,10 @@ test('search arXiv beside the library: the switch, states, order, In library ope
  await expect(field).toBeFocused();
  await expect(page.getByTestId('search-scope')).toBeVisible();
  await expect(page.getByTestId('search-scope-library')).toHaveAttribute('aria-pressed','true');
+ await expect(page.getByTestId('search-scope-arxiv')).toHaveText('ML paper search');
  await page.getByTestId('search-scope-arxiv').click();
- await expect(field).toHaveAttribute('placeholder','Search arXiv');
+ await expect(field).toHaveAttribute('placeholder','Search ML papers');
+ await expect(field).toHaveAttribute('aria-label','ML paper search');
  await expect(field).toBeFocused();
  await expect(page.getByTestId('discover-idle')).toContainText('Find papers');
  await expect(page.getByTestId('library-table')).toHaveCount(0);
@@ -65,7 +67,7 @@ test('search arXiv beside the library: the switch, states, order, In library ope
  // A failed search says so and offers Try again; an empty one suggests other words.
  await field.fill('broken query');await field.press('Enter');
  await expect(page.getByTestId('discover-failed')).toContainText('Couldn’t search');
- await expect(page.getByTestId('discover-failed')).toContainText('arXiv search isn’t available right now. Try again in a moment.');
+ await expect(page.getByTestId('discover-failed')).toContainText('ML paper search isn’t available right now. Try again in a moment.');
  await field.fill('nothing at all');await page.getByTestId('discover-failed').getByRole('button',{name:'Try again'}).click();
  await expect(page.getByTestId('discover-empty')).toContainText('No papers found');
  // Escape clears the query, then leaves the search for the library (native Cancel).

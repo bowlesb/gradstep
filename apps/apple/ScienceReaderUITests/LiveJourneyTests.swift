@@ -82,8 +82,8 @@ final class LiveJourneyTests: XCTestCase {
         let addEnabled = NSPredicate(format: "isEnabled == true")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: addEnabled, object: add)], timeout: 60), .completed)
         if let searchQuery {
-            // Discover through the Library's arXiv search and add from results.
-            app.segmentedControls.buttons["arXiv"].tap()
+            // Discover through the Library's ML paper search and add from results.
+            app.segmentedControls.buttons["ML paper search"].tap()
             let field = app.searchFields.firstMatch
             XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(searchQuery + "\n")
             let addResult = app.buttons["discover.add.\(arxivID)"]

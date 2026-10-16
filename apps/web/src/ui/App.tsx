@@ -6,7 +6,8 @@ import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIde
 import { type FocusEvent as ReactFocusEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
-import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
+import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
+import { TYPED_CONFIRMATION, deletionFailure, forgetAccountStorage, noteAccountDeleted, requestAccountDeletion } from '../lib/account-deletion';
 import type { Item } from '../lib/library';
 import type { Episode, Evidence } from '../lib/podcast';
 import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
@@ -97,7 +98,7 @@ function Unsupported() {
   );
 }
 
-const SHORTCUTS = [['/ or ⌘K', 'Search the library or arXiv'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
+const SHORTCUTS = [['/ or ⌘K', 'Search the library or ML papers'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
   ['F', 'Reading mode (Esc leaves it)'], ['J K', 'Next or previous section'], ['Space', 'Page down in the paper (Shift: up)'],
   ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
 const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
@@ -157,6 +158,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  // Delete account (owner, 2026-10-16), as the apps' Settings › Account › Delete account…
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteField = useRef<HTMLInputElement>(null);
+  // After a failure, focus returns to the field (it names the sentence), where Enter tries again.
+  useEffect(() => { if (deleteError) deleteField.current?.focus(); }, [deleteError]);
   const [readerCache] = useState(() => new ReaderBundles());
   const readerCacheVersion = useSyncExternalStore(readerCache.subscribe, readerCache.getVersion);
   // Which papers this tab has prepared (the library row's check, PaperDeviceCopy).
@@ -352,6 +361,27 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
   }
 
+  /** The server deletes the account first; a failure changes nothing here. Only once it is deleted does this browser
+   * forget everything it held for the account (the "remove this browser's keys" sign-out, plus the account's own
+   * coordination record and stored keys), then sign out to the sign-in screen, which confirms it. */
+  async function deleteAccount() {
+    if (deleteBusy || deleteTyped !== TYPED_CONFIRMATION) return;
+    const owner = auth.snapshot();
+    setDeleteBusy(true); setDeleteError(null);
+    try { await requestAccountDeletion(account); }
+    catch (error) { if (!owner.signal.aborted) { setDeleteError(deletionFailure(error)); setDeleteBusy(false); } return; }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    // The account no longer exists: each local removal is best effort, and signing out always follows.
+    await chat?.settleBeforeSignOut().catch(() => {});
+    await eraseDeletedAccount(account).catch(() => {});
+    clearPositions(account);
+    try { forgetAccountStorage(account, localStorage); forgetAccountStorage(account, sessionStorage); } catch { /* storage unavailable */ }
+    noteAccountDeleted();
+    ++navigationIntent.current;
+    moveTo('/');
+    await auth.signOut(owner.generation);
+  }
+
   const searchText = searchExternal ? paperSearch.query : view.query;
   const searching = searchFocus || !!searchText || searchExternal;
   // Focus may move between the field and its switch without ending the search (native searchFocused). When a click
@@ -518,7 +548,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </nav>
         <div className="search-field">
           <Icon name="search" size={14} />
-          <input ref={search} type="search" placeholder={searchExternal ? 'Search arXiv' : 'Search library'} aria-label={searchExternal ? 'Search arXiv' : 'Search library'}
+          <input ref={search} type="search" placeholder={searchExternal ? 'Search ML papers' : 'Search library'} aria-label={searchExternal ? 'ML paper search' : 'Search library'}
             value={searchText} data-testid="search" enterKeyHint={searchExternal ? 'search' : undefined}
             onChange={e => { if (searchExternal) paperSearch.setQuery(e.target.value); else query(e.target.value); }}
             onFocus={() => setSearchFocus(true)} onBlur={leaveSearch}
@@ -541,6 +571,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
           <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+            onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
       </header>
@@ -548,7 +579,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <span className="segmented" role="group" aria-label="Search">
           {([false, true] as const).map(external => <button key={String(external)} className={`segment${searchExternal === external ? ' on' : ''}`} aria-pressed={searchExternal === external}
             onMouseDown={e => e.preventDefault()} onClick={() => chooseScope(external)} data-testid={external ? 'search-scope-arxiv' : 'search-scope-library'}>
-            {external ? 'arXiv' : 'Library'}</button>)}
+            {external ? 'ML paper search' : 'Library'}</button>)}
         </span>
         <button className="link small-link" onMouseDown={e => e.preventDefault()} onClick={cancelSearch} data-testid="search-cancel">Cancel</button>
       </div>}
@@ -588,6 +619,28 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
       <HowGradstepWorks open={howGradstepWorks} onClose={() => setHowGradstepWorks(false)} />
+      <Dialog open={deletingAccount} onClose={() => { if (!deleteBusy) setDeletingAccount(false); }} title="Delete account" className="delete-account">
+        <h2>Delete account</h2>
+        <p>This permanently deletes your account:</p>
+        <ul className="delete-list">
+          <li>Your library, conversations, notes and diagrams, and the files of papers converted privately for you</li>
+          <li>Your support reports and screenshots</li>
+          <li>This browser’s copy; other devices are signed out and your recovery code stops working</li>
+        </ul>
+        <p className="fine">Unused credits are forfeited. Records of credits, AI usage and which papers were converted for you are kept without your email or name, for accounting.</p>
+        <p className="fine">An App Store subscription isn’t cancelled by deleting your account; manage it in your Apple Account’s Subscriptions settings.</p>
+        <label>Type {TYPED_CONFIRMATION} to confirm
+          <input ref={deleteField} value={deleteTyped} readOnly={deleteBusy} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder={TYPED_CONFIRMATION}
+            onChange={e => setDeleteTyped(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void deleteAccount(); } }}
+            aria-describedby={deleteError ? 'delete-account-error' : undefined} data-testid="delete-account-confirmation" />
+        </label>
+        {deleteError && <p className="issue" role="alert" id="delete-account-error">{deleteError}</p>}
+        <div className="dialog-actions">
+          <button className="secondary" disabled={deleteBusy} onClick={() => setDeletingAccount(false)}>Cancel</button>
+          <button className="primary danger" disabled={deleteBusy || deleteTyped !== TYPED_CONFIRMATION} onClick={() => void deleteAccount()} data-testid="confirm-delete-account">
+            {deleteBusy ? 'Deleting…' : deleteError ? 'Try again' : 'Delete account'}</button>
+        </div>
+      </Dialog>
       <Dialog open={signingOut} onClose={() => { if (!leaving) setSigningOut(false); }} title="Sign out">
         <h2>Sign out?</h2>
         <p className="muted">This browser stays approved, so signing in again won’t need your recovery code.</p>
@@ -612,8 +665,8 @@ function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolea
   return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onChatDefaults: (() => void) | null }) {
+function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
   const box = useRef<HTMLDivElement>(null);
@@ -650,6 +703,7 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
           {roles.length > 0 && <a role="menuitem" className="menu-item" href={operationsDashboard(roles)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)} data-testid="operations-dashboard"><Icon name="external" size={14} /> Operations dashboard</a>}
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
+          <button role="menuitem" className="menu-item danger" onClick={() => { setOpen(false); onDeleteAccount(); }} data-testid="delete-account">Delete account…</button>
         </div>
       )}
     </div>

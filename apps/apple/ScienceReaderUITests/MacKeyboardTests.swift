@@ -52,6 +52,7 @@ final class MacKeyboardTests: XCTestCase {
         app.menuBars.menuBarItems["Edit"].click()
         XCTAssertTrue(app.menuItems["Find in Paper…"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.menuItems["Search Library"].exists)
+        XCTAssertTrue(app.menuItems["Search ML Papers"].exists)
         app.typeKey(.escape, modifierFlags: [])
     }
 
