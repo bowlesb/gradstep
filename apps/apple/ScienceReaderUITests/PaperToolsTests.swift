@@ -273,6 +273,9 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Tables tab: the paper's captioned tables")
         table.tap()
         XCTAssertTrue(app.navigationBars["Table 1"].waitForExistence(timeout: 5), "The table's own view")
+        // The figure view on a table too (FIGURE_VIEW.md): the arXiv paper on this device can be explained.
+        XCTAssertTrue(app.buttons["figureView.explain"].waitForExistence(timeout: 5), "A table can be explained")
+        XCTAssertTrue(app.buttons["figureView.askInChat"].exists)
         capture(app, "A table from Contents")
         app.buttons["figures.showInPaper"].tap()
         XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "Show in paper closes Contents")
