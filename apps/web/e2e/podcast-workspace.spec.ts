@@ -238,7 +238,8 @@ test('a paper whose text isn’t on this device yet says to open it first', asyn
 
 // Owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there for you".
 test('ask, leave for Listen, come back to the tab: the episode is waiting, marked New', async ({ page }, info) => {
-  const f = await fixture(page); await signIn(page);
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
+  const f = await fixture(page, { lengths: true }); await signIn(page);
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click();
   await expect(page.getByTestId('podcast-confirm')).toBeEnabled();

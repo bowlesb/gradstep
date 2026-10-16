@@ -828,7 +828,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
             <span className="fine" id="podcast-length-line" data-testid="podcast-length-line">{aboutMinutes(chosenLength?.targetSeconds ?? 300)}</span>
           </fieldset>}
           {writers.length > 1 && <fieldset className="podcast-choice" data-testid="podcast-writers"><legend>Written by</legend>
-            <div className="podcast-chips segmented">{writers.map(w => <label key={w.writer} className="podcast-chip">
+            <div className="podcast-chips">{writers.map(w => <label key={w.writer} className="podcast-chip">
               <input type="radio" name="podcast-writer" value={w.writer} checked={chosenWriter === w.writer} disabled={busy === 'start' || uncertainStart}
                 onChange={() => choose({ writer: w.writer })} /><span>{w.label}</span></label>)}</div>
           </fieldset>}
