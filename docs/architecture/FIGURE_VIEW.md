@@ -213,12 +213,12 @@ data: {"stop_reason":"end_turn","credits":4,"usage":{…},"model":"claude-sonnet
 
 ### Open
 
-- **No boxes yet.** In 8 walkthroughs (33 sections; 9 requests counting the cut-off table) the model gave no box, including InfoVis Figure 4's leader-line
-  labels and Figure 13's garbled legend, after two wording changes (the instructions after the paper, then the tool's
-  `box` description). Whether boxes land on the right regions is therefore unchecked live; the smoke draws them
-  (`<paper>-<figure>-boxes.png`, checked offline with a hand-placed box) and the log now counts `boxes_offered`, so a
-  box the check drops would show. Phase 4 should decide between this (crops rare) and a firmer rule, e.g. "a figure
-  with more than one panel and small print gets at least one box".
+- **Boxes: rare, and placed well when given** (updated 2026-10-16, ~09:55 UTC). The first 8 walkthroughs (33 sections:
+  DPO Figure 1, InfoVis Figures 4 and 13, Table 1, Mistral Figure 5) gave none. InfoVis Figure 2, a dense two-column
+  pipeline with small print, got two (`1 A (top)` x 0, y 0.04, w 0.5, h 0.42; `2 A (middle)` x 0, y 0.4, w 0.5, h 0.32),
+  each on the band its section explains (`.artifacts/figure-view/2610.16784v1-figure2-boxes.png`), 48 credits cold. That
+  matches the owner's "most likely only does this on specific occasions": no firmer rule for now. Phase 4 can still
+  measure the rate on a set of dense figures.
 - Tables in the reader are HTML: the device must make the table's image (as the smoke does from the bundle) before it
   can send one.
 - The tool's `box` wording changed after the DPO and InfoVis runs (one paper write per paper on staging since).
