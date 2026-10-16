@@ -1,5 +1,6 @@
-// Paper search beside the library search: native parity (RootView's Library / arXiv switch, DiscoveryList and
-// DiscoveryRow; owner, 2026-10-15: "If no downside shoot for parity"). The arXiv side searches from this browser
+// Paper search beside the library search: native parity (RootView's Library / ML paper search switch, DiscoveryList
+// and DiscoveryRow; owner, 2026-10-15: "If no downside shoot for parity"; the name, owner 2026-10-16: "Call it ML
+// Paper search"). It searches arXiv's papers from this browser
 // (DataCite, docs/architecture/ARXIV_DEVICE_ONLY.md §5.6) while the server's `device_search` capability is on, and
 // through the server's `discover?q=` otherwise, as the native app does. Results are the Feed's paper rows: Add, In
 // library (opens the paper) and the Downloading…/Preparing… percent after Add; Newest or Relevance order.
@@ -12,7 +13,7 @@ import type { Library } from './Library';
 import { useStored } from './prefs';
 
 export type DiscoveryState = { kind: 'idle' } | { kind: 'searching' } | { kind: 'failed'; message: string } | { kind: 'results'; results: DiscoveryResult[] };
-const UNAVAILABLE = 'arXiv search isn’t available right now. Try again in a moment.';
+const UNAVAILABLE = 'ML paper search isn’t available right now. Try again in a moment.';
 
 /** The search's query, state and order. The latest search owns the results; a failure is shown as one, never as an
  * empty list (native runDiscovery). */
@@ -61,10 +62,10 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen }:
   switch (search.state.kind) {
     case 'idle':
       body = <div className="empty" data-testid="discover-idle"><Icon name="search" size={28} /><p><strong>Find papers</strong></p>
-        <p className="muted">Search arXiv by title, author, topic or ID, then add a paper to your library.</p></div>;
+        <p className="muted">Search ML papers by title, author, topic or arXiv ID, then add a paper to your library.</p></div>;
       break;
     case 'searching':
-      body = <div className="empty" role="status" data-testid="discover-searching"><div className="spinner" aria-hidden="true" /><p>Searching arXiv…</p></div>;
+      body = <div className="empty" role="status" data-testid="discover-searching"><div className="spinner" aria-hidden="true" /><p>Searching ML papers…</p></div>;
       break;
     case 'failed':
       body = <div className="empty" role="alert" data-testid="discover-failed"><p><strong>Couldn’t search</strong></p><p className="muted">{search.state.message}</p>
@@ -83,7 +84,7 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen }:
         </>;
   }
   return <section className="feed paper-search" aria-labelledby="paper-search-title" data-testid="paper-search">
-    <h1 id="paper-search-title" className="visually-hidden">Search arXiv</h1>
+    <h1 id="paper-search-title" className="visually-hidden">ML paper search</h1>
     {body}
   </section>;
 }

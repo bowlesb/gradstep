@@ -1,12 +1,15 @@
 // Refreshes the Feed's shared pool (docs/architecture/PERSONALIZED_FEED.md). Woken by pg_cron
 // (app_private.feed_refresh_kick, migration 043) only when refreshing is on and the source is due;
+// the claim names the source the switch selects (migration 074): DataCite's arXiv records
+// (feed-datacite.ts; our servers never contact arXiv) or, until it is switched, arXiv's RSS;
 // authenticated by the dedicated FEED_REFRESH_SECRET header, never a user token. Claims the source,
 // answers 202, and finishes the fetch in the background under the claim's lease. The same run reads
 // Hugging Face Papers upvotes for the pool (feed-signals.ts, migration 046) before releasing the claim.
 import { installEgressGuard } from '../_shared/egress.ts';
 import { installProviderHealth } from '../_shared/provider-health.ts';
 import { rpc, serviceClient } from '../_shared/backend.ts';
-import { runRefresh, sameSecret, type PoolItem, type RefreshClaim, type RefreshStatus } from '../_shared/feed-pool.ts';
+import { dataCitePoolSource } from '../_shared/feed-datacite.ts';
+import { rssPoolSource, runRefresh, sameSecret, type PoolItem, type RefreshClaim, type RefreshStatus } from '../_shared/feed-pool.ts';
 import { runSignals, type SignalDayStatus, type SignalPlan, type Upvote } from '../_shared/feed-signals.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
 installEgressGuard('feed-refresh');
@@ -46,7 +49,7 @@ Deno.serve(async request => {
         fetch,
         sleep,
       }, claimID),
-    }, claim).then(outcome => console.log(JSON.stringify({ function: 'feed-refresh', event: 'refreshed', status: outcome.status,
+    }, claim, claim.kind === 'datacite' ? dataCitePoolSource() : rssPoolSource).then(outcome => console.log(JSON.stringify({ function: 'feed-refresh', event: 'refreshed', source: claim.kind ?? 'arxiv_rss', status: outcome.status,
       items: outcome.items, inserted: outcome.inserted, updated: outcome.updated, pool: outcome.pool ?? null, code: outcome.code ?? null,
       ms: Date.now() - started })));
     if (typeof EdgeRuntime !== 'undefined') { EdgeRuntime.waitUntil(work); return Response.json({ claimed: true }, { status: 202, headers }); }

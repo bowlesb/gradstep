@@ -123,6 +123,9 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(element(labelContaining: "arXiv HTML for the reader on this device", in: app).waitForExistence(timeout: 5))
         XCTAssertFalse(element(labelContaining: "Mathpix", in: app).exists, "Nothing converts papers on a server")
         XCTAssertFalse(element(labelContaining: "equation-aware readers", in: app).exists, "No “reader” jargon")
+        // Search and the Feed's data since the owner's decisions of 2026-10-16: DataCite, no OpenAlex.
+        XCTAssertTrue(element(labelContaining: "ML paper search and the shared Feed", in: app).exists)
+        XCTAssertFalse(element(labelContaining: "OpenAlex", in: app).exists, "Search no longer uses OpenAlex")
         let acknowledgement = app.descendants(matching: .any)["acknowledgements.arxiv"]
         for _ in 0..<4 where !acknowledgement.exists { app.swipeUp() }
         XCTAssertTrue(element(labelContaining: "Thank you to arXiv", in: app).exists, "arXiv's acknowledgement")

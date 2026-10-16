@@ -12,22 +12,22 @@ export interface PoolItem {
   categories: string[]; topics: string[]; announced_on: string; announce_type: 'new' | 'cross';
 }
 
-/** What `worker_feed_refresh_claim` returns. */
+/** What `worker_feed_refresh_claim` returns; `kind` is the switch's source (migration 074; absent before it: RSS). */
 export interface RefreshClaim {
-  claim_id: string; source: string; categories: string[]; etag: string | null; last_modified: string | null; max_items: number;
+  claim_id: string; source: string; kind?: 'arxiv_rss' | 'datacite'; categories: string[]; etag: string | null; last_modified: string | null; max_items: number;
 }
 
 export type RefreshStatus = 'updated' | 'not_modified' | 'failed' | 'busy';
 export interface RefreshOutcome { status: RefreshStatus; items: number; inserted: number; updated: number; code?: string; pool?: number }
 
-const CATEGORY = /^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/;
+export const POOL_CATEGORY = /^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/;
 export const POOL_MAX_BYTES = 16 * 1024 * 1024;
 export const POOL_BATCH = 400;
 const USER_AGENT = 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)';
 
 /** One combined listing for all the pool's categories (arXiv joins categories with "+"). */
 export function poolFeedURL(categories: readonly string[]): string {
-  if (!categories.length || categories.length > 16 || categories.some(c => !CATEGORY.test(c))) throw new Error('invalid_categories');
+  if (!categories.length || categories.length > 16 || categories.some(c => !POOL_CATEGORY.test(c))) throw new Error('invalid_categories');
   return `https://rss.arxiv.org/rss/${categories.join('+')}`;
 }
 
@@ -142,13 +142,40 @@ export interface RefreshDeps {
   signals?(claimID: string): Promise<SignalOutcome>;
 }
 
-/** One refresh under a claim: pacing slot, conditional GET, parse, tag, upsert in batches, then the
- * popularity pass (if any), then record the outcome. Never throws: any failure is recorded as `failed`
- * (the claim's lease covers a crash). */
-export async function runRefresh(deps: RefreshDeps, claim: RefreshClaim): Promise<RefreshOutcome> {
+/** What a source brings back for one refresh: new items, "nothing new", "busy", or a failure with its code. */
+export interface PoolFetch {
+  status: 'updated' | 'not_modified' | 'busy' | 'failed'; items?: PoolItem[]; skipped?: number;
+  etag?: string | null; lastModified?: string | null; code?: string;
+}
+/** Where the pool's items come from: arXiv's RSS (rssPoolSource) or DataCite (feed-datacite.ts, migration 074). */
+export type PoolSource = (deps: RefreshDeps, claim: RefreshClaim) => Promise<PoolFetch>;
+
+/** arXiv's combined RSS: the shared pacing slot, one conditional GET, parsed. */
+export const rssPoolSource: PoolSource = async (deps, claim) => {
+  let url: string;
+  try { url = poolFeedURL(claim.categories); } catch { return { status: 'failed', code: 'invalid_categories' }; }
+  const slot = await deps.slot();
+  if (!slot.reserved) return { status: 'busy' };
+  if (slot.wait_ms > 0) await deps.sleep(slot.wait_ms);
+  const headers: Record<string, string> = { accept: 'application/rss+xml', 'user-agent': USER_AGENT };
+  if (claim.etag) headers['if-none-match'] = claim.etag;
+  if (claim.last_modified) headers['if-modified-since'] = claim.last_modified;
+  const response = await deps.fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers });
+  if (response.status === 304) { void response.body?.cancel().catch(() => {}); return { status: 'not_modified' }; }
+  if (!response.ok) { void response.body?.cancel().catch(() => {}); return { status: 'failed', code: `arxiv_${response.status}` }; }
+  const bytes = await readBounded(response, POOL_MAX_BYTES);
+  const parsed = parsePoolRSS(bytes, { limit: claim.max_items, today: deps.today() });
+  const etag = response.headers.get('etag'), lastModified = response.headers.get('last-modified');
+  return { status: 'updated', items: parsed.items, skipped: parsed.skipped,
+    etag: etag && etag.length <= 256 ? etag : null, lastModified: lastModified && lastModified.length <= 64 ? lastModified : null };
+};
+
+/** One refresh under a claim: the source's items, tagged, upserted in batches, then the popularity pass (if any),
+ * then the outcome recorded. Never throws: any failure is recorded as `failed` (the claim's lease covers a crash). */
+export async function runRefresh(deps: RefreshDeps, claim: RefreshClaim, source: PoolSource = rssPoolSource): Promise<RefreshOutcome> {
   const finish = async (outcome: RefreshOutcome, etag: string | null = null, lastModified: string | null = null): Promise<RefreshOutcome> => {
     if (deps.signals && outcome.code !== 'invalid_categories') {
-      // Independent of arXiv's answer (a 304, a busy slot or a failure still refreshes upvotes).
+      // Independent of the source's answer (a 304, a busy slot or a failure still refreshes upvotes).
       try {
         const signals = await deps.signals(claim.claim_id);
         deps.log?.({ event: 'popularity', status: signals.status, days: signals.days, requests: signals.requests,
@@ -162,33 +189,17 @@ export async function runRefresh(deps: RefreshDeps, claim: RefreshClaim): Promis
       return { ...outcome, code: outcome.code ?? 'finish_failed' };
     }
   };
-  let url: string;
-  try { url = poolFeedURL(claim.categories); } catch { return finish({ status: 'failed', items: 0, inserted: 0, updated: 0, code: 'invalid_categories' }); }
   try {
-    const slot = await deps.slot();
-    if (!slot.reserved) return finish({ status: 'busy', items: 0, inserted: 0, updated: 0 });
-    if (slot.wait_ms > 0) await deps.sleep(slot.wait_ms);
-    const headers: Record<string, string> = { accept: 'application/rss+xml', 'user-agent': USER_AGENT };
-    if (claim.etag) headers['if-none-match'] = claim.etag;
-    if (claim.last_modified) headers['if-modified-since'] = claim.last_modified;
-    const response = await deps.fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers });
-    if (response.status === 304) { void response.body?.cancel().catch(() => {}); return finish({ status: 'not_modified', items: 0, inserted: 0, updated: 0 }); }
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => {});
-      return finish({ status: 'failed', items: 0, inserted: 0, updated: 0, code: `arxiv_${response.status}` });
-    }
-    const bytes = await readBounded(response, POOL_MAX_BYTES);
-    const parsed = parsePoolRSS(bytes, { limit: claim.max_items, today: deps.today() });
-    const items = withTopics(parsed.items);
+    const fetched = await source(deps, claim);
+    if (fetched.status !== 'updated') return finish({ status: fetched.status, items: 0, inserted: 0, updated: 0, ...(fetched.code ? { code: fetched.code } : {}) });
+    const items = withTopics(fetched.items ?? []);
     let inserted = 0, updated = 0;
     for (let start = 0; start < items.length; start += POOL_BATCH) {
       const written = await deps.upsert(claim.claim_id, items.slice(start, start + POOL_BATCH), FEED_TOPICS_VERSION);
       inserted += written.inserted; updated += written.updated;
     }
-    deps.log?.({ event: 'pool_parsed', items: items.length, skipped: parsed.skipped });
-    const etag = response.headers.get('etag'), lastModified = response.headers.get('last-modified');
-    return finish({ status: 'updated', items: items.length, inserted, updated },
-      etag && etag.length <= 256 ? etag : null, lastModified && lastModified.length <= 64 ? lastModified : null);
+    deps.log?.({ event: 'pool_parsed', items: items.length, skipped: fetched.skipped ?? 0, source: claim.kind ?? 'arxiv_rss' });
+    return finish({ status: 'updated', items: items.length, inserted, updated }, fetched.etag ?? null, fetched.lastModified ?? null);
   } catch (error) {
     const code = error instanceof Error && /^[a-z0-9_]{1,40}$/.test(error.message) ? error.message : 'unexpected';
     return finish({ status: 'failed', items: 0, inserted: 0, updated: 0, code });

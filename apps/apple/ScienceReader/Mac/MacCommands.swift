@@ -57,7 +57,7 @@ struct GradstepCommands: Commands {
 
         // Edit
         // ⌘F finds in the paper while reading (as in any Mac document) and searches the library elsewhere;
-        // ⌥⌘F always searches the library (as Mail and Notes do), ⇧⌘F searches arXiv.
+        // ⌥⌘F always searches the library (as Mail and Notes do), ⇧⌘F is ML paper search.
         CommandGroup(after: .pasteboard) {
             Section {
                 if findsInPaper {
@@ -68,7 +68,7 @@ struct GradstepCommands: Commands {
                 } else {
                     Button("Search Library") { search(arXiv: false) }.keyboardShortcut("f")
                 }
-                Button("Search arXiv") { search(arXiv: true) }.keyboardShortcut("f", modifiers: [.command, .shift])
+                Button("Search ML Papers") { search(arXiv: true) }.keyboardShortcut("f", modifiers: [.command, .shift])
             }
         }
 

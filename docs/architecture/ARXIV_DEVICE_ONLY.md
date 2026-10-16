@@ -542,11 +542,14 @@ source_metadata: {
 ### 5.5 Feed
 
 - **Owner direction (2026-10-15): the DataCite pool, server-side, once for everyone.** `feed-refresh` gains a
-  `datacite-arxiv-ml` source (step 4, behind its own flag, off).
+  DataCite source (step 4). **Built (owner, 2026-10-16: "Ok"); migration 075 switches it on, see §6.0.2:** the
+  `feed_source` switch and the `datacite-ml` source row.
   - Mapping from DataCite: `doi` suffix → `source_id`; `version` → revision; `creators` → authors (given name plus
     family name); `descriptions[Abstract]` → abstract (first 2,000 characters); `subjects` with scheme `arXiv` →
     codes, via the trailing `(cs.LG)`.
-  - `created` → announcement day: convert to ET and take the announcement date.
+  - `created` → announcement day: the UTC date. (Built that way, not in ET: arXiv registers an announcement's DOIs
+    at about 03:05 UTC, three hours after the 20:00 ET announcement, and the RSS dates that announcement by the
+    next day, which is the UTC date; converting to ET would date it a day early.)
   - `new` or `cross`: `new` when the first subject (the primary) is in the pool's categories, otherwise `cross`.
   - The lag is about 3 h after arXiv's announcement, versus about 2.5 h today with the 2-hourly RSS check.
   - Ranking, topics, Hugging Face popularity and serving are unchanged. The browser Feed needs no change.
@@ -804,7 +807,7 @@ staging or switched on.
   `openalex_enabled` true, `worker_search_policy()` for the functions, `v1_reader_capabilities.device_search`);
   `_shared/paper-search.ts`; native `DeviceSearch` behind `ReaderCapabilities.searchesOnDevice` in
   `ReaderModel.runDiscovery`; browser `lib/device-search.ts` and its page (`ui/PaperSearch.tsx`, the Library / arXiv
-  switch, native parity); the two tunings of §5.6.1; `discover?q=` searches DataCite and
+  switch, native parity; renamed "ML paper search", owner 2026-10-16); the two tunings of §5.6.1; `discover?q=` searches DataCite and
   `identify.resolveDOI` skips OpenAlex when `openalex_enabled` is false; the browser CSP and the deploy gate list
   `https://api.datacite.org`. Evaluation: §5.6.1 and `scripts/search-eval.mjs`.
 - **Active with every flag off** (owner's rules 3 and 4): the 24 h stop after arXiv answers 403, on both clients, and
@@ -835,14 +838,61 @@ With both switches on, search and DOI naming no longer use OpenAlex. What still 
 - **Data model:** `openalex:W…` source IDs for web papers in migrations 019, 039 and later, the browser's
   `library.ts` and `paper.ts`, native `PaperAdding.swift`, `LibraryMetadata.swift` and `AddPaperFixture.swift`, the admin
   fixtures, and their tests. These identify stored papers and stay.
-- **Copy:** native Settings › Acknowledgements (`RootView.swift`: "OpenAlex — Search ranking, and finding open-access
-  copies…") and the privacy page (`web/site-next/privacy/index.html`: catalog details "from arXiv, OpenAlex and
-  Crossref"). Both describe today's behaviour and change when the switches do: search ranking leaves the OpenAlex
-  line, DataCite joins the browser's list, and the privacy page names DataCite for search.
+- **Copy:** changed with the switch (§6.0.2): native Settings › Acknowledgements names DataCite instead of OpenAlex,
+  and the privacy draft says where paper search goes and that the Feed comes from DataCite. Its catalog-details
+  sentence still names arXiv, OpenAlex and Crossref, which remains true until steps 5 and 7.
 - **Documents:** `PRIVACY_AND_SYNC.md`, `PAPER_PIPELINE.md`, `DECISIONS.md`, `CHAT.md`, `PDF_UPLOADS.md`,
   `LANDING_PAGE.md`, `LEGACY_GAP_AUDIT.md`, `IMPLEMENTATION_STATUS.md`, `TAGS.md`, `PROVIDER_SPENDING.md`,
   `PIPELINE_RELIABILITY.md`, `PERSONALIZED_FEED.md`, `WORKFLOW_CHECKS.md`, the 2026-10-07 credit audit; tooling:
   `scripts/workflow-checks.mjs` (`ingest.jmlr`), `scripts/smoke-web-import.mjs`, `scripts/search-eval.mjs`.
+
+### 6.0.2 Step 4 switched: search on the device, the Feed from DataCite (owner, 2026-10-16)
+
+Owner answers: "5. Search: turn on device-only search, which drops OpenAlex — Sure"; "6. Shared Feed: take it from
+DataCite on our servers, so our servers never contact arXiv. New papers show about 3 hours after announcement — Ok";
+"10. The 'arXiv' search tab — Call it ML Paper search".
+
+Status when written: built and tested locally (backend, database, browser and Simulator); deploying the functions and
+applying 074 and 075 to staging, then the client releases, follow.
+
+- **Migration `202610160074_feed_datacite.sql`** (additive): `pipeline_policy.feed_source` (`arxiv_rss` default,
+  `datacite`); `app_private.feed_active_source()` (`datacite-ml` or `arxiv-ml`); `worker_feed_refresh_claim` and the
+  cron's `feed_refresh_kick` use the active source's row, and the claim says which (`kind`);
+  `worker_search_policy()` adds `feed_source`. The `arxiv-ml` row stays for audit and for switching back.
+- **`_shared/feed-datacite.ts`** and `feed-refresh`: one DataCite query for the pool's 12 categories
+  (`subjects.subject:"cs.LG" OR …`, `provider-id=arxiv`, newest first), 100 records a page, a second apart, at most
+  40 pages and `max_items`; the same pool rows as the RSS (id, revision, title, authors ≤ 12, abstract ≤ 2,000,
+  categories ≤ 12, topics, announcement day; `new` when the primary category is in the pool, else `cross`). DataCite
+  has no conditional GET for searches, so the source row's `last_modified` holds a mark: a refresh reads records
+  created since the last mark (never more than three days back) and moves it to three hours before it ran; nothing
+  there is `not_modified`. A live run (2026-10-16 01:36 UTC, 300 items, 3 requests, all to `api.datacite.org`)
+  wrote 278 `new` and 22 `cross`, all dated 2026-10-15. Fixtures: `tests/backend/fixtures/feed/` (recorded once).
+- **`discover?category=`** for a chip the pool doesn't answer reads the category's newest week from DataCite when
+  `feed_source` is `datacite` (arXiv's RSS before).
+- **Migration `202610160075_device_search_on.sql`** sets `device_search_enabled = true`, `openalex_enabled = false` and
+  `feed_source = 'datacite'`, recorded in `admin_audit_events` (action `search_sources`) against the owner account.
+  Apply it after deploying `feed-refresh` and `discover`.
+- **Copy:** the Library segment is "ML paper search" (field "Search ML papers"; Mac menu "Search ML Papers"; "Searching
+  ML papers…"); Acknowledgements name DataCite ("ML paper search and the shared Feed", CC0) instead of OpenAlex; the
+  privacy draft says where paper search goes and where the Feed comes from. How Gradstep works names no paper-search
+  provider and is unchanged.
+
+Server arXiv call sites once both migrations are applied (the scan's 12 code sites are unchanged; the baseline is a
+code ratchet and these stay as switch-guarded code until step 7):
+
+| # | Site | With the switches set |
+|---|---|---|
+| S1, S2 | `arxiv.ts:87`, `:92` (metadata stage) | **Still called** for every new pipeline paper; step 5 (`arxiv_egress`) |
+| S3 | `feed-pool.ts:31` (pool RSS) | Not called: `feed_source = 'datacite'` (rollback: the switch) |
+| S4 | `discover.ts:258` (chip RSS) | Not called: chips read DataCite (the function still uses it to validate the category) |
+| S5 | `discover.ts:36`, `:57`, `:226` (server search) | Not called: `openalex_enabled = false` searches DataCite; `scripts/search-eval.mjs` still uses them |
+| S6 | `discover.ts:334`, `:339` ×2 (`arxivTitleURLs`) | **Still called** by `find-paper.ts`: chat Ingest, Add by text, a reference's Add to library |
+| S7 | `find-paper.ts:83` | **Still called** when the Tavily fallback finds arXiv IDs |
+| S8 | `reference.ts:144` | **Still called** for a reference that names arXiv IDs |
+
+DOI naming (`identify.resolveDOI`) uses Crossref alone with `openalex_enabled` off; `find-paper.ts` and
+`reference.ts` still use OpenAlex for titles (§6.0.1). The egress guard stays in report mode until S1, S2 and S6–S8
+are gone.
 
 ### 6.1 Steps and tests
 

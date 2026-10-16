@@ -1938,14 +1938,14 @@ final class ReaderModel {
         }
     }
 
-    /// Searches arXiv for the current discovery query. The latest query owns
+    /// ML paper search (arXiv's papers) for the current discovery query. The latest query owns
     /// the results; failures are shown as failures, never as empty results.
     func runDiscovery() {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         discoveryTask?.cancel(); discoveryGeneration += 1
         let generation = discoveryGeneration
         guard !query.isEmpty else { discoveryResults = []; discoveryState = .idle; return }
-        guard let backend, let accountID else { discoveryState = .failed("Sign in to search arXiv."); return }
+        guard let backend, let accountID else { discoveryState = .failed("Sign in to search ML papers."); return }
         discoveryState = .searching
         let scope = sessionID
         discoveryTask = Task {
@@ -1959,7 +1959,7 @@ final class ReaderModel {
                 guard self.sessionID == scope, self.discoveryGeneration == generation, !(error is CancellationError) else { return }
                 self.discoveryState = .failed((error as? DeviceSearch.Failure) == .paused
                     ? "arXiv asked this device to wait, so Gradstep won’t search it for now. Try again later."
-                    : "arXiv search isn’t available right now. Try again in a moment.")
+                    : "ML paper search isn’t available right now. Try again in a moment.")
             }
         }
     }
