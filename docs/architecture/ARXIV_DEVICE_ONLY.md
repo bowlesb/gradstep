@@ -765,6 +765,9 @@ ordering with (1) alone.
   - Keep `shared` (CC BY/CC0) and web or upload-private delivery.
   - Decide separately on deleting the stored originals and bundles. AGENTS.md says no deletion or data migration is
     implied, so this needs the owner.
+  - **Decided 2026-10-16:** the owner chose deletion. Every stored original, Mathpix output and server bundle (shared and
+    `legacy_private` alike) is retired and deleted; nothing is served from them (DATA_HANDLING_AND_COSTS.md "Server paper
+    copies: retired"; migration 080).
 - **C8, private podcast sources.** Options:
   - (a) Delete the uploaded text once the episode settles, i.e. ephemeral processing; the privacy page must change
     from "kept until you delete your account".
@@ -1170,7 +1173,8 @@ projection.
    - Is a per-device 3 s serial queue with caching acceptable?
    - Should the native app's User-Agent identify Gradstep?
    - Is DataCite the preferred source for a commercial reader's shared feed?
-3. **Legacy server content (C7).**
+3. **Legacy server content (C7).** Answered 2026-10-16: delete them all (DATA_HANDLING_AND_COSTS.md "Server paper copies:
+   retired").
    - Stop serving `legacy_private` arXiv bundles now?
    - Delete the stored originals and bundles of default-licence papers? AGENTS.md treats deletion as an owner
      decision.

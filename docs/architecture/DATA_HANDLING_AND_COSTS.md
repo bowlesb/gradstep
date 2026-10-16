@@ -16,8 +16,9 @@ Gradstep separates local paper storage, encrypted synchronization and requested 
 - Library metadata, tags and encrypted chat events can sync through Supabase. Chat and note
   content is encrypted before synchronization; device-held keys or the recovery code are needed to read it.
 - New PDF downloads, intake, viewing and processing happen only on the user's device. Exact official arXiv HTML
-  is compiled locally into the structured reader. Historical server copies remain retained; no data migration or
-  broad deletion occurred. Browser PDFs stay in the selected device file/tab and must be chosen again after reopening.
+  is compiled locally into the structured reader. The server's historical copies of papers (PDFs, Mathpix output and
+  reader bundles from before 2026-10-13) are retired and deleted on the owner's decision of 2026-10-16
+  ([below](#server-paper-copies-retired)). Browser PDFs stay in the selected device file/tab and must be chosen again after reopening.
 - A paper chat sends the question, selected passage, conversation context and verified reader text to the chosen
   cloud model under explicit consent. Stored-history encryption does not hide requested computation from that provider.
   Since 2026-10-16 the chosen model may be DeepSeek's (consent `cloud-ai-v4` names it): DeepSeek then receives the
@@ -89,3 +90,87 @@ equation, cited only passages that exist, read a figure from its image and calle
 for $0.038 against $0.273 for the same questions on Sonnet. Its first text arrives later (8–23 s at medium effort). This comparison itself enabled no traffic. Any future trial must be opt-in at the server profile level,
 bounded by the same credit and provider-spend controls, and accepted only after the quality and data-handling
 review passes.
+
+## Server paper copies: retired
+
+Owner decision, 2026-10-16: "Yes, we can even delete them now, so it's obvious we have zero on our system", for the
+inventory of 2026-10-15. Staging data is disposable and no legacy data migration is wanted (AGENTS.md). Podcast audio
+and transcripts, the text a device sends for an episode and report attachments are not paper copies and are out of
+scope. Database: migration 080 (`202610160080_server_paper_copies_retired.sql`); deletion:
+`scripts/delete-paper-copies.mjs`; what counts as a copy: `scripts/paper-copies.mjs`; guard: the `storage.no-papers`
+workflow check.
+
+### Inventory (re-counted 2026-10-16 before deletion)
+
+Storage's own listing (Storage API, recursive) and `storage.objects` agree, and every object is tracked as `verified` in
+`app_private.stored_objects` (the 2026-10-09 inventory reconciliation still holds: no untracked or missing object).
+
+| Bucket / prefix | Objects | Bytes | What it is |
+|---|---:|---:|---|
+| `paper-assets/originals/` | 28 | 209,137,904 | Shared PDFs (CC BY/CC0 approvals) |
+| `paper-assets/private/<account>/originals/` | 47 | 170,668,581 | Private PDFs, 9 accounts (`legacy_private` arXiv conversions and web papers) |
+| `paper-assets/raw/<sha>/` | 300 | 163,482,296 | Mathpix output: `standalone.mmd`, `lines.json`, `output.mmd.zip`, `manifest.json` (75 runs) |
+| `paper-assets/reader/<sha>/` | 1,256 | 105,979,674 | Server reader bundles: `index.html`, `reader.json`, figures, manifest, notices (75 bundles) |
+| **`paper-assets` total** | **1,631** | **649,268,455** (619.2 MiB) | 75 live documents of 86 (11 went with account deletions) |
+| `paper-uploads` | 0 | 0 | PDF upload chunks (fenced since 058) |
+| `podcast-assets` (control) | 18 | 12,308,378 | Episode audio/transcripts: 15 shared, 3 private. Not touched |
+| `private-content`, `support` (controls) | 0 | 0 | Episode source text (deleted when made), report screenshots. Not touched |
+
+Rows that name these objects, all **kept** as history (accounting, provider attempts and encrypted chat bindings point
+at them, and the foreign-key graph spans the ledger): `stored_objects` (1,631 verified + 118 already deleted),
+`paper_asset_manifest_members` (1,491), `paper_asset_availability` (172), `documents`, `render_artifacts` and `ocr_runs`
+(86 each), `catalog_asset_approvals.original_object_id`, `pipeline_papers` (document/original/artifact ids),
+`podcast_sources` (13 server-text pins of past episodes), `reader_delivery_grants`/`_redemptions`, `acquisition_jobs`,
+`ocr_attempts`, `library_items` and `library_asset_projection` (96 items in 23 accounts: 90 arXiv, of which 81 visible;
+6 web papers from other sites; no uploads). Only three things change: each object's state (verified -> deleting ->
+deleted, the lifecycle account deletion already uses), each paper copy's availability (unavailable, reason `missing`, at
+a new revision) and the library projection (recomputed and emitted, ids kept). No table is dropped.
+
+### Every path that read or wrote them, and what it does now
+
+| Path | Before | After retirement |
+|---|---|---|
+| `reader-artifact` (`worker_reader_descriptor`) | Signed URLs or one-use grants for a legacy bundle | 403 `reader_unavailable` (needs a verified manifest and `render_availability=available`) |
+| `reader-member` (grant redemption) | Streams one member | 403 `reader_grant_unavailable` |
+| `chat`, legacy item (`worker_chat_context`, `standalone.mmd`) | Server text as context | `document_unavailable` (080; it would have been `asset_inventory_incomplete`, a generic failure, under the enforced inventory) |
+| `chat`, local context (`worker_local_chat_context`) | Source memberships only | Also a legacy arXiv library item (080), so a client can send the text its reader prepared |
+| Podcasts (`podcast_item_pin`, `podcast_approval_pin`) | Server text pins episodes and seeds | No pin: the quote says `source_unavailable`; no seed candidates. Existing episodes keep playing |
+| Original PDFs (`v2_original_descriptor`, `worker_authorize_original_read`) | Fenced in 058 | Unchanged (`pdf_device_only`) |
+| Writers: pipeline asset/original RPCs, `upload-pdf` | Fenced in 058 (`pdf_device_only`, HTTP 410); the Cloud Run worker is metadata-only and its PDF code is deleted | Also refused by the 080 fence: no `paper-assets`/`paper-uploads` row can be registered (`paper_copies_retired`). Storage has no policies, so only the service role could write, and no deployed code does |
+| Account deletion | Lists `private/<account>/` and private `raw/`/`reader/` folders | The bucket stays (an absent bucket would fail the listing); the folders are empty |
+| `scripts/backup.py` (manual, encrypted) | Copies every verified object | No paper copy is verified, so none is copied |
+
+Clients, as read from the code (native builds 57–60 are the same here except build 57's no-HTML screen; the browser is
+deployed with this change):
+
+| Client | Legacy arXiv item | Legacy item from another site (6 web papers) | Chat / Listen on a legacy item |
+|---|---|---|---|
+| iPhone, iPad, Mac 57–60 | `canReadStructured` is false once the row says unavailable: no prefetch and no server fallback. Opens from arXiv on the device as before ("Opens from arXiv"); a copy already installed on the device keeps opening. Without arXiv HTML: builds 58–60 "No web version of this paper" with Open PDF (on the device); build 57 the arXiv reason | Row: orange "No readable copy on this device", status "Reader unavailable". Opened: "Couldn't open this paper — This paper has no reading copy on the server. You can save its PDF on this device." | Chat: "This paper isn't ready for questions yet. Try again after it finishes processing." (the server no longer has its text; a native update can send the device text as the browser does). Listen: "Open this paper first so it's ready on this device, then try again." |
+| Browser (this release) | Opens from arXiv on the device; the row is a cloud ("downloads when you open it"). Without arXiv HTML: "No web version of this paper" with Open PDF; the server is asked only while the row still says available, and its refusal keeps arXiv's reason | Row: "⚠ No reading copy", "!" badge, not a link; opened by URL: "Gradstep's servers don't keep a reading copy of this paper." | Chat sends the text prepared in this tab, naming the library item (falls back to the document id when the paper can't be prepared). Listen: as before ("Open this paper first…") |
+
+Nothing errors, loops or shows a generic failure: before the projection changes the native prefetch and fallback would
+have repeated 403s on every library publication; after it they never ask.
+
+### Procedure
+
+`node scripts/delete-paper-copies.mjs` (dry run, the default) prints Storage's counts and bytes per bucket and prefix,
+the controls and the tracked rows. `--apply` (staging only; the project ref is asserted): (1) `worker_paper_copies_retire`
+turns the fence on, marks availability unavailable and schedules every tracked copy (refused while any paper write is
+unresolved); (2) `worker_paper_copies_project` recomputes and emits the library rows, so devices stop asking before any
+file goes; (3) page by page, removes the files from Storage, lists their folders again, and only then confirms them
+`deleted`; (4) removes any untracked object on a pipeline path (anything else stops the run); (5) lists Storage again:
+zero objects in the paper buckets, controls unchanged, zero tracked live. Counts only go to `.artifacts/paper-copies/`.
+
+### Keeping it at zero
+
+`storage.no-papers` (`scripts/workflow-checks.mjs`, every suite: the 6-hourly canary, daily and weekly) fails when
+Storage lists any object in `paper-assets` or `paper-uploads`, when any paper copy is tracked as pending, verified or
+deleting, or when the fence is off. Free; no account.
+
+### What this does not cover
+
+- Supabase's daily database backups (7 days) still hold the rows that name the deleted files until they age out; they hold
+  no file bytes (Storage objects are not part of database backups).
+- Manual encrypted checkpoints made with `scripts/backup.py` on the developer's Mac (`.artifacts/backups/`, 2026-10-03
+  to 2026-10-09) include these objects, encrypted. They are not on a server; deleting them is the owner's call.
+- Mathpix processed these PDFs before 2026-10-13 under its own retention terms.

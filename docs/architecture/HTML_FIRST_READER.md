@@ -250,6 +250,12 @@ deletion or rerender follows from this design change. Stop new PDF processing at
 copies requires an explicit retention/cleanup operation with backup and spending consequences recorded. Do not
 advertise “no PDFs on our servers” while historical copies remain.
 
+**Retired 2026-10-16 (owner decision):** the historical copies (1,631 objects, 649 MB in `paper-assets`) are deleted by
+the explicit operation in [Data handling: server paper copies retired](DATA_HANDLING_AND_COSTS.md#server-paper-copies-retired)
+(migration 080, `scripts/delete-paper-copies.mjs`, the `storage.no-papers` check). A legacy item's server bundle is no
+longer a fallback: the library says it is unavailable, an arXiv item reads only from its official HTML on the device,
+and the browser's paper chat for it sends the device's text.
+
 ## Costs and future local model
 
 New HTML adaptation and local PDF work incur no Mathpix/OCR credit charge. Cloud chat/search/podcast charges remain
