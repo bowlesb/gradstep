@@ -145,6 +145,31 @@ test('a throttle drill on chat, as scripts/fault-drill.mjs sees it: one retry af
   assert.equal(h.sent.length, 0, 'nothing reached Anthropic');
 });
 
+test('streamed drills (2026-10-16): midstream fails as overloaded after its first text; slow writes until Stop; both carry a drill- request id', async () => {
+  resetBreakers();
+  const params = { model: 'claude-haiku-5-5', max_tokens: 100, messages: [{ role: 'user' as const, content: 'Reply with the single word OK.' }] };
+  const mid = harness({ faults: [{ provider: 'anthropic', route: 'chat', mode: 'midstream', rate: 1 }], enabled: true, account: 'a' });
+  const received: string[] = [];
+  const failed = await streamChat(createAnthropicClient({ apiKey: 'test-key', maxRetries: 0, fetch: mid.fetcher }), params,
+    { signal: new AbortController().signal, onText: t => received.push(t), inputEstimateTokens: 100 });
+  assert.equal(received.join(''), 'This answer comes from a Gradstep fault drill and stops partway');
+  assert.deepEqual([failed.status, failed.failure, failed.exact, failed.model], ['failed', 'provider_error', false, 'claude-haiku-5-5']);
+  assert.match(String(failed.messageID), /^msg_drill_[0-9a-f]{32}$/, 'the message started: a mid-stream failure');
+  assert.match(String(failed.requestID), /^drill-[0-9a-f-]{36}$/);
+  assert.deepEqual(mid.events.map(e => [e.outcome, e.drill]), [['transport', true]]); assert.equal(mid.sent.length, 0, 'nothing reached Anthropic');
+
+  const slow = harness({ faults: [{ provider: 'anthropic', route: 'chat', mode: 'slow', rate: 1 }], enabled: true, account: 'a' });
+  const reader = new AbortController(), pieces: string[] = [];
+  const stopped = await streamChat(createAnthropicClient({ apiKey: 'test-key', maxRetries: 0, fetch: slow.fetcher }), params,
+    { signal: reader.signal, onText: t => { pieces.push(t); if (pieces.length === 2) reader.abort(); }, inputEstimateTokens: 100 });
+  assert.deepEqual(pieces, ['Drill sentence 1. ', 'Drill sentence 2. ']);
+  assert.deepEqual([stopped.status, stopped.failure, stopped.exact], ['failed', 'aborted', false]);
+  assert.match(String(stopped.requestID), /^drill-/); assert.deepEqual(slow.events.map(e => [e.outcome, e.drill]), [['ok', true]]);
+  // Elsewhere (no streamed API) they answer as a server error.
+  const google = harness({ faults: [{ provider: 'google', route: null, mode: 'midstream', rate: 1 }], enabled: true, account: 'a' });
+  assert.equal((await google.fetcher('https://aiplatform.googleapis.com/v1/x')).status, 500);
+});
+
 test('the database recorder and fault source: bounded, never throwing, cached', async () => {
   resetBreakers();
   const calls: { name: string; params: Record<string, unknown> }[] = [];

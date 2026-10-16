@@ -110,7 +110,21 @@ function localPaperContext(input: unknown): LocalPaperContext {
 /** 'web_import' = the app shows web (non-arXiv) library entries; 'visual_answers' = the app draws HTML visuals and
  * Mermaid diagrams and the reader has them on. A request that names no capabilities at all (builds before the
  * setting) still gets diagrams. */
-export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers', 'figure_requests'] as const;
+export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers', 'figure_requests', 'stop_signal'] as const;
+/** How a paid answer ended (owner decision 2026-10-16; docs/architecture/CHAT.md "When an answer stops early"). The
+ * reader pays for work that finishes (`completed`) or for the part they chose to stop (`stopped`: the app said so with
+ * v1_chat_stop; `left`: a build without the `stop_signal` capability closed the stream, which can't be told apart from a
+ * dropped connection, so it is charged as a Stop, as before). Every other ending costs the reader nothing: the provider
+ * failing or overloading (`provider`), our server (`server`), our own time or length limit (`limit`), the connection
+ * between our server and the reader dropping (`connection`), or a refusal (`refusal`). Gradstep pays the provider and the
+ * cost stays in the month's spend. */
+export type ChatEnding = 'completed' | 'stopped' | 'left' | 'provider' | 'server' | 'limit' | 'connection' | 'refusal';
+export type UnchargedReason = Exclude<ChatEnding, 'completed' | 'stopped' | 'left'>;
+export const CHARGED_ENDINGS: readonly ChatEnding[] = ['completed', 'stopped', 'left'];
+/** Stop reasons that mean the answer was cut off by a bound, not finished. */
+const LIMIT_STOP_REASONS: readonly string[] = ['max_tokens', 'model_context_window_exceeded'];
+/** A Stop's record (v1_chat_stop) may still be on its way when the stream closes: one more look after this long. */
+export const STOP_GRACE_MS = 1_500;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background';
 const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background'];
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
@@ -438,9 +452,12 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'equation'; data: EquationSymbols }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile, `auto`
    * resolved; `effort`: the effort the server picked, present only when the request asked for `auto`. */
-  | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string; effort?: string } }
-  /** `credits` (2026-10-14): what a failed answer still cost the reader (0 when the provider never started it). */
-  | { event: 'error'; data: { code: ChatErrorCode; credits?: number; retry_after?: number } };
+  | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string; effort?: string;
+    /** Whether the reader paid for this answer (2026-10-16); `reason` names why not (an answer cut off at its length is `limit`). */
+    charged?: boolean; reason?: UnchargedReason } }
+  /** `credits` (2026-10-14): what a failed answer cost the reader. `charged`/`reason` (2026-10-16): present on every error
+   * after the credits were held (always `charged: false`, with why); absent on errors before any hold, which charge nothing. */
+  | { event: 'error'; data: { code: ChatErrorCode; credits?: number; retry_after?: number; charged?: boolean; reason?: UnchargedReason } };
 
 export function sseFrame(message: ChatEvent): string {
   return `event: ${message.event}\ndata: ${JSON.stringify(message.data)}\n\n`;
@@ -645,7 +662,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // From here the hold exists: settle exactly once on every path.
   const now = deps.now ?? Date.now;
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), deps.deadlineMs ?? GENERATION_DEADLINE_MS);
+  // Our own time limit is told apart from the reader leaving: reaching it never charges the reader.
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; deadline.abort(); }, deps.deadlineMs ?? GENERATION_DEADLINE_MS);
   const stop = () => deadline.abort();
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
@@ -677,6 +696,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     signal.removeEventListener('abort', stop);
     deadline.signal.removeEventListener('abort', stopTitle);
   }
+  // The answer's own rounds (searches and fees included): what a Stop pays for.
+  const answer = outcome;
+  // A finished answer: complete, not refused and not cut off at its length. Only it gets suggestions or a map update.
+  const finished = answer.status === 'complete' && answer.stopReason !== 'refusal' && !LIMIT_STOP_REASONS.includes(answer.stopReason ?? '');
   // The title's request is part of this operation: priced, held and recorded with the answer's.
   if (title?.outcome.attempts.length) {
     outcome = { ...outcome, attempts: [...outcome.attempts, ...title.outcome.attempts], exact: outcome.exact && title.outcome.exact };
@@ -686,7 +709,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   let suggested: FollowUpResult | null = null;
   // An answer that asked for a figure is not the answer: the device asks again with it, and that one gets suggestions.
   const asksForFigure = offersLook && !request.figures.length && !isEquationAction(request.action) && !!outcome.toolCalls?.some(c => c.name === 'look_at_figure');
-  if (followUpHold && outcome.status === 'complete' && outcome.stopReason !== 'refusal' && wroteText && !asksForFigure && !signal.aborted) {
+  if (followUpHold && finished && wroteText && !asksForFigure && !signal.aborted) {
     const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead });
     suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now);
     if (suggested.outcome.attempts.length) {
@@ -696,7 +719,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // Study: the knowledge map is updated from the exchange after the answer (the previous map, the reader's answer,
   // the tutor's reply; never the paper). The reader's first message starts the study and is no answer.
   let studied: StudyResult | null = null;
-  if (studyHold && request.study && outcome.status === 'complete' && outcome.stopReason !== 'refusal' && wroteText && !signal.aborted) {
+  if (studyHold && request.study && finished && wroteText && !signal.aborted) {
     const params = studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead });
     studied = await updateStudyMap(deps.generate, params, studyHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.studyTimeoutMs ?? STUDY_TIMEOUT_MS)]), now);
     if (studied.outcome.attempts.length) {
@@ -704,24 +727,33 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   }
 
+  // How the answer ended decides whether the reader pays (owner decision 2026-10-16, CHAT.md "When an answer stops
+  // early"): work that finished, or the part the reader chose to stop. Anything else that ended it costs them nothing.
+  const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: wroteText || !!answer.toolCalls?.length });
+  const charged = CHARGED_ENDINGS.includes(ending);
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
-  // Provider spend (the platform budget): tokens and Anthropic's per-search fee. Tavily
+  // Provider spend (the platform budget): tokens and Anthropic's per-search fee, whoever pays for them. Tavily
   // searches within its prepaid plan add nothing (a fixed commitment). The reader's price
   // adds Tavily's per-credit price, so a search costs the reader about the same either way.
   const actual = Math.ceil(tokens + anthropicFees);
-  const priced = Math.ceil(tokens + anthropicFees + stats.credits * TAVILY_CREDIT_MICROUSD);
-  // The customer is never charged above the hold, but the platform budget
-  // records the true provider cost: an overrun freezes new paid work.
-  // A request the provider never started (no message_start: a 5xx, an overload, a dropped connection) charges the
-  // reader nothing; the attempt keeps the platform's liability until it is resolved (audit 2026-10-14).
-  const credits = outcome.status === 'failed' && !outcome.messageID ? 0 : Math.min(creditsFor(priced), hold.credits);
-  if (priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
-  else if (creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
-  await settle(deps, request.operationID, credits, actual);
+  // What reached the reader: the answer's own rounds and, with a completed answer, the title, suggestions and map that
+  // were relayed. A side request that failed, came back unusable or too late is Gradstep's cost.
+  const sides = ending === 'completed' ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
+  const delivered = priceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? priceAttempts(part.attempts) : 0), 0);
+  const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
+  // The customer is never charged above the hold, but the platform budget records the true provider cost (an overrun
+  // is recorded and alerted, migration 079). A request the provider never started (no message_start) charges the
+  // reader nothing even when they stopped it; the attempt keeps the platform's liability until it is resolved.
+  const credits = charged && (answer.status === 'complete' || answer.messageID) ? Math.min(creditsFor(priced), hold.credits) : 0;
+  // Gradstep pays the rest: everything for an uncharged ending, the undelivered side requests otherwise.
+  const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;
+  if (credits > 0 && priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
+  else if (credits > 0 && creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
+  await settle(deps, request.operationID, { credits, microusd: actual, action: request.action ?? 'answer', ending, absorbed });
   await recordUsage(deps, request.operationID, outcome, actual, providerForModel(params.model));
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
-  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode,
+  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending, charged, credits,
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
     failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
@@ -736,8 +768,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       study_concepts: studied?.map?.concepts.length ?? request.study?.concepts.length ?? 0 } : {}) });
 
   if (signal.aborted) return;
+  // Every event after the hold says whether the reader paid; when not, why (a machine-readable reason for the clients).
+  const billing = charged ? { charged: true } : { charged: false, reason: ending as UnchargedReason };
   if (outcome.status === 'complete') {
-    if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused' } }); return; }
+    if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused', credits: 0, charged: false, reason: 'refusal' } }); return; }
     // Ingest: at most one add per request, only of a strictly matched arXiv
     // paper, only when the turn ended in the tool call (not cut off).
     const call = request.action === 'ingest' && outcome.stopReason === 'tool_use'
@@ -850,12 +884,44 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     const served = answeringModel(outcome);
     // `profile` is the resolved profile; `effort` (2026-10-16) names the effort the server picked when the request said `auto`.
     emit({ event: 'done', data: { stop_reason: stopReason, credits, usage, ...(served ? { model: served } : {}),
-      profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}) } });
+      profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}), ...billing } });
     return;
   }
-  // How long the reader should wait: the provider's own Retry-After (or our breaker's cool-off), else a short default.
-  const retryAfter = outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS.provider_unavailable;
-  emit({ event: 'error', data: { code: 'provider_unavailable', credits, retry_after: retryAfter } });
+  // Our server failing says so (`service_unavailable`); the provider failing and our own limits keep `provider_unavailable`
+  // (what every build shows as "couldn't finish this answer"). How long to wait: the provider's own Retry-After (or our
+  // breaker's cool-off), else a short default.
+  const code: ChatErrorCode = ending === 'server' ? 'service_unavailable' : 'provider_unavailable';
+  const retryAfter = ending === 'provider' && outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS[code]!;
+  emit({ event: 'error', data: { code, credits, ...billing, retry_after: retryAfter } });
+}
+
+/** How a held answer ended (see ChatEnding). A refusal stays a refusal; then the reader leaving (their Stop, recorded by
+ * v1_chat_stop, or a dropped connection; builds without `stop_signal` can't say which), then an answer cut short by our
+ * time limit, our server or the provider, a length limit, and a finished turn with nothing to show (the provider's). */
+async function answerEnding(deps: ChatDependencies, request: ChatRequest, answer: ProviderOutcome,
+  state: { readerLeft: boolean; timedOut: boolean; delivered: boolean }): Promise<ChatEnding> {
+  if (answer.status === 'complete' && answer.stopReason === 'refusal') return 'refusal';
+  if (state.readerLeft) {
+    if (!request.capabilities.includes('stop_signal')) return 'left';
+    return await stopRequested(deps, request.operationID) ? 'stopped' : 'connection';
+  }
+  // The deadline matters only if it cut the answer short (it may fire during the title's grace, after a finished answer).
+  if (answer.status !== 'complete') return state.timedOut ? 'limit' : answer.cause ?? 'provider';
+  if (LIMIT_STOP_REASONS.includes(answer.stopReason ?? '')) return 'limit';
+  return state.delivered ? 'completed' : 'provider';
+}
+
+/** Whether the reader pressed Stop: their app records it (v1_chat_stop) before it closes the stream. A record still on
+ * its way gets one more look after a short wait; one that can't be read counts as not pressed (nothing is charged). */
+async function stopRequested(deps: ChatDependencies, operationID: string): Promise<boolean> {
+  const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  for (let look = 0; look < 2; look++) {
+    try {
+      if (await deps.rpc('worker_chat_stop_requested', { p_account_id: deps.accountID, p_operation_id: operationID }) === true) return true;
+    } catch { /* unknown: not pressed */ }
+    if (look === 0) await sleep(STOP_GRACE_MS);
+  }
+  return false;
 }
 
 /** Seconds a client should wait before asking again, by error (Resilience, fix 6); absent where waiting won't help. */
@@ -971,8 +1037,10 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
         options.onText(text);
       } });
     } catch {
+      // The adapters never throw for a provider's failure: a throw is our own code failing.
       outcome = { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
-        attempts: [{ model: null, estimated: true, usage: { input: options.inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }], exact: false };
+        attempts: [{ model: null, estimated: true, usage: { input: options.inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }], exact: false,
+        cause: 'server' };
     }
     firstID ??= outcome.messageID;
     attempts.push(...outcome.attempts); exact &&= outcome.exact; anthropicSearches += outcome.webSearches ?? 0;
@@ -989,7 +1057,8 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
     const continuation = outcome.stopReason === 'pause_turn'
       || (outcome.stopReason === 'tool_use' && outcome.toolCalls?.some(call => call.name === SEARCH_WEB_TOOL.name));
     if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round >= search.cap || left < MIN_ROUND_TOKENS) {
-      if (continuation && outcome.status === 'complete') outcome = { ...outcome, status: 'failed', failure: 'provider_error' };
+      // A turn that wanted another round past our round or output bound ends at our limit.
+      if (continuation && outcome.status === 'complete') outcome = { ...outcome, status: 'failed', failure: 'provider_error', cause: 'limit' };
       return finish();
     }
     const previous = extra.at(-1);
@@ -1000,7 +1069,7 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
     // A long server-side search turn paused: send it back to continue it.
     if (outcome.stopReason === 'pause_turn') {
       if (search.cap - searches - anthropicSearches <= 0) {
-        outcome = { ...outcome, status: 'failed', failure: 'provider_error' };
+        outcome = { ...outcome, status: 'failed', failure: 'provider_error', cause: 'limit' };
         return finish();
       }
       append(); separate = false; continue;
@@ -1069,13 +1138,17 @@ function marked(extra: MessageParam[]): MessageParam[] {
   });
 }
 
-async function settle(deps: ChatDependencies, operationID: string, credits: number, microusd: number) {
+/** One settlement: the credits the reader pays, the provider spend for the budget, and how the answer ended with the
+ * provider cost Gradstep absorbs (migration 079, worker_settle_chat: settled and recorded in one transaction). */
+interface Settlement { credits: number; microusd: number; action: ChatAction | 'answer'; ending: ChatEnding; absorbed: number }
+async function settle(deps: ChatDependencies, operationID: string, settlement: Settlement) {
   const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
   // Settlement is idempotent for identical amounts, so a lost acknowledgement
   // may be retried. It is never repeated with different amounts.
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      await deps.rpc('worker_settle_operation', { p_account_id: deps.accountID, p_id: operationID, p_actual_credits: credits, p_actual_microusd: microusd });
+      await deps.rpc('worker_settle_chat', { p_account_id: deps.accountID, p_id: operationID, p_actual_credits: settlement.credits,
+        p_actual_microusd: settlement.microusd, p_action: settlement.action, p_ending: settlement.ending, p_absorbed_microusd: settlement.absorbed });
       return;
     } catch (error) {
       const failure = reason(error);

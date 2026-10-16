@@ -122,7 +122,7 @@ test('a missing search admission cannot escape through native fallback even in a
   const original = h.deps.rpc;
   h.deps.rpc = async (name, args) => {
     if (name === 'worker_reserve_chat') return { replayed: false };
-    if (name === 'worker_consume_request' || name === 'worker_settle_operation' || name === 'worker_record_provider_usage') return null;
+    if (name === 'worker_consume_request' || name === 'worker_settle_chat' || name === 'worker_record_provider_usage') return null;
     if (name === 'worker_provider_attempt_begin' && args.p_provider === 'tavily') {
       h.calls.push({ name, params: args }); throw Object.assign(new Error('missing admission'), { code: 'PGRST202' });
     }
@@ -179,6 +179,31 @@ test('an unrecordable model result stops continuation and retries only the ident
   const finishes = h.calls.filter(call => call.name === 'worker_provider_attempt_finish');
   assert.equal(finishes.length, 3); assert.deepEqual(finishes[0].params, finishes[2].params);
   assert.ok(!JSON.stringify(h.logs).includes(privateText));
+});
+
+test('a request not sent, or not recorded, names whose doing it was: our bound (limit) or our server, never the provider (2026-10-16)', async () => {
+  const refused = (reason: string | null, lost = false) => {
+    const h = fixture();
+    h.deps.rpc = async (name, args) => {
+      h.calls.push({ name, params: args });
+      if (lost) throw new Error('response_lost');
+      return { granted: false, state: 'denied', reason };
+    };
+    return h;
+  };
+  for (const [label, h, cause] of [['the next round no longer fits the hold', refused('operation_ceiling'), 'limit'],
+    ['paid work paused', refused('platform_paused'), 'server'], ['capacity', refused('attempt_capacity'), 'server'],
+    ['the admission reply was lost', refused(null, true), 'server']] as const) {
+    let sent = 0;
+    const outcome = await admittedAnthropic(h.deps, async () => { sent++; return complete(); })(params(), streamOptions());
+    assert.equal(outcome.status, 'failed', label); assert.equal(sent, 0, label); assert.equal(outcome.cause, cause, label);
+  }
+  const thrown = await admittedAnthropic(fixture().deps, async () => { throw new Error('our bug'); })(params(), streamOptions());
+  assert.equal(thrown.cause, 'server');
+  const unrecorded = await admittedAnthropic(fixture({ lostFinish: true }).deps, async () => complete())(params(), streamOptions());
+  assert.equal(unrecorded.cause, 'server');
+  const provider = await admittedAnthropic(fixture().deps, async () => ({ ...complete(), status: 'failed' as const, failure: 'provider_error' as const, exact: false }))(params(), streamOptions());
+  assert.equal(provider.cause, undefined, 'a provider failure carries no cause of ours');
 });
 
 test('native search cannot bypass the missing verified cost bound even when offered by a caller', async () => {

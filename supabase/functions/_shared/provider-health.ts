@@ -15,7 +15,11 @@
 export const PROVIDERS = ['anthropic', 'deepseek', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface', 'arxiv'] as const;
 export type ProviderName = typeof PROVIDERS[number];
 export type HealthOutcome = 'ok' | 'throttled' | 'overloaded' | 'server_error' | 'timeout' | 'transport' | 'rejected' | 'breaker_open';
-export type FaultMode = 'throttle' | 'overload' | 'error' | 'timeout' | 'malformed';
+/** `midstream` and `slow` (2026-10-16, migration 079) are streamed answers in the Messages API format (Anthropic and
+ * DeepSeek's compatible API): `midstream` fails as overloaded after its first text; `slow` writes for up to a minute, so a
+ * drill can press Stop or drop the connection partway. Elsewhere they answer as `error`. */
+export type FaultMode = 'throttle' | 'overload' | 'error' | 'timeout' | 'malformed' | 'midstream' | 'slow';
+export const FAULT_MODES: readonly FaultMode[] = ['throttle', 'overload', 'error', 'timeout', 'malformed', 'midstream', 'slow'];
 /** `drill`: a fault drill's synthetic answer, counted apart and never moving the breaker. */
 export interface HealthEvent { provider: ProviderName; route: string; outcome: HealthOutcome; latencyMs: number; retryAfterS: number | null; drill?: boolean }
 export interface BreakerView { provider: ProviderName; state: 'closed' | 'open' | 'half_open'; reopenAt: number | null }
@@ -101,7 +105,7 @@ export function resetBreakers(): void { known.clear(); }
 // ---------------------------------------------------------------------------
 /** The provider's own error shape, so its SDK classifies it exactly as a real one. A breaker's answer is a 429: refused
  * before any processing, never billed, with Retry-After set to the cool-off. */
-export function syntheticResponse(provider: ProviderName, mode: Exclude<FaultMode, 'timeout'> | 'breaker', retryAfterS: number): Response {
+export function syntheticResponse(provider: ProviderName, mode: Exclude<FaultMode, 'timeout' | 'midstream' | 'slow'> | 'breaker', retryAfterS: number): Response {
   const status = mode === 'throttle' || mode === 'breaker' ? 429 : mode === 'overload' ? (provider === 'anthropic' ? 529 : 503) : mode === 'error' ? 500 : 200;
   const headers: Record<string, string> = { 'content-type': 'application/json', 'retry-after': String(retryAfterS),
     'x-gradstep-synthetic': mode === 'breaker' ? 'breaker-open' : `fault-${mode}` };
@@ -110,6 +114,54 @@ export function syntheticResponse(provider: ProviderName, mode: Exclude<FaultMod
   const message = mode === 'breaker' ? 'Gradstep paused calls to this provider after repeated failures.' : `Gradstep fault drill: ${mode}.`;
   const body = provider === 'anthropic' ? { type: 'error', error: { type, message } } : { error: { code: status, status: type, message } };
   return new Response(JSON.stringify(body), { status, headers });
+}
+
+/** The model a request names (its JSON body), for a synthetic stream's message; a plain default otherwise. */
+function requestedModel(body: unknown): string {
+  try {
+    const model = typeof body === 'string' ? (JSON.parse(body) as { model?: unknown }).model : null;
+    if (typeof model === 'string' && /^[a-z0-9][a-z0-9.-]{0,63}$/.test(model)) return model;
+  } catch { /* not JSON */ }
+  return 'claude-haiku-5-5';
+}
+
+/** A drill's streamed answer (`midstream` or `slow`). Its request id starts `drill-` (kept as the attempt's provider
+ * request id), so the drill can reconcile the attempt to zero afterwards: it never reached a provider. */
+export function syntheticStream(mode: 'midstream' | 'slow', model: string, signal: AbortSignal | null | undefined, id: string = crypto.randomUUID()): Response {
+  const encoder = new TextEncoder();
+  const frame = (event: Record<string, unknown>) => encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  const usage = { input_tokens: 12, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  // Resolves false as soon as the caller gives up (the reader left, or the server's deadline).
+  const wait = (ms: number) => new Promise<boolean>(resolve => {
+    if (signal?.aborted) { resolve(false); return; }
+    const timer = setTimeout(() => resolve(true), ms);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(false); }, { once: true });
+  });
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        controller.enqueue(frame({ type: 'message_start', message: { id: `msg_drill_${id.replace(/-/g, '')}`, type: 'message', role: 'assistant', model,
+          content: [], stop_reason: null, stop_sequence: null, usage } }));
+        controller.enqueue(frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
+        if (mode === 'midstream') {
+          controller.enqueue(frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'This answer comes from a Gradstep fault drill and stops partway' } }));
+          controller.enqueue(frame({ type: 'error', error: { type: 'overloaded_error', message: 'Gradstep fault drill: midstream.' } }));
+          controller.close();
+          return;
+        }
+        let written = 0;
+        for (; written < 240; written++) {
+          if (!await wait(250)) { controller.error(new DOMException('Gradstep fault drill: stopped.', 'AbortError')); return; }
+          controller.enqueue(frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: `Drill sentence ${written + 1}. ` } }));
+        }
+        controller.enqueue(frame({ type: 'content_block_stop', index: 0 }));
+        controller.enqueue(frame({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { ...usage, output_tokens: written * 5 } }));
+        controller.enqueue(frame({ type: 'message_stop' }));
+        controller.close();
+      } catch { /* the reader went away */ }
+    },
+  });
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream', 'request-id': `drill-${id}`, 'x-gradstep-synthetic': `fault-${mode}` } });
 }
 
 // ---------------------------------------------------------------------------
@@ -163,8 +215,14 @@ export function providerFetch(inner: Fetch, options: ProviderFetchOptions): Fetc
           record({ provider, route, outcome: 'timeout', latencyMs: now() - started, retryAfterS: null, drill: true });
           throw new DOMException('Gradstep fault drill: timeout.', 'TimeoutError');
         }
-        const response = syntheticResponse(provider, fault.mode, 5);
-        record({ provider, route, outcome: fault.mode === 'malformed' ? 'ok' : classifyStatus(response.status), latencyMs: now() - started, retryAfterS: 5, drill: true });
+        if ((fault.mode === 'midstream' || fault.mode === 'slow') && (provider === 'anthropic' || provider === 'deepseek')) {
+          // A dropped stream is a transport failure; a slow one is, as far as the provider is concerned, fine.
+          record({ provider, route, outcome: fault.mode === 'midstream' ? 'transport' : 'ok', latencyMs: now() - started, retryAfterS: null, drill: true });
+          return syntheticStream(fault.mode, requestedModel(init?.body), init?.signal ?? (input instanceof Request ? input.signal : undefined));
+        }
+        const mode = fault.mode === 'midstream' || fault.mode === 'slow' ? 'error' : fault.mode;
+        const response = syntheticResponse(provider, mode, 5);
+        record({ provider, route, outcome: mode === 'malformed' ? 'ok' : classifyStatus(response.status), latencyMs: now() - started, retryAfterS: 5, drill: true });
         return response;
       }
     }
@@ -235,7 +293,7 @@ export function rpcFaultSource(client: HealthRpc, now: () => number = Date.now):
     try {
       const { data, error } = await client.rpc('worker_fault_injection_active', { p_account: account });
       if (!error && Array.isArray(data)) faults = data.filter((f): f is ActiveFault => !!f && typeof f === 'object'
-        && typeof (f as ActiveFault).provider === 'string' && ['throttle', 'overload', 'error', 'timeout', 'malformed'].includes((f as ActiveFault).mode))
+        && typeof (f as ActiveFault).provider === 'string' && FAULT_MODES.includes((f as ActiveFault).mode))
         .map(f => ({ provider: f.provider, route: typeof f.route === 'string' ? f.route : null, mode: f.mode, rate: Number(f.rate) > 0 ? Math.min(1, Number(f.rate)) : 1 }));
     } catch { faults = []; }
     cache.set(account, { at: now(), faults });
