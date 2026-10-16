@@ -132,7 +132,8 @@ match is added with `v2_begin_web_import` (source `openalex:W…`) **only if the
 `capabilities: ["web_import"]`** (body field; unknown capability values are ignored, malformed ones rejected; part
 of the request digest when present). Other capabilities: `visual_answers`, `figure_requests`, `stop_signal` (below)
 and `figure_view` (2026-10-16: the apps send it on every paper chat request, never Add paper or a repair, so the figure
-view's walkthrough shares the chat's cached tools; [FIGURE_VIEW.md](FIGURE_VIEW.md)). The app sends `web_import` on Ingest requests from builds that show web papers. Older
+view's walkthrough shares the chat's cached tools; [FIGURE_VIEW.md](FIGURE_VIEW.md); its actions are `figure`,
+`figure_simpler` and, since TestFlight 62's feedback, `figure_detail`, one part extracted with more context). The app sends `web_import` on Ingest requests from builds that show web papers. Older
 builds get "needs the latest Science Reader version"; a match without an open copy gets "isn't openly available".
 The presence check reads `v3_library_page` (all sources). The paper worker then reads the work from
 `api.openalex.org` itself (metadata and up to three open-access PDF locations, never arXiv-hosted) and converts a

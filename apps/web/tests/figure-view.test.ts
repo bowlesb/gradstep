@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, figureBox, figureKey, figureTurn, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
+import { cropRect, cropStyle, detailQuote, figureBox, figureKey, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -51,6 +51,22 @@ describe('the walkthrough event', () => {
     const frames = (text: string) => new SSEParser().consume(new TextEncoder().encode(text));
     expect(frames(`event: figure\ndata: ${JSON.stringify(event)}\n\n`)).toEqual([{ type: 'figure', walkthrough: event }]);
     expect(frames('event: figure\ndata: {"format":"x"}\n\nevent: delta\ndata: {"text":"words"}\n\n')).toEqual([{ type: 'delta', text: 'words' }]);
+  });
+});
+
+// One part extracted (owner, TestFlight 62: "Extract the subfigure and more context").
+const detail = { format: 'figure-detail-v1', label: '(a)', title: 'Three stages', text: 'Up close: three boxes [¶2].', paragraphs: [2], box: { x: 0, y: 0, w: 0.5, h: 1 } };
+describe('the detail event', () => {
+  it('needs a usable region and words; it arrives as a stream event, an unusable one dropped', () => {
+    expect(parseFigureDetail(detail)).toEqual(detail);
+    for (const box of [undefined, { x: 0, y: 0, w: 1, h: 1 }, { x: 0.9, y: 0, w: 0.5, h: 0.5 }, { x: 0, y: 0, w: 0.01, h: 0.5 }]) expect(parseFigureDetail({ ...detail, box })).toBeNull();
+    expect(parseFigureDetail({ ...detail, text: ' ' })).toBeNull();
+    expect(parseFigureDetail({ ...detail, format: 'figure-walkthrough-v1' })).toBeNull();
+    expect(parseFigureDetail({ ...detail, title: '', paragraphs: [2, 2, 0, 'x'] })).toMatchObject({ label: '', title: '(a)', paragraphs: [2] });
+    const frames = (text: string) => new SSEParser().consume(new TextEncoder().encode(text));
+    expect(frames(`event: figure_detail\ndata: ${JSON.stringify(detail)}\n\n`)).toEqual([{ type: 'figure_detail', detail }]);
+    expect(frames('event: figure_detail\ndata: {"format":"x"}\n\n')).toEqual([]);
+    expect(detailQuote({ label: '(a)', title: 'Three stages', text: 'A reward model first.' })).toBe('(a) Three stages\nA reward model first.');
   });
 });
 
@@ -125,6 +141,21 @@ describe('the figure view in the chat session', () => {
     expect(server.requests[1]).toMatchObject({ action: 'figure_simpler', selection: part.text, turns: [{ role: 'user', text: 'Figure 1 (a)' }] });
     expect(chat.savedFigure(bundle.manifestSHA256, 'b-3', 'figure_simpler', part.key)).toEqual(simpler);
     expect(chat.savedFigure(bundle.manifestSHA256, 'b-3', 'figure_simpler', '1::One stage')).toBeNull();
+  });
+  it('extracts a part: its label, title and text as the passage, the region kept with the result; words alone without a region', async () => {
+    const chat = await setup([[{ type: 'figure_detail', detail: detail as any }, { type: 'done', stopReason: 'end_turn', credits: 3, charged: true }],
+      [{ type: 'delta', text: 'The legend, read closely.' }, { type: 'done', stopReason: 'end_turn', credits: 2, charged: true }]]);
+    const part = { key: '0:(a):Three stages', label: '(a)', title: 'Three stages', text: 'A reward model first [¶2].' };
+    const closer = await chat.figure(member, { figureID: 'b-3', part }, 'figure_detail', () => {}, new AbortController().signal);
+    expect(closer).toMatchObject({ phase: 'done', detail, image: { data: 'AAAA' }, charged: true });
+    expect(server.requests[0]).toMatchObject({ action: 'figure_detail', selection: '(a) Three stages\nA reward model first [¶2].', turns: [{ role: 'user', text: 'Figure 1 (a)' }] });
+    expect(requestBody(server.requests[0])).toMatchObject({ action: 'figure_detail' });
+    expect(requestBody(server.requests[0]).follow_ups).toBeUndefined();
+    expect(chat.savedFigure(bundle.manifestSHA256, 'b-3', 'figure_detail', part.key)).toEqual(closer);
+    const legend = { key: '2::Legend', label: '', title: 'Legend', text: 'Arrows show data flow.' };
+    const words = await chat.figure(member, { figureID: 'b-3', part: legend }, 'figure_detail', () => {}, new AbortController().signal);
+    expect(words).toMatchObject({ phase: 'done', text: 'The legend, read closely.' }); expect(words.detail).toBeUndefined();
+    expect((await chat.figure(member, { figureID: 'b-3' }, 'figure_detail', () => {}, new AbortController().signal)).issue).toBe('invalid_request');
   });
   it('shows the words when no walkthrough came, fails plainly with nothing, and sends nothing without consent or the paper', async () => {
     const words = await (await setup([[{ type: 'delta', text: 'The figure shows two pipelines.' }, { type: 'done', stopReason: 'max_tokens', credits: 0, charged: false, reason: 'limit' }]]))

@@ -45,7 +45,7 @@ async function openFigure(page:Page){
  return viewer;
 }
 
-test('a figure is explained only on request, part by part with its crop; a part goes simpler, into the paper and into the chat',async({page,request})=>{
+test('a figure is explained only on request, part by part with its crop; a part goes simpler, up close, into the paper and into the chat',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const errors:string[]=[];page.on('pageerror',e=>errors.push(String(e)));
  await openFixture(page,request);
@@ -97,7 +97,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  // A part's ⋯: Explain more simply streams under that part.
  await viewer.getByTestId('figure-section-menu-0').click();
  const menu=page.getByRole('menu',{name:'(a) · The three-stage pipeline: options'});
- await expect(menu.getByRole('menuitem')).toHaveText(['Explain more simply','Show in the paper','Ask in chat about this']);
+ await expect(menu.getByRole('menuitem')).toHaveText(['Explain more simply','Extract the subfigure and more context','Show in the paper','Ask in chat about this']);
  await menu.getByRole('menuitem',{name:'Explain more simply'}).click();
  const simpler=viewer.getByTestId('figure-section-0').getByTestId('figure-simpler');
  await expect(simpler).toContainText('is a second network that learns to score answers');
@@ -107,6 +107,30 @@ test('a figure is explained only on request, part by part with its crop; a part 
   messages:[{role:'user',text:'Figure 1 (a)'}]});
  expect(sent[1].capabilities).toEqual(sent[0].capabilities);expect(sent[1].figures).toHaveLength(1);
  await page.screenshot({path:`../../.artifacts/figure-view-simpler-${test.info().project.name}.png`});
+ // Extract the subfigure and more context (owner, TestFlight 62): a loader under the part, then its crop and the closer
+ // reading; a part with no region (the Legend) gets the words and says it couldn't crop.
+ await viewer.getByTestId('figure-section-menu-0').click();
+ await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
+ const closer=viewer.getByTestId('figure-section-0').getByTestId('figure-detail');
+ await expect(closer.getByRole('status')).toHaveText('Extracting this part…');
+ await expect(closer).toContainText('three boxes joined by arrows');
+ const closerCrop=closer.getByTestId('figure-detail-crop');
+ await expect(closerCrop).toBeVisible();
+ expect(await closerCrop.evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['200% 100%','0%','0%']);
+ await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
+ await expect(viewer).not.toContainText(/\d+\s+credits?\b/);
+ sent=await chats();
+ expect(sent[2]).toMatchObject({action:'figure_detail',selection:{quote:'(a) The three-stage pipeline\nRead left to right: preference data trains a **reward model**, which then scores samples for reinforcement learning [¶2].'},
+  messages:[{role:'user',text:'Figure 1 (a)'}]});
+ expect(sent[2].capabilities).toEqual(sent[0].capabilities);expect(sent[2].figures).toHaveLength(1);
+ for(const key of ['topic_title','follow_ups'])expect(sent[2]).not.toHaveProperty(key);
+ await closer.scrollIntoViewIfNeeded();
+ await page.screenshot({path:`../../.artifacts/figure-view-detail-${test.info().project.name}.png`});
+ await viewer.getByTestId('figure-section-menu-2').click();
+ await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
+ const legend=viewer.getByTestId('figure-section-2').getByTestId('figure-detail');
+ await expect(legend.getByTestId('figure-detail-no-crop')).toBeVisible();
+ await expect(legend).toContainText('arrows for data flow');await expect(legend.getByTestId('figure-detail-crop')).toHaveCount(0);
  // Dark: the page, the parts and the crop follow the app's appearance.
  await page.emulateMedia({colorScheme:'dark'});
  await viewer.getByTestId('figure-section-1').scrollIntoViewIfNeeded();
@@ -122,8 +146,9 @@ test('a figure is explained only on request, part by part with its crop; a part 
  viewer=await openFigure(page);
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await expect(viewer.getByTestId('figure-section-0').getByTestId('figure-simpler')).toContainText('second network');
+ await expect(viewer.getByTestId('figure-section-0').getByTestId('figure-detail-crop')).toBeVisible();
  await expect(viewer.getByTestId('figure-explain')).toHaveCount(0);
- expect(await chats()).toHaveLength(2);
+ expect(await chats()).toHaveLength(4);
 
  // Ask in chat about this: an unsent draft about that part, the composer focused; nothing is sent.
  await viewer.getByTestId('figure-section-menu-2').click();
@@ -132,7 +157,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  const composer=page.getByRole('textbox',{name:'Message',exact:true});
  await expect(composer).toBeVisible();await expect(composer).toHaveValue('About “Arrows show where data flows; the trophy marks the preferred response.”: ');
  await expect(composer).toBeFocused();
- expect(await chats()).toHaveLength(2);
+ expect(await chats()).toHaveLength(4);
  expect(errors).toEqual([]);
 });
 
