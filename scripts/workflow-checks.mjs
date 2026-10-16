@@ -427,14 +427,21 @@ check('config.edge-functions', { title: 'Edge functions are deployed and active'
 check('config.function-secrets', { title: 'Function secrets exist (names only)', suites: ALL, timeout: 60 }, async () => {
   if (!management) return skip('needs a management token');
   // What the deployed functions read (OCR keys live with the Cloud Run worker, not here).
-  const required = ['ADMIN_ORIGINS', 'CHAT_WEB_SEARCH', 'ANTHROPIC_API_KEY', 'TAVILY_API_KEY', 'APP_STORE_BUNDLE_ID', 'APP_STORE_ENVIRONMENTS', 'APP_STORE_ONLINE_CHECKS'];
+  // DeepSeek in chat (infra chat_deepseek: on, hidden or off) needs its key whenever it is not off.
+  const deepseek = infra.chat_deepseek ?? 'off';
+  const required = ['ADMIN_ORIGINS', 'CHAT_WEB_SEARCH', 'ANTHROPIC_API_KEY', 'TAVILY_API_KEY', 'APP_STORE_BUNDLE_ID', 'APP_STORE_ENVIRONMENTS', 'APP_STORE_ONLINE_CHECKS',
+    ...(deepseek !== 'off' ? ['CHAT_DEEPSEEK', 'DEEPSEEK_API_KEY'] : [])];
   const secrets = await management.get('/secrets');
   const missing = required.filter(name => !secrets.some(s => s.name === name));
   if (missing.length) return fail(`missing function secrets: ${missing.join(', ')}`);
-  // Values are listed as SHA-256 digests; the web-search switch must match infra.
+  // Values are listed as SHA-256 digests; the web-search and DeepSeek switches must match infra.
   const search = secrets.find(s => s.name === 'CHAT_WEB_SEARCH')?.value, want = infra.chat_web_search ? 'on' : 'off';
   if (search && [sha256('on'), sha256('off')].includes(search) && search !== sha256(want)) return fail(`CHAT_WEB_SEARCH is ${want === 'on' ? 'off' : 'on'}, infra says ${want}`);
-  return pass(`${required.length} required present; web search ${want}`);
+  const switched = secrets.find(s => s.name === 'CHAT_DEEPSEEK')?.value;
+  const modes = ['on', 'hidden', 'off'];
+  if (switched && modes.some(m => sha256(m) === switched) && switched !== sha256(deepseek))
+    return fail(`CHAT_DEEPSEEK is ${modes.find(m => sha256(m) === switched)}, infra says ${deepseek}`);
+  return pass(`${required.length} required present; web search ${want}; chat DeepSeek ${deepseek}`);
 });
 
 check('config.pipeline-budget', { title: 'Pipeline enabled with budget headroom', suites: ALL, timeout: 60 }, async () => {

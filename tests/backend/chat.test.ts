@@ -5,7 +5,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { BUSY_RETRY_MAX_MS, retryOnceWhenBusy } from '../../supabase/functions/_shared/anthropic.ts';
 import {
   ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, holdForParams, hourCachedCharacters, PAPER_CACHE_TTL, priceAttempts, ratesFor,
-  streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
+  streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, DEEPSEEK_TARIFF, type ChatStatus, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
@@ -901,7 +901,7 @@ test('Related searches the web by instruction; every answer logs counts only', a
   assert.ok((tools as string[]).includes('web_search'));
   assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true,
     search_provider: 'anthropic', web_searches: 3, tavily_searches: 0, search_failures: 0, failover: false, sources: 0,
-    profile: 'sonnet-low-standard', title: 'not_requested' }]);
+    profile: 'sonnet-low-standard', auto_effort: false, provider: 'anthropic', title: 'not_requested' }]);
   const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!;
   assert.equal((usage.params.p_units as { web_searches: number }).web_searches, 3);
 });
@@ -928,9 +928,10 @@ test('consent v2 is accepted alongside v1 and keeps its own request digest', () 
   assert.equal(validateChatRequest(v2(paperBody())).consentVersion, 'cloud-ai-v2');
   assert.equal(validateChatRequest(paperBody()).consentVersion, 'cloud-ai-v1');
   assert.notEqual(canonicalRequest(validateChatRequest(paperBody())), canonicalRequest(validateChatRequest(v2(paperBody()))));
-  // v3 (2026-10-15) names figures; an unknown version is still refused.
+  // v3 (2026-10-15) names figures and v4 (2026-10-16) DeepSeek; an unknown version is still refused.
   assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })).consentVersion, 'cloud-ai-v3');
-  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v4' })), { code: 'invalid_request' });
+  assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v4' })).consentVersion, 'cloud-ai-v4');
+  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v5' })), { code: 'invalid_request' });
 });
 
 test('Tavily searches run between rounds as search results (not citable: no cache-breaking switch) and are priced for the reader but not as provider spend', async () => {
@@ -971,7 +972,7 @@ test('Tavily searches run between rounds as search results (not citable: no cach
     p_model: 'search-basic', p_microusd: 0, p_units: { searches: 1, credits: 1, failed: 0, list_microusd: 8_000 } });
   assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true,
     search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, failover: false, sources: 1,
-    profile: 'sonnet-low-standard', title: 'not_requested' }]);
+    profile: 'sonnet-low-standard', auto_effort: false, provider: 'anthropic', title: 'not_requested' }]);
   assert.match(text, /Sources:\n1\. IPO — https:\/\/arxiv\.org\/abs\/2310\.12036/);
   noPlaintext(h.logs);
 });
@@ -1377,16 +1378,18 @@ test('the published profile table is versioned, complete, and its default is exa
   assert.equal(table.version, 'chat-profiles-v1'); assert.equal(table.rate_version, 'beta-credits-v1');
   assert.deepEqual(table.default, { model: 'sonnet', effort: 'low', length: 'standard' });
   assert.deepEqual(table.models.map(m => [m.id, m.api_model]), [['haiku', 'claude-haiku-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['opus', 'claude-opus-5-5']]);
-  assert.deepEqual(table.efforts.map(e => e.id), ['low', 'medium', 'high']);
+  // 2026-10-16: `auto` follows the three efforts, and its profiles follow the 27 explicit ones (tests/backend/chat-profiles.test.ts).
+  assert.deepEqual(table.efforts.map(e => e.id), ['low', 'medium', 'high', 'auto']);
   assert.deepEqual(table.lengths.map(l => l.id), ['brief', 'standard', 'detailed']);
-  assert.equal(table.profiles.length, 27);
-  assert.equal(new Set(table.profiles.map(p => p.id)).size, 27);
-  const byID = new Map(table.profiles.map(p => [p.id, p]));
+  const explicit = table.profiles.filter(p => p.effort !== 'auto');
+  assert.equal(explicit.length, 27); assert.deepEqual(table.profiles.slice(0, 27), explicit);
+  assert.equal(new Set(table.profiles.map(p => p.id)).size, table.profiles.length);
+  const byID = new Map(explicit.map(p => [p.id, p]));
   assert.equal(byID.get('sonnet-low-standard')!.max_output_tokens, CHAT_MAX_TOKENS);
   // Output allowances: the length's answer plus the effort's thinking (max_tokens covers both).
   assert.deepEqual(['brief', 'standard', 'detailed'].map(l => ['low', 'medium', 'high'].map(e => byID.get(`sonnet-${e}-${l}`)!.max_output_tokens)),
     [[3_000, 5_000, 9_000], [8_000, 10_000, 14_000], [12_000, 14_000, 18_000]]);
-  for (const p of table.profiles) {
+  for (const p of explicit) {
     assert.ok(p.credits.low <= p.credits.high && p.credits.high <= p.credits.max, `${p.id} estimate is ordered`);
     assert.equal(p.max_output_tokens, byID.get(`sonnet-${p.effort}-${p.length}`)!.max_output_tokens, 'allowances do not depend on the model');
   }
@@ -2176,4 +2179,139 @@ test('the paper is cached for an hour: held at the one-hour write rate, settled 
   const rates = ratesFor('claude-sonnet-5-5', 1000).rates;
   const priced = priceAttempts([{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 1000, cacheRead: 0, output: 0 } }]);
   assert.equal(priced, 1000 * rates.cacheWrite1h, 'settlement prices one-hour writes at their own rate');
+});
+
+// ---------- Automatic effort and DeepSeek (2026-10-16, CHAT.md "Chat redesign from build 57 feedback") ----------
+const v4 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v4' });
+type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+function sending(sent: Params[], outcome: (params: Params) => ProviderOutcome = params => completeOutcome({ model: params.model,
+  attempts: [{ model: params.model, estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 300 } }] })) {
+  return async (params: Params, stream: StreamOptions) => { sent.push(params); stream.onText('An answer.'); return outcome(params); };
+}
+
+test('auto effort is resolved from the question before the hold; the quote, the request and the answer carry the resolved profile', async () => {
+  const run = async (profile: Record<string, string>, question: string) => {
+    const sent: Params[] = [];
+    const h = harness({ generate: sending(sent) });
+    const body = paperBody({ profile, messages: [{ role: 'user', text: question }] });
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+    const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
+    return { sent, reserve, quote: reserve.p_quote as Record<string, unknown>, done: h.events.at(-1)!, answers: h.answers, body };
+  };
+  const why = await run({ model: 'sonnet', effort: 'auto', length: 'standard' }, 'Why does DPO need a reference model?');
+  assert.equal(why.sent[0].model, 'claude-sonnet-5-5'); assert.deepEqual(why.sent[0].output_config, { effort: 'medium' }); assert.equal(why.sent[0].max_tokens, 10_000);
+  assert.deepEqual([why.quote.profile, why.quote.effort, why.quote.max_output_tokens], ['sonnet-medium-standard', 'medium', 10_000]);
+  assert.equal(why.done.event, 'done');
+  assert.equal((why.done.data as { profile: string }).profile, 'sonnet-medium-standard'); assert.equal((why.done.data as { effort: string }).effort, 'medium');
+  assert.equal(why.answers[0].profile, 'sonnet-medium-standard'); assert.equal(why.answers[0].auto_effort, true);
+  // The same hold as asking for Medium outright, but its own request (and digest): the body said `auto`.
+  const medium = await run({ model: 'sonnet', effort: 'medium', length: 'standard' }, 'Why does DPO need a reference model?');
+  assert.equal(why.reserve.p_microusd, medium.reserve.p_microusd); assert.equal(why.reserve.p_credits, medium.reserve.p_credits);
+  assert.notEqual(why.reserve.p_request_sha256, medium.reserve.p_request_sha256);
+  assert.equal((medium.done.data as { effort?: string }).effort, undefined, 'only an `auto` request is told which effort was picked');
+  assert.match(canonicalRequest(validateChatRequest(why.body)), /"effort":"auto"/);
+  // A plain question stays at Low; Brief is always Low; Detailed asks for reasoning at High.
+  const plain = await run({ model: 'sonnet', effort: 'auto', length: 'standard' }, 'What dataset do they use?');
+  assert.deepEqual([plain.quote.profile, (plain.done.data as { effort: string }).effort], ['sonnet-low-standard', 'low']);
+  assert.notEqual(plain.reserve.p_request_sha256, (await run({ model: 'sonnet', effort: 'low', length: 'standard' }, 'What dataset do they use?')).reserve.p_request_sha256,
+    'auto and the default are different requests even when auto picks low');
+  assert.equal((await run({ model: 'haiku', effort: 'auto', length: 'brief' }, 'Derive the loss step by step.')).quote.profile, 'haiku-low-brief');
+  const deep = await run({ model: 'opus', effort: 'auto', length: 'detailed' }, 'Derive the loss step by step.');
+  assert.deepEqual([deep.quote.profile, deep.sent[0].max_tokens, deep.sent[0].output_config], ['opus-high-detailed', 18_000, { effort: 'high' }]);
+  // A diagram repair still takes no profile, auto included.
+  assert.throws(() => validateChatRequest({ operation_id: operation, consent_version: 'cloud-ai-v2', mode: 'general', action: 'diagram_fix',
+    messages: [{ role: 'user', text: 'Title: x' }], profile: { model: 'sonnet', effort: 'auto', length: 'standard' } }), { code: 'invalid_request' });
+});
+
+test('auto reads the equation selection and attached figures', async () => {
+  const sent: Params[] = [];
+  const h = harness({ generate: sending(sent) });
+  await runChat(h.deps, paperBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' }, selection: { quote: '\\pi^*(y|x) = \\frac{1}{Z(x)} \\pi_{ref}(y|x)' },
+    messages: [{ role: 'user', text: 'What does this say?' }] }), h.emit, new AbortController().signal);
+  assert.deepEqual(sent[0].output_config, { effort: 'medium' });
+  const pictured = harness({ generate: sending(sent) });
+  await runChat(pictured.deps, { ...paperBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' }, messages: [{ role: 'user', text: 'What does Figure 2 show?' }] }),
+    consent_version: 'cloud-ai-v3', figures: [figure()] }, pictured.emit, new AbortController().signal);
+  assert.deepEqual(sent[1].output_config, { effort: 'medium' });
+});
+
+test('DeepSeek needs consent v4 and the server switch; refusals come before any hold', async () => {
+  const choice = { profile: { model: 'deepseek', effort: 'auto', length: 'standard' } };
+  for (const consent of ['cloud-ai-v1', 'cloud-ai-v2', 'cloud-ai-v3']) {
+    assert.throws(() => validateChatRequest({ ...paperBody(choice), consent_version: consent }), { code: 'consent_required' }, consent);
+    const h = harness({ generate: sending([]) }); h.deps.deepseek = true;
+    await runChat(h.deps, { ...paperBody(choice), consent_version: consent }, h.emit, new AbortController().signal);
+    assert.deepEqual(h.events, [{ event: 'error', data: { code: 'consent_required' } }]);
+    assert.deepEqual(names(h.calls), ['worker_consume_request'], 'rate-limited, then refused before any hold');
+  }
+  // Switched off (or no key): the choice is not one the server offers.
+  const off = harness({ generate: sending([]) });
+  await runChat(off.deps, v4(paperBody(choice)), off.emit, new AbortController().signal);
+  assert.deepEqual(off.events, [{ event: 'error', data: { code: 'invalid_request' } }]);
+  assert.ok(!names(off.calls).includes('worker_reserve_chat'));
+  // v4 changes nothing for a Claude answer: figures and Tavily stay named.
+  assert.equal(validateChatRequest(v4(paperBody({ figures: [figure()] }))).figures.length, 1);
+});
+
+test('a DeepSeek answer: its model and no Claude extras, figures kept, no provider search tool, DeepSeek tariff, peak pricing, usage under DeepSeek', async () => {
+  const sent: Params[] = [];
+  const h = harness({ generate: sending(sent) });
+  h.deps.deepseek = true; h.deps.webSearch = true; h.deps.nativeSearch = true;
+  await runChat(h.deps, v4({ ...paperBody({ profile: { model: 'deepseek', effort: 'auto', length: 'standard' }, topic_title: true,
+    messages: [{ role: 'user', text: 'What does Figure 2 show?' }] }), figures: [figure()] }), h.emit, new AbortController().signal);
+  const answer = sent.find(p => p.model === 'deepseek-flash')!;
+  assert.ok(answer, 'the answer went to deepseek-flash');
+  assert.deepEqual(answer.output_config, { effort: 'medium' }); assert.deepEqual(answer.thinking, { type: 'adaptive' }); assert.equal(answer.max_tokens, 10_000);
+  assert.equal(answer.fallbacks, undefined); assert.equal(answer.betas, undefined);
+  const tools = (answer.tools ?? []).map(t => (t as { name: string }).name);
+  assert.ok(!tools.includes('web_search'), 'never Anthropic\'s search tool, even with native search on');
+  assert.ok(tools.includes('show_figure_parts'));
+  const last = answer.messages.at(-1)!.content as { type: string; source?: { media_type: string } }[];
+  assert.equal(last.find(b => b.type === 'image')?.source?.media_type, 'image/jpeg', 'the figure goes with the question');
+  // The title stays on Claude Haiku.
+  assert.ok(sent.some(p => p.model === 'claude-haiku-5-5'));
+  const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params, quote = reserve.p_quote as Record<string, unknown>;
+  assert.deepEqual([quote.profile, quote.model, quote.effort, quote.tariff, quote.max_searches], ['deepseek-medium-standard', 'deepseek-flash', 'medium', DEEPSEEK_TARIFF, 0]);
+  // Held at DeepSeek's own rates (twice, for the uncounted tokenizer), far below a Sonnet hold for the same question.
+  const sonnet = harness({ generate: sending([]) });
+  await runChat(sonnet.deps, v4({ ...paperBody({ profile: { model: 'sonnet', effort: 'medium', length: 'standard' }, topic_title: true,
+    messages: [{ role: 'user', text: 'What does Figure 2 show?' }] }), figures: [figure()] }), sonnet.emit, new AbortController().signal);
+  const sonnetHold = Number(sonnet.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
+  assert.ok(Number(reserve.p_microusd) * 4 < sonnetHold, `${reserve.p_microusd} vs ${sonnetHold}`);
+  // 900 uncached input at $0.30 and 300 output at $1.20 per million (peak), plus the title's Haiku tokens at Anthropic's card.
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.equal(settle.p_actual_microusd, Math.ceil(900 * 0.3 + 300 * 1.2 + 900 * 0.1 + 300 * 0.5));
+  const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!.params;
+  assert.equal(usage.p_provider, 'deepseek');
+  const done = h.events.find(e => e.event === 'done')!.data as { profile: string; model: string; effort: string };
+  assert.deepEqual([done.profile, done.model, done.effort], ['deepseek-medium-standard', 'deepseek-flash', 'medium']);
+  assert.deepEqual([h.answers[0].provider, h.answers[0].search_provider], ['deepseek', 'none']);
+});
+
+test('DeepSeek searches only through our Tavily tool, and never fails over to Anthropic\'s search', async () => {
+  const sent: Sent[] = [];
+  const deepseekRound = (output: number) => [{ model: 'deepseek-flash', estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output } }];
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(structuredClone(params) as unknown as Sent);
+    if (sent.length === 1) { stream.onText('Let me look.'); return { ...searchRound([{ id: 'toolu_s1', input: { query: 'IPO', academic: true } }]), model: 'deepseek-flash', attempts: deepseekRound(120) }; }
+    stream.onText('IPO is related.'); return completeOutcome({ model: 'deepseek-flash', attempts: deepseekRound(100) });
+  } });
+  h.deps.deepseek = true; h.deps.nativeSearch = true;
+  searching(h, [found]);
+  await runChat(h.deps, v4(paperBody({ profile: { model: 'deepseek', effort: 'low', length: 'standard' }, action: 'related', selection: { quote: 'preference optimization' } })),
+    h.emit, new AbortController().signal);
+  const tools = sent[0].tools!.map(t => t.name);
+  assert.ok(tools.includes('search_web') && !tools.includes('web_search'));
+  assert.equal(h.answers[0].search_provider, 'tavily'); assert.equal(h.answers[0].tavily_searches, 1);
+  let rounds = 0;
+  const failing = harness({ generate: async (params, stream) => {
+    rounds++;
+    if (rounds === 1) return { ...searchRound([{ id: 'toolu_s1', input: { query: 'IPO' } }]), model: 'deepseek-flash', attempts: deepseekRound(120) };
+    assert.ok(!(params.tools ?? []).some(t => 'name' in t && t.name === 'web_search'), 'no switch to Anthropic\'s search');
+    stream.onText('Without search.'); return completeOutcome({ model: 'deepseek-flash', attempts: deepseekRound(100) });
+  } });
+  failing.deps.deepseek = true; failing.deps.nativeSearch = true;
+  searching(failing, [{ status: 'failed', failure: 'unavailable', retryAfterMs: null }]);
+  await runChat(failing.deps, v4(paperBody({ profile: { model: 'deepseek', effort: 'low', length: 'standard' } })), failing.emit, new AbortController().signal);
+  assert.equal(rounds, 2); assert.equal(failing.answers[0].failover, false);
 });

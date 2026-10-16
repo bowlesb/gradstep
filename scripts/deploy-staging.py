@@ -27,6 +27,8 @@ def parse_args(argv=None):
     parser.add_argument('--functions', nargs='*', help='Subset of functions to deploy')
     parser.add_argument('--rotate-pipeline-secret', action='store_true', help='Generate a new worker secret and update the function and Vault')
     parser.add_argument('--chat-web-search', choices=['on', 'off'], help='Override infra chat_web_search (Anthropic web search in chat)')
+    parser.add_argument('--chat-deepseek', choices=['on', 'hidden', 'off'],
+                        help='Override infra chat_deepseek: DeepSeek in chat published (on), accepted but unpublished for checks (hidden), or off')
     parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploying (docs/architecture/WORKFLOW_CHECKS.md)')
     return parser.parse_args(argv)
 
@@ -141,9 +143,16 @@ def deploy(args):
         env['FEED_REFRESH_SECRET'] = value
         print('Generated a new dedicated feed refresh secret in the local environment file')
     web_search = args.chat_web_search or ('on' if config.get('chat_web_search') else 'off')
+    # DeepSeek in chat (docs/architecture/CHAT.md "DeepSeek in chat"): on, hidden (accepted, not published) or off.
+    chat_deepseek = args.chat_deepseek or config.get('chat_deepseek', 'off')
+    if chat_deepseek not in ('on', 'hidden', 'off'):
+        raise SystemExit('infra chat_deepseek must be on, hidden or off')
+    if chat_deepseek != 'off' and not providers.get('DEEPSEEK_API_KEY'):
+        raise SystemExit('chat_deepseek needs DEEPSEEK_API_KEY in .env.providers')
     function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                         {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
                         {'name': 'CHAT_WEB_SEARCH', 'value': web_search},
+                        {'name': 'CHAT_DEEPSEEK', 'value': chat_deepseek},
                         # Every function refuses requests to arXiv (the guard's default, stated here; _shared/egress.ts).
                         {'name': 'EGRESS_ARXIV', 'value': 'block'},
                         # Fault drills (docs/architecture/RESILIENCE.md): test accounts only; never set for production.
@@ -158,10 +167,11 @@ def deploy(args):
                              {'name': 'APP_STORE_ENVIRONMENTS', 'value': ','.join(store['environments'])},
                              {'name': 'APP_STORE_ONLINE_CHECKS', 'value': 'true' if store.get('online_checks', True) else 'false'}]
         if store.get('app_apple_id'): function_secrets.append({'name': 'APP_STORE_APP_APPLE_ID', 'value': str(store['app_apple_id'])})
-    for name in ['ANTHROPIC_API_KEY', 'TAVILY_API_KEY']:
+    # DEEPSEEK_API_KEY: chat answers when the reader chooses DeepSeek (the podcast worker has its own copy on Cloud Run).
+    for name in ['ANTHROPIC_API_KEY', 'TAVILY_API_KEY'] + (['DEEPSEEK_API_KEY'] if chat_deepseek != 'off' else []):
         if providers.get(name): function_secrets.append({'name': name, 'value': providers[name]})
     request(base + '/secrets', mgmt, function_secrets)
-    print('Set function secrets:', ', '.join(s['name'] for s in function_secrets), f'(chat web search {web_search})')
+    print('Set function secrets:', ', '.join(s['name'] for s in function_secrets), f'(chat web search {web_search}; chat DeepSeek {chat_deepseek})')
 
     for name in (args.functions if args.functions is not None else config['functions']):
         if not (ROOT/'supabase/functions'/name/'index.ts').exists():
