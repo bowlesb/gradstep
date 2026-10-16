@@ -3609,6 +3609,15 @@ final class ReaderModel {
                     figures = ChatFigureFinder.images(question: question, selection: turn.selection, bundle: bundle)
                     figureManifest = bundle.manifestSHA256
                 }
+            } else if let legacy = legacyChatContext(for: turn) {
+                // An arXiv paper from before the HTML-first reader: the server no longer keeps its text (2026-10-16,
+                // DATA_HANDLING_AND_COSTS.md "Server paper copies: retired"), so the question carries the text this
+                // device prepared, naming the library item; the chat stays bound to the document id.
+                localContext = legacy.context
+                if turn.action != .ingest, turn.action != .diagramFix, let question = transcript.last?.text {
+                    figures = ChatFigureFinder.images(question: question, selection: turn.selection, bundle: legacy.bundle)
+                    figureManifest = legacy.bundle.manifestSHA256
+                }
             } else { localContext = nil }
             #if DEBUG && FIXTURE_HOST
             // Journeys (`--chat-fixture-mode=figure_parts`): the sample paper's Figure 1 goes with the question, as a
@@ -3618,7 +3627,8 @@ final class ReaderModel {
                 figures = ChatFigureFinder.images(question: "Figure 1", selection: nil, bundle: bundle); figureManifest = bundle.manifestSHA256
             }
             #endif
-            request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection,
+            request = try ChatGenerationRequest.make(operationID: UUID(), documentID: localContext == nil ? turn.documentID : (turn.paperReference == nil ? nil : turn.documentID),
+                                                     transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
                                                      study: turn.study, visualAnswers: visualAnswers, figures: figures)
         } catch {
@@ -3636,6 +3646,18 @@ final class ReaderModel {
             await self?.runGeneration(pending, request: request, transport: transport, choice: choice)
         }
         chatGenerations[turn.composerID] = generation
+    }
+
+    /// A legacy arXiv library item's text as prepared on this device, for a chat about its document (nil when the paper
+    /// isn't one, or isn't prepared here: then the document id goes, and the server says it has no text).
+    private func legacyChatContext(for turn: ChatAnswerTurn) -> (context: LocalPaperChatContext, bundle: VerifiedReaderBundle)? {
+        guard turn.paperReference == nil, let documentID = turn.documentID,
+              let paper = papers.first(where: { $0.id == documentID }) ?? (selectedPaper?.id == documentID ? selectedPaper : nil),
+              let source = paper.legacyArxivSource, let bundle = paper.readerBundle, bundle.manifest.source.kind == "arxiv-html",
+              let item = completeLibrary?.items.first(where: { $0.documentID == documentID && $0.visible }),
+              let reference = try? SourcePaperReference(membershipID: item.id, sourceID: source.sourceID, revision: source.revision),
+              let context = try? LocalPaperChatContext(reference: reference, bundle: bundle) else { return nil }
+        return (context, bundle)
     }
 
     private func ownsGeneration(_ generation: ChatGeneration) -> Bool {
