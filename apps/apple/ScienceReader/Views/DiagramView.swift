@@ -390,7 +390,13 @@ struct InlineDiagram: View {
                         HTMLVisualWebView(html: diagram.source, dark: dark).allowsHitTesting(false).frame(height: 260)
                     } else if let image = image ?? DiagramPreview.cached(link.id, dark: dark) {
                         Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 360, alignment: .leading)
-                    } else if !failed {
+                    } else if failed {
+                        // As tall as the spinner it replaces, so the answer doesn't jump (and a tap on it still opens the
+                        // diagram, where its source is): owner, builds 58–59, rows must not change height as they settle.
+                        Label("Couldn’t draw it here", systemImage: "exclamationmark.triangle")
+                            .font(.system(size: fontSize * 0.8)).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 80)
+                    } else {
                         ProgressView().frame(maxWidth: .infinity, minHeight: 80)
                     }
                 }

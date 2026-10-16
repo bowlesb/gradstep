@@ -158,6 +158,8 @@ struct PaperView: View {
     @State private var figure: String?
     @State private var showFigures = false
     /// "Show in paper" from the gallery, applied once the gallery has closed.
+    /// Where Contents goes once its sheet has closed.
+    @State private var contentsJump: (PaperJumpRequest.Target, String)?
     @State private var figureToShow: String?
     @State private var loadingPaper = true
     /// After following a citation: offer "Back" to the place left.
@@ -446,9 +448,14 @@ struct PaperView: View {
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
             }
-            .sheet(isPresented: $showContents) {
+            .sheet(isPresented: $showContents, onDismiss: {
+                // After the sheet has gone, as the gallery does: a jump started while a sheet pulled up to full height
+                // was still closing didn't move a long paper (the installed-paper journey on DPO, 2026-10-16).
+                if case let (target, id)? = contentsJump, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
+                contentsJump = nil
+            }) {
                 PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize) { target, id in
-                    if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
+                    contentsJump = (target, id)
                     showContents = false
                 }
                 .macSheetKeys()
