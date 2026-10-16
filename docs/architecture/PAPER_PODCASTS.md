@@ -1848,3 +1848,10 @@ item's id and the item's own source):
    {source: 'arxiv', source_id, revision, manifest_sha256: <the bundle's manifest SHA-256>, text_sha256: <from step 2>,
    title?, authors?}}`; then `start`, `status` and `cancel` as for any quote. A `source_unavailable` from a quote with a
    remembered digest means the copy was deleted (076): send the text again and quote once more.
+
+Status (2026-10-16): migration 081 applied to staging and verified in the ledger (`migrate-supabase.py staging`:
+"Applied and verified", then "Verified" on a rerun); no function changed (the `podcast` function already passes the
+device source through). Tests: `tests/database/podcast_legacy_device_sources.sql` (retirement phase of
+`scripts/test-database.py`; it fails without 081), full database suite passing. Not yet run live (no paid smoke).
+Clients: the browser sends the device text for a legacy item from its next release; native builds up to 60 still
+send no device source for a legacy item and keep "Open this paper first…" until updated.
