@@ -158,7 +158,7 @@ final class TableColumnsTests: XCTestCase {
         XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 15))
         if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
         app.buttons["Chat history"].tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
         let header = { (id: String) in app.buttons["chat.history.header.\(id)"] }
         XCTAssertTrue(header("lastUsed").waitForExistence(timeout: 5))
         // Columns: add Kind and Answer length.

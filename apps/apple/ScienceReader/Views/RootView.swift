@@ -101,8 +101,9 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
-        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID).macSheetKeys() }
+        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID, startsOnPaper: model.allChatsStartsOnPaper).macSheetKeys() }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
+        .sheet(isPresented: $model.showAnswerOptions) { AnswerOptionsSheet(model: model).macSheetKeys() }
         .sheet(item: $model.localPaperPresentation) { presentation in
             LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } })
                 .macSheetKeys()
@@ -1013,18 +1014,7 @@ struct ChatView: View {
                 Text(model.chatDraftStatusText).font(.caption2).foregroundStyle(.secondary)
                     .accessibilityIdentifier("chat.draftStatus")
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                composer(compact: compact)
-                // The software keyboard covers the tab bar (iPhone and compact iPad): a visible way back.
-                if composerFocused && !Platform.isMac {
-                    Button { composerFocused = false } label: {
-                        Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 17, weight: .semibold))
-                            .frame(width: 50, height: 50).modifier(GlassCircle()).contentShape(Circle())
-                    }.buttonStyle(.plain).foregroundStyle(.tint)
-                        .accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
-                        .keyboardShortcut(.cancelAction)
-                }
-            }.readableColumn()
+            composer(compact: compact).readableColumn()
             // Design audit F8: sync status only when something needs attention.
             if model.isGenerating { ProgressView("Saving…").font(.caption) }
             else if let issue = model.syncIssue { Text(issue).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary) }
@@ -1035,31 +1025,31 @@ struct ChatView: View {
         .chromeBand(.bottom)
     }
 
-    /// One glass pill: the question, then the answer settings (model, effort, length; 2026-10-08) and Send (or Stop)
-    /// on the row under it, as in Gemini's message box. With little height (a keyboard in landscape) everything is one
-    /// row and the settings control shows only its symbol.
+    /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
+    /// trailing edge. While the software keyboard is up (iPhone, iPad) a way to put it away sits inside at the leading
+    /// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
+    /// to the right side"); Answer options are in the chat's ⋯ menu.
     @ViewBuilder private func composer(compact: Bool) -> some View {
-        let field = TextField(model.chatStudyMap != nil ? "Your answer" : "Chat", text: $model.chatInput, axis: .vertical)
-            .focused($composerFocused).accessibilityIdentifier("chat.composer")
-            .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
-            // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
-            .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
-            .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-        // One layout that changes shape, never two: the text field keeps its identity (and the keyboard its focus)
-        // when the message box turns compact or back, for example while a keyboard appears.
-        let layout = compact ? AnyLayout(HStackLayout(alignment: .bottom, spacing: 4)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-        layout {
-            if compact { ChatProfileButton(model: model, compact: true).padding(.leading, 6).padding(.bottom, 3) }
-            field.padding(.horizontal, compact ? 0 : 18).padding(.top, 14).padding(.bottom, compact ? 14 : 2)
-            if compact {
-                sendButton
-            } else {
-                HStack(alignment: .center, spacing: 4) {
-                    ChatProfileButton(model: model).padding(.leading, 10)
-                    Spacer(minLength: 4)
-                    sendButton
+        let keyboardUp = composerFocused && !Platform.isMac
+        let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
+        HStack(alignment: .bottom, spacing: 0) {
+            if keyboardUp {
+                Button { composerFocused = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Circle())
                 }
+                .buttonStyle(.plain).padding(.leading, 3).padding(.bottom, 3)
+                .accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
+                .keyboardShortcut(.cancelAction)
             }
+            TextField(prompt, text: $model.chatInput, axis: .vertical)
+                .focused($composerFocused).accessibilityIdentifier("chat.composer")
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
+                // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
+                .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
+                .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, keyboardUp ? 0 : 20).padding(.trailing, 4).padding(.vertical, 14)
+            sendButton
         }
         .frame(minHeight: 50)
         .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
@@ -1128,7 +1118,7 @@ struct ChatView: View {
                         .accessibilityIdentifier("chat.paperChat.\(chat.id.wire)")
                     }
                     MenuRow(chats.count == 1 ? "Show in All chats" : "All \(chats.count) chats about this paper", systemImage: GradstepSymbol.chats) {
-                        composerFocused = false; model.openAllChats(paper: paper)
+                        composerFocused = false; model.openAllChats(paper: paper, thisPaper: true)
                     }
                     .accessibilityIdentifier("chat.paperChats.all")
                 }
@@ -1218,16 +1208,25 @@ struct ChatView: View {
                 MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
                 MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
             }.controlGroupStyle(.compactMenu)
+            // Owner, build 57: "put the chat settings in the top right drop down… Please also put in there Enter Study Mode".
+            Section {
+                Button { composerFocused = false; model.showAnswerOptions = true } label: {
+                    Label { Text("Answer options…"); Text(ChatProfileText.summary(model.chatProfile, table: model.chatProfileTable)) }
+                        icon: { Image(systemName: "slider.horizontal.3") }
+                }.accessibilityIdentifier("chat.profile")
+                // Study (experimental, 2026-10-14): the tutor.
+                if model.chatStudyMap != nil {
+                    MenuRow("End study mode", systemImage: "graduationcap") { model.endStudy() }
+                } else if model.canStudyPaper {
+                    Button { composerFocused = false; Task { await model.startStudy() } } label: {
+                        Label { Text("Study mode"); Text("A tutor asks, teaches and maps what you know") } icon: { Image(systemName: "graduationcap") }
+                    }.accessibilityIdentifier("chat.study.start")
+                }
+            }
             Section {
                 GoToPassageMenuRow(model: model) { composerFocused = false }
                 MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
-            }
-            // Study (experimental, 2026-10-14).
-            if model.chatStudyMap != nil {
-                Section { MenuRow("End study", systemImage: "graduationcap") { model.endStudy() } }
-            } else if model.canStudyPaper {
-                Section { MenuRow("Study this paper", systemImage: "graduationcap") { composerFocused = false; Task { await model.startStudy() } } }
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
@@ -1298,10 +1297,10 @@ struct SettingsView: View {
                         NavigationLink {
                             AccountView(model: model) { showDeleteAccount = true }
                         } label: {
+                            // Owner, build 57: "The Signed in with email code is an unnecessary detail, simplify" (the Account
+                            // page still lists how you sign in).
                             let sync = SyncSummary.from(status: model.syncStatus, issue: model.syncIssue, pending: model.publishedPendingCount)
-                            let methods = model.email?.isEmpty == false ? AccountFormat.methods(model.signInProviders) : nil
-                            AccountRow(name: AccountFormat.name(email: model.email, providers: model.signInProviders),
-                                       detail: [methods.map { "Signed in with \($0)" }, sync.short].compactMap { $0 }.joined(separator: " · "))
+                            AccountRow(name: AccountFormat.name(email: model.email, providers: model.signInProviders), detail: sync.short)
                         }
                         .accessibilityIdentifier("account.row")
                         if let issue = model.accountPreparationIssue {
@@ -1321,8 +1320,11 @@ struct SettingsView: View {
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
                         if let balance = model.creditBalance {
-                            LabeledContent("Available", value: "\(balance.available.formatted()) credits")
-                                .accessibilityIdentifier("settings.credits.available")
+                            LabeledContent { Text("\(balance.available.formatted()) credits") } label: {
+                                LabelWithInfo(title: "Available", info: "Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.",
+                                              identifier: "settings.credits.info")
+                            }
+                            .accessibilityIdentifier("settings.credits.available")
                             if balance.reserved > 0 {
                                 LabeledContent("Held for answers in progress", value: balance.reserved.formatted())
                             }
@@ -1331,76 +1333,76 @@ struct SettingsView: View {
                         } else {
                             LabeledContent("Available", value: "Loading…")
                         }
-                        if let plan = model.storeSummary?.planName { LabeledContent("Plan", value: plan) }
+                        if let plan = model.storeSummary?.planName { LabeledContent("Subscription plan", value: plan) }
                         Button("Get credits") { model.showStore = true }
                             .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
-                    } header: { Text("Credits") } footer: {
-                        Text("Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.")
-                    }
+                    } header: { Text("AI credits") }
                 }
                 if model.chatTransport != nil {
                     Section {
                         NavigationLink {
-                            ChatDefaultsView(model: model)
+                            AIChatOptionsView(model: model)
                         } label: {
-                            LabeledContent("Chat defaults", value: ChatProfileText.summary(model.chatDefaultProfile, table: model.chatProfileTable))
+                            LabeledContent("AI chat options", value: ChatProfileText.summary(model.chatDefaultProfile, table: model.chatProfileTable))
                         }
                         .accessibilityIdentifier("settings.chatDefaults")
-                        Toggle("Visual answers", isOn: $model.visualAnswers)
-                            .accessibilityIdentifier("settings.visualAnswers")
-                    } footer: {
-                        Text("The model, effort and length new chats start with. A chat can change them in its message box. Visual answers let the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
+                        Toggle(isOn: $model.visualAnswers) {
+                            LabelWithInfo(title: "Visual answers", info: "Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
+                        }
+                        .accessibilityIdentifier("settings.visualAnswers")
                     }
                 }
                 Section {
-                    Toggle("Download new papers automatically", isOn: $model.autoDownloadNewPapers)
-                        .accessibilityIdentifier("settings.autoDownload")
-                } header: { Text("Library") } footer: {
-                    Text("A paper added from the Feed or by its arXiv id downloads and prepares on this device right away, so it opens at once. Off, a paper downloads when you open it or tap its cloud symbol.")
-                }
+                    Toggle(isOn: $model.autoDownloadNewPapers) {
+                        LabelWithInfo(title: "Download new papers", info: "A paper added from the Feed or by its arXiv id downloads and prepares on this device right away, so it opens at once. Off, a paper downloads when you open it or tap its cloud symbol.")
+                    }
+                    .accessibilityIdentifier("settings.autoDownload")
+                } header: { Text("Library") }
                 // The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md): only in builds that carry it.
                 if DeviceModelEngine.available {
                     Section {
-                        Toggle("On-device PDF reader", isOn: $model.deviceModelReader)
-                            .accessibilityIdentifier("settings.deviceModel")
-                    } header: { Text("Experimental") } footer: {
-                        Text("Reads a paper’s PDF on this device with Gradstep’s own models: layout, formulas and text, nothing sent anywhere. It takes minutes and can be wrong; formulas it is unsure of are shown as images of the page. Choose “Read with the on-device model” in a paper’s options, then report what you see.")
-                    }
+                        Toggle(isOn: $model.deviceModelReader) {
+                            LabelWithInfo(title: "On-device PDF reader", info: "Reads a paper’s PDF on this device with Gradstep’s own models: layout, formulas and text, nothing sent anywhere. It takes minutes and can be wrong; formulas it is unsure of are shown as images of the page. Choose “Read with the on-device model” in a paper’s options, then report what you see.")
+                        }
+                        .accessibilityIdentifier("settings.deviceModel")
+                    } header: { Text("Experimental") }
                 }
+                // Text sizes live where you read and chat (A− / A+ on the paper, the chat's ⋯ menu; owner, build 57).
                 Section("Reading") {
                     ThemePicker(selection: $model.appearance)
-                    sizeSlider("Paper text size", value: $model.paperFontSize, range: 14...26)
-                    sizeSlider("Chat text size", value: $model.chatFontSize, range: 14...24)
                     Toggle("Underline passages with chats", isOn: $model.showsPassageMarks)
                         .accessibilityIdentifier("settings.passageMarks")
                 }
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
-                // (Sync now moved to the Account page, beside the sync state it acts on.)
-                Section("Your research") {
-                    openRow("All chats") { model.showAllChats = true }
-                    openRow("All diagrams") { model.showDiagrams = true }
-                }
-                Section("Testing") {
-                    #if INTERNAL
-                    SessionCaptureSettings()
-                    #endif
-                    Button("Report this screen") { model.beginReport() }
-                    openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
-                    Button("Open reader sample") { model.openSample() }
-                }
-                // The owner's monitoring (docs/architecture/ADMIN_HEALTH.md): the private admin site, for operators only.
-                if !model.operatorRoles.isEmpty {
-                    Section {
-                        Link(destination: OperationsDashboard.url(roles: model.operatorRoles)) {
-                            Label("Operations dashboard", systemImage: "chart.xyaxis.line")
-                        }.accessibilityIdentifier("settings.operations")
-                    } header: { Text("Operations") } footer: {
-                        Text("People, use, reliability and spending, on the private admin site. Sign in there once with your password and authenticator.")
-                    }
+                // Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough".
+                Section("Your assets") {
+                    openRow("Chats") { model.showAllChats = true }.accessibilityIdentifier("settings.chats")
+                    openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
                 }
                 // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
                 Section {
+                    Button("Report a problem") { model.beginReport() }.accessibilityIdentifier("settings.report")
+                    openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
                     NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
+                }
+                // Owner, build 57: "Testing and Admin should go in a special section for Admins with Grey background".
+                if showsAdmin {
+                    Section {
+                        if !model.operatorRoles.isEmpty {
+                            // The owner's monitoring (docs/architecture/ADMIN_HEALTH.md): the private admin site.
+                            HStack(spacing: 2) {
+                                Link(destination: OperationsDashboard.url(roles: model.operatorRoles)) {
+                                    Label("Operations dashboard", systemImage: "chart.xyaxis.line")
+                                }.accessibilityIdentifier("settings.operations")
+                                InfoButton(text: "People, use, reliability and spending, on the private admin site. Sign in there once with your password and authenticator.")
+                            }
+                            .listRowBackground(Color.adminRow)
+                        }
+                        #if INTERNAL
+                        SessionCaptureSettings().listRowBackground(Color.adminRow)
+                        #endif
+                        Button("Open reader sample") { model.openSample() }.listRowBackground(Color.adminRow)
+                    } header: { Text("Admin") }
                 }
             }
             .readableScrollColumn(width: width)
@@ -1416,15 +1418,13 @@ struct SettingsView: View {
         }
     }
 
-    private func sizeSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-            Slider(value: value, in: range, step: 1) { Text(title) } minimumValueLabel: {
-                Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
-            } maximumValueLabel: {
-                Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
-            }
-        }.accessibilityElement(children: .combine)
+    /// Admin and test tools: operators (the owner, support) and internal builds.
+    private var showsAdmin: Bool {
+        #if INTERNAL
+        return true
+        #else
+        return !model.operatorRoles.isEmpty
+        #endif
     }
 
     /// A row that opens a sheet, drawn like a navigation row.
@@ -1455,9 +1455,18 @@ struct PrivacyView: View {
             Section {
                 Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Anthropic. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
             } header: { Text("AI answers") }
+            // Owner, build 57: "We need more in here about terms of service and how we use arXiv articles and how we abide
+            // by arXiv's terms" (docs/architecture/ARXIV_DEVICE_ONLY.md).
             Section {
-                Text("Private PDF uploads and reports you submit are accessible to the services that process them. Papers added from the web are fetched by our server and converted privately for your account.")
-            } header: { Text("Papers and reports") }
+                Text("Papers open from the official web version or PDF that arXiv publishes. Your device downloads them directly from arXiv when you open a paper, and prepares them for reading on the device, for you alone. A PDF you keep is stored encrypted on that device.")
+                Text("Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.")
+                Text("Requests to arXiv are spaced out, name Gradstep, and stop for a day if arXiv asks this device to slow down, as arXiv’s API Terms of Use require. Each paper stays under its authors’ license, with a link back to arXiv.")
+                Link("arXiv API Terms of Use", destination: URL(string: "https://info.arxiv.org/help/api/tou.html")!)
+                Text(ArxivAcknowledgement.statement).foregroundStyle(.secondary)
+            } header: { Text("Papers and arXiv") }
+            Section {
+                Text("A report you send, with its screenshot and notes, goes to Gradstep’s support so we can fix the problem, and is kept until you delete your account.")
+            } header: { Text("Reports") }
         }.font(.subheadline).navigationTitle("Privacy & data").navigationBarTitleDisplayMode(.inline)
     }
 }

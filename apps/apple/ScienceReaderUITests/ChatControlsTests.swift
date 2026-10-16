@@ -34,35 +34,67 @@ final class ChatControlsTests: XCTestCase {
 
     private func device() -> String { UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone" }
 
-    /// Open the control, change model, effort and length and watch the estimate follow; send; the answer names its
-    /// settings, the chat gets its topic title, and All chats shows it; rename it there.
-    func testChoosingModelEffortAndLengthAndTheTopicTitle() {
+    private func answerOptions(_ app: XCUIApplication) {
+        let menu = app.buttons["Chat options"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10)); menu.tap()
+        let item = app.buttons["chat.profile"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "Answer options are in the chat's ⋯ menu (owner, build 57)"); item.tap()
+    }
+
+    /// Chat redesign (owner, build 57, 2026-10-16): an empty chat offers three starters above one pill message box; the
+    /// ⋯ menu holds Answer options (model and length only; DeepSeek when the server lists it) and Study mode; About AI
+    /// chat options shows the credit detail; the answer names model and length; All chats has search and ≡ on top.
+    func testStartersAnswerOptionsAndTheTopicTitle() {
         for appearance in ["light", "dark"] {
-            let app = launch(appearance)
-            let control = app.buttons["chat.profile"]
-            XCTAssertTrue(control.waitForExistence(timeout: 10))
-            XCTAssertEqual(control.value as? String, "Sonnet · Low · Standard")
+            let app = launch(appearance, ["--chat-fixture-auto-profiles"])
+            let starters = app.descendants(matching: .any).matching(identifier: "chat.starters").firstMatch
+            XCTAssertTrue(starters.waitForExistence(timeout: 10), "An empty chat shows starters")
+            let first = app.buttons["chat.starter.0"]
+            XCTAssertTrue(first.exists && app.buttons["chat.starter.1"].exists && app.buttons["chat.starter.2"].exists)
+            XCTAssertFalse(app.buttons["chat.study.start"].exists, "Study moved to the ⋯ menu")
             let composer = any("chat.composer", app)
-            XCTAssertLessThan(abs(control.frame.minX - composer.frame.minX), 40, "The control sits in the message box, under the text")
-            control.tap()
+            XCTAssertEqual(composer.placeholderValue, "Ask anything about the paper")
+            XCTAssertLessThan(first.frame.maxY, composer.frame.minY + 1, "The starters sit above the message box")
+            save("\(device())-\(appearance)-empty-chat-starters")
+            let question = first.label
+            first.tap()
+            XCTAssertEqual(composer.value as? String, question, "A starter fills the message box")
+            XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
+                           "Nothing is sent until the reader sends")
+            if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) {
+                let dismiss = app.buttons["chat.dismissKeyboard"]
+                XCTAssertLessThan(dismiss.frame.maxX, composer.frame.minX + 2, "Inside the pill, before the question")
+                XCTAssertGreaterThan(app.buttons["chat.send"].frame.minX, composer.frame.maxX - 2, "Send inside the pill, after it")
+                save("\(device())-\(appearance)-composer-with-keyboard")
+                dismiss.tap()
+            }
+            // Clear the starter for the question below.
+            composer.tap()
+            composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: question.count + 2))
+            if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) { app.buttons["chat.dismissKeyboard"].tap() }
 
-            let estimate = app.staticTexts["chat.profile.estimate"]
-            XCTAssertTrue(estimate.waitForExistence(timeout: 10), "The server's estimate shows once the table loads")
-            XCTAssertEqual(estimate.label, "Usually 4–24 credits · up to 37")
-            XCTAssertTrue(app.staticTexts["Answers in this chat"].exists)
-            save("\(device())-\(appearance)-controls-default")
-
-            app.segmentedControls["chat.profile.model"].buttons["Opus"].tap()
-            XCTAssertEqual(estimate.label, "Usually 8–47 credits · up to 74")
-            XCTAssertEqual(app.staticTexts["chat.profile.model.detail"].label, "Most capable; costs the most")
-            app.segmentedControls["chat.profile.effort"].buttons["High"].tap()
+            answerOptions(app)
+            let model = app.segmentedControls["chat.profile.model"]
+            XCTAssertTrue(model.waitForExistence(timeout: 10))
+            XCTAssertTrue(model.buttons["DeepSeek"].exists, "DeepSeek, as the server's table lists it")
+            XCTAssertFalse(app.segmentedControls["chat.profile.effort"].exists, "Effort is chosen per question")
+            XCTAssertFalse(app.staticTexts["chat.profile.estimate"].exists, "The estimate lives in About AI chat options")
+            XCTAssertTrue(app.staticTexts["chat.profile.isDefault"].exists, "A new chat starts with the defaults")
+            save("\(device())-\(appearance)-answer-options")
+            model.buttons["DeepSeek"].tap()
             app.segmentedControls["chat.profile.length"].buttons["Detailed"].tap()
-            XCTAssertEqual(estimate.label, "Usually 24–63 credits · up to 114")
+            XCTAssertEqual(app.staticTexts["chat.profile.model.detail"].label, "Lowest cost; handles figures")
             XCTAssertTrue(app.buttons["chat.profile.makeDefault"].exists, "A chat that differs from the defaults can become them")
-            save("\(device())-\(appearance)-controls-opus")
+            app.buttons["chat.profile.about"].tap()
+            XCTAssertTrue(app.navigationBars["AI chat options"].waitForExistence(timeout: 5))
+            let row = app.descendants(matching: .any).matching(identifier: "settings.aiChat.sonnet.standard").firstMatch
+            for _ in 0..<4 where !row.waitForExistence(timeout: 1) { app.swipeUp() }
+            XCTAssertTrue(row.exists)
+            XCTAssertTrue(row.label.contains("Usually 4–24 credits · up to 49"), row.label)
+            save("\(device())-\(appearance)-about-ai-chat-options")
+            app.navigationBars["AI chat options"].buttons.firstMatch.tap()
             app.buttons["chat.profile.done"].tap()
-            XCTAssertTrue(estimate.waitForNonExistence(timeout: 5))
-            XCTAssertEqual(control.value as? String, "Opus · High · Detailed")
+            XCTAssertTrue(model.waitForNonExistence(timeout: 5))
 
             composer.tap()
             composer.typeText("Why scale the attention logits?")
@@ -70,72 +102,59 @@ final class ChatControlsTests: XCTestCase {
             app.buttons["chat.send"].tap()
             let label = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.answeredBy.")).firstMatch
             XCTAssertTrue(label.waitForExistence(timeout: 20), "The answer names the settings it was written with")
-            XCTAssertEqual(label.label, "Answered with Opus · High · Detailed")
+            XCTAssertEqual(label.label, "Answered with DeepSeek · Detailed")
             let title = app.buttons["chat.context"]
             XCTAssertTrue(title.waitForExistence(timeout: 5))
             XCTAssertEqual(title.label, "Conversation: Scaling in dot-product attention", "The chat is titled by its topic")
-            XCTAssertEqual(control.value as? String, "Opus · High · Detailed", "The chat keeps its choice")
             save("\(device())-\(appearance)-answer-label-and-title")
 
             app.buttons["Chat history"].tap()
-            XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
-            let row = app.buttons.matching(NSPredicate(format: "label == %@", "Scaling in dot-product attention")).firstMatch
-            XCTAssertTrue(row.waitForExistence(timeout: 5), "All chats shows the topic title")
+            XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["Done"].exists, "No Done: Close is in ≡")
+            let chat = app.buttons.matching(NSPredicate(format: "label == %@", "Scaling in dot-product attention")).firstMatch
+            XCTAssertTrue(chat.waitForExistence(timeout: 5), "All chats shows the topic title")
             save("\(device())-\(appearance)-all-chats")
-            if appearance == "light" {
-                row.press(forDuration: 1.0)
-                let rename = app.buttons["Rename…"]
-                XCTAssertTrue(rename.waitForExistence(timeout: 5)); rename.tap()
-                let field = app.alerts["Rename chat"].textFields.firstMatch
-                XCTAssertTrue(field.waitForExistence(timeout: 5))
-                // The field starts with the current title; put the caret after it (a plain tap can land mid-text) and clear it.
-                field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
-                if let current = field.value as? String, !current.isEmpty {
-                    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
-                }
-                XCTAssertTrue(((field.value as? String) ?? "").isEmpty || (field.value as? String) == field.placeholderValue,
-                              "The old title is cleared: \(field.value ?? "")")
-                field.typeText("My attention notes")
-                app.alerts["Rename chat"].buttons["Save"].firstMatch.tap()
-                XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == %@", "My attention notes")).firstMatch.waitForExistence(timeout: 5),
-                              "A renamed chat shows its new title")
-            }
             app.terminate()
         }
     }
 
-    /// Settings › Chat defaults: new chats start with them; the row shows the choice.
-    func testChatDefaultsInSettings() {
-        let app = launch("light")
+    /// Settings › AI chat options: new chats start with them; the row shows the choice; the credit table per model.
+    func testAIChatOptionsInSettings() {
+        let app = launch("light", ["--chat-fixture-auto-profiles"])
         app.show("settings")
         let row = app.buttons["settings.chatDefaults"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        XCTAssertTrue(row.label.contains("Sonnet · Low · Standard"))
+        XCTAssertTrue(row.label.contains("Sonnet · Standard"), row.label)
         row.tap()
-        XCTAssertTrue(app.navigationBars["Chat defaults"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["AI chat options"].waitForExistence(timeout: 5))
         let model = app.segmentedControls["chat.profile.model"]
         XCTAssertTrue(model.waitForExistence(timeout: 5))
         model.buttons["Haiku"].tap()
         app.segmentedControls["chat.profile.length"].buttons["Brief"].tap()
-        XCTAssertTrue(app.staticTexts["chat.profile.estimate"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["chat.profile.estimate"].label, "Usually 1–2 credits · up to 2")
-        save("\(device())-light-chat-defaults")
-        app.navigationBars["Chat defaults"].buttons.firstMatch.tap()
+        let haikuBrief = app.descendants(matching: .any).matching(identifier: "settings.aiChat.haiku.brief").firstMatch
+        XCTAssertTrue(haikuBrief.label.contains("Usually 1–2 credits · up to 2"), haikuBrief.label)
+        save("\(device())-light-ai-chat-options")
+        let deepseek = app.descendants(matching: .any).matching(identifier: "settings.aiChat.deepseek.standard").firstMatch
+        for _ in 0..<5 where !deepseek.waitForExistence(timeout: 1) { app.swipeUp() }
+        XCTAssertTrue(deepseek.exists, "DeepSeek's credits, as the server lists it")
+        save("\(device())-light-ai-chat-options-deepseek")
+        for _ in 0..<5 { app.swipeDown() }
+        app.navigationBars["AI chat options"].buttons.firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 5))
-        XCTAssertTrue(row.label.contains("Haiku · Low · Brief"))
+        XCTAssertTrue(row.label.contains("Haiku · Brief"), row.label)
         app.show("chat")
         app.buttons["New chat"].tap()
-        XCTAssertEqual(app.buttons["chat.profile"].value as? String, "Haiku · Low · Brief", "A new chat starts with the defaults")
+        answerOptions(app)
+        XCTAssertTrue(app.segmentedControls["chat.profile.model"].buttons["Haiku"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["chat.profile.model"].buttons["Haiku"].isSelected, "A new chat starts with the defaults")
+        XCTAssertTrue(app.segmentedControls["chat.profile.length"].buttons["Brief"].isSelected)
     }
 
-    /// A server without profiles: the control says the choices couldn't load, and answers are asked exactly as before.
+    /// A server without profiles: the options say they couldn't load, and answers are asked exactly as before.
     func testWithoutTheServersTableNothingChanges() {
         let app = launch("light", ["--chat-fixture-no-profiles"])
-        let control = app.buttons["chat.profile"]
-        XCTAssertTrue(control.waitForExistence(timeout: 10))
-        control.tap()
+        answerOptions(app)
         XCTAssertTrue(app.buttons["chat.profile.retry"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["chat.profile.estimate"].exists, "No estimates without the server's table")
         save("\(device())-light-controls-unavailable")
         app.buttons["chat.profile.done"].tap()
         XCTAssertTrue(app.buttons["chat.profile.retry"].waitForNonExistence(timeout: 5))

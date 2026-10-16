@@ -29,6 +29,36 @@ final class SettingsTests: XCTestCase {
         let attached = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); attached.name = name; attached.lifetime = .keepAlways; add(attached)
     }
 
+    /// Build 57 (owner, 2026-10-16): AI credits and Subscription plan; explanations behind ⓘ; no text-size sliders; Your
+    /// assets with Chats and Diagrams; the Admin tools in their own grey section; Privacy says how arXiv is used.
+    func testSettingsAreSimplerWithInfoButtonsAndAnAdminSection() {
+        let app = openSettings(["--chat-fixture", "--chat-fixture-consented", "--operator-fixture"])
+        XCTAssertTrue(app.staticTexts["AI credits"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer."].exists,
+                       "The explanation is behind ⓘ, not under the section")
+        attach("settings-top")
+        let info = app.buttons["settings.credits.info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 5)); info.tap()
+        XCTAssertTrue(element(labelContaining: "Each AI answer uses credits", in: app).waitForExistence(timeout: 5), "ⓘ shows the explanation")
+        attach("settings-info-popover")
+        app.tap() // dismiss the popover
+        if app.descendants(matching: .any)["PopoverDismissRegion"].exists { app.descendants(matching: .any)["PopoverDismissRegion"].tap() }
+        XCTAssertFalse(app.staticTexts["Paper text size"].exists || app.staticTexts["Chat text size"].exists, "Text sizes live where you read and chat")
+        let chats = app.descendants(matching: .any)["settings.chats"]
+        for _ in 0..<4 where !chats.waitForExistence(timeout: 1) { app.swipeUp() }
+        XCTAssertTrue(app.staticTexts["Your assets"].exists && app.staticTexts["Diagrams"].exists)
+        attach("settings-assets")
+        let operations = app.descendants(matching: .any)["settings.operations"]
+        for _ in 0..<4 where !operations.waitForExistence(timeout: 1) { app.swipeUp() }
+        XCTAssertTrue(app.staticTexts["Admin"].exists, "Operators see the Admin section")
+        attach("settings-admin")
+        app.buttons["settings.about"].tap()
+        app.buttons["about.privacy"].tap()
+        XCTAssertTrue(app.staticTexts["Papers and arXiv"].waitForExistence(timeout: 5) || app.otherElements["Papers and arXiv"].exists)
+        XCTAssertTrue(element(labelContaining: "Gradstep’s servers never contact arXiv", in: app).exists)
+        attach("settings-privacy-arxiv")
+    }
+
     /// The owner's monitoring is one tap from Settings (docs/architecture/ADMIN_HEALTH.md); readers never see the row.
     func testOperationsDashboardRowIsForOperatorsOnly() {
         var app = openSettings(["--chat-fixture", "--chat-fixture-consented", "--operator-fixture"])
@@ -50,7 +80,8 @@ final class SettingsTests: XCTestCase {
         let row = app.buttons["account.row"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertTrue(row.label.contains("draft-fixture@example.invalid"), "The row names the account: \(row.label)")
-        XCTAssertTrue(row.label.contains("Signed in with Apple"), "…and how it signs in: \(row.label)")
+        // Owner, build 57: how it signs in is "an unnecessary detail" on the row; the Account page still says it.
+        XCTAssertFalse(row.label.contains("Signed in with"), "The row says only who and whether synced: \(row.label)")
         XCTAssertFalse(app.buttons["account.signOut"].exists, "Sign out is on the Account page, not Settings")
         XCTAssertFalse(app.buttons["account.delete"].exists, "…and so is Delete account")
         XCTAssertFalse(app.staticTexts["Sync"].exists, "No bare “Sync” row")

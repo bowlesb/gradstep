@@ -1,135 +1,51 @@
 import SwiftUI
 import ScienceReaderCore
 
-// Model, effort and length in the chat (owner request 2026-10-08: "chats should have the ability to customize the
-// length and effort and model right there in the chat in a clear UX"). A compact control in the message box shows
-// the chat's choice ("Sonnet · Low · Standard") and opens these choices with the server's credit estimate. The server
-// enforces and prices every choice; this view only displays its published table.
-// docs/architecture/CHAT.md#models-effort-and-length
+// Answer options (chat redesign 2026-10-16, docs/architecture/CHAT.md; owner, build 57: "the user should set the length,
+// and the effort level should be chosen intelligently"; "literally nothing else is needed on this UI"). The chat's ⋯ menu
+// opens them: the model and the length, making them the default, and About AI chat options (the same page as Settings ›
+// AI chat options, with the credit detail). The server chooses the effort for each question and enforces and prices
+// every choice; these views only display its published table.
 
-/// The control in the message box. `compact` (little height: a keyboard in landscape) shows only its symbol.
-struct ChatProfileButton: View {
-    @Bindable var model: ReaderModel
-    var compact = false
-    @State private var showing = false
-
-    var body: some View {
-        let choice = model.chatProfile
-        let summary = ChatProfileText.summary(choice, table: model.chatProfileTable)
-        Button { model.refreshChatProfiles(force: model.chatProfileTableFailed); showing = true } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 12, weight: .semibold))
-                if !compact {
-                    Text(summary).font(.footnote.weight(.medium)).lineLimit(1).minimumScaleFactor(0.85)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
-                }
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, compact ? 10 : 11).frame(minHeight: 30)
-            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
-            .frame(minHeight: 44).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Answer settings")
-        .accessibilityValue(summary)
-        .accessibilityHint("Model, effort and length for this chat")
-        .accessibilityIdentifier("chat.profile")
-        .popover(isPresented: $showing, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-            ChatProfilePicker(model: model, mode: .chat)
-                .frame(idealWidth: 360, maxWidth: 420)
-                .presentationCompactAdaptation(.sheet)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-    }
-}
-
-/// The choices: model, effort and length, each with what it means, then the credit estimate. `chat` edits the visible
-/// chat's choice (and can make it the default); `defaults` edits Settings › Chat defaults.
-struct ChatProfilePicker: View {
+/// The model and length pickers, each with what the chosen option means. `chat` edits the visible chat's choice;
+/// `defaults` edits what new chats start with.
+struct ChatChoiceControls: View {
     enum Mode { case chat, defaults }
     @Bindable var model: ReaderModel
     let mode: Mode
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.dismiss) private var dismiss
 
     private var choice: ChatProfileChoice { mode == .chat ? model.chatProfile : model.chatDefaultProfile }
     private func set(_ value: ChatProfileChoice) {
         if mode == .chat { model.setChatProfile(value) } else { model.chatDefaultProfile = value }
     }
     private var table: ChatProfileTable? { model.chatProfileTable }
+    /// DeepSeek only when the server's table lists it.
+    private var models: [ChatProfileChoice.Model] { table?.offeredModels ?? [.haiku, .sonnet, .opus] }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if mode == .chat {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Answers in this chat").font(.headline).accessibilityAddTraits(.isHeader)
-                        Spacer()
-                        Button("Done") { dismiss() }.font(.body.weight(.semibold)).accessibilityIdentifier("chat.profile.done")
-                    }
-                }
-                if table == nil {
-                    unavailable
-                }
-                Group {
+        VStack(alignment: .leading, spacing: 18) {
+            if table == nil { unavailable }
+            Group {
                 group("Model", selection: Binding(get: { choice.model }, set: { var next = choice; next.model = $0; set(next) }),
-                      options: ChatProfileChoice.Model.allCases, label: { table?.label($0) ?? $0.label },
+                      options: models, label: { table?.label($0) ?? $0.label },
                       detail: table?.detail(choice.model) ?? choice.model.detail, identifier: "model")
-                group("Effort", selection: Binding(get: { choice.effort }, set: { var next = choice; next.effort = $0; set(next) }),
-                      options: ChatProfileChoice.Effort.allCases, label: { table?.label($0) ?? $0.label },
-                      detail: table?.detail(choice.effort) ?? choice.effort.detail, identifier: "effort")
                 group("Length", selection: Binding(get: { choice.length }, set: { var next = choice; next.length = $0; set(next) }),
                       options: ChatProfileChoice.Length.allCases, label: { table?.label($0) ?? $0.label },
                       detail: table?.detail(choice.length) ?? choice.length.detail, identifier: "length")
-                }
-                // Without the server's table nothing can be chosen (Done and Try again stay usable).
-                .disabled(table == nil)
-                if let table {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let estimate = table.estimateText(choice) {
-                            Text(estimate).font(.subheadline.weight(.semibold)).monospacedDigit()
-                                .accessibilityIdentifier("chat.profile.estimate")
-                        } else {
-                            Text("This choice isn’t available right now; answers use \(ChatProfileText.summary(table.defaultChoice, table: table)).")
-                                .font(.subheadline).accessibilityIdentifier("chat.profile.estimate")
-                        }
-                        if let note = table.note {
-                            Text(note).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("chat.profile.note")
-                        }
-                    }
-                }
-                if mode == .chat { defaults }
             }
-            .padding(20)
+            // Without the server's table nothing can be chosen (Try again stays usable).
+            .disabled(table == nil)
         }
-        .scrollBounceBehavior(.basedOnSize)
     }
 
     @ViewBuilder private var unavailable: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(model.chatProfileTableFailed ? "Couldn’t load the answer choices. Answers use Sonnet · Low · Standard."
-                 : "Loading the answer choices…").font(.footnote).foregroundStyle(.secondary)
+            Text(model.chatProfileTableFailed ? "Couldn’t load the answer options. Answers use Sonnet · Standard."
+                 : "Loading the answer options…").font(.footnote).foregroundStyle(.secondary)
             if model.chatProfileTableFailed {
                 Button("Try again") { model.refreshChatProfiles(force: true) }.font(.footnote.weight(.semibold))
                     .accessibilityIdentifier("chat.profile.retry")
-            }
-        }
-    }
-
-    @ViewBuilder private var defaults: some View {
-        let isDefault = choice == model.chatDefaultProfile
-        VStack(alignment: .leading, spacing: 6) {
-            Divider()
-            if isDefault {
-                Text("New chats start with these (Settings › Chat defaults).").font(.footnote).foregroundStyle(.secondary)
-            } else {
-                Text("New chats start with \(ChatProfileText.summary(model.chatDefaultProfile, table: table)).")
-                    .font(.footnote).foregroundStyle(.secondary)
-                HStack(spacing: 16) {
-                    Button("Use for new chats") { model.chatDefaultProfile = choice }.accessibilityIdentifier("chat.profile.makeDefault")
-                    Button("Reset") { set(model.chatDefaultProfile) }.accessibilityIdentifier("chat.profile.reset")
-                }.font(.footnote.weight(.semibold))
             }
         }
     }
@@ -155,19 +71,83 @@ struct ChatProfilePicker: View {
     }
 }
 
-/// Settings › Chat defaults: the model, effort and length new chats start with (this device).
-struct ChatDefaultsView: View {
+/// The chat's Answer options (⋯ › Answer options…): model and length, Use for new chats, About AI chat options.
+struct AnswerOptionsSheet: View {
+    @Bindable var model: ReaderModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    ChatChoiceControls(model: model, mode: .chat)
+                    defaults
+                    NavigationLink { AIChatOptionsView(model: model) } label: {
+                        Label("About AI chat options", systemImage: "info.circle").font(.subheadline.weight(.semibold))
+                    }.accessibilityIdentifier("chat.profile.about")
+                }
+                .padding(20)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .navigationTitle("Answer options").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("chat.profile.done") }
+            }
+        }
+        .task { model.refreshChatProfiles(force: model.chatProfileTableFailed) }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Owner, build 57: "an option to set the current options as the default for chats".
+    @ViewBuilder private var defaults: some View {
+        let choice = model.chatProfile, table = model.chatProfileTable
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            if ChatProfileText.summary(choice) == ChatProfileText.summary(model.chatDefaultProfile) {
+                Text("New chats start with these.").font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chat.profile.isDefault")
+            } else {
+                Text("New chats start with \(ChatProfileText.summary(model.chatDefaultProfile, table: table)).")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Use for new chats") { model.chatDefaultProfile = choice }
+                    .font(.footnote.weight(.semibold)).accessibilityIdentifier("chat.profile.makeDefault")
+            }
+        }
+    }
+}
+
+/// Settings › AI chat options (and About AI chat options from a chat): the same model and length choices, setting what
+/// new chats start with, then what each model is, who processes it and what a question usually costs.
+struct AIChatOptionsView: View {
     @Bindable var model: ReaderModel
     var body: some View {
-        ChatProfilePicker(model: model, mode: .defaults)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Text("Each chat can change these with the control in its message box; a chat keeps its own choice.")
-                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        let table = model.chatProfileTable
+        List {
+            Section {
+                ChatChoiceControls(model: model, mode: .defaults).padding(.vertical, 6)
+            } header: { Text("New chats start with") } footer: {
+                Text("Each chat can change these from its ⋯ menu › Answer options. How much the model thinks is chosen for each question: quickly for simple ones, more carefully for derivations and comparisons.")
             }
-            .navigationTitle("Chat defaults").navigationBarTitleDisplayMode(.inline)
-            .task { model.refreshChatProfiles() }
-            .tabBarSpace(color: Color(uiColor: .systemBackground))
+            ForEach(table?.offeredModels ?? [.haiku, .sonnet, .opus], id: \.self) { option in
+                Section {
+                    ForEach(ChatProfileChoice.Length.allCases, id: \.self) { length in
+                        LabeledContent(table?.label(length) ?? length.label,
+                                       value: table?.estimate(model: option, length: length).map(ChatProfileText.estimate) ?? "—")
+                            .monospacedDigit()
+                            .accessibilityIdentifier("settings.aiChat.\(option.rawValue).\(length.rawValue)")
+                    }
+                } header: { Text(table?.label(option) ?? option.label) } footer: {
+                    Text("\(table?.detail(option) ?? option.detail). Questions go to \(option.processor) to be answered.")
+                }
+            }
+            if let note = table?.note {
+                Section { } footer: { Text("Credits per question. \(note)").accessibilityIdentifier("settings.aiChat.note") }
+            }
+        }
+        .navigationTitle("AI chat options").navigationBarTitleDisplayMode(.inline)
+        .task { model.refreshChatProfiles() }
+        .tabBarSpace(color: .chromeGroupedBackground)
     }
 }
 

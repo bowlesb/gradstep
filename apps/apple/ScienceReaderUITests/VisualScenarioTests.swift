@@ -308,7 +308,7 @@ final class VisualScenarioTests: XCTestCase {
                 self.openHistory(app)
                 let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000005"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
-                XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5)); sleep(1)
+                XCTAssertTrue(app.buttons["chat.history.options"].waitForNonExistence(timeout: 5)); sleep(1)
             },
         ]
     }
@@ -436,7 +436,7 @@ final class VisualScenarioTests: XCTestCase {
         }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
         // These existing scenarios inspect all thirty conversations. A paper
         // chat now opens on its own paper first; keep their original scope.
         if app.buttons["chat.history.filter.thisPaper"].exists { app.buttons["chat.history.filter.all"].tap() }
@@ -447,7 +447,7 @@ final class VisualScenarioTests: XCTestCase {
         openHistory(app)
         let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000001"]
         XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForNonExistence(timeout: 5))
     }
 
     private func dismissKeyboard(_ app: XCUIApplication) {

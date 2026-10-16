@@ -105,14 +105,14 @@ final class PassageJourneyTests: XCTestCase {
         if phone { app.show("chat") }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForExistence(timeout: 5))
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "chat.history.", conversationTitle)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         capture(app, "All chats with the passage chat")
         row.press(forDuration: 1.2)
         let goFromHistory = app.buttons["Go to passage"]
         XCTAssertTrue(goFromHistory.waitForExistence(timeout: 5)); goFromHistory.tap()
-        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["chat.history.options"].waitForNonExistence(timeout: 5))
         waitFor("All chats › Go to passage lands on it", timeout: 15, passageVisible)
         XCTAssertTrue(back.waitForExistence(timeout: 5))
 

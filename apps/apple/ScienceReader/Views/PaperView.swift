@@ -431,7 +431,7 @@ struct PaperView: View {
                         if let paper = model.selectedPaper { PodcastListenMenuRow(model: model, paper: paper) }
                         // Its saved chats (owner request 2026-10-07: "a paper's own conversations when you open it").
                         if let paper = model.selectedPaper, let count = model.paperChatCounts[paper.id], count > 0 {
-                            Button { model.openAllChats(paper: paper.id) } label: {
+                            Button { model.openAllChats(paper: paper.id, thisPaper: true) } label: {
                                 Label { Text("Chats about this paper"); Text(ChatHistoryFormat.count(shown: count, total: count)) }
                                     icon: { menuIcon(GradstepSymbol.chats) }
                             }
