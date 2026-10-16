@@ -238,7 +238,7 @@ struct GradstepInfoView: View {
 
             Section {
                 Text("Library metadata, tags and encrypted chat events can sync through Gradstep. Reading progress stays on this device. Chat and note content is encrypted before sync; the keys stay with your approved devices and recovery code.")
-                Text("New PDFs are downloaded, opened and processed only on your device. The structured reader prepares the exact official arXiv HTML version locally. Earlier server copies and conversions may still be retained.")
+                Text("New PDFs are downloaded, opened and processed only on your device. The structured reader prepares the exact official arXiv HTML version locally. Earlier server copies and conversions were deleted on 16 October 2026.")
                 Text("An AI answer sends the relevant question, selected passage, conversation context and paper text to the selected model provider. Encryption protects stored copies; it does not hide content from a provider during a computation you requested.")
                 Text("Optional web search sends search queries to the configured search provider. Provider retention and handling follow that provider's terms; Gradstep does not promise zero provider retention.")
             } header: { Text("What leaves your device") }

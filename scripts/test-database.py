@@ -68,6 +68,8 @@ phase([*migrations, *tests], checks)
 # Natural expiry must cross committed transactions. Isolate those fixture rows
 # from suites that intentionally assert exact global account/ledger counts.
 phase([*migrations, ROOT / 'tests/database/subscription_upgrade_credits.sql'], ['subscription_upgrade_concurrency'])
+# Server paper copies retired (migration 080): its own phase, after every migration.
+phase([*cutover_migrations, ROOT / 'tests/database/paper_copies_retired.sql'], [])
 if fence.is_file() or args.reader_issuer_fence_candidate:
     # Its role, rollback and multi-session checks own another disposable DB so
     # committed lifecycle fixtures do not alter unrelated suites' global counts.
@@ -79,4 +81,4 @@ phase([*[p for p in cutover_migrations if p.name < switch.name], ROOT / 'tests/d
        *[p for p in cutover_migrations if p.name >= switch.name], ROOT / 'tests/database/feed_datacite.sql'], [])
 
 # Retained legacy accounting is verified before the explicit runtime cutover.
-phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql', ROOT / 'tests/database/admin_health.sql', ROOT / 'tests/database/budget_period.sql', ROOT / 'tests/database/chat_study_quotes.sql', ROOT / 'tests/database/podcast_script_repair.sql', ROOT / 'tests/database/podcast_deepseek_profiles.sql', ROOT / 'tests/database/podcast_writer_choice.sql', ROOT / 'tests/database/podcast_device_sources.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql', ROOT / 'tests/database/device_source_metadata.sql', ROOT / 'tests/database/device_search.sql', ROOT / 'tests/database/provider_resilience.sql', ROOT / 'tests/database/podcast_source_deletion.sql', ROOT / 'tests/database/arxiv_egress_off.sql', ROOT / 'tests/database/chat_deepseek.sql', ROOT / 'tests/database/paper_copies_retired.sql'], [])
+phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql', ROOT / 'tests/database/admin_health.sql', ROOT / 'tests/database/budget_period.sql', ROOT / 'tests/database/chat_study_quotes.sql', ROOT / 'tests/database/podcast_script_repair.sql', ROOT / 'tests/database/podcast_deepseek_profiles.sql', ROOT / 'tests/database/podcast_writer_choice.sql', ROOT / 'tests/database/podcast_device_sources.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql', ROOT / 'tests/database/device_source_metadata.sql', ROOT / 'tests/database/device_search.sql', ROOT / 'tests/database/provider_resilience.sql', ROOT / 'tests/database/podcast_source_deletion.sql', ROOT / 'tests/database/arxiv_egress_off.sql', ROOT / 'tests/database/chat_deepseek.sql'], [])
