@@ -9,13 +9,16 @@ enum ArxivHTMLError: Error, Sendable {
     case refused
     /// The device compiler refused the paper with one of its finite reason codes (never source text).
     case compiler(String)
+    /// One image arXiv didn't serve (not found, not an image, too large on its own): its figure says so and the paper
+    /// opens (`fetchAssets`). Never shown on its own.
+    case assetMissing
     var message: String {
         switch self {
         case .unavailable: "arXiv couldn’t make a web version of this paper, which the reader needs. Its PDF downloads from arXiv to this device."
         case .retryLater: "arXiv is busy. Please try preparing this paper again later."
         case .refused: "arXiv refused requests from this device, so Gradstep won’t ask arXiv from it again for a day. Papers already on this device still open."
         case .retrieval: "Couldn’t retrieve this paper from arXiv. Check your connection and try again."
-        case .invalid: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
+        case .invalid, .assetMissing: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
         case .tooLarge: "This paper exceeds the device reader’s current preparation limits. You can still open its PDF."
         case .compiler(let code): ArxivCompilerFailure.message(for: code)
         }
@@ -176,17 +179,22 @@ private actor ArxivHTMLAcquisition {
             nextDocumentRequest = max(nextDocumentRequest, busyUntil)
             throw ArxivHTMLError.retryLater
         }
-        guard http.statusCode == 200 else { throw ArxivHTMLError.retrieval }
+        // One image arXiv doesn't serve (not found, a redirect, not an image, too large on its own, empty) is that
+        // figure's loss, not the paper's; a server error, arXiv being busy or refusing, and the paper's remaining byte
+        // budget still stop the preparation (2026-10-16, "degrade, don't refuse").
+        let missing = { (error: ArxivHTMLError) in document ? error : ArxivHTMLError.assetMissing }
+        guard http.statusCode == 200 else { throw http.statusCode < 500 ? missing(.retrieval) : ArxivHTMLError.retrieval }
         let types = document ? ["text/html", "application/xhtml+xml"] : ["image/png", "image/jpeg", "image/svg+xml"]
-        guard types.contains(http.mimeType?.lowercased() ?? "") else { throw ArxivHTMLError.invalid }
-        guard http.expectedContentLength <= maximum else { throw ArxivHTMLError.tooLarge }
+        guard types.contains(http.mimeType?.lowercased() ?? "") else { throw missing(.invalid) }
+        let tooLarge = maximum >= ArxivAcquisitionPolicy.assetBytes ? missing(.tooLarge) : ArxivHTMLError.tooLarge
+        guard http.expectedContentLength <= maximum else { throw tooLarge }
         var data = Data(); data.reserveCapacity(min(maximum, max(0, Int(http.expectedContentLength))))
         for try await byte in stream {
-            guard data.count < maximum else { throw ArxivHTMLError.tooLarge }
+            guard data.count < maximum else { throw tooLarge }
             data.append(byte)
             if data.count % 65_536 == 0 { try Task.checkCancellation() }
         }
-        guard !data.isEmpty else { throw ArxivHTMLError.invalid }
+        guard !data.isEmpty else { throw missing(.invalid) }
         return data
     }
 }
@@ -255,31 +263,39 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     }
 
     /// The declared assets of one paper, in declaration order, at most `assetConcurrency` in flight and within the
-    /// total byte budget. One failure cancels the others.
-    private func fetchAssets(_ urls: [String], source: ArxivReaderSource, used: Int, progress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> [[String: String]] {
+    /// total byte budget. An image arXiv didn't serve goes as `missing` (its figure says so); any other failure cancels
+    /// the others.
+    private func fetchAssets(_ urls: [String], source: ArxivReaderSource, used: Int, progress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> [[String: Any]] {
         let assets = try urls.map { reference -> URL in
             guard source.admitsAsset(reference), let url = URL(string: reference) else { throw ArxivHTMLError.invalid }
             return url
         }
-        var inputs = [[String: String]?](repeating: nil, count: assets.count)
+        var inputs = [[String: Any]?](repeating: nil, count: assets.count)
         var total = used
         let acquire = self.acquire
-        try await withThrowingTaskGroup(of: (Int, Data).self) { group in
+        try await withThrowingTaskGroup(of: (Int, Data?).self) { group in
             var next = 0
             func start() {
                 guard next < assets.count else { return }
                 let index = next, bound = min(ArxivAcquisitionPolicy.assetBytes, ArxivAcquisitionPolicy.totalBytes - total)
                 next += 1
-                group.addTask { (index, try await acquire(assets[index], source, bound)) }
+                group.addTask {
+                    do { return (index, try await acquire(assets[index], source, bound)) }
+                    catch ArxivHTMLError.assetMissing { return (index, nil) }
+                }
             }
             for _ in 0..<ArxivAcquisitionPolicy.assetConcurrency { start() }
             var done = 0
             while let (index, data) = try await group.next() {
                 try Task.checkCancellation()
                 done += 1; progress(done, assets.count)
-                total += data.count
-                guard total <= ArxivAcquisitionPolicy.totalBytes else { throw ArxivHTMLError.tooLarge }
-                inputs[index] = ["url": urls[index], "base64": data.base64EncodedString()]
+                if let data {
+                    total += data.count
+                    guard total <= ArxivAcquisitionPolicy.totalBytes else { throw ArxivHTMLError.tooLarge }
+                    inputs[index] = ["url": urls[index], "base64": data.base64EncodedString()]
+                } else {
+                    inputs[index] = ["url": urls[index], "missing": true]
+                }
                 start()
             }
         }

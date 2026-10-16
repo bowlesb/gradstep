@@ -1,6 +1,21 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (server paper copies deleted; reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; server paper copies deleted; reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+
+## Mac File menu fixed; reader revision 16 (an image arXiv doesn't serve never refuses) — 2026-10-16, ~07:45 UTC
+
+- **TestFlight 61** (8b23301): iOS and Mac uploaded and VALID (00:14 / 00:20 PDT).
+- **Mac ⌘N did nothing**: `CommandGroup(replacing: .newItem)` never reached the File menu (Add Paper…, New Chat were
+  missing); now `after: .newItem`. **⌘W closed the tag sheet with a tag being typed**: the system's Close is swapped in
+  place for the app's (`MacClose`), which asks the frontmost sheet's guard, dismisses an unguarded sheet, waits for an
+  alert, and closes the window only when nothing is presented (MAC_APP.md "Known issues"). Evidence: MacKeyboardTests
+  4/4 on this Mac (previously 2 pass, ⌘N and the dirty-tag step failing).
+- **Revision 16**: one image arXiv doesn't serve (404/4xx, redirect, wrong type, empty, over the per-image limit) is
+  that figure's note and the paper opens, on the apps and in the browser (HTML_FIRST_READER.md, after "One figure the
+  device can't prepare"). arXiv busy/refusing, 5xx, a lost connection and the paper's byte budget still stop the
+  preparation. Devices re-prepare papers compiled by revision 15 when opened. Evidence: `npm test`; native
+  ArxivHTMLReaderTests + ArxivCompilerIdentityTests on Mac Catalyst (5/5); `reader-device-compile.mjs` on 2610.19820,
+  2610.16784, 2610.20570 ok (3/3, 13/13, 1/1 images). Not yet in a build or deployed.
 
 ## Server paper copies deleted on staging — 2026-10-16, 06:36 UTC
 

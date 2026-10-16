@@ -164,16 +164,21 @@ function convertOptions(options?: { authors?: unknown; title?: unknown }) {
 export function assets(source64: string, sourceID: string, revision: number, options?: { authors?: unknown; title?: unknown }): string[] {
   return arxivHTMLAssets(decodeUTF8(decode64(source64, ARXIV_SOURCE_BYTES)), arxivHTMLURL(sourceID, revision), convertOptions(options));
 }
-export async function prepare(source64: string, sourceID: string, revision: number, inputs: { url: string; base64: string }[], options?: { authors?: unknown; title?: unknown }) {
+/** One declared asset as the host downloaded it: its bytes, or `missing` when arXiv didn't serve that one image (not
+ * found, not an image, too large on its own). A missing image is that figure's loss, as an unpreparable one is; the
+ * host still refuses for arXiv being busy or refusing, a lost connection, and the paper's byte budget. */
+export type AssetInput = { url: string; base64: string; missing?: undefined } | { url: string; missing: true; base64?: undefined };
+export async function prepare(source64: string, sourceID: string, revision: number, inputs: AssetInput[], options?: { authors?: unknown; title?: unknown }) {
   const { authors, title } = convertOptions(options);
   const source = decode64(source64, ARXIV_SOURCE_BYTES), urls = assets(source64, sourceID, revision, options);
   check(Array.isArray(inputs) && inputs.length === urls.length && new Set(inputs.map(i => i.url)).size === inputs.length &&
-    inputs.every(i => urls.includes(i.url)), 'arxiv_asset_set');
+    inputs.every(i => urls.includes(i.url) && (i.missing === true ? i.base64 === undefined : typeof i.base64 === 'string')), 'arxiv_asset_set');
   const images = new Map<string, ArxivImage | null>(); let bytes = source.length, pixels = 0;
   const inline = arxivInlineImages(decodeUTF8(source), arxivHTMLURL(sourceID, revision), { authors, title });
   check(inputs.length + inline.size <= LIMITS.archiveImages, 'image_limit');
+  for (const input of inputs) if (input.missing) images.set(input.url, null);
   function* decodeInputs() {
-    for (const input of inputs) yield {key:input.url,data:decode64(input.base64,LIMITS.memberBytes),svg:/\.svg$/i.test(new URL(input.url).pathname)};
+    for (const input of inputs) if (!input.missing) yield {key:input.url,data:decode64(input.base64,LIMITS.memberBytes),svg:/\.svg$/i.test(new URL(input.url).pathname)};
     for (const [key, xml] of inline) yield {key,data:utf8(xml),svg:true};
   }
   const budget = pixelBudget(inputs.length + inline.size);

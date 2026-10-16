@@ -96,6 +96,15 @@ describe('arXiv acquisition pacing', () => {
   expect(asset404.kind).toBe('network');
  });
 
+ it('an image arXiv doesn’t serve is missing, and the paper’s other images still come (revision 16)', async () => {
+  serve(url => url.endsWith('x1.png') ? { status: 404 } : url.endsWith('x2.png') ? { type: 'text/html' } : {});
+  const inputs = await fetchArxivAssets([asset(0), asset(1), asset(2), asset(3)], base, 1 << 20, never);
+  expect(inputs.map(i => 'missing' in i ? 'missing' : 'bytes')).toEqual(['bytes', 'missing', 'missing', 'bytes']);
+  // A server error is not the image's own: the preparation stops and can be tried again.
+  serve(url => url.endsWith('x1.png') ? { status: 500 } : {});
+  await expect(fetchArxivAssets([asset(0), asset(1)], base, 1 << 20, never)).rejects.toMatchObject({ kind: 'prepare' });
+ });
+
  it('refuses redirects, wrong types and oversized bodies, and stops the other assets after one failure', async () => {
   serve(url => url.endsWith('x1.png') ? { url: 'https://arxiv.org/html/2305.18290v4/x1.png' } : url.endsWith('x2.png') ? { type: 'text/html' } : { body: new Uint8Array(2000) });
   await expect(retrieveArxiv(asset(1), 1024, false, never)).rejects.toThrow('didn’t return this version’s HTML');

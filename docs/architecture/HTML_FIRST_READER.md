@@ -462,6 +462,15 @@ ambiguous), and a picture over the pixel limit at twice its size is drawn at the
 `reader-device-compile.mjs` reports "N not shown" per paper. Tests: `tests/backend/arxiv-unshown-figures.test.ts`
 and `apps/web/e2e/arxiv-compiler.spec.ts` (Chromium, WebKit, Firefox).
 
+An image arXiv doesn't serve is that figure's loss too (revision 16, 2026-10-16). The device's download of one
+declared image that answers not found or another 4xx, a redirect, a type other than PNG/JPEG/SVG, an empty body or
+more than the per-image limit goes to `prepare` as `{url, missing: true}` and reads as the same note; the host still
+stops for a 5xx, arXiv busy (429/503) or refusing (403), a lost connection, and the paper's remaining byte budget, so
+those are tried again rather than stored with notes. Native: `ArxivHTMLError.assetMissing` in
+`ArxivHTMLAcquisition.fetch`, caught per asset in `fetchAssets`; browser: `ArxivReaderError` kind `asset` in
+`retrieveArxiv`, caught in `fetchArxivAssets`. Tests: the backend case above, `apps/web/tests/arxiv-reader.test.ts`,
+`ArxivHTMLReaderTests.anImageArxivDidntServeIsItsFiguresLossNotThePapers`.
+
 The header: the catalog's title and author names are the ground truth; LaTeXML's author block contributes marks,
 affiliations and notes (an author block set as a table reads by rows and cells; several names in one creator split
 by their marks), and a custom title page without an author block folds into the header the same way. Affiliations

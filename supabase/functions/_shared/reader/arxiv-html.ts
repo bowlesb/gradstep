@@ -31,9 +31,10 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * refused, 2606.05868 on build 55; revision 14: a figure whose image arXiv's HTML lacks says so in its caption, a
  * placeholder author block gives way to the catalog's names, a picture title's alt is the title; revision 15: an image the
  * device can't prepare says so in its figure instead of refusing the paper, an SVG's unreferenced repeated id is dropped
- * and an over-large SVG is drawn smaller, 2610.19820 and 2610.16784 on build 58), so a device re-prepares papers it
+ * and an over-large SVG is drawn smaller, 2610.19820 and 2610.16784 on build 58; revision 16: an image arXiv doesn't
+ * serve (not found, not an image, too large on its own) is that figure's note, not the paper's refusal), so a device re-prepares papers it
  * compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 15;
+export const ARXIV_RENDERER_REVISION = 16;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

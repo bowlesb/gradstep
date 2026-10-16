@@ -6,7 +6,7 @@ import { buildPaperContext, PAPER_CONTEXT_FORMAT } from './paper-context';
 /** `kind`: what the reader offers instead (build 57, 2610.20399): 'no-html' (arXiv has no HTML for this version: its PDF
  * only), 'network' (arXiv busy, refused or unreachable: its PDF would fail the same way), 'prepare' (its PDF, beside Try again). */
 export class ArxivReaderError extends Error {
- constructor(message: string, readonly kind: 'no-html' | 'network' | 'prepare' = 'prepare') { super(message); }
+ constructor(message: string, readonly kind: 'no-html' | 'network' | 'prepare' | 'asset' = 'prepare') { super(message); }
 }
 
 /** Who hears about a page this browser downloaded to prepare a paper (source-metadata.ts, while the server asks for
@@ -85,26 +85,37 @@ export async function retrieveArxiv(url: string, maximum: number, html: boolean,
   await response.body?.cancel();
   // The paper's own page missing (as the native reader): arXiv has no HTML for this version.
   if (html && [404, 410].includes(response.status)) throw new ArxivReaderError(NO_HTML, 'no-html');
+  // One image arXiv doesn't serve (not found, not an image): that figure's loss, not the paper's.
+  if (!html && (response.status < 500 || response.ok)) throw new ArxivReaderError(UNAVAILABLE, 'asset');
   throw new ArxivReaderError(UNAVAILABLE);
  }
- if (Number(response.headers.get('content-length') ?? 0) > maximum) { await response.body.cancel(); throw new ArxivReaderError(TOO_LARGE); }
+ // An image too large on its own is that figure's loss; one that only overruns what is left of the paper's budget isn't.
+ const tooLarge = () => new ArxivReaderError(TOO_LARGE, !html && maximum >= ARXIV_LIMITS.assetBytes ? 'asset' : 'prepare');
+ if (Number(response.headers.get('content-length') ?? 0) > maximum) { await response.body.cancel(); throw tooLarge(); }
  const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
- try { while (true) { abort(signal); const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > maximum) throw new ArxivReaderError(TOO_LARGE); chunks.push(value); } }
+ try { while (true) { abort(signal); const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > maximum) throw tooLarge(); chunks.push(value); } }
  finally { await reader.cancel().catch(() => {}); }
  const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; } return bytes;
 }
+export type ArxivAssetInput = { url: string; base64: string } | { url: string; missing: true };
 /** The declared assets of one paper, in declaration order, at most `assetConcurrency` in flight and within
- * `budget` bytes in total. One failure stops the others. Exported for the fast suite. */
-export async function fetchArxivAssets(urls: unknown, baseURL: string, budget: number, parentSignal: AbortSignal, progress?: (fraction: number) => void): Promise<{ url: string; base64: string }[]> {
+ * `budget` bytes in total. An image arXiv doesn't serve is `missing` (its figure says so); any other failure stops
+ * the others. Exported for the fast suite. */
+export async function fetchArxivAssets(urls: unknown, baseURL: string, budget: number, parentSignal: AbortSignal, progress?: (fraction: number) => void): Promise<ArxivAssetInput[]> {
  if (!Array.isArray(urls) || urls.length > ARXIV_LIMITS.assets || new Set(urls).size !== urls.length || !urls.every(u => typeof u === 'string' && admitsArxivAsset(u, baseURL))) throw new ArxivReaderError('Invalid paper assets.');
- const assets = urls as string[], inputs: { url: string; base64: string }[] = new Array(assets.length);
+ const assets = urls as string[], inputs: ArxivAssetInput[] = new Array(assets.length);
  const local = new AbortController(), signal = AbortSignal.any([parentSignal, local.signal]);
  let total = 0, done = 0, next = 0;
  const worker = async () => {
   while (next < assets.length) {
    abort(signal);
    const index = next++, url = assets[index];
-   const bytes = await retrieveArxiv(url, Math.min(ARXIV_LIMITS.assetBytes, budget - total), false, signal);
+   let bytes: Bytes;
+   try { bytes = await retrieveArxiv(url, Math.min(ARXIV_LIMITS.assetBytes, budget - total), false, signal); }
+   catch (error) {
+    if (!(error instanceof ArxivReaderError && error.kind === 'asset')) throw error;
+    inputs[index] = { url, missing: true }; done++; progress?.(done / (assets.length + 1)); continue;
+   }
    total += bytes.length; if (total > budget) throw new ArxivReaderError(TOO_LARGE);
    inputs[index] = { url, base64: toBase64(bytes) }; done++; progress?.(done / (assets.length + 1));
   }
@@ -151,7 +162,7 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
  frame.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${compiler.hash}'; img-src data:; connect-src 'none'; style-src 'none'; base-uri 'none'"><script>${compiler.script}</script>`;
  const loaded = new Promise<void>((resolve, reject) => { frame.onload = () => resolve(); frame.onerror = () => reject(new ArxivReaderError('The device compiler could not start.')); });
  document.body.append(frame);
- const call = async (method: 'assets' | 'prepare', inputs?: { url: string; base64: string }[], compile?: { authors: string[]; title?: string }): Promise<unknown> => {
+ const call = async (method: 'assets' | 'prepare', inputs?: ArxivAssetInput[], compile?: { authors: string[]; title?: string }): Promise<unknown> => {
   abort(signal);
   return await new Promise((resolve, reject) => {
    const channel = new MessageChannel(); let timer: ReturnType<typeof setTimeout>;

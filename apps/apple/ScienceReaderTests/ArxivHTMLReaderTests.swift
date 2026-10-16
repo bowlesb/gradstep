@@ -28,7 +28,16 @@ import Testing
         #expect(bundle.index.blocks.last?.text.contains("Retained legend text") == true)
         #expect(bundle.index.figures.last?.assetPaths.count == 2)
     }
-    private func compileFixture(_ name: String) async throws -> VerifiedReaderBundle {
+    /// Revision 16: an image arXiv didn't serve is its figure's note and the paper opens; arXiv being busy still stops it.
+    @Test func anImageArxivDidntServeIsItsFiguresLossNotThePapers() async throws {
+        let full = try await compileFixture("source.html")
+        let missing = try await compileFixture("source.html") { _ in throw ArxivHTMLError.assetMissing }
+        #expect(full.index.figures.count == 1)
+        #expect(missing.index.figures.isEmpty)
+        #expect(missing.index.equations.count == full.index.equations.count)
+        await #expect(throws: ArxivHTMLError.self) { _ = try await compileFixture("source.html") { _ in throw ArxivHTMLError.retryLater } }
+    }
+    private func compileFixture(_ name: String, asset: (@Sendable (URL) throws -> Data)? = nil) async throws -> VerifiedReaderBundle {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let html = try Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/\(name)"))
@@ -36,6 +45,7 @@ import Testing
         let source = try ArxivReaderSource(sourceID: "2601.01234", revision: 2)
         let reader = ArxivHTMLReader { url, ref, maximum in
             #expect(ref == source)
+            if url != source.htmlURL, let asset { return try asset(url) }
             let data = url == source.htmlURL ? html : image
             #expect(data.count <= maximum)
             #expect(url == source.htmlURL || source.admitsAsset(url.absoluteString))

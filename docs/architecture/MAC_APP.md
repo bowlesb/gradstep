@@ -238,12 +238,14 @@ builds have their own build-number train, separate from iOS. Logs: `.artifacts/a
 
 ## Known issues (2026-10-16, found once Mac UI automation could run)
 
-- **⌘W while typing a tag closes the tag sheet.** The sheet's guard (`macSheetKeys(enabled: false)` while a tag is being
-  typed or tags changed) is a hidden button with ⌘W, but the menu bar's Close takes the key equivalent first on Mac
-  Catalyst, so the sheet closes and the typed tag is lost (changed chips survive only if already added). Fix: replace the
-  File › Close command (UIMenuBuilder) with one that asks the frontmost sheet's guard before closing it, and closes the
-  window only when no sheet is shown. `MacKeyboardTests.testCommandWPreservesDirtyTagsAndTheWindowButClosesACleanSheet`
-  marks the step as an expected failure until then.
+- **⌘W while typing a tag closed the tag sheet** (fixed 2026-10-16). The menu bar's own Close took ⌘W before the
+  sheet's hidden ⌘W button. File › Close is now the app's: MacAppDelegate swaps the system's `performClose:` command in
+  place (its menu anchors SwiftUI's File items; a second ⌘W command is dropped) for one every responder answers with
+  `MacClose` (MacSupport.swift). It asks the frontmost sheet's guard (`macSheetKeys(enabled:)`), dismisses an unguarded
+  sheet unless it asks not to be dismissed, leaves alerts for their choice, and closes the window only when nothing is
+  presented. Sheets the reader must answer (recovery, chat consent) pass `enabled: false`.
+- **⌘N did nothing** (fixed 2026-10-16): `CommandGroup(replacing: .newItem)` never reached the Mac's File menu, so Add
+  Paper… and New Chat were missing; the group is now `after: .newItem`. `MacKeyboardTests` (4 journeys) cover both.
 - The iPhone/iPad journeys assume touch and the iPad's segmented mode control; on the Mac the mode control is the
   toolbar's (check boxes to automation), menus are pop-up buttons and there is no swipe. `show()`, `wideMode()` and
   `portraitWhereSupported()` (ReaderMenuSupport.swift) cover the first two; Mac-specific journeys live in

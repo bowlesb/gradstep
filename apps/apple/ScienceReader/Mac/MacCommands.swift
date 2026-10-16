@@ -49,7 +49,8 @@ struct GradstepCommands: Commands {
         }
 
         // File
-        CommandGroup(replacing: .newItem) {
+        // After, not replacing: the replaced New group never reached the Mac's File menu (⌘N did nothing, found 2026-10-16).
+        CommandGroup(after: .newItem) {
             Button("Add Paper…") { addPaper() }.keyboardShortcut("n")
             Button("New Chat") { newChat() }.keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(!model.generalChat && !model.canUsePaperChat && model.wideMode != .chat)

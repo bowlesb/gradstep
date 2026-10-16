@@ -103,8 +103,9 @@ extension View {
         #endif
     }
 
-    /// Mac: ⌘W closes this sheet, like Escape (which Mac Catalyst sheets already handle). Apply to the
-    /// sheet's content (inside `.sheet { }`); pass `false` while the sheet must stay (work in progress).
+    /// Mac: ⌘W (File › Close) closes this sheet, like Escape (which Mac Catalyst sheets already handle). Apply to the
+    /// sheet's content (inside `.sheet { }`); pass `false` while the sheet must stay (work in progress, a choice the
+    /// reader must make).
     func macSheetKeys(enabled: Bool = true) -> some View { modifier(MacSheetKeys(enabled: enabled)) }
 }
 
@@ -125,17 +126,74 @@ private struct MacSheetKeys: ViewModifier {
     @Environment(\.dismiss) private var dismiss
     func body(content: Content) -> some View {
         #if targetEnvironment(macCatalyst)
-        content.background {
-            // Always own the shortcut: removing/disabling this button would let Cmd-W fall through
-            // to window Close while a save is in progress. Keep this modifier outside disabled content.
-            Button("Close") { if enabled { dismiss() } }.keyboardShortcut("w")
-                .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
-        }
+        // File › Close finds this guard in the frontmost sheet (MacClose). A hidden ⌘W button here lost to the menu
+        // bar's own Close, which closed the sheet with a tag still being typed (MAC_APP.md, 2026-10-16).
+        content.background { MacSheetGuard(enabled: enabled, dismiss: dismiss) }
         #else
         content
         #endif
     }
 }
+
+#if targetEnvironment(macCatalyst)
+/// A sheet's answer to File › Close: whether it may close now, and how.
+final class MacSheetGuardView: UIView {
+    var enabled = true
+    var dismiss: () -> Void = {}
+}
+
+private struct MacSheetGuard: UIViewRepresentable {
+    let enabled: Bool
+    let dismiss: DismissAction
+    func makeUIView(context: Context) -> MacSheetGuardView {
+        let view = MacSheetGuardView()
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        return view
+    }
+    func updateUIView(_ view: MacSheetGuardView, context: Context) {
+        view.enabled = enabled
+        view.dismiss = { dismiss() }
+    }
+}
+
+/// File › Close (⌘W): the frontmost sheet first, then the window (MAC_APP.md). A sheet with a guard closes only when
+/// the guard allows (`macSheetKeys(enabled:)`); one without a guard closes unless it asks not to be dismissed; an alert
+/// waits for its choice. The window closes only when nothing is presented over it.
+@MainActor enum MacClose {
+    static func perform() {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
+              let window = scene.keyWindow ?? scene.windows.first, let root = window.rootViewController else { return }
+        var top = root
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        guard top !== root else {
+            UIApplication.shared.requestSceneSessionDestruction(scene.session, options: nil)
+            return
+        }
+        if let sheetGuard = top.view.firstDescendant(of: MacSheetGuardView.self) {
+            if sheetGuard.enabled { sheetGuard.dismiss() }
+            return
+        }
+        if top is UIAlertController || top.isModalInPresentation { return }
+        top.presentingViewController?.dismiss(animated: true)
+    }
+}
+
+extension UIResponder {
+    /// File › Close (MacAppDelegate): every responder answers it the same way, so it reaches MacClose from wherever focus is.
+    @objc func gradstepClose(_ sender: Any?) { MacClose.perform() }
+}
+
+private extension UIView {
+    func firstDescendant<View: UIView>(of type: View.Type) -> View? {
+        for child in subviews {
+            if let match = child as? View ?? child.firstDescendant(of: type) { return match }
+        }
+        return nil
+    }
+}
+#endif
 
 // MARK: - Reader web view
 
@@ -296,6 +354,14 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
         super.buildMenu(with: builder)
         guard builder.system == .main else { return }
         builder.remove(menu: .document)
+        // The system's Close (performClose:) closed a sheet with its work in progress (a tag being typed); this one asks
+        // the sheet first (MacClose). Replaced in place: its menu anchors SwiftUI's File items, and a second ⌘W is dropped.
+        builder.replaceChildren(ofMenu: .close) { children in
+            children.map { child in
+                guard (child as? UICommand)?.action == NSSelectorFromString("performClose:") else { return child }
+                return UIKeyCommand(title: "Close", action: #selector(UIResponder.gradstepClose(_:)), input: "w", modifierFlags: .command)
+            }
+        }
         builder.remove(menu: .find)
         builder.remove(menu: .format)
     }

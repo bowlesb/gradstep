@@ -111,6 +111,19 @@ test('device compile: an oversized raster becomes its figure\'s note, the paper 
   assert.equal(checked.index.figures.length, 1);
 });
 
+test('device compile: an image arXiv didn\'t serve is marked missing and becomes its figure\'s note, the paper opens (revision 16)', async () => {
+  const text = source.replace('<ol>', '<figure id="S1.F2"><img src="2601.01234v2/gone.png"><figcaption>Figure 2: Not on arXiv.</figcaption></figure><ol>');
+  const result = await prepare(b64(utf8(text)), '2601.01234', 2, [{ url: url + '/figure.jpg', base64: b64(raw) }, { url: url + '/gone.png', missing: true }]);
+  const members = new Map(result.members.map(m => [m.path, new Uint8Array(Buffer.from(m.base64, 'base64'))]));
+  const checked = validateReaderBundle(new Uint8Array(Buffer.from(result.manifest, 'base64')), members, result.manifestSHA256);
+  assert.match(decodeUTF8(members.get('index.html')!), new RegExp(WHOLE.source + 'Figure 2: Not on arXiv\\.</p>'));
+  assert.equal(checked.index.figures.length, 1);
+  // A missing input carries no bytes, and every declared asset still needs an input.
+  await assert.rejects(prepare(b64(utf8(text)), '2601.01234', 2, [{ url: url + '/figure.jpg', base64: b64(raw) },
+    { url: url + '/gone.png', missing: true, base64: '' } as never]), /arxiv_asset_set/);
+  await assert.rejects(prepare(b64(utf8(text)), '2601.01234', 2, [{ url: url + '/figure.jpg', base64: b64(raw) }]), /arxiv_asset_set/);
+});
+
 // Node has no XML DOM; the device parses pictures with WebKit's or Chromium's. A small stand-in over htmlparser2's XML
 // mode gives svgImage the same calls so its id and size rules run in the fast tier; the real parsers run in
 // apps/web/e2e/arxiv-compiler.spec.ts and scripts/reader-device-compile.mjs.

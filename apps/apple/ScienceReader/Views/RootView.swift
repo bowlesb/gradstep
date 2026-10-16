@@ -100,8 +100,8 @@ struct RootView: View {
             }
         }
         .infoBubbleDimming()
-        .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
-        .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
+        .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled().macSheetKeys(enabled: false) }
+        .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
         .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID, startsOnPaper: model.allChatsStartsOnPaper).macSheetKeys() }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         .sheet(isPresented: $model.showAnswerOptions) { AnswerOptionsSheet(model: model).macSheetKeys() }
@@ -1430,7 +1430,7 @@ struct SettingsView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
-                .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model) }
+                .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model).macSheetKeys() }
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance(); await model.refreshStoreSummary() } }
                 // Its own task: a slow balance or store answer never holds the operator row back.
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshOperatorRoles() } }

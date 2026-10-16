@@ -34,14 +34,8 @@ final class MacKeyboardTests: XCTestCase {
         field.click(); field.typeText("Keyboard regression tag")
         XCTAssertEqual(field.value as? String, "Keyboard regression tag", "The tag text went into the field")
         app.typeKey("w", modifierFlags: .command)
-        // Known Mac issue (2026-10-16, docs/architecture/MAC_APP.md "Known issues"): the menu bar's Close takes ⌘W before
-        // the sheet's guard, so a tag still being typed is closed with the sheet. Recorded until Close is replaced.
-        guard field.exists else {
-            XCTExpectFailure("⌘W closes the tag sheet while a tag is being typed (menu bar Close wins)") {
-                XCTAssertTrue(field.exists, "A tag still being typed is unsaved work too")
-            }
-            return
-        }
+        // File › Close asks the sheet's guard (MacClose): a tag still being typed is unsaved work too.
+        XCTAssertTrue(field.exists, "A tag still being typed is unsaved work too")
         XCTAssertEqual(field.value as? String, "Keyboard regression tag")
         field.typeText("\n")
         let tag = app.buttons["tags.chip.Keyboard regression tag"]

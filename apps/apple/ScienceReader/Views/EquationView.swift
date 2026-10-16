@@ -201,6 +201,7 @@ struct EquationView: View {
         .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
                 .presentationDetents([.large])
+                .macSheetKeys()
         }
     }
 
