@@ -2,6 +2,25 @@
 
 Updated 2026-10-15 PDT (reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
 
+## Native chat redesign, Settings, Feed and Library from builds 57–58 — 2026-10-16, ~05:00 UTC
+
+- **iPhone, iPad, Mac** (CHAT.md "Chat redesign from build 57 feedback"): starters above one pill message box (the
+  browser's pool and seeded selection; parity-tested on tests/fixtures/chat-starters-cases.json) with a soft glow;
+  "Ask anything about the paper"; keyboard dismiss inside the pill on iPhone only; ⋯ › Answer options… (model and
+  length; DeepSeek as the server lists it; Use for new chats; About AI chat options) and Study mode; requests send
+  `effort: auto` and consent `cloud-ai-v4`; Settings › AI chat options with per-model credit tables.
+- **All chats**: search and ≡ (Sort, Columns, Close) on top; All first and default (a paper's own "Chats about this
+  paper" still opens on it); Last read; the paper only in its column.
+- **Settings**: account row without sign-in methods; AI credits; Subscription plan; ⓘ explanations; no text-size
+  sliders; Your assets (Chats, Diagrams); Report a problem and My reports by About; a grey Admin section (operators,
+  internal builds); Privacy & data with "Papers and arXiv" (device-only, pacing, ToU link, acknowledgement) and the
+  outdated server-fetch line removed.
+- **Feed / ML paper search Add**: the Library's spinner (percent while preparing) until ready; a tap shows the Library.
+  **Library**: a row being added keeps its final height.
+- iPad regression found and fixed before shipping: an empty chat's message box took no taps without its band (b5f5029).
+- Evidence: Core 323 tests; ChatStarters/ChatHistory/ChatVisual unit tests; UI ChatControls, ChatHistoryTable,
+  Settings, LibraryWrites on iPhone 17 Pro and iPad Pro 13 (screens reviewed); `npm test` on merged main.
+
 ## Reader revision 15: one figure never refuses a paper; flat wide tables — 2026-10-16, ~03:50 UTC
 
 - Builds 57–58 reports: ActionOPD (2610.19820v1) refused `svg_id`, InfoVis (2610.16784v1) refused `image_dimensions`
@@ -20,7 +39,7 @@ Updated 2026-10-15 PDT (reader revision 15 entry 2026-10-16 UTC). Earlier deploy
   iPad Simulator: the native tier (ArxivHTMLReaderTests, PDFUploadTests) and PaperWebViewTests 28 (one rerun after
   the Simulator killed its runner).
 
-## Browser: chat redesign and builds 57–58 reports — 2026-10-16 (local fixtures; not deployed)
+## Browser: chat redesign and builds 57–58 reports — 2026-10-16 (deployed to app.gradstep.ai ~04:55 UTC, two phases verified)
 
 - **Chat** ([CHAT](architecture/CHAT.md#browser-2026-10-16-local-fixtures-not-deployed)): ⋯ menu with Answer options
   (Model incl. DeepSeek when listed, Length, Use for new chats, About AI chat options) and Study mode; `effort: "auto"`
