@@ -20,10 +20,18 @@ test('Feed → reading: Add prepares the paper here with its percent, In library
  await page.getByRole('link',{name:'Feed'}).click();
  const card=page.getByTestId('feed-grid').locator('li').filter({hasText:'scaling sparse attention'});
  await card.getByRole('button',{name:'+ Add to library'}).click();
- // Prepared on this device right after the add, with its percent (DiscoveryAddControl's preparing).
- await expect(card.getByTestId('feed-preparing')).toBeVisible({timeout:15_000});
- await expect(card.getByTestId('feed-preparing')).toHaveText(/^(Downloading|Preparing)… \d{1,3}%$/);
+ // From Add until the paper is ready here, the Library's spinner (owner, build 58): no check before then, the percent
+ // under the spinner once preparation reports one (DiscoveryAddControl's preparing).
+ const adding=card.getByTestId('feed-preparing');
+ await expect(adding).toBeVisible();await expect(adding.locator('.spinner')).toBeVisible();
+ await expect(card.getByTestId('feed-open')).toHaveCount(0);
+ await expect(adding).toHaveText(/^\d{1,3}%$/,{timeout:15_000});
+ await expect(adding).toHaveAttribute('aria-label',/^Adding to your library, \d{1,3}%\. Show the Library$/);
  await page.screenshot({path:`../../.artifacts/parity-web-feed-preparing-${test.info().project.name}.png`});
+ // The spinner shows the Library; the paper keeps preparing meanwhile.
+ await adding.click();
+ await expect(page.getByTestId('library-table')).toBeVisible();
+ await page.getByRole('link',{name:'Feed'}).click();
  const open=card.getByTestId('feed-open');
  await expect(open).toBeEnabled({timeout:15_000});await expect(open).toHaveText('✓ In library');
  // The library marks it new (never opened) and on this device (prepared in this tab).

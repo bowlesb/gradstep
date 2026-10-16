@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from './icons';
 
 export function Brand({ small = false }: { small?: boolean }) {
@@ -73,6 +73,35 @@ export function MenuButton({ icon, label, testID, className, disabled = false, c
       onKeyDown={event => { if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !open) { event.preventDefault(); setOpen(true); } }}><Icon name={icon} /></button>
     {open && <div ref={menu} className="menu popup-menu" role="menu" aria-label={label} onKeyDown={keys}>{children(close)}</div>}
   </div>;
+}
+
+/** An ⓘ just to the right of a row's words (owner, build 57: descriptive sentences behind an info icon): a click or
+ * Enter shows the text in a small popover, Esc or a click elsewhere hides it; screen readers hear it as the button's
+ * description either way. */
+export function InfoTip({ text, testID }: { text: string; testID?: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null), note = useRef<HTMLSpanElement>(null), id = useId();
+  // Kept inside the dialog (or window) it opens in: shifted left when it would run past the right edge.
+  useLayoutEffect(() => {
+    const n = note.current; if (!n) return;
+    n.style.left = '';
+    if (!open) return;
+    const frame = (n.closest('dialog') ?? document.documentElement).getBoundingClientRect(), r = n.getBoundingClientRect();
+    const over = r.right - (Math.min(frame.right, innerWidth) - 12);
+    if (over > 0) n.style.left = `${-6 - Math.min(over, r.left - Math.max(frame.left, 0) - 12)}px`;
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open]);
+  return <span className="info-tip" ref={box}>
+    <button type="button" className="info-tip-button" aria-label="More information" aria-expanded={open} aria-describedby={id} data-testid={testID}
+      onClick={event => { event.preventDefault(); event.stopPropagation(); setOpen(o => !o); }}
+      onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}><Icon name="info" size={14} /></button>
+    <span id={id} ref={note} role="note" className={open ? 'info-tip-text open' : 'info-tip-text'}>{text}</span>
+  </span>;
 }
 
 export const NOT_YET = 'Not yet available in the browser. Use Gradstep on iPhone, iPad or Mac for this for now.';

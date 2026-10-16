@@ -41,6 +41,7 @@ import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
 import { ReportDialog, ReportsDialog } from './SupportReports';
 import { HowGradstepWorks } from './HowGradstepWorks';
+import { PrivacyData } from './PrivacyData';
 import { useLibrary } from './useLibrary';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
@@ -150,6 +151,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
   const [howGradstepWorks, setHowGradstepWorks] = useState(false);
+  const [privacy, setPrivacy] = useState(false);
   const [help, setHelp] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const report = useCallback(() => setReportOpen(true), []);
@@ -170,28 +172,43 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const readerCacheVersion = useSyncExternalStore(readerCache.subscribe, readerCache.getVersion);
   // Which papers this tab has prepared (the library row's check, PaperDeviceCopy).
   const prepared = useCallback((e: ClientEntry) => isReaderPaper(e) && readerCache.has(readerCacheKey(account, e)), [readerCache, account, readerCacheVersion]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A paper added from the Feed is prepared right away, as the apps do, so opening it doesn't download again; the
-  // Feed shows the percent meanwhile (sourceID → fraction).
-  const [feedPreparing, setFeedPreparing] = useState<Map<string, number>>(new Map());
-  const feedAdded = useRef(new Set<string>());
+  // A paper added from the Feed is prepared right away, as the apps do, so opening it doesn't download again. From Add
+  // until it is ready the Feed shows the Library's spinner (owner, build 58), with the percent once preparation reports
+  // one (sourceID → fraction, or null while the paper is still being added).
+  const [feedPreparing, setFeedPreparing] = useState<Map<string, number | null>>(new Map());
+  const feedAdded = useRef(new Map<string, number>()); // sourceID → when Add returned
+  const settleFeedAdd = useCallback((sourceID: string) => {
+    feedAdded.current.delete(sourceID);
+    setFeedPreparing(m => { if (!m.has(sourceID)) return m; const next = new Map(m); next.delete(sourceID); return next; });
+  }, []);
+  const feedAdd = useCallback((sourceID: string) => {
+    feedAdded.current.set(sourceID, Date.now()); setFeedPreparing(m => new Map(m).set(sourceID, null));
+    // A paper that never becomes readable here (still adding after two minutes) stops spinning; its row says why.
+    setTimeout(() => setFeedPreparing(m => { if (m.get(sourceID) !== null) return m; feedAdded.current.delete(sourceID); const next = new Map(m); next.delete(sourceID); return next; }), 120_000);
+  }, []);
   const preparationScope = useRef(new AbortController());
   useEffect(() => () => preparationScope.current.abort(), []);
   useEffect(() => {
-    for (const sourceID of [...feedAdded.current]) {
+    for (const sourceID of [...feedAdded.current.keys()]) {
+      const entries = library.entries.filter(e => e.visible && e.source_id === sourceID);
       // The paper the reader will open (a source paper, or an arXiv item read from its official HTML).
-      const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID && !!readingSource(e));
-      if (!paper) continue;
+      const paper = entries.find((e): e is ReaderPaper => isReaderPaper(e) && !!readingSource(e));
+      if (!paper) {
+        // Settled without anything to prepare here: the add failed or was cancelled, or the paper reads another way.
+        if (entries.some(e => e.kind === 'import' ? ['failed', 'cancelled', 'membership_conflict'].includes(e.phase) : !(isReaderPaper(e) && readingSource(e)))) settleFeedAdd(sourceID);
+        continue;
+      }
       feedAdded.current.delete(sourceID);
       const key = readerCacheKey(account, paper);
-      if (readerCache.has(key)) continue;
+      if (readerCache.has(key)) { settleFeedAdd(sourceID); continue; }
       const progress = (fraction: number) => setFeedPreparing(m => new Map(m).set(sourceID, fraction));
       progress(0);
       void prepareArxivReader(readingSource(paper)!, preparationScope.current.signal, progress, { authors: paper.metadata?.authors ?? [], title: paper.metadata?.title })
         .then(bundle => { readerCache.set(key, bundle); while (readerCache.size > 3) readerCache.delete(readerCache.keys().next().value!); })
         .catch(() => { /* opening the paper prepares it again and says why if it can't */ })
-        .finally(() => setFeedPreparing(m => { const next = new Map(m); next.delete(sourceID); return next; }));
+        .finally(() => settleFeedAdd(sourceID));
     }
-  }, [library.entries, account, readerCache]);
+  }, [library.entries, account, readerCache, settleFeedAdd]);
   useEffect(()=>{
     if(!chat)return;
     chat.setSourcePapers(new Map(library.entries.filter(isSourcePaper).map(paper=>[paper.id,{reference:paperReference(paper)!,load:async()=>{
@@ -516,12 +533,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
-    center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing}
-      onAdded={sourceID => { feedAdded.current.add(sourceID); }}
+    center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing} onLibrary={() => navigate('/')}
+      onAdded={feedAdd}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }}
       listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} onTryAgain={tryAgain} /> }} />;
   } else if (searchExternal) {
-    center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={sourceID => { feedAdded.current.add(sourceID); }}
+    center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={feedAdd} onLibrary={() => setSearchExternal(false)}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
@@ -570,7 +587,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
@@ -619,6 +636,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
       <HowGradstepWorks open={howGradstepWorks} onClose={() => setHowGradstepWorks(false)} />
+      <PrivacyData open={privacy} onClose={() => setPrivacy(false)} />
       <Dialog open={deletingAccount} onClose={() => { if (!deleteBusy) setDeletingAccount(false); }} title="Delete account" className="delete-account">
         <h2>Delete account</h2>
         <p>This permanently deletes your account:</p>
@@ -665,7 +683,7 @@ function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolea
   return <ChatOptionsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onDeleteAccount: () => void; onChatDefaults: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
@@ -697,11 +715,15 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
           <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> AI chat options…</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
+          {/* About, with Report and My reports beside it, for everyone (owner, build 58). */}
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onInfo(); }} data-testid="how-gradstep-works"><Icon name="info" size={14} /> How Gradstep works</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onPrivacy(); }} data-testid="privacy-data"><Icon name="lock" size={14} /> Privacy &amp; data</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReport(); }} data-testid="report-issue"><Icon name="bug" size={14} /> Report this screen…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReports(); }} data-testid="my-reports"><Icon name="bubble" size={14} /> My reports</button>
-          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
-          {roles.length > 0 && <a role="menuitem" className="menu-item" href={operationsDashboard(roles)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)} data-testid="operations-dashboard"><Icon name="external" size={14} /> Operations dashboard</a>}
+          {/* Operator tools in one grey group, only for owner and support. */}
+          {roles.length > 0 && <div className="menu-admin" role="group" aria-label="Admin" data-testid="menu-admin"><p className="fine menu-heading">Admin</p>
+            <a role="menuitem" className="menu-item" href={operationsDashboard(roles)} target="_blank" rel="noreferrer" onClick={() => setOpen(false)} data-testid="operations-dashboard"><Icon name="external" size={14} /> Operations dashboard</a></div>}
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
           <button role="menuitem" className="menu-item danger" onClick={() => { setOpen(false); onDeleteAccount(); }} data-testid="delete-account">Delete account…</button>
         </div>

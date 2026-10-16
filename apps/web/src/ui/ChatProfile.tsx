@@ -6,7 +6,7 @@
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { EFFORTS, effortOption, hasAutoEffort, LENGTHS, lengthOption, listedModels, MODEL_STRENGTHS, modelOption, modelProvider, offersModelLength,
   sameChoice, typicalEstimate, withChoice, type Estimate, type LengthChoice, type ModelChoice, type ProfileChoice, type ProfileTable } from '../lib/chat-profiles';
-import { Dialog } from './common';
+import { Dialog, InfoTip } from './common';
 import { Icon } from './icons';
 
 type Group = 'model' | 'length';
@@ -87,13 +87,12 @@ export function ChatOptionsDialog({ open, onClose, table, choice, onChange, onRe
 }) {
   const models = listedModels(table), auto = hasAutoEffort(table);
   return <Dialog open={open} onClose={onClose} title="AI chat options" wide className="chat-options">
-    <h2>AI chat options</h2>
-    <p className="muted">New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options.</p>
+    <h2 className="with-info">AI chat options <InfoTip text="New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options." testID="chat-options-info" /></h2>
     <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />
     <p className="fine" data-testid="effort-note">{auto ? 'Effort is chosen automatically for each question: harder questions and longer answers get more thinking.'
       : `Answers use ${effortOption(table, EFFORTS.includes(choice.effort) ? choice.effort : 'low').label.toLowerCase()} effort.`}</p>
     {onVisualAnswers && <label className="check-row"><input type="checkbox" checked={visualAnswers ?? true} onChange={e => onVisualAnswers(e.target.checked)} data-testid="visual-answers" />
-      <span>Visual answers <span className="fine">— diagrams and drawn explanations beside answers; off, the assistant answers in prose</span></span></label>}
+      <span className="with-info">Visual answers <InfoTip text="Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose." testID="visual-answers-info" /></span></label>}
     {!table && <p className="fine">Answer options couldn’t be loaded. <RetryOptions onRetry={onRetry} /></p>}
     <section className="chat-options-section" aria-labelledby="chat-options-models">
       <h3 id="chat-options-models">Models</h3>
@@ -103,7 +102,7 @@ export function ChatOptionsDialog({ open, onClose, table, choice, onChange, onRe
       </div>)}</dl>
     </section>
     {table && <section className="chat-options-section" aria-labelledby="chat-options-credits">
-      <h3 id="chat-options-credits">Credits per question</h3>
+      <h3 id="chat-options-credits" className="with-info">Credits per question <InfoTip text={`Usually this many credits for one question; “up to” is the most one answer can cost, held before it starts and settled to what it used.${table.note ? ` ${table.note}` : ''}`} testID="credits-info" /></h3>
       <div className="chat-credits-wrap"><table className="chat-credits" data-testid="chat-credits">
         <thead><tr><th scope="col"><span className="sr-only">Model</span></th>{LENGTHS.map(l => <th scope="col" key={l}>{lengthOption(table, l).label}</th>)}</tr></thead>
         <tbody>{models.map(m => <tr key={m}><th scope="row">{modelOption(table, m).label}</th>{LENGTHS.map(l => {
@@ -111,7 +110,6 @@ export function ChatOptionsDialog({ open, onClose, table, choice, onChange, onRe
           return <td key={l}>{e ? <><span className="chat-credits-usual">{range(e)}</span><span className="fine">up to {e.max}</span></> : <span className="fine">—</span>}</td>;
         })}</tr>)}</tbody>
       </table></div>
-      <p className="fine">Usually this many credits for one question; “up to” is the most one answer can cost, held before it starts and settled to what it used.{table.note ? ` ${table.note}` : ''}</p>
     </section>}
     <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
   </Dialog>;

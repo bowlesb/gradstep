@@ -39,8 +39,8 @@ export function usePaperSearch(account: string) {
 }
 export type PaperSearch = ReturnType<typeof usePaperSearch>;
 
-export function PaperSearchView({ search, library, preparing, onAdded, onOpen }: { search: PaperSearch; library: Library;
-  preparing?: Map<string, number>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void }) {
+export function PaperSearchView({ search, library, preparing, onAdded, onOpen, onLibrary }: { search: PaperSearch; library: Library;
+  preparing?: Map<string, number | null>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void; onLibrary?: () => void }) {
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -57,7 +57,7 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen }:
   };
   const toggle = (source: string) => setExpanded(previous => { const next = new Set(previous); next.has(source) ? next.delete(source) : next.add(source); return next; });
   const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
-    feedbackBusy: false, feedbackState: new Map(), preparing, open: onOpen };
+    feedbackBusy: false, feedbackState: new Map(), preparing, open: onOpen, library: onLibrary };
   let body;
   switch (search.state.kind) {
     case 'idle':

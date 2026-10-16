@@ -59,10 +59,11 @@ test('ML paper search beside the library: the switch, states, order, In library 
  await expect(page).toHaveURL(/\/paper\//);
  await page.getByTestId('back-to-library').click();
  await expect(cards).toHaveCount(2);
- // Add: the paper is prepared here with its percent, then In library.
+ // Add: the Library's spinner until the paper is prepared here (its percent under it), then In library.
  const added=cards.filter({hasText:'Scaling sparse attention'});
  await added.getByRole('button',{name:'+ Add to library'}).click();
- await expect(added.getByTestId('feed-preparing')).toHaveText(/^(Downloading|Preparing)… \d{1,3}%$/,{timeout:15_000});
+ await expect(added.getByTestId('feed-preparing').locator('.spinner')).toBeVisible();
+ await expect(added.getByTestId('feed-preparing')).toHaveText(/^\d{1,3}%$/,{timeout:15_000});
  await expect(added.getByTestId('feed-open')).toHaveText('✓ In library',{timeout:15_000});
  // A failed search says so and offers Try again; an empty one suggests other words.
  await field.fill('broken query');await field.press('Enter');

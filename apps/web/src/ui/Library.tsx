@@ -403,15 +403,20 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
   const progress = useImportProgress(entry, mark);
   const open = () => { if (row.readable && isLibraryPaper(entry)) onOpen(entry); };
   const authors = authorList(entry);
+  // A paper still being added (no title or authors yet) keeps the height it will have: two title lines and, when the
+  // authors show under the title (no Authors column), their line (owner, build 58), so the row never grows when its
+  // details arrive.
+  const adding = entry.kind === 'import' && !entry.metadata && ['accepted', 'resolving', 'acquiring'].includes(entry.phase);
   return (
     <tr ref={measure} data-index={index} data-row-key={row.key} aria-rowindex={index + 2}
-      className={`${row.readable ? 'readable' : 'pending'}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
+      className={`${row.readable ? 'readable' : 'pending'}${adding ? ' adding' : ''}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
       <td className="col-title">
         {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
         {(() => { const copy = deviceCopy(entry, onDevice), author = !columns.includes('authors') && row.firstAuthor ? firstAuthorLine(authors) : null;
-          return (copy || isNew || author) && <span className="author"><RowMarks isNew={isNew} copy={copy} />{author}</span>; })()}
+          return (copy || isNew || author) ? <span className="author"><RowMarks isNew={isNew} copy={copy} />{author}</span>
+            : adding && !columns.includes('authors') && <span className="author" aria-hidden="true">{' '}</span>; })()}
         {row.status && !progress && <span className={`status ${row.status.kind}`}>{row.status.kind === 'problem' ? '⚠︎ ' : ''}{row.status.text}</span>}
         {progress && <span className="status active" aria-label={progress.label}>{progress.title}{progress.detail ? ` (${progress.detail})` : ''}</span>}
         {busy && <span className="status active">Updating…</span>}

@@ -11,10 +11,13 @@ interface Actions {
   expanded: Set<string>; toggle(source: string): void; adding: string | null; inLibrary: Set<string>; addBlocked: boolean;
   add(paper: DiscoveryResult): Promise<void>; feedback?(source: string, kind: FeedFeedback | null): Promise<void>;
   feedbackBusy: boolean; feedbackState: Map<string, FeedFeedback>;
-  /** Right after Add the paper is prepared in this browser (sourceID → fraction); the pill shows its percent. */
-  preparing?: Map<string, number>;
+  /** From Add until the paper is ready in this browser (sourceID → fraction prepared, or null while it is still being
+   * added): the Library's spinner, with the percent under it once known. */
+  preparing?: Map<string, number | null>;
   /** "In library" opens the paper (native openLibraryPaper). */
   open?(source: string): void;
+  /** The spinner shows the Library. */
+  library?(): void;
 }
 const address = (paper: DiscoveryResult) => `https://arxiv.org/abs/${paper.source_id}`;
 const authors = (paper: DiscoveryResult) => authorLine(paper.authors);
@@ -27,13 +30,19 @@ function Topics({ paper }: { paper: DiscoveryResult }) {
 }
 function Add({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
   const have = actions.inLibrary.has(paper.source_id), fraction = actions.preparing?.get(paper.source_id);
-  if (fraction !== undefined) {
-    const percent = Math.floor(Math.min(1, Math.max(0, fraction)) * 100), phase = fraction < 0.8 ? 'Downloading' : 'Preparing';
-    return <span className="pill passive" role="status" aria-label={`${phase} ${percent} percent`} data-testid="feed-preparing">{phase}… {percent}%</span>;
+  // Owner, build 58: after Add, the Library's loading spinner (with its percent when known) until the paper is ready;
+  // it shows the Library; then the check that opens the paper.
+  if (fraction !== undefined || actions.adding === paper.source_id) {
+    const percent = typeof fraction === 'number' ? Math.floor(Math.min(1, Math.max(0, fraction)) * 100) : null;
+    const status = `Adding to your library${percent !== null ? `, ${percent}%` : ''}`;
+    return <button type="button" className="pill feed-adding" data-testid="feed-preparing" aria-label={`${status}. Show the Library`} title="Adding… Show the Library"
+      disabled={!actions.library} onClick={() => actions.library?.()}>
+      <span className="spinner small" aria-hidden="true" />{percent !== null && <span className="feed-adding-percent">{percent}%</span>}
+    </button>;
   }
   if (have) return <button className="pill" disabled={!actions.open} onClick={() => actions.open?.(paper.source_id)} title="Open the paper" data-testid="feed-open">✓ In library</button>;
   return <button className="pill accent" disabled={!!actions.adding || actions.addBlocked} onClick={() => void actions.add(paper)}>
-    {actions.adding === paper.source_id ? 'Adding…' : '+ Add to library'}</button>;
+    + Add to library</button>;
 }
 function Feedback({ paper, actions }: { paper: DiscoveryResult; actions: Actions }) {
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
