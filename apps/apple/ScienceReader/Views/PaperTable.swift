@@ -562,8 +562,9 @@ struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: title.reservesSpace && !title.expanded)
-                .lineLimit(title.expanded ? nil : 2).truncationMode(.tail)
+            // One line limit: an expanded title is whole; a row being added keeps two lines' room.
+            Text(title.title).font(.subheadline.weight(.semibold))
+                .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace)).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
             if title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil {
@@ -588,6 +589,14 @@ struct PaperTableTitleCell: View {
                 }
             }
         }
+    }
+}
+
+private struct TitleLines: ViewModifier {
+    let expanded: Bool
+    let reservesSpace: Bool
+    func body(content: Content) -> some View {
+        if expanded { content.lineLimit(nil) } else { content.lineLimit(2, reservesSpace: reservesSpace) }
     }
 }
 
