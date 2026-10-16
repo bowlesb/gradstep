@@ -41,7 +41,7 @@ public extension ChatProfileChoice.Model {
         case .haiku: "Fastest and cheapest"
         case .sonnet: "Strong answers at a moderate cost"
         case .opus: "Most capable; costs the most"
-        case .deepseek: "Lowest cost; handles figures"
+        case .deepseek: "Low cost; processed by DeepSeek"
         }
     }
     /// Who processes a question asked with this model (Settings › AI chat options).

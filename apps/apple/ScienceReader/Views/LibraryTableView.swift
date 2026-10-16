@@ -147,7 +147,7 @@ struct LibraryPaperTable<Top: View>: View {
                    title: { item in
                        PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry), deviceCopy: item.facts.deviceCopy,
                                        download: item.facts.deviceCopy == .cloud ? item.facts.paper.map { paper in { model.prepareOnDevice(paper) } } : nil,
-                                       isNew: model.isNew(item.facts.paper))
+                                       isNew: model.isNew(item.facts.paper), reservesSpace: item.facts.paper == nil && (item.facts.status.isActive || item.facts.step != nil || item.facts.importProgress != nil))
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,

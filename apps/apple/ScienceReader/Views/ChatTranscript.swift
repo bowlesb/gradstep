@@ -134,13 +134,10 @@ private struct StarterGlow: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var body: some View {
         if !reduceTransparency {
-            GeometryReader { proxy in
-                EllipticalGradient(colors: [Color.accentColor.opacity(colorScheme == .dark ? 0.30 : 0.12), Color.accentColor.opacity(0)],
-                                   center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.75)
-                    .frame(width: proxy.size.width * 1.6, height: proxy.size.height * 0.9)
-                    .position(x: proxy.size.width / 2, y: proxy.size.height)
-            }
-            .ignoresSafeArea()
+            // An ellipse centred on the bottom edge, fading out about half way up.
+            EllipticalGradient(colors: [Color.accentColor.opacity(colorScheme == .dark ? 0.28 : 0.12), Color.accentColor.opacity(0)],
+                               center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.62)
+                .ignoresSafeArea()
         }
     }
 }

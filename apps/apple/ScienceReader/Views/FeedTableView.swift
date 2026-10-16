@@ -244,8 +244,8 @@ struct FeedTable: View {
         case .add:
             DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID),
                                 adding: adding.contains(result.id), enabled: model.canBeginImport,
-                                preparing: model.devicePreparation(sourceID: result.sourceID),
-                                open: { model.openLibraryPaper(sourceID: result.sourceID) }) { add(result) }
+                                setup: model.discoverySetup(sourceID: result.sourceID),
+                                open: { model.openLibraryPaper(sourceID: result.sourceID) }, showLibrary: { model.showLibrary() }) { add(result) }
         case nil: EmptyView()
         }
     }
@@ -291,33 +291,41 @@ struct FeedTable: View {
     }
 }
 
-/// Add, a spinner while adding, or a checkmark once the paper is in the library (Feed list and table, arXiv search).
+/// Add; the app's loading sign (the Library's spinner) from the tap until the paper is ready on this device — a tap on
+/// it shows the Library, where the paper's row says how it is going (owner, build 58); then a checkmark that opens
+/// the paper (owner, build 42). Feed list and table, ML paper search.
 struct DiscoveryAddControl: View {
     let sourceID: String
     let inLibrary: Bool
     let adding: Bool
     let enabled: Bool
-    /// Preparing on this device right after the add (fraction): a small bar and percent instead of the checkmark.
-    var preparing: Double? = nil
+    /// Still being set up after Add (the server's import, or this device preparing it; fraction when known).
+    var setup: (busy: Bool, fraction: Double?) = (false, nil)
     /// The checkmark opens the paper (owner, build 42: "it should take me to the library entry for that item").
     var open: (() -> Void)? = nil
+    /// The loading sign shows the Library.
+    var showLibrary: (() -> Void)? = nil
     let add: () -> Void
     var body: some View {
-        if let preparing {
-            VStack(spacing: 3) {
-                ProgressView(value: preparing).frame(width: 40)
-                Text("\(Int((preparing * 100).rounded(.down)))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+        if adding || setup.busy {
+            Button { showLibrary?() } label: {
+                VStack(spacing: 2) {
+                    ProgressView().controlSize(.small)
+                    if let fraction = setup.fraction {
+                        Text("\(Int((fraction * 100).rounded(.down)))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
-            .frame(minWidth: 44, minHeight: 44)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(ArxivHTMLReader.phase(for: preparing)) \(Int((preparing * 100).rounded(.down))) percent")
+            .buttonStyle(.plain).disabled(showLibrary == nil)
+            .accessibilityLabel(setup.fraction.map { "\(ArxivHTMLReader.phase(for: $0)) \(Int(($0 * 100).rounded(.down))) percent" } ?? "Adding")
+            .accessibilityHint("Shows the Library")
+            .accessibilityIdentifier("discover.setup.\(sourceID)")
         } else if inLibrary, let open {
             Button(action: open) { Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44) }
                 .buttonStyle(.plain).accessibilityLabel("In library").accessibilityHint("Opens the paper")
         } else if inLibrary {
             Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44).accessibilityLabel("In library")
-        } else if adding {
-            ProgressView().frame(minWidth: 44, minHeight: 44)
         } else {
             // Enabled: an accent capsule; unavailable: neutral gray with the system's disabled treatment. Avoid a
             // second opacity reduction, which makes the label almost disappear in light mode.

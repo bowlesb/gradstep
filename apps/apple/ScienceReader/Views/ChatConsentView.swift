@@ -20,16 +20,17 @@ struct CloudConsentContent: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Answers come from Claude, an AI model by Anthropic. To answer, Gradstep sends:")
+                    Text("Answers come from Claude, an AI model by Anthropic, or from DeepSeek when you choose it in Answer options. To answer, Gradstep sends:")
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Your question and any passage you selected", systemImage: "text.bubble")
                         Label("Earlier messages in this conversation", systemImage: "bubble.left.and.bubble.right")
                         Label("For paper chats, the paper’s full text", systemImage: "doc.text")
                         Label("When you ask about a figure or table, its image from the paper", systemImage: "photo")
                         Label("When a question needs it, web searches Claude writes go to Tavily, a search service (or Anthropic’s search provider as a backup)", systemImage: "magnifyingglass")
+                        Label("When you choose DeepSeek, your question, the paper’s text and any figure go to DeepSeek, which writes the answer; Claude still writes the chat’s title and suggested questions", systemImage: "arrow.triangle.branch")
                     }
                     .labelStyle(ConsentLabelStyle())
-                    Text("Anthropic processes this to write the answer and may keep it for a limited time under its API terms; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")
+                    Text("Anthropic, or DeepSeek when you choose it, processes this to write the answer and may keep it for a limited time under its API terms; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")
                         .foregroundStyle(.secondary)
                     Text("Each answer uses credits from your balance.").foregroundStyle(.secondary)
                 }

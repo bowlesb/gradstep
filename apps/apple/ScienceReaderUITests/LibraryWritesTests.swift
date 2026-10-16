@@ -48,12 +48,20 @@ final class LibraryWritesTests: XCTestCase {
         save(app, "library-v5-feed-add-enabled")
 
         add.tap()
+        // While it is set up, the app's loading sign (owner, build 58); a tap on it shows the Library. Once ready, the
+        // checkmark ("In library").
+        let setup = app.buttons["discover.setup.2610.01234"]
         let added = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "In library")).firstMatch
-        XCTAssertTrue(added.waitForExistence(timeout: 20), "The added paper is marked In library")
+        XCTAssertTrue(setup.waitForExistence(timeout: 20) || added.exists, "The added paper shows its setup, or is ready")
         XCTAssertTrue(wait(add, "exists == false"))
-        save(app, "library-v5-feed-in-library")
-
-        app.show("library")
+        save(app, "library-v5-feed-setting-up")
+        if setup.exists {
+            setup.tap()
+            XCTAssertTrue(wait(app.buttons["tab.library"], "isSelected == true") || app.segmentedControls["wide.mode"].buttons["Library"].isSelected,
+                          "The loading sign shows the Library")
+        } else {
+            app.show("library")
+        }
         // List rows expose their title as a child; table rows combine it into the
         // row's label. Query the visible title independently of that accessibility
         // grouping so the journey works with either saved layout preference.

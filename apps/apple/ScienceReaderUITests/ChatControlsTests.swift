@@ -83,14 +83,14 @@ final class ChatControlsTests: XCTestCase {
             save("\(device())-\(appearance)-answer-options")
             model.buttons["DeepSeek"].tap()
             app.segmentedControls["chat.profile.length"].buttons["Detailed"].tap()
-            XCTAssertEqual(app.staticTexts["chat.profile.model.detail"].label, "Lowest cost; handles figures")
+            XCTAssertEqual(app.staticTexts["chat.profile.model.detail"].label, "Low cost; processed by DeepSeek")
             XCTAssertTrue(app.buttons["chat.profile.makeDefault"].exists, "A chat that differs from the defaults can become them")
             app.buttons["chat.profile.about"].tap()
             XCTAssertTrue(app.navigationBars["AI chat options"].waitForExistence(timeout: 5))
             let row = app.descendants(matching: .any).matching(identifier: "settings.aiChat.sonnet.standard").firstMatch
             for _ in 0..<4 where !row.waitForExistence(timeout: 1) { app.swipeUp() }
             XCTAssertTrue(row.exists)
-            XCTAssertTrue(row.label.contains("Usually 4–24 credits · up to 49"), row.label)
+            XCTAssertTrue(row.label.contains("Usually 4–24 credits · up to 41"), row.label)
             save("\(device())-\(appearance)-about-ai-chat-options")
             app.navigationBars["AI chat options"].buttons.firstMatch.tap()
             app.buttons["chat.profile.done"].tap()

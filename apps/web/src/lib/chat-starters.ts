@@ -21,6 +21,9 @@ export function starterRandom(seed: number): () => number {
 
 const SKIPPED = /^(abstract|introduction|related work|related works|background|preliminar|notation|problem (setup|setting|formulation|statement)|experiment|results|evaluation|discussion|conclusion|limitation|future work|appendix|references|bibliography|acknowledg|broader impact|ethic|summary)/i;
 const GENERIC = /^(method|methods|methodology|approach|our approach|proposed method|the proposed method|model|our method|framework)$/i;
+/** A heading that reads as a sentence or phrase, not a method's name ("Start with the question", "Towards robust…"):
+ * "How does … work?" would read badly, so the method template without a name is used. */
+const NOT_A_NAME = /^(a|an|the|our|we|on|in|to|towards?|beyond|from|with|why|how|what|when|where|which|is|are|can|do|does|use|using|start|starting|make|making|learn|learning|build|building|let|lets|let's|putting|bringing|going|rethinking|revisiting|understanding|scaling|training)\b/i;
 
 /** The paper's method section: the first numbered top-level heading that isn't front or back matter, without its
  * number; null when there is none or its name is generic ("Method"). */
@@ -30,7 +33,7 @@ export function methodHeading(headings: string[]): string | null {
     if (!m) continue;
     const title = m[1];
     if (/^\d/.test(title) || SKIPPED.test(title)) continue;
-    if (GENERIC.test(title) || title.length > 60) return null;
+    if (GENERIC.test(title) || NOT_A_NAME.test(title) || title.length > 60) return null;
     return title;
   }
   return null;
