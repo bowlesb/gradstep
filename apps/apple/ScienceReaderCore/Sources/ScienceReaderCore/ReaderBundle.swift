@@ -66,12 +66,22 @@ public struct ReaderBundleIndex: Codable, Sendable {
         public let alt: String
         enum CodingKeys: String, CodingKey { case id, caption, alt; case blockID = "block_id"; case assetPaths = "asset_paths" }
     }
+    /// A captioned table: its table block and its caption ("Table 3: …"), for Contents › Tables.
+    public struct Table: Codable, Sendable, Equatable {
+        public let id: String
+        public let caption: String
+    }
     public let format: String
     public let title: String
     public let headings: [Heading]
     public let blocks: [Block]
     public let equations: [Equation]
     public let figures: [Figure]
+    /// The paper's captioned tables in page order (arXiv HTML revision 16); nil in earlier bundles and other renderers.
+    public let tables: [Table]?
+
+    /// At most this many tables (`INDEX_TABLES` in arxiv/tables.ts).
+    public static let tableLimit = 512
 }
 
 /// Exact renderer/source pairs admitted by this client, each with its own
@@ -301,6 +311,13 @@ public struct VerifiedReaderBundle: Sendable {
                   blocks[figure.blockID]?.kind == "figure", bounded(figure.caption), bounded(figure.alt),
                   (1...16).contains(figure.assetPaths.count), Set(figure.assetPaths).count == figure.assetPaths.count,
                   Set(figure.assetPaths).isSubset(of: images) else { throw ReaderBundleError.invalidIndex }
+        }
+        // Optional (validate.ts): each names a table block once, with a caption.
+        var tables = Set<String>()
+        guard (index.tables?.count ?? 0) <= ReaderBundleIndex.tableLimit else { throw ReaderBundleError.invalidIndex }
+        for table in index.tables ?? [] {
+            guard tables.insert(table.id).inserted, blocks[table.id]?.kind == "table", bounded(table.caption),
+                  !table.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ReaderBundleError.invalidIndex }
         }
     }
 

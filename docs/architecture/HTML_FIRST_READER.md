@@ -471,6 +471,23 @@ those are tried again rather than stored with notes. Native: `ArxivHTMLError.ass
 `retrieveArxiv`, caught in `fetchArxivAssets`. Tests: the backend case above, `apps/web/tests/arxiv-reader.test.ts`,
 `ArxivHTMLReaderTests.anImageArxivDidntServeIsItsFiguresLossNotThePapers`.
 
+The index lists the paper's captioned tables (revision 16, 2026-10-16; browser parity report: Contents › Tables listed
+only tables arXiv published as images, which are figures, so most papers said "No tables"). `reader-index-v1` gains an
+optional `tables: [{id, caption}]`, in page order: `id` is a `table` block, `caption` its caption text read as figure
+captions are (math as its LaTeX, whitespace collapsed, excerpted to the text bound), at most 512 (`INDEX_TABLES`,
+arxiv/tables.ts; the first ones are listed, never a refusal). The caption is the table's own (`p.reader-caption` from
+its `figcaption`), else the one the flow found beside it (tables.ts): a table float whose parts became separate blocks
+has its captions as paragraphs, paired in order with as many tables (2610.20608's Tables 1 and 2: captions in a row
+above tables in a row), or one caption naming the group's first table while its sub-tables aren't listed alone
+(2610.19820's Table 1); a caption set in a minipage (`\captionof`, `span.ltx_caption`, 2610.20608's Table 6) is read
+from the source. A table without a caption (a layout box, a code listing) isn't listed; an algorithm float is
+("Algorithm 1 ActionOPD"). Validators (validate.ts, ReaderBundle.swift, apps/web bundle.ts) accept an index with or
+without the list; each entry must name a table block once with a non-empty caption. Earlier bundles, the authored
+sample and the device-PDF route have no list, and clients then show only the image tables. Cached papers:
+2610.19820 lists 9 (Tables 1–8 and Algorithm 1; the empty front-matter box is left out), 2610.20608 11 of 12 table
+blocks, 2610.16784 24 of 25, 2610.18072 17/17, 2606.05868 5/5. Tests: `tests/backend/arxiv-tables-index.test.ts`,
+`DeviceReaderTests.indexTablesAreOptionalAndNameTableBlocks`, `apps/web/tests/bundle.test.ts`.
+
 The header: the catalog's title and author names are the ground truth; LaTeXML's author block contributes marks,
 affiliations and notes (an author block set as a table reads by rows and cells; several names in one creator split
 by their marks), and a custom title page without an author block folds into the header the same way. Affiliations

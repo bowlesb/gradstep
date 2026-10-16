@@ -44,6 +44,26 @@ describe('verified reader bundle', () => {
     const changed=utf8(canonicalJSON(m)+'\n');
     await expect(verifyBundle(changed,await sha256Hex(changed),members,headerSize)).rejects.toThrow('resource');
   });
+  it('admits an index with captioned tables (revision 16) and refuses one naming a non-table block', async () => {
+    const p=JSON.parse(readFileSync(new URL('../../../tests/fixtures/reader-arxiv/package.json',import.meta.url),'utf8'));
+    const bytes=new Uint8Array(Buffer.from(p.manifest,'base64'));
+    const {canonicalJSON}=await import('../src/lib/bytes');
+    const withTables=async(pick:(blocks:{id:string;kind:string}[])=>string,caption='Table 1: Values.')=>{
+      const members=new Map<string,Uint8Array<ArrayBuffer>>(p.members.map((m:{path:string;base64:string})=>[m.path,new Uint8Array(Buffer.from(m.base64,'base64'))]));
+      const index=JSON.parse(new TextDecoder().decode(members.get('reader.json')));
+      index.tables=[{id:pick(index.blocks),caption}];
+      members.set('reader.json',utf8(canonicalJSON(index)));
+      const m=JSON.parse(new TextDecoder().decode(bytes));
+      for(const row of m.members){row.sha256=await sha256Hex(members.get(row.path)!);row.bytes=members.get(row.path)!.length;}
+      const changed=utf8(canonicalJSON(m)+'\n');
+      return verifyBundle(changed,await sha256Hex(changed),members,headerSize);
+    };
+    const table=(blocks:{id:string;kind:string}[])=>blocks.find(b=>b.kind==='table')!.id;
+    expect((await withTables(table)).index.tables).toEqual([{id:expect.any(String),caption:'Table 1: Values.'}]);
+    await expect(withTables(blocks=>blocks.find(b=>b.kind==='paragraph')!.id)).rejects.toThrow('index');
+    await expect(withTables(table,' ')).rejects.toThrow('index');
+  });
+
   it('admits the real sample bundle', async () => {
     expect(await sha256Hex(manifest())).toBe(SHA);
     const bundle = await verifyBundle(manifest(), SHA, files(), headerSize);

@@ -199,6 +199,28 @@ test('Contents, Figures, Tables and Equations: each row goes into the paper',asy
  await page.emulateMedia({colorScheme:'light'});
 });
 
+// Reader revision 16: a paper's HTML tables are listed by their captions (most papers' tables are tables, not images, and
+// the Tables tab said "No tables"). A row opens the table with its whole caption; Show in paper goes there with Back.
+test('Contents › Tables lists the paper’s HTML tables by caption; a row opens the table, Show in paper goes to it',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await openFixture(page,request,html);
+ const frame=page.frameLocator('[data-testid=reader-frame]');
+ await expect(frame.locator('.reader-table').first()).toBeAttached({timeout:20000});
+ const tabs=await openContents(page);
+ await tabs.getByRole('tab',{name:'Tables'}).click();
+ await expect(page.getByTestId('contents-table-0')).toHaveText('Table 1 — Values.');
+ await expect(page.getByTestId('contents-table-1')).toHaveCount(0);
+ await page.screenshot({path:`../../.artifacts/contents-tables-${test.info().project.name}.png`});
+ await page.getByTestId('contents-table-0').click();
+ const detail=page.getByRole('dialog',{name:'Table 1'});
+ await expect(detail.frameLocator('iframe.figure-frame').locator('th').first()).toHaveText('Value');
+ await expect(detail.frameLocator('iframe.figure-frame').getByText('Table 1: Values.')).toBeVisible();
+ await page.screenshot({path:`../../.artifacts/contents-table-detail-${test.info().project.name}.png`});
+ await detail.getByTestId('figure-reference-go').click();
+ await expect(detail).toBeHidden(); await expect(page.getByTestId('citation-back')).toBeVisible();
+ await expect(frame.locator('.reader-table').first()).toBeInViewport();
+});
+
 test('Contents says when a paper has no tables or equations',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const source=html.toString('utf8').replace(/<table class="ltx_equation"[\s\S]*?<\/table>/,'').replace(/<figure id="tab1">[\s\S]*?<\/figure>/,'');

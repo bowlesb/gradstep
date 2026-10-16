@@ -1,7 +1,7 @@
 // Contents › Figures, Tables and Equations (owner, build 59), as the app's PaperContentsSheet: the rows' numbers,
 // captions and equations read as text.
 import { describe, expect, it } from 'vitest';
-import { contentsEquations, contentsFigures, figureLabel, mathText } from '../src/lib/paper-contents';
+import { contentsEquations, contentsFigures, contentsTables, figureLabel, mathText } from '../src/lib/paper-contents';
 
 describe('figure and table rows', () => {
   it('splits the number from the caption, as GalleryFigure.label', () => {
@@ -10,6 +10,7 @@ describe('figure and table rows', () => {
     expect(figureLabel('FIGURE A.1 | Appendix plot')).toEqual({ number: 'Figure A.1', caption: 'Appendix plot' });
     expect(figureLabel('Table 3: Win rates \\% over SFT')).toEqual({ number: 'Table 3', caption: 'Win rates % over SFT' });
     expect(figureLabel('An unnumbered  sketch , drawn')).toEqual({ number: null, caption: 'An unnumbered sketch, drawn' });
+    expect(figureLabel('Algorithm 1 ActionOPD')).toEqual({ number: 'Algorithm 1', caption: 'ActionOPD' });
   });
   it('lists figures and tables apart, in order, from the caption or else the alt text', () => {
     const rows = contentsFigures({ figures: [
@@ -18,8 +19,22 @@ describe('figure and table rows', () => {
       { id: 'f2', block_id: 'f2', asset_paths: [], caption: '', alt: 'Figure 2: From the alt text' },
       { id: 'a1', block_id: 'a1', asset_paths: [], caption: 'Algorithm 1 DPO', alt: 'x' },
     ] });
-    expect(rows.filter(r => !r.table).map(r => [r.number, r.caption])).toEqual([['Figure 1', 'Subplots of AI learning over time.'], ['Figure 2', 'From the alt text'], [null, 'Algorithm 1 DPO']]);
+    expect(rows.filter(r => !r.table).map(r => [r.number, r.caption])).toEqual([['Figure 1', 'Subplots of AI learning over time.'], ['Figure 2', 'From the alt text'], ['Algorithm 1', 'DPO']]);
     expect(rows.filter(r => r.table).map(r => r.id)).toEqual(['t1']);
+  });
+});
+
+describe('table rows (revision 16)', () => {
+  const blocks = ['p1', 't1', 'f2', 't2', 'a1'].map(id => ({ id, kind: id[0] === 'f' ? 'figure' : id[0] === 'p' ? 'paragraph' : 'table', text: '' }));
+  const figures = [{ id: 'f2', block_id: 'f2', asset_paths: [], caption: 'Table 2: Published as an image.', alt: 'x' }];
+  it('lists the index’s captioned tables beside the image tables, in page order', () => {
+    const rows = contentsTables({ blocks, figures, tables: [{ id: 't1', caption: 'Table 1: Main results.' }, { id: 'a1', caption: 'Algorithm 1 ActionOPD' }] });
+    expect(rows.map(r => [r.id, r.number, r.caption, !!r.block])).toEqual([
+      ['t1', 'Table 1', 'Main results.', true], ['f2', 'Table 2', 'Published as an image.', false], ['a1', 'Algorithm 1', 'ActionOPD', true]]);
+  });
+  it('an earlier bundle without the list shows the image tables only', () => {
+    expect(contentsTables({ blocks, figures }).map(r => r.id)).toEqual(['f2']);
+    expect(contentsTables({ blocks, figures: [], tables: [] })).toEqual([]);
   });
 });
 

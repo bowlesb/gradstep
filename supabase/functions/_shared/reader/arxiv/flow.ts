@@ -6,7 +6,7 @@ import { authorsBlock } from './authors.ts';
 import { equation } from './math.ts';
 import { inline } from './inline.ts';
 import { imageFigure } from './figures.ts';
-import { table, tableContents } from './tables.ts';
+import { minipageCaption, table, tableContents, tableGroupCaption } from './tables.ts';
 import { templatePreamble } from './front-matter.ts';
 
 /** Opens the caption of a figure whose image arXiv's own HTML conversion lost (owner's library sweep, 2026-10-15). */
@@ -69,6 +69,8 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
       // Compound figures keep their panel order and captions as separate,
       // non-nested reader blocks. A reference to the group opens its first panel.
       output = children(n).flatMap(c => flow(cx, c));
+      // A table float's caption is then a paragraph beside its tables: Contents › Tables names them by it.
+      if (has(n, 'ltx_table')) tableGroupCaption(cx, before);
     } else if (!tables.length && images.length === 0 && captions.length === 1
         && !children(n).some(c => c.name !== 'figcaption' && normalizeSpace(textContent(c)).length > 0)) {
       // A caption with no graphic of its own (LaTeXML's \\captionof after an unwrapped \\includegraphics, as in
@@ -82,6 +84,7 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
         ...children(captions[0]).flatMap(c => inline(cx, c, id))], { class: 'reader-caption' })];
     } else if (tables.length || images.length === 0) {
       output = [block(cx, n, 'div', 'table', id => children(n).flatMap(c => tableContents(cx, c, id)), { class: 'reader-table' })];
+      if (!captions.length) minipageCaption(cx, n, output[0].attribs.id);
     } else output = [imageFigure(cx, n)];
   } else if (has(n, 'ltx_equation') || has(n, 'ltx_equationgroup')) {
     const maths = elements(n, c => c.name === 'math');

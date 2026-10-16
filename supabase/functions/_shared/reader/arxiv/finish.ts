@@ -5,6 +5,7 @@ import { INDEX_FORMAT, LIMITS } from '../profile.ts';
 import { boundedText, check, excerpt, utf8 } from '../util.ts';
 import type { ReaderIndex } from '../render.ts';
 import { nextID, remove, type ArxivContext, type Child } from './context.ts';
+import { INDEX_TABLES, ownTableCaption } from './tables.ts';
 
 /** A macro definition LaTeXML left as text ("[1]for each #1 do", 2610.18683: TeX parameter tokens never read in prose)
  * is no paragraph; it counts as an unsupported command in the closing note. */
@@ -77,7 +78,17 @@ export function compose(cx: ArxivContext): { index: ReaderIndex; html: string; i
     level: Number(b.node.name.slice(1)), title: boundedText(normalizeSpace(outText(b.node)), LIMITS.headingBytes, 'heading_limit') }))
     .filter(h => h.title.length > 0);
   check(headings.length <= LIMITS.headings, 'heading_limit');
-  const index: ReaderIndex = { format: INDEX_FORMAT, title, headings, equations: cx.equations, figures: cx.figures,
+  // Captioned tables by name for Contents › Tables (revision 16; most tables were listed nowhere, only the ones arXiv
+  // published as images, which are figures): its own caption, or the one beside it (tables.ts). A table without a
+  // caption (a layout box, a listing) isn't listed. Figure captions' text and bounds.
+  const kept = new Set(cx.blocks.map(b => b.node));
+  const tables = cx.blocks.filter(b => b.kind === 'table' && cx.tableCaptions.get(b.id) !== null).flatMap(b => {
+    const noted = cx.tableCaptions.get(b.id);
+    const node = typeof noted === 'string' ? noted : noted && kept.has(noted) ? noted : ownTableCaption(b.node);
+    const caption = node ? excerpt(normalizeSpace(typeof node === 'string' ? node : outText(node)), LIMITS.textBytes) : '';
+    return caption ? [{ id: b.id, caption }] : [];
+  }).slice(0, INDEX_TABLES);
+  const index: ReaderIndex = { format: INDEX_FORMAT, title, headings, equations: cx.equations, figures: cx.figures, tables,
     // A block longer than the index allows (a bibliography entry listing hundreds of authors) is excerpted, as the
     // validator compares (audit 2026-10-15); control characters still refuse.
     blocks: cx.blocks.map(b => ({ id: b.id, kind: b.kind, text: boundedText(excerpt(normalizeSpace(outText(b.node)), LIMITS.textBytes), LIMITS.textBytes, 'arxiv_block_text') })) };

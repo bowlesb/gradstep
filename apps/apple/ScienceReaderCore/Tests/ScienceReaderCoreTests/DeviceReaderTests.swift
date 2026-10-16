@@ -69,6 +69,33 @@ import Testing
         try await reopened.remove(record.identity)
         #expect(await reopened.records().isEmpty)
     }
+    /// Revision 16 lists captioned tables in the index (`tables`, optional): an earlier bundle reads without them; a
+    /// list names table blocks once, each with a caption (validate.ts agrees).
+    @Test func indexTablesAreOptionalAndNameTableBlocks() throws {
+        let bundle = try fixture()
+        #expect(bundle.index.tables == nil)
+        let table = try #require(bundle.index.blocks.first { $0.kind == "table" })
+        let paragraph = try #require(bundle.index.blocks.first { $0.kind == "paragraph" })
+        func resigned(_ tables: [[String: String]]) throws -> VerifiedReaderBundle {
+            var members = Dictionary(uniqueKeysWithValues: bundle.manifest.members.map { ($0.path, bundle.data(for: $0.path)!) })
+            var index = try #require(JSONSerialization.jsonObject(with: members[bundle.manifest.indexPath]!) as? [String: Any])
+            index["tables"] = tables
+            members[bundle.manifest.indexPath] = try JSONSerialization.data(withJSONObject: index, options: [.sortedKeys, .withoutEscapingSlashes])
+            var manifest = try #require(JSONSerialization.jsonObject(with: bundle.manifestData) as? [String: Any])
+            manifest["members"] = (manifest["members"] as! [[String: Any]]).map { member in
+                var member = member; let data = members[member["path"] as! String]!
+                member["sha256"] = VerifiedReaderBundle.digest(data); member["bytes"] = data.count
+                return member
+            }
+            let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys, .withoutEscapingSlashes])
+            return try VerifiedReaderBundle.verify(manifest: manifestData, expectedSHA256: VerifiedReaderBundle.digest(manifestData), members: members)
+        }
+        let listed = try resigned([["id": table.id, "caption": "Table 1: Values."]])
+        #expect(listed.index.tables == [ReaderBundleIndex.Table(id: table.id, caption: "Table 1: Values.")])
+        #expect(throws: ReaderBundleError.invalidIndex) { try resigned([["id": paragraph.id, "caption": "Table 9: Not a table."]]) }
+        #expect(throws: ReaderBundleError.invalidIndex) { try resigned([["id": table.id, "caption": " "]]) }
+        #expect(throws: ReaderBundleError.invalidIndex) { try resigned([["id": table.id, "caption": "A"], ["id": table.id, "caption": "B"]]) }
+    }
     @Test func localPDFMembershipStaysEncryptedAndHasNoServerDocument() throws {
         let membership = try LocalPDFMembership(title: "My private PDF", pageCount: 3, createdAt: 1234)
         let event = PrivateEvent(kind: .localPaper, text: try membership.text())

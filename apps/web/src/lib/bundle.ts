@@ -12,7 +12,9 @@ export interface Member { path: string; role: string; media_type: string; bytes:
 export interface Manifest { format: string; renderer: { id: string; build_sha256: string }; source: { kind: string; sha256: string; provenance_path: string };
   entrypoint: string; index_path: string; members: Member[] }
 export interface ReaderIndex { format: string; title: string; headings: { id: string; level: number; title: string }[]; blocks: { id: string; kind: string; text: string }[];
-  equations: { id: string; block_id: string; latex: string; display: boolean; source_form: string }[]; figures: { id: string; block_id: string; asset_paths: string[]; caption: string; alt: string }[] }
+  equations: { id: string; block_id: string; latex: string; display: boolean; source_form: string }[]; figures: { id: string; block_id: string; asset_paths: string[]; caption: string; alt: string }[];
+  /** Captioned tables (arXiv HTML revision 16); absent in earlier bundles and other renderers. */
+  tables?: { id: string; caption: string }[] }
 export interface VerifiedBundle { manifestSHA256: string; manifest: Manifest; index: ReaderIndex; contents: Map<string, Bytes> }
 
 interface Profile { renderer: string; source: string; images: string[]; equations: number; figures: number; blocks: number; headings: number; indexBytes: number; pixels: number }
@@ -93,6 +95,16 @@ function validateIndex(index: ReaderIndex, manifest: Manifest, profile: Profile)
       || !Array.isArray(f.asset_paths) || f.asset_paths.length < 1 || f.asset_paths.length > 16 || new Set(f.asset_paths).size !== f.asset_paths.length
       || !f.asset_paths.every(p => images.has(p))) fail('index');
     figures.add(f.id);
+  }
+  // Optional (validate.ts INDEX_TABLES): each names a table block once, with a caption.
+  if (index.tables !== undefined) {
+    if (!Array.isArray(index.tables) || index.tables.length > 512) fail('index');
+    const tables = new Set<string>();
+    for (const t of index.tables) {
+      if (!t || typeof t !== 'object' || Object.keys(t).sort().join() !== 'caption,id' || tables.has(t.id) || blocks.get(t.id)?.kind !== 'table'
+        || !boundedText(t.caption) || !t.caption.trim()) fail('index');
+      tables.add(t.id);
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 // Slow runs are explicit. Record evidence, never silently turn a stale result into a pass.
 import {spawn, execFileSync} from 'node:child_process';
-import {readFileSync, readdirSync, mkdirSync, writeFileSync, createWriteStream, existsSync} from 'node:fs';
+import {readFileSync, readdirSync, mkdirSync, writeFileSync, createWriteStream, existsSync, statSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url)); process.chdir(root);
@@ -9,7 +9,8 @@ const dir='.artifacts/test-tiers';mkdirSync(dir,{recursive:true});
 const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{encoding:'utf8'}).split('\0')
  .filter(p=>p && /^(apps\/web\/|apps\/apple\/|supabase\/functions\/_shared\/reader\/|tests\/|scripts\/(test-tiers|fetch-reader-corpus|build-arxiv-compiler|arxiv-compiler)|package)/.test(p)).sort();
 const inputHash=createHash('sha256');
-for(const path of files)if(existsSync(path)){inputHash.update(path+'\0');inputHash.update(readFileSync(path));}
+// Files only: a worktree's linked dependency folders (node_modules, DeviceModels) are listed as untracked entries.
+for(const path of files)if(existsSync(path)&&statSync(path).isFile()){inputHash.update(path+'\0');inputHash.update(readFileSync(path));}
 const fingerprint=inputHash.digest('hex');
 if(tier==='status'){
  for(const name of ['fast','slow','corpus','native']){

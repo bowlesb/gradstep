@@ -11,7 +11,7 @@ import { prepareArxivReader, ArxivReaderError } from '../lib/arxiv-reader';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
 import { bridgeAnchor, citationAnchor, citedMarker, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
 import { citedBlock } from '../lib/paper-context';
-import { contentsEquations, contentsFigures, type ContentsEquation } from '../lib/paper-contents';
+import { contentsEquations, contentsFigures, contentsTables, type ContentsEquation, type ContentsFigure } from '../lib/paper-contents';
 import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
@@ -100,6 +100,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [notice, setNotice] = useState<string | null>(null);
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
+  // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
+  const [tableDetail, setTableDetail] = useState<ReaderFigureReference | null>(null);
   const [referenceNotice, setReferenceNotice] = useState<{ text: string; operationID: string; message: string; kind: 'working' | 'done' | 'not_found' | 'failed' } | null>(null);
   const referenceRequest = useRef<AbortController | null>(null);
   useEffect(() => () => referenceRequest.current?.abort(), []);
@@ -430,12 +432,17 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         </div>}
       </div>
       {contentsSlot && bundle && bridgeReady && createPortal(<Contents headings={headings} active={active} bundle={bundle} onJump={jump}
-        onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation} />, contentsSlot)}
+        onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation}
+        onTable={t => setTableDetail({ id: t.id, label: t.number ?? 'Table', goTitle: 'Show in paper' })} />, contentsSlot)}
       {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}
         onAdd={() => void addReference(reference.text)} onDiscuss={discuss ? () => discuss(reference.text, reference.blockID) : undefined} />}
       {bundle && figureReference && <FigureReferenceDetail bundle={bundle} reference={figureReference} theme={theme} fontSize={font}
         onClose={() => setFigureReference(null)} onGo={() => { setFigureReference(null); command('showFigure', figureReference.id, reduced(), true); }}
         onDiscuss={discuss} />}
+      {bundle && tableDetail && <FigureReferenceDetail bundle={bundle} reference={tableDetail} theme={theme} fontSize={font}
+        onClose={() => setTableDetail(null)} onDiscuss={discuss} onGo={() => {
+          setTableDetail(null); command('showFigure', tableDetail.id, reduced(), true); if (workspace && !workspace.left.inline) workspace.show('left', false);
+        }} />}
       {bundle && equation && <Suspense fallback={null}><EquationView bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
         onClose={() => setEquation(null)} onCite={marker => { setEquation(null); goToCited(marker); }}
         onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
@@ -453,15 +460,17 @@ const CONTENTS_TABS: readonly [ContentsTab, string][] = [['contents', 'Contents'
 /** The paper's contents (a tree with the current section marked) beside its Figures, Tables and Equations (owner,
  * build 59: "four tabs… The default selected when you enter should be contents… minimalistic but nicely designed…
  * consistent styling in the rows and be clickable into the paper"), as the app's PaperContentsSheet. A figure or table
- * row opens that figure with its whole caption; an equation row goes to it in the paper with Back. */
-function Contents({ headings, active, bundle, onJump, onFigure, onTiles, onEquation }: {
+ * row opens that figure or table with its whole caption; an equation row goes to it in the paper with Back. Tables are
+ * the captioned tables the index lists (revision 16) beside those arXiv published as images (contentsTables). */
+function Contents({ headings, active, bundle, onJump, onFigure, onTable, onTiles, onEquation }: {
   headings: Heading[]; active: string | null; bundle: VerifiedBundle; onJump: (id: string) => void;
-  onFigure: (id: string) => void; onTiles: () => void; onEquation: (id: string) => void;
+  onFigure: (id: string) => void; onTable: (table: ContentsFigure) => void; onTiles: () => void; onEquation: (id: string) => void;
 }) {
   const [tab, setTab] = useState<ContentsTab>('contents');
   const list = useRef<HTMLOListElement>(null), tabs = useRef<HTMLDivElement>(null);
   useEffect(() => { if (tab === 'contents') list.current?.querySelector('[aria-current="location"]')?.scrollIntoView({ block: 'nearest' }); }, [active, tab]);
   const figures = useMemo(() => contentsFigures(bundle.index), [bundle]);
+  const tables = useMemo(() => contentsTables(bundle.index), [bundle]);
   // The equations' printed numbers come from reading the paper's page: only once its tab is opened.
   const [equations, setEquations] = useState<ContentsEquation[] | null>(null);
   useEffect(() => {
@@ -478,7 +487,7 @@ function Contents({ headings, active, bundle, onJump, onFigure, onTiles, onEquat
     setTab(CONTENTS_TABS[next][0]);
     tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
   };
-  const rows = tab === 'figures' || tab === 'tables' ? figures.filter(f => f.table === (tab === 'tables')) : [];
+  const rows = tab === 'figures' ? figures.filter(f => !f.table) : tab === 'tables' ? tables : [];
   return (
     <div className="contents-panel">
       <div className="contents-tabbar">
@@ -505,7 +514,7 @@ function Contents({ headings, active, bundle, onJump, onFigure, onTiles, onEquat
           {/* Owner, build 59: "a link to the same squares based view". */}
           {tab === 'figures' && <li><button className="contents-tiles" onClick={onTiles} data-testid="contents-figure-tiles"><Icon name="grid" size={14} />View as tiles</button></li>}
           {/* "Figure 1 — Subplots of …", the caption cut at two lines; the row opens the figure with its whole caption. */}
-          {rows.map((f, i) => <li key={f.id}><button className="contents-row" onClick={() => onFigure(f.id)} data-testid={`contents-${tab === 'tables' ? 'table' : 'figure'}-${i}`}>
+          {rows.map((f, i) => <li key={f.id}><button className="contents-row" onClick={() => f.block ? onTable(f) : onFigure(f.id)} data-testid={`contents-${tab === 'tables' ? 'table' : 'figure'}-${i}`}>
             <span className="contents-row-caption"><strong>{f.number ?? (tab === 'tables' ? 'Table' : 'Figure')}</strong>{f.caption && <span className="contents-row-detail"> — {f.caption}</span>}</span>
           </button></li>)}
         </ul> : <p className="contents-empty">{tab === 'tables' ? 'No tables' : 'No figures'}</p>}
