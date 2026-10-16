@@ -2,6 +2,29 @@
 
 Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Build 62 feedback: reader on the phone, versions, billing — 2026-10-16, ~15:50 UTC (not yet in a build)
+
+- **Broken?? (Related papers)**: the staging Anthropic account's credit balance ran out about 15:00 UTC; every Claude
+  request (plain questions too) answered 400 "Your credit balance is too low" (reproduced with the server's own request
+  params, `chat-live-smoke.mjs --action/--caps`). Owner to top up. Now recorded as `provider_billing`; migration 084 adds
+  `provider_billing` to v1_admin_health (DeepSeek's 402 too) and the admin's Attention says to top up. Database suite and
+  backend tests pass; staging deploy waits for the figure-detail branch (its migration 083 is already applied there).
+- **MLExpert retried forever**: every library sync reopened the selected paper and started another preparation after a
+  failure; now only the reader's own action retries (`failedHTMLOpens`).
+- **Papers failing only on the phone** (2504.02792, 2610.22083 re-preparations; 2610.22344 first open): all prepare on
+  the Mac and in the iOS Simulator with the app's own code and the catalog's authors and title (2–12 s). Hardened without
+  a device: one compile at a time (`ArxivCompileGate`), a killed or stalled compile runs once more with the downloads it
+  has, and the real reason is kept as a code (`ArxivHTMLError.code`), shown behind an ⓘ and in Reader version details.
+- **One failure screen**: "Read this paper as its PDF" — Open PDF and Read with the on-device model (fetches the PDF
+  first); Try again only for arXiv busy/unreachable. **No banner**: ⋯ › Reader version details (this paper's version,
+  the app's, what changed, Update this paper); `reader-versions.json` (revisions 3–16 by build identity), kept current
+  by the compiler build check; READER_VERSIONS.md.
+- **Formula images from the on-device model** are cleaned of the neighbouring lines' fragments and given an even margin
+  (converter revision 3; DEVICE_PDF_ROUTE.md).
+- Evidence: `npm test`; database suite; ArxivCompilerFailureTests + ArxivHTMLReaderTests + ArxivCompilerIdentityTests +
+  ArxivCompileGateTests on Mac Catalyst; ReaderVersionTests on the iPhone 17 Pro Simulator; device-PDF tests (core 330 +
+  23, backend 16).
+
 ## On-device PDF model: formula crops cleaned (port revision 3) — 2026-10-16 (not yet in a build)
 
 - Owner, TestFlight 62 (Waypoint-OPD read by the on-device model): formula images carried the cut tails of the lines
