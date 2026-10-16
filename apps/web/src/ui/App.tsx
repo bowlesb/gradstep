@@ -96,7 +96,7 @@ function Unsupported() {
   );
 }
 
-const SHORTCUTS = [['/ or ⌘K', 'Search the library or arXiv'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
+const SHORTCUTS = [['/ or ⌘K', 'Search the library or ML papers'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
   ['F', 'Reading mode (Esc leaves it)'], ['J K', 'Next or previous section'], ['Space', 'Page down in the paper (Shift: up)'],
   ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
 const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
@@ -507,7 +507,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </nav>
         <div className="search-field">
           <Icon name="search" size={14} />
-          <input ref={search} type="search" placeholder={searchExternal ? 'Search arXiv' : 'Search library'} aria-label={searchExternal ? 'Search arXiv' : 'Search library'}
+          <input ref={search} type="search" placeholder={searchExternal ? 'Search ML papers' : 'Search library'} aria-label={searchExternal ? 'ML paper search' : 'Search library'}
             value={searchText} data-testid="search" enterKeyHint={searchExternal ? 'search' : undefined}
             onChange={e => { if (searchExternal) paperSearch.setQuery(e.target.value); else query(e.target.value); }}
             onFocus={() => setSearchFocus(true)} onBlur={leaveSearch}
@@ -537,7 +537,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <span className="segmented" role="group" aria-label="Search">
           {([false, true] as const).map(external => <button key={String(external)} className={`segment${searchExternal === external ? ' on' : ''}`} aria-pressed={searchExternal === external}
             onMouseDown={e => e.preventDefault()} onClick={() => chooseScope(external)} data-testid={external ? 'search-scope-arxiv' : 'search-scope-library'}>
-            {external ? 'arXiv' : 'Library'}</button>)}
+            {external ? 'ML paper search' : 'Library'}</button>)}
         </span>
         <button className="link small-link" onMouseDown={e => e.preventDefault()} onClick={cancelSearch} data-testid="search-cancel">Cancel</button>
       </div>}

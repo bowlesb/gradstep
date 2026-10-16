@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-13. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
 ## arXiv HTML first; every PDF stays on device (owner decided 2026-10-13)
 
@@ -26,6 +26,22 @@ with native build 30 VALID and IN_BETA_TESTING on both Apple platforms. The devi
 The owner clarified the separate transfer request: copy the entire codebase, not a PDF, to `192.168.1.32` under
 the SSH user's home directory. Include current source and design changes; omit local credentials, dependency
 caches and generated build artifacts. This does not authorize a processing service or change NAS restrictions.
+
+## Search and the Feed without our servers asking arXiv (owner decided 2026-10-16)
+
+Owner answers: "5. Search: turn on device-only search, which drops OpenAlex — Sure"; "6. Shared Feed: take it from
+DataCite on our servers, so our servers never contact arXiv. New papers show about 3 hours after announcement — Ok";
+"10. The 'arXiv' search tab — Call it ML Paper search".
+
+- Paper search runs on the person's device (apps: arXiv's API and DataCite; browser: DataCite). Builds that still ask
+  the server get DataCite results; OpenAlex leaves search and DOI naming (Crossref names DOIs).
+- The Feed's shared pool comes from DataCite's records of arXiv papers, read by our servers once for everyone; a chip
+  outside the pool reads DataCite too. The RSS source stays in the code and as the `arxiv-ml` row, for audit and for
+  switching back.
+- The Library's search segment is "ML paper search" (sentence case like the app's other labels; it fits the narrowest
+  iPhone at every text size). The field reads "Search ML papers"; the Mac menu item is "Search ML Papers".
+- Migration 075 sets the three switches and records them in the admin audit log. Server arXiv calls that remain (the
+  metadata stage, chat's find-paper and references) and the rest of the rollout: ARXIV_DEVICE_ONLY.md §6.0.2.
 
 ## Agent v2 and framework stance (agent decisions, 2026-10-14; reversible)
 
