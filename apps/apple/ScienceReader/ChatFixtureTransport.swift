@@ -10,13 +10,15 @@ import ScienceReaderCore
 /// `figure_parts`: an answer about the sample's Figure 1 that marks where its two parts go, and the parts.
 /// `equation`: plain answers; the equation view's requests (actions `equation`, `equation_background`) are answered in
 /// every mode — symbols as the live server sends them, background as a short cited text.
+/// `figure_walkthrough`: plain answers; the figure view's requests (actions `figure`, `figure_simpler`) are answered in
+/// every mode — a three-part walkthrough of the sample's Figure 1 with one crop and `[¶N]` links, and a part more simply.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 /// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
 /// `--chat-fixture-no-profiles` behaves like a server without them.
 struct ChatFixtureTransport: ChatTransport {
     enum Mode: String, Sendable {
         case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, brokenDiagram = "broken_diagram", sources, research
-        case figureParts = "figure_parts", equation
+        case figureParts = "figure_parts", equation, figureWalkthrough = "figure_walkthrough"
         /// Faults (docs/architecture/RESILIENCE.md): the server is rate limiting (`rate_limited` before any text), the
         /// AI provider is overloaded (`provider_unavailable` before any text), or the stream goes silent (no events at all).
         case throttled, overloaded, stall
@@ -54,6 +56,17 @@ struct ChatFixtureTransport: ChatTransport {
     Squaring appears wherever a size must be positive whatever its sign, as in a squared error [¶4].
 
     - It grows faster than the value itself, so large values dominate.
+
+    This is a synthetic fixture answer; no AI request was made.
+    """
+
+    static let figureWalkthrough = FigureWalkthrough(summary: "Figure 1 is a small test image: two halves, read left to right, that the introduction mentions [¶4].", sections: [
+        .init(label: "Left half", title: "Where the figure starts", text: "The left half is the starting point the introduction names [¶4]. Read it first.", paragraphs: [4],
+              box: .init(x: 0, y: 0, w: 0.5, h: 1)),
+        .init(label: "Right half", title: "What it shows", text: "The right half is the result the caption sums up [¶6].", paragraphs: [6]),
+        .init(label: "", title: "Reading it as a whole", text: "Together the halves make the figure’s single point. This is a synthetic fixture answer; no AI request was made.")])
+    static let figureSimpler = """
+    Start with the left half: it is only the starting point, nothing more [¶4].
 
     This is a synthetic fixture answer; no AI request was made.
     """
@@ -100,6 +113,20 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }
+                    if request.action == .figure {
+                        try await Task.sleep(for: .milliseconds(500))
+                        continuation.yield(.figure(Self.figureWalkthrough))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 5, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
+                        continuation.finish(); return
+                    }
+                    if request.action == .figureSimpler {
+                        try await Task.sleep(for: .milliseconds(300))
+                        for piece in Self.pieces(of: Self.figureSimpler, size: 16) {
+                            continuation.yield(.delta(piece)); try await Task.sleep(for: .milliseconds(25))
+                        }
+                        continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
+                        continuation.finish(); return
+                    }
                     if request.action == .diagramFix {
                         try await Task.sleep(for: .milliseconds(1500))
                         continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram))
@@ -136,7 +163,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation:
+                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation, .figureWalkthrough:
                         try await Task.sleep(for: .milliseconds(300))
                         // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
                         let cited = request.localContext != nil

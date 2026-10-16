@@ -81,7 +81,7 @@ without a new request. The boxes are kept, never the crops. Nothing is sent with
 1. **Server** (built and live on staging 2026-10-16: "Server — as built" below) — `figure` and `figure_simpler` actions with the checked tool, tests (cached prefix byte-identical,
    validation, fallback), staging deploy, live smoke on DPO Figure 1, a multi-panel plot (2610.16784 InfoVis Figure 4) and
    a table, recording cost and time.
-2. **Apps** — the buttons on the figure page, the walkthrough view with inline crops and the section menu, the local
+2. **Apps** (built 2026-10-16, fixtures: "Apps — as built" below) — the buttons on the figure page, the walkthrough view with inline crops and the section menu, the local
    store, a fixture mode (`--chat-fixture-mode=figure_walkthrough`) and journeys (iPhone, iPad, Mac).
 3. **Browser** (built 2026-10-16, not deployed: "Browser — as built" below) — the same in the figure dialog; journeys on desktop and phone.
 4. **Evaluation** — ten figures across recent papers (plots, diagrams, tables): are the details right, are boxes on
@@ -223,6 +223,53 @@ data: {"stop_reason":"end_turn","credits":4,"usage":{…},"model":"claude-sonnet
   can send one.
 - The tool's `box` wording changed after the DPO and InfoVis runs (one paper write per paper on staging since).
 
+## Apps — as built (phase 2, 2026-10-16; iPhone, iPad, Mac; not yet in a build)
+
+- **Every paper chat request sends `figure_view`** (`ChatGenerationRequest.capabilities(…, paper:)`: a paper chat,
+  document or local context, never Add paper or a repair; general chat never). Ordinary questions, Study, the equation
+  view's two actions and the figure view's two share one capability list, so they share the cached tools:
+  `["visual_answers", "figure_requests", "figure_view", "stop_signal"]` with visual answers on and the paper on the
+  device. Production ignores the unknown value until its `chat` function has the view.
+- **Figure pages.** Every page that shows one figure (Contents › Figures › a row, the gallery's figure page, a tapped
+  figure, a figure or table reference) has **Explain** and **Ask in chat** side by side under the figure
+  (`figurePageActions`, FigureExplainView.swift). Explain shows only for an arXiv paper on this device (a source
+  membership, or a legacy arXiv item named by its library item as legacy chat names it); nothing is requested on
+  opening. An algorithm's code block gets neither.
+- **The walkthrough** is pushed on the page's own stack (Back returns to the figure); a half-height sheet (Contents, a
+  figure reference) takes the full height for it. In the equation view's look: the figure (on white, never more than
+  twice its own size) with its caption, Ask in chat, the summary, then one card per part: label and title (a tap opens
+  the part's menu; a long press or right-click on the card too), the part's crop when it has a box, its text with
+  `[¶N]` links (each closes the sheet and goes to that paragraph). No credit counts anywhere.
+- **The part's menu**: *Explain more simply* streams under the part (a "More simply" block, kept); *Show in the paper*
+  goes to the part's first cited paragraph, else to the figure; *Ask in chat about this* opens a new chat about the
+  paper with the part's text as the passage and "About Figure 1, Left half [¶4]: " in the composer, nothing sent.
+  The figure page's Ask in chat does the same with the caption ("About Figure 1 [¶6]: "); the question names the
+  figure, so chat attaches its image as it does for any question naming it.
+- **The image.** A figure goes exactly as chat sends it (`ChatFigureFinder.image(for:bundle:)`, shared: panels
+  stacked, ≤1,568 px, JPEG on white). A table the page draws (an HTML table, from a reference) is drawn on the device:
+  its block's markup with the bundle's stylesheet, light, at its natural width (≤1,500 px), printed to PDF by WebKit
+  and rendered on white at twice its size (`TableDrawing`), then prepared like a figure. Crops are cut from the same
+  composition at full resolution (the box's fractions), or from the table's drawing.
+- **Kept on the device** (`FigureResultKey`: manifest, figure, action, a digest of the part's text for
+  `figure_simpler`, profile) in the equation view's sealed store (`EquationResultStore`, now generic over the key),
+  folder `figure-answers`: reopening shows the walkthrough and any part made simpler with no request. A failure says
+  so with Try again; one the server didn't charge for adds "Not charged." Consent, sign-in and an unavailable paper
+  are handled as in the equation view.
+- **Fixture**: `--chat-fixture-mode=figure_walkthrough` (both actions are answered in every mode): three parts of the
+  authored fixture's Figure 1, the first with a box, `[¶4]`/`[¶6]` links; "more simply" streams.
+- **Evidence (Simulator and this Mac, fixtures):** core `FigureViewTests` (event checks as the server's, crop
+  pixels, request bodies and the shared capability list, sealed answers, a table's caption) and the full core suite
+  (329); app `FigureViewAppTests` (a figure's image equals chat's; the fixture's table is drawn with ink) and the app
+  unit bundle (460, plus the stale `ChatVisualTests` capability expectation fixed); `FigureViewJourneyTests` (Explain,
+  parts, crop, more simply, Show in the paper, kept on reopening, Ask in chat about a part; the page's Ask in chat;
+  light and dark) on the iPhone 17 and iPad Pro 13 Simulators and on this Mac (Mac Catalyst); the Contents, gallery,
+  figure reference, equation view and figure parts journeys still pass. Screenshots reviewed: iPhone light/dark,
+  iPad light/dark, Mac light/dark.
+- **Not done in phase 2:** no live walkthrough from the app (fixtures only; the server's live runs are above); on the
+  Mac the walkthrough opens inside the Contents or gallery sheet at that sheet's size (it scrolls; a larger minimum
+  clipped it instead of growing the sheet); an HTML table can be explained only from a figure reference until
+  Contents › Tables opens a table's page.
+
 ## Browser — as built (phase 3, 2026-10-16)
 
 Built on a branch with fixtures; **not deployed**. Code: `apps/web/src/lib/figure-view.ts` (the event's check, crop
@@ -266,4 +313,3 @@ figure page), wired through `Reader` and `App` like the equation view's host.
   a failed walkthrough tried again; the page's Ask in chat; words without a walkthrough, cut off and "Interrupted · not
   charged"), screenshots light and dark reviewed; the equation-view,
   reader-drafts, chat, chat-redesign and arxiv-html journeys still pass; `npm test`.
-

@@ -64,6 +64,15 @@ public enum EquationMarkup {
     /// The element whose `id` is `equationID` (an equation's span), complete with its closing tag; nil when the page has
     /// no such equation.
     public static func element(in html: String, equationID: String) -> String? {
+        element(in: html, id: equationID, marker: "data-reader-equation")
+    }
+
+    /// A block of the page by its id (a table's `div.reader-table`), complete with its closing tag; nil when the page
+    /// has no block of that id. The figure view sends a table as the image of this markup.
+    public static func block(in html: String, blockID: String) -> String? { element(in: html, id: blockID, marker: "data-reader-block") }
+
+    /// The element whose opening tag carries `id` and `marker="id"`, balanced by its tag name.
+    static func element(in html: String, id equationID: String, marker: String) -> String? {
         guard !equationID.isEmpty, equationID.utf8.count <= 128,
               equationID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.:".contains($0)) }),
               let attribute = html.range(of: " id=\"\(equationID)\"") else { return nil }
@@ -71,9 +80,9 @@ public enum EquationMarkup {
         guard let open = html[..<attribute.lowerBound].lastIndex(of: "<") else { return nil }
         let nameEnd = html[html.index(after: open)...].firstIndex { !($0.isLetter || $0.isNumber) } ?? html.endIndex
         let name = String(html[html.index(after: open)..<nameEnd]).lowercased()
-        // The opening tag itself names the equation (an id elsewhere, such as a link's target, is not one).
+        // The opening tag itself names the element (an id elsewhere, such as a link's target, is not one).
         guard !name.isEmpty, let tagEnd = html[attribute.upperBound...].firstIndex(of: ">"),
-              html[open...tagEnd].contains("data-reader-equation=\"\(equationID)\"") else { return nil }
+              html[open...tagEnd].contains("\(marker)=\"\(equationID)\"") else { return nil }
         // Balanced `<name …>` / `</name>` from the opening tag on.
         var depth = 0, index = open
         while index < html.endIndex {
@@ -138,7 +147,7 @@ public struct EquationAnswer: Codable, Equatable, Sendable {
 }
 
 /// One cached answer's identity: the paper revision (bundle manifest), the equation, the action and the chat profile.
-public struct EquationResultKey: Hashable, Sendable {
+public struct EquationResultKey: SealedAnswerKey {
     public let manifestSHA256: String
     public let equationID: String
     public let action: ChatAction
@@ -178,17 +187,21 @@ public final class EquationResultStore: @unchecked Sendable {
         try? excluded.setResourceValues(values)
     }
 
-    public func read(_ answerKey: EquationResultKey) -> EquationAnswer? {
+    public func read(_ answerKey: EquationResultKey) -> EquationAnswer? { read(answerKey, as: EquationAnswer.self) }
+    public func write(_ answer: EquationAnswer, for answerKey: EquationResultKey) throws { try write(answer as any Encodable, for: answerKey) }
+
+    /// Any kept answer (the figure view keeps its own in a store of its own, FigureResultKey).
+    public func read<Value: Decodable>(_ answerKey: some SealedAnswerKey, as type: Value.Type) -> Value? {
         lock.lock(); defer { lock.unlock() }
         let url = directory.appendingPathComponent(answerKey.fileName)
         guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
               let sealed = try? Data(contentsOf: url), sealed.count <= 1_048_576,
               let box = try? AES.GCM.SealedBox(combined: sealed),
               let data = try? AES.GCM.open(box, using: key, authenticating: aad(answerKey)) else { return nil }
-        return try? JSONDecoder().decode(EquationAnswer.self, from: data)
+        return try? JSONDecoder().decode(Value.self, from: data)
     }
 
-    public func write(_ answer: EquationAnswer, for answerKey: EquationResultKey) throws {
+    public func write(_ answer: any Encodable, for answerKey: some SealedAnswerKey) throws {
         lock.lock(); defer { lock.unlock() }
         let data = try JSONEncoder().encode(answer)
         guard data.count <= 1_000_000, let sealed = try AES.GCM.seal(data, using: key, authenticating: aad(answerKey)).combined else {
@@ -202,7 +215,7 @@ public final class EquationResultStore: @unchecked Sendable {
         prune()
     }
 
-    private func aad(_ answerKey: EquationResultKey) -> Data { Data((Self.aadPrefix + accountID.wire + "/" + answerKey.fileName).utf8) }
+    private func aad(_ answerKey: some SealedAnswerKey) -> Data { Data((Self.aadPrefix + accountID.wire + "/" + answerKey.fileName).utf8) }
 
     private func prune() {
         let manager = FileManager.default

@@ -3465,6 +3465,80 @@ final class ReaderModel {
         if !isSignedIn { openSignIn() } else { requestComposerFocus() }
     }
 
+    // MARK: Figure view (2026-10-16, docs/architecture/FIGURE_VIEW.md)
+
+    /// One figure (or a table the page draws) of a paper on this device, resolved for its view: label, whole caption,
+    /// paragraph, images and the numbered paper the requests carry (a source membership, or a legacy arXiv item named by
+    /// its library item as legacy chat names it; nil otherwise).
+    func figureContext(paperID: UUID, figureID: String) -> FigureViewContext? {
+        guard let paper = papers.first(where: { $0.id == paperID }) ?? (selectedPaper?.id == paperID ? selectedPaper : nil),
+              let bundle = paper.readerBundle else { return nil }
+        let paragraph = bundle.index.blocks.firstIndex { $0.id == figureID }.map { $0 + 1 }
+        let caption: String, paths: [String]
+        if let figure = bundle.index.figures.first(where: { $0.id == figureID }) {
+            caption = figure.caption.isEmpty ? figure.alt : figure.caption; paths = figure.assetPaths
+        } else if let block = bundle.index.blocks.first(where: { $0.id == figureID && $0.kind == "table" }) {
+            let markup = bundle.data(for: bundle.manifest.entrypoint).flatMap { String(data: $0, encoding: .utf8) }
+                .flatMap { EquationMarkup.block(in: $0, blockID: figureID) }
+            caption = markup.flatMap(FigureCaptionText.caption(inBlock:)) ?? String(block.text.prefix(300)); paths = []
+        } else { return nil }
+        let number = GalleryFigure.label(caption).number
+        return FigureViewContext(paperID: paper.id, bundle: bundle, figureID: figureID,
+                                 label: number ?? (paths.isEmpty ? "Table" : "Figure"), caption: caption, paragraph: paragraph,
+                                 assetPaths: paths, localContext: figureLocalContext(paper, bundle: bundle))
+    }
+
+    private func figureLocalContext(_ paper: Paper, bundle: VerifiedReaderBundle) -> LocalPaperChatContext? {
+        if let membership = paper.sourceMembership { return try? LocalPaperChatContext(reference: membership, bundle: bundle) }
+        guard let source = paper.legacyArxivSource, bundle.manifest.source.kind == "arxiv-html",
+              let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }),
+              let reference = try? SourcePaperReference(membershipID: item.id, sourceID: source.sourceID, revision: source.revision) else { return nil }
+        return try? LocalPaperChatContext(reference: reference, bundle: bundle)
+    }
+
+    /// The walkthroughs kept on this device, as the equation view keeps its answers (sealed with the account's local key).
+    func figureAnswer(_ key: FigureResultKey) -> FigureAnswer? {
+        if let kept = figureAnswers[key] { return kept }
+        let stored = figureResultStore()?.read(key, as: FigureAnswer.self)
+        if let stored { figureAnswers[key] = stored }
+        return stored
+    }
+    func keepFigureAnswer(_ answer: FigureAnswer, for key: FigureResultKey) {
+        figureAnswers[key] = answer
+        try? figureResultStore()?.write(answer, for: key)
+    }
+    private func figureResultStore() -> EquationResultStore? {
+        if let figureStore { return figureStore }
+        guard let configuration, let device, let accountID, device.accountID == accountID,
+              let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        let directory = base.appendingPathComponent("\(configuration.environment)/\(accountID.wire)/figure-answers", isDirectory: true)
+        #if DEBUG && FIXTURE_HOST
+        if ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture") { try? FileManager.default.removeItem(at: directory) }
+        #endif
+        figureStore = try? EquationResultStore(directory: directory, accountID: accountID, localKey: device.localStoreKey)
+        return figureStore
+    }
+
+    /// What a figure page asked for as it closed; its container applies it once the sheet has gone.
+    func takeFigureOutcome() -> FigureViewOutcome? { defer { pendingFigureOutcome = nil }; return pendingFigureOutcome }
+
+    /// Ask in chat: a new chat about the paper with the figure's caption (or one part's text) as its passage and the
+    /// composer focused, nothing sent; the question names the figure, so its image goes with it.
+    func askAboutFigure(_ context: FigureViewContext, part: FigureWalkthrough.Section?) {
+        guard let paper = papers.first(where: { $0.id == context.paperID }) ?? (selectedPaper?.id == context.paperID ? selectedPaper : nil) else { return }
+        if selectedPaper?.id != paper.id { select(paper) }
+        let quote = part?.text ?? context.caption
+        selectedQuote = quote
+        let carried = chatProfile
+        newChat(general: false)
+        if carried != chatDefaultProfile { setChatProfile(carried) }
+        let marker = part?.paragraphs.first ?? context.paragraph
+        chatInput = "About \(context.label)" + (part.map { ", \($0.name)" } ?? "") + (marker.map { " [¶\($0)]" } ?? "") + ": "
+        tab = .chat; wideMode = .reader; readerChatHidden = false
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: nil, origin: nil, prefix: true) }
+        if !isSignedIn { openSignIn() } else { requestComposerFocus() }
+    }
+
 
     // MARK: Study (experimental, 2026-10-14)
 
@@ -3689,7 +3763,8 @@ final class ReaderModel {
                 case .title(let topic): title = topic
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
-                case .equation: break
+                // The equation and figure views' own events; an ordinary answer never gets them.
+                case .equation, .figure: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
@@ -3899,7 +3974,7 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]; chatInterruptionNotes = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
-        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; pendingFigureOutcome = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
@@ -3975,6 +4050,10 @@ final class ReaderModel {
     /// Equation view answers this session, by paper revision, equation, action and profile (sealed copies on disk).
     @ObservationIgnored private var equationAnswers: [EquationResultKey: EquationAnswer] = [:]
     @ObservationIgnored private var equationStore: EquationResultStore?
+    @ObservationIgnored private var figureAnswers: [FigureResultKey: FigureAnswer] = [:]
+    @ObservationIgnored private var figureStore: EquationResultStore?
+    /// What a figure page asked for as it closed (FigureViewOutcome), applied by its container once the sheet has gone.
+    @ObservationIgnored var pendingFigureOutcome: FigureViewOutcome?
     private(set) var operatorRoles: [String] = []
     /// This Apple Account's plan was bought by another (open) account: plans are
     /// not offered here, so a purchase can't land on the other account.

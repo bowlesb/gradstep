@@ -1,6 +1,20 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+
+## Figure view, apps — 2026-10-16, ~08:35 UTC (iPhone, iPad, Mac; not yet in a build)
+
+- Owner, build 59: a figure page has **Explain** and **Ask in chat** side by side; Explain opens a walkthrough in the
+  equation view's look — the figure, what it shows, one card per part with its crop where the walkthrough gives a
+  box and `[¶N]` links; a part's menu explains it more simply (inline, kept), shows it in the paper, or asks about it
+  in chat. Kept on the device (sealed); no credit counts. An HTML table (from a reference) is drawn on the device as
+  an image to send ([FIGURE_VIEW.md](architecture/FIGURE_VIEW.md#apps--as-built-phase-2-2026-10-16-iphone-ipad-mac-not-yet-in-a-build)).
+- Every paper chat request now sends `figure_view` (with the equation view's and the figure view's actions), so a
+  walkthrough reads the chat's cached paper; production ignores it until its `chat` function has the view.
+- Evidence: core suite 329 (new `FigureViewTests`), app unit bundle 460 (new `FigureViewAppTests`; the stale
+  `ChatVisualTests` expectation fixed), `FigureViewJourneyTests` 2/2 on the iPhone 17 and iPad Pro 13 Simulators and on
+  this Mac, neighbouring journeys (Contents, gallery, figure reference, equation view, figure parts) pass. Fixtures
+  only: no live walkthrough from the app yet.
 
 ## Browser deployed; Add paper refunds; checks — 2026-10-16, ~08:30 UTC
 
