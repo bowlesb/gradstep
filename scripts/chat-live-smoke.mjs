@@ -50,6 +50,11 @@ const WARM = process.argv.includes('--warm');
 /** `--ingest=<reference text>`: Add paper from the chat on that reference (CHAT.md "Add paper after settlement"); prints
  * the report and the operation's settlement (an add that doesn't happen settles 0 credits with the cost absorbed). */
 const INGEST = process.argv.find(a => a.startsWith('--ingest='))?.slice(9) ?? null;
+/** `--action=<related|relevance>` with `--selection=<text>`: a selection action as the apps send it; `--caps=a,b` replaces
+ * the capabilities sent (e.g. visual_answers,figure_requests,figure_view,stop_signal as build 62 sends them). */
+const ACTION = process.argv.find(a => a.startsWith('--action='))?.slice(9) ?? null;
+const SELECTION = process.argv.find(a => a.startsWith('--selection='))?.slice(12) ?? null;
+const CAPS = process.argv.find(a => a.startsWith('--caps='))?.slice(7).split(',').filter(Boolean) ?? null;
 const PAPER = (() => {
   const value = process.argv.find(a => a.startsWith('--paper='))?.slice(8) ?? '2305.18290v3';
   const m = /^(\d{4}\.\d{4,5})v(\d+)$/.exec(value);
@@ -344,8 +349,9 @@ try {
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
       ...(PROFILE ? { profile: PROFILE } : {}),
       ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } }
-        : INGEST ? { action: 'ingest', selection: { quote: INGEST } } : { follow_ups: true }) };
+        : INGEST ? { action: 'ingest', selection: { quote: INGEST } } : ACTION ? { action: ACTION, selection: { quote: SELECTION ?? 'x' }, follow_ups: true } : { follow_ups: true }) };
     if (INGEST) delete body.topic_title;
+    if (CAPS) body.capabilities = CAPS;
     if (equationAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
