@@ -4,7 +4,8 @@ import UIKit
 /// Paper podcasts over the zero-spend fixture (`--podcast-fixture`: labeled synthetic episodes, tones generated on the
 /// device, no network): the Feed's Listen filter, playing, the mini-player above the tab bar (and clear of the chat's
 /// message box), a transcript evidence jump into the paper, an offline download that survives relaunch, and a quoted
-/// private generation. docs/architecture/PAPER_PODCASTS.md.
+/// private episode asked for in one step, made while the reader is elsewhere, and waiting in Listen.
+/// docs/architecture/PAPER_PODCASTS.md.
 @MainActor
 final class PodcastJourneyTests: XCTestCase {
     private let sampleID = "paper.aaaaaaaa-0000-0000-0000-000000000001"
@@ -238,118 +239,145 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["podcast.player.download"].waitForExistence(timeout: 5))
     }
 
-    func testPrivateGenerationShowsQuoteThenProgressAndCharges() {
-        let app = launch(["--library-metadata-fixture"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
+    private let lora = "paper.eeeeeeee-0000-0000-0000-000000000003"
+    private let loraTitle = "LoRA: Low-Rank Adaptation of Large Language Models"
+
+    /// The library's LoRA paper → Listen: the sheet asks, with five minutes and the default writer chosen.
+    private func askForLoRA(_ app: XCUIApplication) {
+        let paper = app.buttons[lora]
+        XCTAssertTrue(paper.waitForExistence(timeout: 10))
+        paper.press(forDuration: 1.2)
         let listen = app.buttons["Listen"]
         XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
-        // No episode: the chosen length (five minutes) is quoted at once; nothing is held before Create.
-        let estimate = app.staticTexts["podcast.generate.estimate"]
-        XCTAssertTrue(estimate.waitForExistence(timeout: 10))
-        XCTAssertTrue(estimate.label.contains("maximum 150 credits"), estimate.label)
-        XCTAssertFalse(app.buttons["podcast.generate.quote"].exists, "No separate estimate step")
-        // The default writer's script provider (DeepSeek since 2026-10-14) and the speech provider are named.
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "(script) and Google Vertex AI (speech)")).firstMatch.exists)
-        let start = app.buttons["podcast.generate.start"]
-        XCTAssertTrue(start.isHittable, "Create is pinned at the bottom, not below the fold")
-        XCTAssertTrue(start.label.contains("150 credits"))
-        capture(app, "Private episode quote")
-        start.tap()
-        XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("150 credits"))
-        XCTAssertEqual(app.staticTexts["podcast.generate.wait"].label, "Usually ready in a few minutes.", "What to expect for five minutes")
-        capture(app, "Private episode in progress")
-        let charged = app.staticTexts["podcast.generate.charged"]
-        XCTAssertTrue(charged.waitForExistence(timeout: 15))
-        XCTAssertEqual(charged.label, "Charged 46 credits · 104 released.")
-        app.buttons["podcast.generate.play"].tap()
-        XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["podcast.player.title"].label, "LoRA: Low-Rank Adaptation of Large Language Models", "A private episode is titled from the library")
     }
 
-    /// Lengths: Short · 5 min · 10 min · 20 min, each with its own maximum (the serving-limit profiles staging serves);
-    /// the chosen length is quoted as soon as it is chosen (a quote holds nothing), so Create is the one confirm step.
-    func testChoosingTenMinutesQuotesItsOwnMaximum() {
+    private func price(_ app: XCUIApplication) -> XCUIElement { app.staticTexts["podcast.generate.price"] }
+    private func makeEpisode(_ app: XCUIApplication) -> XCUIElement { app.buttons["podcast.generate.start"] }
+
+    /// Owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there for you". One action
+    /// with the length and writer preselected and the price said once; then one calm state, no stages; leave; Listen
+    /// shows it being made, then ready with New, and a small notice offers Play.
+    func testAskThenLeaveAndTheEpisodeIsWaitingInListen() {
+        let app = launch(["--library-metadata-fixture", "--podcast-fixture-steps=24"])
+        askForLoRA(app)
+        let start = makeEpisode(app)
+        waitFor("Five minutes is priced at once and Make an episode is ready", timeout: 10) { start.exists && start.isEnabled }
+        XCTAssertTrue(price(app).label.hasPrefix("Up to 150 credits."), price(app).label)
+        XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isSelected, "five minutes by default")
+        XCTAssertTrue(app.segmentedControls["podcast.writer"].buttons["DeepSeek V4 Pro"].isSelected, "the default writer")
+        let privacy = app.staticTexts["podcast.generate.privacy"]
+        XCTAssertTrue(privacy.label.contains("sent to DeepSeek and Google and deleted once the episode is made"), privacy.label)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "source")).count, 0, "No “source” wording")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "(script)")).count, 0, "No provider jargon")
+        XCTAssertTrue(start.isHittable, "Make an episode is pinned at the bottom, not below the fold")
+        capture(app, "Asking for an episode")
+        start.tap()
+        let leave = app.staticTexts["podcast.generate.leave"]
+        XCTAssertTrue(leave.waitForExistence(timeout: 5))
+        XCTAssertEqual(leave.label, "You can leave this screen or the app. It’ll be in Listen when it’s ready.")
+        XCTAssertEqual(app.staticTexts["podcast.generate.wait"].label, "Usually ready in a few minutes.")
+        for stage in ["Waiting to start", "Writing the script", "Recording the two voices", "Holding up to"] {
+            XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", stage)).count, 0, "No stages: \(stage)")
+        }
+        capture(app, "Making the episode")
+        app.buttons["podcast.generate.done"].tap()
+
+        // Listen (in the Feed) shows it being made, under Your episodes.
+        app.show("feed")
+        app.buttons["feed.listen"].tap()
+        let making = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "podcast.request.")).firstMatch
+        XCTAssertTrue(making.waitForExistence(timeout: 10), "Listen shows the episode being made")
+        XCTAssertTrue(making.label.contains(loraTitle) && making.label.contains("Making your episode"), making.label)
+        XCTAssertTrue(app.staticTexts["Your episodes"].exists)
+        capture(app, "Listen while it's being made")
+
+        // Leave the app, come back: still there, then ready, marked New, with a small notice (never an alert).
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        let toast = element(app, "podcast.toast")
+        XCTAssertTrue(toast.waitForExistence(timeout: 40), "A small notice says it's ready")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Not a modal alert")
+        XCTAssertTrue(app.staticTexts["podcast.toast.message"].label.contains("Your episode of “\(loraTitle)” is ready"))
+        XCTAssertTrue(making.waitForNonExistence(timeout: 10))
+        let ready = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "podcast.episode.", loraTitle)).firstMatch
+        XCTAssertTrue(ready.waitForExistence(timeout: 10), "The episode is in Listen")
+        XCTAssertTrue(ready.label.contains("new") && ready.label.contains("private"), ready.label)
+        capture(app, "Ready in Listen with a notice")
+        app.buttons["podcast.toast.action"].tap()
+        XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["podcast.player.title"].label, loraTitle, "A private episode is titled from the library")
+        waitFor("The ready episode plays") { app.buttons["podcast.player.toggle"].label == "Pause" }
+        app.buttons["Done"].tap()
+        waitFor("Played: no longer New") { !ready.label.contains("new") }
+    }
+
+    /// Lengths: Short · 5 min · 10 min · 20 min, each with its own maximum; the chosen length is priced as soon as it
+    /// is chosen (a quote holds nothing), so Make an episode is the one step.
+    func testChoosingTenMinutesPricesItsOwnMaximum() {
         let app = launch(["--library-metadata-fixture"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
-        let listen = app.buttons["Listen"]
-        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
+        askForLoRA(app)
         let ten = element(app, "podcast.length.podcast-10min-v1")
         XCTAssertTrue(ten.waitForExistence(timeout: 10), "the sheet lists the lengths")
         // DeepSeek's maxima, the default writer (2026-10-14 writer choice; its 20-minute cap is 520).
         for (profile, maximum) in [("podcast-short-v1", 140), ("podcast-5min-v1", 150), ("podcast-10min-v1", 300), ("podcast-20min-v1", 520)] {
             XCTAssertTrue(element(app, "podcast.length.\(profile)").label.contains("up to \(maximum) credits"), "\(profile) shows its own maximum")
         }
-        XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isSelected, "five minutes by default")
-        let estimate = app.staticTexts["podcast.generate.estimate"]
-        waitFor("Five minutes is quoted on opening") { estimate.exists && estimate.label.contains("maximum 150 credits") }
+        waitFor("Five minutes is priced on opening") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 150 credits") }
         ten.tap()
         XCTAssertTrue(ten.isSelected)
-        waitFor("Ten minutes is quoted at once") { estimate.exists && estimate.label.contains("maximum 300 credits") }
-        XCTAssertTrue(app.staticTexts["podcast.generate.quotedLength"].label.hasPrefix("10 min episode"))
-        XCTAssertTrue(app.buttons["podcast.generate.start"].label.contains("300 credits"))
-        capture(app, "Ten-minute quote")
-        // Another length: its own quote at once.
+        waitFor("Ten minutes is priced at once") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 300 credits") }
+        XCTAssertEqual(app.staticTexts["podcast.generate.lengthLine"].label, "About 10 minutes")
+        capture(app, "Ten-minute price")
+        // The other writer: its own maximum, priced again.
+        app.segmentedControls["podcast.writer"].buttons["Claude Sonnet 5.5"].tap()
+        waitFor("Sonnet's ten-minute maximum") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 360 credits") }
+        XCTAssertTrue(app.staticTexts["podcast.generate.privacy"].label.contains("sent to Anthropic and Google"))
         element(app, "podcast.length.podcast-short-v1").tap()
-        waitFor("Short is quoted") { estimate.exists && estimate.label.contains("maximum 140 credits") }
-        XCTAssertTrue(app.staticTexts["podcast.generate.quotedLength"].label.hasPrefix("Short episode"))
+        waitFor("Short is priced") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 180 credits") }
         element(app, "podcast.length.podcast-10min-v1").tap()
-        waitFor("Ten minutes again") { estimate.exists && estimate.label.contains("maximum 300 credits") }
-        app.buttons["podcast.generate.start"].tap()
-        XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("300 credits"), "the ten-minute hold")
+        let start = makeEpisode(app)
+        waitFor("Ten minutes again") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 360 credits") && start.isEnabled }
+        start.tap()
+        XCTAssertTrue(app.staticTexts["podcast.generate.leave"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.staticTexts["podcast.generate.wait"].label, "This length can take 10 minutes or more.", "What to expect for ten minutes")
     }
 
-    /// With the balance known, it is shown at the top before any quote, and lengths whose maximum exceeds it are greyed
-    /// out with the reason; the affordable chosen length is still quoted at once.
+    /// With the balance known, lengths whose maximum exceeds it are greyed out with the reason; the affordable chosen
+    /// length is still priced at once.
     func testLengthsBeyondTheBalanceAreGreyedOut() {
         let app = launch(["--library-metadata-fixture", "--podcast-fixture-credits=200"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
-        let listen = app.buttons["Listen"]
-        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
-        let available = app.staticTexts["podcast.generate.available"]
-        XCTAssertTrue(available.waitForExistence(timeout: 10))
-        XCTAssertEqual(available.label, "Available: 200 credits")
+        askForLoRA(app)
         let ten = element(app, "podcast.length.podcast-10min-v1"), twenty = element(app, "podcast.length.podcast-20min-v1")
-        XCTAssertFalse(ten.isEnabled, "300 > 200"); XCTAssertFalse(twenty.isEnabled, "530 > 200")
-        XCTAssertTrue(ten.label.contains("Not enough credits"), ten.label)
+        XCTAssertTrue(ten.waitForExistence(timeout: 10))
+        XCTAssertFalse(ten.isEnabled, "300 > 200"); XCTAssertFalse(twenty.isEnabled, "520 > 200")
+        XCTAssertTrue(ten.label.contains("not enough credits"), ten.label)
         XCTAssertTrue(element(app, "podcast.length.podcast-short-v1").isEnabled)
         XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isEnabled)
-        let estimate = app.staticTexts["podcast.generate.estimate"]
-        waitFor("Five minutes (150) is quoted") { estimate.exists && estimate.label.contains("maximum 150 credits") }
-        XCTAssertTrue(app.buttons["podcast.generate.start"].isHittable)
+        waitFor("Five minutes (150) is priced") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 150 credits") }
+        XCTAssertTrue(makeEpisode(app).isHittable)
         capture(app, "Lengths beyond the balance")
         element(app, "podcast.length.podcast-short-v1").tap()
-        waitFor("Short (140) is quoted") { estimate.exists && estimate.label.contains("maximum 140 credits") }
+        waitFor("Short (140) is priced") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 140 credits") }
     }
 
-    /// An episode that becomes ready after its sheet was closed is offered by name, with Play.
+    /// An episode that becomes ready after its sheet was closed is offered by name, with Play, in a small notice.
     func testEpisodeReadyAfterTheSheetClosesOffersPlay() {
         let app = launch(["--library-metadata-fixture"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
-        let listen = app.buttons["Listen"]
-        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
-        let start = app.buttons["podcast.generate.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10)); start.tap()
-        XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("you’ll be offered Play in the app when it’s ready"))
+        askForLoRA(app)
+        let start = makeEpisode(app)
+        waitFor("Priced", timeout: 10) { start.exists && start.isEnabled }
+        start.tap()
+        XCTAssertTrue(app.staticTexts["podcast.generate.leave"].waitForExistence(timeout: 5))
         app.buttons["podcast.generate.close"].tap()
-        let alert = app.alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 20), "The ready episode is announced once the sheet is closed")
-        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Your episode of “LoRA: Low-Rank Adaptation of Large Language Models” is ready")).firstMatch.exists)
+        let toast = element(app, "podcast.toast")
+        XCTAssertTrue(toast.waitForExistence(timeout: 20), "The ready episode is announced once the sheet is closed")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Not a modal alert")
+        XCTAssertTrue(app.staticTexts["podcast.toast.message"].label.contains("Your episode of “\(loraTitle)” is ready"))
         capture(app, "Episode ready while the sheet was closed")
-        alert.buttons["Play"].tap()
+        app.buttons["podcast.toast.action"].tap()
         XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["podcast.player.title"].label, "LoRA: Low-Rank Adaptation of Large Language Models")
+        XCTAssertEqual(app.staticTexts["podcast.player.title"].label, loraTitle)
         waitFor("The ready episode plays") { app.buttons["podcast.player.toggle"].label == "Pause" }
     }
 
@@ -387,60 +415,72 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(lengths.waitForExistence(timeout: 5)); lengths.tap()
         let five = element(app, "podcast.length.podcast-5min-v1")
         XCTAssertTrue(five.waitForExistence(timeout: 10))
-        XCTAssertTrue(five.label.contains("Ready"), five.label)
+        XCTAssertTrue(five.label.contains("ready"), five.label)
         XCTAssertTrue(element(app, "podcast.length.podcast-10min-v1").isSelected, "the next length still to make is chosen")
-        let estimate = app.staticTexts["podcast.generate.estimate"]
-        waitFor("The next length is quoted at once") { estimate.exists && estimate.label.contains("maximum 300 credits") }
+        waitFor("The next length is priced at once") { self.price(app).exists && self.price(app).label.hasPrefix("Up to 300 credits") }
         capture(app, "Other lengths")
         five.tap()
         let play = app.buttons["podcast.generate.playReady"]
         XCTAssertTrue(play.waitForExistence(timeout: 5), "a ready length plays instead of being made again")
-        XCTAssertFalse(app.buttons["podcast.generate.start"].exists, "nothing to create for a ready length")
+        XCTAssertFalse(makeEpisode(app).exists, "nothing to make for a ready length")
         play.tap()
         XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
     }
 
-    func testFailedGenerationChargesNothingAndDoesNotRetry() {
+    /// A failure is one plain sentence (no codes) and Try again, in the sheet and in Listen.
+    func testFailureSaysSoPlainlyAndOffersTryAgain() {
         let app = launch(["--library-metadata-fixture", "--podcast-fixture-generation=fail"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
-        app.buttons["Listen"].tap()
-        let start = app.buttons["podcast.generate.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10)); start.tap()
-        let failed = element(app, "podcast.generate.failed")
+        askForLoRA(app)
+        let start = makeEpisode(app)
+        waitFor("Priced", timeout: 10) { start.exists && start.isEnabled }
+        start.tap()
+        let failed = app.staticTexts["podcast.generate.failed"]
         XCTAssertTrue(failed.waitForExistence(timeout: 15))
-        XCTAssertEqual(app.staticTexts["podcast.generate.charged"].label, "No credits were charged.")
+        XCTAssertEqual(failed.label, "We couldn’t make this episode.")
+        XCTAssertEqual(app.staticTexts["podcast.generate.charged"].label, "Nothing was charged.")
         XCTAssertFalse(app.buttons["podcast.generate.play"].exists)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "quality_rejected")).count, 0, "No internal codes")
+        capture(app, "Couldn't be made, in the sheet")
+        let retry = app.buttons["podcast.generate.retry"]
+        XCTAssertTrue(retry.exists); retry.tap()
+        waitFor("Try again asks afresh: priced, Make an episode ready") { start.exists && start.isEnabled }
+        // The second one fails too; leave it and find it in Listen with Try again.
+        start.tap()
+        XCTAssertTrue(failed.waitForExistence(timeout: 15))
+        app.buttons["podcast.generate.close"].tap()
+        app.show("feed")
+        app.buttons["feed.listen"].tap()
+        let again = app.buttons["podcast.request.retry"]
+        XCTAssertTrue(again.waitForExistence(timeout: 10), "Listen shows the episode that couldn't be made")
+        XCTAssertTrue(app.staticTexts["Couldn’t make this episode."].exists)
+        capture(app, "Couldn't be made, in Listen")
+        again.tap()
+        waitFor("Try again opens the paper's Listen, priced at the same length", timeout: 10) { start.exists && start.isEnabled }
+        XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isSelected)
     }
 
     func testOverlongPaperExplainsBoundaryAndOffersAUsefulRoute() {
         let app = launch(["--library-metadata-fixture", "--podcast-fixture-generation=source-too-large"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
-        app.buttons["Listen"].tap()
-        let start = app.buttons["podcast.generate.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10)); start.tap()
-        let message = element(app, "podcast.generate.sourceTooLarge")
-        XCTAssertTrue(message.waitForExistence(timeout: 15), "The overlong source gets an actionable explanation")
-        XCTAssertTrue(message.label.contains("too long for a full-paper episode at any available length"), message.label)
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Nothing was charged")).firstMatch.exists)
+        askForLoRA(app)
+        let start = makeEpisode(app)
+        waitFor("Priced", timeout: 10) { start.exists && start.isEnabled }
+        start.tap()
+        let message = app.staticTexts["podcast.generate.sourceTooLarge"]
+        XCTAssertTrue(message.waitForExistence(timeout: 15), "The overlong paper gets a plain explanation")
+        XCTAssertEqual(message.label, "This paper is too long for an episode.")
+        XCTAssertTrue(app.staticTexts["Nothing was charged."].exists)
         XCTAssertTrue(app.buttons["podcast.generate.browseShared"].exists, "The listener can browse already prepared episodes")
         XCTAssertFalse(app.buttons["podcast.generate.retry"].exists, "An impossible request is not presented as a retryable failure")
     }
 
     func testUnresolvedPreviousOutcomeIsExplainedBeforeAnythingIsHeld() {
         let app = launch(["--library-metadata-fixture", "--podcast-fixture-outcome-pending"])
-        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
-        XCTAssertTrue(lora.waitForExistence(timeout: 10))
-        lora.press(forDuration: 1.2)
-        app.buttons["Listen"].tap()
+        askForLoRA(app)
         // The automatic quote is refused: explained at once, with the lengths still offered for another choice.
         let message = app.staticTexts["podcast.generate.error"]
         XCTAssertTrue(message.waitForExistence(timeout: 10))
         XCTAssertTrue(message.label.hasPrefix("Your previous episode’s charge is still being confirmed."), message.label)
-        XCTAssertFalse(app.buttons["podcast.generate.start"].exists, "No quote, so nothing to start")
+        XCTAssertFalse(makeEpisode(app).exists, "No quote, so nothing to start")
         XCTAssertTrue(element(app, "podcast.length.podcast-short-v1").exists, "Another length can still be chosen")
     }
 
@@ -468,6 +508,42 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         waitFor("The chat column's message box is above the docked player") { composer.frame.maxY <= mini.frame.minY + 1 }
         capture(app, "iPad reader and chat with the docked player")
+    }
+
+    /// Light and dark screenshots of asking, making, Listen while it's made and once it's ready (VISUAL_CHECK.md).
+    func testGenerationScreenshotsLightAndDark() {
+        for theme in ["Light", "Dark"] {
+            let app = launch(["--library-metadata-fixture", "--podcast-fixture-steps=40"])
+            app.show("settings")
+            let choice = app.settingsTheme().buttons[theme]
+            XCTAssertTrue(choice.waitForExistence(timeout: 5)); choice.tap()
+            app.show("library")
+            askForLoRA(app)
+            let start = makeEpisode(app)
+            waitFor("Priced", timeout: 10) { start.exists && start.isEnabled }
+            sleep(1); visual("sheet-ask-\(theme.lowercased())")
+            start.tap()
+            XCTAssertTrue(app.staticTexts["podcast.generate.leave"].waitForExistence(timeout: 5))
+            sleep(1); visual("sheet-making-\(theme.lowercased())")
+            app.buttons["podcast.generate.done"].tap()
+            app.show("feed")
+            app.buttons["feed.listen"].tap()
+            let making = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "podcast.request.")).firstMatch
+            XCTAssertTrue(making.waitForExistence(timeout: 10))
+            sleep(1); visual("listen-making-\(theme.lowercased())")
+            XCTAssertTrue(element(app, "podcast.toast").waitForExistence(timeout: 60))
+            sleep(1); visual("listen-ready-\(theme.lowercased())")
+            app.show("settings")
+            let match = app.settingsTheme().buttons["Match device"]
+            if match.waitForExistence(timeout: 5) { match.tap() }
+            app.terminate()
+        }
+    }
+
+    /// A named screenshot for the visual check's sheets (`visual__<name>`).
+    private func visual(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "visual__\(name)_0_"; attachment.lifetime = .keepAlways; add(attachment)
     }
 
     /// Light and dark screenshots of the Listen feed, the player and transcript, and the mini-player (VISUAL_CHECK.md).

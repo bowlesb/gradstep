@@ -45,6 +45,28 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('podcast contract decoding', () => {
+  it('decodes your own episodes and requests (migration 074) strictly, and says the plain words', async () => {
+    const { podcast } = await setup();
+    const asked = 'b0000000-0000-4000-8000-000000000001', failed = 'b0000000-0000-4000-8000-000000000002';
+    const catalog = podcast.decodeCatalog({ episodes: [], mine: {
+      episodes: [episode({ scope: 'private', title: 'Toward Study', request_id: asked }), episode({ release_id: OTHER })],
+      requests: [{ request_id: asked, status: 'making', profile: 'podcast-10min-v1', label: '10 min', target_seconds: 600, document_id: DOCUMENT, title: 'Toward\nStudy' },
+        { request_id: failed, status: 'failed', failure: 'quality_rejected', profile: 'Bad Profile', target_seconds: 9, document_id: 'x', title: null },
+        { request_id: asked, status: 'making' }, { request_id: 'nope', status: 'making' }] } });
+    // Only your own ready episodes (a shared one can't pose as yours), with the request that made each.
+    expect(catalog.mine!.episodes.map(e => [e.title, e.requestID, e.scope])).toEqual([['Toward Study', asked, 'private']]);
+    expect(catalog.mine!.requests).toEqual([
+      { requestID: asked, status: 'making', profile: 'podcast-10min-v1', label: '10 min', targetSeconds: 600, documentID: DOCUMENT, title: 'Toward Study' },
+      { requestID: failed, status: 'failed', profile: null, label: null, targetSeconds: 300, documentID: null, title: null }]);
+    expect(JSON.stringify(catalog.mine)).not.toContain('quality_rejected');
+    expect(podcast.decodeCatalog({ episodes: [] }).mine).toBeNull();
+    expect(podcast.decodeCatalog({ episodes: [], mine: { episodes: 'x', requests: [] } }).mine).toBeNull();
+    expect(podcast.plainProviders(['DeepSeek (script)', 'Google Vertex AI (speech)'])).toBe('DeepSeek and Google');
+    expect(podcast.expectedWait(300)).toBe('Usually ready in a few minutes.');
+    expect(podcast.expectedWait(600)).toBe('This length can take 10 minutes or more.');
+    expect([0, 1, 2, 9].map(podcast.mineCheckDelay)).toEqual([15_000, 30_000, 60_000, 60_000]);
+  });
+
   it('keeps ready, well-formed episodes once and cleans their text', async () => {
     const { podcast } = await setup();
     const catalog = podcast.decodeCatalog({ episodes: [episode(), episode(), episode({ release_id: 'not-a-uuid' }),

@@ -590,13 +590,6 @@ progress.mini { height: 3px; margin-top: 4px; }
 .study-chip.verified, .study-dot.verified { background: #dcf3e2; border-color: #1f8f4e; }
 .study-chip.unknown, .study-chip.learning, .study-chip.known, .study-chip.verified { color: #1b1b1b; }
 
-/* Podcast writer choice (2026-10-14). */
-.podcast-writers, .podcast-lengths { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px; margin: 6px 0 10px; }
-.podcast-writers legend, .podcast-lengths legend { font-size: 12.5px; color: var(--muted); padding: 0 4px; }
-.podcast-writer, .podcast-length { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; flex-direction: row; font-weight: 500; }
-.podcast-writer .fine, .podcast-length .fine { grid-column: 2; }
-.podcast-writers > .fine { display: block; margin-top: 2px; }
-
 /* Figures in chat (CHAT.md): the parts of a figure under the answer, and the whole figure with them outlined. */
 .figure-parts{margin-top:10px}
 .figure-parts-strip{display:flex;gap:10px;overflow-x:auto;padding:4px 0;background:none;border:0;cursor:pointer;text-align:left;width:100%}

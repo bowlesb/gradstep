@@ -370,15 +370,85 @@ public struct PodcastCatalogPage: Codable, Equatable, Sendable {
     public let episodes: [PodcastEpisode]
     public let next: String?
     public let capabilities: PodcastCapabilities?
-    public init(episodes: [PodcastEpisode], next: String?, capabilities: PodcastCapabilities?) {
-        self.episodes = episodes; self.next = next; self.capabilities = capabilities
+    /// The account's own episodes and requests, on the first page (migration 074); nil from older servers and later pages.
+    public let mine: PodcastMine?
+    public init(episodes: [PodcastEpisode], next: String?, capabilities: PodcastCapabilities?, mine: PodcastMine? = nil) {
+        self.episodes = episodes; self.next = next; self.capabilities = capabilities; self.mine = mine
     }
+    private enum CodingKeys: String, CodingKey { case episodes, next, capabilities, mine }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         episodes = try c.decode([PodcastEpisode].self, forKey: .episodes)
         next = try c.decodeIfPresent(String.self, forKey: .next)
         capabilities = try c.decodeIfPresent(PodcastCapabilities.self, forKey: .capabilities)
+        mine = try c.decodeIfPresent(PodcastMine.self, forKey: .mine)
         guard episodes.count <= 50, Set(episodes.map(\.id)).count == episodes.count, (next?.utf8.count ?? 0) <= 512 else { throw ReaderError.corruptData }
+    }
+}
+
+/// Listen's own section (owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there for
+/// you"): the account's ready private episodes, newest first, and the episodes it asked for that are still being made
+/// or couldn't be made (for a day, until it asks again for that paper).
+public struct PodcastMine: Codable, Equatable, Sendable {
+    public struct Request: Codable, Equatable, Sendable, Identifiable {
+        public let requestID: UUID
+        /// `making` or `failed` (anything else reads as making).
+        public let status: String
+        /// The internal reason, for choosing the sentence shown; never shown itself.
+        public let failure: String?
+        public let profile: String?
+        public let label: String?
+        public let targetSeconds: Int?
+        /// The paper it was asked for (a library document, or a device paper's membership id).
+        public let documentID: UUID?
+        /// The paper's title as the server knows it (nil when it lives only in the encrypted library).
+        public let title: String?
+        public var id: UUID { requestID }
+        public var failed: Bool { status == "failed" }
+        public init(requestID: UUID, status: String, failure: String? = nil, profile: String? = nil, label: String? = nil,
+                    targetSeconds: Int? = nil, documentID: UUID? = nil, title: String? = nil) {
+            self.requestID = requestID; self.status = status; self.failure = failure; self.profile = profile; self.label = label
+            self.targetSeconds = targetSeconds; self.documentID = documentID; self.title = title
+        }
+        private enum CodingKeys: String, CodingKey {
+            case status, failure, profile, label, title
+            case requestID = "request_id", targetSeconds = "target_seconds", documentID = "document_id"
+        }
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            requestID = try c.decode(UUID.self, forKey: .requestID); status = try c.decode(String.self, forKey: .status)
+            failure = try c.decodeIfPresent(String.self, forKey: .failure); profile = try c.decodeIfPresent(String.self, forKey: .profile)
+            label = try c.decodeIfPresent(String.self, forKey: .label); targetSeconds = try c.decodeIfPresent(Int.self, forKey: .targetSeconds)
+            documentID = try c.decodeIfPresent(UUID.self, forKey: .documentID); title = try c.decodeIfPresent(String.self, forKey: .title)
+            guard status.utf8.count <= 16, (failure?.utf8.count ?? 0) <= 64, profile.map(PodcastLength.isProfile) ?? true,
+                  (label?.utf8.count ?? 0) <= 40, targetSeconds.map({ (30...3_600).contains($0) }) ?? true,
+                  (title?.utf8.count ?? 0) <= 1_000 else { throw ReaderError.corruptData }
+        }
+    }
+    public let episodes: [PodcastEpisode]
+    public let requests: [Request]
+    /// The request that made each episode (release id → request id), when the server names it.
+    public let madeBy: [UUID: UUID]
+    public init(episodes: [PodcastEpisode], requests: [Request], madeBy: [UUID: UUID] = [:]) {
+        self.episodes = episodes; self.requests = requests; self.madeBy = madeBy
+    }
+    private enum CodingKeys: String, CodingKey { case episodes, requests }
+    private struct Made: Decodable {
+        let release_id: UUID
+        let request_id: UUID?
+    }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        episodes = try c.decodeIfPresent([PodcastEpisode].self, forKey: .episodes) ?? []
+        requests = try c.decodeIfPresent([Request].self, forKey: .requests) ?? []
+        let made = try c.decodeIfPresent([Made].self, forKey: .episodes) ?? []
+        madeBy = Dictionary(made.compactMap { m in m.request_id.map { (m.release_id, $0) } }, uniquingKeysWith: { first, _ in first })
+        guard episodes.count <= 50, requests.count <= 20, episodes.allSatisfy({ $0.scope == .private }),
+              Set(episodes.map(\.id)).count == episodes.count, Set(requests.map(\.id)).count == requests.count else { throw ReaderError.corruptData }
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(episodes, forKey: .episodes); try c.encode(requests, forKey: .requests)
     }
 }
 

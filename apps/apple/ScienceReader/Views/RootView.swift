@@ -143,6 +143,8 @@ struct RootView: View {
                 model.flushReadingActivity()
                 await model.flushDrafts()
                 if phase == .active {
+                    // An episode asked for earlier may be ready now (Listen's own section).
+                    model.podcasts.sceneBecameActive()
                     async let history: Void = model.synchronize()
                     async let library: Void = model.refreshLibrary()
                     async let purchases: Void = model.syncStoreTransactions()

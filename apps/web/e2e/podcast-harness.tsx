@@ -9,16 +9,17 @@ const account = '11111111-2222-4333-8444-555555555555', itemID = 'd0000000-0000-
 function PlayerFixture() {
   const player = usePodcastPlayer(account), podcasts = usePodcasts(account);
   const [passage, setPassage] = useState(''), [added, setAdded] = useState(false);
-  const [inLibrary, setInLibrary] = useState(true);
+  const [inLibrary, setInLibrary] = useState(true), [again, setAgain] = useState(false);
   const evidence = useRef<{ held: boolean; pending: ((value: boolean | null) => void)[] }>({ held: false, pending: [] });
   Object.assign(window, { podcastFixture: { player, auth, loadPosition: (id: string) => loadPosition(account, id), positionsKey: () => positionsKey(account),
     holdEvidence: () => { evidence.current.held = true; }, finishEvidence: (value: boolean | null) => { evidence.current.pending.shift()?.(value); } } });
   return <main className="app" style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
     <header style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: 12 }}><strong>Gradstep · Podcast fixture</strong>
-      <PaperListen account={account} itemID={itemID} title="My library paper title" player={player} />
+      <PaperListen account={account} itemID={itemID} title="My library paper title" player={player} onAsked={podcasts.asked}
+        openWith={again ? { profile: null } : null} onOpened={() => setAgain(false)} />
       <label><input type="checkbox" checked={inLibrary} onChange={e => setInLibrary(e.target.checked)} /> Paper in library</label></header>
     <section style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}><div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 18 }}>
-      <h1>Research Feed · Listen</h1><ListenView podcasts={podcasts} player={player} />
+      <h1>Research Feed · Listen</h1><ListenView podcasts={podcasts} player={player} onTryAgain={() => { setAgain(true); return true; }} />
       <p data-testid="fixture-passage">{passage}</p><p data-testid="fixture-added">{added ? 'Added by explicit action' : ''}</p>
       </div><textarea aria-label="Paper chat composer" placeholder="Ask about the paper" style={{ width: '100%', height: 80, minHeight: 60, flex: 'none', margin: 0 }} />
     </section>

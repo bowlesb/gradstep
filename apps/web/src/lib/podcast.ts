@@ -39,7 +39,14 @@ export function aboutMinutes(seconds: number): string {
   const whole = Math.floor(minutes), half = minutes - whole >= 0.5;
   return `About ${whole}${half ? '½' : ''} minute${whole === 1 && !half ? '' : 's'}`;
 }
-export interface Catalog { episodes: Episode[]; next: string | null; capabilities: Capabilities }
+export interface Catalog { episodes: Episode[]; next: string | null; capabilities: Capabilities;
+  /** The account's own episodes and requests, on the first page (migration 074); null from older servers and later pages. */
+  mine: Mine | null }
+/** An episode the account asked for: being made, or couldn't be made (until it asks again for that paper). */
+export interface MineRequest { requestID: string; status: 'making' | 'failed'; profile: string | null; label: string | null;
+  targetSeconds: number; documentID: string | null; title: string | null }
+/** Listen's own section (owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there for you"). */
+export interface Mine { episodes: (Episode & { requestID: string | null })[]; requests: MineRequest[] }
 export interface Member { role: 'audio'; url: string; bytes: number; sha256: string; mediaType: string }
 
 /** Audio larger than this is refused before any download (the v1 encoder ceiling is 16 MiB). */
@@ -104,7 +111,33 @@ export function decodeCatalog(value: unknown): Catalog {
   if (!v || !Array.isArray(v.episodes) || v.episodes.length > 50) throw new BackendError('invalid_response');
   const seen = new Set<string>();
   const episodes = v.episodes.map(decodeEpisode).filter((e): e is Episode => !!e && e.scope === 'shared' && e.state === 'ready' && !seen.has(e.releaseID) && !!seen.add(e.releaseID));
-  return { episodes, next: typeof v.next === 'string' && /^[1-9][0-9]{0,17}$/.test(v.next) ? v.next : null, capabilities: decodeCapabilities(v.capabilities) };
+  return { episodes, next: typeof v.next === 'string' && /^[1-9][0-9]{0,17}$/.test(v.next) ? v.next : null, capabilities: decodeCapabilities(v.capabilities),
+    mine: decodeMine(v.mine) };
+}
+
+/** Strict like the rest: only the account's own ready episodes, and requests with a known status; titles cleaned. */
+export function decodeMine(value: unknown): Mine | null {
+  const v = value as Record<string, unknown> | null;
+  if (!v || typeof v !== 'object' || !Array.isArray(v.episodes) || !Array.isArray(v.requests) || v.episodes.length > 50 || v.requests.length > 20) return null;
+  const seen = new Set<string>();
+  const episodes = v.episodes.flatMap(raw => {
+    const e = decodeEpisode(raw), requestID = (raw as Record<string, unknown> | null)?.request_id;
+    if (!e || e.scope !== 'private' || e.state !== 'ready' || seen.has(e.releaseID)) return [];
+    seen.add(e.releaseID);
+    return [{ ...e, title: e.title === 'Private paper episode' ? 'Your episode' : e.title, requestID: isUUID(requestID) ? requestID.toLowerCase() : null }];
+  });
+  const asked = new Set<string>();
+  const requests = v.requests.flatMap(raw => {
+    const r = raw as Record<string, unknown> | null;
+    if (!r || !isUUID(r.request_id) || asked.has(r.request_id.toLowerCase())) return [];
+    asked.add(r.request_id.toLowerCase());
+    return [{ requestID: r.request_id.toLowerCase(), status: r.status === 'failed' ? 'failed' as const : 'making' as const,
+      profile: typeof r.profile === 'string' && /^[a-z][a-z0-9-]{2,47}$/.test(r.profile) ? r.profile : null,
+      label: text(r.label, 40) ? clean(r.label) : null,
+      targetSeconds: count(r.target_seconds, 3600) && (r.target_seconds as number) >= 30 ? r.target_seconds as number : 300,
+      documentID: isUUID(r.document_id) ? r.document_id.toLowerCase() : null, title: text(r.title, 1000) ? clean(r.title) : null }];
+  });
+  return { episodes, requests };
 }
 
 function decodeTranscript(value: unknown, durationMs: number): Transcript {
@@ -232,7 +265,9 @@ export const JOB_STATES = ['queued', 'scripting', 'checking', 'synthesizing', 'v
   'canceled', 'failed', 'capacity_wait', 'unknown_provider', 'quarantined'] as const;
 export type JobState = typeof JOB_STATES[number];
 export interface Job { requestID: string; state: JobState; stageEnteredAt: string; releaseID: string | null;
-  heldCredits: number; chargedCredits: number | null; releasedCredits: number | null; failure: string | null }
+  heldCredits: number; chargedCredits: number | null; releasedCredits: number | null; failure: string | null;
+  /** The length it is being made at, and whether a cancel was asked for (both absent from older servers). */
+  profile?: string | null; cancelRequested?: boolean }
 export interface Quote { id: string; expiresAt: number; maxCredits: number; estimate: string; providers: string[];
   consentVersion: typeof CONSENT_VERSIONS[number]; targetSeconds: number; /** The length's label ("10 min"), from servers that name it. */ label?: string }
 export type QuoteResult = { kind: 'quote'; quote: Quote } | { kind: 'reuse'; releaseID: string } | { kind: 'join'; requestID: string };
@@ -248,7 +283,8 @@ export function decodeJob(value: unknown): Job {
   return { requestID: (v.request_id as string).toLowerCase(), state: v.state as JobState, stageEnteredAt: v.stage_entered_at,
     releaseID: isUUID(v.release_id) ? v.release_id.toLowerCase() : null, heldCredits: v.held_credits as number,
     chargedCredits: v.charged_credits as number | null, releasedCredits: v.released_credits as number | null,
-    failure: typeof v.failure === 'string' && /^[a-z_]{1,64}$/.test(v.failure) ? v.failure : null };
+    failure: typeof v.failure === 'string' && /^[a-z_]{1,64}$/.test(v.failure) ? v.failure : null,
+    profile: typeof v.profile === 'string' && /^[a-z][a-z0-9-]{2,47}$/.test(v.profile) ? v.profile : null, cancelRequested: v.cancel_requested === true };
 }
 export function decodeQuote(value: unknown): QuoteResult {
   const v = value as { quote?: Record<string, unknown>; reuse?: { release_id?: unknown }; join?: { request_id?: unknown } } | null;
@@ -326,3 +362,13 @@ export async function podcastCancel(account: string, requestID: string, signal?:
 export const jobTerminal = (job: Job) => ['ready', 'canceled', 'failed', 'unknown_provider', 'quarantined'].includes(job.state);
 export const statusPollDelay = (elapsedMs: number) => elapsedMs < 60_000 ? 5_000 : 15_000;
 export const revocationPollDelay = (hidden: boolean) => hidden ? 300_000 : 60_000;
+/** Listen checks for episodes being made after 15 s, 30 s, then every minute (visible only), for at most 45 minutes. */
+export const mineCheckDelay = (checks: number) => [15_000, 30_000, 60_000][Math.min(checks, 2)];
+export const MINE_CHECK_LIMIT_MS = 45 * 60_000;
+/** "Usually ready in a few minutes." / "This length can take 10 minutes or more." (PodcastGeneration.expectedWait). */
+export const expectedWait = (targetSeconds: number) => targetSeconds > 300 ? 'This length can take 10 minutes or more.' : 'Usually ready in a few minutes.';
+/** The providers a quote names, as plain names: "DeepSeek and Google" (PodcastGeneration.plainProviders). */
+export function plainProviders(labels: string[]): string {
+  const names = labels.map(l => l.replace(/\s*\(.*\)$/, '')).map(n => n.startsWith('Google') ? 'Google' : n);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? 'our providers';
+}

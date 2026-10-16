@@ -171,7 +171,12 @@ final class PodcastTransportTests: XCTestCase {
                 XCTAssertFalse(BackendError.rejected(code).podcastMessage.contains("<"), "No server text reaches the reader")
             }
         }
-        XCTAssertTrue(BackendError.rejected("insufficient_credits").podcastMessage.contains("this length’s maximum"))
+        XCTAssertTrue(BackendError.rejected("insufficient_credits").podcastMessage.contains("A shorter one needs fewer"))
+        // Plain sentences: no "source", "converted" or "estimate" wording reaches the reader (owner, 2026-10-16).
+        for code in ["source_unavailable", "quote_expired", "consent_required", "source_too_large", "active_generation_limit"] {
+            let message = BackendError.rejected(code).podcastMessage
+            XCTAssertFalse(["source", "converted", "estimate", "_"].contains { message.lowercased().contains($0) }, message)
+        }
         XCTAssertTrue(BackendError.rejected("podcast_profile_unavailable").podcastMessage.contains("Choose another length"))
     }
 
@@ -330,11 +335,28 @@ final class PodcastPresentationTests: XCTestCase {
         XCTAssertEqual(running.length(of: unnamed)?.targetSeconds, 300, "An older server names no length: the chosen one")
     }
 
-    func testReadyNoticeNamesThePaperAndPollingSaysWhenItStops() {
-        let notice = PodcastCenter.ReadyNotice(releaseID: UUID(), title: "LoRA: Low-Rank Adaptation of Large Language Models")
-        XCTAssertEqual(notice.message, "Your episode of “LoRA: Low-Rank Adaptation of Large Language Models” is ready.")
+    func testNoticesNameThePaperAndListenKeepsChecking() {
+        let release = UUID()
+        let ready = PodcastCenter.ReadyNotice(releaseID: release, title: "LoRA: Low-Rank Adaptation of Large Language Models")
+        XCTAssertEqual(ready.message, "Your episode of “LoRA: Low-Rank Adaptation of Large Language Models” is ready.")
+        XCTAssertEqual(ready.releaseID, release)
+        let failed = PodcastCenter.ReadyNotice(failedFor: UUID(), profile: "podcast-5min-v1", title: "LoRA: Low-Rank Adaptation of Large Language Models")
+        XCTAssertEqual(failed.message, "Your episode of “LoRA: Low-Rank Adaptation of Large Language Models” couldn’t be made.")
+        XCTAssertNil(failed.releaseID, "Try again, not Play")
         XCTAssertEqual(PodcastCenter.pollLimit, 1_800, "The polling bound from the design is unchanged")
-        XCTAssertEqual(PodcastCenter.stillPreparingNotice, "Still preparing. Check back from Listen on this paper.")
+        XCTAssertEqual(PodcastCenter.mineDelays, [15, 30, 60], "Listen's own check backs off to once a minute")
+        XCTAssertEqual(PodcastGeneration.plainProviders(["DeepSeek (script)", "Google Vertex AI (speech)"]), "DeepSeek and Google")
+        XCTAssertEqual(PodcastGeneration.plainProviders(["Anthropic (script)", "Google Vertex AI (speech)"]), "Anthropic and Google")
+    }
+
+    /// After a request finishes the server deletes the text it was made from (migration 074): asking again sends it again.
+    func testAFinishedRequestForgetsItsText() {
+        var current = generation()
+        current.deviceTextSHA256 = String(repeating: "d", count: 64)
+        current.quoteRequestIDs["podcast-5min-v1"] = UUID()
+        current.forgetFinishedRequest()
+        XCTAssertNil(current.deviceTextSHA256)
+        XCTAssertTrue(current.quoteRequestIDs.isEmpty && current.startRequestIDs.isEmpty)
     }
 }
 
