@@ -1,7 +1,7 @@
 import type { ClientEntry, LibraryPaper, LocalPDFPaper } from './device-pdf';
 // What the library table shows for each entry: the native LibraryRowFacts, minus chats.
 import { tagsFromCategories } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
-import { isSourcePaper, type ReaderPaper } from './reader-paper';
+import { isSourcePaper, readingSource, type ReaderPaper } from './reader-paper';
 import type { Entry, Import, Item } from './library';
 import { type ImportAction, importAction, importStatus, importStep, retryingAutomatically } from './progress';
 
@@ -30,18 +30,21 @@ function sourceLabel(sourceID?: string, url?: string): string {
   try { return url ? new URL(url).hostname.replace(/^www\./, '') : 'Open access'; } catch { return 'Open access'; }
 }
 
-/** Readable in the browser's reader: a verified identity with a published reader artifact. */
+/** Readable in the browser's reader: a verified identity with a published reader artifact, or an arXiv paper, which
+ * reads from its official HTML prepared on this device whether or not the server still has a copy (the server's paper
+ * copies were deleted on 2026-10-16: DATA_HANDLING_AND_COSTS.md "Server paper copies: retired"). */
 export function canRead(item: Item): boolean {
   const identity = item.visible && item.approval_id && item.version_id && item.metadata_id && item.original_object_id
     && ['pdf_ready', 'converted_ready', 'unavailable'].includes(item.readiness);
   if (!identity || !item.artifact_id) return false;
+  if (readingSource(item)) return true;
   return item.render_availability !== undefined ? item.render_availability === 'available' : item.readiness === 'converted_ready';
 }
 
 function itemRow(item: Item): Row {
   const m = item.metadata, readable = canRead(item);
   let status: Row['status'] = null;
-  if (!readable) status = item.readiness === 'unavailable' || item.render_availability === 'quarantined' ? { kind: 'problem', text: 'Unavailable' }
+  if (!readable) status = item.readiness === 'unavailable' || item.render_availability === 'quarantined' ? { kind: 'problem', text: 'No reading copy' }
     : item.readiness === 'pdf_ready' ? { kind: 'info', text: 'Not converted' } : { kind: 'info', text: 'Not ready yet' };
   return {
     key: 'item:' + item.id, entry: item, title: m?.title ?? (item.source_id ? placeholder(item.source_id) : 'Untitled paper'),

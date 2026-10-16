@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SCOPE = ['supabase/functions', 'services', 'workers', 'supabase/migrations', 'infra',
   // The hosted workflow job runs these on Cloud Run (services/workflow-checks/Dockerfile).
-  'scripts/workflow-checks.mjs', 'scripts/reader-workflow.mjs'];
+  'scripts/workflow-checks.mjs', 'scripts/reader-workflow.mjs', 'scripts/paper-copies.mjs'];
 export const REASONS = ['link', 'parse', 'namespace', 'prompt', 'tavily-filter', 'device'];
 const HOST = /(?:^|[^a-z0-9.-])((?:[a-z0-9-]+\.)*arxiv\.org)(?![a-z0-9-])/gi;
 const CODE = /\.(?:ts|tsx|js|mjs|cjs|py|sql|json|yaml|yml|toml|sh)$/;

@@ -44,7 +44,9 @@ function failure(error: unknown): string {
   if (error instanceof ArxivReaderError) return error.message;
   if (error instanceof BackendError) {
     if (error.code === 'connection') return 'Couldn’t reach Gradstep. Check your connection and try again.';
-    if (error.code === 'reader_not_ready' || error.code === 'item_unavailable' || error.code === 'reader_unavailable') return 'This paper isn’t ready to read yet.';
+    if (error.code === 'reader_not_ready' || error.code === 'item_unavailable') return 'This paper isn’t ready to read yet.';
+    // The server's paper copies were deleted on 2026-10-16 (DATA_HANDLING_AND_COSTS.md "Server paper copies: retired").
+    if (error.code === 'reader_unavailable') return 'Gradstep’s servers don’t keep a reading copy of this paper.';
     if (error.code === 'origin_unavailable') return 'The reader service isn’t available to this website yet.';
     if (error.code === 'reader_transfer_limit') return 'Paper downloads are temporarily limited. Saved papers remain available.';
     if (error.code === 'reader_upgrade_required') return 'Reload Gradstep to update the reader. Saved papers remain available.';
@@ -132,10 +134,14 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     const controller = new AbortController();
     setError(null); setPdfOffer(null); setLoaded(0);
     // An arXiv paper reads from its official HTML prepared on this device (owner direction 2026-10-13), a legacy
-    // item included; its server bundle is the fallback when arXiv has no usable HTML for that revision.
+    // item included. Its server bundle was the fallback when arXiv has no usable HTML for that revision; the server's
+    // copies are gone (2026-10-16), so it is asked only while the library still says available, and its refusal
+    // leaves arXiv's own reason (and the PDF offer) on screen.
     const bundle = () => loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); });
     const source = readingSource(item);
-    (source ? prepareArxivReader(source, controller.signal, setLoaded, { authors: item.metadata?.authors ?? [], title: item.metadata?.title }).catch(e => item.kind === 'item' && e instanceof ArxivReaderError && !controller.signal.aborted ? bundle() : Promise.reject(e))
+    const fallback = (reason: ArxivReaderError) => bundle().catch(e => Promise.reject(e instanceof BackendError && (e.code === 'reader_unavailable' || e.code === 'item_unavailable') ? reason : e));
+    (source ? prepareArxivReader(source, controller.signal, setLoaded, { authors: item.metadata?.authors ?? [], title: item.metadata?.title })
+      .catch(e => item.kind === 'item' && item.render_availability === 'available' && e instanceof ArxivReaderError && !controller.signal.aborted ? fallback(e) : Promise.reject(e))
       : bundle()).then(verified => {
       if (controller.signal.aborted) return;
       cache.set(cacheKey, verified);

@@ -93,6 +93,17 @@ export const browserLocks: Locks = {
 export class ChatSession {
   private sourcePapers = new Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>();
   setSourcePapers(rows:Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>) { this.sourcePapers=rows; }
+  /** arXiv papers that joined the library before the HTML-first reader, by their server document id: the server no
+   * longer keeps their text (DATA_HANDLING_AND_COSTS.md "Server paper copies: retired"), so a question sends the text
+   * prepared on this device, naming the library item. Their chats stay bound to the document id (no paperReference). */
+  private legacyPapers = new Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>();
+  setLegacyPapers(rows:Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>) { this.legacyPapers=rows; }
+  /** The paper on this device for a chat's document: a source membership's, or a legacy arXiv item's. */
+  private localPaper(documentID:string|null) {
+    if(!documentID)return undefined;
+    const reference=this.reference(documentID);
+    return reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
+  }
   private reference(documentID:string|null):SourcePaperReference|undefined {
     if(!documentID)return undefined;
     return this.sourcePapers.get(documentID)?.reference ?? [...this.history.state.events.values()].find(e=>e.payload.paperReference?.membershipID===documentID)?.payload.paperReference;
@@ -567,14 +578,14 @@ export class ChatSession {
   /** The open paper's structure for its starter questions (chat-starters.ts), from its verified bundle on this device;
    * a paper without one (or one that doesn't load) has no structure to offer, so only its general paper starters. */
   async starterPaper(documentID: string): Promise<StarterPaper> {
-    const reference = this.reference(documentID), local = this.sourcePapers.get(reference?.membershipID ?? documentID);
+    const local = this.localPaper(documentID);
     try { if (local) return starterPaper((await local.load()).index); } catch { /* no structure to offer */ }
     return { figures: [], tables: [], equations: 0, headings: [] };
   }
   /** A figure's image from this chat's paper on this device, when its bundle is the one the parts were cut from;
    * several panels composed exactly as they were sent. */
   async figureImage(documentID: string | null, manifestSHA256: string, paths: string[]): Promise<Blob | null> {
-    const local = documentID ? this.sourcePapers.get(documentID) : undefined;
+    const local = documentID ? this.sourcePapers.get(documentID) ?? this.legacyPapers.get(documentID) : undefined;
     if (!local) return null;
     try {
       const bundle = await local.load();
@@ -760,6 +771,21 @@ export class ChatSession {
           if(figures.length){request.figures=figures;figureManifest=bundle.manifestSHA256;}
         }
       }catch{if(!this.signal.aborted){c.phase='idle';c.issue='local_reader_unavailable';this.publish();}return;}
+      if(this.signal.aborted || this.retiredStorage || !this.accepting)return;
+    } else if(c.documentID&&this.legacyPapers.has(c.documentID)){
+      // A legacy arXiv item: the text prepared here when it can be; otherwise the document id, which the server answers
+      // from its own copy where one remains, or with document_unavailable.
+      const legacy=this.legacyPapers.get(c.documentID)!;
+      try {
+        const bundle=await legacy.load();
+        request.localContext=localChatContext(legacy.reference,bundle);
+        request.documentID=null; figureBundle=bundle;
+        if(question.action!=='ingest'&&question.action!=='diagram_fix'){
+          const asked=branch.messages.at(-1)?.payload.text??'';
+          const figures=await chatFigureImages(asked,question.selection,bundle);
+          if(figures.length){request.figures=figures;figureManifest=bundle.manifestSHA256;}
+        }
+      }catch{ request.localContext=undefined; request.documentID=c.documentID; request.figures=undefined; figureBundle=null; figureManifest=null; }
       if(this.signal.aborted || this.retiredStorage || !this.accepting)return;
     }
     const answerID = crypto.randomUUID(), entityID = crypto.randomUUID(), conversationID = c.conversationID!;

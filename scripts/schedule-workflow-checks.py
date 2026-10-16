@@ -47,6 +47,7 @@ def context():
     shutil.copy(ROOT / 'services/workflow-checks/Dockerfile', target / 'Dockerfile')
     shutil.copy(ROOT / 'scripts/workflow-checks.mjs', target / 'scripts/workflow-checks.mjs')
     shutil.copy(ROOT / 'scripts/reader-workflow.mjs', target / 'scripts/reader-workflow.mjs')
+    shutil.copy(ROOT / 'scripts/paper-copies.mjs', target / 'scripts/paper-copies.mjs')
     (target / 'supabase/functions/_shared').mkdir(parents=True, exist_ok=True)
     shutil.copy(ROOT / 'supabase/functions/_shared/egress.ts', target / 'supabase/functions/_shared/egress.ts')
     for name in ['staging.json', 'workflow-checks.json']:
@@ -87,9 +88,17 @@ def steps(project, region, alert_email, daily_days):
           '--oauth-service-account-email', invoker, '--attempt-deadline', '60s', '--max-retry-attempts', '0']))
     return plan
 
+def secrets_root():
+    """The checkout holding .env.staging: this one, or for a git worktree the main checkout (as workflow-checks.mjs)."""
+    if (ROOT / '.env.staging').exists():
+        return ROOT
+    common = subprocess.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    return Path(common).parent if common and (Path(common).parent / '.env.staging').exists() else ROOT
+
 def ensure_secrets(project):
     """Copies the two secrets the pipeline worker does not already have; values go through stdin."""
-    values = {**dotenv(ROOT / '.env.providers'), **dotenv(ROOT / '.env.staging')}
+    secrets = secrets_root()
+    values = {**dotenv(secrets / '.env.providers'), **dotenv(secrets / '.env.staging')}
     assert values.get('SUPABASE_PROJECT_REF') == 'coxhjvqpflgxkleydati', 'staging only'
     for secret, env in [('gradstep-supabase-anon-key', 'SUPABASE_ANON_KEY'), ('gradstep-resend-api-key', 'RESEND_API_KEY')]:
         if not values.get(env): raise SystemExit(f'missing {env}')

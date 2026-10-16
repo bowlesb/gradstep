@@ -17,6 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve4, resolve6 } from 'node:dns/promises';
 import { verifyReaderDelivery } from './reader-workflow.mjs';
+import { PAPER_BUCKETS, listBucket, megabytes, summarize } from './paper-copies.mjs';
 // No request from this job (it runs on Cloud Run) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('workflow-checks');
 
@@ -705,6 +706,27 @@ check('egress.no-arxiv', {title:'Our servers made no request to arXiv (search, c
  const metrics={arxiv_attempts_24h:attempts,exercised:seen.length};
  if(attempts>0)return fail(`${attempts} server request(s) to arXiv in the last 24 h: ${rows.map(r=>`${r.route} ${r.outcome} ×${r.calls}`).join(', ')}${problems.length?`; also ${problems.join('; ')}`:''}`,metrics);
  return problems.length?fail(`no arXiv requests, but: ${problems.join('; ')}`,metrics):pass(`0 arXiv requests in 24 h; exercised ${seen.join(', ')}`,metrics);
+});
+
+// Our servers keep no copies of papers (owner, 2026-10-16; docs/architecture/DATA_HANDLING_AND_COSTS.md "Server paper
+// copies: retired"): Storage's own listing of the paper buckets (paper-assets, paper-uploads) must be empty, the database
+// must track no live paper copy, and the fence that refuses new ones must be on. Podcast audio, the text a device sends
+// for an episode and report screenshots live in other buckets and are not counted. Free; no account.
+check('storage.no-papers', {title:'Our servers hold no paper copies (Storage listing and tracked rows are zero, fence on)',suites:ALL,timeout:180},async({signal})=>{
+ const found=[];
+ for(const bucket of PAPER_BUCKETS)found.push(...await listBucket(env.SUPABASE_URL,env.SUPABASE_SERVICE_ROLE_KEY,bucket,{signal}));
+ const status=await rpc('worker_paper_copies_status',{},{service:true,signal});
+ const bytes=found.reduce((n,o)=>n+o.bytes,0);
+ const metrics={paper_objects:found.length,paper_bytes:bytes,tracked_live:Number(status.live),deleted_objects:Number(status.objects_deleted)};
+ const problems=[];
+ if(found.length){
+  const s=summarize(found);
+  problems.push(`${found.length} object(s), ${megabytes(bytes)}, in Storage: ${Object.entries(s).map(([b,v])=>`${b} ${Object.entries(v.prefixes).map(([p,x])=>`${p}/ ${x.objects}`).join(', ')}`).join('; ')}`);
+ }
+ if(Number(status.live))problems.push(`${status.live} paper copies tracked as live (pending, verified or deleting)`);
+ if(!status.retired_at)problems.push('the fence is off: paper copies could be registered again (worker_paper_copies_retire never ran)');
+ return problems.length?fail(problems.join('; '),metrics)
+  :pass(`0 objects in ${PAPER_BUCKETS.join(' and ')}; 0 tracked live; fence on since ${status.retired_at.slice(0,10)}; ${status.objects_deleted} deleted (${megabytes(Number(status.bytes_deleted))})`,metrics);
 });
 
 check('import.arxiv', { title: 'Add an arXiv paper → ready → reader bundle verified', suites: ALL, timeout: 300 }, async ({ signal }) => {

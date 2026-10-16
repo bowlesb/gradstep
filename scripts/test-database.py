@@ -68,6 +68,8 @@ phase([*migrations, *tests], checks)
 # Natural expiry must cross committed transactions. Isolate those fixture rows
 # from suites that intentionally assert exact global account/ledger counts.
 phase([*migrations, ROOT / 'tests/database/subscription_upgrade_credits.sql'], ['subscription_upgrade_concurrency'])
+# Server paper copies retired (migration 080): its own phase, after every migration.
+phase([*cutover_migrations, ROOT / 'tests/database/paper_copies_retired.sql'], [])
 if fence.is_file() or args.reader_issuer_fence_candidate:
     # Its role, rollback and multi-session checks own another disposable DB so
     # committed lifecycle fixtures do not alter unrelated suites' global counts.

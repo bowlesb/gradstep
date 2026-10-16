@@ -10,7 +10,7 @@ export function HowGradstepWorks({ open, onClose }: { open: boolean; onClose: ()
       </section>
       <section className="info-section"><h3>What leaves your device</h3>
         <p>Library metadata, tags and encrypted chat events can sync through Gradstep. Reading progress stays on this device. Chat and note content is encrypted before sync; the keys stay with your approved devices and recovery code.</p>
-        <p>New PDFs are downloaded, opened and processed only on your device. The structured reader prepares the exact official arXiv HTML version locally. Earlier server copies and conversions may still be retained. In this browser, choose a PDF again after reopening the tab; its contents do not sync.</p>
+        <p>New PDFs are downloaded, opened and processed only on your device. The structured reader prepares the exact official arXiv HTML version locally. Earlier server copies and conversions were deleted on 16 October 2026. In this browser, choose a PDF again after reopening the tab; its contents do not sync.</p>
         <p>An AI answer sends the relevant question, selected passage, conversation context and paper text to the selected model provider. Encryption protects stored copies; it does not hide content from a provider during a computation you requested.</p>
         <p>Optional web search sends search queries to the configured search provider. Provider retention and handling follow that provider's terms; Gradstep does not promise zero provider retention.</p>
       </section>

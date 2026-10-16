@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deployWeb, publishInPhases, stagePhases, verifyLive, waitForMarker } from '../../scripts/deploy-web.mjs';
+import { deployWeb, publishInPhases, sharedRoot, stagePhases, verifyLive, waitForMarker } from '../../scripts/deploy-web.mjs';
 
 const project = 'aaaaaaaaaaaaaaaaaaaa', backend = `https://${project}.supabase.co`;
 const jwt = (role = 'anon', ref = project) => Buffer.from('{}').toString('base64url') + '.' + Buffer.from(JSON.stringify({ role, ref })).toString('base64url') + '.fixture';
@@ -192,4 +192,14 @@ test('publishing waits for phase 1 everywhere before switching the index, then c
   assert.ok(readFileSync(join(deployed[1], 'assets/two.js')), 'phase 1 already has the new script');
   assert.match(readFileSync(join(root, '.artifacts/web-deployed/app/index.html'), 'utf8'), /two\.js/, 'the snapshot is the new release');
   await assert.rejects(waitForMarker('app.example', '__deploy-x-1.txt', 'x', { fetchImpl: async () => ({ ok: true, text: async () => '<html>' }), wait: async () => {}, timeoutMs: -1 }), /does not serve/);
+});
+
+test('a worktree deploys with the main checkout\'s secrets and live-release snapshot', t => {
+  const main = mkdtempSync(join(tmpdir(), 'gradstep-main-')), worktree = mkdtempSync(join(tmpdir(), 'gradstep-worktree-'));
+  t.after(() => { rmSync(main, { recursive: true, force: true }); rmSync(worktree, { recursive: true, force: true }); });
+  writeFileSync(join(main, '.env.staging'), 'SUPABASE_PROJECT_REF=x');
+  const run = (command, args) => { assert.deepEqual([command, ...args], ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']); return join(main, '.git') + '\n'; };
+  assert.equal(sharedRoot(worktree, run), main);
+  assert.equal(sharedRoot(main, () => { throw new Error('not asked'); }), main, 'a checkout with its own secrets uses them');
+  assert.equal(sharedRoot(worktree, () => { throw new Error('not a git checkout'); }), worktree);
 });

@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Server paper copies deleted (owner decided 2026-10-16)
+
+"Yes, we can even delete them now, so it's obvious we have zero on our system": every historical paper copy on the
+server (the old pipeline's PDFs, Mathpix output and reader bundles in `paper-assets`, and any PDF upload chunk) is
+deleted, and none may be written again. Rows are kept as history; podcast audio, episode text and report attachments
+are out of scope. Design, inventory, client behaviour and evidence: [data handling](architecture/DATA_HANDLING_AND_COSTS.md#server-paper-copies-retired);
+migration 080; guarded by the `storage.no-papers` workflow check.
+
 ## arXiv HTML first; every PDF stays on device (owner decided 2026-10-13)
 
 The owner changed the acquisition/processing design: PDFs are downloaded and processed only on the user's device;
