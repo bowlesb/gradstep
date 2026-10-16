@@ -600,6 +600,21 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 /* Operator tools (owner, build 58): one grey Admin group, shown only to owner and support. */
 .menu-admin { display: flex; flex-direction: column; gap: 2px; margin: 2px -4px; padding: 4px; border-radius: 8px; background: var(--row-hover); }
 .menu-admin .menu-heading { padding-top: 0; }
+/* The account menu's AI credits and Subscription plan (native Settings › AI credits): words with an ⓘ, the value right. */
+.menu-facts { display: flex; flex-direction: column; gap: 0; margin: 2px 0; padding: 2px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.menu-fact { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; padding: 0 4px 0 8px; font-size: 13.5px; }
+.menu-fact > span:first-child { display: inline-flex; align-items: center; gap: 2px; }
+.menu-fact.fine { min-height: 22px; font-size: 12px; }
+.menu-fact-value { font-variant-numeric: tabular-nums; color: var(--muted); }
+.menu-group { display: flex; flex-direction: column; gap: 2px; }
+/* All diagrams (Your assets): one row per diagram, newest first; one opens as in its answer. */
+.diagram-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.diagram-list li + li { border-top: 1px solid var(--line); }
+.diagram-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 8px 6px; border-radius: 6px; text-align: left; color: inherit; }
+.diagram-row:hover { background: var(--row-hover); }
+.diagram-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.diagram-row .fine { flex: none; }
+.back-link { display: inline-flex; align-items: center; gap: 4px; }
 
 .diagram-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
 .diagram-tools button { min-width: 36px; }

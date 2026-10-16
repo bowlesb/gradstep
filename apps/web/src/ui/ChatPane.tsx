@@ -409,7 +409,7 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
 }
 
 /** An answer's drawing; figure parts first load their figure from this chat's paper on this device. */
-function AnswerDiagram({ diagram, image }: { diagram: { title: string; source: string; format: DiagramFormat }; image: (manifest: string, paths: string[]) => Promise<Blob | null> }) {
+export function AnswerDiagram({ diagram, image }: { diagram: { title: string; source: string; format: DiagramFormat }; image: (manifest: string, paths: string[]) => Promise<Blob | null> }) {
   const [figure, setFigure] = useState<Blob | null>(null);
   useEffect(() => {
     if (diagram.format !== 'figure-parts-v1') return;

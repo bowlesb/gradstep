@@ -6,6 +6,7 @@ import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIde
 import { type FocusEvent as ReactFocusEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
+import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
 import { TYPED_CONFIRMATION, deletionFailure, forgetAccountStorage, noteAccountDeleted, requestAccountDeletion } from '../lib/account-deletion';
 import type { Item } from '../lib/library';
@@ -20,7 +21,8 @@ import type { ChatSession } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
-import { Brand, Dialog } from './common';
+import { Brand, Dialog, InfoTip } from './common';
+import { DiagramsDialog } from './DiagramsDialog';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
 import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
@@ -152,6 +154,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [chats, setChats] = useState(false);
   const [howGradstepWorks, setHowGradstepWorks] = useState(false);
   const [privacy, setPrivacy] = useState(false);
+  const [diagramsOpen, setDiagramsOpen] = useState(false);
   const [help, setHelp] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const report = useCallback(() => setReportOpen(true), []);
@@ -604,7 +607,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             <Icon name="panelRight" /></button>
           <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
-            onChatDefaults={chat ? () => setChatDefaults('defaults') : null} />
+            onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -640,6 +643,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
       </RegionBoundary>
       {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
+      {chat && <RegionBoundary region="diagrams" label="All diagrams" compact resetKey={diagramsOpen} onReport={report}><DiagramsDialog chat={chat} open={diagramsOpen} onClose={() => setDiagramsOpen(false)} /></RegionBoundary>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
       <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
@@ -698,10 +702,23 @@ function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view
   return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null }) {
+function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
+  // AI credits and Subscription plan, read again each time the menu opens (native Settings › AI credits); the last values
+  // stay while a read is under way, a dash while none has answered.
+  const [summary, setSummary] = useState<AccountSummary>({ balance: undefined, plan: undefined });
+  useEffect(() => { setSummary({ balance: undefined, plan: undefined }); }, [account]);
+  useEffect(() => {
+    if (!open) return;
+    const abort = new AbortController();
+    loadAccountSummary(account, abort.signal).then(next => {
+      if (abort.signal.aborted) return;
+      setSummary(last => ({ balance: next.balance ?? last.balance, plan: next.plan !== undefined ? next.plan : last.plan }));
+    }, () => undefined);
+    return () => abort.abort();
+  }, [account, open]);
   const box = useRef<HTMLDivElement>(null);
   // Operators (owner, support) get a link to the admin site; readers never see it.
   useEffect(() => {
@@ -725,6 +742,20 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivac
         <div className="menu" role="menu">
           <p className="menu-email">{email}</p>
           <p className="fine">This browser is an approved device.</p>
+          {/* Owner, build 57: "Credits -> AI credits", "Plan -> Subscription Plan"; the explanations behind ⓘ. Bought in the apps. */}
+          <div className="menu-facts" role="group" aria-label="AI credits">
+            <div className="menu-fact" data-testid="account-credits"><span>AI credits <InfoTip text={CREDITS_INFO} testID="credits-info" /></span>
+              <span className="menu-fact-value">{creditsLabel(summary.balance)}</span></div>
+            {!!summary.balance?.reserved && <div className="menu-fact fine" data-testid="account-held"><span>Held for answers in progress</span>
+              <span className="menu-fact-value">{summary.balance.reserved.toLocaleString()}</span></div>}
+            <div className="menu-fact" data-testid="account-plan"><span>Subscription plan <InfoTip text={PLAN_INFO} testID="plan-info" /></span>
+              <span className="menu-fact-value">{planLabel(summary.plan)}</span></div>
+          </div>
+          {/* Owner, build 57: "Research -> Your Assets… chats, diagrams one word is enough". */}
+          <div className="menu-group" role="group" aria-label="Your assets"><p className="fine menu-heading">Your assets</p>
+            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onChats(); }} data-testid="assets-chats"><Icon name="chats" size={14} /> Chats</button>
+            <button role="menuitem" className="menu-item" disabled={!onDiagrams} onClick={() => { setOpen(false); onDiagrams?.(); }} data-testid="assets-diagrams"><Icon name="chart" size={14} /> Diagrams</button>
+          </div>
           <div className="menu-row" role="group" aria-label="Appearance">
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}

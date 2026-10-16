@@ -1,6 +1,17 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (browser AI credits, plan and Your assets; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+
+## Browser: AI credits, Subscription plan and Your assets — 2026-10-16 (built; not deployed)
+
+- The account menu shows **AI credits** (available, and held while answers are in progress) and **Subscription plan**
+  (Pro / Standard / None) from `v1_credit_balance` and `v1_store_summary`, read each time it opens, each with an ⓘ
+  (what credits pay for; bought in the Gradstep app on iPhone, iPad or Mac; the browser sells nothing). A failed read
+  is a dash; the menu keeps working. **Your assets**: Chats (All chats) and **Diagrams** (All diagrams, newest first,
+  one opens as in its answer). BROWSER_READER.md "AI credits, Subscription plan, Your assets".
+- Evidence: `npm test`; vitest `account-assets.test.ts`; Playwright `account-assets.spec.ts` desktop and phone (light,
+  dark; plan None; a failed plan read; a drawn diagram listed and opened) and `owner-58.spec.ts` (menu items now start
+  with Chats, Diagrams); screenshots `.artifacts/account-assets/` reviewed.
 
 ## Mac File menu fixed; reader revision 16 (an image arXiv doesn't serve never refuses) — 2026-10-16, ~07:45 UTC
 
@@ -164,8 +175,8 @@ behaviour: DATA_HANDLING_AND_COSTS.md "Server paper copies: retired").
 - **Feed / ML search Add**: the Library's spinner from Add until the paper is prepared here (percent under it once
   known; a click shows the Library), then ✓ In library. **Library**: a paper being added reserves two title lines (and
   the authors line when shown under the title), so the row never grows when its details arrive.
-- Not in the browser: Your assets › Diagrams (there is no diagrams list here), AI credits / Subscription plan groups
-  and text-size settings (the browser has no settings page with them).
+- Not in the browser at that point: Your assets › Diagrams, AI credits / Subscription plan (added below, "Browser:
+  AI credits, Subscription plan and Your assets"); text sizes stay where the reader reads, as on the apps.
 - Evidence: vitest 433/433; Playwright desktop and phone for the changed journeys (chat-redesign, chat-controls,
   study, owner-58, support-reports, parity, paper-search, layout, library*, chat, podcast-workspace and others).
 
