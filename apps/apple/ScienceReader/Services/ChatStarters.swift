@@ -43,6 +43,8 @@ enum ChatStarters {
     private static let skipped = try! NSRegularExpression(pattern: #"^(abstract|introduction|related work|related works|background|preliminar|notation|problem (setup|setting|formulation|statement)|experiment|results|evaluation|discussion|conclusion|limitation|future work|appendix|references|bibliography|acknowledg|broader impact|ethic|summary)"#, options: .caseInsensitive)
     private static let generic = try! NSRegularExpression(pattern: #"^(method|methods|methodology|approach|our approach|proposed method|the proposed method|model|our method|framework)$"#, options: .caseInsensitive)
     private static let numbered = try! NSRegularExpression(pattern: #"^\s*(?:\d+|[IVX]+)\.?\s+(.+?)\s*$"#)
+    /// A heading that reads as a sentence or phrase, not a method's name ("Start with the question"): no name then.
+    private static let notAName = try! NSRegularExpression(pattern: #"^(a|an|the|our|we|on|in|to|towards?|beyond|from|with|why|how|what|when|where|which|is|are|can|do|does|use|using|start|starting|make|making|learn|learning|build|building|let|lets|let's|putting|bringing|going|rethinking|revisiting|understanding|scaling|training)\b"#, options: .caseInsensitive)
 
     private static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
         regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
@@ -56,7 +58,7 @@ enum ChatStarters {
                   let range = Range(m.range(at: 1), in: raw) else { continue }
             let title = String(raw[range])
             if title.first?.isNumber == true || matches(skipped, title) { continue }
-            if matches(generic, title) || title.count > 60 { return nil }
+            if matches(generic, title) || matches(notAName, title) || title.count > 60 { return nil }
             return title
         }
         return nil

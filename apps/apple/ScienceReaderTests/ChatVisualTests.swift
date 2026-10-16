@@ -72,7 +72,7 @@ struct ChatFigureTests {
             let request = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: [ChatTurnInput(role: .user, text: "What does Figure 1 show?")],
                                                          selection: nil, figures: images)
             let body = String(decoding: try request.encoded(), as: UTF8.self)
-            #expect(body.contains("\"consent_version\":\"cloud-ai-v3\"") && body.contains("\"figures\":[{") && body.contains("\"id\":\"F1\""))
+            #expect(body.contains("\"consent_version\":\"cloud-ai-v4\"") && body.contains("\"figures\":[{") && body.contains("\"id\":\"F1\""))
         }
         #expect(ChatFigureFinder.images(question: "What does Figure 9 show?", selection: nil, bundle: bundle).isEmpty, "no such figure")
         let general = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: [ChatTurnInput(role: .user, text: "q")], selection: nil, figures: images)

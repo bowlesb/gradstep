@@ -2590,6 +2590,22 @@ final class ReaderModel {
     func isPreparingOnDevice(_ paper: Paper) -> Bool { devicePreparationTasks[paper.id] != nil }
     /// The Feed's control for a paper already in the library: its preparation here, if any.
     func devicePreparation(sourceID: String) -> Double? { papers.first { $0.sourceID == sourceID && !$0.isSample }.flatMap { devicePreparations[$0.id] } }
+    /// A Feed or search result still being set up after Add: its import under way on the server, or this device
+    /// preparing it (fraction when known). Nil once it is ready, or when it isn't in the library (owner, build 58:
+    /// "Instead of a checkmark you should see a loading sign… when you click on it it takes you to the library").
+    func discoverySetup(sourceID: String) -> (busy: Bool, fraction: Double?) {
+        if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) {
+            if let fraction = devicePreparations[paper.id] { return (true, fraction) }
+            return (localReaderOpeningID == paper.id, openingPaperID == paper.id ? openingProgress : nil)
+        }
+        let pending = libraryImports.contains { $0.visible && $0.sourceID == sourceID && [.accepted, .resolving, .acquiring].contains($0.phase) }
+        return (pending, nil)
+    }
+    /// The Library, where a paper being set up shows its progress (the Feed's loading sign).
+    func showLibrary() {
+        tab = .library
+        if wideMode != .browse { wideMode = .library }
+    }
     /// The Feed's checkmark opens the paper (owner, build 42: "it should take me to the library entry").
     func openLibraryPaper(sourceID: String) { if let paper = papers.first(where: { $0.sourceID == sourceID && !$0.isSample }) { select(paper) } }
     /// Added in the last three days and never opened: the row's "new" dot (owner, build 42: "nothing to indicate it

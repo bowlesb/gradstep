@@ -609,6 +609,8 @@ struct LibraryRowFacts {
         case active(String)          // finding / converting, with a spinner
         case info(String)            // queued, not downloaded
         case problem(String)         // failed, needs credits, not converted, unavailable
+        /// Under way (finding, adding, converting).
+        var isActive: Bool { if case .active = self { return true }; return false }
     }
     let id: String
     let title: String

@@ -237,6 +237,9 @@ struct PaperTableTitle {
     var download: (() -> Void)? = nil
     /// Added recently and not opened yet: a small dot before the second line.
     var isNew = false
+    /// A paper still being added: the row keeps the height it will have once its title and authors arrive (two title
+    /// lines and the authors' line), so it doesn't grow midway (owner, build 58).
+    var reservesSpace = false
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -559,9 +562,13 @@ struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(title.expanded ? nil : 2).truncationMode(.tail)
+            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: title.reservesSpace && !title.expanded)
+                .lineLimit(title.expanded ? nil : 2).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
+            if title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil {
+                Text(" ").font(.footnote).accessibilityHidden(true)
+            }
             if title.subtitle != nil || title.deviceCopy != nil {
                 HStack(spacing: 5) {
                     if let copy = title.deviceCopy {

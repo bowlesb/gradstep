@@ -1022,7 +1022,8 @@ struct ChatView: View {
         // Close above the tab bar (owner feedback, build 14: "space below chat box not well used").
         .padding(.top, 6).padding(.bottom, tabBarReserve > 0 ? 2 : 8)
         .frame(maxWidth: .infinity)
-        .chromeBand(.bottom)
+        // An empty chat has nothing under the message box to fade out, and its glow runs on behind it (no seam).
+        .background { if !model.chatTranscriptMessages.isEmpty { ChromeFade(edge: .bottom, color: .chromeBackground, solid: false) } }
     }
 
     /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
@@ -1453,7 +1454,7 @@ struct PrivacyView: View {
                 Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.")
             } header: { Text("Your notes and conversations") }
             Section {
-                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Anthropic. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
+                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Anthropic, or to DeepSeek when you choose it in Answer options. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
             } header: { Text("AI answers") }
             // Owner, build 57: "We need more in here about terms of service and how we use arXiv articles and how we abide
             // by arXiv's terms" (docs/architecture/ARXIV_DEVICE_ONLY.md).
@@ -1689,8 +1690,8 @@ struct DiscoveryRow: View {
             }
             Spacer(minLength: 4)
             DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID), adding: adding,
-                                enabled: model.canBeginImport, preparing: model.devicePreparation(sourceID: result.sourceID),
-                                open: { model.openLibraryPaper(sourceID: result.sourceID) }) {
+                                enabled: model.canBeginImport, setup: model.discoverySetup(sourceID: result.sourceID),
+                                open: { model.openLibraryPaper(sourceID: result.sourceID) }, showLibrary: { model.showLibrary() }) {
                 adding = true; issue = nil
                 Task {
                     do { try await model.addDiscovered(result) }

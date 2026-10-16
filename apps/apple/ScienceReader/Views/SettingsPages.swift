@@ -258,7 +258,7 @@ struct GradstepInfoView: View {
 
             Section {
                 Text("Current chat answers use Anthropic's Claude models: Haiku is the fast, lower-cost choice for simpler work, Sonnet is the default balance of quality and cost, and Opus is reserved for harder reasoning. An experimental on-device model can read a PDF on this device (Settings › Experimental); nothing leaves the device for it. There is no Mathpix fallback; search and speech use separate providers when enabled. The server enforces the available profiles and records the model that actually answered, including an approved fallback.")
-                Text("Podcast scripts can be written by DeepSeek instead of Claude when you choose it for an episode; chat uses Claude only. A lower-priced model is not automatically a safe replacement for scientific reading: before using one anywhere, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.")
+                Text("Chat answers come from Anthropic’s Claude models, or from DeepSeek when you choose it in Answer options (Claude still writes the chat’s title and suggested questions); podcast scripts can also be written by DeepSeek when you choose it for an episode. A lower-priced model is not automatically a safe replacement for scientific reading: before using one anywhere, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.")
             } header: { Text("Models and providers") }
 
             Section {

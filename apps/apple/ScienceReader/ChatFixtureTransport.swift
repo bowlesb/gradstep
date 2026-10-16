@@ -272,13 +272,15 @@ struct ChatFixtureTransport: ChatTransport {
         }
         for length in ["brief", "standard", "detailed"] {
             for model in ["haiku", "sonnet", "opus"] {
-                guard let usual = credits(model, length == "detailed" ? "medium" : "low", length), let most = credits(model, "high", length) else { continue }
+                // As the server: the usual pick's estimate, the most it can pick's maximum (brief low, standard medium, detailed high).
+                let highest = length == "brief" ? "low" : length == "standard" ? "medium" : "high"
+                guard let usual = credits(model, length == "detailed" ? "medium" : "low", length), let most = credits(model, highest, length) else { continue }
                 rows.append(["model": model, "effort": "auto", "length": length, "credits": ["low": usual["low"] ?? 0, "high": usual["high"] ?? 0, "max": most["max"] ?? 0]])
             }
             rows.append(["model": "deepseek", "effort": "auto", "length": length, "credits": ["low": 1, "high": 1, "max": length == "detailed" ? 2 : 1]])
         }
         json["profiles"] = rows
-        json["models"] = ((json["models"] as? [[String: Any]]) ?? []) + [["id": "deepseek", "label": "DeepSeek", "detail": "Lowest cost; handles figures"]]
+        json["models"] = ((json["models"] as? [[String: Any]]) ?? []) + [["id": "deepseek", "label": "DeepSeek", "detail": "Low cost; processed by DeepSeek"]]
         json["efforts"] = ((json["efforts"] as? [[String: Any]]) ?? []) + [["id": "auto", "label": "Automatic", "detail": "Chosen for each question"]]
         return (try? JSONSerialization.data(withJSONObject: json)) ?? Data(profiles.utf8)
     }

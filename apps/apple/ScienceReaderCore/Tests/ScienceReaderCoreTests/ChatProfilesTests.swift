@@ -12,7 +12,7 @@ import Testing
         let table = try #require(ChatProfileTable.decode(try fixture("chat-profiles-v1")))
         #expect(table.version == "chat-profiles-v1")
         #expect(table.defaultChoice == .standard)
-        #expect(table.estimates.count == 27)
+        #expect(table.estimates.count == 48, "27 Claude profiles, 9 DeepSeek, 12 automatic (builds 57–58 decode the first 27 only)")
         #expect(table.estimateText(.standard) == "Usually 4–24 credits · up to 37")
         #expect(table.estimateText(ChatProfileChoice(model: .haiku, effort: .low, length: .brief)) == "Usually 1–2 credits · up to 2")
         #expect(table.estimateText(ChatProfileChoice(model: .opus, effort: .high, length: .detailed)) == "Usually 24–63 credits · up to 114")
@@ -35,34 +35,31 @@ import Testing
         profiles.removeAll { ($0["model"] as? String) == "opus" }
         json["profiles"] = profiles
         let table = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
-        #expect(table.estimates.count == 18)
+        #expect(table.estimates.count == profiles.count - 1, "every known profile but the unknown model's")
         #expect(!table.offers(ChatProfileChoice(model: .opus, effort: .low, length: .standard)))
     }
 
     /// Chat redesign (2026-10-16): with the server's automatic effort and DeepSeek in the table, a request asks for
     /// the reader's model and length with `auto`; an older table keeps the stored effort, so nothing breaks before it.
     @Test func requestsUseTheAutomaticEffortWhenTheTableOffersIt() throws {
-        let old = try #require(ChatProfileTable.decode(try fixture("chat-profiles-v1")))
+        // The published table (2026-10-16): the 27 Claude profiles first, then DeepSeek's and the automatic ones.
+        let table = try #require(ChatProfileTable.decode(try fixture("chat-profiles-v1")))
+        #expect(table.defaultChoice == .standard, "older builds still read the same default")
+        #expect(table.requested(.standard) == ChatProfileChoice(model: .sonnet, effort: .auto, length: .standard))
+        #expect(table.requested(ChatProfileChoice(model: .deepseek, effort: .low, length: .brief)).id == "deepseek-auto-brief")
+        #expect(table.offeredModels == [.haiku, .sonnet, .opus, .deepseek])
+        #expect(table.estimate(model: .sonnet, length: .standard).map(ChatProfileText.estimate) == "Usually 4–24 credits · up to 41")
+        #expect(table.label(.deepseek) == "DeepSeek" && ChatProfileText.summary(.standard, table: table) == "Sonnet · Standard")
+        #expect(ChatProfileText.modelName("deepseek-flash") == "DeepSeek V4.1 Flash")
+        // A table from before (no automatic effort, no DeepSeek): requests keep the stored effort, nothing breaks.
+        var json = try #require(try JSONSerialization.jsonObject(with: try fixture("chat-profiles-v1")) as? [String: Any])
+        json["profiles"] = (json["profiles"] as? [[String: Any]] ?? []).filter { $0["effort"] as? String != "auto" && $0["model"] as? String != "deepseek" }
+        let old = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
+        #expect(old.estimates.count == 27)
         #expect(old.requested(.standard) == .standard)
         #expect(old.requested(ChatProfileChoice(model: .opus, effort: .auto, length: .brief)) == ChatProfileChoice(model: .opus, effort: .low, length: .brief))
         #expect(old.offeredModels == [.haiku, .sonnet, .opus])
         #expect(old.requested(ChatProfileChoice(model: .deepseek, effort: .auto, length: .standard)) == .standard, "not offered: the server's default")
-        var json = try #require(try JSONSerialization.jsonObject(with: try fixture("chat-profiles-v1")) as? [String: Any])
-        var profiles = try #require(json["profiles"] as? [[String: Any]])
-        for model in ["haiku", "sonnet", "opus", "deepseek"] {
-            for length in ["brief", "standard", "detailed"] {
-                profiles.append(["model": model, "effort": "auto", "length": length, "credits": ["low": 1, "high": 3, "max": 9]])
-            }
-        }
-        json["profiles"] = profiles
-        json["models"] = (json["models"] as? [[String: Any]] ?? []) + [["id": "deepseek", "label": "DeepSeek", "detail": "Lowest cost; handles figures"]]
-        let table = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
-        #expect(table.requested(.standard) == ChatProfileChoice(model: .sonnet, effort: .auto, length: .standard))
-        #expect(table.requested(ChatProfileChoice(model: .deepseek, effort: .low, length: .brief)).id == "deepseek-auto-brief")
-        #expect(table.offeredModels == [.haiku, .sonnet, .opus, .deepseek])
-        #expect(table.estimate(model: .deepseek, length: .detailed) == .init(low: 1, high: 3, max: 9))
-        #expect(table.label(.deepseek) == "DeepSeek" && ChatProfileText.summary(.standard, table: table) == "Sonnet · Standard")
-        #expect(ChatProfileText.modelName("deepseek-flash") == "DeepSeek V4.1 Flash")
     }
 
     @Test func choicesRoundTripTheirServerIdentifiers() {
