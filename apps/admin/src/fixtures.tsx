@@ -315,6 +315,17 @@ function healthFixture(days: number, state: string | null): HealthData {
         { provider: 'google', calls: quiet ? 9 : 31, failed: 0, throttled: quiet ? 0 : 7, breaker_open: quiet ? 0 : 6, latency_ms_avg: 21_000 }],
       breakers: quiet || empty ? [] : [{ provider: 'google', state: 'open', reopen_at: new Date(Date.now() + 120_000).toISOString() }],
     },
+    // Migration 079: one chat answer over its ceiling today (recorded, not paused), and one account with many unpaid
+    // early endings (unless quiet); about 3 % of answers end early, Gradstep paying for them.
+    anomalies: { pause_after: 5, window_minutes: 60, in_window: quiet || empty ? 0 : 1, last_24h: quiet || empty ? 0 : 1, last_24h_test: 0,
+      recent: quiet || empty ? [] : [{ at: new Date(Date.now() - 40 * 60_000).toISOString(), kind: 'operation_over_ceiling', operation_kind: 'chat',
+        ceiling_microusd: 242, observed_microusd: 271, paused_month: false, test_account: false }] },
+    early_endings: { attention_daily: 20, answers: sum(window, r => r.chats), uncharged: Math.round(sum(window, r => r.chats) * 0.03),
+      absorbed_microusd: Math.round(sum(window, r => r.chats) * 0.03 * 12_000),
+      by_ending: empty ? {} : { completed: Math.round(sum(window, r => r.chats) * 0.95), stopped: Math.round(sum(window, r => r.chats) * 0.02),
+        provider: Math.round(sum(window, r => r.chats) * 0.015), limit: Math.round(sum(window, r => r.chats) * 0.01), connection: Math.round(sum(window, r => r.chats) * 0.005) },
+      today: { uncharged: empty ? 0 : 31, absorbed_microusd: empty ? 0 : 380_000 },
+      accounts_over_today: quiet || empty ? [] : [{ account_id: '5f0c2a91-7d3e-4b8a-9c11-2e6f8a4b7c90', uncharged: 24, absorbed_microusd: 290_000 }] },
   };
 }
 

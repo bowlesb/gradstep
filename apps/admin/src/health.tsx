@@ -12,6 +12,8 @@ type Series = { key: string; tone: string; label: string; values: number[] };
 export const HEALTH_WINDOWS = [7, 30, 90];
 const REFRESH_MS = 60_000;
 const usd = (micro: number, digits = 2) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(micro / 1_000_000);
+// Sub-cent amounts (an overrun on one small request) in micro-USD, so they never read as $0.000.
+const precise = (micro: number) => micro < 10_000 ? `${micro.toLocaleString()} micro-USD` : usd(micro, micro >= 1_000_000 ? 2 : 4);
 const dollarsShort = (micro: number) => micro >= 100_000_000 ? usd(micro, 0) : micro >= 1_000_000 ? usd(micro, 2) : usd(micro, micro ? 3 : 0);
 const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic (chat, podcast review)', deepseek: 'DeepSeek (podcast scripts)', google: 'Google (podcast voices)',
   tavily: 'Tavily (web search)', mathpix: 'Mathpix (retired OCR)', ingest: 'Paper lookups' };
@@ -92,7 +94,10 @@ export function Health({ load, budget, reloadKey, days, onDays }: {
       <div className="metrics headline">
         <Stat label="Paper adds failed" value={data.reliability.papers_failed.toLocaleString()} note={data.use.papers_added ? `${percent(data.reliability.papers_failed / data.use.papers_added)} of ${data.use.papers_added.toLocaleString()}` : 'No papers added'} />
         <Stat label="Podcasts failed" value={data.reliability.podcasts_failed.toLocaleString()} note={data.use.podcasts_started ? `${percent(data.reliability.podcasts_failed / data.use.podcasts_started)} of ${data.use.podcasts_started}; ${data.reliability.podcasts_ready} ready` : 'No podcasts started'} />
-        <Stat label="Chat answers not charged" value={data.reliability.chats_unsettled.toLocaleString()} note="Still in progress, or released after a failure" />
+        {data.early_endings
+          ? <Stat label="Answers not charged" value={data.early_endings.uncharged.toLocaleString()}
+            note={`Ended early (provider, server, limits, dropped, refused): ${usd(data.early_endings.absorbed_microusd)} paid by Gradstep${data.reliability.chats_unsettled ? `; ${plural(data.reliability.chats_unsettled, 'answer')} still open` : ''}`} />
+          : <Stat label="Chat answers not charged" value={data.reliability.chats_unsettled.toLocaleString()} note="Still in progress, or released after a failure" />}
         <Stat label="Open reports" value={data.reliability.reports_open.toLocaleString()} note="In Support" />
         <Stat label="Reader on the device" value="—" note="Not visible here: papers are prepared on the device. TestFlight and reports carry those failures." />
       </div>
@@ -160,7 +165,20 @@ function derive(data: HealthData, budget: Budget | null) {
   const cache = data.money.chat_cache, cacheTotal = cache.read_tokens + cache.write_tokens + cache.input_tokens;
   const providers = Object.entries(data.money.by_provider).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([p]) => p);
   const attention: Item[] = [];
-  if (budget && !budget.work_enabled) attention.push({ tone: 'warning', text: 'New paid work (chat answers, podcasts) is paused. Resume it on Overview.' });
+  // Migration 079: an overrun is recorded, not a pause; more than `pause_after` in the window pause the month (the tripwire).
+  const anomalies = data.anomalies, tripped = anomalies?.recent.find(a => a.paused_month);
+  if (budget && !budget.work_enabled) attention.push({ tone: 'warning', text: tripped
+    ? `New paid work (chat answers, podcasts) is paused: more than ${anomalies!.pause_after} operations cost more than their ceiling within ${anomalies!.window_minutes} minutes (the overrun tripwire, ${clock.format(new Date(tripped.at))}). Check Spending, then resume it on Overview.`
+    : 'New paid work (chat answers, podcasts) is paused. Resume it on Overview.' });
+  if (anomalies && anomalies.last_24h > 0) {
+    const worst = [...anomalies.recent].sort((a, b) => (b.observed_microusd - b.ceiling_microusd) - (a.observed_microusd - a.ceiling_microusd))[0];
+    const tests = anomalies.last_24h_test ? ` (${anomalies.last_24h_test} on test accounts)` : '';
+    attention.push({ tone: 'warning', text: `${plural(anomalies.last_24h, 'operation')} cost more than ${anomalies.last_24h === 1 ? 'its' : 'their'} ceiling in the last 24 hours${tests}; recorded, not paused${worst ? ` (largest: ${precise(worst.observed_microusd)} against a ${precise(worst.ceiling_microusd)} ceiling, ${humanize(worst.operation_kind)})` : ''}. ${anomalies.in_window} of ${anomalies.pause_after} toward the hourly tripwire.` });
+  }
+  // CHAT.md "When an answer stops early": an account with many unpaid early endings today is shown, never blocked.
+  for (const a of data.early_endings?.accounts_over_today ?? []) {
+    attention.push({ tone: 'warning', text: `Account ${a.account_id.slice(0, 8)} had ${a.uncharged} answers end early without charge today (more than ${data.early_endings!.attention_daily}); Gradstep paid ${dollarsShort(a.absorbed_microusd)}. They are still served: look it up on Accounts.` });
+  }
   if (budget && forecast > budget.limit_microusd) attention.push({ tone: 'warning', text: `At this pace the month ends near ${usd(forecast, 0)}, over the ${usd(budget.limit_microusd, 0)} provider budget.` });
   else if (budget && budget.spent_microusd + budget.reserved_microusd > 0.8 * budget.limit_microusd) attention.push({ tone: 'warning', text: `${percent((budget.spent_microusd + budget.reserved_microusd) / budget.limit_microusd)} of this month's provider budget is used or reserved.` });
   const badDay = data.use.daily.map((d, i) => ({ d, failed: data.reliability.daily[i]?.papers_failed ?? 0 })).filter(x => x.d.papers >= 5 && x.failed / x.d.papers > 0.1).pop();

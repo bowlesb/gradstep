@@ -2,8 +2,10 @@
 
 **Status, 2026-10-15: server side built and deployed to staging (fixes 4, 5 and 7, server `retry_after`, fault
 switches and the drill script; [as built](#server-side-as-built)); the first fault drill (Anthropic throttled on chat)
-passed 8 of 8 on staging. Client side built (below). Fix 1 and the owner decisions below are open.** Owner: "I don't
-want the entire app to break if a response starts failing; we need to think and plan carefully there."
+passed 8 of 8 on staging. Client side built (below). **2026-10-16: fix 1 (contain overruns) and the failed-answer
+decision are built and deployed to staging (migration 079, chat function; [as built](#fix-1-and-early-endings-as-built--2026-10-16));
+four live drills passed.** Owner: "I don't want the entire app to break if a response starts failing; we need to think
+and plan carefully there."
 
 **Built on the clients (2026-10-15):**
 - **Browser:** an error boundary per region (reader, chat, library, feed, Listen, side panel, player, dialogs) with "…
@@ -41,7 +43,8 @@ outages therefore already degrade one feature.
 
 Five couplings break more than one feature:
 
-1. **One operation's overrun pauses all paid work for everyone.** Settlement sets the month's `work_enabled=false`
+1. **One operation's overrun pauses all paid work for everyone** (fixed 2026-10-16, migration 079: now a recorded
+   `budget_anomaly`; [as built](#fix-1-and-early-endings-as-built--2026-10-16)). Settlement set the month's `work_enabled=false`
    when a single operation's actual or uncertain provider cost exceeds its ceiling
    (`202610070034_provider_accounting.sql:289-291`, `:348`). Chat, Study, the equation view and podcasts then answer
    "AI answers are paused right now" for every account until an operator resumes it — the message the owner saw on
@@ -123,8 +126,8 @@ feature degraded with a message; **Cosmetic**.
 | Path | Failure | Today | Severity | Where |
 |---|---|---|---|---|
 | Chat / Study / Equation view | Anthropic 429/529/5xx before start | `provider_unavailable`, no charge (no message id), no durable record of the 429 | Feature; **invisible** | `anthropic.ts:470-473`, `chat.ts:693`, `:829`, `:1069` |
-| Chat | Anthropic fails mid-stream | Charged for usage up to the hold (`credits = min(priced, hold)` when a message id exists) while the reader sees "couldn't finish this answer" | Feature; **owner decision** | `chat.ts:693` |
-| Chat | Any operation's cost exceeds its ceiling | `work_enabled=false`: every account's paid features pause | **App (all accounts' AI)** | `202610070034_provider_accounting.sql:289-291`, `:348` |
+| Chat | Anthropic fails mid-stream | Since 2026-10-16 (owner decision): nothing charged, the partial text kept, the cost recorded as absorbed (`error … charged: false, reason: "provider"`) | Feature (good) | `chat.ts` `answerEnding`; [CHAT.md](CHAT.md#when-an-answer-stops-early--2026-10-16) |
+| Chat | Any operation's cost exceeds its ceiling | Since 2026-10-16: a `budget_anomaly` row and a Health › Attention line; the month pauses only on the hard limit, more than 5 in an hour, or an operator | Feature (good); was **App (all accounts' AI)** | migration `202610160079_contained_overruns_and_early_endings.sql` |
 | Chat web search | Tavily down | Native Anthropic search as the backup | Feature (good) | `tavily.ts:2`, `:96` |
 | Chat retries | Provider 429 | `maxRetries: 0`; no retry, no alternative model for availability (fallbacks are refusal fallbacks only) | Feature | `anthropic.ts:296`, `:352-357` |
 | Podcasts | Provider 429/5xx | Episode fails (`script_rejected`, `speech_rejected`, `*_outcome_unknown`); no requeue | Feature (permanent) | `podcast-worker.ts:291-292`, `:539-540` |
@@ -172,7 +175,7 @@ feature degraded with a message; **Cosmetic**.
 
 | # | Fix | Severity fixed | Where | Effort |
 |---|---|---|---|---|
-| 1 | **Contain overruns.** An operation whose actual or uncertain cost exceeds its ceiling is recorded and alerted (Health Attention, a `budget_anomaly` row) instead of setting `work_enabled=false`; pause the month only when `spent + reserved + projected` crosses the limit, or when anomalies exceed N per hour (a tripwire), or by the operator. Keep the hard monthly limit. | App (all AI) | `202610070034_provider_accounting.sql:289-291`, `:348` (new migration superseding both) | M (migration + DB tests + admin copy) |
+| 1 | **Done 2026-10-16 (migration 079).** **Contain overruns.** An operation whose actual or uncertain cost exceeds its ceiling is recorded and alerted (Health Attention, a `budget_anomaly` row) instead of setting `work_enabled=false`; pause the month only when `spent + reserved + projected` crosses the limit, or when anomalies exceed N per hour (a tripwire), or by the operator. Keep the hard monthly limit. | App (all AI) | `202610070034_provider_accounting.sql:289-291`, `:348` (new migration superseding both) | M (migration + DB tests + admin copy) |
 | 2 | **Browser error boundaries.** One per pane (reader, chat, library, feed, podcasts, dialogs) with "This panel hit a problem — Reload panel · Report"; a top-level boundary and `error`/`unhandledrejection` handlers that record a code (never content) for reports. | App (browser) | `main.tsx:8`, `ui/App.tsx` panes | S |
 | 3 | **Browser launch without the server.** Retry `v1_key_state` automatically (3 tries, 1/2/4 s with jitter) before showing failure; keep the library list from the last session (encrypted, per browser) so a blip shows "Offline — showing your library from earlier" instead of a blocked app. | App (browser) | `lib/keys.ts:176-184`, `ui/Keys.tsx:60-63`, `ui/App.tsx:83` | M |
 | 4 | **Podcasts requeue on transient failures.** A pre-processing 429/503 (`rejected` with `http_429`/`http_503`) parks the job with `retry_at` (back-off 1, 5, 15, 60 min, 4 tries) instead of failing; `unknown` outcomes keep today's liability handling. | Feature (permanent → temporary) | `podcast-worker.ts:291-292`, `:539-540`, migration for `retry_at` | M |
@@ -343,12 +346,62 @@ fault cache, checks a real answer arrives (about $0.005), and deletes the accoun
 other than `throttle` on Anthropic need `--allow-liability`: the ledger can't tell a synthetic 529, 500, timeout or
 unreadable answer from a real one, so each leaves an unknown liability on the drill's operation.
 
+**Early-ending drills (2026-10-16, migration 079).** Three more modes, each on its own disposable account, each
+reconciling its synthetic attempts to zero at the end (`worker_fault_drill_reconcile`: test accounts only, attempts whose
+provider request id starts `drill-`, so nothing is left as a liability and no synthetic cost stays in the month):
+`--mode=midstream` (fault `midstream`: a streamed answer that fails as overloaded after its first text; checks the text
+arrived, `provider_unavailable` with `credits: 0, charged: false, reason: "provider"`, the balance unchanged, the
+ending `provider` with its cost absorbed, one `transport` drill row), `--mode=stop` (fault `slow`: a synthetic answer
+written over a minute; the drill leaves after two pieces of text three times: with `stop_signal` and a recorded Stop →
+`stopped`, charged; with `stop_signal` and no Stop → `connection`, nothing; without the capability → `left`, charged)
+and `--mode=overrun` (no fault: through the service RPCs a test account's operation reports 3 micro-USD over a 1
+micro-USD attempt ceiling; checks the two anomaly rows, `work_enabled` still true, and a real Haiku answer; it refuses
+to run when one more anomaly could trip the tripwire). Recovery answers use Claude Haiku 5.5 (about $0.0002 each).
+
 Wired today: Anthropic on chat. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
 worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn't pass it yet); search and add-paper
 (their provider calls carry no account yet).
 
 **First drill.** After migration 073 and the functions are deployed to staging:
 `node scripts/fault-drill.mjs --provider=anthropic --mode=throttle --route=chat --minutes=5`.
+
+## Fix 1 and early endings as built — 2026-10-16
+
+Migration `202610160079_contained_overruns_and_early_endings.sql` (staging 2026-10-16), the chat function, tests
+`tests/database/contained_overruns.sql`, `tests/backend/chat.test.ts`, `provider-spending.test.ts`,
+`provider-health.test.ts`.
+
+**Contained overruns.** The three places that set `work_enabled=false` on a single overrun — migration 003's settlement
+(now `app_private.settle_operation_before_034`), 034's `provider_attempt_apply` (an attempt over its ceiling, or an
+operation's attempts over the operation's) and 034's `worker_settle_operation` (known cost plus unresolved ceilings over
+the operation's) — now call `app_private.record_budget_anomaly` instead. `app_private.budget_anomalies` keeps one row per
+operation and kind (`attempt_over_ceiling` with the attempt, `operation_over_ceiling`): the ceiling, the largest cost
+seen, whether the account is a test account, and whether that row paused the month. The tripwire
+(`app_private.paid_work_guard`: 5 operations, 60 minutes) counts operations, not rows, and starts afresh after its last
+pause, so an operator who resumes the month is not paused again by the next single anomaly. The hard limit check in
+`worker_reserve_operation` and the operator's switch are unchanged. A pause set by the tripwire marks its row
+`paused_month`; `worker_budget_health` (the scheduled budget check) adds `anomalies_in_window`, `anomalies_24h` and
+`paused_by_tripwire`; `v1_admin_health` adds `anomalies` (the tripwire's numbers, the window's count, the last day's, the
+latest ten with their ceilings and costs). **Attention:** "N operations cost more than their ceiling in the last 24
+hours" (recorded, not paused; the largest), and, when the tripwire paused the month, that it did and how to resume.
+
+**Early endings.** [CHAT.md](CHAT.md#when-an-answer-stops-early--2026-10-16) has the definitions and the contract;
+the abuse guard's **Attention** line names each real account with more than 20 unpaid early endings today and what
+Gradstep paid for them.
+
+**Live on staging, 2026-10-16 06:27–06:33 UTC** (chat function deployed after the migration; deploy checks 19 passed,
+including the chat smoke, which recorded the first `completed` ending):
+
+| Drill | Result | Operation | Reader charged | Provider cost |
+|---|---|---|---|---|
+| `--mode=throttle` (429 before the start) | 9 of 9 | `cb605a6a-9fae-4aa1-a643-62fcc54983df`: two `rejected` attempts, ending `provider` | 0 (`charged: false, reason: "provider"`), balance 50 → 50 | $0 |
+| `--mode=midstream` (overloaded after the first text) | 8 of 8 | `6d02ef34-d00c-4eb9-9c8e-596bf03ab086`: 63 characters streamed, then `provider_unavailable`; ending `provider`, 12 micro-USD absorbed; the 2,241 micro-USD held ceiling released by the drill's reconciliation | 0, balance 50 → 50 | $0 (synthetic) |
+| `--mode=stop` | 6 of 6 | Stop recorded: `8da20b6a-3867-4dd6-9dcc-7a155de4575c` `stopped`; dropped: `9a873b71-7100-4627-9ba6-881cce00e20e` `connection`; no capability: `9e42aa9e-e9e5-4bc4-a92c-299540132e5a` `left` | 1, 0 and 1 credit (balance 50 → 49 → 49 → 48) | $0 (synthetic) |
+| `--mode=overrun` | 5 of 5 | `89bc1980-fc2b-442c-b008-d4602322a369`: 3 over a 1 (attempt) and 2 (operation) micro-USD ceiling, two test-account anomaly rows, `work_enabled` true, 1 of 5 toward the tripwire; then `4f582107-8371-4f3b-a893-f7b190161353` answered (1 credit) | — | 3 micro-USD, reconciled to $0 |
+
+Each drill's recovery answer (Claude Haiku 5.5, 1 credit) cost 234 micro-USD; the four drills together spent about
+$0.001 of provider money. Afterwards: October $26.87 spent, $0 reserved, no unresolved attempts or open operations,
+`work_enabled` true. The overrun drill's two anomaly rows (test account) show in Health › Attention for 24 hours.
 
 ## Owner decisions
 
@@ -358,9 +411,20 @@ worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn'
   removes the daily wall and would count against the $100 budget.
 - **Anthropic tier:** limits are per organisation and rise with cumulative purchases; check the console tier before
   launch and decide whether to pre-purchase to reach the next tier.
-- **Charging for failed answers:** today a stream that fails after it started is charged for the tokens used
-  (`chat.ts:693`). Waive it (the platform absorbs the cost) or keep it?
+- **Charging for failed answers — decided 2026-10-16 (owner: "we need to better define the situation. If we were
+  charged by the provider, the onus is now on us to provide the value back to the owner").** The reader pays for work
+  that finishes, or for the part of an answer they chose to stop. Anything else that ends it early — the provider
+  failing or overloading mid-stream, our server failing, our own time limit (the 130 s deadline) or length limit
+  (`max_tokens`), the connection between our server and the reader dropping, or a refusal — costs the reader nothing:
+  the hold is released, Gradstep pays the provider, and the cost is recorded as platform-absorbed (in the month's
+  spend, Health and the tripwire's view; never hidden). Partial text stays the reader's. Definitions per feature:
+  [CHAT.md](CHAT.md#when-an-answer-stops-early--2026-10-16). Abuse guard: more than 20 unpaid early endings for one
+  account in a UTC day raise a Health › Attention line; the reader is never blocked.
 - **Availability fallback model:** allow Sonnet → Haiku (named in the answer) when Sonnet is throttled?
-- **Overrun policy** (fix 1): what anomaly rate should still pause everything?
+- **Overrun policy (fix 1) — decided 2026-10-16 (owner: "Yes, I agree with your suggestions").** An operation whose
+  actual or uncertain provider cost exceeds its ceiling is recorded and alerted (a `budget_anomaly` row, Health ›
+  Attention) and does not pause the month. The month pauses only when (1) spent + reserved + a new hold would pass the
+  hard monthly limit (unchanged), (2) more than **5** operations overran within a rolling hour (the tripwire), or (3) an
+  operator pauses it.
 - **Fixed egress IP** for the server that calls DataCite (Cloud Run with Cloud NAT, a small monthly cost), so per-IP
   limits aren't shared with other tenants.

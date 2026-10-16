@@ -34,6 +34,15 @@ quotes the expected and maximum usage and reserves a bounded amount. It settles 
 usage afterward. Operation identities make retries and lost responses idempotent, so one request is not charged
 twice because a network acknowledgement was lost.
 
+**When work stops early (owner decision 2026-10-16).** The reader pays for work that finishes, or for the part of an
+answer they chose to stop. If the provider fails or overloads partway, our server fails, an answer reaches our own time
+limit (130 s) or length limit, the connection between our server and the reader drops, or the model refuses, the reader
+is charged nothing: their hold is released and any text already shown stays theirs. Gradstep still pays the provider
+for that work, and records it as absorbed cost in the month's provider spend and on the admin's Health tab; it counts
+against the same budget and is never hidden. A title, suggested questions or a study-map update that could not be
+delivered is Gradstep's cost too. Podcasts already charged only for a ready episode or the used part of one the reader
+canceled. Definitions for each paid feature: [CHAT.md](CHAT.md#when-an-answer-stops-early--2026-10-16).
+
 Chat, search and podcasts have separate provider attempts, limits and accounting. Ready-made catalog podcasts avoid repeating provider work. Historical OCR charges remain in the ledger. Customer credit accounting, provider
 expense, platform budgets and unresolved provider liability remain separate records. Account and platform gates
 stop a user, retry loop or provider outage from creating an unlimited bill.

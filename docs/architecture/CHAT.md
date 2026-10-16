@@ -95,7 +95,7 @@ graph." This is the first slice, built to learn from; the product angle is still
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
 - Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v2" (the earlier "cloud-ai-v1" is still accepted and turns Tavily search off; "cloud-ai-v3" adds figures, "cloud-ai-v4" DeepSeek, [below](#chat-redesign-from-build-57-feedback--2026-10-16)), mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "study" (paper mode with local context v2; a selection is optional; see [Study](#study--2026-10-14-experimental-staging)) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored), profile?: {model, effort, length}, topic_title?: boolean, follow_ups?: boolean, study?: {concepts, links, focus, journey, next}} ` (`study` is required with `action: "study"` and refused otherwise; `follow_ups` is refused with it; the last two flags since 2026-10-08: [models, effort and length](#models-effort-and-length-2026-10-08), [topic titles](#topic-titles-2026-10-08); `follow_ups` since 2026-10-14, [above](#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups)).
 - `GET` (2026-10-08) returns the versioned profile table, below.
-- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study {map}` (2026-10-14, [Study](#study--2026-10-14-experimental-staging)), `done {stop_reason, credits, usage, model?, profile}` (`model`/`profile` since 2026-10-08), `error {code, credits?}` (`credits` since 2026-10-14: what the failed answer cost the reader; 0 when the provider never started it, and nothing is charged then) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `title {text}` (2026-10-08), `followups {questions}` (2026-10-14, above), `study {map}` (2026-10-14, [Study](#study--2026-10-14-experimental-staging)), `done {stop_reason, credits, usage, model?, profile, charged, reason?}` (`model`/`profile` since 2026-10-08; `charged`/`reason` since 2026-10-16, [below](#when-an-answer-stops-early--2026-10-16)), `error {code, credits?, charged?, reason?}` (`credits` since 2026-10-14: what the failed answer cost the reader; since 2026-10-16 every error after the hold carries `credits: 0, charged: false` and a `reason`, and an error without `charged` came before anything was held) with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`, `consent_required` (2026-10-16: DeepSeek chosen under a consent before v4). `done` also carries `effort` when the request asked for `auto` (2026-10-16). Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_chat` (migration 047: `worker_reserve_operation` plus the frozen quote; until 2026-10-08 `worker_reserve_operation`) → stream (and the title, in parallel; then the follow-up suggestions, from the finished answer) → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
@@ -304,7 +304,8 @@ output); it replaces Haiku 4.5 here (10× cheaper, effort and adaptive thinking 
 
 Sonnet · Low · Standard is exactly the request the function made before profiles (asserted at module load and in
 tests). Answers still stop at the 130 s generation deadline, so the largest allowances (Opus, High, Detailed) can end
-as interrupted answers on long questions; they are kept and charged for what was used.
+as interrupted answers on long questions; they are kept and, since 2026-10-16, not charged (our own limit,
+[below](#when-an-answer-stops-early--2026-10-16)).
 
 Published credit estimates (`credits: {low, high, max}`), a **planning basis, not measurements**: a question about a
 25-page paper (41,500 prompt tokens). `high`: the first question, writing the paper to the prompt cache; `low`: a
@@ -532,8 +533,102 @@ by (Opus 5/4.8, $5/$25), not Opus 5.5's.
 
 - Hold (Sonnet 5.5, unchanged) = ⌈prompt characters / 3⌉ tokens at the 5-minute cache-write rate + the output allowance (8,000 by default), ×3. Other models: [holds](#holds-quotes-and-settlement). If the reader's available balance is at least 50 credits but below that hold, the credit hold is capped at the balance (owner decision 2026-10-05); the platform-budget (micro-USD) hold is never reduced, and an answer costing more charges the balance and logs `chat_credits_capped_at_balance`. Request digest = SHA-256 of a fixed-key-order canonical body (`\x<hex>`).
 - A replay (`replayed: true`, any state) never calls the provider or settles; it returns `operation_replayed`. Reserve errors never settle. An ambiguous reserve transport failure is logged by operation ID for reconciliation.
-- After a hold, settlement happens exactly once on every path (success, refusal, provider error, deadline, client disconnect). It retries only ambiguous transport failures, with identical amounts (the RPC is idempotent for equal amounts). Settled amounts never exceed the hold; overruns settle at the hold and log `chat_usage_exceeded_hold`. Recorded provider usage keeps the true estimate.
+- After a hold, settlement happens exactly once on every path (success, refusal, provider error, deadline, client disconnect), through `worker_settle_chat` since 2026-10-16 (migration 079: `worker_settle_operation` and the answer's ending in one transaction). It retries only ambiguous transport failures, with identical amounts (the RPC is idempotent for equal amounts). Settled amounts never exceed the hold; overruns settle at the hold and log `chat_usage_exceeded_hold`. Recorded provider usage keeps the true estimate, and since migration 079 an overrun is a budget anomaly, never a pause by itself ([RESILIENCE.md](RESILIENCE.md#owner-decisions)).
+- What the reader pays depends on how the answer ended: [When an answer stops early](#when-an-answer-stops-early--2026-10-16).
 - Usage: final `usage.iterations` (per serving model, fallback included) or top-level usage. Without final usage: input from `message_start` and output = max(visible chars / 3, 100 tokens per elapsed second), capped at `max_tokens`. A typed HTTP rejection before `message_start` is unbilled. A lost connection before `message_start` charges the input estimate at the uncached rate. Estimates are marked `estimated: true` in `worker_record_provider_usage` units (event ID = message ID, else `operation:<id>`).
+
+## When an answer stops early — 2026-10-16
+
+Owner decision (2026-10-16): "we need to better define the situation. If we were charged by the provider, the onus is
+now on us to provide the value back to the owner." **The reader pays for work that finishes, or for the part of an
+answer they chose to stop. Anything else that ends it early costs the reader nothing: the hold is released, Gradstep
+pays the provider, and the cost is still recorded as platform-absorbed** (it counts toward the month's budget, Health
+and the anomaly tripwire; it is never hidden). Text already streamed stays the reader's: the clients keep it, marked
+interrupted. Status: server built and deployed to staging 2026-10-16 (migration 079, chat function); the clients'
+part is listed at the end of this section.
+
+### How an answer can end
+
+| How it ends | What the reader's app receives | The reader pays | Recorded ending (`reason` when unpaid) |
+|---|---|---|---|
+| **Finished**: the model ended its turn (`end_turn`, `stop_sequence`, or a tool call the server completed) with something to show | `done {charged: true, credits}` | the answer's usage, plus a title, suggestions or map update that was relayed; never above the hold | `completed` |
+| **The reader pressed Stop**, and their app recorded it (`v1_chat_stop`, capability `stop_signal`) | nothing more (they left) | the answer's own usage so far; nothing if the provider had not started it | `stopped` |
+| **A build without `stop_signal` closed the stream** (builds up to 60: Stop and a dropped connection look the same) | nothing more | as a Stop (unchanged) | `left` |
+| **The provider failed or overloaded**: refused before the start (429/529/5xx, its breaker open), failed mid-stream (an error event, the connection to it lost), or finished a turn with nothing to show | `error provider_unavailable {credits: 0, charged: false, reason: "provider", retry_after}` (an empty finished turn: `done {charged: false, reason: "provider"}`) | nothing | `provider` |
+| **Our server failed**: a send it could not admit or record, a fault in our code, an instance that died (the 30-minute stale-hold sweep settles those) | `error service_unavailable {credits: 0, charged: false, reason: "server", retry_after: 10}` (a dead instance sends nothing) | nothing | `server` |
+| **Our time limit**: the 130 s generation deadline | `error provider_unavailable {credits: 0, charged: false, reason: "limit"}` | nothing | `limit` |
+| **Our length limit**: `max_tokens` (or the model's context window), or a next round that no longer fits the hold or the search allowance | `done {stop_reason: "max_tokens", credits: 0, charged: false, reason: "limit"}`, or the error above | nothing | `limit` |
+| **The connection between our server and the reader dropped** (an app with `stop_signal` that recorded no Stop) | nothing (it is gone) | nothing | `connection` |
+| **A refusal** (`stop_reason: refusal`, after any server-side fallback) | `error refused {credits: 0, charged: false, reason: "refusal"}` | nothing | `refusal` |
+
+A refusal is a refusal even if the reader also left; otherwise the reader leaving decides first, then a deadline that
+cut the answer short, then the provider's or our own failure, then a length limit. The server can only see a
+connection drop when it happens before the answer is handed to the network: an answer that finished and was written
+into a connection that then failed is charged as finished.
+
+### Each paid feature
+
+| Paid feature | Finishes (the reader pays) | Ends early (nothing) | Its side requests |
+|---|---|---|---|
+| **Chat answer**, and the selection actions (Explain, Why it matters, Related) | a finished turn with text, a diagram, a visual, figure parts or a figure request | every unpaid row above | **Title** (Haiku, beside the answer): paid only with a completed answer whose title was relayed; failed, unusable or abandoned after its 4 s grace, or with an answer that ended early, it is Gradstep's. **Follow-ups**: asked only after a finished answer (since 2026-10-16 not after `max_tokens`); relayed → paid; failed, unusable or later than 8 s → Gradstep's. |
+| **Study turn** | the tutor's reply finished | as an answer | **Map update**: asked only after a finished reply; relayed → paid; failed, unusable or later than 12 s → Gradstep's, and the map stays as it was |
+| **Equation view** (symbols) | the model's JSON, or its words shown as the description | cut at its 2,000-token allowance (`limit`); no words at all (`provider`) | — |
+| **Equation background** | finished prose | as an answer | — |
+| **Diagram repair** (`diagram_fix`) | a finished turn with the corrected diagram | as an answer | — |
+| **Add paper** (Ingest) | the model identified the citation | as an answer | The lookup and add run after settlement: a lookup or add that fails afterwards is reported in the answer but not refunded (open item below) |
+| **Podcast episode** (unchanged, migration 048) | `ready`: known usage, at most the length's maximum | failed for any reason (script, speech, evidence check, provider, retries exhausted), `unknown_provider`, quarantined: 0 credits, the cost recorded as the job's `platform_loss_microusd` | **Cancel** (the reader stops it): known usage so far, at most the maximum — the part they chose to stop |
+
+### How it is recorded
+
+- `worker_settle_chat(account, operation, credits, microusd, action, ending, absorbed_microusd)` settles exactly as
+  `worker_settle_operation` (the provider spend reported to the month is unchanged: every attempt's cost, paid or not)
+  and writes `app_private.chat_endings` (operation, action, ending, `charged`, credits, `absorbed_microusd`) in the same
+  transaction. An unpaid ending must charge 0; an identical replay is a no-op, any other conflicts. The stale-hold sweep
+  records a dead instance's operation as `server` with its held attempts' cost absorbed. `absorbed_microusd` is the
+  provider cost the reader did not pay: everything for an unpaid ending, the undelivered side requests for a completed
+  one (a Stop's unrelayed title too). Codes and amounts only; kept with the operation like its quote.
+- The chat function logs `ending`, `charged` and `credits` in `chat_answer`. Our own causes reach it as `cause` on the
+  provider outcome (`server`: an admission refused or unrecorded, a throw in our code; `limit`: `operation_ceiling`,
+  the round or search bound); a failure without one is the provider's.
+- **Stop.** An app that sends `capabilities: ["stop_signal"]` calls `v1_chat_stop(p_operation_id)` (authenticated, its
+  own chat operation only; `{recorded, settled}`) and waits for it, at most about 3 s, before it cancels the stream.
+  When the stream closes the function asks `worker_chat_stop_requested`, once more after 1.5 s if not found; found
+  → `stopped`, otherwise `connection`. A request the provider never started charges nothing even when stopped.
+- **Abuse guard.** An app could drop every stream instead of pressing Stop. An account with more than **20** unpaid
+  early endings in a UTC day (`app_private.paid_work_guard.uncharged_endings_daily_attention`) is listed in the admin's
+  Health › Attention with what Gradstep paid; the reader is never blocked for it. Test accounts are left out of that list
+  (their cost is still counted).
+- **Health.** `v1_admin_health` adds `early_endings` (answers by ending over the window, unpaid ones, absorbed cost,
+  today's, the accounts over 20) and `worker_budget_health` adds `uncharged_endings_today` and
+  `absorbed_microusd_today` for the scheduled budget check.
+- Evidence: `tests/backend/chat.test.ts` (one test per ending, each side request, the equation view and Study, a real
+  SDK mid-stream error event), `tests/backend/provider-spending.test.ts` (our causes),
+  `tests/database/contained_overruns.sql`; live on staging 2026-10-16: `node scripts/fault-drill.mjs --mode=throttle`,
+  `--mode=midstream`, `--mode=stop` and `--mode=overrun` ([RESILIENCE.md](RESILIENCE.md#fault-drills)).
+
+### For the clients (not built yet)
+
+Builds 57–60 keep working unchanged: they ignore the new fields, already show "No credits were used" for an error with
+`credits: 0` (native) or "No credits used" (browser), and a Stop from them is charged as before (`left`).
+
+- Send `"stop_signal"` in `capabilities` on every chat request (with the others the build sends). On Stop: call
+  `v1_chat_stop({p_operation_id})` with the request's operation id, wait for it (at most 3 s, ignore its failure), then
+  cancel the stream. Then refresh the balance.
+- Read `charged` (boolean) on `done` and on `error`; when it is `false`, `reason` is one of `provider`, `server`,
+  `limit`, `refusal` (`connection` and `stopped` are recorded but never sent: the reader has gone). An `error` without
+  `charged` came before anything was held: nothing was charged.
+- Copy under a kept, interrupted answer that was not charged: **"Interrupted · not charged"**; for a refusal, the
+  existing refusal message followed by "Not charged." After the reader's own Stop: **"Stopped · charged for the part
+  written"**. A `done` with `charged: false` (a `max_tokens` answer) is interrupted too. The equation view shows "Not
+  charged" instead of "0 credits".
+
+### Open items
+
+- **Add paper after settlement.** Ingest settles before its lookup and add (by design, so the add runs as the reader with
+  no open hold); a lookup or add that fails afterwards is not refunded. Settling after the add would close it.
+- **Aborted attempts stay unknown.** A Stop or a dropped connection leaves the provider attempt `unknown` (no final
+  usage) until an operator reconciles it; the scheduled budget check flags any older than an hour
+  ([SPENDING_CONTROLS.md](SPENDING_CONTROLS.md), audit item 1).
 
 ## Privacy
 

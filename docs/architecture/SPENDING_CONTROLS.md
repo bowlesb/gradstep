@@ -232,6 +232,20 @@ Evidence: `tests/database/budget_period.sql` (ensure creates next month once, co
 readback, permissions, the sweep releases a two-hour-old hold without charge or booked spend) in the cutover phase of
 `scripts/test-database.py`; backend chat tests for the zero charge and the `credits` on `error`.
 
+## Contained overruns and absorbed early endings — 2026-10-16 (migration 079; staging)
+
+Owner decisions 2026-10-16 ([RESILIENCE.md](RESILIENCE.md#owner-decisions)). The pause described above under "Hold
+sizing" no longer happens: an operation whose provider cost passes its ceiling is a `budget_anomaly` row (attempt and
+operation, with the ceiling and the cost) and a Health › Attention line; the month pauses only on the hard limit
+(unchanged), more than 5 overrunning operations in a rolling hour, or the operator. The provider cost is still spent in
+full; customer settlement is still capped at the hold. Chat settlement records how each answer ended
+(`app_private.chat_endings`): an answer the provider, our server or our limits cut short, a dropped connection and a
+refusal charge the reader 0 credits, and their provider cost is recorded as `absorbed_microusd` while remaining in
+`spent_microusd` and the attempts. `worker_budget_health` (the scheduled budget check) adds the tripwire's count, the last
+day's anomalies, whether the tripwire paused the month, and today's absorbed early endings. Drills reconcile their own
+synthetic attempts to zero (`worker_fault_drill_reconcile`, test accounts only), so they leave no liability. Still open:
+aborted real attempts (a Stop, a dropped connection) stay `unknown` until reconciled (audit item 1, above).
+
 ## October cap raised on the owner's instruction — 2026-10-15 01:30 UTC
 
 The owner's chat refused with "AI answers are paused right now" (`platform_budget_exhausted`): October stood at

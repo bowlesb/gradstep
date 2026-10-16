@@ -15,6 +15,27 @@ Updated 2026-10-15 PDT (reader revision 15 entry 2026-10-16 UTC). Earlier deploy
   passing on rerun (broken-diagram journey). iPad: ChatControls, ChatHistoryTable, Settings pass after the empty-chat
   hit-testing fix.
 
+## Contained overruns; answers that stop early cost the reader nothing (server) — 2026-10-16, ~06:35 UTC
+
+- Owner decisions 2026-10-16 (RESILIENCE fix 1; failed answers), server half, on **staging**: migration 079 applied and
+  verified (no settlement path clears `work_enabled` any more; only the tripwire can); `chat` deployed, deploy suite 19/19
+  with the chat smoke recording the first `completed` ending. Clients still to ship (send `stop_signal`, call
+  `v1_chat_stop` on Stop, read `charged`/`reason`, "Interrupted · not charged"); admin Health Attention built, not
+  deployed to admin.gradstep.ai.
+- **Overruns**: a `budget_anomaly` row and an Attention line, never a pause by itself; the month pauses on the hard
+  limit, more than 5 overrunning operations in an hour (counted afresh after a pause), or the operator.
+- **Early endings** ([CHAT](architecture/CHAT.md#when-an-answer-stops-early--2026-10-16)): provider failure or overload,
+  our server, our 130 s or `max_tokens` limit, a dropped connection (with `stop_signal`) and refusals charge 0, cost
+  recorded as absorbed (`chat_endings`); Stop (recorded) and older builds' closed streams pay what was used; undelivered
+  titles, suggestions and map updates are absorbed; more than 20 unpaid endings per account per day → Attention.
+- **Live drills** (each 100 %): throttle 9/9 (`cb605a6a…`, 0 credits), midstream 8/8 (`6d02ef34…`, 0 credits, 63
+  characters kept), stop 6/6 (`8da20b6a…` stopped 1 credit, `9a873b71…` connection 0, `9e42aa9e…` left 1), overrun 5/5
+  (`89bc1980…`, two test-account anomaly rows, `work_enabled` true, then a 1-credit answer). About $0.006 of provider
+  spend including the deploy smoke; staging left with $0 reserved and no unresolved attempts
+  ([RESILIENCE](architecture/RESILIENCE.md#fix-1-and-early-endings-as-built--2026-10-16)).
+- Local: `npm test`, `deno check` of the chat entry point, the database final and search-switch phases with
+  `contained_overruns.sql`, `npm run build:admin`.
+
 ## Native chat redesign, Settings, Feed and Library from builds 57–58 — 2026-10-16, ~05:00 UTC
 
 - **iPhone, iPad, Mac** (CHAT.md "Chat redesign from build 57 feedback"): starters above one pill message box (the
