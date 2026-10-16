@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (Contents › Tables from the index; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
 ## Mac File menu fixed; reader revision 16 (an image arXiv doesn't serve never refuses) — 2026-10-16, ~07:45 UTC
 
@@ -17,6 +17,20 @@ Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; browser build-5
   ArxivHTMLReaderTests + ArxivCompilerIdentityTests on Mac Catalyst (5/5); `reader-device-compile.mjs` on 2610.19820,
   2610.16784, 2610.20570 ok (3/3, 13/13, 1/1 images). Not yet in a build or deployed.
 
+## Contents › Tables lists a paper's real tables (reader revision 16) — 2026-10-16 (not yet in a build or deployed)
+
+- The Tables tab listed only tables arXiv published as images, so most papers said "No tables" (browser parity
+  report). Revision 16's index now lists captioned tables (`tables: [{id, caption}]`, optional; HTML_FIRST_READER.md,
+  after "An image arXiv doesn't serve"). iPhone, iPad, Mac (`PaperContentsSheet`, `GalleryFigure.tables`) and the
+  browser (`contentsTables`) list them beside image tables in page order, "Table 3 — caption…"; a row opens the table
+  with its whole caption and Show in paper (Back). "Algorithm 1" now reads as a number on both (`GalleryFigure.label`,
+  `figureLabel`). The app's study fixture bundle (`ReaderSamples/arxiv-fixture.json`) is recompiled with revision 16.
+- Evidence: `npm test` (backend 617 incl. `arxiv-tables-index`, browser units incl. `paper-contents`, `bundle`);
+  `swift test --filter DeviceReaderTests` (6/6); iPhone 17 Simulator: `PaperToolsTests` (new Tables journey and the
+  Contents tabs journey), `PaperWebViewTests` (label, tables), `ReaderNavigationTests.testHTMLPaperInPageLinksOfferBack`
+  5/5; Playwright `equation-view.spec.ts -g Contents` desktop and phone 6/6; `reader-device-compile.mjs` on 13 cached
+  papers (2610.19820: 9 listed). The device-PDF converter and metadata extractor bundles are unchanged.
+
 ## Browser: build 59 parity, early endings, Listen on legacy arXiv items — 2026-10-16 (built; not deployed)
 
 The browser now matches the apps' build-59 changes (native commits `9903f50`, `5e4c1d2`, `f99a86d`, `e9b2a1b`):
@@ -28,7 +42,8 @@ The browser now matches the apps' build-59 changes (native commits `9903f50`, `5
   tabs). Figures/Tables rows "Figure 1 — caption" (two lines) open the figure viewer with the whole caption and Show in
   paper; Figures starts with View as tiles (the gallery); Equations rows "Equation (n)" with the LaTeX as text go to the
   equation with Back (`showEquation` in the frame shim calls the bridge's `__scienceReaderShowEquation`). As in the
-  apps, only figures and tables with images are listed (an HTML table is not in the bundle's figure index).
+  apps, only figures and tables with images were listed (an HTML table was not in the bundle's figure index; revision
+  16 lists them, entry above).
 - **AI chat options**: "Default options for new chats" (Model, Length, Visual answers); its ⓘ opens About AI chat
   options (models, who processes them, credits per question); Answer options' link opens About directly. Every ⓘ
   bubble darkens the rest of the page (black at 40 %) and flips above its ⓘ when it would run off its dialog.

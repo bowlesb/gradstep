@@ -14,6 +14,9 @@ export interface ReaderIndex {
   blocks: { id: string; kind: string; text: string }[];
   equations: { id: string; block_id: string; latex: string; display: boolean; source_form: 'body' | 'environment' }[];
   figures: { id: string; block_id: string; asset_paths: string[]; caption: string; alt: string }[];
+  /** The paper's captioned tables in page order (arXiv HTML, revision 16): the table block and its caption, so Contents
+   * can list them by name. Optional: earlier bundles and the other renderers have none. */
+  tables?: { id: string; caption: string }[];
 }
 export interface ResolvedImage { path: string; width: number; height: number }
 export interface RenderStats { equations: number; mathFallbacks: number; figures: number; blocks: number; links: number }

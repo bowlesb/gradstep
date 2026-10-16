@@ -72,6 +72,9 @@ export interface ArxivContext {
   readonly top: OutNode[];
   readonly equations: ReaderIndex['equations'];
   readonly figures: ReaderIndex['figures'];
+  /** Table blocks whose caption the flow found outside a `figcaption` of their own (tables.ts): the caption paragraph
+   * beside them, the text of a caption set inside a minipage, or null for a table in a group that isn't listed alone. */
+  readonly tableCaptions: Map<string, OutNode | string | null>;
   readonly usedMath: Set<DomNode>;
   /** Math carried by a picture (drawn inside it or left out with it) rather than rendered as an equation. */
   readonly skippedMath: Set<DomNode>;
@@ -101,7 +104,7 @@ export function createContext(root: DomNode, sourceURL: string, resolveImage: Re
   const metadataAuthors = (Array.isArray(options.authors) ? options.authors : []).filter(a => typeof a === 'string')
     .map(a => normalizeSpace(a)).filter(Boolean).slice(0, 64).map(a => a.slice(0, 256));
   const metadataTitle = typeof options.title === 'string' ? normalizeSpace(options.title).slice(0, 2000) : '';
-  return { root, sourceURL, resolveImage, options, metadataAuthors, metadataTitle, digest, blocks: [], top: [], equations: [], figures: [],
+  return { root, sourceURL, resolveImage, options, metadataAuthors, metadataTitle, digest, blocks: [], top: [], equations: [], figures: [], tableCaptions: new Map(),
     usedMath: new Set(), skippedMath: new Set(), aliases: new Map(), links: [], imageURLs: new Set(), figureImages: new Map(), unshownImages: new Map(), synthetic: new Set(),
     issued: 0, dropped, omittedGraphics: 0, unresolvedCitations: 0, titleSeen: false, pendingAbstract: null, templateNotes: [], templateAffiliations: [] };
 }

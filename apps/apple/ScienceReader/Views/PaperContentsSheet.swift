@@ -11,8 +11,9 @@ struct PaperContentsSheet: View {
     }
     struct Equation: Identifiable, Equatable { let id: String; let label: String; let text: String }
 
-    /// The tiles, pushed from the Figures list (owner, build 59: "a link to the same squares based view").
-    enum Route: Hashable { case tiles }
+    /// The tiles, pushed from the Figures list (owner, build 59: "a link to the same squares based view"); a table with
+    /// its whole caption, pushed from the Tables list.
+    enum Route: Hashable { case tiles, table(String) }
 
     let headings: [PaperHeading]
     let bundle: VerifiedReaderBundle?
@@ -25,6 +26,8 @@ struct PaperContentsSheet: View {
     @ScaledMetric(relativeTo: .body) private var indent = 18.0
 
     private var figures: [GalleryFigure] { bundle.map { GalleryFigure.all(in: $0.index) } ?? [] }
+    /// The captioned tables the index lists (revision 16) beside those arXiv published as images, in page order.
+    private var tables: [GalleryFigure] { bundle.map { GalleryFigure.tables(in: $0.index) } ?? [] }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -48,10 +51,18 @@ struct PaperContentsSheet: View {
                                         onShowInPaper: { go(.figure, $0) }, close: { dismiss() })
                 }
             }
-            .navigationDestination(for: Route.self) { _ in
+            .navigationDestination(for: Route.self) { route in
                 if let bundle {
-                    FigureGrid(bundle: bundle, figures: figures).navigationTitle("Figures").navigationBarTitleDisplayMode(.inline)
-                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                    switch route {
+                    case .tiles:
+                        FigureGrid(bundle: bundle, figures: figures).navigationTitle("Figures").navigationBarTitleDisplayMode(.inline)
+                            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                    // A table's own view (a table block or one published as an image), its whole caption, Show in paper:
+                    // the paper goes to it as to a referenced table, with Back.
+                    case .table(let id):
+                        GalleryFigureDetail(bundle: bundle, figures: tables, current: id, baseFontSize: baseFontSize,
+                                            onShowInPaper: { go(.referencedFigure, $0) }, close: { dismiss() }, noun: "Table")
+                    }
                 }
             }
         }
@@ -71,16 +82,19 @@ struct PaperContentsSheet: View {
             .overlay { if headings.isEmpty { ContentUnavailableView("No sections", systemImage: "list.bullet.indent") } }
             .accessibilityIdentifier("contents.list.contents")
         case .figures, .tables:
-            let wanted = figures.filter { ($0.number?.hasPrefix("Table") ?? false) == (tab == .tables) }
+            let wanted = tab == .tables ? tables : figures.filter { !($0.number?.hasPrefix("Table") ?? false) }
             List {
                 if tab == .figures, !wanted.isEmpty {
                     NavigationLink(value: Route.tiles) { Label("View as tiles", systemImage: "square.grid.2x2") }
                         .accessibilityIdentifier("contents.figureTiles")
                 }
                 ForEach(Array(wanted.enumerated()), id: \.element.id) { index, figure in
-                    // "Figure 1 — Subplots of …", the caption cut off; the row opens the figure with its whole caption.
-                    NavigationLink(value: figure.id) {
-                        CaptionEntry(number: figure.number ?? (tab == .tables ? "Table" : "Figure"), caption: figure.caption)
+                    // "Figure 1 — Subplots of …", the caption cut off; the row opens the figure (or table) with its whole
+                    // caption.
+                    let entry = CaptionEntry(number: figure.number ?? (tab == .tables ? "Table" : "Figure"), caption: figure.caption)
+                    Group {
+                        if tab == .tables { NavigationLink(value: Route.table(figure.id)) { entry } }
+                        else { NavigationLink(value: figure.id) { entry } }
                     }
                     .accessibilityIdentifier("contents.\(tab == .tables ? "table" : "figure").\(index)")
                 }

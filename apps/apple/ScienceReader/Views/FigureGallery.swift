@@ -14,6 +14,20 @@ struct GalleryFigure: Identifiable, Equatable {
     /// Images after the first (a figure can hold up to 16).
     let moreImages: Int
 
+    /// The paper's tables in page order (Contents › Tables): the captioned tables the index lists (arXiv HTML revision
+    /// 16) beside the tables arXiv published as images (figures whose caption names a table); an earlier bundle, with
+    /// no list, has those figures only. A listed table is a table block, never also a figure.
+    static func tables(in index: ReaderBundleIndex) -> [GalleryFigure] {
+        let images = all(in: index).filter { $0.number?.hasPrefix("Table") ?? false }
+        guard let listed = index.tables else { return images }
+        let order = Dictionary(index.blocks.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let blocks = listed.map { table in
+            let (number, caption) = label(table.caption)
+            return GalleryFigure(id: table.id, number: number, caption: caption, imagePath: nil, moreImages: 0)
+        }
+        return (blocks + images).sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+    }
+
     static func all(in index: ReaderBundleIndex) -> [GalleryFigure] {
         index.figures.map { figure in
             let (number, caption) = label(figure.caption.isEmpty ? figure.alt : figure.caption)
@@ -22,16 +36,17 @@ struct GalleryFigure: Identifiable, Equatable {
         }
     }
 
-    /// Splits "Figure 4: Best of N …" into ("Figure 4", "Best of N …"). "Fig. 2", "FIGURE 2", "Figure A.1" and
-    /// "Table 3" are recognized; anything else is all caption.
+    /// Splits "Figure 4: Best of N …" into ("Figure 4", "Best of N …"). "Fig. 2", "FIGURE 2", "Figure A.1",
+    /// "Table 3" and "Algorithm 1" are recognized; anything else is all caption.
     static func label(_ text: String) -> (number: String?, caption: String) {
         var caption = text.replacing(/\\([{}%$&_#])/) { String($0.output.1) }
         caption = caption.replacing(/\s+/, with: " ").replacing(/\s+([.,;:])/) { String($0.output.1) }
             .trimmingCharacters(in: .whitespaces)
-        guard let match = caption.firstMatch(of: /^(fig(?:ure)?\.?|table)\s*([A-Z]?\.?\s?\d{1,3}[a-z]?)\s*[:.|]?\s*/.ignoresCase()) else {
+        guard let match = caption.firstMatch(of: /^(fig(?:ure)?\.?|table|algorithm)\s*([A-Z]?\.?\s?\d{1,3}[a-z]?)\s*[:.|]?\s*/.ignoresCase()) else {
             return (nil, caption)
         }
-        let kind = match.output.1.lowercased().hasPrefix("t") ? "Table" : "Figure"
+        let word = match.output.1.lowercased()
+        let kind = word.hasPrefix("t") ? "Table" : word.hasPrefix("a") ? "Algorithm" : "Figure"
         let number = String(match.output.2).replacing(/\s/, with: "")
         return ("\(kind) \(number)", String(caption[match.range.upperBound...]))
     }
@@ -159,24 +174,26 @@ struct GalleryFigureDetail: View {
     let onShowInPaper: (String) -> Void
     /// Closes the gallery (Done), as from its grid.
     let close: () -> Void
+    /// What one entry is called where its caption names no number ("Figure", or "Table" from Contents › Tables).
+    var noun = "Figure"
 
     private var index: Int { figures.firstIndex { $0.id == current } ?? 0 }
 
     var body: some View {
         FigureWebView(bundle: bundle, figureID: current, baseFontSize: baseFontSize)
             .id(current)
-            .navigationTitle(figures.indices.contains(index) ? figures[index].number ?? "Figure \(index + 1)" : "Figure")
+            .navigationTitle(figures.indices.contains(index) ? figures[index].number ?? "\(noun) \(index + 1)" : noun)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: close) }
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button { current = figures[index - 1].id } label: { Image(systemName: "chevron.left") }
-                        .accessibilityLabel("Previous figure").disabled(index == 0)
+                        .accessibilityLabel("Previous \(noun.lowercased())").disabled(index == 0)
                     Spacer()
                     Button("Show in paper") { onShowInPaper(current) }.accessibilityIdentifier("figures.showInPaper")
                     Spacer()
                     Button { current = figures[index + 1].id } label: { Image(systemName: "chevron.right") }
-                        .accessibilityLabel("Next figure").disabled(index >= figures.count - 1)
+                        .accessibilityLabel("Next \(noun.lowercased())").disabled(index >= figures.count - 1)
                 }
             }
     }

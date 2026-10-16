@@ -249,6 +249,37 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "An equation from Contents")
     }
 
+    /// Contents › Tables lists the paper's captioned tables (reader revision 16: the index names them; before, only
+    /// tables published as images were listed, so most papers said "No tables"). A row opens the table with its whole
+    /// caption; Show in paper goes to it with Back.
+    func testContentsTablesListsCaptionedTablesAndShowsOneInThePaper() throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--study-fixture"]
+        app.launch()
+        // The study fixture selects the arXiv HTML paper (compiled by this app's compiler).
+        XCTAssertTrue(app.buttons["tab.paper"].waitForExistence(timeout: 10) || app.segmentedControls["wide.mode"].buttons["Reader"].exists)
+        app.show("paper")
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        app.buttons["Table of contents"].tap()
+        let tabs = app.segmentedControls["contents.tabs"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        tabs.buttons["Tables"].tap()
+        let table = app.buttons["contents.table.0"]
+        XCTAssertTrue(table.waitForExistence(timeout: 5), "Tables lists the paper's captioned table")
+        XCTAssertTrue(table.label.hasPrefix("Table 1 — Values."), table.label)
+        XCTAssertFalse(app.buttons["contents.table.1"].exists, "One table in the fixture paper")
+        capture(app, "Tables tab: the paper's captioned tables")
+        table.tap()
+        XCTAssertTrue(app.navigationBars["Table 1"].waitForExistence(timeout: 5), "The table's own view")
+        capture(app, "A table from Contents")
+        app.buttons["figures.showInPaper"].tap()
+        XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "Show in paper closes Contents")
+        XCTAssertTrue(app.buttons["reader.citation.back"].waitForExistence(timeout: 5), "The paper goes to the table with Back")
+        capture(app, "A table from Contents, in the paper")
+    }
+
     // MARK: - Figure gallery (gap 6)
 
     func testFigureGalleryOpensAFigureAndShowsItInThePaperWithBack() throws {

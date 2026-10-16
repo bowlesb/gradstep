@@ -32,7 +32,8 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * placeholder author block gives way to the catalog's names, a picture title's alt is the title; revision 15: an image the
  * device can't prepare says so in its figure instead of refusing the paper, an SVG's unreferenced repeated id is dropped
  * and an over-large SVG is drawn smaller, 2610.19820 and 2610.16784 on build 58; revision 16: an image arXiv doesn't
- * serve (not found, not an image, too large on its own) is that figure's note, not the paper's refusal), so a device re-prepares papers it
+ * serve (not found, not an image, too large on its own) is that figure's note, not the paper's refusal, and the index
+ * lists the paper's captioned tables (`tables`) for Contents › Tables), so a device re-prepares papers it
  * compiled with an older app (ReaderModel.openHTMLReader). */
 export const ARXIV_RENDERER_REVISION = 16;
 

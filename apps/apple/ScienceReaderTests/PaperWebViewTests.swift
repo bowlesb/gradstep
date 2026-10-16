@@ -61,11 +61,27 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertEqual(label("FIGURE 12a | Ablations"), ["Figure 12a", "Ablations"])
         XCTAssertEqual(label("Figure A. 1: Proof sketch"), ["Figure A.1", "Proof sketch"])
         XCTAssertEqual(label("Table 3: Results"), ["Table 3", "Results"])
+        XCTAssertEqual(label("Algorithm 1 ActionOPD"), ["Algorithm 1", "ActionOPD"])
         XCTAssertEqual(label("Queries and keys produce weights."), [nil, "Queries and keys produce weights."])
         let figures = GalleryFigure.all(in: try ReaderBundleLoader.sample().index)
         XCTAssertEqual(figures.map(\.number), ["Figure 1", "Figure 2"])
         XCTAssertTrue(figures[0].caption.hasPrefix("A simplified attention data flow."))
         XCTAssertNotNil(figures[0].imagePath)
+    }
+
+    /// Contents › Tables (reader revision 16): the index's captioned tables beside the image tables, in page order; a
+    /// bundle without the list (the authored sample) has image tables only.
+    func testContentsTablesListTheIndexTablesBesideImageTables() throws {
+        let url = try XCTUnwrap(Bundle.main.resourceURL).appendingPathComponent("ReaderSamples/arxiv-fixture.json")
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: url))
+        let tables = GalleryFigure.tables(in: bundle.index)
+        XCTAssertEqual(tables.map(\.number), ["Table 1"])
+        XCTAssertEqual(tables.first?.caption, "Values.")
+        XCTAssertEqual(tables.first?.id, bundle.index.blocks.first { $0.kind == "table" }?.id, "A table block, not a figure")
+        XCTAssertNil(tables.first?.imagePath)
+        let sample = try ReaderBundleLoader.sample()
+        XCTAssertNil(sample.index.tables)
+        XCTAssertEqual(GalleryFigure.tables(in: sample.index).map(\.id), GalleryFigure.all(in: sample.index).filter { $0.number?.hasPrefix("Table") ?? false }.map(\.id))
     }
 
     func testShowFigureCentersItHighlightsItAndBackReturns() async throws {

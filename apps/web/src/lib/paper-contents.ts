@@ -5,18 +5,19 @@
 import type { ReaderIndex } from './bundle';
 import { equationTurn } from './equation';
 
-/** One figure or table as listed: "Figure 3" / "Table 2" (null when its caption names none) and the caption after it. */
-export interface ContentsFigure { id: string; number: string | null; caption: string; table: boolean }
+/** One figure or table as listed: "Figure 3" / "Table 2" (null when its caption names none) and the caption after it.
+ * `block`: a table block the index lists by its caption (it opens as a table, not in the figure viewer). */
+export interface ContentsFigure { id: string; number: string | null; caption: string; table: boolean; block?: boolean }
 /** One display equation as listed: "Equation (4)" and its LaTeX as plain text (at most 160 characters). */
 export interface ContentsEquation { id: string; label: string; text: string }
 
-/** Splits "Figure 4: Best of N …" into ("Figure 4", "Best of N …"); "Fig. 2", "FIGURE 2", "Figure A.1" and "Table 3" are
- * recognized, anything else is all caption; escaped LaTeX characters read as text (GalleryFigure.label). */
+/** Splits "Figure 4: Best of N …" into ("Figure 4", "Best of N …"); "Fig. 2", "FIGURE 2", "Figure A.1", "Table 3" and
+ * "Algorithm 1" are recognized, anything else is all caption; escaped LaTeX characters read as text (GalleryFigure.label). */
 export function figureLabel(text: string): { number: string | null; caption: string } {
   const caption = text.replace(/\\([{}%$&_#])/g, '$1').replace(/\s+/g, ' ').replace(/\s+([.,;:])/g, '$1').trim();
-  const match = /^(fig(?:ure)?\.?|table)\s*([A-Z]?\.?\s?\d{1,3}[a-z]?)\s*[:.|]?\s*/i.exec(caption);
+  const match = /^(fig(?:ure)?\.?|table|algorithm)\s*([A-Z]?\.?\s?\d{1,3}[a-z]?)\s*[:.|]?\s*/i.exec(caption);
   if (!match) return { number: null, caption };
-  const kind = match[1].toLowerCase().startsWith('t') ? 'Table' : 'Figure';
+  const kind = match[1].toLowerCase().startsWith('t') ? 'Table' : match[1].toLowerCase().startsWith('a') ? 'Algorithm' : 'Figure';
   return { number: `${kind} ${match[2].replace(/\s/g, '')}`, caption: caption.slice(match[0].length) };
 }
 
@@ -26,6 +27,17 @@ export function contentsFigures(index: Pick<ReaderIndex, 'figures'>): ContentsFi
     const { number, caption } = figureLabel(f.caption || f.alt);
     return { id: f.id, number, caption, table: !!number?.startsWith('Table') };
   });
+}
+
+/** The paper's tables in page order (Contents › Tables): the captioned tables the index lists (arXiv HTML revision 16)
+ * beside the tables arXiv published as images (figures whose caption names a table); an earlier bundle, with no list,
+ * shows those figures only. A listed table is never also a figure (one is a table block, the other a figure block). */
+export function contentsTables(index: Pick<ReaderIndex, 'figures' | 'tables' | 'blocks'>): ContentsFigure[] {
+  const images = contentsFigures(index).filter(f => f.table);
+  if (!index.tables) return images;
+  const order = new Map(index.blocks.map((b, i) => [b.id, i]));
+  const listed = index.tables.map(t => ({ id: t.id, ...figureLabel(t.caption), table: true, block: true }));
+  return [...listed, ...images].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
 /** The paper's display equations in order, numbered as printed (the page's tag, else a \tag{…} in the source), with

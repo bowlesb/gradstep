@@ -8,6 +8,7 @@ import { canonicalBytes, check, CONTROL, decodeUTF8, excerpt, fail, HEX64, idIsS
 import type { ReaderIndex } from './render.ts';
 import { ARXIV_PROVENANCE_FORMAT, ARXIV_RENDERER_ID, ARXIV_SOURCE_KIND, arxivAssetURL, arxivHTMLURL } from './arxiv-html.ts';
 import { ARXIV_CSS } from './arxiv-bundle.ts';
+import { INDEX_TABLES } from './arxiv/tables.ts';
 
 // Independent, rejecting check of a complete timestep-mathpix-mathml-v1
 // bundle. It never repairs input. Callers still need an independently
@@ -134,9 +135,13 @@ function validateArxivProvenance(bytes: Uint8Array, renderer: Record<string, unk
 
 function validateIndex(bytes: Uint8Array, images: Set<string>): ReaderIndex {
   check(bytes.length <= LIMITS.indexBytes, 'index_limit');
-  const index = record(parseCanonical(bytes, 'index_format'), ['format', 'title', 'headings', 'blocks', 'equations', 'figures'], 'index_format');
+  const parsed = parseCanonical(bytes, 'index_format');
+  // `tables` is optional (revision 16 of the arXiv HTML renderer lists captioned tables; other bundles have none).
+  const hasTables = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && Object.hasOwn(parsed as object, 'tables');
+  const index = record(parsed, ['format', 'title', 'headings', 'blocks', 'equations', 'figures', ...(hasTables ? ['tables'] : [])], 'index_format');
   check(index.format === INDEX_FORMAT && text(index.title, LIMITS.headingBytes) && (index.title as string).length > 0, 'index_title');
-  const limits: Record<string, number> = { blocks: LIMITS.blocks, headings: LIMITS.headings, equations: LIMITS.equations, figures: LIMITS.figures };
+  const limits: Record<string, number> = { blocks: LIMITS.blocks, headings: LIMITS.headings, equations: LIMITS.equations, figures: LIMITS.figures,
+    ...(hasTables ? { tables: INDEX_TABLES } : {}) };
   for (const [key, limit] of Object.entries(limits)) {
     const rows = index[key];
     check(Array.isArray(rows) && rows.length <= limit, 'index_collection');
@@ -174,6 +179,10 @@ function validateIndex(bytes: Uint8Array, images: Set<string>): ReaderIndex {
     for (const path of paths as string[]) referenced.add(path);
   }
   check(referenced.size === images.size, 'unused_asset');
+  for (const value of hasTables ? index.tables as unknown[] : []) {
+    const table = record(value, ['id', 'caption'], 'index_table');
+    check(blocks.get(table.id as string) === 'table' && text(table.caption, LIMITS.textBytes) && (table.caption as string).trim().length > 0, 'index_table');
+  }
   return index as unknown as ReaderIndex;
 }
 
