@@ -490,15 +490,54 @@ struct PodcastNoticeBanner: View {
     }
 }
 
-/// An episode made while its sheet was closed is ready: Play it, inside a podcast sheet.
+/// An episode asked for earlier is ready (Play) or couldn't be made (Try again), inside a podcast sheet.
 struct PodcastReadyBanner: View {
     let center: PodcastCenter
     let notice: PodcastCenter.ReadyNotice
     var body: some View {
-        StatusBanner(tone: .info, systemImage: "checkmark.circle", message: notice.message, messageID: "podcast.ready") {
-            Button("Play") { center.playReadyNotice() }.accessibilityIdentifier("podcast.ready.play")
+        StatusBanner(tone: notice.releaseID == nil ? .problem : .info, systemImage: notice.releaseID == nil ? "exclamationmark.circle" : "checkmark.circle",
+                     message: notice.message, messageID: "podcast.ready") {
+            Button(notice.releaseID == nil ? "Try again" : "Play") { center.playReadyNotice() }.accessibilityIdentifier("podcast.ready.play")
             Button { center.readyNotice = nil } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)) }
                 .accessibilityLabel("Dismiss").tint(.secondary)
+        }
+    }
+}
+
+/// The same notice anywhere else in the app: a small capsule above the tab bar (and the mini-player), never a modal.
+/// It goes by itself after half a minute; the episode stays in Listen.
+struct PodcastReadyToast: View {
+    let center: PodcastCenter
+    let notice: PodcastCenter.ReadyNotice
+    var body: some View {
+        let ready = notice.releaseID != nil
+        HStack(spacing: 10) {
+            Image(systemName: ready ? "headphones" : "exclamationmark.circle").foregroundStyle(ready ? Color.accentColor : Color.orange)
+                .accessibilityHidden(true)
+            // What happened first, then which paper (a long title is cut, never the news).
+            VStack(alignment: .leading, spacing: 1) {
+                Text(notice.headline).font(.subheadline.weight(.semibold))
+                Text(notice.title).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .accessibilityElement(children: .ignore).accessibilityLabel(notice.message).accessibilityAddTraits(.isStaticText)
+            .accessibilityIdentifier("podcast.toast.message")
+            Spacer(minLength: 8)
+            Button(ready ? "Play" : "Try again") { center.playReadyNotice(notice) }
+                .buttonStyle(.borderedProminent).controlSize(.small).accessibilityIdentifier("podcast.toast.action")
+            Button { center.readyNotice = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).tint(.secondary).accessibilityLabel("Dismiss").accessibilityIdentifier("podcast.toast.dismiss")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        .padding(.horizontal, DesignMetrics.margin)
+        .frame(maxWidth: 560)
+        .accessibilityElement(children: .contain).accessibilityIdentifier("podcast.toast")
+        .task(id: notice.id) {
+            AccessibilityNotification.Announcement(notice.message).post()
+            try? await Task.sleep(for: .seconds(30))
+            if center.readyNotice?.id == notice.id { center.readyNotice = nil }
         }
     }
 }
@@ -516,13 +555,22 @@ struct PodcastPresenter: ViewModifier {
                                                   set: { if !$0 { center.notice = nil } })) {
                 Button("OK") { model.podcasts.notice = nil }
             } message: { Text(model.podcasts.notice ?? "") }
-            // An episode that became ready after its sheet was closed: Play now, or later from Listen on the paper.
-            .alert("Listen", isPresented: Binding(get: { center.readyNotice != nil && center.notice == nil && !center.showPlayer && center.generation == nil },
-                                                  set: { if !$0 { center.readyNotice = nil } }),
-                   presenting: center.readyNotice) { ready in
-                Button("Play") { center.playReadyNotice(ready) }
-                Button("Not now", role: .cancel) { center.readyNotice = nil }
-            } message: { ready in Text(ready.message) }
+            // An episode asked for earlier is ready, or couldn't be made: a small notice above the tab bar (and the
+            // mini-player), with Play or Try again. The open podcast sheets show it themselves.
+            .overlay(alignment: .bottom) {
+                if let ready = center.readyNotice, !center.showPlayer, center.generation == nil {
+                    GeometryReader { proxy in
+                        let tabs = !(proxy.size.width >= 850 || Platform.isMac)
+                        // Clear of the mini-player: on the tab bar, or docked along the bottom in the wide layout.
+                        let mini = center.nowPlaying != nil ? PodcastMiniPlayer.height + 12 : 0
+                        PodcastReadyToast(center: center, notice: ready)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, (tabs ? ChromeMetrics.tabBarReserve(safeBottom: proxy.safeAreaInsets.bottom) : 12) + mini)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.default, value: center.readyNotice?.id)
     }
 }
 

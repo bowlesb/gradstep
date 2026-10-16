@@ -85,6 +85,10 @@ struct PodcastGeneration: Identifiable, Equatable {
         self.selectedWriter = lengths.first { $0.profile == chosen }?.writers.first?.writer
     }
 
+    /// After a request finishes the server deletes the text it was made from (migration 076): a new request sends it
+    /// again under new request ids.
+    mutating func forgetFinishedRequest() { deviceTextSHA256 = nil; quoteRequestIDs = [:]; startRequestIDs = [:] }
+
     var selectedLength: PodcastLength? { lengths.first { $0.profile == selected } }
     /// The writers the chosen length offers (empty on servers without the choice), the default first.
     var writers: [PodcastWriter] { selectedLength?.writers ?? [] }
@@ -114,6 +118,16 @@ struct PodcastGeneration: Identifiable, Equatable {
     /// take about ten minutes.
     static func expectedWait(targetSeconds: Int) -> String {
         targetSeconds > 300 ? "This length can take 10 minutes or more." : "Usually ready in a few minutes."
+    }
+
+    /// The providers a quote names, as plain names ("DeepSeek and Google"): what the paper's text is sent to.
+    static func plainProviders(_ labels: [String]) -> String {
+        let names = labels.map { label -> String in
+            let name = label.replacingOccurrences(of: #"\s*\(.*\)$"#, with: "", options: .regularExpression)
+            return name.hasPrefix("Google") ? "Google" : name
+        }
+        guard let last = names.last else { return "our providers" }
+        return names.count > 1 ? names.dropLast().joined(separator: ", ") + " and " + last : last
     }
 }
 
@@ -159,18 +173,35 @@ final class PodcastCenter {
     var evidenceElsewhere: PodcastEvidenceElsewhere?
     /// A one-line problem or outcome, shown as an alert.
     var notice: String?
-    /// A private episode that became ready after its sheet was closed: offered with Play (an alert at the root, a
-    /// banner inside an open podcast sheet). In-app only; local notifications are an owner decision.
+    /// An episode asked for earlier is ready, or couldn't be made, while the app is open (owner, 2026-10-16: "it doesnt
+    /// matter if you leave the page or app, its there for you"): a small notice above the tab bar with Play or Try
+    /// again, never a modal (a banner inside an open podcast sheet). In-app only; local notifications are an owner decision.
     struct ReadyNotice: Identifiable, Equatable {
+        enum Kind: Equatable { case ready(UUID), failed(paperID: UUID?, profile: String?) }
         let id = UUID()
-        let releaseID: UUID
+        let kind: Kind
         let title: String
-        var message: String { "Your episode of “\(title)” is ready." }
+        init(releaseID: UUID, title: String) { kind = .ready(releaseID); self.title = title }
+        init(failedFor paperID: UUID?, profile: String?, title: String) { kind = .failed(paperID: paperID, profile: profile); self.title = title }
+        var releaseID: UUID? { if case .ready(let id) = kind { return id }; return nil }
+        var headline: String { releaseID == nil ? "Couldn’t make your episode" : "Your episode is ready" }
+        var message: String {
+            switch kind {
+            case .ready: "Your episode of “\(title)” is ready."
+            case .failed: "Your episode of “\(title)” couldn’t be made."
+            }
+        }
     }
     var readyNotice: ReadyNotice?
-    /// Status polling stops after this long; the job itself continues on the server.
+    /// Listen's own section (migration 076): the account's ready private episodes, newest first, and the episodes it
+    /// asked for that are being made or couldn't be made.
+    private(set) var myEpisodes: [PodcastEpisode] = []
+    private(set) var myRequests: [PodcastMine.Request] = []
+    /// Status polling stops after this long; the job itself continues on the server, and Listen keeps checking.
     static let pollLimit: TimeInterval = 1_800
-    static let stillPreparingNotice = "Still preparing. Check back from Listen on this paper."
+    /// Listen checks for episodes being made after these waits (then every minute), for at most `mineLimit`.
+    static let mineDelays: [TimeInterval] = [15, 30, 60]
+    static let mineLimit: TimeInterval = 2_700
     /// Releases the server has corrected (superseded) since they were downloaded: their replacement.
     private(set) var corrections: [UUID: UUID] = [:]
 
@@ -181,6 +212,10 @@ final class PodcastCenter {
     @ObservationIgnored private var transferTask: Task<Void, Never>?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var catalogTask: Task<Void, Never>?
+    @ObservationIgnored private var mineTask: Task<Void, Never>?
+    @ObservationIgnored private var mineFetch: Task<Void, Never>?
+    /// Requests whose outcome was already announced, so the status poll and Listen's check never announce one twice.
+    @ObservationIgnored private var announced: Set<UUID> = []
     @ObservationIgnored private var historySave: Task<Void, Never>?
     @ObservationIgnored private var generationCounter = 0
     @ObservationIgnored private var backgroundObserver: NSObjectProtocol?
@@ -295,6 +330,7 @@ final class PodcastCenter {
         account = nil; store = nil; session = nil
         transferTask?.cancel(); transferTask = nil; transfer = nil
         pollTask?.cancel(); pollTask = nil; catalogTask?.cancel(); catalogTask = nil
+        mineTask?.cancel(); mineTask = nil; mineFetch?.cancel(); mineFetch = nil; myEpisodes = []; myRequests = []; announced = []
         catalog = []; catalogState = .idle; catalogNext = nil; capabilities = nil
         downloads = [:]; history = PodcastPlaybackLedger(); generation = nil; evidenceElsewhere = nil; notice = nil; corrections = [:]
         readyNotice = nil; showPlayer = false; listenSelected = false
@@ -357,6 +393,7 @@ final class PodcastCenter {
                 capabilities = page.capabilities ?? capabilities
                 catalog = page.episodes.map { resolve($0) }; catalogNext = page.next; catalogState = .loaded
                 catalogLoadedAt = Date(); catalogStaleNote = nil
+                if let mine = page.mine { applyMine(mine) }
                 #if DEBUG && FIXTURE_HOST
                 fixtureAutoplay()
                 #endif
@@ -370,6 +407,96 @@ final class PodcastCenter {
                 catalogState = .failed(error.podcastMessage)
             }
         }
+    }
+
+    /// Listen's own section again (on returning to Listen or to the app, and while episodes are being made): the
+    /// first page's `mine` only, leaving the shared list as it is.
+    func refreshMine() {
+        guard catalogState == .loaded else { if catalogState != .loading { loadCatalog() }; return }
+        mineFetch?.cancel()
+        mineFetch = Task {
+            guard let account = await currentAccount(),
+                  let page = try? await account.transport.catalog(after: nil, limit: 50),
+                  self.account?.id == account.id, !Task.isCancelled else { return }
+            capabilities = page.capabilities ?? capabilities
+            if let mine = page.mine { applyMine(mine) }
+        }
+    }
+
+    /// The app came back to the foreground: anything being made may be ready now.
+    func sceneBecameActive() {
+        guard account != nil, catalogState == .loaded || !myRequests.isEmpty else { return }
+        refreshMine()
+    }
+
+    /// Whether a private episode is new to this device (never played here).
+    func isNew(_ episode: PodcastEpisode) -> Bool {
+        episode.scope == .private && resumePosition(episode.id) == nil && !isFinished(episode.id) && nowPlaying?.id != episode.id
+    }
+
+    /// The paper a request or episode was made from, when it's in this library.
+    func paper(for documentID: UUID?) -> Paper? { documentID.flatMap { id in host?.papers.first { $0.id == id } } }
+
+    /// A request's title: the server's (device papers), else the library's, else a neutral name.
+    func title(of request: PodcastMine.Request) -> String {
+        request.title ?? paper(for: request.documentID)?.title ?? "Your episode"
+    }
+
+    private func applyMine(_ mine: PodcastMine) {
+        let previous = myRequests
+        let wasMaking = Set(previous.filter { !$0.failed }.map(\.id))
+        myEpisodes = mine.episodes.map { episode in
+            let asked = mine.madeBy[episode.id].flatMap { id in previous.first { $0.id == id } }
+            return resolve(episode, fallback: asked?.title)
+        }
+        myRequests = mine.requests
+        // A request that was being made and isn't any more: its episode is ready, or it couldn't be made.
+        for requestID in wasMaking where !announced.contains(requestID) && !mine.requests.contains(where: { $0.id == requestID && !$0.failed }) {
+            if let failed = mine.requests.first(where: { $0.id == requestID && $0.failed }) {
+                announced.insert(requestID)
+                readyNotice = ReadyNotice(failedFor: failed.documentID, profile: failed.profile, title: title(of: failed))
+            } else if let release = mine.madeBy.first(where: { $0.value == requestID })?.key, let episode = myEpisodes.first(where: { $0.id == release }) {
+                announced.insert(requestID)
+                if nowPlaying?.id != release {
+                    let asked = previous.first { $0.id == requestID }
+                    readyNotice = ReadyNotice(releaseID: release, title: episode.title ?? asked.map { title(of: $0) } ?? episode.displayTitle)
+                }
+            }
+        }
+        watchMine()
+    }
+
+    /// While something is being made: check again after 15 s, 30 s, then every minute (only in the foreground), for at
+    /// most 45 minutes; returning to Listen or to the app checks at once.
+    private func watchMine() {
+        guard myRequests.contains(where: { !$0.failed }) else { mineTask?.cancel(); mineTask = nil; return }
+        guard mineTask == nil else { return }
+        mineTask = Task { [weak self] in
+            let started = Date()
+            var step = 0
+            while !Task.isCancelled, Date().timeIntervalSince(started) < Self.mineLimit {
+                var delay = Self.mineDelays[min(step, Self.mineDelays.count - 1)]
+                #if DEBUG && FIXTURE_HOST
+                if PodcastFixtureTransport.isEnabled { delay = 1 }
+                #endif
+                step += 1
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, !Task.isCancelled else { return }
+                if self.host?.sceneActive == false && !self.fixtureEnabled { continue }
+                self.refreshMine()
+            }
+            // Out of time (not replaced): returning to Listen or to the app starts watching again.
+            if !Task.isCancelled { self?.mineTask = nil }
+        }
+    }
+
+    /// Try again from Listen or its notice: the paper's Listen sheet, at the same length.
+    func tryAgain(paperID: UUID?, profile: String?) {
+        readyNotice = nil
+        guard let paper = paper(for: paperID) else {
+            notice = "Open the paper on this device, then choose Listen to try again."; return
+        }
+        open(paper, choosingLength: false, preferring: profile)
     }
 
     func loadMoreCatalog() {
@@ -607,7 +734,7 @@ final class PodcastCenter {
         return capabilities?.generation == true
     }
 
-    private func open(_ paper: Paper, choosingLength: Bool) {
+    private func open(_ paper: Paper, choosingLength: Bool, preferring profile: String? = nil) {
         Task {
             guard let account = await currentAccount() else { notice = "Sign in to listen to paper episodes."; return }
             let itemID: UUID
@@ -638,14 +765,14 @@ final class PodcastCenter {
                     poll(job.requestID)
                 } else if lookup.capabilities?.generation == true {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer,
-                                                   capabilities: lookup.capabilities, ready: ready)
+                                                   capabilities: lookup.capabilities, ready: ready, selected: profile)
                     generation?.deviceSource = deviceSource
                     // One confirm step: the chosen length's estimate is fetched at once (a quote holds nothing).
                     quoteIfWanted()
                 } else if choosingLength, let episode = lookup.episode, !episode.state.blocksPlayback {
                     notice = "Other lengths can’t be made right now. This episode keeps playing."
                 } else {
-                    notice = "There’s no episode for this paper yet, and creating one isn’t available right now. Reading is unaffected."
+                    notice = "Episodes can’t be made right now. Reading is unaffected."
                 }
             } catch {
                 guard self.account?.id == account.id else { return }
@@ -666,18 +793,28 @@ final class PodcastCenter {
         generation = current
         Task {
             do {
-                // The device's text is stored once (the server keeps one copy per digest); every quote names that digest.
+                // The paper's text is sent once per request and named by its digest in every quote; the server deletes
+                // it once the episode is made (migration 076), so text it no longer has is sent again, once.
+                let send: @MainActor (PodcastDeviceSource) async throws -> String = { source in
+                    let digest = try await account.transport.uploadSource(source)
+                    if self.generation?.id == current.id { self.generation?.deviceTextSHA256 = digest }
+                    return digest
+                }
                 var device: PodcastDeviceDescriptor?
+                var cached = false
                 if let source = current.deviceSource {
                     let digest: String
-                    if let known = current.deviceTextSHA256 { digest = known } else {
-                        digest = try await account.transport.uploadSource(source)
-                        guard generation?.id == current.id else { return }
-                        generation?.deviceTextSHA256 = digest
-                    }
+                    if let known = current.deviceTextSHA256 { digest = known; cached = true } else { digest = try await send(source) }
+                    guard generation?.id == current.id else { return }
                     device = source.descriptor(textSHA256: digest)
                 }
-                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile, writer: writer, device: device)
+                let outcome: PodcastQuoteOutcome
+                do {
+                    outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile, writer: writer, device: device)
+                } catch BackendError.rejected("source_unavailable") where cached && current.deviceSource != nil {
+                    device = current.deviceSource!.descriptor(textSHA256: try await send(current.deviceSource!))
+                    outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile, writer: writer, device: device)
+                }
                 guard generation?.id == current.id, generation?.selected == profile, generation?.selectedWriter == writer else { return }
                 switch outcome {
                 case .quote(let quote): generation?.phase = .quoted(quote)
@@ -687,7 +824,7 @@ final class PodcastCenter {
             } catch {
                 guard generation?.id == current.id, generation?.selected == profile else { return }
                 // Quotes hold nothing: a retry may use a new request (an expired quote can't be revived).
-                generation?.quoteRequestIDs[profile] = nil
+                generation?.quoteRequestIDs[key] = nil
                 generation?.phase = .failed(.from(error))
             }
         }
@@ -708,10 +845,21 @@ final class PodcastCenter {
         guard var current = generation, current.selected != profile, current.lengths.contains(where: { $0.profile == profile }) else { return }
         switch current.phase {
         case .offer, .quoting, .quoted, .failed: break
-        case .finished(let job) where job.state == .failed: break
+        case .finished(let job) where job.state == .failed: current.forgetFinishedRequest()
         default: return
         }
         current.selected = profile
+        current.phase = .offer
+        generation = current
+        quoteIfWanted()
+    }
+
+    /// Try again in the sheet: the same length and writer, asked afresh. A finished request's text was deleted with it
+    /// (migration 076), so the paper's text is sent again with the new quote.
+    func askAgain() {
+        guard var current = generation else { return }
+        if case .finished = current.phase { current.forgetFinishedRequest() }
+        current.quoteRequestIDs = [:]
         current.phase = .offer
         generation = current
         quoteIfWanted()
@@ -744,6 +892,8 @@ final class PodcastCenter {
             do {
                 let outcome = try await account.transport.start(quoteID: quote.id, requestID: requestID, consentVersion: quote.consentVersion)
                 try await follow(outcome, current, account: account)
+                // Listen shows it being made, wherever the reader goes next.
+                refreshMine()
             } catch {
                 guard generation?.id == current.id else { return }
                 generation?.phase = .failed(.from(error))
@@ -782,7 +932,8 @@ final class PodcastCenter {
                 #endif
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled, generationCounter == counter else { return }
-                if elapsed >= Self.pollLimit { notice = Self.stillPreparingNotice; return }
+                // Past the bound the poll stops quietly: Listen keeps checking and shows the episode when it's ready.
+                if elapsed >= Self.pollLimit { refreshMine(); return }
                 guard let outcome = try? await account.transport.status(requestID: requestID), self.account?.id == account.id else { continue }
                 let sheetOpen = generation?.id == followed?.id
                 guard case .job(let job) = outcome else {
@@ -797,36 +948,42 @@ final class PodcastCenter {
                 if job.state.isActive { continue }
                 // Settled: the balance moved (charged or released), and a closed sheet is told the outcome.
                 Task { await host?.refreshCreditBalance() }
-                if !sheetOpen, let current = followed { settledWhileClosed(job, of: current) }
+                if !sheetOpen, let current = followed { settledWhileClosed(job, of: current) } else { announced.insert(job.requestID) }
+                refreshMine()
                 return
             }
         }
     }
 
-    /// The outcome of a job whose sheet was closed: Play when ready, otherwise a plain line (Listen has the details).
+    /// The outcome of a job whose sheet was closed: a small notice with Play when ready, or Try again when it couldn't
+    /// be made (Listen shows it too). A cancel the reader asked for needs no notice.
     private func settledWhileClosed(_ job: PodcastJob, of current: PodcastGeneration) {
-        let charge = job.chargedCredits.map { $0 == 0 ? "No credits were charged." : "Charged \($0) credits." } ?? ""
-        let outcome: String
+        guard !announced.contains(job.requestID) else { return }
+        announced.insert(job.requestID)
         switch job.state {
         case .ready:
-            guard let releaseID = job.releaseID else { outcome = "Your episode of “\(current.paperTitle)” is ready."; break }
-            readyNotice = ReadyNotice(releaseID: releaseID, title: current.paperTitle); return
-        case .canceled: outcome = "The episode of “\(current.paperTitle)” was canceled."
-        default: outcome = "The episode of “\(current.paperTitle)” couldn’t be made."
+            guard let releaseID = job.releaseID else { return }
+            readyNotice = ReadyNotice(releaseID: releaseID, title: current.paperTitle)
+        case .canceled: return
+        default:
+            readyNotice = ReadyNotice(failedFor: current.documentID, profile: job.profile ?? current.selected, title: current.paperTitle)
         }
-        notice = [outcome, charge, "Listen on this paper has the details."].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Play from the ready notice (no new charge). The alert passes the notice it showed; a banner uses the current one.
     func playReadyNotice(_ shown: ReadyNotice? = nil) {
         guard let ready = shown ?? readyNotice, let account else { return }
         readyNotice = nil
+        guard let releaseID = ready.releaseID else {
+            if case .failed(let paperID, let profile) = ready.kind { tryAgain(paperID: paperID, profile: profile) }
+            return
+        }
         // From a banner inside another paper's Listen sheet: that sheet goes first (one sheet presents at a time).
         let closingSheet = generation != nil
         generation = nil
         Task {
             do {
-                let episode = try await account.transport.episode(ready.releaseID)
+                let episode = try await account.transport.episode(releaseID)
                 if closingSheet { try? await Task.sleep(for: .milliseconds(600)) }
                 guard self.account?.id == account.id else { return }
                 play(resolve(episode, fallback: ready.title))

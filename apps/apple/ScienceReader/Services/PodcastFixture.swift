@@ -28,10 +28,16 @@ actor PodcastFixtureTransport: PodcastTransport {
     /// `--podcast-fixture-catalog-fault=always|after-first` (RESILIENCE.md fault fixtures): the catalog fails every
     /// time (as a server error), or after a first good page (as a busy server), to show the last-good list.
     private let catalogFault: String?
+    /// `--podcast-fixture-steps=N`: checks of a request before it settles (7 by default), so a journey can leave while
+    /// an episode is still being made and come back to it.
+    private let readyAt: Int
     private var catalogCalls = 0
     private var episodes: [UUID: (episode: PodcastEpisode, audio: Data)] = [:]
     private var jobs: [UUID: (itemID: UUID, steps: Int, releaseID: UUID?, length: PodcastLength)] = [:]
     private var quotes: [UUID: (itemID: UUID, length: PodcastLength)] = [:]
+    /// Requests in the order they were made, and private episodes newest first (Listen's own section, migration 076).
+    private var requestOrder: [UUID] = []
+    private var privateOrder: [UUID] = []
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         generation = arguments.contains("--podcast-fixture-generation=source-too-large") ? .sourceTooLarge
@@ -39,6 +45,7 @@ actor PodcastFixtureTransport: PodcastTransport {
         empty = arguments.contains("--podcast-fixture-empty")
         outcomePending = arguments.contains("--podcast-fixture-outcome-pending")
         catalogFault = arguments.first { $0.hasPrefix("--podcast-fixture-catalog-fault=") }.map { String($0.dropFirst("--podcast-fixture-catalog-fault=".count)) }
+        readyAt = arguments.first { $0.hasPrefix("--podcast-fixture-steps=") }.flatMap { Int($0.dropFirst("--podcast-fixture-steps=".count)) }.map { max(7, min($0, 200)) } ?? 7
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
     }
 
@@ -61,7 +68,40 @@ actor PodcastFixtureTransport: PodcastTransport {
         if catalogFault == "after-first", catalogCalls > 1 { throw BackendError.throttled(retryAfter: 30) }
         let order = Self.catalogSpecs.map(\.id)
         let shared = empty ? [] : order.compactMap { episodes[$0]?.episode }.filter { $0.scope == .shared }
-        return PodcastCatalogPage(episodes: shared.map(\.summary), next: nil, capabilities: Self.capabilities)
+        // Work goes on while nobody watches: each check of the list moves the account's requests along too.
+        for requestID in requestOrder { advance(requestID) }
+        return PodcastCatalogPage(episodes: shared.map(\.summary), next: nil, capabilities: Self.capabilities, mine: after == nil ? mine() : nil)
+    }
+
+    /// The account's ready private episodes (newest first) and its requests being made, or that couldn't be made until it
+    /// asks again for that paper; titles are left to the library, as the server leaves a private paper's title.
+    private func mine() -> PodcastMine {
+        var requests: [PodcastMine.Request] = []
+        for (index, requestID) in requestOrder.enumerated().reversed() {
+            guard let job = jobs[requestID], job.releaseID == nil, job.steps >= 0 else { continue }
+            let later = requestOrder[(index + 1)...].contains { jobs[$0]?.itemID == job.itemID }
+            let state = Self.job(requestID, steps: job.steps, mode: generation, length: job.length, readyAt: readyAt)
+            if state.state.isActive {
+                requests.append(PodcastMine.Request(requestID: requestID, status: "making", profile: job.length.profile, label: job.length.label,
+                                                    targetSeconds: job.length.targetSeconds, documentID: job.itemID))
+            } else if state.state == .failed, !later {
+                requests.append(PodcastMine.Request(requestID: requestID, status: "failed", failure: state.failure, profile: job.length.profile,
+                                                    label: job.length.label, targetSeconds: job.length.targetSeconds, documentID: job.itemID))
+            }
+        }
+        let made = Dictionary(jobs.compactMap { entry in entry.value.releaseID.map { ($0, entry.key) } }, uniquingKeysWith: { first, _ in first })
+        return PodcastMine(episodes: privateOrder.reversed().compactMap { episodes[$0]?.episode.summary }, requests: requests, madeBy: made)
+    }
+
+    /// One step of a request's work; the last makes its episode (or settles its failure).
+    private func advance(_ requestID: UUID) {
+        guard var job = jobs[requestID], job.steps >= 0 else { return }
+        if job.steps < readyAt, job.releaseID == nil { job.steps += 1 }
+        if job.steps >= readyAt, generation == .succeeds, job.releaseID == nil {
+            let built = Self.build(Self.privateSpec(document: job.itemID, length: job.length))
+            episodes[built.episode.id] = built; job.releaseID = built.episode.id; privateOrder.append(built.episode.id)
+        }
+        jobs[requestID] = job
     }
 
     func episode(_ releaseID: UUID) async throws -> PodcastEpisode {
@@ -75,7 +115,7 @@ actor PodcastFixtureTransport: PodcastTransport {
             .sorted { ($0.targetSeconds ?? 300, $0.id.uuidString) < ($1.targetSeconds ?? 300, $1.id.uuidString) }
         let episode = ready.first { $0.scope == .private } ?? ready.first
         let job = jobs.first { $0.value.itemID == itemID && $0.value.releaseID == nil && $0.value.steps >= 0 }
-            .map { Self.job($0.key, steps: $0.value.steps, mode: generation, length: $0.value.length) }
+            .map { Self.job($0.key, steps: $0.value.steps, mode: generation, length: $0.value.length, readyAt: readyAt) }
         return PodcastPaperLookup(episode: episode?.summary, episodes: ready.map(\.summary), job: job, capabilities: Self.capabilities)
     }
 
@@ -107,19 +147,15 @@ actor PodcastFixtureTransport: PodcastTransport {
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
         guard ["podcast-private-v1", "podcast-private-v2"].contains(consentVersion) else { throw BackendError.rejected("consent_required") }
         guard let quote = quotes.removeValue(forKey: quoteID) else { throw BackendError.rejected("quote_expired") }
-        jobs[requestID] = (quote.itemID, 0, nil, quote.length)
-        return .job(Self.job(requestID, steps: 0, mode: generation, length: quote.length))
+        jobs[requestID] = (quote.itemID, 0, nil, quote.length); requestOrder.append(requestID)
+        return .job(Self.job(requestID, steps: 0, mode: generation, length: quote.length, readyAt: readyAt))
     }
 
     func status(requestID: UUID) async throws -> PodcastJobOutcome {
-        guard var job = jobs[requestID] else { throw BackendError.rejected("podcast_request_unavailable") }
-        if job.steps < 7, job.releaseID == nil { job.steps += 1 }
-        if job.steps >= 7, generation == .succeeds, job.releaseID == nil {
-            let built = Self.build(Self.privateSpec(document: job.itemID, length: job.length))
-            episodes[built.episode.id] = built; job.releaseID = built.episode.id
-        }
-        jobs[requestID] = job
-        return .job(Self.job(requestID, steps: job.steps, mode: generation, releaseID: job.releaseID, length: job.length))
+        guard jobs[requestID] != nil else { throw BackendError.rejected("podcast_request_unavailable") }
+        advance(requestID)
+        let job = jobs[requestID]!
+        return .job(Self.job(requestID, steps: job.steps, mode: generation, releaseID: job.releaseID, length: job.length, readyAt: readyAt))
     }
 
     func cancel(requestID: UUID) async throws -> PodcastJobOutcome {
@@ -152,11 +188,11 @@ actor PodcastFixtureTransport: PodcastTransport {
 
     // MARK: Fixture content
 
-    private static func job(_ id: UUID, steps: Int, mode: GenerationMode, releaseID: UUID? = nil, length: PodcastLength) -> PodcastJob {
+    private static func job(_ id: UUID, steps: Int, mode: GenerationMode, releaseID: UUID? = nil, length: PodcastLength, readyAt: Int = 7) -> PodcastJob {
         let states: [PodcastJobState] = [.queued, .scripting, .checking, .synthesizing, .verifying, .publishing, .publishing, .ready]
         let held = length.maxCredits, profile = length.profile
         if steps < 0 { return PodcastJob(requestID: id, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: held, chargedCredits: 0, releasedCredits: held, failure: nil, profile: profile) }
-        if steps >= 7 {
+        if steps >= readyAt {
             // Five minutes charges 46 of 150 (the journeys' figure); other lengths about the same share of their maximum.
             let charged = length.profile == PodcastLength.defaultProfile ? 46 : held * 3 / 10
             switch mode {
@@ -168,7 +204,7 @@ actor PodcastFixtureTransport: PodcastTransport {
                 return PodcastJob(requestID: id, state: .ready, stageEnteredAt: nil, releaseID: releaseID, heldCredits: held, chargedCredits: charged, releasedCredits: held - charged, failure: nil, profile: profile)
             }
         }
-        return PodcastJob(requestID: id, state: states[steps], stageEnteredAt: "2026-10-08T12:00:00Z", releaseID: nil, heldCredits: held,
+        return PodcastJob(requestID: id, state: states[steps * 7 / readyAt], stageEnteredAt: "2026-10-08T12:00:00Z", releaseID: nil, heldCredits: held,
                           chargedCredits: nil, releasedCredits: nil, failure: nil, profile: profile)
     }
 

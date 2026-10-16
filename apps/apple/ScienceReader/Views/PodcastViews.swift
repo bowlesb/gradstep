@@ -55,7 +55,7 @@ struct PodcastListenView: View {
                             } else { Button("Try again") { center.loadCatalog() } }
                         }
                 case .loaded:
-                    if center.catalog.isEmpty && center.keptDownloads.isEmpty {
+                    if center.catalog.isEmpty && center.keptDownloads.isEmpty && center.myEpisodes.isEmpty && center.myRequests.isEmpty {
                         ContentUnavailableView {
                             Label("No episodes yet", systemImage: "headphones")
                         } description: {
@@ -77,13 +77,22 @@ struct PodcastListenView: View {
             .tabBarSpace()
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .task { if center.catalogState == .idle || center.catalog.isEmpty { center.loadCatalog() } }
+            // Coming back to Listen checks your own episodes again (one being made may be ready now).
+            .task { if center.catalogState == .idle || center.catalog.isEmpty { center.loadCatalog() } else { center.refreshMine() } }
         }
     }
 
     private var list: some View {
         List {
             if let transfer = center.transfer { PodcastTransferBanner(center: center, transfer: transfer).listRowSeparator(.hidden) }
+            // Your episodes (owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there
+            // for you"): the ones being made, the ones that couldn't be, then the ready ones, newest first.
+            if !center.myRequests.isEmpty || !center.myEpisodes.isEmpty {
+                Section {
+                    ForEach(center.myRequests) { request in PodcastRequestRow(model: model, request: request) }
+                    ForEach(center.myEpisodes) { episode in PodcastEpisodeRow(model: model, episode: episode) }
+                } header: { Text("Your episodes").accessibilityAddTraits(.isHeader) }
+            }
             if !center.keptDownloads.isEmpty {
                 Section {
                     ForEach(center.keptDownloads, id: \.episode.id) { record in
@@ -97,7 +106,9 @@ struct PodcastListenView: View {
                         .onAppear { if episode.id == center.catalog.last?.id { center.loadMoreCatalog() } }
                 }
             } header: {
-                if !center.keptDownloads.isEmpty && !center.catalog.isEmpty { Text("Shared episodes").accessibilityAddTraits(.isHeader) }
+                if (!center.keptDownloads.isEmpty || !center.myEpisodes.isEmpty || !center.myRequests.isEmpty) && !center.catalog.isEmpty {
+                    Text("Shared episodes").accessibilityAddTraits(.isHeader)
+                }
             } footer: {
                 Text("Episodes are AI-generated audio adapted from each paper, with a transcript that links to the passages it relies on. Check important claims against the paper.")
                     .font(.footnote).foregroundStyle(.secondary)
@@ -161,7 +172,7 @@ struct PodcastEpisodeRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(episode.displayTitle).font(.headline).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Text(metadata).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                PodcastBadges(episode: episode, kept: center.isKept(episode.id),
+                PodcastBadges(episode: episode, fresh: center.isNew(episode), kept: center.isKept(episode.id),
                               remainingMS: center.resumePosition(episode.id).map { episode.durationMS - $0 },
                               finished: center.isFinished(episode.id))
             }
@@ -200,6 +211,7 @@ struct PodcastEpisodeRow: View {
         parts.append(PodcastDuration.spoken(milliseconds: episode.durationMS))
         if let topic = episode.topicName { parts.append(topic) }
         parts.append("AI audio")
+        if center.isNew(episode) { parts.append("new") }
         if episode.fixture { parts.append("synthetic fixture") }
         if episode.scope == .private { parts.append("private") }
         if center.isKept(episode.id) { parts.append("downloaded") }
@@ -208,9 +220,60 @@ struct PodcastEpisodeRow: View {
     }
 }
 
-/// The badges under an episode: AI audio always; the fixture label; private; downloaded; progress.
+/// An episode you asked for: being made (you can leave; it appears here when it's ready), or couldn't be made, with
+/// Try again (the paper's Listen sheet, at the same length). One plain sentence; no stages, no codes.
+struct PodcastRequestRow: View {
+    @Bindable var model: ReaderModel
+    let request: PodcastMine.Request
+    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 40
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var center: PodcastCenter { model.podcasts }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Group {
+                if request.failed { Image(systemName: "exclamationmark").foregroundStyle(.orange) }
+                else {
+                    Image(systemName: "waveform").foregroundStyle(Color.accentColor)
+                        .symbolEffect(.variableColor.iterative, options: .repeating, isActive: !reduceMotion)
+                }
+            }
+            .font(.system(size: size * 0.38, weight: .semibold))
+            .frame(width: size, height: size)
+            .background((request.failed ? Color.orange : Color.accentColor).opacity(0.14), in: Circle())
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(center.title(of: request)).font(.headline).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                if request.failed {
+                    Text("Couldn’t make this episode.").font(.subheadline).foregroundStyle(.secondary)
+                    Button("Try again") { center.tryAgain(paperID: request.documentID, profile: request.profile) }
+                        .font(.subheadline.weight(.semibold)).buttonStyle(.borderless)
+                        .accessibilityIdentifier("podcast.request.retry")
+                } else {
+                    Text("Making your episode").font(.subheadline.weight(.medium)).foregroundStyle(Color.accentColor)
+                    Text(subline).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: request.failed ? .contain : .combine)
+        .accessibilityIdentifier("podcast.request.\(request.requestID.wire)")
+    }
+
+    /// "5 min · usually ready in a few minutes".
+    private var subline: String {
+        let wait = PodcastGeneration.expectedWait(targetSeconds: request.targetSeconds ?? 300)
+        let lowered = wait.prefix(1).lowercased() + wait.dropFirst()
+        return [request.label, String(lowered)].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+/// The badges under an episode: New (your own, not yet played here); AI audio always; the fixture label; private;
+/// downloaded; progress.
 struct PodcastBadges: View {
     let episode: PodcastEpisode
+    var fresh = false
     var kept = false
     var remainingMS: Int? = nil
     var finished = false
@@ -222,9 +285,10 @@ struct PodcastBadges: View {
         .accessibilityHidden(true)
     }
     @ViewBuilder private var badges: some View {
+        if fresh { PodcastBadge(title: "New", systemImage: "sparkles", tone: .accent) }
         PodcastBadge(title: "AI audio", systemImage: "waveform", tone: .accent)
         if episode.fixture { PodcastBadge(title: "Synthetic fixture", systemImage: "testtube.2", tone: .warning) }
-        if episode.scope == .private { PodcastBadge(title: "Private · beta", systemImage: "lock.fill", tone: .neutral) }
+        if episode.scope == .private { PodcastBadge(title: "Private", systemImage: "lock.fill", tone: .neutral) }
         if kept { PodcastBadge(title: "Downloaded", systemImage: "arrow.down.circle.fill", tone: .neutral) }
         if finished { PodcastBadge(title: "Played", systemImage: "checkmark", tone: .neutral) }
         else if let remainingMS, remainingMS > 0 { PodcastBadge(title: "\(PodcastDuration.short(milliseconds: remainingMS)) left", systemImage: nil, tone: .neutral) }

@@ -5,7 +5,7 @@ import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { fixtureOrigin as API } from './environment';
 import { durableKeys } from './key-capability';
 
-const releaseID = 'a0000000-0000-4000-8000-000000000001';
+const releaseID = 'a0000000-0000-4000-8000-000000000001', mineID = 'a0000000-0000-4000-8000-000000000009';
 const dpoID = 'aaaaaaaa-0000-4000-8000-000000000001';
 const quoteText = 'can be optimized exactly with a simple binary cross-entropy objective';
 const audio = Buffer.alloc(44 + 48 * 8_000 * 2);
@@ -20,7 +20,8 @@ const writers = (max: number) => [{ writer: 'anthropic', label: 'Anthropic', max
 const LENGTHS = ([['podcast-short-v1', 'Short', 150, 60], ['podcast-5min-v1', '5 min', 300, 150], ['podcast-10min-v1', '10 min', 600, 300], ['podcast-20min-v1', '20 min', 1200, 600]] as const)
   .map(([profile, label, target_seconds, max_credits]) => ({ profile, label, target_seconds, max_credits, writers: writers(max_credits) }));
 async function fixture(page: Page, options: { lengths?: boolean; sourceUnavailable?: boolean } = {}) {
-  const state = { documentID: '', inLibrary: true, deployed: true, calls: [] as { action: string; body: Record<string, unknown> }[] };
+  const state = { documentID: '', inLibrary: true, deployed: true, calls: [] as { action: string; body: Record<string, unknown> }[],
+    /** What the account's own section says about the started request (migration 076). */ mine: 'making' as 'making' | 'ready' | 'failed' };
   await page.route('**/rest/v1/rpc/v3_library_page', async route => {
     const response = await route.fetch(), data = await response.json();
     state.documentID = data.entries.find((e: { id: string }) => e.id === dpoID)?.document_id ?? state.documentID;
@@ -47,18 +48,22 @@ async function fixture(page: Page, options: { lengths?: boolean; sourceUnavailab
       expect(route.request().headers().range).toBeUndefined();
       return route.fulfill({ body: audio, contentType: 'audio/wav' });
     }
-    if (action === 'catalog') return route.fulfill({ json: { episodes: [episode()], next: null, capabilities } });
-    if (action === 'states') return route.fulfill({ json: { states: { [releaseID]: { state: 'ready', replacement_id: null } } } });
-    if (action === 'episode') return route.fulfill({ json: { episode: { ...episode(), chapters: [{ id: 'result', title: 'The result', start_ms: 0 }],
+    if (action === 'catalog') return route.fulfill({ json: { episodes: [episode()], next: null, capabilities, mine: !started ? { episodes: [], requests: [] }
+      : state.mine === 'ready' ? { episodes: [{ ...episode(), release_id: mineID, scope: 'private', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model',
+        document_id: dpoID, authors: [], topic: null, request_id: requestID }], requests: [] }
+      : { episodes: [], requests: [{ request_id: requestID, status: state.mine, failure: state.mine === 'failed' ? 'quality_rejected' : null, profile: 'podcast-5min-v1', label: '5 min',
+        target_seconds: 300, document_id: dpoID, title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model' }] } } });
+    if (action === 'states') return route.fulfill({ json: { states: Object.fromEntries((body.release_ids as string[]).map(id => [id, { state: 'ready', replacement_id: null }])) } });
+    if (action === 'episode') return route.fulfill({ json: { episode: { ...episode(), ...(url.searchParams.get('release_id') === mineID ? { release_id: mineID, scope: 'private', title: null, document_id: dpoID } : {}), chapters: [{ id: 'result', title: 'The result', start_ms: 0 }],
       transcript: { speakers: { explainer: 'Explainer', skeptic: 'Skeptical reader' }, disclosure: 'Synthetic fixture tone. No generated speech.',
         segments: [{ id: 'one', speaker: 'explainer', text: 'DPO uses a binary cross-entropy objective.', start_ms: 0, end_ms: 48_000,
           chapter: 'result', claim_type: 'paper_result', evidence: [{ id: 'passage', section: '1', quote: quoteText }], math: [] }] } } } });
     if (action === 'download') {
       const grant = createHash('sha256').update(randomUUID()).digest('hex'); grants.add(grant);
       return route.fulfill({ json: { grant: { expires_at: new Date(Date.now() + 60_000).toISOString(), members: [{ role: 'audio',
-        url: `${API}/functions/v1/podcast-member?grant=${grant}&member=${releaseID}`, bytes: audio.length, sha256: digest, media_type: 'audio/wav' }] } } });
+        url: `${API}/functions/v1/podcast-member?grant=${grant}&member=${body.release_id}`, bytes: audio.length, sha256: digest, media_type: 'audio/wav' }] } } });
     }
-    if (action === 'paper') return route.fulfill({ json: { episode: null, job: started ? job() : null, capabilities } });
+    if (action === 'paper') return route.fulfill({ json: { episode: null, job: started && state.mine === 'making' ? job() : null, capabilities } });
     if (action === 'quote' && options.sourceUnavailable) return route.fulfill({ status: 409, json: { code: 'source_unavailable' } });
     if (action === 'quote' && options.lengths) {
       requestID = body.request_id; quoteID = randomUUID();
@@ -178,24 +183,25 @@ test('superseded evidence navigation preserves the transcript and cannot leave a
   expect(await page.evaluate(() => (window as any).passages)).toEqual([]);
 });
 
-test('paper generation is explicitly quoted; undeployed podcasts never offer a paid action', async ({ page }) => {
+test('paper generation is one explicit action; undeployed podcasts never offer a paid action', async ({ page }) => {
   const f = await fixture(page); await signIn(page);
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
-  await page.getByTestId('podcast-paper-listen').click(); expect(f.calls.filter(c => c.action === 'quote')).toHaveLength(0);
-  await page.getByRole('button', { name: 'Get an estimate' }).click();
+  expect(f.calls.filter(c => c.action === 'quote')).toHaveLength(0);
+  await page.getByTestId('podcast-paper-listen').click();
   const dialog = page.getByRole('dialog', { name: 'Listen to this paper' });
-  await expect(dialog).toContainText('Anthropic (script) and Google Vertex AI (speech)'); await expect(dialog).toContainText('aren’t end-to-end encrypted');
+  await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
+  await expect(dialog.getByTestId('podcast-privacy')).toContainText('sent to Anthropic and Google and deleted once the episode is made'); await expect(dialog).toContainText('not end-to-end encrypted');
   expect(f.calls.filter(c => c.action === 'start')).toHaveLength(0); await page.getByTestId('podcast-confirm').click();
-  await expect(page.getByTestId('podcast-job-state')).toContainText('Waiting to start');
+  await expect(page.getByTestId('podcast-making')).toContainText('Making your episode');
   await page.getByRole('button', { name: 'Close Listen' }).click(); expect(f.calls.filter(c => c.action === 'cancel')).toHaveLength(0);
   f.deployed = false; await page.getByRole('link', { name: 'Feed', exact: true }).click();
   await page.getByTestId('podcast-listen').filter({ visible: true }).click(); await expect(page.getByTestId('podcast-unavailable')).toBeVisible();
   await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click(); await expect(page.getByTestId('podcast-generation-unavailable')).toBeVisible();
-  await expect(page.getByTestId('podcast-confirm')).toHaveCount(0); await expect(page.getByRole('button', { name: 'Get an estimate' })).toHaveCount(0);
+  await expect(page.getByTestId('podcast-confirm')).toHaveCount(0);
 });
 
-test('Listen offers every length and both writers, quotes the chosen one, and names the device text', async ({ page }) => {
+test('Listen offers every length and both writers compactly, prices the chosen one, and says where the text goes', async ({ page }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   const f = await fixture(page, { lengths: true }); await signIn(page);
   await page.getByRole('link', { name: 'Feed', exact: true }).click(); await page.getByTestId('podcast-listen').filter({ visible: true }).click();
@@ -203,29 +209,78 @@ test('Listen offers every length and both writers, quotes the chosen one, and na
   await page.getByTestId('back-to-library').click(); await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
   await page.getByTestId('podcast-paper-listen').click();
   const dialog = page.getByRole('dialog', { name: 'Listen to this paper' });
-  // All four lengths (PodcastGenerateSheet), the default 5 min chosen, each with its time and the chosen writer's maximum.
+  // All four lengths (PodcastGenerateSheet's chips), the default 5 min and the default writer chosen, priced at once.
   const lengths = dialog.getByTestId('podcast-lengths');
   await expect(lengths.getByRole('radio')).toHaveCount(4);
   await expect(lengths.getByRole('radio', { name: '5 min' })).toBeChecked();
-  await expect(lengths).toContainText('About 10 minutes · up to 300 credits');
-  await expect(dialog.getByTestId('podcast-writer-note')).toHaveText('Steadier scripts at a higher maximum.');
+  await expect(dialog.getByTestId('podcast-writers').getByRole('radio', { name: 'Anthropic' })).toBeChecked();
+  await expect(dialog.getByTestId('podcast-price')).toHaveText('Up to 150 credits. You’re charged only for what’s used, and nothing if it can’t be made.');
   await dialog.getByRole('radio', { name: 'DeepSeek' }).check();
-  await expect(dialog.getByTestId('podcast-writer-note')).toHaveText('Lower cost. Scripts vary more between runs.');
-  await expect(lengths).toContainText('About 10 minutes · up to 100 credits');
+  await expect(dialog.getByTestId('podcast-price')).toContainText('Up to 50 credits.');
   await lengths.getByRole('radio', { name: '10 min' }).check();
+  await expect(dialog.getByTestId('podcast-length-line')).toHaveText('About 10 minutes');
+  await expect(dialog.getByTestId('podcast-price')).toContainText('Up to 100 credits.');
+  await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
   await page.screenshot({ path: `../../.artifacts/parity-web-listen-lengths-${test.info().project.name}.png` });
-  await dialog.getByRole('button', { name: 'Get an estimate' }).click();
-  await expect(dialog.getByTestId('podcast-quote-length')).toHaveText('10 min episode · about 10 minutes');
   expect(f.calls.filter(c => c.action === 'quote').at(-1)!.body).toMatchObject({ profile: 'podcast-10min-v1', writer: 'deepseek' });
-  await expect(dialog).toContainText('The paper’s text, prepared on this device, is sent to DeepSeek (script) and Google Vertex AI (speech).');
-  await expect(dialog).not.toContainText('converted');
-  await expect(page.getByTestId('podcast-confirm')).toHaveText('Create episode · up to 100 credits');
+  await expect(dialog.getByTestId('podcast-privacy')).toContainText('To make it, the paper’s text is sent to DeepSeek and Google and deleted once the episode is made.');
+  for (const jargon of ['converted', 'source', '(script)', 'Vertex', 'estimate']) await expect(dialog).not.toContainText(jargon);
+  await expect(page.getByTestId('podcast-confirm')).toHaveText('Make an episode');
 });
 
 test('a paper whose text isn’t on this device yet says to open it first', async ({ page }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
   await fixture(page, { sourceUnavailable: true }); await signIn(page);
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
-  await page.getByTestId('podcast-paper-listen').click(); await page.getByRole('button', { name: 'Get an estimate' }).click();
-  await expect(page.getByRole('alert')).toHaveText('Open this paper first so its text is ready on this device, then try Listen again.');
+  await page.getByTestId('podcast-paper-listen').click();
+  await expect(page.getByRole('alert')).toHaveText('Open this paper first so it’s ready on this device, then try again.');
+});
+
+// Owner, 2026-10-16: "you ask for, it doesnt matter if you leave the page or app, its there for you".
+test('ask, leave for Listen, come back to the tab: the episode is waiting, marked New', async ({ page }, info) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys.');
+  const f = await fixture(page, { lengths: true }); await signIn(page);
+  await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
+  await page.getByTestId('podcast-paper-listen').click();
+  await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
+  await page.screenshot({ path: `../../.artifacts/podcast-simple/after/web-${info.project.name}-ask.png` });
+  await page.getByTestId('podcast-confirm').click();
+  await expect(page.getByTestId('podcast-leave')).toHaveText('You can leave this page. It’ll be in Listen when it’s ready.');
+  await page.screenshot({ path: `../../.artifacts/podcast-simple/after/web-${info.project.name}-making.png` });
+  await page.getByTestId('podcast-done').click();
+  await page.getByRole('link', { name: 'Feed', exact: true }).click(); await page.getByTestId('podcast-listen').filter({ visible: true }).click();
+  const own = page.getByTestId('podcast-own');
+  await expect(own.getByTestId('podcast-request')).toHaveAttribute('data-status', 'making');
+  await expect(own).toContainText('Direct Preference Optimization'); await expect(own).toContainText('Making your episode');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: `../../.artifacts/podcast-simple/after/web-${info.project.name}-listen-making.png` });
+  // Made while the reader was elsewhere; coming back to the tab checks at once.
+  f.mine = 'ready';
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(own.getByTestId('podcast-request')).toHaveCount(0);
+  await expect(own.getByTestId('podcast-new')).toBeVisible(); await expect(own.getByTestId('podcast-card')).toContainText('Direct Preference Optimization');
+  await page.screenshot({ path: `../../.artifacts/podcast-simple/after/web-${info.project.name}-listen-ready.png` });
+  await own.getByTestId('podcast-play').click();
+  await expect(page.getByTestId('podcast-audio')).toHaveAttribute('src', /^blob:/);
+  await page.getByTestId('podcast-audio').evaluate((e: HTMLAudioElement) => e.pause());
+  await expect(page.getByTestId('podcast-dock')).toContainText('Direct Preference Optimization');
+  await expect(own.getByTestId('podcast-new')).toHaveCount(0);
+  expect(f.calls.filter(c => c.action === 'start')).toHaveLength(1);
+});
+
+test('a request that couldn’t be made says so plainly in Listen, and Try again opens the paper’s Listen', async ({ page }) => {
+  const f = await fixture(page); await signIn(page);
+  await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click(); await closeDrawer(page);
+  await page.getByTestId('podcast-paper-listen').click(); await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
+  await page.getByTestId('podcast-confirm').click(); await page.getByTestId('podcast-done').click();
+  f.mine = 'failed';
+  await page.getByRole('link', { name: 'Feed', exact: true }).click(); await page.getByTestId('podcast-listen').filter({ visible: true }).click();
+  const own = page.getByTestId('podcast-own');
+  await expect(own.getByTestId('podcast-request')).toHaveAttribute('data-status', 'failed');
+  await expect(own).toContainText('Couldn’t make this episode.'); await expect(own).not.toContainText('quality_rejected');
+  await own.getByTestId('podcast-request-retry').click();
+  await expect(page).toHaveURL(new RegExp(`/paper/${dpoID}$`));
+  await expect(page.getByRole('dialog', { name: 'Listen to this paper' })).toBeVisible();
+  await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
+  expect(f.calls.filter(c => c.action === 'start')).toHaveLength(1);
 });

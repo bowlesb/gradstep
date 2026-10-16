@@ -110,12 +110,12 @@ extension BackendError {
         guard case .rejected(let code) = self else { return errorDescription ?? "Listening isn’t available right now." }
         switch code {
         case "podcast_unavailable": return "Listening isn’t available right now. Reading is unaffected."
-        case "source_unavailable": return "This paper can’t be made into an episode: its converted text isn’t available."
+        case "source_unavailable": return "Open this paper first so it’s ready on this device, then try again."
         case "source_too_large": return "This paper is too long to make into an episode. Nothing was charged."
         case "podcast_release_unavailable": return "This episode is no longer available."
-        case "quote_expired", "quote_unavailable": return "The estimate expired. Get a new estimate to continue."
-        case "consent_required": return "Confirm the estimate and providers to create an episode."
-        case "active_generation_limit": return "An episode is already being made for your account. Try again when it finishes."
+        case "quote_expired", "quote_unavailable": return "That took too long to confirm. Try again."
+        case "consent_required": return "Try again to make the episode."
+        case "active_generation_limit": return "Another episode is being made for you. Try again when it’s ready."
         case "podcast_busy", "podcast_daily_limit", "too_many_active_operations":
             return "Episode creation is busy right now. Nothing was charged; try again later."
         case "podcast_outcome_pending":
@@ -123,7 +123,7 @@ extension BackendError {
         case "podcast_paused", "platform_budget_exhausted":
             return "Episode creation is paused right now. Nothing was charged, and reading is unaffected."
         case "storage_full": return "Episode storage is full right now. Nothing was charged."
-        case "insufficient_credits": return "Your available credits don’t cover this length’s maximum. A shorter length needs fewer credits."
+        case "insufficient_credits": return "You don’t have enough credits for this length. A shorter one needs fewer."
         case "podcast_transfer_limit": return "Episode downloads are limited for this month. Downloaded episodes still play."
         case "podcast_grant_unavailable", "podcast_grant_consumed": return "The download needs to restart. Try again."
         case "podcast_integrity_failed": return "This episode couldn’t be verified. Try downloading it again."

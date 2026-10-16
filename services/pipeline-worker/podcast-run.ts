@@ -50,6 +50,11 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
         const { error } = await service.storage.from(bucket).upload(path, bytes, { contentType, upsert: false, cacheControl: '0' });
         if (error) throw new Error('storage_upload_failed');
       },
+      async remove(bucket, paths) {
+        // Finished episodes' paper text (migration 076); an object already gone is not an error.
+        const { error } = await service.storage.from(bucket).remove(paths);
+        if (error) throw new Error('storage_remove_failed');
+      },
     },
     script, speech, encoder: ffmpegEncoder(),
     onClaim: claim => { owner = claim.owner_id; },

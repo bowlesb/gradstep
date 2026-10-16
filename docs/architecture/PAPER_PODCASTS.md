@@ -420,6 +420,10 @@ events, temporary uploads and cached-auth revocation; legal financial records st
 existing policy. Public seed releases survive operator-account deletion only if their rights/quality
 approval is independent and active. A private-to-public “share” action is not in v1.
 
+Since migration 076 (2026-10-16) the paper text a device sends for a private episode is deleted once the episode is
+made, fails or is canceled ("The paper text is deleted once the episode is made" below); only the episode's own
+transcript and audio stay, private to the account.
+
 ## Acceptance and operator visibility
 
 Read-only admin views add provider costs/reservations/unknowns by route and release, customer charged versus
@@ -1735,3 +1739,80 @@ The verification seed after the opening fixes (job `21b4bcab`, Unsupervised Mult
 cut no turn for markup and opened properly, but the draft's 930 words sat ten over the five-minute band's 920 ceiling
 and the trim pass returned the same 930 words, so the job failed. The band is now 80% of the floor to 125% of the
 ceiling (five minutes: 520–1,000 words; ten minutes: 1,080–2,063), still inside the profile's audio and character caps.
+
+### Listen, simplified; the paper text is deleted once the episode is made (migration 076; 2026-10-16)
+
+Owner (2026-10-16), answering "Podcast source text: delete it once the episode is made": "I dont think we should
+even expose the podcast source text. I think our podcast UX feels too complex right now. We should stop showing the
+stages, etc, simplify it, the important thing is you ask for, it doesnt matter if you leave the page or app, its
+there for you".
+
+**The paper text is deleted once the episode is made.** Before, the text a device sent (`podcast?action=source`,
+migration 066) stayed at `private-content/podcast-sources/<account>/<sha256>.txt` until the account was deleted.
+Migration `202610160076_podcast_source_deletion.sql` and the worker change:
+- **Each upload has its own path**, `podcast-sources/<account>/<sha256>/<upload uuid>.txt`: the Edge function names it
+  and registers it through the new four-argument `worker_podcast_source_register(p_account, p_sha256, p_bytes,
+  p_path)` (`app_private.podcast_source_path` checks the account and digest). Deleting a finished request's copy never
+  touches a newer upload of the same text. The three-argument form keeps the old one-per-digest path for the
+  function build deployed before the migration and refuses (`source_unavailable`) once that path's copy is scheduled
+  or deleted, because object rows never come back (`protect_paper_identity`): deploy the function with the migration.
+- **Found by digest.** `podcast_device_pin` and `worker_podcast_claim` (073's, otherwise unchanged) read the newest
+  verified copy of the text's digest, so a retry of the same episode (the same work key and episode row) uses its
+  fresh upload rather than the deleted one named in `podcast_device_sources`.
+- **Released when the job finishes.** A trigger on `podcast_jobs` (finished_at null → set: ready, failed, canceled,
+  unknown outcome) marks the copies of that account's digest uploaded before the job started `deleting`, unless another
+  unfinished job needs the same text. A job requeued after a transient refusal (073) is unfinished, so it keeps its
+  text. A cancel (no worker run ending) wakes the worker.
+- **Unused uploads** (a quote never started) are scheduled a day after upload by the sweep.
+- **The worker deletes.** After every run (`runPodcast` → `sweepPodcastSources`, 50 at a time, skipped within 15 s of
+  the deadline) the worker asks `worker_podcast_source_cleanup`, removes the paths from Storage (an absent object is
+  not an error) and confirms with `worker_podcast_source_cleanup_confirm`; a failure is logged
+  (`podcast_source_cleanup_failed`) and left for the next run, never changing the run's outcome. An hourly pg_cron job
+  (`science-reader-podcast-sources`, `worker_podcast_kick_sources`) wakes the worker while anything waits, so a quiet
+  service still deletes. `scripts/podcast-ops.py cleanup` does the same by hand.
+- **Never exposed.** No API returns the text or its path (`podcast?action=source` answers the digest and size only);
+  the episode's transcript and audio are the only things kept, private to the account. The Listen sheet's footnote
+  and the privacy draft (`web/site-next/privacy/`, Episodes) say so.
+- Clients send the text again for any new request after one finished (native `PodcastGeneration.forgetFinishedRequest`,
+  web `uploadedDevice` reset), and once more if a quote finds the text gone (`source_unavailable` with a remembered
+  digest).
+
+**Listen lists your own episodes.** The catalog's first page adds `mine` (`app_private.podcast_mine`): the account's
+ready private episodes, newest first, each with its paper's title (the device row's, or the catalog metadata's) and
+the `request_id` that made it; and its requests (`status` `making`, or `failed` for a day until it asks again for that
+paper) with length, label, target seconds, paper id and title. Later pages carry `mine: null`; older clients ignore it.
+
+**Listen, simplified (both clients).**
+- *Asking*: one action, **Make an episode**. The length (chips: Short, 5, 10, 20 min) and the writer (segmented) are
+  preselected and compact; the chosen length is priced at once (a quote holds nothing, as before) and the price is
+  said once: "Up to 150 credits. You're charged only for what's used, and nothing if it can't be made." One footnote
+  says where the text goes, in plain names ("sent to DeepSeek and Google and deleted once the episode is made"), that
+  the episode is private (not end-to-end encrypted) and AI-generated. The estimate card, the provider labels
+  ("(script)", "Vertex"), and every "source" or "converted text" wording are gone.
+- *After asking*: one calm state, no stages: "Making your episode. You can leave this screen or the app. It'll be in
+  Listen when it's ready." with the expected wait from the length, Done, and a small Cancel this episode.
+- *Ready*: Play; *couldn't be made*: one plain sentence ("We couldn't make this episode."), what was charged, Try
+  again (same length and writer, asked afresh). An overlong paper says "This paper is too long for an episode." with
+  Browse episodes and no retry. No internal codes anywhere.
+- *Listen* (the Feed's Listen chip, unchanged in place): **Your episodes** first, being made (an animated waveform,
+  "Making your episode", length and wait), couldn't be made (Try again opens the paper's Listen at that length), then
+  the ready ones marked **New** until played on this device; then the shared episodes. It checks again on returning
+  to Listen, to the app (scene active) or to the tab (visibility), and while one is being made after 15 s, 30 s, then
+  each minute, for 45 minutes (foreground only).
+- *Native notice*: when an episode becomes ready (or can't be made) while the app is open, a small capsule above the
+  tab bar and the mini-player says so with Play or Try again; it goes after half a minute and is never an alert.
+- Kept: the hold and settlement, Cancel, transcript evidence links, downloads, playback speed, Other lengths.
+
+Tests: `tests/database/podcast_source_deletion.sql` (own paths, the release trigger, a job in progress keeps its
+text, the sweep and confirmation, retry reads the fresh copy, unused uploads, the legacy form, the hourly kick, the
+catalog's `mine`, service-role grants); `tests/backend/podcast.test.ts` (own upload paths, the worker's sweep);
+`PodcastContractTests` (`mine` decoding), `PodcastPresentationTests`; `PodcastJourneyTests`
+(`testAskThenLeaveAndTheEpisodeIsWaitingInListen`, `testFailureSaysSoPlainlyAndOffersTryAgain`, the length, balance,
+ready-notice and overlong journeys, light/dark screenshots); browser `podcast-workspace.spec.ts` (desktop, phone,
+tablet: ask, leave, come back; a failure in Listen and Try again) and `podcast-client.spec.ts`. Screenshots before
+and after: `.artifacts/podcast-simple/`.
+
+Status (2026-10-16): built and tested locally on branch `worktree-agent-ace81b8172b714f8c`; not deployed. Deploy
+order: migration 076, then the `podcast` function and the pipeline worker together, then the browser and a TestFlight
+build. Copies uploaded before the migration (the old one-per-digest paths) are swept like unused uploads: by the
+first sweep once they are a day old and no unfinished job uses them.

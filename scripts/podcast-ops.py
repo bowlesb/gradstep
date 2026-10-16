@@ -171,6 +171,17 @@ def main(argv=None):
                                              headers={'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
             with urllib.request.urlopen(request, timeout=60): pass
             result['confirmed'] = rpc(env, 'worker_podcast_cleanup_confirm', {'p_object_ids': [o['id'] for o in objects]})
+        # Finished episodes' paper text (migration 076); the worker deletes it after each run, this catches up by hand.
+        sources = rpc(env, 'worker_podcast_source_cleanup', {'p_limit': 50})
+        due = [o for o in sources.get('objects') or [] if o.get('bucket') == 'private-content' and o.get('path', '').startswith('podcast-sources/')]
+        if due:
+            key = env.get('SUPABASE_SECRET_KEY') or env['SUPABASE_SERVICE_ROLE_KEY']
+            request = urllib.request.Request(env['SUPABASE_URL'].rstrip('/') + '/storage/v1/object/private-content', method='DELETE',
+                                             data=json.dumps({'prefixes': [o['path'] for o in due]}).encode(),
+                                             headers={'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request, timeout=60): pass
+            sources['confirmed'] = rpc(env, 'worker_podcast_source_cleanup_confirm', {'p_object_ids': [o['id'] for o in due]})
+        result['sources'] = {'orphaned': sources.get('orphaned'), 'due': len(due), 'confirmed': sources.get('confirmed', 0)}
     print(json.dumps(result, indent=1, sort_keys=True))
 
 

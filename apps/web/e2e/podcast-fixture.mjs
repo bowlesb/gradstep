@@ -2,7 +2,7 @@
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 const PORT = Number(process.env.FIXTURE_PORT || 54369);
-const release = 'a0000000-0000-4000-8000-000000000001', replacement = 'a0000000-0000-4000-8000-000000000002';
+const release = 'a0000000-0000-4000-8000-000000000001', replacement = 'a0000000-0000-4000-8000-000000000002', mineRelease = 'a0000000-0000-4000-8000-000000000003';
 const document = 'd0000000-0000-4000-8000-000000000001';
 const audio = Buffer.alloc(44 + 48 * 8000 * 2);
 audio.write('RIFF'); audio.writeUInt32LE(audio.length - 8, 4); audio.write('WAVEfmt ', 8); audio.writeUInt32LE(16, 16);
@@ -33,6 +33,14 @@ let state, calls, grants, job, quoteIDs, reused;
 function reset() { state = { catalog: true, delivery: true, generation: true, releaseState: 'ready', paperReady: false, corrupt: false, memberDelay: 0, episodeDelay: 0,
   loseStart: false, readyAfter: 2, statusReads: 0, quoteOutcome: 'quote', quoteError: null }; calls = []; grants = new Set(); job = null; quoteIDs = new Map(); reused = new Set(); }
 reset();
+// Listen's own section (migration 076): the request being made, or that couldn't be, or its ready episode.
+function mine() {
+  if (!job) return { episodes: [], requests: [] };
+  const done = state.mineState ?? job.state, asked = { request_id: job.request_id, profile: 'podcast-5min-v1', label: '5 min', target_seconds: 300, document_id: document, title: 'My library paper title' };
+  if (done === 'ready') return { episodes: [{ ...episode(mineRelease, 'private'), title: 'My library paper title', request_id: job.request_id }], requests: [] };
+  if (done === 'canceled') return { episodes: [], requests: [] };
+  return { episodes: [], requests: [{ ...asked, status: done === 'failed' ? 'failed' : 'making', failure: done === 'failed' ? 'quality_rejected' : null }] };
+}
 function jobShape(requestID, status = 'queued') { return { request_id: requestID, state: status, stage_entered_at: new Date().toISOString(), release_id: status === 'ready' ? release : null,
   held_credits: 150, charged_credits: status === 'ready' ? 43 : status === 'canceled' ? 0 : null, released_credits: status === 'ready' ? 107 : status === 'canceled' ? 150 : null, failure: null }; }
 const server = http.createServer(async (req, res) => {
@@ -55,7 +63,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': bytes.length, 'Accept-Ranges': 'none' }).end(bytes); return;
   }
   const action = url.searchParams.get('action'); calls.push({ action, body: value, requestID: url.searchParams.get('request_id') });
-  if (action === 'catalog') { json({ episodes: state.catalog ? [episode()] : [], next: null, capabilities: capabilities() }); return; }
+  if (action === 'catalog') { json({ episodes: state.catalog ? [episode()] : [], next: null, capabilities: capabilities(), mine: url.searchParams.get('after') ? null : mine() }); return; }
   if (action === 'paper') { json({ episode: state.paperReady ? episode(release, 'private') : null, job: state.hidePaperJob ? null : job, capabilities: capabilities() }); return; }
   if (action === 'states' && state.stateError) { json({ code: 'service_unavailable' }, 503); return; }
   if (action === 'states') { json({ states: Object.fromEntries(value.release_ids.map(id => [id, { state: id === release ? state.releaseState : 'ready', replacement_id: state.releaseState === 'superseded' ? replacement : null }])) }); return; }

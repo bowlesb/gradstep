@@ -51,6 +51,32 @@ struct PodcastContractTests {
         #expect(full.summary.transcript == nil)
     }
 
+    /// Listen's own section (migration 076): ready private episodes with the request that made them, and requests being
+    /// made or that couldn't be made. Older servers send no `mine`.
+    @Test func decodesTheAccountsOwnEpisodesAndRequests() throws {
+        let request = "22222222-3333-4444-8555-666666666666", making = "33333333-4444-4555-8666-777777777777"
+        let mine = Self.episodeJSON(extra: #","request_id":"\#(request)""#).replacingOccurrences(of: #""scope":"shared""#, with: #""scope":"private""#)
+        let page = try JSONDecoder().decode(PodcastCatalogPage.self, from: Data("""
+        {"episodes":[],"next":null,"capabilities":null,"mine":{"episodes":[\(mine)],"requests":[
+          {"request_id":"\(making)","status":"making","failure":null,"profile":"podcast-10min-v1","label":"10 min","target_seconds":600,
+           "document_id":"\(Self.document)","title":"Toward Study","created_at":"2026-10-16T01:00:00Z"},
+          {"request_id":"\(request)","status":"failed","failure":"quality_rejected","profile":"podcast-5min-v1","label":"5 min","target_seconds":300,
+           "document_id":"\(Self.document)","title":null,"created_at":"2026-10-15T01:00:00Z"}]}}
+        """.utf8))
+        let own = try #require(page.mine)
+        #expect(own.episodes.map(\.id) == [UUID(uuidString: Self.release)!])
+        #expect(own.madeBy[UUID(uuidString: Self.release)!] == UUID(uuidString: request))
+        #expect(own.requests.map(\.failed) == [false, true])
+        #expect(own.requests[0].targetSeconds == 600 && own.requests[0].title == "Toward Study" && own.requests[0].label == "10 min")
+        #expect(own.requests[1].title == nil)
+        let older = try JSONDecoder().decode(PodcastCatalogPage.self, from: Data(#"{"episodes":[],"next":null}"#.utf8))
+        #expect(older.mine == nil)
+        // A shared episode can't pose as your own.
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(PodcastMine.self, from: Data(#"{"episodes":[\#(Self.episodeJSON())],"requests":[]}"#.utf8))
+        }
+    }
+
     @Test func refusesOutOfContractEpisodes() {
         let bad = [
             Self.episodeJSON(audio: #"{"bytes":0,"sha256":"\#(Self.sha)","media_type":"audio/mp4"}"#),

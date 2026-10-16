@@ -24,6 +24,7 @@ import { Brand, Dialog } from './common';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { PaperSearchView, usePaperSearch } from './PaperSearch';
 import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
+import type { MineRequest } from '../lib/podcast';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
 import { RegionBoundary } from './ErrorBoundary';
@@ -284,6 +285,15 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const podcasts = usePodcasts(account);
   const player = usePodcastPlayer(account);
   const [listening, setListening] = useState(false);
+  // Try again from Listen: the paper opens with its Listen at the length that couldn't be made.
+  const [listenAgain, setListenAgain] = useState<{ itemID: string; profile: string | null } | null>(null);
+  const tryAgain = useCallback((request: MineRequest) => {
+    const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && (e.id === request.documentID || e.document_id === request.documentID));
+    if (!paper) return false;
+    setListenAgain({ itemID: paper.id, profile: request.profile });
+    void openPaper(paper);
+    return true;
+  }, [library.entries, openPaper]);
 
   const shortcut = useCallback((key: FrameKey) => {
     const { ws, route, reading } = latest.current;
@@ -491,7 +501,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // A direct paper URL can finish loading the library before local decryption. Mounting the
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }} deviceSource={isSourcePaper(item) ? async signal => {
+      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
+        onAsked={podcasts.asked} openWith={listenAgain?.itemID === item.id ? listenAgain : null} onOpened={() => setListenAgain(null)} deviceSource={isSourcePaper(item) ? async signal => {
         // The paper's own text on this device (migration 066): the verified bundle's numbered context, as the chat sends it.
         const key = readerCacheKey(account, item); const bundle = readerCache.get(key) ?? await prepareArxivReader(paperReference(item)!, signal, undefined, { authors: item.metadata?.authors ?? [], title: item.metadata?.title });
         const context = localChatContext(paperReference(item)!, bundle);
@@ -508,7 +519,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing}
       onAdded={sourceID => { feedAdded.current.add(sourceID); }}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }}
-      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} /> }} />;
+      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} onTryAgain={tryAgain} /> }} />;
   } else if (searchExternal) {
     center = <PaperSearchView search={paperSearch} library={library} preparing={feedPreparing} onAdded={sourceID => { feedAdded.current.add(sourceID); }}
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
