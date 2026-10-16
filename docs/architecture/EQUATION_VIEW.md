@@ -1,5 +1,9 @@
 # The equation view (2026-10-15)
 
+Release update, 2026-10-16: the build-62 top row, heading menu, equation tiles and saved-explanation lists are in
+TestFlight 63 and browser Pages `836089d4`. Platform processing and verification evidence are recorded in
+[IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#claude-takeover-and-build-63-release--2026-10-16-2000-utc).
+
 Owner: "when you click on an equation, you can enter a custom view next to Explain in Chat that allows you to see the
 equations much more clearly. You can update the size of the equation, with an optional horizontal scroll option. And
 in addition each parameter or symbol is clearly described below. The description can also use AI in case some symbols
@@ -24,8 +28,8 @@ button, in the same place, when the selection is one equation.
    **The top row** (owner, build 62; DESIGN.md "Sheet top row"): one glass row, **Explain in Chat** and **AI Explainer**
    (tinted) as glass capsules in its middle, a round **X** on the right; no title, no Done. AI Explainer shows until the explanation
    is asked for (from the menu it is asked at once, so the row is Explain in Chat and the X). Above the equation its
-   name is a small menu, **Equation (4) ⌄**, listing the paper's display equations ("Equation — …" with the start of an
-   unnumbered one's text): choosing one shows it, with its kept explanation or AI Explainer (nothing is asked unasked).
+   name is a small menu, **Equation (4) ⌄**, listing the paper's display equations ("Equation · section" for an
+   unnumbered one): choosing one shows it, with its kept explanation or AI Explainer (nothing is asked unasked).
    With one display equation the heading is the plain name.
    No credit counts are shown anywhere in the view ("Don't display the number of credits in the response please").
 2. **What it says** (once explained): the one- or two-sentence summary.

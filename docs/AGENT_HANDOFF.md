@@ -1,6 +1,25 @@
 # Agent handoff
 
-**Current checkpoint, 2026-10-14 PDT:** HTML-first reader and **Agent v2** are deployed on staging. Read
+**Current takeover checkpoint, 2026-10-16:** Codex recovered the active Claude session after its weekly quota
+ran out. The build-62 feedback branches are merged and verified on main (`505d661` client source). Browser
+Pages **`836089d4`** is live and its assets verified. **TestFlight 63 iOS and Mac are VALID / IN_BETA_TESTING**,
+confirmed at **20:05 UTC**. See the
+latest [implementation status](IMPLEMENTATION_STATUS.md#claude-takeover-and-build-63-release--2026-10-16-2000-utc)
+for final processing evidence. The merged iPhone Simulator run is 22 pass / 2 tablet-only skips / 0 failures;
+fast suite and browser UX captures pass. Physical phone remains paused.
+
+The owner's active research request is **intelligence per dollar**, including Chinese providers; maintenance
+cost is not an exclusion criterion. OpenRouter and up to **$25 including grading** were explicitly approved in
+the recovered conversation. All 27 questions and five exact-source hashes are now in `tests/model-bakeoff/`.
+The harness was corrected and passes dry construction, but **OpenRouter still has $0 credit and no inference
+has run**. Keep the default unchanged. Read the [comparison protocol](reviews/MODEL_COMPARISON_20261016.md)
+before any paid run: $18 local admission cap, existing $20 provider key limit, durable holds, no silent retries,
+start with the small smoke matrix. The two old Claude credit watchers were stopped. No automatic work remains
+running on their behalf. Staging Anthropic's pending figure-detail live check is separate from OpenRouter funding.
+
+The checkpoints below are historical; do not use their release numbers or balances as current.
+
+**Historical checkpoint, 2026-10-14 PDT:** HTML-first reader and **Agent v2** are deployed on staging. Read
 [Implementation status](IMPLEMENTATION_STATUS.md#agent-v2-on-staging--2026-10-14-deployed), the
 [chat contract](architecture/CHAT.md#agent-v2-2026-10-14-numbered-context-grounded-citations-follow-ups) and
 [HTML-first architecture](architecture/HTML_FIRST_READER.md). Migration **059** (follow-up ceiling in the chat quote)

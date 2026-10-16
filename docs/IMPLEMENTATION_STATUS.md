@@ -2,6 +2,35 @@
 
 Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Claude takeover and build 63 release — 2026-10-16, ~20:00 UTC
+
+- Recovered Claude's active session, all three merged build-62 feedback branches and four saved model-question
+  drafts. Main's client source is `505d661` (including merge fix `6147be5`); no new product interaction was added
+  during takeover. Physical iPhone work remains paused; no NAS/TextBrain access or changes.
+- **Browser shipped:** Pages `836089d4` at https://app.gradstep.ai, published with the existing two-phase release
+  procedure. Verified the new index and all three script/style entry assets have their expected content types.
+  This ships the build-62 parity, reader/version recovery screens, extraction UI and saved-explanation lists
+  described below. The browser still has no on-device PDF model.
+- **TestFlight 63:** iOS/iPad upload succeeded at **19:57 UTC**, Mac at **20:02 UTC**. Both are
+  **VALID / IN_BETA_TESTING**, confirmed in App Store Connect at **20:05 UTC**. Server figure-detail and billing
+  changes were already deployed by Claude; the paid figure-detail live check remains unverified after the earlier
+  Anthropic credit refusal. Evidence: `.artifacts/takeover-20261016/build63-status.json`, `export-63.log` and
+  `export-mac-63.log` under `.artifacts/`. No public release.
+- **Verification:** `npm test` passes after harness changes; browser UX review 4/4 (50 captures, light/dark,
+  desktop/phone). The recovered merged iPhone 17 Pro Simulator run finished **22 passed, 2 tablet-only skips,
+  0 failures** (`.artifacts/xr-merge-1234`, summary in `.artifacts/takeover-20261016/native-summary.json`). Reviewed
+  its figure top row, walkthrough, equation Contents and dark captures. Existing iPad/Mac feature evidence below
+  is reused because their implementation is unchanged. Owner acceptance on the physical device remains open.
+- **Model comparison:** 27 reference questions on five exact revisions, 13 model settings; all requests pass dry
+  construction and first-party catalogue preflight. Corrected attachment ids, actual browser figure preparation,
+  output/deadline parity, durable spending holds, grade validation and stale-result handling. Five new budget and
+  validation tests pass. OpenRouter credit/usage are $0/$0 at **20:03 UTC**, so no inference or quality ranking exists. Default model
+  unchanged. [Protocol and prices](reviews/MODEL_COMPARISON_20261016.md); [spending record](architecture/OPERATIONS_AND_BILLING.md#model-comparison-reservation--2026-10-16-takeover).
+- Stopped the two old Claude balance-polling processes after checking what they do; there is no unattended paid
+  experiment or promised future watcher. Resume explicitly from the recorded commands when credit is available.
+- Recovery/harness commits: `029a2e2`, `3b91a4c`. Historical "not shipped" checkpoints below describe their state
+  when written; this release supersedes those labels for the build-62 client changes.
+
 ## Browser: build 62 parity — 2026-10-16, ~17:30 UTC (local fixtures only; not deployed)
 
 - The browser matches the apps' build-62 changes with their wording

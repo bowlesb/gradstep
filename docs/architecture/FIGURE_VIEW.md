@@ -1,5 +1,11 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+Release update, 2026-10-16: the client work below, including the build-62 top row and subfigure extraction UI,
+is in TestFlight 63 and browser Pages `836089d4`. The subfigure extraction's paid live check remains pending after
+the earlier Anthropic balance refusal; fixture coverage does not verify provider output. The phase descriptions
+below retain their original checkpoints. See
+[IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#claude-takeover-and-build-63-release--2026-10-16-2000-utc).
+
 Owner, TestFlight build 59: "a UX that is quite similar to the one for equations, instead of requesting for a breakdown
 of the equations it creates a breakdown of the figures, it knows how to crop the different sections out, but most likely
 only does this on specific occasions, because this could be expensive and take a while… maybe if there is a very large

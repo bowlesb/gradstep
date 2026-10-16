@@ -386,6 +386,11 @@ The owner liked the episodes ("I like it … lets keep going with this") and app
 
 ## Build 62, 2026-10-16 14:43–15:07 UTC (iPhone, 15 items)
 
+Delivery checkpoint, 2026-10-16 takeover: all client fixes below are merged; browser Pages `836089d4` is live;
+TestFlight 63 iOS and Mac are VALID / IN_BETA_TESTING as of 20:05 UTC (evidence in IMPLEMENTATION_STATUS.md). Merged Simulator
+journeys: 22 passed, 2 tablet-only skips. Item 15's provider credit and item 8's paid live verification remain open;
+fixture UI evidence does not establish live provider availability. Owner acceptance remains open.
+
 | # | Owner's words (short) | Where | Plan |
 |---|---|---|---|
 | 1 | "Equations in this way need an outline clean step… excess pixels around the edge… then margin" | on-device PDF model: formulas shown as images | trim stray edge pixels from a formula crop, then a margin |

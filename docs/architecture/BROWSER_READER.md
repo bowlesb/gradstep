@@ -260,6 +260,11 @@ database layout or server capability is required. For an arXiv paper its first i
 
 ### Build 62 parity (2026-10-16; local fixtures only, not deployed)
 
+Release update, 2026-10-16 20:00 UTC: this work is deployed as Pages `836089d4` at
+https://app.gradstep.ai. Index and entry assets verified; browser UX capture passes on desktop/phone in light/dark.
+The heading retains the original implementation checkpoint; current release evidence is in
+[IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#claude-takeover-and-build-63-release--2026-10-16-2000-utc).
+
 The owner's build-62 feedback ([OWNER_FEEDBACK.md](../OWNER_FEEDBACK.md) "Build 62"; [DESIGN.md](../DESIGN.md) "Sheet
 top row" and "Explain actions"), with the apps' wording:
 
