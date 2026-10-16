@@ -21,7 +21,7 @@ export function validateQuestions(qs, papers) {
   return qs;
 }
 
-export function validateGrades(grades, labels, keyPointCount) {
+export function validateGrades(grades, labels, keyPointCount, claimReview = false) {
   const fields = ['correctness', 'completeness', 'faithfulness', 'citations', 'clarity', 'overall'];
   if (!Array.isArray(grades) || grades.length !== labels.length) return false;
   const seen = new Set();
@@ -31,6 +31,10 @@ export function validateGrades(grades, labels, keyPointCount) {
     if (fields.some(f => typeof g[f] !== 'number' || !Number.isFinite(g[f]) || g[f] < 0 || g[f] > 10)
       || !Array.isArray(g.errors) || g.errors.some(e => typeof e !== 'string') || typeof g.comment !== 'string'
       || !Array.isArray(g.key_points_hit) || g.key_points_hit.some(n => !Number.isInteger(n) || n < 0 || n >= keyPointCount)) return false;
+    if (claimReview && (typeof g.material_error !== 'boolean'
+      || !Array.isArray(g.required_omissions) || g.required_omissions.some(x => typeof x !== 'string')
+      || !Array.isArray(g.optional_omissions) || g.optional_omissions.some(x => typeof x !== 'string')
+      || (g.material_error && !g.errors.length))) return false;
   }
   return true;
 }
@@ -61,6 +65,18 @@ export function requestCeiling(messages, tools, maxTokens, rates) {
   const price = { input: maximum(['prompt', 'input_cache_read', 'input_cache_write', 'input_cache_write_1h'], rates.input),
     output: maximum(['completion'], rates.output), request: maximum(['request'], rates.request), image: maximum(['image'], rates.image) };
   return Math.ceil(1e6 * 1.25 * (input * price.input + maxTokens * price.output + price.request + images * price.image)) / 1e6;
+}
+
+// A missing streaming bill is settled only by the provider record for that exact generation.
+export function generationCharge(row, response) {
+  const data = response?.data;
+  if (response?.status !== 200 || !row.generation || data?.id !== row.generation
+    || typeof data.model !== 'string' || !(data.model === row.model || data.model.startsWith(row.model + '-'))
+    || typeof data.total_cost !== 'number' || !Number.isFinite(data.total_cost) || data.total_cost < 0)
+    throw new Error('Generation metadata does not establish this request charge');
+  if (row.cost != null && Math.abs(row.cost - data.total_cost) > 1e-6)
+    throw new Error('Generation cost conflicts with the settled request');
+  return data.total_cost;
 }
 
 export class SpendLedger {

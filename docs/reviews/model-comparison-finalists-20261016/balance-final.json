@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-10-16T23:19:38.578Z",
+  "key": {
+    "status": 200,
+    "limit": 20,
+    "usage": 9.413856053,
+    "limit_reset": null
+  },
+  "credits": {
+    "status": 200,
+    "total_credits": 10,
+    "total_usage": 9.413856053
+  }
+}

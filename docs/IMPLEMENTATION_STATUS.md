@@ -2,7 +2,24 @@
 
 Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
-## Model comparison screening — 2026-10-16, ~21:25 UTC, complete
+## Model finalist extension — 2026-10-16, ~23:15 UTC, responses complete; review partial
+
+Haiku medium, Gemini Flash medium and Luna high now each have 27 attempted questions. The 45 new requests all
+completed: Haiku/Gemini produced 15 written answers each and Luna 13, with two unanswered native-table image
+requests. Four of the 15 new questions have independent claim-review grades. Two judges agree on six short
+calibration cases each; direct agent source checks identify smaller unsupported claims and grader/reference
+disagreements. [Finalist results](reviews/MODEL_COMPARISON_FINALISTS_20261016.md) preserve those limits; no combined
+27-question quality score or default switch is claimed. Higher-end Chinese models remain untested.
+
+The old five uncertain calls reconcile to $0.03395231. Total experiment spend is now **$9.6865303832**, no holds
+or overruns, within **$10 funded** and the existing **$25 authorization**. Remaining funded room $0.3134696168
+cannot admit the outstanding full-source grading requests. No paid process or balance watcher remains running.
+The original evidence archive is unchanged; the new archive includes 213 attempts, 19 grading records and two
+calibrations. Routine fast checks, seven targeted accounting/grade checks and actual-app rendering of all 196
+completed responses pass. All 27 questions are available in the responsive answer comparison. No product code,
+deployed model, physical-device, NAS or TextBrain change is included.
+
+## Model comparison screening — 2026-10-16, ~21:25 UTC, historical checkpoint
 
 The matched 12-question screening covers 13 usable settings across five papers: 151 completed responses, five
 timeouts and nine empty table requests. DeepSeek's own endpoint had 12 separate pre-inference policy refusals;

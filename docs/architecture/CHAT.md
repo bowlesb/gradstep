@@ -1044,7 +1044,21 @@ gradient's weighting, a result read from a plot, Theorem 1's condition) on Haiku
 baseline and DeepSeek, graded side by side (under $1). Blocked on the staging Anthropic balance (still "credit balance
 is too low" at 17:09 UTC).
 
-### Matched model screening (2026-10-16, ~21:25 UTC; default unchanged)
+### Finalist continuation (2026-10-16, ~23:15 UTC; default unchanged)
+
+The three economical finalists now have 27 attempts each: Haiku medium and Gemini Flash medium return 27 written
+answers, Luna high 24 (three requests end at an unavailable native-table image). Independent grading covers four
+new questions; source checks preserve disagreements and identify smaller unsupported claims. No score averages
+mix the old rubric with the new factual-error/required-omission/optional-background rubric. Calibration consists
+of six agent-verified short cases per judge, not human expert validation. [Finalist results](../reviews/MODEL_COMPARISON_FINALISTS_20261016.md).
+
+The earlier uncertain charges are reconciled; experiment total $9.6865303832, no outstanding holds, under the
+$10 funded cap. More full-source grading cannot fit the remaining $0.3135. Higher-end Chinese comparisons,
+repeated critical cases and deployed-adapter/figure-explainer validation remain open. Sonnet remains the default.
+The observed table tool dead ends are retained for the later adapter/tool review, not silently retried or fixed
+mid-experiment. OpenRouter research is still separate from the pending staging Anthropic figure-detail check.
+
+### Matched model screening (2026-10-16, ~21:25 UTC; historical checkpoint)
 
 The owner's funded OpenRouter comparison now has 12 matched questions across five papers and 13 usable settings,
 with whole production paper-chat instructions and prepared images. Argon high graded all completed responses;

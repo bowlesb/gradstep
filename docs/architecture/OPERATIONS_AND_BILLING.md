@@ -332,3 +332,24 @@ unreconciled with the response records and is not used as permission to spend th
 returned 404 even for a known completed call. Details and retained non-secret evidence:
 [measured comparison](../reviews/MODEL_COMPARISON_RESULTS_20261016.md). The 27-question finalist extension is
 pending; do not treat its cost as zero or expand it using the stale/lower account reading.
+
+**Finalist continuation, ~23:15 UTC:** the first-screen generation metadata now resolves all five interrupted
+requests: **$0.03395231** actual replaces **$0.228190** held. Corrected first-screen total **$8.6897285082** matches
+account/key usage at 22:50 UTC to rounding; original failures and the original evidence snapshot are preserved.
+The additional 45 contestant requests cost **$0.535841875**, four independent grading requests **$0.440760**,
+and two short calibration requests **$0.020200**. Experiment totals: contestant requests **$6.6295203832**;
+grading **$3.0368100000**; calibration **$0.0202000000**; **total $9.6865303832**, **outstanding $0**, no overruns.
+
+Purchased credit remains **$10**, leaving **$0.3134696168** by the authoritative request ledger. The latest
+aggregate reading at 23:19 UTC was $9.413856053 and still lagging; it is not extra spending room. Full conservative
+holds prevented further grading before inference. Current forecast for additional paid work is **$0 until
+funding is confirmed**; no unattended paid process remains. The owner's $25 research authorization, $20 key
+limit, tighter $18 harness maximum and $100/month operating budget are unchanged. The request to fund the rest
+of the approved $25 is pending; no top-up or fixed commitment was made. Research is actual usage within the
+existing operating budget, not part of staging's separate provider ledger.
+
+[Finalist results](../reviews/MODEL_COMPARISON_FINALISTS_20261016.md) record cache conditions and remaining
+quality checks. The four new Argon grading calls reported zero cached tokens, so their $0.322660 prompt cost must
+not be forecast as a discounted cache read. Source evidence, reconciliation receipts and raw answers are kept
+in the new immutable comparison archive; no invoice-level reconciliation or direct-provider price equivalence
+is claimed.

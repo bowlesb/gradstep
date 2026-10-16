@@ -1,0 +1,10 @@
+{
+  "schema": "paper-model-finalist-plan-v1",
+  "planned_at": "2026-10-16T22:54:25Z",
+  "timestamp_basis": "Local plan file creation time, before the first extension request at 22:54:26 UTC; the initial hand-entered 22:55 time was rounded.",
+  "models": ["haiku-medium", "gemini-flash-medium", "luna-high"],
+  "questions": ["apertus-detail_deep", "apertus-explain", "apertus-figure", "dpo-false_premise", "dpo-unanswerable", "mamba-explain", "mamba-detail", "mamba-critical", "muon-explain", "muon-derivation", "muon-false-premise", "muon-unanswerable", "prism-explain", "prism-figure", "prism-critical"],
+  "reason": "Extend three economical candidates on the same 15 unseen evaluation questions. Sonnet remains the existing 12-question control and the deployed default. This narrowed extension does not establish that untested Chinese flagships or other screened settings are inferior.",
+  "budget": "Existing $10 funding only unless the provider confirms another top-up; $25 total authorization and $20 provider key limit unchanged. Reconciled prior cost $8.6897285082. Generation forecast $0.45–0.70 from screening observations, not a guarantee. Every request still needs its full conservative hold. Independent grading and additional controls are conditional on remaining funded admission.",
+  "review": "Keep factual/source errors distinct from required omissions and optional background. Use source-backed claim checks and report grader disagreement. Preserve the original primary grades and do not combine unlike grading protocols into one mean. No selective retries or deletion of failures."
+}

@@ -2,19 +2,23 @@
 
 Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Default chat model evaluation (owner direction, 2026-10-16; screening complete, decision pending)
+## Default chat model evaluation (owner direction, 2026-10-16; finalist answers complete, review pending)
 
 The owner prioritizes **intelligence per dollar**, including Chinese providers; integration and maintenance cost
 must not exclude a contender. The recovered conversation explicitly approves OpenRouter access and **up to $25
 for contestants plus grading**. Keep the default unchanged until a paper-specific comparison supplies evidence.
-The local harness uses a tighter $18 admission cap plus the existing $20 provider key limit. No operating-budget
+The local harness has an $18 maximum, currently reduced to $10 funded admission, plus the existing $20 provider key limit. No operating-budget
 increase or customer-provider rollout follows from this research. Protocol, corrected assumptions and readiness:
 [model comparison](reviews/MODEL_COMPARISON_20261016.md). At takeover OpenRouter had $0 credit; after the owner
 said continue it reported $10 funded at 20:16 UTC. The matched 12-question screening and independent spot checks
-are complete: [measured results](reviews/MODEL_COMPARISON_RESULTS_20261016.md). Reported spend is $8.655776 plus
-$0.228190 unresolved holds; admission stayed within the existing $10 funding. Gemini Flash is the provisional
-lead for further validation. Haiku's high average did not prevent a confirmed algebra error. The full 27-question
-finalist comparison and deployed-adapter/figure-explainer validation remain pending. Keep Sonnet as the default
+are complete: [measured results](reviews/MODEL_COMPARISON_RESULTS_20261016.md). The [finalist extension](reviews/MODEL_COMPARISON_FINALISTS_20261016.md)
+adds the same 15 questions for Haiku medium, Gemini Flash medium and Luna high: 27/27 written answers for the first
+two and 24/27 for Luna, whose table-image tool requests sometimes leave no answer. Independent review covers only
+four new questions; source checks also identify smaller unsupported claims and disputed completeness penalties.
+Recorded spend is **$9.6865303832**, with **no unresolved holds**, within the existing $10 funding. The original
+five interrupted calls were reconciled against exact generation metadata. Gemini Flash is a provisional candidate;
+Haiku's high first-screen average did not prevent a confirmed algebra error. Further grading, repeated critical
+cases, higher-end Chinese comparisons and deployed-adapter/figure-explainer validation remain pending. Keep Sonnet as the default
 until those quality and integration questions are answered. Do not infer inferiority for untested Chinese flagships.
 
 ## Server paper copies deleted (owner decided 2026-10-16)

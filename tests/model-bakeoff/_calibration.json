@@ -1,0 +1,48 @@
+{
+  "schema": "paper-claim-grader-calibration-v1",
+  "purpose": "Agent-verified claim checks, not human ground truth or a replacement for full-answer evaluation. Correctness is separate from optional background and verbosity.",
+  "cases": [
+    {
+      "id": "mamba-missing-delta",
+      "source": "Mamba equation (4): Abar=exp(Delta A); Bbar=(Delta A)^(-1)(exp(Delta A)-I) Delta B. Assume the scalar/matrix inverses exist.",
+      "claim": "The factor (Delta A)^(-1)(exp(Delta A)-I) alone simplifies to A^(-1)(exp(Delta A)-I).",
+      "material_error": true,
+      "reason": "The factor 1/Delta is missing. Delta=2, A=-1 gives 0.432332 versus 0.864665. Cancellation requires the trailing Delta in the complete Bbar expression."
+    },
+    {
+      "id": "mamba-complete-cancellation",
+      "source": "Mamba equation (4): Abar=exp(Delta A); Bbar=(Delta A)^(-1)(exp(Delta A)-I) Delta B. Delta is a positive scalar and A is invertible.",
+      "claim": "For these assumptions the complete input coefficient Bbar equals A^(-1)(exp(Delta A)-I) B.",
+      "material_error": false,
+      "reason": "The trailing Delta cancels the inverse Delta. This is the complete coefficient, not the isolated factor."
+    },
+    {
+      "id": "muon-squared-rate",
+      "source": "Muon paper paragraph 300 gives (1/T) sum_t E[||gradient F(W_t)||_F] <= C T^(-1/4), for a constant C. The norm on the left is not squared.",
+      "claim": "Paragraph 300 establishes (1/T) sum_t E[||gradient F(W_t)||_F^2] = O(T^(-1/2)).",
+      "material_error": true,
+      "reason": "It changes both the stationarity measure and the rate. A first-moment bound does not imply this second-moment bound."
+    },
+    {
+      "id": "muon-unsquared-rate",
+      "source": "Muon paper paragraph 300 gives (1/T) sum_t E[||gradient F(W_t)||_F] <= C T^(-1/4), for a constant C. The norm on the left is not squared.",
+      "claim": "The expected Frobenius gradient norm, averaged over the iterates, has an O(T^(-1/4)) upper bound. This alone does not prove that the iterates converge to a single point.",
+      "material_error": false,
+      "reason": "It preserves the measure/rate and appropriately limits the inference."
+    },
+    {
+      "id": "apertus-concise-correct",
+      "source": "The question asks only the main RL learning rate, clipping range and whether KL is penalized. Appendix G paragraph 702 specifies AdamW at 1e-6, asymmetric clipping (0.2, 0.28), and no KL penalty. It also mentions eight rollouts, FSDP2 and other settings.",
+      "claim": "The main run used learning rate 1e-6, lower/upper clipping 0.2/0.28, and no KL penalty [paragraph 702].",
+      "material_error": false,
+      "reason": "It answers all requested details. Omitting the optional rollout/framework details is not a factual error or required omission."
+    },
+    {
+      "id": "apertus-ablation-confusion",
+      "source": "Appendix G paragraph 702 specifies the main released-model RL run: learning rate 1e-6, clipping (0.2, 0.28), no KL penalty. Paragraph 257 describes a separate ablation with learning rate 2e-6 and DAPO clipping.",
+      "claim": "The main RL run that produced the released models used learning rate 2e-6 [paragraph 257].",
+      "material_error": true,
+      "reason": "It substitutes a different experiment's learning rate, with a citation that does not support the main-run claim."
+    }
+  ]
+}

@@ -19,13 +19,26 @@ the default remains Sonnet.** Haiku high scored well, but the second judge and a
 algebra error missed by the primary judge. DeepSeek/Qwen misread a plotted series; MiMo added false mathematical
 and resource-accounting claims. Scores alone are not the decision.
 
-Reported charges **$8.655776**, unresolved holds **$0.228190**, conservative exposure **$8.883966** within the
-existing $10 funding and $25 approval; provider key limit remains $20. No further paid work is running/planned
-for this round. OpenRouter's aggregate usage remained $3.451502566 at 21:25 UTC; reconcile the discrepancy rather
-than using the lower reading to spend more. Generation metadata returned 404 even for a completed request.
-The remaining 15 questions, repeated critical cases and deployed-adapter/figure-explainer validation are pending.
-Raw non-secret evidence is committed under `docs/reviews/model-comparison-20261016/`; do not lose it like the
-earlier evaluation artifacts. The local spend ledger retains unknown charges across restarts. Check
+**Finalist continuation, ~23:15 UTC:** Haiku medium, Gemini Flash medium and Luna high each ran the remaining
+15 questions, giving 27 attempts each. Haiku/Gemini have 27 written answers; Luna has 24, with three unanswered
+native-table image requests. The new claim-review rubric is separate from the original grader. Only four new
+questions received independent grading; two graders passed six short calibration checks each, and Codex checked
+central source claims and disagreements. These are agent checks, not exhaustive human labels. Read the
+[finalist report](reviews/MODEL_COMPARISON_FINALISTS_20261016.md) before making a default decision.
+
+Recorded charges are **$9.6865303832**, **$0 unresolved**, leaving **$0.3134696168** of the $10 funded credit.
+All five old interrupted calls now have authoritative generation costs ($0.03395231 in total). The first-screen
+ledger reconciled to account/key usage at 22:50 UTC. The aggregate is again delayed after the extension; use the
+larger local ledger, not the lower account reading, for admission. The existing $25 approval and $20 key limit
+are unchanged. The request to fund the remaining $15 is pending; no automatic top-up or watcher is running.
+Further planned paid spend is $0 until funding is confirmed. Remaining work: 11 independent question reviews,
+second-judge disagreements, repeated critical cases, higher-end Chinese candidates and deployed-adapter/
+figure-explainer validation. The local harness retains an $18 maximum and a current $10 funded cap.
+
+The original archive `docs/reviews/model-comparison-20261016/` is immutable. Updated non-secret evidence is in
+`docs/reviews/model-comparison-finalists-20261016/`; the comparison viewer rebuilds from it without credentials.
+Do not alter questions or references after paid answers; record corrections as source-review annotations.
+The local spend ledger retains unknown charges across restarts. Check
 `.artifacts/bakeoff/paid-run.lock` before any paid continuation. The two old Claude credit watchers were stopped.
 Staging Anthropic's pending figure-detail live check is separate from OpenRouter funding. Physical phone remains paused.
 

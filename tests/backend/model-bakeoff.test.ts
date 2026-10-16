@@ -3,7 +3,18 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SpendLedger, rateCeiling, requestCeiling, validateGrades, validateQuestions } from '../../scripts/model-bakeoff-support.mjs';
+import { SpendLedger, rateCeiling, requestCeiling, validateGrades, validateQuestions, generationCharge } from '../../scripts/model-bakeoff-support.mjs';
+
+test('bake-off reconciles only an authoritative charge for the same generation and model', () => {
+  const row = { generation: 'gen-one', model: 'maker/model', cost: null };
+  const response = { status: 200, data: { id: 'gen-one', model: 'maker/model-20261016', total_cost: 0.03 } };
+  assert.equal(generationCharge(row, response), 0.03);
+  for (const changed of [{ id: 'gen-other' }, { model: 'maker/other' }, { total_cost: null }, { total_cost: -1 }, { total_cost: '0.03' }])
+    assert.throws(() => generationCharge(row, { ...response, data: { ...response.data, ...changed } }), /metadata/);
+  assert.throws(() => generationCharge(row, { ...response, status: 404 }), /metadata/);
+  assert.throws(() => generationCharge({ ...row, cost: 0.01 }, response), /conflicts/);
+  assert.equal(generationCharge({ ...row, cost: 0.03 }, response), 0.03);
+});
 
 test('bake-off concurrent admissions count outstanding calls and preserve them after restart', () => {
   const dir = mkdtempSync(join(tmpdir(), 'bakeoff-budget-'));
@@ -57,6 +68,10 @@ test('bake-off rejects missing, duplicate, out-of-range and malformed grades', (
   assert.equal(validateGrades([grade, grade], ['A', 'B'], 1), false);
   assert.equal(validateGrades([{ ...grade, overall: 11 }], ['A'], 1), false);
   assert.equal(validateGrades([{ ...grade, key_points_hit: [1] }], ['A'], 1), false);
+  assert.equal(validateGrades([grade], ['A'], 1, true), false, 'claim review requires explicit error/omission fields');
+  const reviewed = { ...grade, material_error: false, required_omissions: [], optional_omissions: ['Extra background'] };
+  assert.equal(validateGrades([reviewed], ['A'], 1, true), true);
+  assert.equal(validateGrades([{ ...reviewed, material_error: true }], ['A'], 1, true), false, 'a material error needs a stated claim');
 });
 
 test('bake-off only excludes a length surcharge above the conservative byte bound', () => {

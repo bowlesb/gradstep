@@ -38,15 +38,20 @@
   const qSelect=root.querySelector('[data-question]'),aSelect=root.querySelector('[data-model-a]'),bSelect=root.querySelector('[data-model-b]');
   const md=window.markdownit({html:false,linkify:false});md.disable(['image']);
   md.inline.ruler.before('escape','reader_math',(state,silent)=>{
-    const start=state.pos,src=state.src;let open='',close='',display=false;
+    const start=state.pos,src=state.src;let open='',close='',display=false,environment=false;
     if(src.startsWith('\\[',start)){open='\\[';close='\\]';display=true;}
-    else if(src.startsWith('\\(',start)){open='\\(';close='\\)';}else return false;
-    const end=src.indexOf(close,start+open.length);if(end<0)return false;
-    if(!silent){const token=state.push('reader_math','math',0);token.content=src.slice(start+open.length,end);token.meta={display};}
+    else if(src.startsWith('\\(',start)){open='\\(';close='\\)';}
+    else if(src.startsWith('$$',start)){open=close='$$';display=true;}
+    else if(src[start]==='$'&&!/\s/.test(src[start+1]??' ')){open=close='$';}
+    else{const m=/^\\begin\{([A-Za-z*]{1,40})\}/.exec(src.slice(start,start+50));if(!m)return false;open=m[0];close=`\\end{${m[1]}}`;display=environment=true;}
+    let end=src.indexOf(close,start+open.length);
+    while(end>=0&&(src[end-1]==='\\'||(open==='$'&&(/\s/.test(src[end-1])||/[0-9]/.test(src[end+1]??'')))))end=src.indexOf(close,end+close.length);
+    if(end<0)return false;
+    if(!silent){const token=state.push('reader_math','math',0);token.content=src.slice(environment?start:start+open.length,environment?end+close.length:end);token.meta={display};}
     state.pos=end+close.length;return true;
   });
   md.renderer.rules.reader_math=(tokens,i)=>{
-    const t=tokens[i],display=t.meta.display,tags=[...t.content.matchAll(/\\tag(\*)?\{([^{}]*)\}/g)];
+    const t=tokens[i],tags=[...t.content.matchAll(/\\tag(\*)?\{([^{}]*)\}/g)],display=t.meta.display||tags.length>0;
     // Keep a lone equation number below the formula so the MathML tag cannot cover its final symbols.
     const tag=display&&tags.length===1?tags[0]:null,source=tag?t.content.replace(tag[0],''):t.content;
     const label=tag?`<span class="equation-label">${md.utils.escapeHtml(tag[1]?tag[2]:'('+tag[2]+')')}</span>`:'';
@@ -57,7 +62,8 @@
   for(const s of [aSelect,bSelect])data.models.forEach(m=>s.append(option(m.id,m.label)));
   const modelName=id=>data.models.find(m=>m.id===id)?.label??id;
   function markdown(target,text){target.innerHTML=md.render(text??'');target.querySelectorAll('a').forEach(a=>{a.target='_blank';a.rel='noopener noreferrer';});target.querySelectorAll('table').forEach(t=>{t.className='table table-sm';const wrap=document.createElement('div');wrap.className='table-responsive';t.before(wrap);wrap.append(t);});}
-  function fitEquations(target){const edge=target.getBoundingClientRect().right;for(const e of target.querySelectorAll('[data-equation]')){if([...e.querySelectorAll('math,math *')].some(n=>n.getBoundingClientRect().right>edge+1)){const source=document.createElement('span');source.className='equation-source';source.textContent='TeX: '+e.dataset.equation;source.setAttribute('aria-label','Equation in TeX: '+e.dataset.equation);e.replaceChildren(source);}}}
+  function fitEquations(target){const bounds=target.getBoundingClientRect();for(const e of target.querySelectorAll('[data-equation]')){if([...e.querySelectorAll('math,math *')].some(n=>{const b=n.getBoundingClientRect();return b.width>0&&(b.right>bounds.right+1||b.left<bounds.left-1);})){const source=document.createElement('span');source.className='equation-source';source.textContent='TeX: '+e.dataset.equation;source.setAttribute('aria-label','Equation in TeX: '+e.dataset.equation);e.replaceChildren(source);}}}
+  function fitAll(){for(const s of root.querySelectorAll('section,[data-reference]'))fitEquations(s);}
   function panel(target,model,q){
     target.replaceChildren();const heading=document.createElement('h3');heading.textContent=modelName(model);target.append(heading);
     const r=data.answers[model]?.[q.id];const metrics=document.createElement('div');metrics.className='text-small tabular-nums';
@@ -66,13 +72,15 @@
     metrics.textContent=`Request cost $${r.cost.toFixed(4)} · First text ${r.firstText==null?'none':r.firstText.toFixed(1)+' s'} · Grades: ${grades}`;target.append(metrics);
     if(r.error){const e=document.createElement('p');e.className='text-destructive';e.textContent=r.error;target.append(e);}
     if(r.comments?.length){const d=document.createElement('details');const scores=r.judgeScores.map(g=>g.score);d.open=Math.max(...scores)-Math.min(...scores)>=2;const s=document.createElement('summary');s.textContent='Grader notes';d.append(s);const p=document.createElement('div');markdown(p,r.comments.join('\n\n'));d.append(p);target.append(d);}
+    if(r.sourceNotes?.length){const d=document.createElement('details');const s=document.createElement('summary');s.textContent='Source check · Codex';d.append(s);const p=document.createElement('div');markdown(p,'Central claims checked by an agent; not an exhaustive expert review.\n\n'+r.sourceNotes.join('\n\n'));d.append(p);target.append(d);}
     const content=document.createElement('div');content.className='answer-content';markdown(content,r.text||'No written answer.');target.append(content);
     if(r.tools?.length){const t=document.createElement('details');const s=document.createElement('summary');s.textContent='Tools requested';t.append(s);const p=document.createElement('pre');p.textContent=r.tools.join('\n');t.append(p);target.append(t);}
   }
-  function render(){const q=data.questions.find(q=>q.id===qSelect.value)??data.questions[0];qSelect.value=q.id;root.querySelector('[data-question-text]').textContent=q.question;panel(root.querySelector('[data-answer-a]'),aSelect.value,q);panel(root.querySelector('[data-answer-b]'),bSelect.value,q);markdown(root.querySelector('[data-reference]'),q.reference);for(const s of root.querySelectorAll('section'))fitEquations(s);}
-  function apply(state){const s=state?.modelContent??{};qSelect.value=data.questions.some(q=>q.id===s.question)?s.question:'mamba-equation';aSelect.value=data.models.some(m=>m.id===s.first)?s.first:'haiku-high';bSelect.value=data.models.some(m=>m.id===s.second)?s.second:'gemini-flash-medium';render();}
+  function render(){const q=data.questions.find(q=>q.id===qSelect.value)??data.questions[0];qSelect.value=q.id;root.querySelector('[data-question-text]').textContent=q.question;panel(root.querySelector('[data-answer-a]'),aSelect.value,q);panel(root.querySelector('[data-answer-b]'),bSelect.value,q);markdown(root.querySelector('[data-reference]'),q.reference);fitAll();}
+  function apply(state){const s=state?.modelContent??{};qSelect.value=data.questions.some(q=>q.id===s.question)?s.question:'muon-derivation';aSelect.value=data.models.some(m=>m.id===s.first)?s.first:'luna-high';bSelect.value=data.models.some(m=>m.id===s.second)?s.second:'gemini-flash-medium';render();}
   for(const select of [qSelect,aSelect,bSelect])select.addEventListener('change',()=>{render();window.openai?.setWidgetState?.({modelContent:{question:qSelect.value,first:aSelect.value,second:bSelect.value},privateContent:null})?.catch(()=>{});});
   window.addEventListener('openai:set_globals',event=>{if(event.detail?.globals?.widgetState)apply(event.detail.globals.widgetState);});
+  root.addEventListener('toggle',()=>requestAnimationFrame(fitAll),true);
   apply(window.openai?.widgetState);
   document.fonts.ready.then(render);
   let width=root.clientWidth;new ResizeObserver(()=>{if(root.clientWidth!==width){width=root.clientWidth;render();}}).observe(root);

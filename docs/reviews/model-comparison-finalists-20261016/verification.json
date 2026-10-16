@@ -1,0 +1,44 @@
+{
+  "commands": [
+    "npm test",
+    "node --test tests/backend/model-bakeoff.test.ts"
+  ],
+  "fast_suite": "passed",
+  "targeted_tests": 7,
+  "answer_renderer": {
+    "completed_responses": 196,
+    "invalid_math": 0,
+    "invalid_diagrams": 0,
+    "engine": "actual bundled browser renderMarkdown and pinned Mermaid"
+  },
+  "viewer": {
+    "checked": 1134,
+    "layouts": [
+      {
+        "width": 736,
+        "failures": [],
+        "count": 378
+      },
+      {
+        "width": 360,
+        "failures": [],
+        "count": 378
+      },
+      {
+        "width": 320,
+        "failures": [],
+        "count": 378
+      }
+    ],
+    "errors": [],
+    "scope": "Both answer columns, expanded grader/source/reference notes, all 14 settings and 27 questions; table overflow contained by table-responsive."
+  },
+  "archive_fallback": "byte-identical HTML rebuilt in an isolated directory without local run records or credentials",
+  "original_archive": "unchanged; SHA-256 verified",
+  "new_archive_sha256": "feef514f04c48e286a295f66d9204c73eeb422b0197e324231371d2039bbd025",
+  "log_hashes": {
+    "fast-final.log": "36a914f0ab383943d5a24bb489c3550fbe732c6c615c17a5be6d562257794c2b",
+    "targeted-final.log": "2ccdc8d1e0d92f60d5270f409ae47031f5fb1ffa68640e83313f64a64d815693",
+    "viewer-verification.json": "7b444161583428747736d498c191f6f4c078815dc3ea190d62061098953a0184"
+  }
+}

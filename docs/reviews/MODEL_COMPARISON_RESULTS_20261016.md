@@ -1,5 +1,11 @@
 # Paper-chat model comparison: measured screening
 
+**Later update, ~23:15 UTC:** the [finalist extension](MODEL_COMPARISON_FINALISTS_20261016.md) has all 45 additional
+responses and partial independent review. The five interrupted first-screen calls reconciled to $0.03395231,
+making the corrected first-screen total **$8.6897285082**, with no holds. Reconciled screening contestant totals
+for MiMo Flash and GLM Flash are **$0.0846504456** and **$0.10084738**. The costs and outstanding-hold readings
+below are retained as the original 21:25 checkpoint; the new report supersedes their billing status.
+
 2026-10-16. This is a first screening, not a completed default-model decision. **Gemini 3.8 Flash medium is the
 leading candidate for the next validation round.** Haiku remains competitive, but an independently confirmed
 algebra error in its high-effort answer prevents treating its high average score as a clean quality pass.

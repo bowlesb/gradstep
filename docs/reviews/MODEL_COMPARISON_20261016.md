@@ -1,6 +1,22 @@
 # Paper-chat model comparison, 2026-10-16
 
-**Current status, ~21:25 UTC: the matched 12-question screening and independent spot checks are complete.**
+**Latest checkpoint, ~23:15 UTC:** all 45 finalist extension requests completed, bringing Haiku medium,
+Gemini Flash medium and Luna high to 27 attempted questions each. Four new questions have independent grades;
+the rest still need review. Recorded total **$9.6865303832**, no unresolved holds, $10 funded. No default change
+or further paid work is running. [Finalist results and next steps](MODEL_COMPARISON_FINALISTS_20261016.md).
+
+**Continuation, ~22:55 UTC:** the provider's generation metadata now resolves all five interrupted calls.
+The reconciled first-screen total is **$8.6897285082**, matching account/key usage to rounding, with no remaining
+holds. The account still has $10 funded. `_finalists.json` prospectively selects Haiku medium, Gemini Flash medium
+and Luna high for the 15 remaining questions; forecast additional generation cost $0.45–0.70, controlled by the
+existing $10 funded admission ceiling. Full independent grading and additional controls depend on available
+funding. A request to fund the rest of the already-approved $25 is pending; no top-up was made by the agent.
+The first-screen archive remains immutable; later billing evidence and finalist coverage will be recorded separately.
+Review distinguishes a material factual error, a required omission, and optional background, instead of allowing
+an overall score to conceal an incorrect derivation. This follows the calibration/verbosity-bias concerns in
+[OpenAI's evaluation guidance](https://developers.openai.com/api/docs/guides/evaluation-best-practices#llm-as-a-judge-and-model-graders).
+
+**First-screen checkpoint, ~21:25 UTC: the matched 12-question screening and independent spot checks are complete.**
 Read the [measured results](MODEL_COMPARISON_RESULTS_20261016.md) before using the prices or selecting a default.
 Reported cost is $8.655776, plus $0.228190 unresolved holds. No further paid request is running. Gemini Flash is
 the provisional next-validation lead; Sonnet remains the default. The 27-question extension and deployed-adapter
@@ -119,6 +135,23 @@ Usage settles the hold only when cost is reported; interruption/missing usage re
 admission. There are no automatic transport retries. Explicit retries retain earlier attempt costs in the ledger.
 Provider usage must be reconciled before clearing stale locks or unresolved holds.
 
+**Current resume point (23:15 UTC):** contestant generation for the three finalists is complete. Do not restart
+the whole matrix or overwrite existing grades, calibration records or evidence archives. Only after additional
+funding is confirmed, the remaining 11 independent question reviews can resume as follows; preflight still
+refuses this $18 cap if the account remains at $10 funded:
+
+```sh
+node scripts/model-bakeoff.mjs judge --judge=argon --claim-review --judge-max-tokens=8192 --cap=18 --concurrency=1 \
+  --models=haiku-medium,gemini-flash-medium,luna-high \
+  --questions=apertus-detail_deep,apertus-explain,apertus-figure,dpo-false_premise,dpo-unanswerable,mamba-critical,muon-derivation,muon-false-premise,muon-unanswerable,prism-figure,prism-critical
+```
+
+Review `continuation_review` in the latest archive for the reference qualifications and completeness disputes.
+Select second-judge cases and any additional Chinese candidates prospectively, within funded admission. Do not
+rerun completed calibrations or remove inconvenient answers. `estimate` and `judge-dry` perform catalogue reads
+and print conservative holds without inference. `model-bakeoff-reconcile.mjs` is an offline, dry-by-default
+one-time reconciliation utility for the original five uncertain calls; that reconciliation is already applied.
+
 Offline preparation and catalogue-only checks:
 
 ```sh
@@ -127,7 +160,7 @@ node scripts/model-bakeoff.mjs preflight
 node --test tests/backend/model-bakeoff.test.ts
 ```
 
-After credit exists, start with three questions on Haiku and one different provider, inspect their images,
+**Historical initial-run instructions:** after credit exists, start with three questions on Haiku and one different provider, inspect their images,
 tool output, usage and stopping behavior, then broaden. Both answer generation and judging share the same spend cap. Grading allows 400 seconds and 32,000 output tokens per question (its output is a batch of scores, not a reader answer); contestants retain the 130-second deadline:
 
 ```sh
