@@ -16,10 +16,14 @@ public enum DevicePDFRaster {
 
     static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-    /// The page's crop box at `dpi`, on white.
+    /// The page's crop box at `dpi`, on white, turned by its `/Rotate` as it is displayed (and as pypdfium2 and the text
+    /// layer read it): a quarter turn swaps width and height (the bench's two `/Rotate 90` pages reached the layout
+    /// model sideways, model agent's report 2026-10-15).
     public static func render(_ page: CGPDFPage, dpi: Double) -> CGImage? {
         let box = page.getBoxRect(.cropBox)
-        let width = Int((box.width * dpi / 72).rounded(.up)), height = Int((box.height * dpi / 72).rounded(.up))
+        let rotation = ((Int(page.rotationAngle) % 360) + 360) % 360, quarter = rotation == 90 || rotation == 270
+        let shown = CGSize(width: quarter ? box.height : box.width, height: quarter ? box.width : box.height)
+        let width = Int((shown.width * dpi / 72).rounded(.up)), height = Int((shown.height * dpi / 72).rounded(.up))
         guard width > 0, height > 0, width * height <= 120_000_000,
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: sRGB,
                                   bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
@@ -29,8 +33,10 @@ public enum DevicePDFRaster {
         // No font smoothing: macOS thickens glyph stems when it smooths (iOS never does), and the recogniser then reads
         // regular letters as bold (`\bm{X}` for X on 2610.04747v1). Antialiasing stays, as pdfium renders.
         ctx.setAllowsFontSmoothing(false); ctx.setShouldSmoothFonts(false)
-        ctx.scaleBy(x: CGFloat(width) / box.width, y: CGFloat(height) / box.height)
-        ctx.translateBy(x: -box.minX, y: -box.minY)
+        ctx.scaleBy(x: CGFloat(width) / shown.width, y: CGFloat(height) / shown.height)
+        // The page's own transform: the crop box into the shown rectangle with its rotation (an unrotated page is the
+        // plain translation it always was).
+        ctx.concatenate(page.getDrawingTransform(.cropBox, rect: CGRect(origin: .zero, size: shown), rotate: 0, preserveAspectRatio: true))
         ctx.drawPDFPage(page)
         return ctx.makeImage()
     }

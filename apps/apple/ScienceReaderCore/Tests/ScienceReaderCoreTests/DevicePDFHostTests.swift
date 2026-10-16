@@ -91,4 +91,34 @@ final class DevicePDFHostTests: XCTestCase {
         let otherPDF = Data(String(decoding: good, as: UTF8.self).replacingOccurrences(of: "\"pdf_sha256\":\"bbbb", with: "\"pdf_sha256\":\"cbbb").utf8)
         XCTAssertThrowsError(try DevicePDFReaderProvenance.validate(otherPDF, manifest: manifest))
     }
+
+    /// A page with `/Rotate 90` is drawn turned, as displayed: its size swaps and a mark in the bottom-left of the
+    /// unrotated page lands where the turn puts it; an unrotated page draws as before.
+    func testRenderTurnsARotatedPageAsItIsDisplayed() throws {
+        func document(rotate: Int) throws -> CGPDFPage {
+            let content = "0 0 0 rg 0 0 20 20 re f"
+            let pdf = "%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+                + "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Rotate \(rotate) /Contents 4 0 R >> endobj\n"
+                + "4 0 obj << /Length \(content.utf8.count) >> stream\n\(content)\nendstream endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"
+            let provider = try XCTUnwrap(CGDataProvider(data: Data(pdf.utf8) as CFData))
+            return try XCTUnwrap(CGPDFDocument(provider)?.page(at: 1))
+        }
+        func darkCorner(_ image: CGImage) throws -> String {
+            let w = image.width, h = image.height
+            var pixels = [UInt8](repeating: 0, count: w * h * 4)
+            let ctx = try XCTUnwrap(CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            // Bitmap rows run top to bottom in memory.
+            func dark(_ x: Int, _ y: Int) -> Bool { pixels[(y * w + x) * 4] < 64 }
+            let corners = ["top-left": dark(5, 5), "top-right": dark(w - 6, 5), "bottom-left": dark(5, h - 6), "bottom-right": dark(w - 6, h - 6)]
+            return corners.filter(\.value).map(\.key).sorted().joined(separator: ",")
+        }
+        let plain = try XCTUnwrap(DevicePDFRaster.render(try document(rotate: 0), dpi: 72))
+        XCTAssertEqual([plain.width, plain.height], [200, 100])
+        XCTAssertEqual(try darkCorner(plain), "bottom-left")
+        let turned = try XCTUnwrap(DevicePDFRaster.render(try document(rotate: 90), dpi: 72))
+        XCTAssertEqual([turned.width, turned.height], [100, 200], "a quarter turn swaps the page's size")
+        XCTAssertEqual(try darkCorner(turned), "top-left", "/Rotate 90 turns the page clockwise: its bottom-left comes to the top-left")
+    }
 }
