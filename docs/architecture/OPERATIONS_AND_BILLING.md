@@ -261,3 +261,27 @@ Proposed beta recovery objectives: no more than 24 hours of server-side loss and
 An encrypted chat backup remains encrypted and requires the user's keys. A restore must preserve event identities, account mapping, key epochs, billing idempotency keys, and deletion records. Resume processing only after reconciling outstanding provider jobs and reservations; restoring old `queued` rows must not rebill completed OCR or mint duplicate subscription credits.
 
 Before TestFlight use with real data, perform a restore into a separate environment and verify files/checksums, document rendering, encrypted-history recovery, deletion behavior, and spending reconciliation. Record retention, scheduled cleanup, backup expiry, and operator procedure. Never claim account deletion instantly removes data from all backups.
+
+## Staging Anthropic spend, 2026-10-08 → 16 (recorded 2026-10-16, after the balance ran out ~15:00 UTC)
+
+From the provider ledger (`app_private.provider_attempts`, every call the staging functions and the podcast worker
+make, priced by our rate card):
+
+| | Calls | USD |
+|---|---|---|
+| Chat (Sonnet 5.5 $8.88, Opus $0.09, Haiku titles/suggestions $0.02) | 272 | 8.99 |
+| Podcast script + review (Anthropic, 2026-10-09; DeepSeek since) | 24 | 2.57 |
+| Catalog tags (Haiku) | 24 | 0.09 |
+| **Anthropic total** | 320 | **11.65** |
+
+By account: the owner's testing $7.11; synthetic accounts (workflow checks, live smokes, evals) $4.53. Peak day
+2026-10-16 $3.02 (figure-view live runs and checks). Chat cost is dominated by **cache writes** (2.54 M tokens: the
+whole paper written on a paper's first question, or the first after the 1-hour cache lapses) against 2.32 M cheap cache
+reads and 0.11 M output tokens; a cold figure walkthrough is ~35–60 credits (~$0.20–0.30), a warm one ~5.
+
+This is far less than a prepaid balance, so other usage shares it. Known: the staging key in `.env.providers` was
+copied from the NAS Science Reader project's provider file (`scripts/read-nas-provider-config.py`), so the NAS app's
+calls (if it still runs) draw on the same key; and Anthropic credits belong to the **organization**, so every
+workspace and key in it (other projects, any Claude Code use billed to the API) draws on the same balance. Our ledger
+cannot see those. Next steps (owner): read Console › Usage grouped by API key/workspace; give Science Reader staging its
+own workspace and key with a workspace spend limit, as this document's least-privilege rule already requires.
