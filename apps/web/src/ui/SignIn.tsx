@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { AuthError, auth, type AuthIssue, type OAuthProvider } from '../lib/backend';
+import { takeAccountDeletedNotice } from '../lib/account-deletion';
 import { Brand } from './common';
 
 const issueText: Record<string, string> = {
@@ -23,6 +24,8 @@ export function SignIn({ initialIssue = null }: { initialIssue?: AuthIssue | nul
   const [busy, setBusy] = useState(false);
   const [issue, setIssue] = useState<string | null>(initialIssue ? issueText[initialIssue] : null);
   const [note, setNote] = useState<string | null>(null);
+  // Once, right after the account was deleted from this browser (the apps' "Account deleted" alert).
+  const [deleted, setDeleted] = useState(takeAccountDeletedNotice);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const codeField = useRef<HTMLInputElement>(null);
@@ -83,6 +86,11 @@ export function SignIn({ initialIssue = null }: { initialIssue?: AuthIssue | nul
     <main className="auth-shell">
       <section className="card auth-card" aria-labelledby="sign-in-title">
         <Brand />
+        {deleted && <div className="account-deleted" role="status" data-testid="account-deleted">
+          <p><strong>Account deleted</strong></p>
+          <p>Your account and its data were deleted from our servers and this browser.</p>
+          <button type="button" className="link" onClick={() => setDeleted(false)}>OK</button>
+        </div>}
         <h1 id="sign-in-title">{step === 'email' ? 'Sign in' : 'Enter your code'}</h1>
         {step === 'email' ? (
           <form onSubmit={submitEmail} noValidate>

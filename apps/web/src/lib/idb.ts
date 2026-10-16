@@ -233,6 +233,9 @@ export const idb = {
     };
     return () => undefined;
   }),
+  /** After the account itself was deleted (account-deletion.ts): its coordination record as well, which
+   * forgetDevice keeps (with a new incarnation) so other tabs of a still-existing account stay fenced. */
+  forgetAdmission: (key: string) => run<void>(['devices'], 'readwrite', tx => { tx.objectStore('devices').delete(admissionKey(key)); return () => undefined; }),
   /** Removes the device, its reading data and every account-domain partition in one transaction. */
   forgetDevice: (key: string, fence?: WriterFence, current?: () => boolean) => run<void>(db => {
     const stores: Store[] = ['devices', 'activity'];

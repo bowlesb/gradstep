@@ -28,6 +28,7 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 const sessions = new Map(); // token -> account
 const oauthCodes = new Map(); // one-use PKCE authorization codes
 const state = new Map();
+const deletedAccounts = new Set(); // account-delete: their email no longer signs in, until /__reset
 function account(id) {
   if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
   return state.get(id);
@@ -304,7 +305,7 @@ createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${PORT}`);
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
-  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); faults.length = 0; seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); deletedAccounts.clear(); faults.length = 0; seedReturning(); return send(response, 200, { ok: true }); }
   if (url.pathname === '/__fault' && request.method === 'POST') {
     const p = await read(request);
     if (typeof p?.path !== 'string' || !['timeout', 'malformed', 429, 500, 503].includes(p.kind)) return send(response, 400, { error: 'invalid_fault' });
@@ -426,12 +427,12 @@ createServer(async (request, response) => {
   if (request.headers.apikey !== 'fixture-anon') return send(response, 401, { message: 'No API key' });
   if (url.pathname === '/auth/v1/otp' && request.method === 'POST') {
     const body = await read(request);
-    if (!ACCOUNTS[body?.email]) return send(response, 422, { code: 422, error_code: 'otp_disabled', msg: 'Signups not allowed for otp' });
+    if (!ACCOUNTS[body?.email] || deletedAccounts.has(ACCOUNTS[body.email])) return send(response, 422, { code: 422, error_code: 'otp_disabled', msg: 'Signups not allowed for otp' });
     return send(response, 200, {});
   }
   if (url.pathname === '/auth/v1/verify' && request.method === 'POST') {
     const body = await read(request);
-    if (body?.type !== 'email' || !ACCOUNTS[body.email] || body.token !== CODE) return send(response, 403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
+    if (body?.type !== 'email' || !ACCOUNTS[body.email] || deletedAccounts.has(ACCOUNTS[body.email]) || body.token !== CODE) return send(response, 403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
     return send(response, 200, sessionFor(body.email));
   }
   if (url.pathname === '/auth/v1/token' && request.method === 'POST' && url.searchParams.get('grant_type') === 'pkce') {
@@ -445,6 +446,16 @@ createServer(async (request, response) => {
   if (url.pathname === '/auth/v1/logout') return send(response, 204);
   const id = sessions.get((request.headers.authorization ?? '').replace(/^Bearer /, ''));
   if (!id) return send(response, 401, { code: 'PGRST301', message: 'JWT expired' });
+  // Account deletion (functions/account-delete): the body is exactly { confirm: 'delete my account' }. The account's
+  // data and sessions go and its email no longer signs in, until /__reset.
+  if (url.pathname === '/functions/v1/account-delete') {
+    if (request.method !== 'POST') return send(response, 405, { code: 'method_unavailable' });
+    const body = await read(request);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || body.confirm !== 'delete my account') return send(response, 400, { code: 'confirmation_required' });
+    state.get(id)?.timers.forEach(clearTimeout); state.delete(id); deletedAccounts.add(id);
+    for (const [token, owner] of sessions) if (owner === id) sessions.delete(token);
+    return send(response, 200, { deleted: true, complete: true });
+  }
   const a = account(id);
   if (url.pathname.startsWith('/rest/v1/rpc/') && request.method === 'POST') {
     const name = url.pathname.slice('/rest/v1/rpc/'.length), body = await read(request);
