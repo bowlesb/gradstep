@@ -12,13 +12,31 @@ enum ArxivHTMLError: Error, Sendable {
     /// One image arXiv didn't serve (not found, not an image, too large on its own): its figure says so and the paper
     /// opens (`fetchAssets`). Never shown on its own.
     case assetMissing
+    /// The device's own preparation stopped short (`code`: `web_process_ended`, `timeout`, `load_failed`, `result_invalid`,
+    /// `package_invalid`, `source_mismatch`, `compiler_threw`): worded as `.invalid`, the code shown in Reader version
+    /// details (build 62: two papers failed on the phone and nowhere else, behind one sentence).
+    case stopped(String)
+    /// A short code for what went wrong, for Reader version details and the session log (never source text).
+    var code: String {
+        switch self {
+        case .unavailable: "no_html"
+        case .retryLater: "arxiv_busy"
+        case .refused: "arxiv_refused"
+        case .retrieval: "retrieval"
+        case .invalid: "invalid"
+        case .tooLarge: "too_large"
+        case .compiler(let code): code
+        case .assetMissing: "asset_missing"
+        case .stopped(let code): code
+        }
+    }
     var message: String {
         switch self {
         case .unavailable: "arXiv couldn’t make a web version of this paper, which the reader needs. Its PDF downloads from arXiv to this device."
         case .retryLater: "arXiv is busy. Please try preparing this paper again later."
         case .refused: "arXiv refused requests from this device, so Gradstep won’t ask arXiv from it again for a day. Papers already on this device still open."
         case .retrieval: "Couldn’t retrieve this paper from arXiv. Check your connection and try again."
-        case .invalid, .assetMissing: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
+        case .invalid, .assetMissing, .stopped: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
         case .tooLarge: "This paper exceeds the device reader’s current preparation limits. You can still open its PDF."
         case .compiler(let code): ArxivCompilerFailure.message(for: code)
         }
@@ -101,6 +119,35 @@ struct ArxivCompilerIdentity: Decodable, Sendable, Equatable {
         guard let shipped else { return true }
         return bundle.manifest.renderer.id == shipped.rendererID && bundle.manifest.renderer.buildSHA256 == shipped.buildSHA256
     }
+}
+
+/// The reader's versions (Resources/reader-versions.json, docs/architecture/READER_VERSIONS.md): which version prepared a
+/// stored paper, and what changed since, for ⋯ › Reader version details (owner, build 62).
+enum ReaderVersions {
+    struct Version: Decodable, Sendable, Identifiable {
+        let revision: Int
+        let date: String
+        let buildSHA256: String
+        let note: String
+        var id: Int { revision }
+        enum CodingKeys: String, CodingKey { case revision, date, note, buildSHA256 = "build_sha256" }
+    }
+    private struct File: Decodable { let versions: [Version] }
+    static let all: [Version] = {
+        guard let url = Bundle.main.url(forResource: "reader-versions", withExtension: "json"), let data = try? Data(contentsOf: url),
+              let file = try? JSONDecoder().decode(File.self, from: data) else { return [] }
+        return file.versions.sorted { $0.revision > $1.revision }
+    }()
+    /// This app's reader version.
+    static var current: Int? { ArxivCompilerIdentity.shipped?.revision }
+    /// The version that prepared an arXiv bundle; nil for an unknown (older or other) build.
+    static func revision(of bundle: VerifiedReaderBundle) -> Int? {
+        guard bundle.manifest.source.kind == "arxiv-html" else { return nil }
+        if ArxivCompilerIdentity.isCurrent(bundle) { return current }
+        return all.first { $0.buildSHA256 == bundle.manifest.renderer.buildSHA256 }?.revision
+    }
+    /// What changed after `revision` (newest first); every listed version when it is unknown.
+    static func changes(since revision: Int?) -> [Version] { all.filter { revision == nil || $0.revision > revision! } }
 }
 
 /// Acquisition pacing. A paper's HTML document request is spaced like a new page visit; that page's own
@@ -207,6 +254,29 @@ private final class ArxivNoRedirects: NSObject, URLSessionTaskDelegate, Sendable
     }
 }
 
+/// One device compile at a time (`ArxivHTMLReader.prepare`), first come first served; a cancelled waiter leaves the queue.
+actor ArxivCompileGate {
+    static let shared = ArxivCompileGate()
+    private var busy = false
+    private var waiting: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
+
+    func enter() async throws {
+        try Task.checkCancellation()
+        guard busy else { busy = true; return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in waiting.append((id, continuation)) }
+        } onCancel: { Task { await self.cancel(id) } }
+    }
+    func leave() {
+        if waiting.isEmpty { busy = false } else { waiting.removeFirst().continuation.resume() }
+    }
+    private func cancel(_ id: UUID) {
+        guard let index = waiting.firstIndex(where: { $0.id == id }) else { return }
+        waiting.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+}
+
 @MainActor
 final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     #if DEBUG
@@ -239,23 +309,38 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
         let html = try await acquire(source.htmlURL, source, ArxivAcquisitionPolicy.sourceBytes)
         onSource?(html)
         progress(0.12)
+        // One preparation's web compiler at a time on this device: a paper opened while others prepare in the background
+        // waits its turn instead of adding another WebKit process and its images to memory (build 62).
+        try await ArxivCompileGate.shared.enter()
+        defer { Task { await ArxivCompileGate.shared.leave() } }
         try await load()
         // The catalog record goes with both calls: a paper whose HTML has no `h1` or no author block is headed from it.
         var options: [String: Any] = ["authors": Array(authors.map { String($0.prefix(256)) }.prefix(64))]
         if let title, !title.isEmpty { options["title"] = String(title.prefix(2000)) }
         let arguments: [String: Any] = ["source": html.base64EncodedString(), "sourceID": source.sourceID, "revision": source.revision, "options": options]
         let references = try await call("return JSON.stringify(GradstepArxivReader.assets(source, sourceID, revision, options));", arguments: arguments)
-        guard let data = references.data(using: .utf8) else { throw ArxivHTMLError.invalid }
+        guard let data = references.data(using: .utf8) else { throw ArxivHTMLError.stopped("result_invalid") }
         let urls = try JSONDecoder().decode([String].self, from: data)
-        guard urls.count <= ArxivAcquisitionPolicy.assets, Set(urls).count == urls.count else { throw ArxivHTMLError.invalid }
+        guard urls.count <= ArxivAcquisitionPolicy.assets, Set(urls).count == urls.count else { throw ArxivHTMLError.stopped("result_invalid") }
         let inputs = try await fetchAssets(urls, source: source, used: html.count) { done, count in progress(0.12 + 0.68 * (count == 0 ? 1 : Double(done) / Double(count))) }
         progress(0.82)
         var args = arguments; args["inputs"] = inputs
-        let package = try await call("return JSON.stringify(await GradstepArxivReader.prepare(source, sourceID, revision, inputs, options));", arguments: args)
+        let script = "return JSON.stringify(await GradstepArxivReader.prepare(source, sourceID, revision, inputs, options));"
+        let package: String
+        do { package = try await call(script, arguments: args) }
+        catch ArxivHTMLError.stopped(let code) where code == "web_process_ended" || code == "timeout" {
+            // The system ended the compiler's process (memory) or it stalled: once more in a fresh one, with the
+            // downloads already here (no new arXiv request).
+            ArxivCompilerFailure.log.error("device compiler stopped (\(code, privacy: .public)); compiling once more")
+            web?.navigationDelegate = nil; web = nil; started = false
+            try await load()
+            package = try await call(script, arguments: args)
+        }
         try Task.checkCancellation()
-        guard let bytes = package.data(using: .utf8) else { throw ArxivHTMLError.invalid }
-        let bundle = try DeviceReaderPackage.decode(bytes)
-        guard bundle.arxivSource == source else { throw ArxivHTMLError.invalid }
+        guard let bytes = package.data(using: .utf8) else { throw ArxivHTMLError.stopped("result_invalid") }
+        let bundle: VerifiedReaderBundle
+        do { bundle = try DeviceReaderPackage.decode(bytes) } catch { throw ArxivHTMLError.stopped("package_invalid") }
+        guard bundle.arxivSource == source else { throw ArxivHTMLError.stopped("source_mismatch") }
         progress(0.94)
         let admitted = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: bundle) }.value
         progress(1)
@@ -326,15 +411,17 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
                 switch result {
                 case .success(let value):
                     if let text = value as? String { self?.finish(.success(text)) }
-                    else { self?.finish(.failure(ArxivHTMLError.invalid)) }
+                    else { self?.finish(.failure(ArxivHTMLError.stopped("result_invalid"))) }
                 case .failure(let error):
                     // The code, never the exception text (it may carry source text or browser details).
                     if let code = ArxivCompilerFailure.code(in: error) {
                         ArxivCompilerFailure.log.error("device compiler refused the paper: \(code, privacy: .public) (\(ArxivCompilerFailure.category(for: code), privacy: .public))")
                         self?.finish(.failure(ArxivHTMLError.compiler(code)))
                     } else {
-                        ArxivCompilerFailure.log.error("device compiler call failed without a reason code")
-                        self?.finish(.failure(ArxivHTMLError.invalid))
+                        // A process the system ended answers with WebKit's own error, not an exception.
+                        let ended = (error as NSError).domain == WKError.errorDomain && (error as NSError).code == WKError.webContentProcessTerminated.rawValue
+                        ArxivCompilerFailure.log.error("device compiler call failed without a reason code (\(ended ? "web process ended" : "exception", privacy: .public))")
+                        self?.finish(.failure(ArxivHTMLError.stopped(ended ? "web_process_ended" : "compiler_threw")))
                     }
                 }
             }
@@ -348,7 +435,7 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
                 timeout = Task { [weak self] in
                     try? await Task.sleep(for: .seconds(90))
                     guard !Task.isCancelled else { return }
-                    self?.finish(.failure(ArxivHTMLError.invalid))
+                    self?.finish(.failure(ArxivHTMLError.stopped("timeout")))
                 }
                 start()
             }
@@ -360,9 +447,12 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     }
     private func close() { finish(.failure(CancellationError())); web?.stopLoading(); web?.navigationDelegate = nil; web = nil }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(.success("ready")) }
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(.failure(ArxivHTMLError.invalid)) }
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(.failure(ArxivHTMLError.invalid)) }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { finish(.failure(ArxivHTMLError.invalid)) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(.failure(ArxivHTMLError.stopped("load_failed"))) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(.failure(ArxivHTMLError.stopped("load_failed"))) }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard webView === web else { return }
+        finish(.failure(ArxivHTMLError.stopped("web_process_ended")))
+    }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard !started, navigationAction.request.url?.absoluteString == "about:blank" else { return .cancel }
         started = true; return .allow

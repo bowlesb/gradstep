@@ -183,9 +183,16 @@ final class ReaderModel {
     private(set) var openingPaperID: UUID?
     /// The paper being prepared on this device: one fraction, "Downloading…" then "Preparing…" (ArxivHTMLReader.phase).
     private(set) var openingProgress: Double?
-    private(set) var readerOpenIssue: String? { didSet { readerOpenFallback = .none } }
+    private(set) var readerOpenIssue: String? { didSet { readerOpenFallback = .none; if readerOpenIssue == nil { readerOpenCode = nil } } }
     /// What the failed-open screen offers beside its reason (set after the reason; a new reason clears it).
     private(set) var readerOpenFallback: ReaderOpenFallback = .none
+    /// Papers whose preparation failed this session: reopened only by the reader's own action (`openHTMLReader`).
+    @ObservationIgnored private var failedHTMLOpens: Set<UUID> = []
+    /// Reader version details › Update, per paper this session.
+    struct ReaderUpdate: Equatable { var running = false; var updated = false; var failure: String? = nil; var code: String? = nil }
+    var readerUpdates: [UUID: ReaderUpdate] = [:]
+    /// Why the open paper couldn't be prepared, as a short code (`ArxivHTMLError.code`), for the failure screen's ⓘ.
+    private(set) var readerOpenCode: String? = nil
     private var readerDownloadAttempt: (id: UUID, documentID: UUID)?
     private(set) var offlineCacheIssue: String?
     /// Exact source revisions retained in this device's encrypted paper store.
@@ -218,11 +225,6 @@ final class ReaderModel {
     /// The HTML copy shown before a model reading took its place, to go back to.
     @ObservationIgnored var deviceModelHTMLBundles: [UUID: VerifiedReaderBundle] = [:]
     @ObservationIgnored var deviceModelTask: Task<Void, Never>? = nil
-    /// The open paper is the copy an earlier version prepared because preparing it again failed (the reason).
-    var readerFallbackNotice: String? = nil
-    /// A newer copy of the open paper was prepared behind the page; "Reload" shows it.
-    var readerUpdateReady = false
-    private var backgroundRepreparations: Set<UUID> = []
     /// Why a preparation failed, in the reader's words; never source text.
     static func preparationReason(_ error: Error) -> String {
         if let known = error as? ArxivHTMLError { return known.message }
@@ -2474,11 +2476,11 @@ final class ReaderModel {
             } else { uploads.pickRequest = .init(target: .localPaper(current.id), title: current.title) }
             return
         }
-        selectedPaper = current; chatPaperID = current.id; tab = .paper; returnToChatAvailable = false; readerUpdateReady = false
+        selectedPaper = current; chatPaperID = current.id; tab = .paper; returnToChatAvailable = false
         if wideMode != .browse { wideMode = .reader }
         generalChat = false
         recordOpened(current)
-        openLocalPaperIfNeeded()
+        openLocalPaperIfNeeded(userInitiated: true)
     }
 
     /// One selected downloaded bundle may remain loaded when returning to
@@ -2521,15 +2523,55 @@ final class ReaderModel {
         }
     }
 
-    func retryOpeningSelectedPaper() { openLocalPaperIfNeeded() }
+    func retryOpeningSelectedPaper() { openLocalPaperIfNeeded(userInitiated: true) }
+
+    /// Reader version details › Update: prepares the open paper again with this app's reader behind the page and shows
+    /// the new copy when it is ready, near the same place; a failure is said in the sheet with its reason and code.
+    func updateReaderCopy() {
+        guard let paper = selectedPaper, let source = paper.arxivReaderSource, let current = paper.readerBundle,
+              let store = localPersistence.localReaderStore, readerUpdates[paper.id]?.running != true else { return }
+        let scope = sessionID, persistence = localPersistence, oldKey = readingKey(for: paper)
+        readerUpdates[paper.id] = ReaderUpdate(running: true)
+        SessionTimeline.shared.record("reader", ["phase": "update", "from": ReaderVersions.revision(of: current).map(String.init) ?? "earlier"])
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title)
+                guard self.sessionID == scope, self.papers.contains(where: { $0.id == paper.id }) else { return }
+                let record = await store.record(sourceID: source.sourceID, revision: source.revision)
+                let commit = try persistence.acceptLocalReaderWrite { store in
+                    // The store keeps one copy per source revision: the old one leaves first (build 44).
+                    if let record, fresh.manifestSHA256 != current.manifestSHA256 { try await store.remove(record.identity) }
+                    try await store.install(bundle: fresh)
+                }
+                _ = try await commit.value
+                guard self.sessionID == scope else { return }
+                self.localReaderRecords = await store.records()
+                // The reading place carries over (block and fraction; a revision rarely moves blocks far).
+                if let oldKey, let place = self.paperLocations[oldKey], let updated = self.papers.first(where: { $0.id == paper.id })?.displaying(fresh),
+                   let newKey = self.readingKey(for: updated) { self.paperLocations[newKey] = place }
+                self.papers = self.papers.map { $0.id == paper.id ? $0.displaying(fresh) : $0 }
+                if self.selectedPaper?.id == paper.id { self.selectedPaper = self.papers.first { $0.id == paper.id } }
+                self.readerUpdates[paper.id] = ReaderUpdate(running: false, updated: true)
+            } catch {
+                guard self.sessionID == scope else { return }
+                let code = (error as? ArxivHTMLError)?.code ?? String(describing: type(of: error))
+                SessionTimeline.shared.record("reader", ["phase": "update-failed", "code": code])
+                self.readerUpdates[paper.id] = ReaderUpdate(running: false, failure: Self.preparationReason(error), code: code)
+            }
+        }
+    }
+    /// The reading-position key PaperView uses for a paper's shown copy.
+    func readingKey(for paper: Paper) -> String? {
+        "\(paper.id.uuidString)/\(paper.artifactID?.uuidString ?? "unversioned")/\(paper.readerBundle?.manifestSHA256 ?? "unverified")"
+    }
 
     /// Prepares the open paper again with this app's compiler (the notice's "Try again" after a failed re-preparation).
     func reprepareSelectedPaper() {
         guard let paper = selectedPaper else { return }
-        readerFallbackNotice = nil; readerUpdateReady = false
         papers = papers.map { $0.id == paper.id ? $0.displaying(nil) : $0 }
         selectedPaper = papers.first { $0.id == paper.id }
-        openLocalPaperIfNeeded()
+        openLocalPaperIfNeeded(userInitiated: true)
     }
 
     /// Where what this device reads about a paper goes, only while the server's `source_metadata` capability is on and the
@@ -2648,13 +2690,16 @@ final class ReaderModel {
         return images.count == paths.count ? ChatFigureFinder.composite(images) : nil
     }
 
-    private func openLocalPaperIfNeeded() {
-        if let paper = selectedPaper, paper.sourceMembership != nil { openHTMLReader(paper); return }
+    /// `userInitiated`: the reader opened the paper, asked about it or chose Try again. A sync or an activation reopening the
+    /// selected paper never retries a preparation that failed (build 62: MLExpert "keeps trying to Download repeatedly
+    /// and failing" — every library sync started another preparation, and another round of arXiv requests).
+    private func openLocalPaperIfNeeded(userInitiated: Bool = false) {
+        if let paper = selectedPaper, paper.sourceMembership != nil { openHTMLReader(paper, userInitiated: userInitiated); return }
         // A legacy arXiv item: an installed server bundle still opens offline; otherwise its official HTML is prepared
         // on this device like any other arXiv paper. When arXiv has no usable HTML for it, the server bundle is tried.
         if let paper = selectedPaper, paper.readerBundle == nil, paper.legacyArxivSource != nil, !legacyBundleFallback.contains(paper.id),
            readerBundles?.installation(documentID: paper.id, artifactID: paper.artifactID) == nil {
-            openHTMLReader(paper); return
+            openHTMLReader(paper, userInitiated: userInitiated); return
         }
         localReaderTask?.cancel(); localReaderTask = nil; localReaderOpeningID = nil
         if let paper = selectedPaper, !paper.isSample, let bundle = paper.readerBundle {
@@ -2723,17 +2768,18 @@ final class ReaderModel {
 
     /// Opening a metadata membership prepares its exact official HTML on this
     /// device, or reopens the authenticated local copy while offline.
-    private func openHTMLReader(_ paper: Paper) {
+    private func openHTMLReader(_ paper: Paper, userInitiated: Bool = false) {
         guard let source = paper.arxivReaderSource else { return }
         let legacy = paper.sourceMembership == nil
         if paper.readerBundle != nil { return }
         if localReaderOpeningID == paper.id { return }
+        if userInitiated { failedHTMLOpens.remove(paper.id) } else if failedHTMLOpens.contains(paper.id) { return }
         localReaderTask?.cancel()
         // Opening takes over from a background preparation of the same paper.
         devicePreparationTasks[paper.id]?.cancel(); devicePreparationIssues[paper.id] = nil
         guard !workOwnership.isActivating, !libraryPublicationDeferred, let store = localPersistence.localReaderStore else { return }
         let scope = sessionID, persistence = localPersistence
-        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil; readerFallbackNotice = nil; readerUpdateReady = false
+        localReaderOpeningID = paper.id; openingPaperID = paper.id; openingProgress = nil; readerOpenIssue = nil
         // The same paper, whichever row it is shown from (a legacy item keeps its document identity).
         let same: (Paper) -> Bool = { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }
         localReaderTask = Task { [weak self] in
@@ -2753,33 +2799,10 @@ final class ReaderModel {
                     // A copy on this device opens at once, whichever app compiled it (owner, build 43: "there was a
                     // check… when I clicked it said downloading"). One compiled by an older app is prepared again
                     // behind the page; the newer copy is offered when ready, or the failure said with its reason.
+                    // A copy on this device opens at once, whichever app compiled it (owner, build 43). One compiled by an
+                    // older reader is updated only when asked, from ⋯ › Reader version details (owner, build 62: "We don't
+                    // need to interrupt an otherwise working reader experience").
                     bundle = try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: reopened) }.value
-                    if !ArxivCompilerIdentity.isCurrent(reopened), !self.backgroundRepreparations.contains(paper.id) {
-                        self.backgroundRepreparations.insert(paper.id)
-                        let oldSHA256 = record.identity.sha256.map({ String(format: "%02x", $0) }).joined()
-                        Task { [weak self] in
-                            guard let self else { return }
-                            defer { if self.sessionID == scope { self.backgroundRepreparations.remove(paper.id) } }
-                            do {
-                                let fresh = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title)
-                                guard self.sessionID == scope, self.papers.contains(where: same) else { return }
-                                // The old copy leaves first: the store keeps one copy per source revision and refused the
-                                // new one as a `revisionConflict` otherwise (build 44: every re-preparation "failed").
-                                let commit = try persistence.acceptLocalReaderWrite { store in
-                                    if fresh.manifestSHA256 != oldSHA256 { try await store.remove(record.identity) }
-                                    try await store.install(bundle: fresh)
-                                }
-                                _ = try await commit.value
-                                guard self.sessionID == scope else { return }
-                                self.localReaderRecords = await store.records()
-                                if self.selectedPaper?.id == paper.id, fresh.manifestSHA256 != oldSHA256 { self.readerUpdateReady = true }
-                            } catch is CancellationError {
-                            } catch {
-                                guard self.sessionID == scope, self.selectedPaper?.id == paper.id else { return }
-                                self.readerFallbackNotice = "Showing the copy an earlier version prepared; preparing it again failed. \(Self.preparationReason(error))"
-                            }
-                        }
-                    }
                 } else {
                     let sink = await self.sourceMetadataSink(for: paper, source: source)
                     bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: report, onSource: sink)
@@ -2805,7 +2828,11 @@ final class ReaderModel {
                     if self.selectedPaper?.id == paper.id { self.openLocalPaperIfNeeded() }
                     return
                 }
+                self.failedHTMLOpens.insert(paper.id)
+                let code = (error as? ArxivHTMLError)?.code ?? String(describing: type(of: error))
+                SessionTimeline.shared.record("reader", ["phase": "open-failed", "code": code])
                 self.readerOpenIssue = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device. Try again, or open its PDF."
+                self.readerOpenCode = code
                 self.readerOpenFallback = ReaderOpenFallback(error)
             }
         }
@@ -2917,7 +2944,7 @@ final class ReaderModel {
         if let documentID = event.payload.documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }; generalChat = false; wideMode = .reader
             readerChatHidden = false
-            openLocalPaperIfNeeded()
+            openLocalPaperIfNeeded(userInitiated: true)
         } else { generalChat = true; wideMode = .chat }
         activeConversation = id; tab = .chat
     }
@@ -2954,7 +2981,7 @@ final class ReaderModel {
         if let documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }
             generalChat = false; wideMode = .reader; readerChatHidden = false
-            openLocalPaperIfNeeded()
+            openLocalPaperIfNeeded(userInitiated: true)
         } else { generalChat = true; wideMode = .chat }
         if let checkpoint = chatWorkspace.checkpoint(for: id), let conversation = checkpoint.conversationID,
            let head = checkpoint.selectedHead {
@@ -3598,7 +3625,7 @@ final class ReaderModel {
         }
         if let reference = turn.paperReference,
            let paper = papers.first(where: { $0.sourceMembership == reference }), paper.readerBundle == nil {
-            if selectedPaper?.id == paper.id { openHTMLReader(paper) }
+            if selectedPaper?.id == paper.id { openHTMLReader(paper, userInitiated: true) }
             let preparation = localReaderTask
             Task { [weak self] in
                 await preparation?.value

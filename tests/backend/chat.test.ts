@@ -887,6 +887,13 @@ test('the SDK adapter treats an explicit validation rejection as unbilled', asyn
   assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_rejected'); assert.deepEqual(outcome.attempts, []);
 });
 
+test('the SDK adapter names a refusal for the account\'s balance (staging, 2026-10-16), unbilled', async () => {
+  const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'invalid_request_error',
+    message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } }, { status: 400 }));
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
+  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_billing'); assert.deepEqual(outcome.attempts, []);
+});
+
 test('the SDK adapter estimates usage after an abort mid-stream', async () => {
   const controller = new AbortController();
   let clock = 1_000;

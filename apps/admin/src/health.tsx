@@ -201,6 +201,14 @@ function derive(data: HealthData, budget: Budget | null) {
       attention.push({ tone: 'warning', text: `${percent(errors / r.calls)} of ${r.calls.toLocaleString()} calls to ${providerName(r.provider)} failed or were throttled in the last hour.` });
     }
   }
+  // A provider refusing for our own balance stops every answer it serves (staging, 2026-10-16): top it up.
+  const billing = data.provider_billing;
+  if (billing && billing.last_24h > 0) {
+    const who = Object.entries(billing.by_provider).sort((a, b) => b[1] - a[1]).map(([p, n]) => `${providerName(p)} (${n.toLocaleString()})`).join(', ');
+    attention.push({ tone: 'warning', text: billing.last_hour > 0
+      ? `${who} refused requests for the account's credit balance in the last hour; answers from it fail until it is topped up in the provider's console.`
+      : `${who} refused requests for the account's credit balance in the last 24 hours (last at ${billing.last_at ? new Date(billing.last_at).toLocaleTimeString() : 'unknown'}).` });
+  }
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
   const errorTotals = new Map<string, number>();
   for (const day of data.providers?.daily ?? []) for (const [p, n] of Object.entries(day.by_provider)) errorTotals.set(p, (errorTotals.get(p) ?? 0) + n.failed + n.throttled);

@@ -36,6 +36,30 @@ struct ArxivCompilerFailureTests {
         #expect(ArxivHTMLError.unavailable.message.contains("web version"))
     }
 
+    /// Build 62: two papers failed on the phone behind one sentence. The device's own stops keep that sentence and carry a
+    /// code (Reader version details, the failure screen's ⓘ, the session log); each offers the PDF.
+    @Test func theDevicesOwnStopsSayTheSameAndCarryACode() {
+        for code in ["web_process_ended", "timeout", "load_failed", "result_invalid", "package_invalid", "source_mismatch", "compiler_threw"] {
+            let error = ArxivHTMLError.stopped(code)
+            #expect(error.code == code)
+            #expect(error.message == ArxivHTMLError.invalid.message)
+            #expect(ReaderOpenFallback(error) == .pdf)
+        }
+        #expect(ArxivHTMLError.compiler("arxiv_math_coverage").code == "arxiv_math_coverage")
+        #expect(ArxivHTMLError.unavailable.code == "no_html")
+    }
+
+    /// Reader version details (build 62): this app's version is named, and a stored paper's from the shipped list.
+    @Test func readerVersionsNameThisAppsAndEarlierCopies() throws {
+        let current = try #require(ReaderVersions.current)
+        #expect(ReaderVersions.all.first?.revision == current, "the list leads with this app's version")
+        #expect(ReaderVersions.all.map(\.revision) == ReaderVersions.all.map(\.revision).sorted(by: >))
+        #expect(ReaderVersions.all.allSatisfy { !$0.note.isEmpty && $0.buildSHA256.count == 64 })
+        #expect(ReaderVersions.changes(since: current).isEmpty)
+        #expect(ReaderVersions.changes(since: current - 1).map(\.revision) == [current])
+        #expect(ReaderVersions.changes(since: nil).count == ReaderVersions.all.count)
+    }
+
     @Test func theCodeIsReadFromTheJavaScriptException() {
         func error(_ message: String) -> Error {
             NSError(domain: WKError.errorDomain, code: WKError.javaScriptExceptionOccurred.rawValue, userInfo: ["WKJavaScriptExceptionMessage": message])
@@ -46,4 +70,28 @@ struct ArxivCompilerFailureTests {
         #expect(ArxivCompilerFailure.code(in: error("Error: Unexpected token '<' in source_text")) == "source_text", "the trailing token only; never the whole text")
         #expect(ArxivCompilerFailure.code(in: NSError(domain: "x", code: 1)) == nil)
     }
+}
+
+/// One device compile at a time (build 62: several preparations at once on a phone).
+@Suite struct ArxivCompileGateTests {
+    @Test func secondCompileWaitsForTheFirstAndACancelledWaiterLeaves() async throws {
+        let gate = ArxivCompileGate()
+        try await gate.enter()
+        let order = OrderLog()
+        let second = Task { try await gate.enter(); await order.add("second"); await gate.leave() }
+        let cancelled = Task { try await gate.enter(); await order.add("cancelled"); await gate.leave() }
+        try await Task.sleep(for: .milliseconds(100))
+        cancelled.cancel()
+        try await Task.sleep(for: .milliseconds(100))
+        await order.add("first done")
+        await gate.leave()
+        try await second.value
+        _ = await cancelled.result
+        #expect(await order.items == ["first done", "second"])
+    }
+}
+
+private actor OrderLog {
+    var items: [String] = []
+    func add(_ item: String) { items.append(item) }
 }
