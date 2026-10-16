@@ -239,18 +239,32 @@ public final class EquationResultStore: @unchecked Sendable {
 
     /// Every kept answer that opens and decodes as `type`, newest first (Settings › Your assets). The associated data is
     /// the file's own name, so each file is checked against the name it is kept under.
-    public func all<Value: Decodable>(as type: Value.Type) -> [Value] {
+    public func all<Value: Decodable>(as type: Value.Type) -> [Value] { entries(as: type).map(\.value) }
+
+    /// `all(as:)` with each answer's file name, to read it again by name (`read(fileName:as:)`).
+    public func entries<Value: Decodable>(as type: Value.Type) -> [(fileName: String, value: Value)] {
         lock.lock(); defer { lock.unlock() }
         let manager = FileManager.default
         guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .isSymbolicLinkKey]) else { return [] }
-        return files.filter { $0.pathExtension == "sealed" }.compactMap { url -> (Value, Date)? in
-            guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
-                  let sealed = try? Data(contentsOf: url), sealed.count <= 1_048_576,
-                  let box = try? AES.GCM.SealedBox(combined: sealed),
-                  let data = try? AES.GCM.open(box, using: key, authenticating: aad(fileName: url.lastPathComponent)),
-                  let value = try? JSONDecoder().decode(Value.self, from: data) else { return nil }
-            return (value, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
-        }.sorted { $0.1 > $1.1 }.map(\.0)
+        return files.filter { $0.pathExtension == "sealed" }.compactMap { url -> (String, Value, Date)? in
+            guard let value = open(url, as: type) else { return nil }
+            return (url.lastPathComponent, value, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+        }.sorted { $0.2 > $1.2 }.map { (fileName: $0.0, value: $0.1) }
+    }
+
+    /// One kept answer by its file name (as `entries(as:)` listed it).
+    public func read<Value: Decodable>(fileName: String, as type: Value.Type) -> Value? {
+        guard fileName.hasSuffix(".sealed"), !fileName.contains("/") else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        return open(directory.appendingPathComponent(fileName), as: type)
+    }
+
+    private func open<Value: Decodable>(_ url: URL, as type: Value.Type) -> Value? {
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
+              let sealed = try? Data(contentsOf: url), sealed.count <= 1_048_576,
+              let box = try? AES.GCM.SealedBox(combined: sealed),
+              let data = try? AES.GCM.open(box, using: key, authenticating: aad(fileName: url.lastPathComponent)) else { return nil }
+        return try? JSONDecoder().decode(Value.self, from: data)
     }
 
     private func aad(_ answerKey: some SealedAnswerKey) -> Data { aad(fileName: answerKey.fileName) }

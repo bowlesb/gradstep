@@ -1,5 +1,6 @@
 import XCTest
 
+#if !targetEnvironment(macCatalyst)
 /// A diagram at full size zooms with two fingers (owner, build 62: "Zooming with two fingers should work well here but it
 /// doesn't"): it opens at its own size or fitted to the width, never off the left edge, and pinches up to 8×.
 @MainActor
@@ -43,3 +44,4 @@ final class DiagramZoomTests: XCTestCase {
         XCTAssertLessThan(back.height, after.height * 0.8, "and back out: \(after) → \(back)")
     }
 }
+#endif

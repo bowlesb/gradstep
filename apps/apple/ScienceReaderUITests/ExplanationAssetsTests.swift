@@ -61,6 +61,7 @@ final class ExplanationAssetsTests: XCTestCase {
         XCTAssertTrue(row.label.contains("Equation (1)"), row.label)
         capture(app, "Your assets: equation explanations")
         row.tap()
+        sleep(3); capture(app, "After tapping an equation explanation")
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.1"].waitForExistence(timeout: 15),
                       "The paper opens at the equation, its kept explanation shown without asking again")
         capture(app, "An equation explanation from Your assets")

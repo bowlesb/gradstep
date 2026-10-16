@@ -2,6 +2,25 @@
 
 Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Contents in one glass row, Equations by number with tiles, kept explanations in Your assets, diagrams zoom (TestFlight 62 feedback, items 9–13) — 2026-10-16 (apps; not shipped)
+
+- **Contents** (iPhone, iPad, Mac): one glass top row, the four tabs in a glass capsule (each as wide as its name, one
+  weight so choosing a tab shifts nothing) and a round glass X; no title, no Done (DESIGN.md "Sheet top row";
+  `Views/SheetChrome.swift`). Pushed tiles have a glass Back and X; a figure or table page keeps its own top row.
+- **Equations**: rows "Equation (4)" as printed, or "Equation · 3.2 Method" without a number; no flattened LaTeX.
+  **View as tiles**: one web page with the bundle's stylesheet, each equation typeset from its element and scaled to its
+  tile, light and dark; a tile goes where its row goes (EQUATION_VIEW.md "Contents › Equations and Your assets").
+- **Your assets › Equation explanations / Figure explanations**: kept answers now seal what they explain
+  (`ExplanationSubject`); listed newest first, each item once, "None" when empty; a row opens the paper at that
+  equation or figure with its kept explanation. A reopened equation or figure now finds its kept answer even when the
+  default model or options resolve differently (after a relaunch they did, so the kept answer wasn't shown).
+- **Diagrams full size**: the drawing at its own size in a page as wide as it, opening fitted to the width (a wide one
+  no longer runs off the left edge, out of reach), pinch up to 8×; visuals pinch up to 8× too.
+- Evidence: ScienceReaderCore 331 + the store's new listing test; iPhone 17 Simulator: PaperToolsTests (Contents,
+  Tables, equation tiles light and dark), ExplanationAssetsTests (both lists, None), DiagramZoomTests,
+  FigureViewJourneyTests, ReaderNavigationTests and the WorkflowJourneyTests diagram, equation-view and installed-paper
+  journeys (results in the commit message).
+
 ## Figure view: one part extracted (TestFlight 62 feedback) — 2026-10-16, ~15:50 UTC (server on staging; apps and browser built, not shipped)
 
 - Owner (build 62): "Extract the subfigure and more context… opens up a loader below, gets the info, and puts it

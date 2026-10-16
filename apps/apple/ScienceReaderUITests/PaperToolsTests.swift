@@ -248,8 +248,10 @@ final class PaperToolsTests: XCTestCase {
         app.contentsTab("Equations").tap()
         let equation = app.buttons["contents.equation.0"]
         XCTAssertTrue(equation.waitForExistence(timeout: 5), "Equations lists the display equations")
-        // Owner, build 62: "remove the equation text… Equation 1, Equation 2".
-        XCTAssertEqual(equation.label, "Equation (1)")
+        // Owner, build 62: "remove the equation text… Equation 1, Equation 2". The sample's number is drawn inside its
+        // picture, so it is named by its section.
+        XCTAssertTrue(equation.label == "Equation (1)" || equation.label.hasPrefix("Equation · "), equation.label)
+        XCTAssertFalse(equation.label.contains("\\") || equation.label.contains("^"), "no LaTeX: \(equation.label)")
         XCTAssertFalse(app.navigationBars["Equations"].exists, "no title")
         capture(app, "Equations tab")
         equation.tap()
@@ -300,9 +302,12 @@ final class PaperToolsTests: XCTestCase {
         app.buttons["Table of contents"].tap()
         XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
         app.contentsTab("Equations").tap()
+        let row = app.buttons["contents.equation.0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let name = row.label
         let tilesLink = app.buttons["contents.equationTiles"]
         XCTAssertTrue(tilesLink.waitForExistence(timeout: 5)); tilesLink.tap()
-        let tile = app.webViews.buttons["Equation (1)"].firstMatch
+        let tile = app.webViews.buttons[name].firstMatch
         XCTAssertTrue(tile.waitForExistence(timeout: 8), "a tile named by its number")
         XCTAssertTrue(app.buttons["sheet.back"].exists && app.buttons["sheet.close"].exists)
         capture(app, "Equations as tiles (light)")
@@ -316,8 +321,11 @@ final class PaperToolsTests: XCTestCase {
         app.buttons["Table of contents"].tap()
         XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
         app.contentsTab("Equations").tap()
+        let row = app.buttons["contents.equation.0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let name = row.label
         app.buttons["contents.equationTiles"].tap()
-        XCTAssertTrue(app.webViews.buttons["Equation (1)"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.webViews.buttons[name].firstMatch.waitForExistence(timeout: 8))
         sleep(1); capture(app, "Equations as tiles (dark)")
     }
 

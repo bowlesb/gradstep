@@ -48,12 +48,14 @@ struct GlassTabs<Value: Hashable>: View {
                 Button {
                     if reduceMotion { selection = option.value } else { withAnimation(.snappy(duration: 0.22)) { selection = option.value } }
                 } label: {
+                    // Each as wide as its name (equal widths squeezed "Equations" on a phone).
                     Text(option.title)
-                        .font(.subheadline.weight(chosen ? .semibold : .regular))
-                        .lineLimit(1).minimumScaleFactor(0.75)
+                        // One weight: a bolder chosen tab would widen and shift the others.
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1).fixedSize()
                         .foregroundStyle(chosen ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 8)
-                        .frame(maxWidth: .infinity, minHeight: DesignMetrics.headerControl - 8)
+                        .padding(.horizontal, 11)
+                        .frame(minHeight: DesignMetrics.headerControl - 8)
                         .background {
                             if chosen { Capsule().fill(Color.primary.opacity(0.11)).matchedGeometryEffect(id: "chosen", in: space) }
                         }

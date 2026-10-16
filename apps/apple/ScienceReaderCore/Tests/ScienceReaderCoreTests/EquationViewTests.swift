@@ -126,6 +126,11 @@ import Testing
         #expect(kept.count == 2)
         #expect(kept.compactMap(\.subject) == [subject])
         #expect(store.read(old)?.subject == nil, "an answer kept before the subject still reads")
+        // Read again by the name it is listed under (a kept answer asked with other options); never outside the folder.
+        let named = try #require(store.entries(as: EquationAnswer.self).first { $0.value.subject == subject })
+        #expect(named.fileName == first.fileName)
+        #expect(store.read(fileName: named.fileName, as: EquationAnswer.self)?.text == "words")
+        #expect(store.read(fileName: "../" + named.fileName, as: EquationAnswer.self) == nil)
         // Answers written before 2026-10-16 had no `subject` key at all.
         #expect(try JSONDecoder().decode(EquationAnswer.self, from: Data(#"{"text":"x"}"#.utf8)).subject == nil)
         #expect(try JSONDecoder().decode(FigureAnswer.self, from: Data(#"{"text":"x"}"#.utf8)).subject == nil)
