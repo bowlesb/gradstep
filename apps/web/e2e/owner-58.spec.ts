@@ -25,7 +25,8 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   const menu = page.getByRole('menu');
   // Who and the sync state only; About with Report and My reports beside it; no Admin group for a reader.
   await expect(menu).not.toContainText('Signed in with');
-  await expect(menu.getByRole('menuitem')).toHaveText(['AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
+  // Your assets (Chats, Diagrams) first, as in the apps' Settings (account-assets.spec covers them and AI credits).
+  await expect(menu.getByRole('menuitem')).toHaveText(['Chats', 'Diagrams', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
     'My reports', 'Sign out…', 'Delete account…'].map(t => new RegExp(`^\\s*${t.replace(/[.…&]/g, c => `\\${c}`)}$`)));
   await expect(menu.getByRole('group', { name: 'Admin' })).toHaveCount(0);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-account-menu.png` });

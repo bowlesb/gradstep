@@ -350,6 +350,22 @@ export class PrivateState {
     return out.sort((a, b) => (a.id < b.id ? -1 : 1));
   }
 
+  /** Every saved diagram outside deleted chats (ChatDiagram.swift `diagrams()`, Settings › Your assets › Diagrams),
+   * newest first, with the paper of the chat that drew it (a figure's parts load their figure from it). */
+  savedDiagrams(): SavedDiagram[] {
+    const ids = new Set([...this.events.values()].filter(e => e.payload.kind === 'diagram').map(e => e.payload.entityID));
+    const out: SavedDiagram[] = [];
+    for (const id of ids) {
+      const event = this.revisions(id)[0], conversationID = event?.payload.conversationID;
+      if (!event || (conversationID && this.isDeleted(conversationID))) continue;
+      const diagram = decodeDiagram(event.payload.text);
+      if (!diagram) continue;
+      const documentID = conversationID ? this.revisions(conversationID).find(e => e.payload.kind === 'conversation')?.payload.documentID : undefined;
+      out.push({ id, title: diagram.title, source: diagram.source, format: diagram.format ?? 'mermaid-v1', conversationID, documentID, createdAt: event.payload.createdAt });
+    }
+    return out.sort((a, b) => (b.createdAt ?? -1) - (a.createdAt ?? -1) || (a.id < b.id ? -1 : 1));
+  }
+
   /** Saved diagrams (mermaid-v1 JSON in `text`) by the assistant message that drew them. */
   diagramsByMessage(): Map<string, { id: string; title: string; source: string; format: DiagramFormat }> {
     const out = new Map<string, { id: string; title: string; source: string; format: DiagramFormat }>();
@@ -370,6 +386,7 @@ export class PrivateState {
 /** `figure-parts-v1` (2026-10-15): an answer's figure parts (chat-figures.ts `StoredFigureParts`), never the image. */
 export type DiagramFormat = 'mermaid-v1' | 'html-v1' | 'figure-parts-v1';
 export interface ChatDiagram { title: string; source: string; messageID?: string; format?: DiagramFormat }
+export interface SavedDiagram { id: string; title: string; source: string; format: DiagramFormat; conversationID?: string; documentID?: string; createdAt?: number }
 const DIAGRAM_BYTES: Record<DiagramFormat, number> = { 'mermaid-v1': 16_000, 'html-v1': 24_000, 'figure-parts-v1': 16_000 };
 export function makeDiagram(title: string, source: string, messageID?: string, format: DiagramFormat = 'mermaid-v1'): ChatDiagram | null {
   const t = title.trim();

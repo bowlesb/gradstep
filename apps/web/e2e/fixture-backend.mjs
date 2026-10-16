@@ -206,7 +206,9 @@ const rpcs = {
     r.approved_at = now();
     return null;
   },
-  v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
+  v1_credit_balance: (id, a) => a.balance ?? { available: 1000, reserved: 0 },
+  // The active subscription (migration 018): none unless a journey sets one (/__store).
+  v1_store_summary: (id, a) => a.storePlan ? { plan: a.storePlan, product_id: `ai.gradstep.${a.storePlan}.monthly`, expires_at: '2026-11-16T00:00:00Z' } : { plan: null },
   // The reader's Stop (migration 079): its own chat operation only; recorded before the app cancels the stream.
   v1_chat_stop: (_id, a, body) => {
     if (typeof body.p_operation_id !== 'string' || !a.chatRequests.some(r => r.operation_id === body.p_operation_id)) throw pg('operation_unavailable');
@@ -338,6 +340,13 @@ createServer(async (request, response) => {
   if (url.pathname === '/__device-search' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
     a.deviceSearch = p?.enabled === true; a.serverSearches = [];
+    return send(response, 200, { ok: true });
+  }
+  // The account menu's AI credits and Subscription plan (account-assets.spec): {available, reserved, plan}.
+  if (url.pathname === '/__store' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), p = await read(request);
+    if (Number.isSafeInteger(p?.available) && Number.isSafeInteger(p?.reserved)) a.balance = { available: p.available, reserved: p.reserved };
+    if (p?.plan === null || typeof p?.plan === 'string') a.storePlan = p.plan;
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__search-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { server: a.serverSearches ?? [] }); }

@@ -301,6 +301,17 @@ succeeding is insufficient.
   signing back in does not need the code. "Also remove this browser's keys" (for a shared computer) deletes the
   device and activity records in one transaction under the key operation lock before returning to sign-in. A failed
   local removal stays visible and retryable. Late reading saves cannot recreate a forgotten/replaced device's data.
+- **AI credits, Subscription plan, Your assets** (owner builds 57–59, parity with the apps' Settings; 2026-10-16,
+  local fixtures only, not deployed). Under who and the sync state, the account menu reads `v1_credit_balance` and
+  `v1_store_summary` each time it opens (`lib/account-summary.ts`): **AI credits** with the available balance (and
+  "Held for answers in progress" when credits are reserved) and **Subscription plan** (Pro, Standard, or None), each
+  with an ⓘ saying what credits pay for and that credits and plans are bought in the Gradstep app on iPhone, iPad or
+  Mac. The browser sells nothing and computes nothing: a value it couldn't read shows a dash, the last value read stays
+  while a new read is under way. **Your assets** holds Chats (All chats, as the top bar's Chats) and **Diagrams**: All
+  diagrams (`ui/DiagramsDialog.tsx`) lists every diagram, visual and figure breakdown from the reader's chats, newest
+  first (`PrivateState.savedDiagrams`, as native `diagrams()`; a deleted chat takes its diagrams), and one opens as in
+  its answer, with Full size. Text sizes stay where the reader reads and chats (A−/A+), as on the apps. Journey:
+  `e2e/account-assets.spec.ts` (desktop and phone, light and dark).
 - **Delete account** (owner, 2026-10-16; local fixture verification only, not deployed). The account menu's
   "Delete account…" (destructive, after Sign out) mirrors the apps' Settings › Account › Delete account…
   (`DeleteAccountView`, `ReaderModel.deleteAccount`): the same list of what goes and what stays (unused credits are
