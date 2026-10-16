@@ -1853,5 +1853,8 @@ Status (2026-10-16): migration 081 applied to staging and verified in the ledger
 "Applied and verified", then "Verified" on a rerun); no function changed (the `podcast` function already passes the
 device source through). Tests: `tests/database/podcast_legacy_device_sources.sql` (retirement phase of
 `scripts/test-database.py`; it fails without 081), full database suite passing. Not yet run live (no paid smoke).
-Clients: the browser sends the device text for a legacy item from its next release; native builds up to 60 still
-send no device source for a legacy item and keep "Open this paper first…" until updated.
+Clients: the browser sends the device text for a legacy item from its next release; native from build 62
+(`PodcastCenter.deviceSource(for:itemID:)`: a synced item with a legacy arXiv source and an `arxiv-html` bundle on this
+device; its existing episodes play without it, and making one before it is opened says "Open this paper first…").
+Builds up to 61 send no device source for a legacy item. Native test:
+`PodcastPresentationTests.testALegacyArxivItemSendsTheTextPreparedOnThisDevice`.

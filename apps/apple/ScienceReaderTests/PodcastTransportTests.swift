@@ -257,6 +257,22 @@ final class PodcastPresentationTests: XCTestCase {
         for paper in [member, pdf, legacy] { XCTAssertFalse(PodcastCenter.noEpisodeSource(for: paper).contains("server"), "No notice suggests the server keeps papers") }
     }
 
+    /// Listen on an arXiv library item from before the HTML-first reader (migration 081): the server no longer keeps its
+    /// text, so the episode is made from the text this device prepared from its exact revision, named by the item's id.
+    func testALegacyArxivItemSendsTheTextPreparedOnThisDevice() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/package.json")))
+        var legacy = Paper(id: UUID(), title: "Legacy arXiv", authors: "A", year: 2026, abstract: "", keywords: [], fileURL: nil, artifactID: UUID())
+        legacy.sourceID = "2601.01234"; legacy.sourceRevision = 2
+        let itemID = UUID()
+        XCTAssertNil(PodcastCenter.deviceSource(for: legacy, itemID: itemID), "Not opened on this device yet: no text to send")
+        XCTAssertEqual(PodcastCenter.noEpisodeSource(for: legacy), "Open this paper first so its text is ready on this device, then try Listen again.")
+        legacy.readerBundle = bundle
+        let source = try XCTUnwrap(PodcastCenter.deviceSource(for: legacy, itemID: itemID))
+        XCTAssertEqual(source.context.membershipID, itemID.uuidString.lowercased())
+        XCTAssertNil(PodcastCenter.deviceSource(for: legacy), "Without its library item there is nothing to name it by")
+    }
+
     private static let lengths = [("podcast-short-v1", "Short", 150, 140), ("podcast-5min-v1", "5 min", 300, 150),
                                   ("podcast-10min-v1", "10 min", 600, 300), ("podcast-20min-v1", "20 min", 1200, 530)]
         .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3) }

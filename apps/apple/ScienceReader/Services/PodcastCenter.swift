@@ -295,15 +295,21 @@ final class PodcastCenter {
     /// through the HTML reader has none, which is not the same as being outside the synced library.
     /// Owner (build 35): the earlier wording ("a server copy of the paper") read as if PDFs were kept on the server
     /// (they are not; the server keeps only the text it converted for older papers) and was off-putting.
-    /// The paper's own text for a private episode: a paper read on this device (a membership with its verified bundle).
-    static func deviceSource(for paper: Paper) -> PodcastDeviceSource? {
-        guard let membership = paper.sourceMembership, let bundle = paper.readerBundle,
-              let context = try? LocalPaperChatContext(reference: membership, bundle: bundle) else { return nil }
+    /// The paper's own text for a private episode: a paper read on this device (a membership with its verified bundle),
+    /// or an arXiv library item from before the HTML-first reader, named by its item id with the text this device
+    /// prepared from its exact revision (migration 081; the server no longer keeps its text, as legacy chat).
+    static func deviceSource(for paper: Paper, itemID: UUID? = nil) -> PodcastDeviceSource? {
+        let reference: SourcePaperReference
+        if let membership = paper.sourceMembership { reference = membership }
+        else if let itemID, let source = paper.legacyArxivSource, paper.readerBundle?.manifest.source.kind == "arxiv-html",
+                let legacy = try? SourcePaperReference(membershipID: itemID, sourceID: source.sourceID, revision: source.revision) { reference = legacy }
+        else { return nil }
+        guard let bundle = paper.readerBundle, let context = try? LocalPaperChatContext(reference: reference, bundle: bundle) else { return nil }
         return PodcastDeviceSource(context: context, title: paper.title, authors: paper.authorNames)
     }
     static func noEpisodeSource(for paper: Paper) -> String {
-        if paper.sourceMembership != nil {
-            // The episode is made from the paper's text on this device (migration 066); it has to be opened here first.
+        if paper.sourceMembership != nil || paper.legacyArxivSource != nil {
+            // The episode is made from the paper's text on this device (migrations 066, 081); it has to be opened here first.
             return "Open this paper first so its text is ready on this device, then try Listen again."
         }
         if paper.isLocalPDF || paper.fileURL != nil {
@@ -741,12 +747,16 @@ final class PodcastCenter {
             // A paper read on this device: its membership id names it, and its own text makes the episode (066).
             var deviceSource: PodcastDeviceSource?
             #if DEBUG && FIXTURE_HOST
-            if PodcastFixtureTransport.isEnabled { itemID = paper.id } else if let found = host?.podcastItemID(for: paper) { itemID = found } else {
+            if PodcastFixtureTransport.isEnabled { itemID = paper.id } else if let found = host?.podcastItemID(for: paper) {
+                itemID = found; deviceSource = Self.deviceSource(for: paper, itemID: found)
+            } else {
                 guard let source = Self.deviceSource(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
                 itemID = UUID(uuidString: source.context.membershipID) ?? paper.id; deviceSource = source
             }
             #else
-            if let found = host?.podcastItemID(for: paper) { itemID = found } else {
+            // A synced item: an arXiv one from before the HTML-first reader also needs this device's text to make an
+            // episode (its existing episodes play without it).
+            if let found = host?.podcastItemID(for: paper) { itemID = found; deviceSource = Self.deviceSource(for: paper, itemID: found) } else {
                 guard let source = Self.deviceSource(for: paper) else { notice = Self.noEpisodeSource(for: paper); return }
                 itemID = UUID(uuidString: source.context.membershipID) ?? paper.id; deviceSource = source
             }
