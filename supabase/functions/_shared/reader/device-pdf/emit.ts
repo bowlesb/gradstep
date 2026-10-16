@@ -29,7 +29,9 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
   const images = new Map<string, EmittedImage>();
   let pixels = 0, imageBytes = 0;
   const degraded = { formulaText: 0, figuresScaled: 0, figuresOmitted: 0, equationLimit: 0, imageFailures: 0 };
-  const fetchImage = (request: ImageRequest): EmittedImage | null => {
+  /** The image and where it sits on the page (pixels at the request's dpi): the request's rectangle, or the cleaned
+   * image's own when the host cleaned it (its size must be the image's). */
+  const fetchPlaced = (request: ImageRequest): { image: EmittedImage; rect: [number, number, number, number] } | null => {
     let result;
     try { result = host.image(request); } catch { degraded.imageFailures += 1; return null; }
     if (!result || typeof result.png !== 'string') { degraded.imageFailures += 1; return null; }
@@ -38,14 +40,22 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     const size = pngSize(bytes);
     if (!size || size.width !== result.width || size.height !== result.height || size.width > LIMITS.imageDimension ||
       size.height > LIMITS.imageDimension || size.width * size.height > LIMITS.imagePixels) { degraded.imageFailures += 1; return null; }
+    let rect = request.rect;
+    if (result.rect !== undefined) {
+      const r = result.rect;
+      if (!Array.isArray(r) || r.length !== 4 || !r.every(n => Number.isSafeInteger(n) && Math.abs(n) <= 1_000_000) ||
+        r[2] - r[0] !== size.width || r[3] - r[1] !== size.height) { degraded.imageFailures += 1; return null; }
+      rect = [r[0], r[1], r[2], r[3]];
+    }
     const path = `assets/${sha256Hex(bytes)}.png`;
     const known = images.get(path);
-    if (known) return known;
+    if (known) return { image: known, rect };
     if (images.size >= MAX_IMAGES || pixels + size.width * size.height > LIMITS.totalImagePixels || imageBytes + bytes.length > IMAGE_BYTES) return null;
     const image = { path, bytes, width: size.width, height: size.height };
     images.set(path, image); pixels += size.width * size.height; imageBytes += bytes.length;
-    return image;
+    return { image, rect };
   };
+  const fetchImage = (request: ImageRequest): EmittedImage | null => fetchPlaced(request)?.image ?? null;
 
   // Figures and image tables first, in document order: the paper's own pictures matter more than formula crops.
   const figureImages = new Map<LogicalBlock, EmittedImage | null>();
@@ -61,8 +71,11 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     if (!image) degraded.figuresOmitted += 1;
     figureImages.set(block, image);
   }
-  // Formula images for every formula that does not render, while the budget lasts.
-  const formulaImages = new Map<string, EmittedImage>();
+  // Formula images for every formula that does not render, while the budget lasts. Each crop is cleaned (owner, build
+  // 62: "an outline clean step where excess pixels around the edge are cleaned and then with margin"): the cut tails of
+  // the lines above and below go, and the ink keeps a margin, 0.25 em for a display and 0.12 em inline (a line's
+  // height has little room).
+  const formulaImages = new Map<string, { image: EmittedImage; rect: [number, number, number, number] }>();
   for (const id of reading.committed) {
     const f = formulas.get(id)!;
     if (f.rendered) continue;
@@ -70,8 +83,9 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     const rect: [number, number, number, number] = [Math.trunc(Math.max(0, b[0] - pad) * CROP_SCALE), Math.trunc(Math.max(0, b[1] - pad) * CROP_SCALE),
       Math.trunc((b[2] + pad) * CROP_SCALE + 0.999), Math.trunc((b[3] + pad) * CROP_SCALE + 0.999)];
     if (rect[2] <= rect[0] || rect[3] <= rect[1]) continue;
-    const image = fetchImage({ page: f.page, dpi: 72 * CROP_SCALE, rect });
-    if (image) formulaImages.set(id, image);
+    const em = (f.fontSize > 0 ? f.fontSize : 10) * CROP_SCALE;
+    const placed = fetchPlaced({ page: f.page, dpi: 72 * CROP_SCALE, rect, clean: { em: pyRound(em, 2), margin: Math.round(em * (f.display ? 0.25 : 0.12)) } });
+    if (placed) formulaImages.set(id, placed);
   }
 
   // -- blocks
@@ -93,13 +107,17 @@ export function emit(reading: Reading, host: DevicePDFHost, fallbackTitle: strin
     const latex = latexOf(f);
     const names = ['reader-equation', f.display ? 'reader-display' : 'reader-inline'];
     let children: Child[];
-    const image = formulaImages.get(f.id);
+    const placed = formulaImages.get(f.id);
     if (f.rendered && f.mathml) children = [f.mathml as OutNode];
-    else if (image) {
+    else if (placed) {
       names.push('reader-math-image');
-      const pad = 2.0, fs = f.fontSize > 0 ? f.fontSize : 10, h = f.box[3] - f.box[1], w = f.box[2] - f.box[0];
-      const style = f.display ? `width:${STYLE_NUMBER((w + 2 * pad) / fs)}em`
-        : `height:${STYLE_NUMBER((h + 2 * pad) / fs)}em;vertical-align:-${STYLE_NUMBER(pad / fs + 0.22)}em`;
+      // Sized and aligned from where the image sits on the page (points = pixels / CROP_SCALE): at the paper's own size
+      // relative to its text, its bottom as far below the formula's box as on the page, on a line's descender (0.22 em).
+      const { image, rect } = placed, fs = f.fontSize > 0 ? f.fontSize : 10;
+      const width = (rect[2] - rect[0]) / CROP_SCALE, height = (rect[3] - rect[1]) / CROP_SCALE, below = rect[3] / CROP_SCALE - f.box[3];
+      const shift = -(below / fs + 0.22);
+      const style = f.display ? `width:${STYLE_NUMBER(width / fs)}em`
+        : `height:${STYLE_NUMBER(height / fs)}em;vertical-align:${shift < 0 ? '-' : ''}${STYLE_NUMBER(Math.abs(shift))}em`;
       children = [el('img', { src: image.path, width: String(image.width), height: String(image.height), alt: excerpt(latex, 200).trim() || 'equation', style })];
     } else {
       names.push('reader-math-fallback'); degraded.formulaText += 1;
