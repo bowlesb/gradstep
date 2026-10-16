@@ -10,7 +10,7 @@ import { equationTurn } from './equation';
 export interface ContentsFigure { id: string; number: string | null; caption: string; table: boolean; block?: boolean }
 /** One display equation as listed: "Equation (4)", or "Equation · 3.2 Method" for one the paper doesn't number (owner,
  * build 62: "remove the equation text from this view and instead put Equation 1, Equation 2"); `text`: its LaTeX as
- * plain text (at most 160 characters), for a tile's accessible name only. */
+ * plain text (at most 160 characters), which names one with neither number nor section in the equation view's menu. */
 export interface ContentsEquation { id: string; label: string; text: string }
 
 /** Splits "Figure 4: Best of N …" into ("Figure 4", "Best of N …"); "Fig. 2", "FIGURE 2", "Figure A.1", "Table 3" and

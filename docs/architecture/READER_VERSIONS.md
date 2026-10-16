@@ -15,6 +15,12 @@ as `arxiv_math_coverage`, or the device's own `web_process_ended`, `timeout`, `l
 `package_invalid`, `source_mismatch`, `compiler_threw`, or a network one: `arxiv_busy`, `retrieval`, `arxiv_refused`).
 The same code is behind the ⓘ on the "Read this paper as its PDF" screen and in the session log.
 
+The browser reader's ⋯ has the same item (`apps/web/src/ui/ReaderVersion.tsx`), reading this list and
+`arxiv-reader-build.json` directly. It prepares a paper afresh each time it opens, so its copy is normally its own
+version; Update this paper is offered for an older copy (a legacy server copy) and keeps it on screen until the new one
+is ready. Its codes are `ArxivReaderError.code` (the compiler's listed reason, or `timeout`, `compiler_start`,
+`result_invalid`, `source_mismatch`, `unavailable`, `no_html`, `arxiv_busy`, `retrieval`, `arxiv_refused`).
+
 ## The list
 
 `apps/apple/ScienceReader/Resources/reader-versions.json` names every revision with its build identity

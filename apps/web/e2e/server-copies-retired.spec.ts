@@ -112,7 +112,8 @@ test(`a legacy arXiv item without arXiv HTML offers the PDF from arXiv (library 
  await page.route('https://arxiv.org/**',async route=>{await route.fulfill({status:404,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:'<p>No HTML</p>'});});
  const artifacts=await retiredLibrary(page,{render});
  await page.getByTestId('library-table').getByRole('link',{name:'A paper from before the HTML reader',exact:true}).click();
- await expect(page.getByRole('heading',{name:'No web version of this paper'})).toBeVisible({timeout:20000});
+ await expect(page.getByRole('heading',{name:'Read this paper as its PDF'})).toBeVisible({timeout:20000});
+ await expect(page.getByTestId('reader-failure').getByRole('alert')).toHaveText('arXiv has no web version of this paper.');
  await expect(page.getByTestId('reader-open-pdf')).toHaveAttribute('href','https://arxiv.org/pdf/2601.01234v2');
  await expect(page.getByText('isn’t ready to read yet')).toHaveCount(0);
  // A stale "available" asks the server once and keeps arXiv's answer when it has no copy; "unavailable" never asks.

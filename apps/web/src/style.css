@@ -607,7 +607,7 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .chat-options-heading { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .chat-options-heading h2 { margin: 0; }
 .chat-options-heading .link { display: inline-flex; align-items: center; gap: 2px; min-height: 0; flex-basis: 100%; padding: 0; }
-.info-tip-text.open { display: block; position: absolute; left: -6px; top: calc(100% + 4px); z-index: 50; width: max-content; max-width: min(300px, 78vw); padding: 10px 12px;
+.info-tip-text.open { display: block; white-space: pre-line; position: absolute; left: -6px; top: calc(100% + 4px); z-index: 50; width: max-content; max-width: min(300px, 78vw); padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--pop); font-size: 12.5px; line-height: 1.45; white-space: normal; }
 /* Operator tools (owner, build 58): one grey Admin group, shown only to owner and support. */
 .menu-admin { display: flex; flex-direction: column; gap: 2px; margin: 2px -4px; padding: 4px; border-radius: 8px; background: var(--row-hover); }
@@ -856,6 +856,8 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .sheet-top { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; margin: -20px -20px 0; padding: 12px 14px 12px 16px;
   background: color-mix(in srgb, var(--surface) 78%, transparent); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: 14px 14px 0 0; }
+/* Where the sheet's body is the scroller (its 20 px padding inside), the row sticks at the body's top edge. */
+.figure-dialog .sheet-top, .equation-dialog .sheet-top { top: -20px; }
 @media (prefers-reduced-transparency: reduce) { .sheet-top { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .sheet-top-start { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .sheet-top-start::-webkit-scrollbar { display: none; }
@@ -873,7 +875,9 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 @media (max-width: 420px) { .sheet-action { padding: 6px 11px; font-size: 13px; } .sheet-action .icon { display: none; } }
 /* An explainer's title: a small menu of the paper's other equations or figures (title ⌄). */
 .explainer-heading { margin: 0; font-size: 18px; display: flex; align-items: center; min-width: 0; }
-.title-menu-button { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 32px; padding: 2px 8px; margin-left: -8px; border-radius: 8px;
+.explainer-heading .menu-anchor { flex: none; max-width: 100%; }
+.figure-viewer > .explainer-heading { width: 100%; max-width: 760px; align-self: center; }
+.title-menu-button { display: inline-flex; align-items: center; gap: 4px; max-width: calc(100% + 8px); min-height: 32px; padding: 2px 8px; margin-left: -8px; border-radius: 8px;
   font: inherit; font-weight: 600; color: inherit; background: transparent; border: 1px solid transparent; }
 .title-menu-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-menu-button .icon { flex: none; color: var(--muted); }
@@ -881,6 +885,7 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .menu-item[role=menuitemradio][aria-checked=true] { color: var(--accent); font-weight: 600; }
 /* Prev, Show in paper, next under a figure (the apps' bottom bar). */
 .figure-nav { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.figure-count { font-variant-numeric: tabular-nums; }
 /* Contents › Equations › View as tiles: one frame holding every tile, scrolling inside the sheet. */
 .equation-tiles { display: flex; flex-direction: column; gap: 12px; }
 .equation-tiles-frame { display: block; width: 100%; height: min(72dvh, 760px); border: 0; background: transparent; }
@@ -916,4 +921,6 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .diagram-gesture { position: absolute; inset: 0; touch-action: none; cursor: grab; }
 .diagram-gesture:active { cursor: grabbing; }
 .diagram-tools { align-items: center; }
-.diagram-hint { margin-right: auto; }
+.diagram-hint { margin-right: auto; min-width: 0; }
+.diagram-tools button { flex: none; }
+@media (max-width: 480px) { .diagram-hint { display: none; } }

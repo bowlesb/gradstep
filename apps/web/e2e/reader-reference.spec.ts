@@ -91,7 +91,7 @@ test('Discuss waits for the host draft and leaves the reference recoverable on f
   // Gallery Discussion uses the same callback, with the verified caption, and never calls selection/Send.
   await page.getByTestId('figures').click();
   await page.getByRole('list', { name: 'Figures' }).getByRole('button').first().click();
-  await page.getByRole('button', { name: 'Ask in chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Explain in Chat', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Test composer' })).toHaveValue(/^About “.+”: About “.+”: Existing unsent draft$/);
 });
@@ -115,10 +115,10 @@ test('new bridge figure reference details keep the reading return point through 
     await page.screenshot({ path: test.info().outputPath(`${kind.toLowerCase()}-reference-dark.png`) });
     await page.getByTestId('figure-reference-go').click();
     await expect(detail).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Back to where you were' })).toBeVisible();
+    await expect(page.getByTestId('citation-back')).toBeVisible();
     await frame.locator('body').evaluate(() => scrollBy(0, 150));
-    await expect(page.getByRole('button', { name: 'Back to where you were' })).toBeVisible();
-    await page.getByRole('button', { name: 'Back to where you were' }).click();
+    await expect(page.getByTestId('citation-back')).toBeVisible();
+    await page.getByTestId('citation-back').click();
     await expect.poll(() => frame.locator('body').evaluate(() => scrollY)).toBeCloseTo(origin, 0);
   }
 });

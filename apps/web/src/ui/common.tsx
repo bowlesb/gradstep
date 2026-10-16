@@ -100,12 +100,13 @@ export function SheetTop({ children, onClose, closeLabel = 'Close', closeDisable
 export function InfoTip({ text, testID }: { text: string; testID?: string }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null), note = useRef<HTMLSpanElement>(null), id = useId();
-  // Kept inside the dialog (or window) it opens in: shifted left when it would run past the right edge.
+  // Kept inside the dialog (or the box marked `data-info-bounds`, or the window) it opens in: shifted left when it would
+  // run past the right edge.
   useLayoutEffect(() => {
     const n = note.current; if (!n) return;
     n.style.left = ''; n.style.top = ''; n.style.bottom = '';
     if (!open) return;
-    const frame = (n.closest('dialog') ?? document.documentElement).getBoundingClientRect(), r = n.getBoundingClientRect();
+    const frame = (n.closest('dialog, [data-info-bounds]') ?? document.documentElement).getBoundingClientRect(), r = n.getBoundingClientRect();
     const over = r.right - (Math.min(frame.right, innerWidth) - 12);
     if (over > 0) n.style.left = `${-6 - Math.min(over, r.left - Math.max(frame.left, 0) - 12)}px`;
     // Above its ⓘ when it would run past the bottom of its dialog (or window) and there is room above.

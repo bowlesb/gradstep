@@ -84,6 +84,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
           <iframe key={current.id} className={`figure-frame${explaining ? ' compact' : ''}`} title={current.alt || names[index!]} sandbox="allow-scripts" srcDoc={doc} />
           <div className="figure-nav">
             <button className="icon-button" onClick={() => show(index! - 1)} disabled={discussing || index === 0} aria-label="Previous figure"><Icon name="chevronLeft" /></button>
+            <span className="fine figure-count" aria-live="polite" data-testid="figure-count">{index! + 1} of {figures.length}</span>
             <button className="secondary small" disabled={discussing} onClick={() => onShowInPaper(current.id)} data-testid="show-in-paper">Show in paper</button>
             <button className="icon-button" onClick={() => show(index! + 1)} disabled={discussing || index === figures.length - 1} aria-label="Next figure"><Icon name="chevronRight" /></button>
           </div>

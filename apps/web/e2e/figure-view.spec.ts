@@ -1,7 +1,9 @@
-// The figure view (docs/architecture/FIGURE_VIEW.md): the figure page offers Explain and Ask in chat side by side and
-// asks nothing of the AI on opening; Explain (after the chat's consent) walks through the figure part by part with a
-// crop where the model drew a box; a part's ⋯ explains it more simply, shows it in the paper (with Back) or starts a chat
-// draft about it. Both requests are the chat's own (its capabilities, with figure_view, and exactly this figure).
+// The figure view (docs/architecture/FIGURE_VIEW.md): the figure page's one top row offers Explain in Chat and AI
+// Explainer beside the X (owner, build 62) and asks nothing of the AI on opening; AI Explainer (after the chat's consent)
+// walks through the figure part by part with a crop where the model drew a box, under a heading that switches to the
+// paper's other figures; a part's ⋯ explains it more simply, shows it in the paper (with Back) or starts a chat draft
+// about it. A figure reference in the text offers the same two actions. Both requests are the chat's own (its
+// capabilities, with figure_view, and exactly this figure).
 import {readFileSync} from 'node:fs';
 import {expect,test,type APIRequestContext,type Page} from '@playwright/test';
 import {RECOVERY_CODE} from './fixture-keys.mjs';
@@ -10,12 +12,14 @@ import {durableKeys} from './key-capability';
 const html=readFileSync(new URL('../../../tests/fixtures/reader-arxiv/source.html',import.meta.url));
 const raster=readFileSync(new URL('../../../tests/fixtures/reader-mathpix/figure-exif.jpg',import.meta.url));
 const member='58000000-0000-4000-8000-000000000003';
+// A second figure, for the walkthrough's heading menu.
+const twoFigures=html.toString('utf8').replace('<figure id="tab1">','<figure id="S1.F2"><img src="2601.01234v2/figure.jpg"><figcaption>Figure 2: A second figure.</figcaption></figure><figure id="tab1">');
 // The authored arXiv fixture as a source membership (the official HTML this browser prepares), as the equation journey.
-async function openFixture(page:Page,request:APIRequestContext){
+async function openFixture(page:Page,request:APIRequestContext,source:Buffer|string=html){
  await request.post(`${fixtureOrigin}/__reset`);
  await page.route('https://arxiv.org/**',async route=>{
   const url=route.request().url();
-  if(url==='https://arxiv.org/html/2601.01234v2')await route.fulfill({status:200,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:html});
+  if(url==='https://arxiv.org/html/2601.01234v2')await route.fulfill({status:200,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:source});
   else if(url==='https://arxiv.org/html/2601.01234v2/figure.jpg')await route.fulfill({status:200,contentType:'image/jpeg',headers:{'access-control-allow-origin':'*'},body:raster});
   else throw Error('Unexpected source acquisition '+url);
  });
@@ -48,17 +52,21 @@ async function openFigure(page:Page){
 test('a figure is explained only on request, part by part with its crop; a part goes simpler, up close, into the paper and into the chat',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const errors:string[]=[];page.on('pageerror',e=>errors.push(String(e)));
- await openFixture(page,request);
+ await openFixture(page,request,twoFigures);
  const frame=page.frameLocator('[data-testid=reader-frame]');
  await expect(frame.locator('figure').first()).toBeVisible({timeout:20000});
  const chats=async()=>(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests as Record<string,any>[];
 
- // The figure page: Explain and Ask in chat side by side under the figure; nothing is asked on opening.
+ // The figure page: Explain in Chat and AI Explainer in the top row with the X on the right (owner, build 62), above the
+ // figure; no Done, no action bar under it; nothing is asked on opening.
  let viewer=await openFigure(page);
- const explain=viewer.getByTestId('figure-explain'),ask=viewer.getByTestId('figure-ask');
- await expect(explain).toHaveText('Explain');await expect(ask).toHaveText('Ask in chat');
- const [explainBox,askBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!];
- expect(Math.abs(explainBox.y-askBox.y)).toBeLessThan(2);expect(explainBox.x).toBeLessThan(askBox.x);
+ const explain=viewer.getByTestId('figure-explain'),ask=viewer.getByTestId('figure-ask'),close=viewer.getByTestId('figure-close');
+ await expect(explain).toHaveText('AI Explainer');await expect(ask).toHaveText('Explain in Chat');await expect(close).toHaveAccessibleName('Close');
+ const [explainBox,askBox,closeBox,figureBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!,(await close.boundingBox())!,(await viewer.locator('iframe.figure-frame').boundingBox())!];
+ const middle=(b:{y:number;height:number})=>b.y+b.height/2;
+ expect(Math.abs(middle(explainBox)-middle(askBox))).toBeLessThan(2);expect(Math.abs(middle(closeBox)-middle(askBox))).toBeLessThan(3);
+ expect(askBox.x).toBeLessThan(explainBox.x);expect(explainBox.x).toBeLessThan(closeBox.x);expect(askBox.y+askBox.height).toBeLessThanOrEqual(figureBox.y);
+ await expect(viewer.getByRole('button',{name:'Done'})).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).toHaveCount(0);
  await page.waitForTimeout(500);expect(await chats()).toHaveLength(0);
  await page.screenshot({path:`../../.artifacts/figure-view-opened-${test.info().project.name}.png`});
@@ -77,7 +85,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  const crop=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
  await expect(crop).toBeVisible();
  expect(await crop.evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['200% 100%','100%','0%',true]);
- // Math is typeset, [¶N] is a link; Explain has gone, Ask in chat stays; no credit counts (owner, build 59).
+ // Math is typeset, [¶N] is a link; AI Explainer has gone, Explain in Chat stays; no credit counts (owner, build 59).
  await expect(viewer.getByTestId('figure-section-1').locator('math')).toBeVisible();
  await expect(viewer.getByTestId('figure-section-0').locator('.cite')).toHaveText('¶2');
  await expect(explain).toHaveCount(0);await expect(ask).toBeVisible();
@@ -93,6 +101,21 @@ test('a figure is explained only on request, part by part with its crop; a part 
  expect(sent[0].figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg'});
  for(const key of ['topic_title','follow_ups','document_id'])expect(sent[0]).not.toHaveProperty(key);
  await page.screenshot({path:`../../.artifacts/figure-view-${test.info().project.name}.png`});
+ // The explainer's heading is a menu of the paper's figures (owner, build 62); one switched to waits for AI Explainer,
+ // and switching back shows the kept walkthrough without a new request.
+ const heading=viewer.getByTestId('figure-heading');
+ await expect(heading).toHaveText('Figure 1');
+ await heading.click();
+ await expect(page.getByRole('menu').getByRole('menuitemradio')).toHaveText(['Figure 1','Figure 2']);
+ await expect(page.getByRole('menu').getByRole('menuitemradio',{name:'Figure 1'})).toHaveAttribute('aria-checked','true');
+ await page.screenshot({path:`../../.artifacts/figure-view-heading-${test.info().project.name}.png`});
+ await page.getByRole('menu').getByRole('menuitemradio',{name:'Figure 2'}).click();
+ await expect(viewer.frameLocator('iframe.figure-frame').locator('figcaption')).toContainText('A second figure.');
+ await expect(viewer.getByTestId('figure-walkthrough')).toHaveCount(0);await expect(viewer.getByTestId('figure-explain')).toBeVisible();
+ expect(await chats()).toHaveLength(1);
+ await viewer.getByRole('button',{name:'Previous figure'}).click();
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
+ expect(await chats()).toHaveLength(1);
 
  // A part's ⋯: Explain more simply streams under that part.
  await viewer.getByTestId('figure-section-menu-0').click();
@@ -161,7 +184,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  expect(errors).toEqual([]);
 });
 
-test('a failed walkthrough says so and can be tried again; the figure page’s Ask in chat drafts about the caption',async({page,request})=>{
+test('a failed walkthrough says so and can be tried again; the figure page’s Explain in Chat drafts about the caption',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  await openFixture(page,request);
  await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
@@ -174,7 +197,8 @@ test('a failed walkthrough says so and can be tried again; the figure page’s A
  });
  let viewer=await openFigure(page);
  await viewer.getByTestId('figure-explain').click();
- if(await viewer.getByTestId('figure-consent').isVisible())await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ // The walkthrough's panel loads with the first figure page: the consent shows once it has.
+ await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-issue')).toContainText('The AI service couldn’t finish this answer. Try again.');
  await viewer.getByTestId('figure-retry').click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
@@ -195,9 +219,36 @@ test('without a walkthrough the words show as the description; cut off at its le
  });
  const viewer=await openFigure(page);
  await viewer.getByTestId('figure-explain').click();
- if(await viewer.getByTestId('figure-consent').isVisible())await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ // The walkthrough's panel loads with the first figure page: the consent shows once it has.
+ await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-words')).toContainText('The figure shows two pipelines side by side');
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-note')).toHaveText('Interrupted · not charged');
  await expect(viewer).not.toContainText(/\d+\s+credits?\b/);
+});
+
+test('a figure reference in the text offers Explain in Chat and AI Explainer; AI Explainer opens its page and asks at once',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ // "Figure 1" in the text as most papers print it (no anchor): the reader links it to its figure (FIGURE REFERENCES).
+ await openFixture(page,request,html.toString('utf8').replace('<a href="#S1.F1">Figure 1</a>','Figure 1'));
+ const frame=page.frameLocator('[data-testid=reader-frame]');
+ const link=frame.locator('.sr-cite[data-sr-figure]').first();
+ await expect(link).toBeAttached({timeout:20000});await link.scrollIntoViewIfNeeded();await link.click();
+ const detail=page.getByRole('dialog',{name:'Figure 1'});
+ await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Explain in Chat');
+ await expect(detail.getByTestId('figure-reference-explain')).toHaveText('AI Explainer');
+ await expect(detail.getByRole('button',{name:'Discuss in chat'})).toHaveCount(0);await expect(detail.getByRole('button',{name:'Done'})).toHaveCount(0);
+ await expect(detail.getByTestId('figure-reference-go')).toBeVisible();
+ await page.screenshot({path:`../../.artifacts/figure-reference-${test.info().project.name}.png`});
+ await detail.getByTestId('figure-reference-explain').click();
+ const viewer=page.getByRole('dialog',{name:'Figures'});
+ // Asked at once: the chat's consent first, then the walkthrough.
+ await expect(viewer.getByTestId('figure-consent')).toBeVisible();
+ await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
+ await expect(viewer.getByTestId('figure-explain')).toHaveCount(0);
+ await page.emulateMedia({colorScheme:'dark'});
+ await page.screenshot({path:`../../.artifacts/figure-reference-explained-${test.info().project.name}-dark.png`});
+ await page.emulateMedia({colorScheme:'light'});
+ await viewer.getByTestId('figure-close').click();await expect(viewer).toBeHidden();
 });

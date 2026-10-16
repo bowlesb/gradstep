@@ -34,7 +34,7 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   await row(page, 'account-plan', 'Subscription plan', 'Pro');
   // Nothing to buy here: credits and plans are bought in the apps.
   await expect(menu).not.toContainText(/Get credits|Buy|Upgrade/);
-  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/]);
+  await expect(menu.getByRole('group', { name: 'Your assets' }).getByRole('menuitem')).toHaveText([/Chats$/, /Diagrams$/, /Equation explanations$/, /Figure explanations$/]);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-menu.png` });
 
   // The explanations sit behind ⓘ beside the words; the rest of the page darkens; Esc hides only the bubble.
@@ -59,6 +59,16 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   const diagrams = page.getByRole('dialog', { name: 'All diagrams' });
   await expect(diagrams.getByTestId('diagrams-empty')).toHaveText('No diagrams yet');
   await diagrams.getByRole('button', { name: 'Done' }).click(); await expect(diagrams).toBeHidden();
+  // Equation and Figure explanations (owner, build 62): this tab's, None yet; the ⓘ says where they're kept.
+  for (const [item, title] of [['assets-equations', 'Equation explanations'], ['assets-figures', 'Figure explanations']] as const) {
+    await page.getByTestId('account-menu').click(); await page.getByTestId(item).click();
+    const kept = page.getByRole('dialog', { name: title });
+    await expect(kept.getByRole('heading', { name: title })).toBeVisible();
+    await expect(kept.getByTestId('explanations-empty')).toHaveText('None yet');
+    await expect(kept.getByTestId('explanations-info')).toHaveAccessibleDescription('The Gradstep apps keep these explanations on your iPhone, iPad or Mac. This browser keeps them only until this tab closes.');
+    if (item === 'assets-equations') await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-equation-explanations.png` });
+    await kept.getByTestId('explanations-close').click(); await expect(kept).toBeHidden();
+  }
   // Chats opens All chats, as the top bar's Chats does.
   await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'Chats' }).click();
   await expect(page.getByRole('dialog', { name: 'All chats' })).toBeVisible();

@@ -144,7 +144,7 @@ export function DiagramFrame({ source, compact = false, fit = 'contain' }: { sou
   }, [compact, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const gestures = compact ? null : <div className="diagram-gesture" data-testid="diagram-gesture" aria-hidden="true"
     onPointerDown={e => {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* a pointer the browser no longer tracks */ }
       pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.current.size === 2) { drag.current = null; pinch.current = { distance: twoFingers().distance, zoom: zoomRef.current }; }
       else if (pointers.current.size === 1) startDrag({ x: e.clientX, y: e.clientY });

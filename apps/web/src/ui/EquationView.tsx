@@ -123,7 +123,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
       <h2 className="explainer-heading">{onSwitch && others.length > 1
         ? <MenuButton icon="chevronDown" text={title} label={title} align="start" testID="equation-heading">{close => others.map(e =>
           <button key={e.id} type="button" role="menuitemradio" aria-checked={e.id === equationID} className="menu-item"
-            onClick={() => { close(false); if (e.id !== equationID) onSwitch(e.id); }}>{e.label}</button>)}</MenuButton>
+            onClick={() => { close(false); if (e.id !== equationID) onSwitch(e.id); }}>
+            {e.label === 'Equation' && e.text ? `Equation — ${[...e.text].slice(0, 40).join('')}` : e.label}</button>)}</MenuButton>
         : title}</h2>
       <div className={`equation-stage${view.scroll ? ' scrolling' : ''}`}>
         {doc ? <iframe ref={frame} className="equation-frame" sandbox="allow-scripts" srcDoc={doc} title={title} style={{ height }} data-testid="equation-frame" />

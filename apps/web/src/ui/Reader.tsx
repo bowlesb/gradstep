@@ -460,7 +460,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         {error ? ((pdfOffer === 'pdf' || pdfOffer === 'only') && pdfSource ? (
           // One screen whatever stopped the reader (owner, build 62: "there should be just one"; "remove the try again"):
           // the paper's PDF, opened from arXiv by this browser (ARXIV_DEVICE_ONLY.md); the reason's code behind an ⓘ.
-          <div className="empty reader-failure" data-testid="reader-failure">
+          <div className="empty reader-failure" data-testid="reader-failure" data-info-bounds>
             <Icon name="book" size={32} />
             <h2>Read this paper as its PDF</h2>
             <p role="alert">{pdfOffer === 'only' ? 'arXiv has no web version of this paper.' : 'Its web version couldn’t be prepared in this browser.'}</p>
@@ -472,7 +472,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           </div>
         ) : (
           // arXiv busy or unreachable (its PDF would fail the same way), or a paper that isn't from arXiv: Try again.
-          <div className="empty reader-failure" data-testid="reader-failure">
+          <div className="empty reader-failure" data-testid="reader-failure" data-info-bounds>
             {pdfOffer === 'network' && <h2>Couldn’t reach arXiv</h2>}
             <p role="alert">{error}</p>
             <div className="reader-failure-actions">
