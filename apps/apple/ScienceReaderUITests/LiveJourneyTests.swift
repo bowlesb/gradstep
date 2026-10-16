@@ -21,7 +21,9 @@ final class LiveJourneyTests: XCTestCase {
         let parts = (ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_REFERENCE"] ?? "").split(separator: ":", maxSplits: 1).map(String.init)
         return parts.count == 2 ? (parts[0], parts[1]) : nil
     }
-    private var runsSomethingElse: Bool { deletesAccount || !openTiming.isEmpty || checksStore || reference != nil }
+    /// `scripts/live-journey.mjs --pdf-only --arxiv=2610.20399 --title=Cortex`: a paper arXiv has no HTML for opens its PDF.
+    private var pdfOnly: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_PDF_ONLY"] == "1" }
+    private var runsSomethingElse: Bool { deletesAccount || !openTiming.isEmpty || checksStore || reference != nil || pdfOnly }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -38,7 +40,8 @@ final class LiveJourneyTests: XCTestCase {
     }
 
     private func paperRow(_ app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", titlePrefix)).firstMatch
+        // The list's row, or the table's (the phone's Library is a table since 2026-10-15).
+        app.buttons.matching(NSPredicate(format: "(identifier BEGINSWITH 'paper.' OR identifier BEGINSWITH 'library.table.paper/') AND label CONTAINS %@", titlePrefix)).firstMatch
     }
 
     /// New synthetic account: sign-in and key setup can take a while on a fresh
@@ -164,6 +167,33 @@ final class LiveJourneyTests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: messages)], timeout: 30), .completed)
             capture(app, "Answer after relaunch")
         }
+    }
+
+    /// Build 57 (2610.20399): arXiv has no HTML for the paper. The screen says so and Open PDF downloads the PDF from
+    /// arXiv to this device and shows it, where it used to offer only Try again.
+    func testAPaperWithoutArxivHTMLOpensItsPDF() throws {
+        try XCTSkipIf(!pdfOnly, "Runs with --pdf-only")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        launch(app)
+        waitForSignedInAccount(app)
+        let add = app.buttons["Add a paper"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: add)], timeout: 60), .completed)
+        add.tap()
+        let field = app.textFields["import.reference"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(arxivID)
+        app.buttons["import.add"].tap()
+        let row = paperRow(app)
+        XCTAssertTrue(row.waitForExistence(timeout: 120), "The added paper did not appear")
+        row.tap()
+        let noWebVersion = app.staticTexts["No web version of this paper"]
+        XCTAssertTrue(noWebVersion.waitForExistence(timeout: 120), "The screen did not say the paper has no web version")
+        XCTAssertFalse(app.buttons["Try again"].exists, "Trying again can't help a paper arXiv has no HTML for")
+        capture(app, "No web version")
+        let openPDF = app.buttons["paper.openPDF"]
+        XCTAssertTrue(openPDF.exists); openPDF.tap()
+        XCTAssertTrue(app.buttons["pdf.contents"].waitForExistence(timeout: 120), "The PDF did not open")
+        sleep(2); capture(app, "PDF on this device")
     }
 
     /// Settings › Delete account… against staging; the runner checks the server

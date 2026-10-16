@@ -1,4 +1,4 @@
-const recovery = ' You can still download its PDF on this device.';
+const recovery = ' You can still open its PDF on this device.';
 const messages: Record<string, string> = {
  'source-incomplete': 'arXiv’s HTML for this version contains a conversion error.',
  'source-unavailable': 'arXiv did not return readable HTML for this version.',

@@ -339,10 +339,22 @@ struct PaperView: View {
                             ProgressView("Preparing…").accessibilityIdentifier("paper.openingLocalCopy")
                         }
                     } else if let issue = model.readerOpenIssue {
-                        ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
+                        // No arXiv HTML for this version: the paper is its PDF, not a failure to retry (build 57).
+                        let pdfOnly = model.readerOpenFallback == .pdfOnly
+                        ContentUnavailableView {
+                            Label(pdfOnly ? "No web version of this paper" : "Couldn’t open this paper", systemImage: pdfOnly ? "doc.richtext" : "doc.badge.ellipsis")
+                        }
                             description: { Text(issue) }
                             actions: {
-                                Button("Try again") { model.retryOpeningSelectedPaper() }
+                                if model.readerOpenFallback != .none {
+                                    if model.isDownloadingPDF(selected) {
+                                        ProgressView("Downloading PDF…").accessibilityIdentifier("paper.downloadingPDF")
+                                    } else {
+                                        Button { model.openPDF(selected) } label: { Label("Open PDF", systemImage: "doc.text") }
+                                            .buttonStyle(.borderedProminent).accessibilityIdentifier("paper.openPDF")
+                                    }
+                                }
+                                if !pdfOnly { Button("Try again") { model.retryOpeningSelectedPaper() } }
                                 // The experiment, when this paper's PDF is on the device (docs/architecture/DEVICE_PDF_ROUTE.md).
                                 if model.canReadWithDeviceModel(selected) {
                                     Button("Read the PDF with the on-device model (experimental)") { model.readWithDeviceModel(selected) }

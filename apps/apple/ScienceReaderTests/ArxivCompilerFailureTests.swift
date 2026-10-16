@@ -23,6 +23,19 @@ struct ArxivCompilerFailureTests {
         #expect(ArxivHTMLError.compiler("index_identity").message == "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device.")
     }
 
+    /// Build 57 (2610.20399, no arXiv HTML): the screen said "you can still open its PDF" with only Try again under it.
+    @Test func aPaperTheReaderCantShowOffersItsPDF() {
+        #expect(ReaderOpenFallback(ArxivHTMLError.unavailable) == .pdfOnly, "no HTML at all: the PDF, not Try again")
+        #expect(ReaderOpenFallback(ArxivHTMLError.compiler("arxiv_math_coverage")) == .pdf)
+        #expect(ReaderOpenFallback(ArxivHTMLError.invalid) == .pdf)
+        #expect(ReaderOpenFallback(ArxivHTMLError.tooLarge) == .pdf)
+        #expect(ReaderOpenFallback(NSError(domain: "x", code: 1)) == .pdf, "any other preparation failure")
+        for network in [ArxivHTMLError.retryLater, .refused, .retrieval] {
+            #expect(ReaderOpenFallback(network) == .none, "arXiv busy, refused or unreachable: its PDF would fail the same way")
+        }
+        #expect(ArxivHTMLError.unavailable.message.contains("web version"))
+    }
+
     @Test func theCodeIsReadFromTheJavaScriptException() {
         func error(_ message: String) -> Error {
             NSError(domain: WKError.errorDomain, code: WKError.javaScriptExceptionOccurred.rawValue, userInfo: ["WKJavaScriptExceptionMessage": message])

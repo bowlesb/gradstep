@@ -133,3 +133,31 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  expect(both[1].figures[0].caption).toBe('Figure 1: A test figure.');
  await expect(page.getByTestId('chat-pane')).not.toContainText('Let me look at Figure 1.');
 });
+// Build 57 (2610.20399): arXiv has no HTML for this version. The reader says so and offers the PDF, which the browser
+// opens from arXiv itself; Try again can't help, so it isn't offered.
+test('a paper without arXiv HTML offers its PDF from arXiv, not Try again',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await request.post(`${fixtureOrigin}/__reset`);
+ const asked:string[]=[];
+ await page.route('https://arxiv.org/**',async route=>{asked.push(route.request().url());await route.fulfill({status:404,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:'<p>No HTML</p>'});});
+ await page.route(`${fixtureOrigin}/rest/v1/rpc/v3_library_page`,async route=>{
+  const response=await route.fetch(),body=await response.json();
+  const row=body.entries.find((e:{kind:string})=>e.kind==='item');
+  body.entries=[{kind:'import',id:member,created_seq:row.created_seq,state_seq:row.state_seq,intent_revision:1,visible:true,phase:'source_only',source:'arxiv',source_id:'2601.01234',requested_revision:2,source_revision:2,
+   metadata_id:row.metadata_id,version_id:row.version_id,metadata_recorded_at:row.metadata_recorded_at,source_url:'https://arxiv.org/abs/2601.01234v2',retryable:false,metadata:{title:'A PDF-only paper',authors:['Fixture author'],categories:['cs.LG']}}];
+  body.has_more=false;body.next_cursor={format:2,account_id:body.account_id,through:body.baseline_cursor,created_seq:row.created_seq,id:member,kind:'import'};
+  await route.fulfill({response,json:body});
+ });
+ await page.route(`${fixtureOrigin}/rest/v1/rpc/v3_library_changes`,async route=>{const response=await route.fetch(),body=await response.json();body.changes=[];body.has_more=false;body.next_cursor=body.through;await route.fulfill({response,json:body});});
+ await page.goto('/');await page.getByTestId('email').fill('returning@example.test');await page.getByTestId('send-code').click();
+ await page.getByTestId('code').fill('123456');await page.getByTestId('verify').click();
+ await page.getByTestId('use-recovery-code').click();await page.getByTestId('recovery-code').fill(RECOVERY_CODE);await page.getByTestId('recover').click();
+ await page.getByTestId('library-table').getByRole('link',{name:'A PDF-only paper',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'No web version of this paper'})).toBeVisible({timeout:20000});
+ const pdf=page.getByTestId('reader-open-pdf');
+ await expect(pdf).toHaveAttribute('href','https://arxiv.org/pdf/2601.01234v2');
+ await expect(pdf).toHaveAttribute('target','_blank');
+ await expect(page.getByRole('button',{name:'Try again'})).toHaveCount(0);
+ expect(asked).toEqual(['https://arxiv.org/html/2601.01234v2']);
+ await page.screenshot({path:`../../.artifacts/html-browser-no-html-${test.info().project.name}.png`});
+});

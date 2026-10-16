@@ -11,13 +11,32 @@ enum ArxivHTMLError: Error, Sendable {
     case compiler(String)
     var message: String {
         switch self {
-        case .unavailable: "HTML reader unavailable for this version. You can still open the source or its PDF on this device."
+        case .unavailable: "arXiv couldn’t make a web version of this paper, which the reader needs. Its PDF downloads from arXiv to this device."
         case .retryLater: "arXiv is busy. Please try preparing this paper again later."
         case .refused: "arXiv refused requests from this device, so Gradstep won’t ask arXiv from it again for a day. Papers already on this device still open."
         case .retrieval: "Couldn’t retrieve this paper from arXiv. Check your connection and try again."
         case .invalid: "This version’s HTML couldn’t be prepared completely. You can still open its PDF on this device."
         case .tooLarge: "This paper exceeds the device reader’s current preparation limits. You can still open its PDF."
         case .compiler(let code): ArxivCompilerFailure.message(for: code)
+        }
+    }
+}
+
+/// What a paper the HTML reader couldn't show offers instead (build 57: 2610.20399 has no arXiv HTML, and the screen said
+/// "you can still open its PDF" with only Try again under it). The PDF is fetched by this device, as any arXiv request is.
+enum ReaderOpenFallback: Equatable, Sendable {
+    case none
+    /// The reader couldn't prepare this version: its PDF, beside Try again.
+    case pdf
+    /// arXiv has no HTML for this version (404): only its PDF; trying again can't help.
+    case pdfOnly
+
+    init(_ error: Error) {
+        switch error as? ArxivHTMLError {
+        case .unavailable: self = .pdfOnly
+        // arXiv busy, refused or unreachable: its PDF would fail the same way.
+        case .retryLater, .refused, .retrieval: self = .none
+        default: self = .pdf
         }
     }
 }

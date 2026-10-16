@@ -87,10 +87,19 @@ describe('arXiv acquisition pacing', () => {
   expect(after.requests).toEqual([asset(3), asset(4)]);
  });
 
+ it('says a version without arXiv HTML is its PDF only, and a busy arXiv is not a reason to offer the PDF (build 57)', async () => {
+  serve(url => url === base ? { status: 404, type: 'text/html' } : { status: 503, type: 'text/html' });
+  const missing = await retrieveArxiv(base, 1024, true, never).catch(e => e);
+  expect(missing).toBeInstanceOf(ArxivReaderError);
+  expect([missing.kind, missing.message]).toEqual(['no-html', expect.stringContaining('web version')]);
+  const asset404 = await retrieveArxiv(asset(1), 1024, false, new AbortController().signal).catch(e => e);
+  expect(asset404.kind).toBe('network');
+ });
+
  it('refuses redirects, wrong types and oversized bodies, and stops the other assets after one failure', async () => {
   serve(url => url.endsWith('x1.png') ? { url: 'https://arxiv.org/html/2305.18290v4/x1.png' } : url.endsWith('x2.png') ? { type: 'text/html' } : { body: new Uint8Array(2000) });
-  await expect(retrieveArxiv(asset(1), 1024, false, never)).rejects.toThrow('HTML reader unavailable');
-  await expect(retrieveArxiv(asset(2), 1024, false, never)).rejects.toThrow('HTML reader unavailable');
+  await expect(retrieveArxiv(asset(1), 1024, false, never)).rejects.toThrow('didn’t return this version’s HTML');
+  await expect(retrieveArxiv(asset(2), 1024, false, never)).rejects.toThrow('didn’t return this version’s HTML');
   await expect(retrieveArxiv(asset(3), 1024, false, never)).rejects.toThrow('preparation limits');
   const gates: (() => void)[] = [];
   const fake = serve(url => url.endsWith('x0.png') ? { body: new Uint8Array(2000) } : { release: new Promise<void>(resolve => { gates.push(resolve); }) });

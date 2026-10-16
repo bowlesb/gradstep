@@ -8,6 +8,7 @@
 // --store runs Settings › Get credits and requires every product to be listed (no purchase).
 // --reference=11:PaLM adds the paper first, follows citation 11 → Add to library and waits for
 // the cited paper to become readable (one Add paper answer, about $0.10 on DPO).
+// --pdf-only --arxiv=2610.20399 --title=Cortex: a paper arXiv has no HTML for says so and Open PDF shows its PDF (build 57).
 // --derived=/private/tmp/... uses that DerivedData folder (default .artifacts/lead-derived).
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -67,7 +68,8 @@ const result = `../../.artifacts/live-journey-${account}.xcresult`;
 const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug', '-destination', `platform=iOS Simulator,id=${device}`,
   '-derivedDataPath', args.derived && args.derived !== 'true' ? args.derived : '../../.artifacts/lead-derived', '-resultBundlePath', result,
   `-only-testing:ScienceReaderUITests/LiveJourneyTests/${timing.length ? 'testOpenTimingsOfConvertedPapers' : args.store ? 'testGetCreditsListsEveryProduct'
-    : reference ? 'testReferenceAddToLibraryImportsThePaper' : args.delete ? 'testDeleteAccountFromSettings' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
+    : reference ? 'testReferenceAddToLibraryImportsThePaper' : args.delete ? 'testDeleteAccountFromSettings'
+    : args['pdf-only'] ? 'testAPaperWithoutArxivHTMLOpensItsPDF' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
   'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'test'];
 const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_EMAIL: email, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PASSWORD: password,
@@ -76,6 +78,7 @@ const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), st
   ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}),
   ...(args.delete ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_DELETE: '1' } : {}),
   ...(args.store ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_STORE: '1' } : {}),
+  ...(args['pdf-only'] ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PDF_ONLY: '1' } : {}),
   ...(reference ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_REFERENCE: reference } : {}),
   ...(timing.length ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_OPEN_TIMING: timing.map(t => t[1]).join('|') } : {}) } });
 let log = ''; child.stdout.on('data', b => { log += b; }); child.stderr.on('data', b => { log += b; });

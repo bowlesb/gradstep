@@ -183,7 +183,9 @@ final class ReaderModel {
     private(set) var openingPaperID: UUID?
     /// The paper being prepared on this device: one fraction, "Downloading…" then "Preparing…" (ArxivHTMLReader.phase).
     private(set) var openingProgress: Double?
-    private(set) var readerOpenIssue: String?
+    private(set) var readerOpenIssue: String? { didSet { readerOpenFallback = .none } }
+    /// What the failed-open screen offers beside its reason (set after the reason; a new reason clears it).
+    private(set) var readerOpenFallback: ReaderOpenFallback = .none
     private var readerDownloadAttempt: (id: UUID, documentID: UUID)?
     private(set) var offlineCacheIssue: String?
     /// Exact source revisions retained in this device's encrypted paper store.
@@ -2775,6 +2777,7 @@ final class ReaderModel {
                     return
                 }
                 self.readerOpenIssue = (error as? ArxivHTMLError)?.message ?? "This paper couldn’t be prepared on this device. Try again, or open its PDF."
+                self.readerOpenFallback = ReaderOpenFallback(error)
             }
         }
     }

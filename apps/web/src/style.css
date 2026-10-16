@@ -209,6 +209,8 @@ html.resizing iframe { pointer-events: none; }
 .tag-select select { min-height: 28px; padding: 2px 28px 2px 12px; border-radius: 999px; font-size: 13px; width: auto; max-width: 200px; font-weight: 400; }
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 60px 16px; text-align: center; flex: 1; }
 .empty progress { width: min(260px, 80%); }
+.empty h2 { margin: 0; font-size: 1.15rem; }
+.empty a.primary { display: inline-flex; align-items: center; min-height: 40px; padding: 9px 16px; border-radius: 8px; text-decoration: none; box-sizing: border-box; }
 
 .library { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .library .view-head, .library .banner { flex: none; }

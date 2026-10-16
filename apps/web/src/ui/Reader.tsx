@@ -82,6 +82,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Beside a failure: the paper's PDF from arXiv ('only': arXiv has no HTML for this version, so Try again can't help).
+  const [pdfOffer, setPdfOffer] = useState<'pdf' | 'only' | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -118,6 +120,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const findField = useRef<HTMLInputElement>(null);
   const frameReady = useRef(false);
   const title = item.metadata?.title ?? 'Paper';
+  const pdfSource = readingSource(item);
   const paperLine = publicationLine(item), paperTags = JSON.stringify(effectiveTags(item));
   const [initialPresentation] = useState(() => ({ paperLine, paperTags, fontSize: font, theme, lineWidth }));
   const appliedPresentation = useRef(initialPresentation);
@@ -127,7 +130,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   useEffect(() => {
     if (cache.has(cacheKey)) { setBundle(cache.get(cacheKey)!); return; }
     const controller = new AbortController();
-    setError(null); setLoaded(0);
+    setError(null); setPdfOffer(null); setLoaded(0);
     // An arXiv paper reads from its official HTML prepared on this device (owner direction 2026-10-13), a legacy
     // item included; its server bundle is the fallback when arXiv has no usable HTML for that revision.
     const bundle = () => loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); });
@@ -138,7 +141,11 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       cache.set(cacheKey, verified);
       while (cache.size > 3) cache.delete(cache.keys().next().value!);
       setBundle(verified);
-    }, e => { if (!controller.signal.aborted) setError(failure(e)); });
+    }, e => {
+      if (controller.signal.aborted) return;
+      setError(failure(e));
+      setPdfOffer(source && e instanceof ArxivReaderError && e.kind !== 'network' ? (e.kind === 'no-html' ? 'only' : 'pdf') : null);
+    });
     return () => controller.abort();
   }, [account, item.id, cache, cacheKey, attempt]);
 
@@ -371,7 +378,14 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       )}
       <div className="paper-stage">
         {error ? (
-          <div className="empty"><p role="alert">{error}</p><button className="secondary" onClick={() => { setError(null); setAttempt(a => a + 1); }}>Try again</button></div>
+          <div className="empty">
+            {pdfOffer === 'only' && <h2>No web version of this paper</h2>}
+            <p role="alert">{error}</p>
+            {/* The browser asks arXiv for the PDF itself, as for any arXiv request (ARXIV_DEVICE_ONLY.md). */}
+            {pdfOffer && pdfSource && <a className="primary" href={`https://arxiv.org/pdf/${pdfSource.sourceID}v${pdfSource.revision}`}
+              target="_blank" rel="noopener noreferrer" data-testid="reader-open-pdf">Open PDF</a>}
+            {pdfOffer !== 'only' && <button className="secondary" onClick={() => { setError(null); setPdfOffer(null); setAttempt(a => a + 1); }}>Try again</button>}
+          </div>
         ) : srcdoc ? (
           <iframe ref={frame} className="reader-frame" title={title} sandbox="allow-scripts" srcDoc={srcdoc} data-testid="reader-frame" />
         ) : (

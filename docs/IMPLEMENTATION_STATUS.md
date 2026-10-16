@@ -2,6 +2,18 @@
 
 Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Papers without arXiv HTML open their PDF — 2026-10-16, ~02:55 UTC
+
+- Build 57 report (Cortex, 2610.20399v1): arXiv has no HTML for it ("No HTML for '2610.20399v1'… conversion failure").
+  The screen said "you can still open … its PDF" and offered only Try again. Now iPhone/iPad/Mac say **No web version
+  of this paper** with **Open PDF**, which downloads that exact revision's PDF from arXiv on the device (encrypted local
+  store, Gradstep User-Agent, honours a recorded arXiv refusal) and opens it; a compiler refusal offers Open PDF beside
+  Try again; arXiv busy/refused/unreachable offers neither. The browser shows the same screen; Open PDF opens
+  arxiv.org/pdf/<id>v<n> in a new tab from the browser.
+- Evidence: live iPhone Simulator journey against staging (`node scripts/live-journey.mjs --pdf-only
+  --arxiv=2610.20399 --title=Cortex`, passed: screen, then the PDF); browser journey `arxiv-html.spec.ts` (desktop,
+  phone); unit tests on both. The live journeys' row selector now matches the phone's Library table.
+
 ## Reader revisions 13 and 14 — 2026-10-16, ~00:40 UTC
 
 - **TestFlight 56** (rev 13; iOS 17:18, Mac 17:23 PDT) and **57** (rev 14 + rotated device-PDF pages; iOS 17:32,

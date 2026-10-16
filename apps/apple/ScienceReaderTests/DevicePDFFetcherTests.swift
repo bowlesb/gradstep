@@ -49,6 +49,23 @@ final class DevicePDFFetcherTests: XCTestCase {
     }
     private let pdf = Data("%PDF-1.7\n".utf8) + Data(repeating: 0x20, count: 200_000)
 
+    /// "Open PDF" on a paper without arXiv HTML (build 57): arXiv hears from the app by name, and not at all for a day
+    /// after it refused this device, as with the reader's own requests.
+    func testAnArxivPDFNamesTheAppAndRespectsARefusal() async throws {
+        let suite = "arxiv.pdf.test.\(UUID().uuidString)"
+        ArxivHTMLReader.refusalSuite = suite
+        defer { ArxivHTMLReader.refusalSuite = nil; UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        ScriptedProtocol.userAgents = []
+        let link = URL(string: "https://arxiv.org/pdf/2610.20399v1")!
+        let fetched = try await fetcher([link.absoluteString: .init(body: pdf)]).fetch([link]) { _ in }
+        try? FileManager.default.removeItem(at: fetched.file)
+        XCTAssertTrue(ScriptedProtocol.userAgents.first?.hasPrefix("Gradstep/") == true, "\(ScriptedProtocol.userAgents)")
+        ArxivDeviceRefusal(suite: suite).record(now: Date())
+        do { _ = try await fetcher([link.absoluteString: .init(body: pdf)]).fetch([link]) { _ in }; XCTFail("refused") }
+        catch { XCTAssertEqual(error as? DeviceFetchError, .blocked) }
+        XCTAssertEqual(ScriptedProtocol.userAgents.count, 1, "nothing asked of arXiv after its refusal")
+    }
+
     func testAPDFAPageThatDeclaresOneAndTheNextLinkAfterARefusal() async throws {
         let direct = try await fetcher(["https://repo.example.org/a.pdf": .init(body: pdf)]).fetch([URL(string: "https://repo.example.org/a.pdf")!]) { _ in }
         XCTAssertEqual(try Data(contentsOf: direct.file), pdf)
@@ -136,9 +153,11 @@ struct ScriptedResponse: Sendable {
 
 final class ScriptedProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var routes: [String: ScriptedResponse] = [:]
+    nonisolated(unsafe) static var userAgents: [String] = []
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        Self.userAgents.append(request.value(forHTTPHeaderField: "User-Agent") ?? "")
         guard let url = request.url, let route = Self.routes[url.absoluteString],
               let response = HTTPURLResponse(url: url, statusCode: route.status, httpVersion: "HTTP/1.1", headerFields: route.headers) else {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost)); return

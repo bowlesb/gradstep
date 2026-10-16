@@ -201,12 +201,37 @@ extension ReaderModel {
             error = "This paper cannot be downloaded on this device yet. Open it on arXiv or try again later."
             return
         }
-        guard beginLocalPaperDownload(item.id) else { return }
+        saveArxivPDF(sourceID: sourceID, revision: revision, link: source, key: item.id)
+    }
+
+    /// "Open PDF" where the reader can't show a paper (`ReaderOpenFallback`; build 57, 2610.20399 has no arXiv HTML):
+    /// the PDF kept on this device, else this device fetches that exact arXiv revision's PDF, keeps it encrypted in the
+    /// local paper store and opens it. The person's own request, like opening the paper (ARXIV_DEVICE_ONLY.md §5.1).
+    func openPDF(_ paper: Paper) {
+        if let record = localPDFRecord(for: paper) {
+            openLocalPDF(sourceID: record.identity.sourceID, revision: record.identity.revision, title: paper.title); return
+        }
+        guard let source = paper.arxivReaderSource, hasLocalPaperStore,
+              let link = URL(string: "https://arxiv.org/pdf/\(source.sourceID)v\(source.revision)") else {
+            error = "This paper’s PDF can’t be downloaded on this device yet. Open it on arXiv or try again later."
+            return
+        }
+        saveArxivPDF(sourceID: source.sourceID, revision: source.revision, link: link, key: paper.id) { [weak self] in
+            guard let self, self.selectedPaper?.id == paper.id else { return }
+            self.openLocalPDF(sourceID: source.sourceID, revision: source.revision, title: paper.title)
+        }
+    }
+    /// Whether "Open PDF" is fetching this paper's PDF now.
+    func isDownloadingPDF(_ paper: Paper) -> Bool { localPaperDownloads.contains(paper.id) }
+
+    /// Fetches an arXiv PDF on this device into the encrypted local paper store; `key` marks it downloading meanwhile.
+    private func saveArxivPDF(sourceID: String, revision: Int, link: URL, key: UUID, saved: (@MainActor () -> Void)? = nil) {
+        guard beginLocalPaperDownload(key) else { return }
         let scope = readerSessionID
         Task { [weak self] in
             let fetcher = DevicePDFFetcher()
             do {
-                let pdf = try await fetcher.fetch([source], progress: { _ in })
+                let pdf = try await fetcher.fetch([link], progress: { _ in })
                 defer { try? FileManager.default.removeItem(at: pdf.file) }
                 guard let self, self.readerSessionID == scope else { return }
                 let write = try self.acceptLocalPaperWrite { store in
@@ -215,17 +240,18 @@ extension ReaderModel {
                 _ = try await write.value
                 guard self.readerSessionID == scope else { return }
                 await self.refreshLocalPaperRecords()
-                self.finishLocalPaperDownload(item.id)
+                self.finishLocalPaperDownload(key)
+                saved?()
             } catch is CancellationError {
                 guard let self, self.readerSessionID == scope else { return }
-                self.finishLocalPaperDownload(item.id)
+                self.finishLocalPaperDownload(key)
             } catch let failure as DeviceFetchError {
                 guard let self, self.readerSessionID == scope else { return }
-                self.finishLocalPaperDownload(item.id)
+                self.finishLocalPaperDownload(key)
                 self.error = failure.message
             } catch let failure as LocalPaperStoreError {
                 guard let self, self.readerSessionID == scope else { return }
-                self.finishLocalPaperDownload(item.id)
+                self.finishLocalPaperDownload(key)
                 self.error = switch failure {
                 case .capacityExceeded: "This device is out of local paper space. Remove an offline paper and try again."
                 case .revisionConflict: "The PDF changed for this arXiv revision. Open the paper on arXiv to choose the current copy."
@@ -233,7 +259,7 @@ extension ReaderModel {
                 }
             } catch {
                 guard let self, self.readerSessionID == scope else { return }
-                self.finishLocalPaperDownload(item.id)
+                self.finishLocalPaperDownload(key)
                 self.error = "The PDF could not be saved on this device. Your library is unchanged."
             }
         }

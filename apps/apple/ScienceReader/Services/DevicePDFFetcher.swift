@@ -1,4 +1,5 @@
 import Foundation
+import ScienceReaderCore
 
 // "Download on this device" (docs/architecture/PDF_UPLOADS.md): about 17 publishers refuse downloads from
 // cloud servers, so the reader's own network fetches the PDF and it is uploaded to the same paper. The
@@ -181,6 +182,11 @@ enum LandingPage {
 struct DevicePDFFetcher: DevicePDFFetching {
     static let maximumBytes: Int64 = PDFFileCheck.maximumBytes
     static let pageBytes = 1_500_000
+    #if DEBUG
+    private static var arxivRefusal: ArxivDeviceRefusal { ArxivDeviceRefusal(suite: ArxivHTMLReader.refusalSuite) }
+    #else
+    private static var arxivRefusal: ArxivDeviceRefusal { ArxivDeviceRefusal() }
+    #endif
     var resolve: @Sendable (String) async throws -> [String] = { try await DeviceLinkPolicy.resolve($0) }
     var configuration: URLSessionConfiguration = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -210,6 +216,12 @@ struct DevicePDFFetcher: DevicePDFFetching {
             guard !addresses.isEmpty, addresses.allSatisfy(DeviceLinkPolicy.isPublicAddress) else { throw DeviceFetchError.unsafe }
             var request = URLRequest(url: current)
             request.setValue("application/pdf, text/html;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
+            // arXiv hears from this app by name, and not at all for a day after it refused this device, as with the
+            // reader's own requests (docs/architecture/ARXIV_DEVICE_ONLY.md §5.9).
+            if current.host()?.lowercased() == "arxiv.org" || current.host()?.lowercased().hasSuffix(".arxiv.org") == true {
+                if Self.arxivRefusal.until(now: Date()) != nil { throw DeviceFetchError.blocked }
+                request.setValue(ArxivAcquisitionPolicy.userAgent, forHTTPHeaderField: "User-Agent")
+            }
             let (bytes, response): (URLSession.AsyncBytes, URLResponse)
             do { (bytes, response) = try await session.bytes(for: request) }
             catch is CancellationError { throw CancellationError() }

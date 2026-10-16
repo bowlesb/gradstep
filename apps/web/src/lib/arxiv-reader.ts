@@ -3,7 +3,11 @@ import { verifyBundle, type VerifiedBundle } from './bundle';
 import { sourceReference, type SourcePaperReference } from './events';
 import { arxivPreparationMessage } from './arxiv-reader-error';
 import { buildPaperContext, PAPER_CONTEXT_FORMAT } from './paper-context';
-export class ArxivReaderError extends Error {}
+/** `kind`: what the reader offers instead (build 57, 2610.20399): 'no-html' (arXiv has no HTML for this version: its PDF
+ * only), 'network' (arXiv busy, refused or unreachable: its PDF would fail the same way), 'prepare' (its PDF, beside Try again). */
+export class ArxivReaderError extends Error {
+ constructor(message: string, readonly kind: 'no-html' | 'network' | 'prepare' = 'prepare') { super(message); }
+}
 
 /** Who hears about a page this browser downloaded to prepare a paper (source-metadata.ts, while the server asks for
  * device-read metadata; docs/architecture/ARXIV_DEVICE_ONLY.md §5.3). */
@@ -21,7 +25,8 @@ export function observeArxivSources(observer: ArxivSourceObserver | null): () =>
 export const ARXIV_PACING = Object.freeze({ documentSpacingMs: 3000, assetConcurrency: 4, requestTimeoutMs: 90_000, busyLimitMs: 60_000 });
 export const ARXIV_LIMITS = Object.freeze({ sourceBytes: 8_388_608, assetBytes: 16_777_216, totalBytes: 41_943_040, assets: 512 });
 const BUSY = 'arXiv is busy. Try preparing this paper again later.';
-const UNAVAILABLE = 'HTML reader unavailable for this version. You can still download its PDF on this device.';
+const UNAVAILABLE = 'arXiv didn’t return this version’s HTML completely. You can still open its PDF on this device.';
+const NO_HTML = 'arXiv couldn’t make a web version of this paper, which the reader needs. Its PDF opens from arXiv in a new tab.';
 const TOO_LARGE = 'This paper exceeds the device reader’s preparation limits.';
 const UNREACHABLE = 'Couldn’t retrieve this paper from arXiv. Check your connection and try again.';
 const REFUSED = 'arXiv refused requests from this browser, so Gradstep won’t ask arXiv from here again for a day. Papers already prepared in this tab still open.';
@@ -55,29 +60,32 @@ export function admitsArxivAsset(url: string, base: string): boolean {
 export async function retrieveArxiv(url: string, maximum: number, html: boolean, parentSignal: AbortSignal): Promise<Bytes> {
  abort(parentSignal);
  const now = Date.now();
- if (refusal(now) > now) throw new ArxivReaderError(REFUSED);
- if (busyUntil - now > ARXIV_PACING.busyLimitMs) throw new ArxivReaderError(BUSY);
+ if (refusal(now) > now) throw new ArxivReaderError(REFUSED, 'network');
+ if (busyUntil - now > ARXIV_PACING.busyLimitMs) throw new ArxivReaderError(BUSY, 'network');
  let scheduled = Math.max(now, busyUntil);
  if (html) { scheduled = Math.max(scheduled, nextDocumentRequest); nextDocumentRequest = scheduled + ARXIV_PACING.documentSpacingMs; }
  await wait(scheduled - now, parentSignal);
  const signal = AbortSignal.any([parentSignal, AbortSignal.timeout(ARXIV_PACING.requestTimeoutMs)]);
  let response: Response;
  try { response = await fetch(url, { credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal }); }
- catch { abort(parentSignal); throw new ArxivReaderError(UNREACHABLE); }
+ catch { abort(parentSignal); throw new ArxivReaderError(UNREACHABLE, 'network'); }
  if (response.status === 403) {
   refusedUntil = Date.now() + ARXIV_REFUSAL.pauseMs;
   try { localStorage.setItem(ARXIV_REFUSAL.key, String(refusedUntil)); } catch { /* no storage: this tab only */ }
-  await response.body?.cancel(); throw new ArxivReaderError(REFUSED);
+  await response.body?.cancel(); throw new ArxivReaderError(REFUSED, 'network');
  }
  if ([429, 503].includes(response.status)) {
   const retry = response.headers.get('retry-after'), seconds = retry && /^\d+$/.test(retry) ? Number(retry) : Math.max(60, (Date.parse(retry ?? '') - Date.now()) / 1000 || 60);
   busyUntil = Math.max(busyUntil, Date.now() + Math.min(86400, Math.max(3, seconds)) * 1000);
   nextDocumentRequest = Math.max(nextDocumentRequest, busyUntil);
-  await response.body?.cancel(); throw new ArxivReaderError(BUSY);
+  await response.body?.cancel(); throw new ArxivReaderError(BUSY, 'network');
  }
  const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
  if (!response.ok || response.url !== url || !response.body || !(html ? ['text/html', 'application/xhtml+xml'] : ['image/png', 'image/jpeg', 'image/svg+xml']).includes(type ?? '')) {
-  await response.body?.cancel(); throw new ArxivReaderError(UNAVAILABLE);
+  await response.body?.cancel();
+  // The paper's own page missing (as the native reader): arXiv has no HTML for this version.
+  if (html && [404, 410].includes(response.status)) throw new ArxivReaderError(NO_HTML, 'no-html');
+  throw new ArxivReaderError(UNAVAILABLE);
  }
  if (Number(response.headers.get('content-length') ?? 0) > maximum) { await response.body.cancel(); throw new ArxivReaderError(TOO_LARGE); }
  const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
@@ -149,7 +157,7 @@ async function prepare(ref: SourcePaperReference, signal: AbortSignal, progress:
    const channel = new MessageChannel(); let timer: ReturnType<typeof setTimeout>;
    const cleanup = () => { clearTimeout(timer); channel.port1.close(); signal.removeEventListener('abort', stop); };
    const stop = () => { cleanup(); reject(signal.reason); };
-   timer = setTimeout(() => { cleanup(); reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still download its PDF on this device.')); }, 90000);
+   timer = setTimeout(() => { cleanup(); reject(new ArxivReaderError('Preparing this paper took too long. Try opening it again. You can still open its PDF on this device.')); }, 90000);
    signal.addEventListener('abort', stop, { once: true });
    channel.port1.onmessage = e => { cleanup(); e.data?.ok ? resolve(e.data.result) : reject(new ArxivReaderError(arxivPreparationMessage(e.data?.failure))); };
    frame.contentWindow!.postMessage({ method, source: toBase64(html), sourceID: ref.sourceID, revision: ref.revision, inputs, options: compile }, '*', [channel.port2]);
