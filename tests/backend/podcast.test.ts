@@ -12,7 +12,7 @@ import { applyCorrections, checkScript, stripSpokenMarkup, SCRIPT_INSTRUCTIONS, 
   type ScriptProvider, stripParagraphMarker } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
   vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
-import { podcastAudioBounds, podcastCheckerBounds, runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
+import { podcastAudioBounds, podcastCheckerBounds, runPodcast, sweepPodcastSources, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { handlePodcast, podcastError, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
 import { ffmetadata, ffmpegArguments, ffmpegEncoder, verifyProbe } from '../../services/pipeline-worker/podcast-encode.ts';
@@ -1420,7 +1420,7 @@ test('a removed opening turn is repaired before the episode is spoken, or refuse
   assert.ok(!refused.names().includes('worker_podcast_speech_begin'));
 });
 
-test('device sources (066): the text is stored once by digest and the quote names it; bad descriptors never reach the database', async () => {
+test('device sources (066, 074): each upload has its own path and the quote names the text by digest; bad descriptors never reach the database', async () => {
   const uploads: { bucket: string; path: string; bytes: number; mediaType: string }[] = [];
   const h = api({ upload: async (bucket, path, bytes, mediaType) => { uploads.push({ bucket, path, bytes: bytes.byteLength, mediaType }); } });
   const text = '¶1 A paper read on this device.\n\n¶2 Its second paragraph.';
@@ -1429,9 +1429,13 @@ test('device sources (066): the text is stored once by digest and the quote name
   const body = await stored.json() as { source: { text_sha256: string; bytes: number; format: string } };
   const digest = sha(new TextEncoder().encode(text));
   assert.deepEqual(body, { source: { text_sha256: digest, bytes: new TextEncoder().encode(text).byteLength, format: 'paper-context-v2' } });
-  assert.deepEqual(uploads, [{ bucket: 'private-content', path: `podcast-sources/${ACCOUNT}/${digest}.txt`, bytes: body.source.bytes, mediaType: 'text/plain' }]);
+  assert.equal(uploads.length, 1);
+  assert.match(uploads[0].path, new RegExp(`^podcast-sources/${ACCOUNT}/${digest}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.txt$`));
+  assert.deepEqual({ ...uploads[0], path: '' }, { bucket: 'private-content', path: '', bytes: body.source.bytes, mediaType: 'text/plain' });
   const register = h.calls.find(c => c.name === 'worker_podcast_source_register');
-  assert.deepEqual(register?.params, { p_account: ACCOUNT, p_sha256: digest, p_bytes: body.source.bytes });
+  assert.deepEqual(register?.params, { p_account: ACCOUNT, p_sha256: digest, p_bytes: body.source.bytes, p_path: uploads[0].path });
+  // The response names the digest only: never the path, never the text.
+  assert.ok(!JSON.stringify(body).includes('podcast-sources') && !JSON.stringify(body).includes('second paragraph'));
   // The quote carries the descriptor (identity and digest), never the text.
   const device = { source: 'arxiv', source_id: '2610.16334', revision: 1, manifest_sha256: 'b'.repeat(64), text_sha256: digest, title: 'Toward Study', authors: ['Gayoung Kim'] };
   await handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'podcast-5min-v1', device_source: device }) }), h.deps, headers);
@@ -1444,6 +1448,45 @@ test('device sources (066): the text is stored once by digest and the quote name
   await assert.rejects(handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'paper-context-v2', text: 'x'.repeat(409_601) }) }), h.deps, headers), /source_too_large/);
   await assert.rejects(handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'mmd', text: 'x' }) }), h.deps, headers), /invalid_podcast_request/);
   assert.equal(uploads.length, 1);
+  // Sending the same text again (a retry after the first copy was deleted) stores a fresh copy at a new path.
+  await handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'paper-context-v2', text }) }), {
+    ...h.deps, service: async <T,>(name: string, params: Record<string, unknown>) => { h.calls.push({ kind: 'service', name, params }); return { bytes: params.p_bytes } as T; } }, headers);
+  assert.equal(uploads.length, 2);
+  assert.notEqual(uploads[1].path, uploads[0].path);
+});
+
+test('finished episodes\' paper text is deleted after the run (074); a failed sweep never changes the outcome', async () => {
+  const due = [{ id: 'o1', bucket: 'private-content', path: `podcast-sources/${OWNER}/${'a'.repeat(64)}/74000000-0000-4000-8000-000000000001.txt` },
+    { id: 'o2', bucket: 'private-content', path: `podcast-sources/${OWNER}/${'b'.repeat(64)}.txt` },
+    { id: 'o3', bucket: 'podcast-assets', path: `private/${OWNER}/${'c'.repeat(64)}/audio.m4a` }];
+  const sweeping = (h: ReturnType<typeof harness>, remove: (bucket: string, paths: string[]) => Promise<void>): PodcastDeps => ({ ...h.deps,
+    rpc: async <T,>(name: string, params: Record<string, unknown>) => {
+      if (name === 'worker_podcast_source_cleanup') { h.calls.push({ name, params }); return { objects: due, orphaned: 0 } as T; }
+      if (name === 'worker_podcast_source_cleanup_confirm') { h.calls.push({ name, params }); return (params.p_object_ids as string[]).length as T; }
+      return h.deps.rpc<T>(name, params);
+    },
+    storage: { ...h.deps.storage, remove } });
+  const h = harness(), removed: { bucket: string; paths: string[] }[] = [];
+  assert.deepEqual(await runPodcast(sweeping(h, async (bucket, paths) => { removed.push({ bucket, paths }); }), Date.now() + 600_000),
+    { processed: 1, recovered: 0, state: 'ready', failure: null });
+  // Only the paper text, only after the episode is published; then confirmed.
+  assert.deepEqual(removed, [{ bucket: 'private-content', paths: [due[0].path, due[1].path] }]);
+  assert.ok(h.names().indexOf('worker_podcast_source_cleanup') > h.names().indexOf('worker_podcast_publish'));
+  assert.deepEqual(h.calls.find(c => c.name === 'worker_podcast_source_cleanup_confirm')?.params, { p_object_ids: ['o1', 'o2'] });
+  assert.ok(h.logs.some((l: any) => l.event === 'podcast_sources_deleted' && l.count === 2));
+  // Storage refuses: nothing is confirmed, the episode stands, the next run tries again.
+  const refused = harness();
+  assert.equal((await runPodcast(sweeping(refused, async () => { throw new Error('storage_remove_failed'); }), Date.now() + 600_000)).state, 'ready');
+  assert.ok(!refused.names().includes('worker_podcast_source_cleanup_confirm'));
+  assert.ok(refused.logs.some((l: any) => l.event === 'podcast_source_cleanup_failed' && l.code === 'storage_remove_failed'));
+  // An idle run sweeps too (a canceled request wakes the worker); near the deadline, or without a remover, it does not.
+  const idle = harness({ claimed: false });
+  assert.equal((await runPodcast(sweeping(idle, async () => {}), Date.now() + 600_000)).processed, 0);
+  assert.ok(idle.names().includes('worker_podcast_source_cleanup_confirm'));
+  const late = harness();
+  assert.equal(await sweepPodcastSources(sweeping(late, async () => {}), Date.now() + 5_000), 0);
+  assert.equal(await sweepPodcastSources(late.deps, Date.now() + 600_000), 0);
+  assert.deepEqual(late.names(), []);
 });
 
 test('checker strips a paragraph marker from an evidence quote before verifying it (device text)', () => {

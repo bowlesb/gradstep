@@ -10,7 +10,7 @@ export interface PodcastAPIDeps {
   service<T>(name: string, params: Record<string, unknown>): Promise<T>;
   /** One bounded Storage read of a trusted object. */
   download(bucket: string, path: string, maximum: number): Promise<Uint8Array>;
-  /** Stores a device's paper text for a private episode (migration 066); replaces an object at the same path. */
+  /** Stores a device's paper text for a private episode (migrations 066, 074); replaces an object at the same path. */
   upload(bucket: string, path: string, bytes: Uint8Array, mediaType: string): Promise<void>;
   /** The Supabase origin used for single-use member URLs. */
   origin: string;
@@ -69,16 +69,18 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
     case 'status':
       return json(await session.rpc('v1_podcast_status', { p_request_id: uuid(url.searchParams.get('request_id')) }), headers);
     case 'source': {
-      // The paper's own text from the device (PAPER_CONTEXT_FORMAT v2), stored once per account and digest; the quote
-      // then names it by digest. At most the longest length's source bound; nothing is stored for a bad request.
+      // The paper's own text from the device (PAPER_CONTEXT_FORMAT v2), the quote then names it by digest. Each upload
+      // has its own path (migration 074): the copy is deleted once the episode is made, without touching a newer upload
+      // of the same text. At most the longest length's source bound; nothing is stored for a bad request.
       const b = await body(request, 450_000);
       if (b.format !== 'paper-context-v2' || typeof b.text !== 'string' || !b.text.trim()) throw new PublicError(400, 'invalid_podcast_request');
       const bytes = new TextEncoder().encode(b.text);
       if (bytes.byteLength > 409_600) throw new PublicError(413, 'source_too_large');
       const digest = await sha256(bytes);
-      const path = `podcast-sources/${session.accountID}/${digest}.txt`;
+      const path = `podcast-sources/${session.accountID}/${digest}/${crypto.randomUUID()}.txt`;
       await deps.upload('private-content', path, bytes, 'text/plain');
-      const registered = await deps.service<{ bytes?: unknown }>('worker_podcast_source_register', { p_account: session.accountID, p_sha256: digest, p_bytes: bytes.byteLength });
+      const registered = await deps.service<{ bytes?: unknown }>('worker_podcast_source_register',
+        { p_account: session.accountID, p_sha256: digest, p_bytes: bytes.byteLength, p_path: path });
       if (registered?.bytes !== bytes.byteLength) throw new PublicError(503, 'service_unavailable');
       return json({ source: { text_sha256: digest, bytes: bytes.byteLength, format: 'paper-context-v2' } }, headers);
     }

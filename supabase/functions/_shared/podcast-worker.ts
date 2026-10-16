@@ -19,6 +19,8 @@ export interface PodcastStorage {
   download(bucket: string, path: string, maximum: number): Promise<Uint8Array>;
   /** Single immutable write (no overwrite). */
   upload(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  /** Deletes objects (absent ones are not an error); without it the run leaves finished episodes' paper text to a later run. */
+  remove?(bucket: string, paths: string[]): Promise<void>;
 }
 export interface PodcastDeps {
   rpc<T>(name: string, params: Record<string, unknown>): Promise<T>;
@@ -92,11 +94,33 @@ export async function runPodcast(deps: PodcastDeps, deadline: number, options: {
     if (claim?.claimed) {
       deps.onClaim?.({ job_id: claim.job_id, owner_id: claim.owner_id ?? null });
       const outcome = await runJob(deps, claim, deadline);
+      await sweepPodcastSources(deps, deadline);
       return { processed: 1, recovered, ...outcome };
     }
     if (!claim?.more) break;
   }
+  await sweepPodcastSources(deps, deadline);
   return { processed: 0, recovered, state: null, failure: null };
+}
+
+const SOURCE_PATH = /^podcast-sources\/[0-9a-f-]{36}\/[0-9a-f]{64}(\/[0-9a-f-]{36})?\.txt$/;
+
+/** The paper text of finished episodes (migration 074): one bounded batch after each run, deleted from Storage and then
+ * confirmed. A failure is logged and left for the next run; it never changes the run's outcome. */
+export async function sweepPodcastSources(deps: PodcastDeps, deadline: number): Promise<number> {
+  if (!deps.storage.remove || deadline - deps.now() < 15_000) return 0;
+  try {
+    const due = await deps.rpc<{ objects?: { id: string; bucket: string; path: string }[] }>('worker_podcast_source_cleanup', { p_limit: 50 });
+    const objects = (due?.objects ?? []).filter(o => o.bucket === 'private-content' && SOURCE_PATH.test(o.path));
+    if (!objects.length) return 0;
+    await deps.storage.remove('private-content', objects.map(o => o.path));
+    const deleted = Number(await deps.rpc<number>('worker_podcast_source_cleanup_confirm', { p_object_ids: objects.map(o => o.id) })) || 0;
+    deps.log('podcast_sources_deleted', { count: deleted });
+    return deleted;
+  } catch (error) {
+    deps.log('podcast_source_cleanup_failed', { code: error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'unexpected' });
+    return 0;
+  }
 }
 
 /** Each paid call needs its full typical duration plus the reserve for later stages; otherwise stop at zero charge. */
