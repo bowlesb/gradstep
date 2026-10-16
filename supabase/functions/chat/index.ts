@@ -3,12 +3,13 @@ import { accountProviderFetch, installProviderHealth } from '../_shared/provider
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
-import { createAnthropicClient, retryOnceWhenBusy, streamChat } from '../_shared/anthropic.ts';
+import { createAnthropicClient, retryOnceWhenBusy, streamChat, type ProviderOutcome } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
-import { publishedProfiles } from '../_shared/chat-profiles.ts';
+import { providerForModel, publishedProfiles } from '../_shared/chat-profiles.ts';
+import { createDeepSeekChatClient, streamDeepSeekChat } from '../_shared/deepseek.ts';
 // No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('chat');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
@@ -19,6 +20,11 @@ const encoder = new TextEncoder();
 
 // After a failure, this instance sends new answers to the backup for a while.
 let tavilyPausedUntil = 0;
+// DeepSeek in chat (docs/architecture/CHAT.md "DeepSeek in chat"): `on` publishes and accepts it, `hidden` accepts it
+// without publishing it (the recorded quality check before it is offered), anything else turns it off. Needs its key.
+const deepseekMode = Deno.env.get('CHAT_DEEPSEEK') ?? 'off', deepseekKey = Deno.env.get('DEEPSEEK_API_KEY');
+const deepseekAccepted = !!deepseekKey && (deepseekMode === 'on' || deepseekMode === 'hidden');
+const deepseekPublished = !!deepseekKey && deepseekMode === 'on';
 const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
 
 // Streams one metered answer as text/event-stream. Authentication, origin and
@@ -34,7 +40,7 @@ Deno.serve(async request => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (request.method !== 'POST' && request.method !== 'GET') throw new PublicError(405, 'method_unavailable');
     ({ accountID, user } = await userClient(request));
-    if (request.method === 'GET') return Response.json(publishedProfiles(), { headers });
+    if (request.method === 'GET') return Response.json(publishedProfiles({ deepseek: deepseekPublished }), { headers });
     service = serviceClient();
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
@@ -51,6 +57,14 @@ Deno.serve(async request => {
   // when the account is a test account (docs/architecture/RESILIENCE.md).
   const providerFetch = accountProviderFetch('chat', () => accountID, () => service);
   const client = apiKey ? createAnthropicClient({ apiKey, fetch: providerFetch }) : null;
+  // DeepSeek's calls go through the same account fetch: counted under `deepseek` (its own breaker, never Anthropic's).
+  const deepseek = deepseekAccepted && deepseekKey ? createDeepSeekChatClient({ apiKey: deepseekKey, fetch: providerFetch }) : null;
+  const serve = (anthropic: NonNullable<typeof client>) =>
+    (params: Parameters<typeof streamChat>[1], options: Parameters<typeof streamChat>[2]): Promise<ProviderOutcome> =>
+      providerForModel(params.model) === 'deepseek'
+        ? deepseek ? streamDeepSeekChat(deepseek, params, options)
+          : Promise.resolve({ status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null, attempts: [], exact: true })
+        : streamChat(anthropic, params, options);
   const rpc: ChatDependencies['rpc'] = async (name, params) => {
     const { data, error } = await service.rpc(name, params);
     // A database exception carries a SQLSTATE; a fetch failure does not and
@@ -73,8 +87,9 @@ Deno.serve(async request => {
       if (error || !data || data.size > MAX_PAPER_BYTES || (expectedBytes !== undefined && data.size !== expectedBytes)) return null;
       return new Uint8Array(await data.arrayBuffer());
     },
-    // One more try, inside the same answer, when Anthropic refused it as busy before starting (fix 7).
-    generate: client ? retryOnceWhenBusy(admittedAnthropic(spending, (params, options) => streamChat(client, params, options)), { log }) : null,
+    // One more try, inside the same answer, when the provider refused it as busy before starting (fix 7).
+    generate: client ? retryOnceWhenBusy(admittedAnthropic(spending, serve(client)), { log }) : null,
+    deepseek: deepseek !== null,
     sha256Hex: sha256,
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
     // RPC readiness cannot stand in for an enforceable native-search quote.

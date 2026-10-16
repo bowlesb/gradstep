@@ -3,6 +3,9 @@
 // DeepSeek's OpenAI-compatible chat completions API with JSON mode and the draft's schema in the system prompt,
 // and reports usage in the same shape as the Anthropic adapter so pricing, ceilings and settlement are unchanged.
 // Prices are the PEAK list prices (DeepSeek bills less off-peak); the rate card in anthropic.ts carries them.
+// Chat uses DeepSeek through its Anthropic-compatible API instead (the end of this file).
+import Anthropic from '@anthropic-ai/sdk';
+import { streamChat, type ProviderOutcome, type StreamOptions } from './anthropic.ts';
 import type { ScriptCallResult, ScriptParams, ScriptProvider, ScriptUsage } from './podcast-script.ts';
 
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -85,4 +88,63 @@ export function deepseekScriptProvider(options: { apiKey: string; baseURL?: stri
       return { state: 'succeeded', requestID: id, model: completion.model ?? params.model, stopReason, text: choice.message?.content ?? '', usage, failure: null };
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// DeepSeek in chat (2026-10-16, docs/architecture/CHAT.md "DeepSeek in chat"): `deepseek-flash` through DeepSeek's
+// Anthropic-compatible API, so the chat request is the Anthropic request with another base URL, key and model, and the
+// same SDK streams it (streamChat). A live probe on 2026-10-16 showed what the endpoint does with our request: adaptive
+// thinking and `output_config.effort` are accepted (thinking streams as `thinking` blocks and counts as output),
+// `cache_control` (one hour included) is accepted and ignored, images come in base64, and usage follows Anthropic's
+// shape: `input_tokens` are cache misses and `cache_read_input_tokens` cache hits (DeepSeek's own disk cache), with no
+// cache writes. Its compatibility page lists `search_result` blocks and server tools as unsupported, so results of our
+// own Tavily tool go as text and no provider search tool is ever sent.
+export const DEEPSEEK_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
+export const DEEPSEEK_CHAT_MODEL = 'deepseek-flash';
+
+type ChatParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+type ContentBlock = { type?: string; [key: string]: unknown };
+
+/** One of our Tavily results (a `search_result` block) as a text block: what DeepSeek can read. */
+function searchResultText(block: ContentBlock): ContentBlock {
+  const content = Array.isArray(block.content) ? (block.content as ContentBlock[]) : [];
+  const body = content.filter(item => item.type === 'text').map(item => String(item.text ?? '')).join('\n');
+  return { type: 'text', text: `Source: ${String(block.title ?? '')} — ${String(block.source ?? '')}\n${body}` };
+}
+
+/** The chat request as DeepSeek's endpoint takes it: no Anthropic betas or refusal fallbacks, client tools only (a server
+ * tool such as Anthropic's web_search is dropped: DeepSeek never searches for us), and tool results' `search_result`
+ * blocks as text. Everything else (system, cached paper, images, thinking, effort, tools) passes unchanged. */
+export function deepseekChatParams(params: ChatParams): ChatParams {
+  const { betas: _betas, fallbacks: _fallbacks, tools: _tools, ...rest } = params as ChatParams & { fallbacks?: unknown; betas?: unknown };
+  const tools = params.tools?.filter(tool => 'input_schema' in tool && !('type' in tool && tool.type && tool.type !== 'custom'));
+  const messages = params.messages.map(message => {
+    if (!Array.isArray(message.content)) return message;
+    let changed = false;
+    const content = (message.content as unknown as ContentBlock[]).map(block => {
+      if (block.type !== 'tool_result' || !Array.isArray(block.content)) return block;
+      return { ...block, content: (block.content as ContentBlock[]).map(item => {
+        if (item.type !== 'search_result') return item;
+        changed = true;
+        return searchResultText(item);
+      }) };
+    });
+    return changed ? { ...message, content } as unknown as typeof message : message;
+  });
+  // With nothing left, no `tools` key at all (an empty list offers nothing either).
+  return { ...rest, messages, ...(tools?.length ? { tools } : {}) } as ChatParams;
+}
+
+/** The Anthropic SDK pointed at DeepSeek (SDK retries and logging off, as createAnthropicClient). */
+export function createDeepSeekChatClient(options: { apiKey: string; fetch?: typeof fetch; timeout?: number }): Anthropic {
+  return new Anthropic({ apiKey: options.apiKey, baseURL: DEEPSEEK_ANTHROPIC_BASE_URL, maxRetries: 0, timeout: options.timeout ?? 60_000,
+    logLevel: 'off', ...(options.fetch ? { fetch: options.fetch } : {}) });
+}
+
+/** One chat round on DeepSeek. DeepSeek bills by the model the request names (its compatibility page maps names onto
+ * models and prices them as named), so every attempt is priced as the requested model even when the response reports
+ * another model string: an unknown string would otherwise price at the highest Claude card and overrun the grant. */
+export async function streamDeepSeekChat(client: Anthropic, params: ChatParams, options: StreamOptions): Promise<ProviderOutcome> {
+  const outcome = await streamChat(client, deepseekChatParams(params), options);
+  return { ...outcome, attempts: outcome.attempts.map(attempt => ({ ...attempt, model: params.model })) };
 }

@@ -16,7 +16,8 @@ PROJECT = 'coxhjvqpflgxkleydati'
 
 
 class StagingDeploymentTests(unittest.TestCase):
-    def run_fixture(self, arguments, *, cleanup=True, health='active', secret=True, migration_fails=False, feed_secret=False):
+    def run_fixture(self, arguments, *, cleanup=True, health='active', secret=True, migration_fails=False, feed_secret=False,
+                    config_extra=None, providers='ANTHROPIC_API_KEY=secret-fixture\n'):
         events = []
         self.secret_names = []
         output = io.StringIO()
@@ -27,13 +28,14 @@ class StagingDeploymentTests(unittest.TestCase):
                                                                 'organization': {'slug': 'mhiweqpcwyqtyorgqhla'}}))
             config = {'functions': ['chat', 'add-reference', 'store-sync'], 'paper_bucket': {'id': 'paper-assets', 'public': False,
                       'file_size_limit': 67108864}, 'pipeline_worker_url': 'https://fixture-worker.example',
-                      'pipeline_schedule': '* * * * *', 'chat_web_search': True, 'admin_origins': ['https://fixture-admin.example']}
+                      'pipeline_schedule': '* * * * *', 'chat_web_search': True, 'admin_origins': ['https://fixture-admin.example'],
+                      **(config_extra or {})}
             (root / 'infra/staging.json').write_text(json.dumps(config))
             env = 'SUPABASE_PROJECT_REF=' + PROJECT + '\nSUPABASE_URL=https://fixture-db.example\nSUPABASE_SERVICE_ROLE_KEY=secret-fixture\n'
             if secret: env += 'PIPELINE_SECRET=secret-fixture\n'
             if feed_secret: env += 'FEED_REFRESH_SECRET=secret-fixture-feed\n'
             (root / '.env.staging').write_text(env)
-            (root / '.env.providers').write_text('ANTHROPIC_API_KEY=secret-fixture\n')
+            (root / '.env.providers').write_text(providers)
             for name in config['functions']:
                 path = root / 'supabase/functions' / name
                 path.mkdir(parents=True)
@@ -102,6 +104,24 @@ class StagingDeploymentTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(events.index('egress_scan'), 0, 'the block-mode scan runs before any credential, request or deploy')
         self.assertIn('EGRESS_ARXIV', self.secret_names)
+
+    def test_chat_deepseek_switch_and_its_key_reach_the_functions_only_when_on_or_hidden(self):
+        # Off by default: the switch is stated, the key is not deployed.
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'],
+                                         providers='ANTHROPIC_API_KEY=secret-fixture\nDEEPSEEK_API_KEY=secret-fixture-ds\n')
+        self.assertIsNone(error)
+        self.assertIn('CHAT_DEEPSEEK', self.secret_names); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
+        for mode in ['hidden', 'on']:
+            events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'chat_deepseek': mode},
+                                             providers='ANTHROPIC_API_KEY=secret-fixture\nDEEPSEEK_API_KEY=secret-fixture-ds\n')
+            self.assertIsNone(error)
+            self.assertIn('DEEPSEEK_API_KEY', self.secret_names); self.assertIn('CHAT_DEEPSEEK', self.secret_names)
+        # Switched on without a key: refused before any secret is set or function deployed.
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'], config_extra={'chat_deepseek': 'on'})
+        self.assertIsNotNone(error); self.assertNotIn('function_secrets', events)
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat', '--chat-deepseek', 'off'],
+                                         config_extra={'chat_deepseek': 'on'})
+        self.assertIsNone(error); self.assertNotIn('DEEPSEEK_API_KEY', self.secret_names)
 
     def test_purchase_cleanup_still_gates_deferred_deploy_after_migration(self):
         events, error = self.run_fixture(['--defer-activation', '--functions', 'store-sync'])

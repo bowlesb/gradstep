@@ -5,6 +5,7 @@ import { holdForParams, priceAttempts, WEB_SEARCH_MICROUSD, webSearchHoldMicrous
   type ProviderOutcome, type StreamOptions } from './anthropic.ts';
 import { providerRequestID, tavilySearch, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { CONSENT_VERSION } from './chat.ts';
+import { providerForModel } from './chat-profiles.ts';
 
 export interface SpendingDependencies {
   accountID: string;
@@ -61,7 +62,10 @@ function unavailable(): ProviderOutcome {
     refusalCategory: null, attempts: [], exact: true };
 }
 
-/** Each model round, including pause_turn continuations, has its own grant. */
+/** Each model round, including pause_turn continuations, has its own grant. Anthropic-shaped requests only: Claude
+ * models are admitted as provider `anthropic`, `deepseek-*` (DeepSeek's Anthropic-compatible API, chat since
+ * 2026-10-16) as `deepseek` (migration 078 admits `deepseek-flash` on the chat route), with one ordinal sequence per
+ * operation across both so every attempt keeps a distinct identity. */
 export function admittedAnthropic(deps: SpendingDependencies,
   generate: (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) {
   let ordinal = 0;
@@ -77,7 +81,7 @@ export function admittedAnthropic(deps: SpendingDependencies,
     // The requested model's own hold rule (chat profiles, the title's Haiku request), never a fixed Sonnet card.
     const hold = holdForParams(params);
     const ceiling = hold.microusd + (maxSearches ? webSearchHoldMicrousd(hold.inputTokens, maxSearches, params.model) : 0);
-    if (!await admit(deps, attempt, 'anthropic', 'chat', params.model, ceiling,
+    if (!await admit(deps, attempt, providerForModel(params.model), 'chat', params.model, ceiling,
       { output_tokens: params.max_tokens, web_searches: maxSearches })) return unavailable();
     let outcome: ProviderOutcome;
     try { outcome = await generate(params, options); }
