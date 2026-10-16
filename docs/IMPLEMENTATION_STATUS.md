@@ -2,6 +2,18 @@
 
 Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Reader revisions 13 and 14 — 2026-10-16, ~00:40 UTC
+
+- **TestFlight 56** (rev 13; iOS 17:18, Mac 17:23 PDT) and **57** (rev 14 + rotated device-PDF pages; iOS 17:32,
+  Mac 17:37 PDT) all VALID; browser on rev 14 through the two-phase publish (both phases verified live).
+- **Revision 13**: unknown math styling/attributes are left out, not refused (YouZhi 2606.05868 from build 55;
+  2312.14235); a picture title takes the catalog's name as text (VideoJev); wordless headings no longer break Contents
+  (2207.00729). The reader sweep now runs the app's validator (it had reported VideoJev fixed while devices refused it).
+- **Revision 14**: figures arXiv's HTML lost say so and point to the PDF (CyberArena 2610.19005, 2610.20570);
+  placeholder template authors give way to the catalog's names; a formula footnote mark reads as a mark.
+- Equivalence against the last shipped revision changed only the intended papers each time; 40 sweep reports
+  replay with 0 failures.
+
 ## Resilience, journey triage, device-only groundwork — 2026-10-15, ~20:45 UTC
 
 - **TestFlight 55** iOS (13:37 PDT) and Mac (13:42 PDT) both VALID, built from a clean checkout of `a8ad34a`.
