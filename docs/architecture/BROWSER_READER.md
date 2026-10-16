@@ -301,6 +301,25 @@ succeeding is insufficient.
   signing back in does not need the code. "Also remove this browser's keys" (for a shared computer) deletes the
   device and activity records in one transaction under the key operation lock before returning to sign-in. A failed
   local removal stays visible and retryable. Late reading saves cannot recreate a forgotten/replaced device's data.
+- **Delete account** (owner, 2026-10-16; local fixture verification only, not deployed). The account menu's
+  "Delete account…" (destructive, after Sign out) mirrors the apps' Settings › Account › Delete account…
+  (`DeleteAccountView`, `ReaderModel.deleteAccount`): the same list of what goes and what stays (unused credits are
+  forfeited; credit, AI-usage and conversion records are kept without email or name; an App Store subscription is
+  managed in Apple Account settings), and the button stays disabled until the reader types exactly `DELETE`. It then
+  posts `{ "confirm": "delete my account" }` to `account-delete` (`lib/account-deletion.ts`); the function asks for
+  no fresh sign-in beyond the session's bearer token. Only a `deleted: true` reply counts (`complete: false` means
+  the paper worker's sweep finishes the last step, as in the apps). Then this browser forgets the account: chat work
+  settles, `eraseDeletedAccount` removes the device, activity, journal, library, descriptor and reader-copy records
+  and also the account's `:admission` coordination record (a stale tab's fence can no longer match it), episode
+  positions and requests, every `gradstep.…` web-storage key naming the account (consent, Feed offer) and the
+  Library's tag filter (one of the account's tags), then signs out. Per-browser settings (theme, columns, filters)
+  stay. The sign-in screen confirms once: "Account deleted — Your account and its data were deleted from our
+  servers and this browser." A failed request changes nothing locally and shows one sentence in the dialog
+  (`role=alert`, focus back in the field, where Enter retries) with **Try again**: no connection, too many requests
+  (with the server's wait), "an episode or another task is still finishing" (`account_busy`, 409), an expired
+  sign-in, or "The account couldn't be deleted. Try again." Other tabs of the account sign out through the session
+  key and write nothing back. Evidence: `tests/account-deletion.test.ts`, `e2e/account-delete.spec.ts` (fixture
+  `account-delete` route; desktop, phone, tablet; screenshots in `.artifacts/browser-delete/`).
 - **Device-local reading data** (Opened, Progress, last position) is sealed with a separate non-extractable AES-GCM
   key in the same IndexedDB record (account bound into the authenticated data); never sent anywhere. The reader
   waits for this local load before mounting, including on a direct paper URL, so a fast bundle cannot overwrite a

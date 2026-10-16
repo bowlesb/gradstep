@@ -1637,6 +1637,9 @@ finished by the paper worker's sweep. Migration `…017_account_deletion.sql` is
 `scripts/smoke-account-deletion.mjs` (keys, a report, a shared and a private conversion, a paid answer; afterwards
 no personal rows, no files, login gone, billing kept) and an in-app Simulator run
 (`node scripts/live-journey.mjs --delete`), which also found and fixed a sheet that never presented.
+The browser has the same flow in its account menu (2026-10-16; BROWSER_READER.md › Delete account): typed DELETE,
+`account-delete`, then this browser's keys, records and account-named storage are erased and it signs out. Verified
+against the fixture backend only (desktop, phone, tablet); not deployed and not run against staging.
 
 **App Store purchases** (owner-approved plans: Standard $9.99 = 800 credits/month, Pro $19.99 = 1,800, $4.99 pack =
 400): Settings › Credits › Get credits (StoreKit store, restore, manage) and Get credits beside "Not enough credits" in chat and the Library, server verification against Apple's root in

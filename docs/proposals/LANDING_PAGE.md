@@ -205,7 +205,7 @@ today (`infra/staging.json`); a production environment needs the same check befo
 | Supabase US West (Oregon) | Management API project region `us-west-2` (read 2026-10-15); `infra/staging.json` pooler `aws-0-us-west-2` |
 | Google Cloud US West (Oregon) for lookups, tags, episodes | `infra/staging.json` `pipeline_worker_url` (`…us-west1.run.app`); `services/pipeline-worker/run.ts:8-11` (metadata, deletion sweep, tags); `services/pipeline-worker/server.ts:55-61` (podcast entry point) |
 | Cloudflare serves the website and the browser app | `scripts/deploy-web.mjs:14-16` (Pages targets) |
-| Delete in the iPhone, iPad or Mac app | `SettingsPages.swift:147`; the browser has no delete action (no match in `apps/web/src`) |
+| Delete in the app or in the browser | `SettingsPages.swift:147`; browser account menu › Delete account… (`apps/web/src/ui/App.tsx` `deleteAccount`, `lib/account-deletion.ts`; `e2e/account-delete.spec.ts`, fixture only — the browser must be deployed before the page goes live) |
 | What deletion removes | `202610050017_account_deletion.sql:93-128` (library, sync events, envelopes, devices, keyrings, reports, rate windows, roles); `:74-77` (owned objects); `_shared/account-deletion.ts:104` (Auth user deleted); `202610150069_admin_health.sql:40-47` (activity records) |
 | Paid-work records kept, linked only to an internal number | `202610020001_catalog.sql:10-16` (`accounts`: id, `auth_user_id … on delete set null`, timestamps only) |
 
@@ -224,7 +224,9 @@ today (`infra/staging.json`); a production environment needs the same check befo
 5. **Policy commitments** carried over from the live page: "We don't sell your data…", "We don't train AI models on
    your data". Code can't prove these; please reconfirm them.
 6. **`privacy@gradstep.ai`** is carried over from the live page; confirm the mailbox exists.
-7. **Browser account deletion.** There's no browser path. Add one, or keep the page's "in the iPhone, iPad or Mac app".
+7. **Browser account deletion.** Answered 2026-10-16 ("Use sensible default please"): added to the browser's account
+   menu, mirroring the apps (BROWSER_READER.md › Keys in the browser › Delete account); the page now says "in the app
+   or in the browser". Deploy the browser release that has it before publishing the page.
 8. **Production.** Re-run this check against the production project before the page applies there.
 
 ### Engineering follow-ups found while verifying

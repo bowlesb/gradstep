@@ -5,6 +5,7 @@
   --line: #e7e7ea; --line-strong: #d4d4d8; --accent: #4f52cf; --accent-text: #ffffff; --accent-soft: #eef0ff;
   --accent-muted: rgba(99, 102, 241, .10); --problem: #b45309; --problem-soft: rgba(180, 83, 9, .08); --focus: #8b8ef0;
   --row-hover: #f4f4f6; --handle: #d4d4d8; --shadow: 0 16px 50px rgba(23, 23, 28, .08); --pop: 0 12px 40px rgba(0, 0, 0, .14);
+  --danger: #c0262d; --danger-text: #ffffff;
   color-scheme: light;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   font-synthesis: none; -webkit-text-size-adjust: 100%;
@@ -15,6 +16,7 @@
     --line: #25252b; --line-strong: #34343c; --accent: #a5a7ff; --accent-text: #111133; --accent-soft: #24244a;
     --accent-muted: rgba(129, 140, 248, .16); --problem: #f5a524; --problem-soft: rgba(245, 165, 36, .1); --focus: #a5a7ff;
     --row-hover: #1b1b20; --handle: #2c2c33; --shadow: none; --pop: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
+    --danger: #ff7b7b; --danger-text: #2a0a0a;
   }
 }
 :root[data-theme="dark"] {
@@ -22,6 +24,7 @@
   --line: #25252b; --line-strong: #34343c; --accent: #a5a7ff; --accent-text: #111133; --accent-soft: #24244a;
   --accent-muted: rgba(129, 140, 248, .16); --problem: #f5a524; --problem-soft: rgba(245, 165, 36, .1); --focus: #a5a7ff;
   --row-hover: #1b1b20; --handle: #2c2c33; --shadow: none; --pop: 0 12px 40px rgba(0, 0, 0, .5); color-scheme: dark;
+  --danger: #ff7b7b; --danger-text: #2a0a0a;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -715,3 +718,12 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .offline-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; background: var(--accent-soft); color: var(--text); font-size: 13px; border-bottom: 1px solid var(--line); }
 .offline-banner .spacer { flex: 1; }
 .as-of { color: var(--muted); font-size: 12px; }
+/* Delete account (owner, 2026-10-16), as the apps' Settings › Account › Delete account… */
+.menu-item.danger { color: var(--danger); }
+.primary.danger { background: var(--danger); border-color: var(--danger); color: var(--danger-text); }
+.primary.danger:disabled { opacity: .45; }
+.delete-list { margin: 0 0 12px; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.delete-account label { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-weight: 600; }
+.delete-account input { font: inherit; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); letter-spacing: .08em; }
+.account-deleted { border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px; margin: 4px 0 14px; background: var(--surface-2); }
+.account-deleted p { margin: 0 0 4px; }

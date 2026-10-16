@@ -318,6 +318,12 @@ async function finishApproved(account: string, record: DeviceRecord, pending: Pe
   return { kind: 'ready', ring: await keyRing(bundle), deviceID: active.deviceID };
 }
 
+/** A deleted account: everything forgetDevice removes, then its coordination record too, so nothing of it remains. */
+export async function eraseDeletedAccount(account: string, signal?: AbortSignal): Promise<void> {
+  await forgetDevice(account, signal);
+  await idb.forgetAdmission(recordKey(account));
+}
+
 /** For a shared computer: forget this browser's device keys and reading data for the account. */
 export async function forgetDevice(account: string, signal?: AbortSignal): Promise<void> {
   await exclusive(account, async signal => {
