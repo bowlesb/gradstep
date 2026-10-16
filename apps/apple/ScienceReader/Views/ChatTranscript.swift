@@ -104,7 +104,6 @@ private struct ChatStarterList: View {
                 .accessibilityIdentifier("chat.starter.\(index)")
             }
         }
-        .padding(.horizontal, 16)
         .readableColumn()
         .accessibilityElement(children: .contain).accessibilityLabel("Suggested questions")
         .accessibilityIdentifier("chat.starters")

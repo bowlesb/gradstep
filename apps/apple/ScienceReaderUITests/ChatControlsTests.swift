@@ -34,6 +34,16 @@ final class ChatControlsTests: XCTestCase {
 
     private func device() -> String { UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone" }
 
+    /// Keyboard focus in the message box (a starter already gives it; a second tap on iPad can take it away).
+    private func focus(_ field: XCUIElement) {
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        // A sheet that just closed can still take the first tap on iPad: try again until the field has the focus.
+        for _ in 0..<4 where XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: focused, object: field)], timeout: 2) != .completed {
+            field.tap()
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: focused, object: field)], timeout: 3), .completed, "The message box takes the focus")
+    }
+
     private func answerOptions(_ app: XCUIApplication) {
         let menu = app.buttons["Chat options"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10)); menu.tap()
@@ -69,7 +79,7 @@ final class ChatControlsTests: XCTestCase {
                 dismiss.tap()
             }
             // Clear the starter for the question below.
-            composer.tap()
+            focus(composer)
             composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: question.count + 2))
             if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) { app.buttons["chat.dismissKeyboard"].tap() }
 
@@ -96,7 +106,7 @@ final class ChatControlsTests: XCTestCase {
             app.buttons["chat.profile.done"].tap()
             XCTAssertTrue(model.waitForNonExistence(timeout: 5))
 
-            composer.tap()
+            focus(composer)
             composer.typeText("Why scale the attention logits?")
             if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) { app.buttons["chat.dismissKeyboard"].tap() }
             app.buttons["chat.send"].tap()
