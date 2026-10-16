@@ -113,7 +113,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   // Per-model detail with who processes it, the usual credits from the published table, and automatic effort.
   await expect(settings.getByTestId('chat-options-models')).toContainText('Processed by Anthropic');
   await expect(settings.getByTestId('chat-options-models')).toContainText('Processed by DeepSeek');
-  await expect(settings.getByTestId('chat-credits').getByRole('row', { name: /Sonnet/ })).toContainText('4–26up to 49');
+  await expect(settings.getByTestId('chat-credits').getByRole('row', { name: /Sonnet/ })).toContainText('4–24up to 41');
   await expect(settings.getByTestId('effort-note')).toContainText('Effort is chosen automatically for each question');
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-ai-chat-options.png` });
   await settings.getByRole('button', { name: 'Done', exact: true }).click();

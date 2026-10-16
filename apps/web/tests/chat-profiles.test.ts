@@ -12,8 +12,9 @@ import { decodeBundle, keyRing, openEvent, sealEvent } from '../src/lib/wire';
 const fixtures = new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/', import.meta.url);
 const read = (name: string) => JSON.parse(readFileSync(new URL(name, fixtures), 'utf8'));
 const envelopes = read('envelopes-v1.json'), labelled = JSON.parse(readFileSync(new URL('./fixtures/labelled-events-v1.json', import.meta.url), 'utf8')) as { eventID: string; payload: Record<string, unknown>; ciphertext: string }[];
-const published = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
-const publishedAuto = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1-auto.json', import.meta.url), 'utf8'));
+// The table builds 57/58 shipped with (no additions) and the table staging serves since 2026-10-16 (auto, DeepSeek).
+const published = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
+const publishedAuto = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 const account = '11111111-2222-4333-8444-555555555555';
 const bytes = (start: number, length = 32) => Uint8Array.from({ length }, (_, i) => (start + i) & 255);
 
@@ -178,8 +179,12 @@ describe('automatic effort and DeepSeek in the published table', () => {
     expect(auto.models.deepseek).toMatchObject({ label: 'DeepSeek', apiModel: 'deepseek-flash' });
     expect(modelProvider(auto, 'deepseek')).toBe('DeepSeek'); expect(modelProvider(auto, 'opus')).toBe('Anthropic');
     expect(auto.efforts.auto?.label).toBe('Automatic');
-    expect(typicalEstimate(auto, 'sonnet', 'standard')).toEqual({ low: 4, high: 26, max: 49 }); // the automatic estimate
-    expect(tableEstimate(auto, { model: 'deepseek', effort: 'auto', length: 'standard' })).toBe('Usually 1–7 credits · up to 13');
+    expect(typicalEstimate(auto, 'sonnet', 'standard')).toEqual({ low: 4, high: 24, max: 41 }); // the automatic estimate
+    expect(tableEstimate(auto, { model: 'deepseek', effort: 'auto', length: 'standard' })).toBe('Usually 1–3 credits · up to 5');
+    expect(auto.models.deepseek?.detail).toBe('Low cost; processed by DeepSeek'); // the server's words
+    // A table that ties DeepSeek to a consent this browser doesn't show leaves DeepSeek out entirely.
+    const otherConsent = decodeProfileTable({ ...publishedAuto, models: publishedAuto.models.map((m: { id: string }) => m.id === 'deepseek' ? { ...m, consent_version: 'cloud-ai-v9' } : m) })!;
+    expect(listedModels(otherConsent)).toEqual(['haiku', 'sonnet', 'opus']); expect(available(otherConsent, { model: 'deepseek', effort: 'low', length: 'brief' })).toBe(false);
     // A default_auto it doesn't offer, or one with a concrete effort, is ignored; the table still decodes.
     expect(decodeProfileTable({ ...publishedAuto, default_auto: { model: 'opus', effort: 'auto', length: 'brief', x: 1 } })!.autoDefault).toEqual({ model: 'opus', effort: 'auto', length: 'brief' });
     expect(decodeProfileTable({ ...publishedAuto, default_auto: { model: 'sonnet', effort: 'low', length: 'standard' } })!.autoDefault).toBeNull();

@@ -101,7 +101,7 @@ test('official pinned HTML opens in the existing reader without any PDF, OCR or 
  await page.getByRole('button',{name:'Send',exact:true}).click();
  await expect(page.getByTestId('figure-part-inline').first()).toBeVisible();
  const asked=(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests[1];
- expect(asked.consent_version).toBe('cloud-ai-v3');
+ expect(asked.consent_version).toBe('cloud-ai-v4');
  expect(asked.figures).toHaveLength(1);
  expect(asked.figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg',caption:'Figure 1: A test figure.'});
  expect(asked.figures[0].data.startsWith('/9j/')).toBe(true);

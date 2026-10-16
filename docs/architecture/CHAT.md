@@ -906,9 +906,13 @@ seventh of the cost, and slower first text.
   Stored choices (a chat's, the browser default, a saved question, the journal) keep a concrete effort, so older tabs
   read them unchanged; the request sends `effort: "auto"` (always, Sonnet · Standard included) where the table offers
   an `auto` profile for that model and length, else the stored effort as before (the standard profile still unsent).
-  DeepSeek is listed only when the table lists it. Summaries are model · length everywhere (menu, retry line, consent,
-  the line under answers). Fixtures: `apps/web/tests/fixtures/chat-profiles-v1-auto.json` (served by default by the
-  e2e fixture backend; `__chat-fixture {profiles:'v1'}` serves the table without the additions).
+  DeepSeek is listed only when the table lists it (and left out if the table ties it to a consent other than v4); the
+  model's `provider` id is shown as Anthropic or DeepSeek, and its `detail` is the server's. Summaries are model ·
+  length everywhere (menu, retry line, consent, the line under answers). Fixtures: the e2e fixture backend serves
+  `apps/web/tests/fixtures/chat-profiles-v1.json` (staging's table) by default and, with `__chat-fixture
+  {profiles:'v1'}`, `tests/fixtures/chat-profiles-v1-build57.json` (no additions).
+- **Consent `cloud-ai-v4`** for every request (readers who accepted v3 are asked once more), worded as on the apps:
+  the opening line naming Claude and DeepSeek, the v3 list plus the DeepSeek bullet, the closing paragraph.
 - **Chat ⋯ menu** (`chat-menu`): Answer options… (with the summary) and Study mode / End study mode (`study-start`,
   `study-end-menu`). **Answer options** is a dialog: Model, Length, Use for new chats / "New chats start with these.",
   About AI chat options (opens the account menu's **AI chat options**: the same pickers for new chats, each model's
@@ -924,5 +928,4 @@ seventh of the cost, and slower first text.
   and Close; Esc closes the menu first, then the sheet), All first and chosen, Last read; a window under 600 px shows
   Conversation and Last read with the paper as the second line.
 - Evidence: vitest; Playwright `chat-redesign`, `chat-controls`, `study` (desktop and phone) and the chat-adjacent
-  journeys. Not done: the consent text still names Anthropic only; a DeepSeek request needs the consent version the
-  server ties to DeepSeek before it is offered for real.
+  journeys, against the local fixture backend only (no staging request from the browser yet).

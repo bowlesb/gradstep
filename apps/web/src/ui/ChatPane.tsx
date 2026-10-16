@@ -279,9 +279,18 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
       onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()}
       onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
-      <h2>Cloud AI answers</h2><p>Your question, selected passage, earlier turns and the paper’s text go to Anthropic to write an answer. When you ask about a figure or table, its image from the paper goes too.</p>
-      <p>Web searches may go to Tavily or Anthropic’s search provider. Anthropic and the search services may retain requests under their API terms.</p>
-      <p className="muted">Gradstep passes the request through without storing the text. Saved chats are encrypted with your device keys. Answers use credits.</p>
+      {/* Consent cloud-ai-v4 (CHAT.md, 2026-10-16), worded as on iPhone, iPad and Mac. */}
+      <h2>Cloud AI answers</h2><p>Answers come from Claude, an AI model by Anthropic, or from DeepSeek when you choose it in Answer options. To answer, Gradstep sends:</p>
+      <ul className="consent-list" data-testid="consent-list">
+        <li>Your question and any passage you selected</li>
+        <li>Earlier messages in this conversation</li>
+        <li>For paper chats, the paper’s full text</li>
+        <li>When you ask about a figure or table, its image from the paper</li>
+        <li>When a question needs it, web searches Claude writes go to Tavily, a search service (or Anthropic’s search provider as a backup)</li>
+        <li>When you choose DeepSeek, your question, the paper’s text and any figure go to DeepSeek, which writes the answer; Claude still writes the chat’s title and suggested questions</li>
+      </ul>
+      <p className="muted">Anthropic, or DeepSeek when you choose it, processes this to write the answer and may keep it for a limited time under its API terms; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.</p>
+      <p className="fine">Each answer uses credits from your balance.</p>
       <p className="fine">This question: {profileSummary(chat.retryProfile(c), table)}</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => void chat.consent(c, false)}>Not now</button><button className="primary" onClick={() => void chat.consent(c, true)}>Allow and get answer</button></div>
     </Dialog>

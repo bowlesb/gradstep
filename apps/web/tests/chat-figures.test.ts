@@ -44,7 +44,7 @@ describe('figures in chat (CHAT.md "Figures in chat")', () => {
     const figure = { id: 'F1', paragraph: 3, caption: 'Figure 1: A.', mediaType: 'image/jpeg' as const, data: '/9j/'.padEnd(20, 'A'), width: 100, height: 80, blockID: 'b', assetPath: 'p', assetPaths: ['p'] };
     const paper = { ...makeRequest('op', 'doc', [{ role: 'user', text: 'What does Figure 1 show?' }], null), figures: [figure] };
     expect(requestBody(paper).figures).toEqual([{ id: 'F1', paragraph: 3, caption: 'Figure 1: A.', media_type: 'image/jpeg', data: figure.data, width: 100, height: 80 }]);
-    expect(requestBody(paper).consent_version).toBe('cloud-ai-v3');
+    expect(requestBody(paper).consent_version).toBe('cloud-ai-v4');
     const general = { ...makeRequest('op', null, [{ role: 'user', text: 'Figure 1?' }], null), figures: [figure] };
     expect(requestBody(general).figures).toBeUndefined();
   });

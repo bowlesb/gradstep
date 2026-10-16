@@ -35,7 +35,7 @@ describe('equation requests', () => {
     for (const action of ['equation', 'equation_background'] as const) {
       const request = makeRequest('op-2', null, turn, 'L = x^2', action, { topicTitle: true, visualAnswers: true }); request.localContext = local;
       const body = requestBody(request);
-      expect(body).toMatchObject({ mode: 'paper', action, consent_version: 'cloud-ai-v3', selection: { quote: 'L = x^2' }, messages: [{ role: 'user', text: 'Equation (7)' }], local_context: local });
+      expect(body).toMatchObject({ mode: 'paper', action, consent_version: 'cloud-ai-v4', selection: { quote: 'L = x^2' }, messages: [{ role: 'user', text: 'Equation (7)' }], local_context: local });
       expect(body.capabilities).toEqual(requestBody(chat).capabilities);
       for (const key of ['topic_title', 'follow_ups', 'figures', 'document_id', 'study']) expect(body).not.toHaveProperty(key);
     }

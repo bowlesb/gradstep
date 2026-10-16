@@ -14,11 +14,11 @@ import { appOrigin, fixturePort as PORT } from './environment.ts';
 const SAMPLE = fileURLToPath(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/', import.meta.url));
 const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71';
 const CODE = '123456';
-// Public profile contract fixture from chat-controls-titles (3286b43); this browser fixture does not call a hosted server.
-const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
-// The same version with the 2026-10-16 additions (auto profiles and effort, default_auto, a deepseek model): served by
-// default, as the server after the chat redesign deploy; `profiles: 'v1'` serves the table without them (staging before it).
-const CHAT_PROFILES_AUTO = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1-auto.json', import.meta.url), 'utf8'));
+// The published profile tables (public contract fixtures; this browser fixture does not call a hosted server). Served by
+// default: the table as staging serves it since 2026-10-16 (auto profiles and effort, default_auto, DeepSeek; regenerated
+// by tests/backend/chat-profiles-fixture.test.ts). `profiles: 'v1'` serves the one builds 57/58 shipped with (no additions).
+const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
+const CHAT_PROFILES_AUTO = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -480,9 +480,9 @@ createServer(async (request, response) => {
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
-    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
-    // Figures (chat-figures.ts): only under v3, only in a paper chat, at most three bounded JPEG/PNG images.
-    if (body.figures !== undefined && (body.consent_version !== 'cloud-ai-v3' || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
+    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    // Figures (chat-figures.ts): only under v3 or v4, only in a paper chat, at most three bounded JPEG/PNG images.
+    if (body.figures !== undefined && (!['cloud-ai-v3', 'cloud-ai-v4'].includes(body.consent_version) || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
       || body.figures.some(f => !/^F[1-3]$/.test(f.id) || !Number.isSafeInteger(f.paragraph) || !['image/jpeg', 'image/png'].includes(f.media_type) || typeof f.data !== 'string' || f.data.length < 16))) {
       return send(response, 400, { code: 'invalid_figures' });
     }
@@ -491,6 +491,8 @@ createServer(async (request, response) => {
     const p = body.profile, auto = a.chatProfiles === 'auto';
     if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus', ...(auto ? ['deepseek'] : [])].includes(p.model)
       || !['low', 'medium', 'high', ...(auto ? ['auto'] : [])].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
+    // DeepSeek answers only under the consent that names it (cloud-ai-v4).
+    if (p?.model === 'deepseek' && body.consent_version !== 'cloud-ai-v4') return send(response, 403, { code: 'consent_required' });
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
@@ -564,7 +566,7 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
       const effort = body.profile?.effort === 'auto' ? (body.profile.length === 'detailed' ? 'medium' : 'low') : body.profile?.effort;
       const profile = body.profile ? `${body.profile.model}-${effort}-${body.profile.length}` : 'sonnet-low-standard';
       const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', deepseek: 'deepseek-flash' }[body.profile?.model ?? 'sonnet'];
-      event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile } : {}) }); response.end();
+      event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile, ...(body.profile?.effort === 'auto' ? { effort } : {}) } : {}) }); response.end();
     };
     setTimeout(tick, 200); return;
   }

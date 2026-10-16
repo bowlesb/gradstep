@@ -516,6 +516,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 /* Sticks to the bottom of the transcript itself, so it never covers the composer or the study panel. */
 .jump-latest { position: sticky; bottom: 6px; display: block; width: max-content; margin: 4px auto 0; box-shadow: 0 2px 9px #0002; }
 .source-address { overflow-wrap: anywhere; font-size: 14px; }
+.consent-list { margin: -4px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
 /* All chats (owner, build 57): the search field and the ≡ options on one row; no title, no Done. */
 .history-top { display: flex; align-items: center; gap: 8px; }
 .history-top input[type=search] { flex: 1; min-width: 0; }

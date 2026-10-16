@@ -22,7 +22,8 @@ vi.mock('../src/lib/backend', async original => {
 const { ChatSession } = await import('../src/lib/chat-session');
 const { History } = await import('../src/lib/history');
 const { keyRing, generateBundle } = await import('../src/lib/wire');
-const published = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+// The table builds 57/58 shipped with (no additions) and the table staging serves since 2026-10-16 (auto, DeepSeek).
+const published = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
 const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001';
 type Script = (request: ChatRequest) => StreamEvent[];
 
@@ -178,7 +179,7 @@ it('a deferred version-1 tab replans a generated title when a rename arrives dur
 
 // Chat redesign from build 57 (CHAT.md, 2026-10-16): with the server's `auto` profiles every new request asks for
 // automatic effort; without them (today's staging) requests keep the stored effort.
-const publishedAuto = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1-auto.json', import.meta.url), 'utf8'));
+const publishedAuto = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 it('requests effort auto when the table offers it, and the stored effort when it does not', async () => {
   const withAuto = await setup(answer(), { table: publishedAuto }), a = withAuto.chat.current(null);
   expect(withAuto.chat.defaultProfile).toEqual({ model: 'sonnet', effort: 'low', length: 'standard' });

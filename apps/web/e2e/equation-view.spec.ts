@@ -86,7 +86,7 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  const sent=await chats();
  expect(sent.map(r=>r.action)).toEqual(['equation','equation_background']);
  for(const r of sent){
-  expect(r).toMatchObject({mode:'paper',consent_version:'cloud-ai-v3',selection:{quote:'x^2'},messages:[{role:'user',text:'Equation (1)'}],
+  expect(r).toMatchObject({mode:'paper',consent_version:'cloud-ai-v4',selection:{quote:'x^2'},messages:[{role:'user',text:'Equation (1)'}],
    local_context:{format:'reader-local-context-v2',membership_id:member}});
   for(const key of ['topic_title','follow_ups','figures','document_id'])expect(r).not.toHaveProperty(key);
  }

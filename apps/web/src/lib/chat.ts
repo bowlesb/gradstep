@@ -9,8 +9,9 @@ import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
 
-// v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md).
-export const CONSENT_VERSION = 'cloud-ai-v3';
+// v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
+// (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
+export const CONSENT_VERSION = 'cloud-ai-v4';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background';
 export interface ChatTurn { role: Role; text: string }

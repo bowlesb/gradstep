@@ -45,7 +45,7 @@ const BUILT_IN: { models: Record<ModelChoice, Option>; efforts: Record<RequestEf
   models: { haiku: { label: 'Haiku', detail: 'Fastest and cheapest', apiModel: 'claude-haiku-5-5' },
     sonnet: { label: 'Sonnet', detail: 'Strong answers at a moderate cost', apiModel: 'claude-sonnet-5-5' },
     opus: { label: 'Opus', detail: 'Most capable; costs the most', apiModel: 'claude-opus-5-5' },
-    deepseek: { label: 'DeepSeek', detail: 'Lower cost; reads text and figures', apiModel: 'deepseek-flash' } },
+    deepseek: { label: 'DeepSeek', detail: 'Low cost; processed by DeepSeek', apiModel: 'deepseek-flash' } },
   efforts: { low: { label: 'Low', detail: 'Thinks only when needed; quickest' }, medium: { label: 'Medium', detail: 'Thinks through harder questions' },
     high: { label: 'High', detail: 'Thinks carefully; slowest' }, auto: { label: 'Automatic', detail: 'Chosen for each question' } },
   lengths: { brief: { label: 'Brief', detail: 'A few sentences' }, standard: { label: 'Standard', detail: 'Focused answers' },
@@ -56,7 +56,7 @@ export const MODEL_STRENGTHS: Record<ModelChoice, string> = {
   haiku: 'Quick definitions, lookups and short explanations.',
   sonnet: 'Most questions about a paper: the method, the results, a derivation.',
   opus: 'The hardest questions: long derivations, careful critique, comparing approaches.',
-  deepseek: 'A lower-cost alternative for questions about the text and its figures.',
+  deepseek: 'An alternative to Claude that reads the text and its figures; it usually costs between Haiku and Sonnet.',
 };
 
 export interface Estimate { low: number; high: number; max: number }
@@ -71,6 +71,10 @@ export interface ProfileTable {
 }
 export const SUPPORTED_VERSION = 'chat-profiles-v1';
 const MAX_TABLE_BYTES = 64 * 1024;
+/** The consent that names DeepSeek (chat.ts DEEPSEEK_CONSENT_VERSION; kept here to avoid an import cycle). */
+const DEEPSEEK_CONSENT = 'cloud-ai-v4';
+/** The table's provider ids, as readers see them. */
+const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic', deepseek: 'DeepSeek' };
 
 function text(value: unknown, limit: number): string | null {
   if (typeof value !== 'string') return null;
@@ -96,16 +100,20 @@ export function decodeProfileTable(raw: unknown): ProfileTable | null {
       if (!item || typeof item !== 'object' || !keys.includes(item.id as K)) continue;
       const label = text(item.label, 24);
       if (!label) continue;
-      const apiModel = text(item.api_model, 64), provider = text(item.provider, 40);
+      const apiModel = text(item.api_model, 64), provider = PROVIDERS[String(item.provider)];
       out[item.id as K] = { label, detail: text(item.detail, 80) ?? '', ...(apiModel ? { apiModel } : {}), ...(provider ? { provider } : {}) };
     }
     return out;
   };
+  // DeepSeek answers only under the consent that names it (`cloud-ai-v4`, the one this browser shows); a table that
+  // ties it to another version offers nothing this browser can ask for, so DeepSeek is left out.
+  const deepseek = Array.isArray(v.models) ? (v.models as Record<string, unknown>[]).find(m => m?.id === 'deepseek') : undefined;
+  const deepseekUsable = !deepseek || deepseek.consent_version === undefined || deepseek.consent_version === DEEPSEEK_CONSENT;
   const estimates = new Map<string, Estimate>();
   for (const p of (v.profiles as Record<string, unknown>[]).slice(0, 128)) {
     const choice = p && typeof p === 'object' ? { model: p.model, effort: p.effort, length: p.length } : null;
     const c = p?.credits as Record<string, unknown> | undefined;
-    if (!isRequestProfile(choice) || !c || !counted(c.low) || !counted(c.high) || !counted(c.max)) continue;
+    if (!isRequestProfile(choice) || !c || !counted(c.low) || !counted(c.high) || !counted(c.max) || (choice.model === 'deepseek' && !deepseekUsable)) continue;
     const e = { low: c.low as number, high: c.high as number, max: c.max as number };
     if (e.low > e.high || e.high > e.max || e.max >= 1_000_000) continue;
     estimates.set(profileID(choice), e);
@@ -114,7 +122,7 @@ export function decodeProfileTable(raw: unknown): ProfileTable | null {
   if (!estimates.has(profileID(defaultChoice))) return null;
   const a = v.default_auto;
   const autoDefault = isRequestProfile(a) && a.effort === 'auto' && estimates.has(profileID(a)) ? { model: a.model, effort: a.effort, length: a.length } : null;
-  return { version: SUPPORTED_VERSION, defaultChoice, models: options(v.models, MODELS), efforts: options(v.efforts, REQUEST_EFFORTS),
+  return { version: SUPPORTED_VERSION, defaultChoice, models: options(v.models, deepseekUsable ? MODELS : MODELS.filter(m => m !== 'deepseek')), efforts: options(v.efforts, REQUEST_EFFORTS),
     lengths: options(v.lengths, LENGTHS), estimates, note: text(v.estimate_note, 200), autoDefault };
 }
 
