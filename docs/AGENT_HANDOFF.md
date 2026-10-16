@@ -11,11 +11,23 @@ fast suite and browser UX captures pass. Physical phone remains paused.
 The owner's active research request is **intelligence per dollar**, including Chinese providers; maintenance
 cost is not an exclusion criterion. OpenRouter and up to **$25 including grading** were explicitly approved in
 the recovered conversation. All 27 questions and five exact-source hashes are now in `tests/model-bakeoff/`.
-The harness was corrected and passes dry construction, but **OpenRouter still has $0 credit and no inference
-has run**. Keep the default unchanged. Read the [comparison protocol](reviews/MODEL_COMPARISON_20261016.md)
-before any paid run: $18 local admission cap, existing $20 provider key limit, durable holds, no silent retries,
-start with the small smoke matrix. The two old Claude credit watchers were stopped. No automatic work remains
-running on their behalf. Staging Anthropic's pending figure-detail live check is separate from OpenRouter funding.
+**Funded screening completed, ~21:25 UTC:** the same 12 questions ran on 13 usable settings (plus 12 policy
+refusals from DeepSeek's own endpoint). Argon high graded all 151 completed responses; Sol high independently
+checked 21 answers across three questions. Read the [measured results](reviews/MODEL_COMPARISON_RESULTS_20261016.md)
+and [protocol](reviews/MODEL_COMPARISON_20261016.md). **Gemini Flash is the provisional next-validation lead;
+the default remains Sonnet.** Haiku high scored well, but the second judge and a direct check found a real
+algebra error missed by the primary judge. DeepSeek/Qwen misread a plotted series; MiMo added false mathematical
+and resource-accounting claims. Scores alone are not the decision.
+
+Reported charges **$8.655776**, unresolved holds **$0.228190**, conservative exposure **$8.883966** within the
+existing $10 funding and $25 approval; provider key limit remains $20. No further paid work is running/planned
+for this round. OpenRouter's aggregate usage remained $3.451502566 at 21:25 UTC; reconcile the discrepancy rather
+than using the lower reading to spend more. Generation metadata returned 404 even for a completed request.
+The remaining 15 questions, repeated critical cases and deployed-adapter/figure-explainer validation are pending.
+Raw non-secret evidence is committed under `docs/reviews/model-comparison-20261016/`; do not lose it like the
+earlier evaluation artifacts. The local spend ledger retains unknown charges across restarts. Check
+`.artifacts/bakeoff/paid-run.lock` before any paid continuation. The two old Claude credit watchers were stopped.
+Staging Anthropic's pending figure-detail live check is separate from OpenRouter funding. Physical phone remains paused.
 
 The checkpoints below are historical; do not use their release numbers or balances as current.
 

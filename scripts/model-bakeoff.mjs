@@ -28,6 +28,8 @@ const COMMAND = process.argv[2];
 const concurrency = Number(arg('concurrency', COMMAND === 'judge' ? '1' : '2'));
 if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 6) throw new Error('Concurrency must be an integer from 1 to 6');
 const CAP_USD = Number(arg('cap', '18'));
+const JUDGE_MAX_TOKENS = Number(arg('judge-max-tokens', '32000'));
+if (!Number.isInteger(JUDGE_MAX_TOKENS) || JUDGE_MAX_TOKENS < 4096 || JUDGE_MAX_TOKENS > 32000) throw new Error('Judge output allowance must be 4096–32000');
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 const env = Object.fromEntries((existsSync(`${ROOT}/.env.providers`) ? readFileSync(`${ROOT}/.env.providers`, 'utf8') : '').split('\n')
@@ -61,10 +63,13 @@ const MODELS = {
   'glm-flash': { id: 'z-ai/glm-5.3-flash', effort: null, provider: 'z-ai' },
   'qwen-flash': { id: 'qwen/qwen3.8-flash', effort: null, provider: 'alibaba' },
   'deepseek-flash': { id: 'deepseek/deepseek-v4.1-flash', effort: null, provider: 'deepseek' },
+  // Explicit alternate host; the maker's endpoint was refused by the account's training-data restriction.
+  'deepseek-deepinfra': { id: 'deepseek/deepseek-v4.1-flash', effort: null, provider: 'deepinfra/fp8', dataCollection: 'deny' },
 };
 const JUDGES = {
   opus: { id: 'anthropic/claude-opus-5.5', effort: 'high', provider: 'anthropic' },
   sol: { id: 'openai/gpt-6.1-sol', effort: 'high', provider: 'openai' },
+  argon: { id: 'google/gemini-4-argon', effort: 'high', provider: 'google-ai-studio' },
 };
 // Explicit cache breakpoints only reach these makers; the others cache automatically.
 const BREAKPOINTS = new Set(['anthropic', 'google-ai-studio']);
@@ -189,6 +194,7 @@ async function complete(model, messages, tools, maxTokens = 16_000, timeoutMs = 
   const body = { model: model.id, messages, ...(tools?.length ? { tools } : {}), stream: true, max_tokens: maxTokens, usage: { include: true },
     ...(model.effort ? { reasoning: { effort: model.effort } } : {}),
     provider: { order: [model.route], only: [model.route], allow_fallbacks: false, require_parameters: true,
+      ...(model.dataCollection ? { data_collection: model.dataCollection } : {}),
       max_price: { prompt: model.rates.input * 1e6, completion: model.rates.output * 1e6 } } };
   const started = Date.now();
   const hold = ledger.reserve(requestCeiling(messages, tools, maxTokens, model.rates), { model: model.id, command: COMMAND });
@@ -266,7 +272,7 @@ async function ask(name, model, q) {
   let figures = q.figure ? [figureFor(p, q.figure)] : [];
   let params = await serverParams(p, q.question, figures);
   let { messages, tools } = translate(params, model);
-  const fingerprint = createHash('sha256').update(JSON.stringify({ q, model: { id: model.id, effort: model.effort, provider: model.provider, route: model.route }, params })).digest('hex');
+  const fingerprint = createHash('sha256').update(JSON.stringify({ q, model: { id: model.id, effort: model.effort, provider: model.provider, route: model.route, ...(model.dataCollection ? { dataCollection: model.dataCollection } : {}) }, params })).digest('hex');
   if (existsSync(file)) {
     const done = JSON.parse(readFileSync(file, 'utf8'));
     if (done.fingerprint !== fingerprint) throw new Error('Saved answer uses different inputs; preserve it and start a new experiment');
@@ -331,13 +337,14 @@ function shuffle(items, seed) { const r = seeded(seed), a = [...items]; for (let
 function rendered(record) {
   const parts = [record.text.trim() || '(no text)'];
   for (const call of record.tool_calls ?? []) {
-    if ((call.name === 'create_diagram' && record.checks?.diagram === false) || (call.name === 'create_visual' && record.checks?.visual === false) || (call.name === 'show_figure_parts' && record.checks?.figure_parts === false)) { parts.push(`[Invalid ${call.name}: the reader does not see this tool output]`); continue; }
+    if ((call.name === 'create_diagram' && (record.checks?.diagram === false || record.rendering?.diagram_valid === false)) || (call.name === 'create_visual' && record.checks?.visual === false) || (call.name === 'show_figure_parts' && record.checks?.figure_parts === false)) { parts.push(`[Invalid ${call.name}: the reader does not see this tool output]`); continue; }
     if (call.name === 'create_diagram') parts.push(`[Diagram shown to the reader — ${call.input?.title ?? ''}]\n${String(call.input?.mermaid ?? call.input?.source ?? call.raw ?? '').slice(0, 3000)}`);
     else if (call.name === 'create_visual') parts.push(`[Visual shown to the reader — ${call.input?.title ?? ''}; its text:]\n${String(call.input?.html ?? call.raw ?? '').replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 3000)}`);
     else if (call.name === 'show_figure_parts') parts.push(`[Figure parts shown to the reader]\n${JSON.stringify(call.input ?? call.raw).slice(0, 3000)}`);
     else if (call.name !== 'figure_walkthrough') parts.push(`[Tool call ${call.name}]`);
   }
   if (record.looked_at) parts.unshift(`(The model asked to see ${record.looked_at}; it was attached and the question asked again.)`);
+  if (record.rendering?.invalid_math?.length) parts.push(`[Reader math renderer rejected ${record.rendering.invalid_math.length} formula(s): ${record.rendering.invalid_math.join('; ')}]`);
   return parts.join('\n\n');
 }
 const RUBRIC = `You grade answers written by different AI models to a learner's question about one scientific paper. The models saw the
@@ -369,9 +376,10 @@ async function judgeQuestion(judgeName, judge, q) {
   const file = `${OUT}/judge/${judgeName}/${q.id}.json`;
   const dir = `${OUT}/runs`;
   if (!existsSync(dir)) return null;
-  const records = readdirSync(dir).map(m => `${dir}/${m}/${q.id}.json`).filter(existsSync).map(f => JSON.parse(readFileSync(f, 'utf8'))).filter(r => !r.error && r.question_hash === hash(q));
+  const selected = list('models');
+  const records = readdirSync(dir).filter(m => !selected || selected.includes(m)).map(m => `${dir}/${m}/${q.id}.json`).filter(existsSync).map(f => JSON.parse(readFileSync(f, 'utf8'))).filter(r => !r.error && r.question_hash === hash(q));
   if (!records.length) return null;
-  const fingerprint = createHash('sha256').update(JSON.stringify({ q, judge, records, rubric: RUBRIC })).digest('hex');
+  const fingerprint = createHash('sha256').update(JSON.stringify({ q, judge, records, rubric: RUBRIC, maxTokens: JUDGE_MAX_TOKENS })).digest('hex');
   if (existsSync(file)) { const done = JSON.parse(readFileSync(file, 'utf8')); if (!done.error && done.fingerprint === fingerprint) return done; }
   const order = shuffle(records, `${q.id}:${judgeName}`);
   const labels = order.map((_, i) => String.fromCharCode(65 + i));
@@ -389,12 +397,18 @@ async function judgeQuestion(judgeName, judge, q) {
     `Grade answers ${labels.join(', ')}.`,
   ].filter(Boolean).join('\n\n');
   const content = figure ? [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${figure.data}` } }, { type: 'text', text: prompt }] : prompt;
-  const reply = await complete(judge, [{ role: 'system', content: system }, { role: 'user', content }], null, 32_000, 400_000);
+  const messages = [{ role: 'system', content: system }, { role: 'user', content }];
+  if (COMMAND === 'judge-dry') {
+    console.log(`${q.id}: ${records.length} answers, conservative hold $${requestCeiling(messages, null, JUDGE_MAX_TOKENS, judge.rates).toFixed(4)}`);
+    return null;
+  }
+  const reply = await complete(judge, messages, null, JUDGE_MAX_TOKENS, 400_000);
   let grades = null;
   if (!reply.error) { try { grades = JSON.parse(reply.text.slice(reply.text.indexOf('{'), reply.text.lastIndexOf('}') + 1)).grades; } catch { /* below */ } }
   if (!validateGrades(grades, labels, q.key_points.length)) grades = null;
   const record = { fingerprint, question_hash: hash(q), answer_fingerprints: Object.fromEntries(records.map(r => [r.model, r.fingerprint])), judge: judgeName, question: q.id, labels: Object.fromEntries(order.map((r, i) => [labels[i], r.model])),
-    grades, error: reply.error ?? (grades ? null : `unparseable: ${reply.text.slice(0, 300)}`), cost: costOf(reply.usage), usage: reply.usage, raw: grades ? undefined : reply.text };
+    grades, error: reply.error ?? (grades ? null : `unparseable: ${reply.text.slice(0, 300)}`), cost: costOf(reply.usage), usage: reply.usage,
+    generation: reply.generation ?? null, hold: reply.hold ?? null, raw: grades ? undefined : reply.text };
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(record, null, 1));
   console.log(`${judgeName} ${q.id.padEnd(22)} ${record.error ? `ERROR ${record.error}` : `$${record.cost.toFixed(4)} ${order.length} answers`}`);
@@ -404,21 +418,22 @@ async function judgeQuestion(judgeName, judge, q) {
 async function judgeAll() {
   const judgeName = arg('judge', 'opus'); const judge = JUDGES[judgeName];
   if (!judge) throw new Error(`unknown judge ${judgeName}`);
-  const qs = questions(); spent = ledger.exposure;
+  const qs = questions(); spent = ledger?.exposure ?? (existsSync(`${OUT}/spend-ledger.json`) ? new SpendLedger(`${OUT}/spend-ledger.json`, CAP_USD).exposure : 0);
   console.log(`${judgeName} grades ${qs.length} questions; spent so far $${spent.toFixed(2)} (cap $${CAP_USD})`);
   const queue = [...qs];
   const worker = async () => {
     for (let q; (q = queue.shift());) {
-      if (ledger.exposure >= CAP_USD) { console.log('cap reached; stopping'); return; }
+      if (ledger && ledger.exposure >= CAP_USD) { console.log('cap reached; stopping'); return; }
       try { await judgeQuestion(judgeName, judge, q); } catch (error) { console.log(`${q.id} FAILED ${redact(error.stack ?? error)}`); }
     }
   };
   await Promise.all(Array.from({ length: concurrency }, worker));
-  console.log(`done; confirmed $${ledger.actual.toFixed(4)}, outstanding $${ledger.outstanding.toFixed(4)}`);
+  if (ledger) console.log(`done; confirmed $${ledger.actual.toFixed(4)}, outstanding $${ledger.outstanding.toFixed(4)}`);
 }
 
 // ---------- report ----------
 function report() {
+  const primaryJudge = arg('report-judge', 'argon');
   const qs = questions(); const byId = Object.fromEntries(qs.map(q => [q.id, q]));
   const runs = {}; const runDir = `${OUT}/runs`;
   for (const m of existsSync(runDir) ? readdirSync(runDir) : []) for (const f of readdirSync(`${runDir}/${m}`)) {
@@ -431,19 +446,24 @@ function report() {
       && Object.entries(r.answer_fingerprints ?? {}).every(([m, fp]) => runs[m]?.[r.question]?.fingerprint === fp) ? r.grades ?? [] : []) { const model = r.labels[g.label]; if (model) ((grades[model] ??= {})[r.question] ??= {})[j] = g; }
   }
   const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
-  const median = xs => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const median = xs => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b), i = Math.floor(s.length / 2); return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2; };
+  // Secondary spot checks remain available as evidence, but never unevenly reweight the common primary ranking.
+  const primaryGrades = Object.fromEntries(Object.entries(grades).map(([model, byQuestion]) => [model,
+    Object.fromEntries(Object.entries(byQuestion).filter(([, byJudge]) => byJudge[primaryJudge])
+      .map(([qid, byJudge]) => [qid, { [primaryJudge]: byJudge[primaryJudge] }]))]));
   const rows = [...new Set([...Object.keys(MODELS), ...Object.keys(runs)])].map(model => {
     const rs = Object.values(runs[model] ?? {});
     const ok = rs.filter(r => !r.error);
-    const overall = Object.entries(grades[model] ?? {}).map(([, byJudge]) => mean(Object.values(byJudge).map(g => g.overall)));
-    const field = name => mean(Object.values(grades[model] ?? {}).flatMap(byJudge => Object.values(byJudge).map(g => g[name])));
+    const overall = Object.entries(primaryGrades[model] ?? {}).map(([, byJudge]) => mean(Object.values(byJudge).map(g => g.overall)));
+    const field = name => mean(Object.values(primaryGrades[model] ?? {}).flatMap(byJudge => Object.values(byJudge).map(g => g[name])));
     const byType = {};
-    for (const [qid, byJudge] of Object.entries(grades[model] ?? {})) (byType[byId[qid].type] ??= []).push(mean(Object.values(byJudge).map(g => g.overall)));
-    const graded = Object.keys(grades[model] ?? {}).length;
+    for (const [qid, byJudge] of Object.entries(primaryGrades[model] ?? {})) (byType[byId[qid].type] ??= []).push(mean(Object.values(byJudge).map(g => g.overall)));
+    const graded = Object.keys(primaryGrades[model] ?? {}).length;
     const empty = ok.filter(r => !r.text?.trim() && !r.checks?.diagram && !r.checks?.visual && !r.checks?.figure_parts).length;
-    return { model, answered: ok.length, failed: rs.length - ok.length, empty, graded, expected: qs.length, not_run: qs.length - rs.length,
+    const routeUnavailable = rs.some(r => /^HTTP (400|401|402|403|404|422)\b/.test(r.error ?? ''));
+    return { model, answered: ok.length, failed: rs.length - ok.length, empty, graded, route_unavailable: routeUnavailable, expected: qs.length, not_run: qs.length - rs.length,
       // Only when every selected question ran and every completed response was graded: failed attempts earn no answer credit.
-      availability_adjusted_overall: rs.length === qs.length && graded === ok.length ? overall.reduce((s, x) => s + x, 0) / qs.length : null,
+      availability_adjusted_overall: !routeUnavailable && rs.length === qs.length && graded === ok.length ? overall.reduce((s, x) => s + x, 0) / qs.length : null,
       overall: mean(overall), correctness: field('correctness'), faithfulness: field('faithfulness'),
       citations: field('citations'), completeness: field('completeness'), clarity: field('clarity'),
       cost_total: rs.reduce((s, r) => s + (r.cost ?? 0), 0), cost_per_answer: mean(ok.map(r => r.cost ?? 0)),
@@ -454,8 +474,9 @@ function report() {
   const budget = existsSync(`${OUT}/spend-ledger.json`) ? new SpendLedger(`${OUT}/spend-ledger.json`, CAP_USD) : null;
   const spend = { actual: budget?.actual ?? 0, outstanding: budget?.outstanding ?? 0, cap: CAP_USD };
   const f = (x, d = 1) => x == null ? '–' : x.toFixed(d);
-  const lines = ['Exploratory results; incomplete coverage is not a model ranking. Costs are OpenRouter charges, not direct-provider quotes.',
-    `Spend: $${spend.actual.toFixed(4)} confirmed; $${spend.outstanding.toFixed(4)} outstanding/uncertain; $${spend.cap} experiment cap.`, '',
+  const lines = ['Exploratory results; incomplete coverage is not a model ranking. Costs are completion-reported OpenRouter charges, not reconciled invoices or direct-provider quotes.',
+    `Spend: $${spend.actual.toFixed(4)} request-reported; $${spend.outstanding.toFixed(4)} outstanding/uncertain; $${spend.cap} admission cap.`, '',
+    `Primary judge: ${primaryJudge}. Secondary checks are retained separately and do not reweight the ranking.`, '',
     'Overall averages graded completions. Adjusted counts failed requests as zero and is withheld until coverage is complete. Empty tool-only completions are graded zero.', '',
     '| Model | Overall | Adjusted | Correct | Faithful | $ per completion | First text (median s) | Completed / expected | Empty | Graded |', '|---|---|---|---|---|---|---|---|---|---|',
     ...rows.map(r => `| ${r.model} | ${f(r.overall)} | ${f(r.availability_adjusted_overall)} | ${f(r.correctness)} | ${f(r.faithfulness)} | ${f(r.cost_per_answer, 4)} | ${f(r.first_text_median_s)} | ${r.answered}/${r.expected} | ${r.empty} | ${r.graded} |`)];
@@ -463,7 +484,7 @@ function report() {
   lines.push('', `| Model | ${types.join(' | ')} |`, `|---|${types.map(() => '---').join('|')}|`, ...rows.map(r => `| ${r.model} | ${types.map(t => f(r.by_type[t])).join(' | ')} |`));
   mkdirSync(OUT, { recursive: true });
   writeFileSync(`${OUT}/report.md`, lines.join('\n') + '\n');
-  writeFileSync(`${OUT}/report.json`, JSON.stringify({ generated_at: new Date().toISOString(), spend, rows, grades, questions: qs.map(q => q.id) }, null, 1));
+  writeFileSync(`${OUT}/report.json`, JSON.stringify({ generated_at: new Date().toISOString(), primary_judge: primaryJudge, spend, rows, grades, questions: qs.map(q => q.id) }, null, 1));
   console.log(lines.join('\n'));
 }
 
@@ -480,8 +501,9 @@ async function dry() {
 }
 
 async function preflight() {
-  const names = COMMAND === 'judge' ? [arg('judge', 'opus')] : list('models') ?? Object.keys(MODELS);
-  const models = COMMAND === 'judge' ? JUDGES : MODELS;
+  const judging = ['judge', 'judge-dry'].includes(COMMAND);
+  const names = judging ? [arg('judge', 'opus')] : list('models') ?? Object.keys(MODELS);
+  const models = judging ? JUDGES : MODELS;
   questions();
   for (const name of names) {
     const model = models[name]; if (!model) throw new Error(`Unknown model: ${name}`);
@@ -523,10 +545,11 @@ if (['run', 'judge'].includes(COMMAND)) {
   await preflight();
 }
 if (COMMAND === 'preflight') await preflight();
+else if (COMMAND === 'judge-dry') { await preflight(); await judgeAll(); }
 else if (COMMAND === 'dry') await dry();
 else if (COMMAND === 'run') await run();
 else if (COMMAND === 'judge') await judgeAll();
 else if (COMMAND === 'report') report();
-else { console.error('usage: node scripts/model-bakeoff.mjs dry|preflight|run|judge|report [--models=…] [--questions=…] [--judge=opus|sol] [--cap=18]'); process.exit(2); }
+else { console.error('usage: node scripts/model-bakeoff.mjs dry|preflight|run|judge-dry|judge|report [--models=…] [--questions=…] [--judge=opus|sol|argon] [--judge-max-tokens=32000] [--cap=18]'); process.exit(2); }
 
 } finally { if (lock !== undefined) { closeSync(lock); unlinkSync(`${OUT}/paid-run.lock`); } }

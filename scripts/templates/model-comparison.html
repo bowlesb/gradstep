@@ -1,0 +1,80 @@
+<div id="sr-model-comparison">
+  <div class="viz-controls">
+    <label class="form-label">Question<select class="form-select" data-question></select></label>
+  </div>
+  <h3 data-question-text></h3>
+  <div class="viz-controls">
+    <label class="form-label">First model<select class="form-select" data-model-a></select></label>
+    <label class="form-label">Second model<select class="form-select" data-model-b></select></label>
+  </div>
+  <div class="comparison-columns" aria-live="polite">
+    <section data-answer-a></section><section data-answer-b></section>
+  </div>
+  <hr>
+  <details><summary>Reference criteria</summary><div data-reference></div></details>
+  <script type="application/json" data-model-data>__DATA_JSON__</script>
+</div>
+<style>
+#sr-model-comparison .comparison-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+#sr-model-comparison section{min-width:0;overflow-wrap:anywhere}
+#sr-model-comparison .answer-content h1,#sr-model-comparison .answer-content h2,#sr-model-comparison .answer-content h3{font-size:var(--font-size-base);font-weight:500}
+#sr-model-comparison math{max-width:100%;overflow-wrap:anywhere}
+#sr-model-comparison .display-equation{display:block;margin-block:8px}
+#sr-model-comparison .equation-label{display:block;text-align:end}
+#sr-model-comparison .equation-source{white-space:normal;overflow-wrap:anywhere}
+#sr-model-comparison pre{white-space:pre-wrap;overflow-wrap:anywhere}
+#sr-model-comparison code{display:inline-block;max-width:100%;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere}
+#sr-model-comparison pre code{display:block;white-space:pre-wrap}
+#sr-model-comparison .answer-content{margin-block:16px}
+@media(max-width:620px){#sr-model-comparison .comparison-columns{grid-template-columns:1fr}}
+</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/temml@0.14.0/dist/Temml-Local.css">
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/temml@0.14.0/dist/temml.min.js"></script>
+<script>
+(()=>{
+  const root=document.getElementById('sr-model-comparison');
+  const data=JSON.parse(root.querySelector('[data-model-data]').textContent);
+  const qSelect=root.querySelector('[data-question]'),aSelect=root.querySelector('[data-model-a]'),bSelect=root.querySelector('[data-model-b]');
+  const md=window.markdownit({html:false,linkify:false});md.disable(['image']);
+  md.inline.ruler.before('escape','reader_math',(state,silent)=>{
+    const start=state.pos,src=state.src;let open='',close='',display=false;
+    if(src.startsWith('\\[',start)){open='\\[';close='\\]';display=true;}
+    else if(src.startsWith('\\(',start)){open='\\(';close='\\)';}else return false;
+    const end=src.indexOf(close,start+open.length);if(end<0)return false;
+    if(!silent){const token=state.push('reader_math','math',0);token.content=src.slice(start+open.length,end);token.meta={display};}
+    state.pos=end+close.length;return true;
+  });
+  md.renderer.rules.reader_math=(tokens,i)=>{
+    const t=tokens[i],display=t.meta.display,tags=[...t.content.matchAll(/\\tag(\*)?\{([^{}]*)\}/g)];
+    // Keep a lone equation number below the formula so the MathML tag cannot cover its final symbols.
+    const tag=display&&tags.length===1?tags[0]:null,source=tag?t.content.replace(tag[0],''):t.content;
+    const label=tag?`<span class="equation-label">${md.utils.escapeHtml(tag[1]?tag[2]:'('+tag[2]+')')}</span>`:'';
+    return `<span data-equation="${md.utils.escapeHtml(t.content)}" class="${display?'display-equation':''}">${window.temml.renderToString(source,{displayMode:display&&/\\(?:tag|begin)\b/.test(source),wrap:'tex',trust:false,throwOnError:false,maxExpand:1000})}${label}</span>`;
+  };
+  const option=(value,label)=>{const e=document.createElement('option');e.value=value;e.textContent=label;return e;};
+  data.questions.forEach(q=>qSelect.append(option(q.id,q.label)));
+  for(const s of [aSelect,bSelect])data.models.forEach(m=>s.append(option(m.id,m.label)));
+  const modelName=id=>data.models.find(m=>m.id===id)?.label??id;
+  function markdown(target,text){target.innerHTML=md.render(text??'');target.querySelectorAll('a').forEach(a=>{a.target='_blank';a.rel='noopener noreferrer';});target.querySelectorAll('table').forEach(t=>{t.className='table table-sm';const wrap=document.createElement('div');wrap.className='table-responsive';t.before(wrap);wrap.append(t);});}
+  function fitEquations(target){const edge=target.getBoundingClientRect().right;for(const e of target.querySelectorAll('[data-equation]')){if([...e.querySelectorAll('math,math *')].some(n=>n.getBoundingClientRect().right>edge+1)){const source=document.createElement('span');source.className='equation-source';source.textContent='TeX: '+e.dataset.equation;source.setAttribute('aria-label','Equation in TeX: '+e.dataset.equation);e.replaceChildren(source);}}}
+  function panel(target,model,q){
+    target.replaceChildren();const heading=document.createElement('h3');heading.textContent=modelName(model);target.append(heading);
+    const r=data.answers[model]?.[q.id];const metrics=document.createElement('div');metrics.className='text-small tabular-nums';
+    if(!r){metrics.textContent='Not run for this question';target.append(metrics);return;}
+    const grades=r.judgeScores?.map(g=>`${g.judge[0].toUpperCase()+g.judge.slice(1)} ${g.score}/10`).join(', ')||'not graded';
+    metrics.textContent=`Request cost $${r.cost.toFixed(4)} · First text ${r.firstText==null?'none':r.firstText.toFixed(1)+' s'} · Grades: ${grades}`;target.append(metrics);
+    if(r.error){const e=document.createElement('p');e.className='text-destructive';e.textContent=r.error;target.append(e);}
+    if(r.comments?.length){const d=document.createElement('details');const scores=r.judgeScores.map(g=>g.score);d.open=Math.max(...scores)-Math.min(...scores)>=2;const s=document.createElement('summary');s.textContent='Grader notes';d.append(s);const p=document.createElement('div');markdown(p,r.comments.join('\n\n'));d.append(p);target.append(d);}
+    const content=document.createElement('div');content.className='answer-content';markdown(content,r.text||'No written answer.');target.append(content);
+    if(r.tools?.length){const t=document.createElement('details');const s=document.createElement('summary');s.textContent='Tools requested';t.append(s);const p=document.createElement('pre');p.textContent=r.tools.join('\n');t.append(p);target.append(t);}
+  }
+  function render(){const q=data.questions.find(q=>q.id===qSelect.value)??data.questions[0];qSelect.value=q.id;root.querySelector('[data-question-text]').textContent=q.question;panel(root.querySelector('[data-answer-a]'),aSelect.value,q);panel(root.querySelector('[data-answer-b]'),bSelect.value,q);markdown(root.querySelector('[data-reference]'),q.reference);for(const s of root.querySelectorAll('section'))fitEquations(s);}
+  function apply(state){const s=state?.modelContent??{};qSelect.value=data.questions.some(q=>q.id===s.question)?s.question:'mamba-equation';aSelect.value=data.models.some(m=>m.id===s.first)?s.first:'haiku-high';bSelect.value=data.models.some(m=>m.id===s.second)?s.second:'gemini-flash-medium';render();}
+  for(const select of [qSelect,aSelect,bSelect])select.addEventListener('change',()=>{render();window.openai?.setWidgetState?.({modelContent:{question:qSelect.value,first:aSelect.value,second:bSelect.value},privateContent:null})?.catch(()=>{});});
+  window.addEventListener('openai:set_globals',event=>{if(event.detail?.globals?.widgetState)apply(event.detail.globals.widgetState);});
+  apply(window.openai?.widgetState);
+  document.fonts.ready.then(render);
+  let width=root.clientWidth;new ResizeObserver(()=>{if(root.clientWidth!==width){width=root.clientWidth;render();}}).observe(root);
+})();
+</script>

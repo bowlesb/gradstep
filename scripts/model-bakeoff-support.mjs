@@ -35,15 +35,15 @@ export function validateGrades(grades, labels, keyPointCount) {
   return true;
 }
 
-// Use the most expensive declared length tier and cache-write price, never a cache-hit assumption.
+// Keep the most expensive declared rates for routing, plus tiers for conservative request admission.
 export function rateCeiling(endpoints) {
-  if (!endpoints.length) throw new Error('No matching first-party endpoint');
+  if (!endpoints.length) throw new Error('No matching pinned provider endpoint');
   const tiers = endpoints.flatMap(e => [e.pricing, ...(e.pricing?.overrides ?? [])]);
   const number = v => { const n = Number(v); if (v == null || !Number.isFinite(n) || n < 0) throw new Error('Invalid provider price'); return n; };
   for (const e of endpoints) { number(e.pricing?.prompt); number(e.pricing?.completion); }
   const maximum = keys => Math.max(0, ...tiers.flatMap(t => keys.filter(k => t[k] != null).map(k => number(t[k]))));
   return { input: maximum(['prompt', 'input_cache_read', 'input_cache_write', 'input_cache_write_1h']),
-    output: maximum(['completion']), request: maximum(['request']), image: maximum(['image']) };
+    output: maximum(['completion']), request: maximum(['request']), image: maximum(['image']), tiers };
 }
 
 export function requestCeiling(messages, tools, maxTokens, rates) {
@@ -52,7 +52,15 @@ export function requestCeiling(messages, tools, maxTokens, rates) {
   // This intentionally over-reserves; it is an admission estimate, not a price forecast.
   const input = Buffer.byteLength(JSON.stringify({ messages, tools })) + 16384;
   const images = messages.flatMap(m => Array.isArray(m.content) ? m.content : []).filter(c => c.type === 'image_url').length;
-  return Math.ceil(1e6 * 1.25 * (input * rates.input + maxTokens * rates.output + rates.request + images * rates.image)) / 1e6;
+  // A tier above even this byte-based token bound cannot apply. Unknown/time-based overrides remain included.
+  // This never uses observed cache hits or an optimistic tokenizer estimate to release budget.
+  const eligible = rates.tiers?.filter(t => typeof t.min_prompt_tokens !== 'number'
+    || !Number.isFinite(t.min_prompt_tokens) || t.min_prompt_tokens <= input);
+  const maximum = (keys, fallback) => eligible?.length
+    ? Math.max(0, ...eligible.flatMap(t => keys.filter(k => t[k] != null).map(k => Number(t[k])))) : fallback;
+  const price = { input: maximum(['prompt', 'input_cache_read', 'input_cache_write', 'input_cache_write_1h'], rates.input),
+    output: maximum(['completion'], rates.output), request: maximum(['request'], rates.request), image: maximum(['image'], rates.image) };
+  return Math.ceil(1e6 * 1.25 * (input * price.input + maxTokens * price.output + price.request + images * price.image)) / 1e6;
 }
 
 export class SpendLedger {

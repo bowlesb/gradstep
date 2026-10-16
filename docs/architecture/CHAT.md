@@ -1022,7 +1022,9 @@ the service's, not the effort's.
 At list prices (rate card in `anthropic.ts`, $/M tokens: input · 1-hour cache write · cache read · output) Sonnet 5.5 is
 2 · 4 · 0.10 · 10, DeepSeek Flash (peak) 0.30 · 0.30 · 0.006 · 1.20, Haiku 5.5 0.10 · 0.20 · 0.01 · 0.50 (×5 above 100k
 prompt tokens). A paper's first question writes the paper to the cache: ~$0.19 on Sonnet (≈40 credits), ~$0.01 on
-Haiku. Haiku 5.5 is fastest and cheapest, reads images and keeps Anthropic as the only processor (no consent change);
+Haiku. That was a short-paper estimate, not evidence that Haiku is universally fastest or cheapest. The later
+matched comparison below measures native token counts, length tiers, cache state and answer latency. Haiku reads
+images and keeps Anthropic as the only processor (no consent change);
 it has not been run through `--eval` yet (the staging Anthropic balance ran out the same afternoon). Next: the same eval
 and a figure walkthrough on Haiku, then pick the default (published table `default`/`default_auto`; a Haiku default is a
 known profile older builds accept, a DeepSeek default would need consent v4 from every reader).
@@ -1041,6 +1043,23 @@ default: the four `--eval` questions plus harder DPO questions with known answer
 gradient's weighting, a result read from a plot, Theorem 1's condition) on Haiku medium and high, Sonnet as the
 baseline and DeepSeek, graded side by side (under $1). Blocked on the staging Anthropic balance (still "credit balance
 is too low" at 17:09 UTC).
+
+### Matched model screening (2026-10-16, ~21:25 UTC; default unchanged)
+
+The owner's funded OpenRouter comparison now has 12 matched questions across five papers and 13 usable settings,
+with whole production paper-chat instructions and prepared images. Argon high graded all completed responses;
+Sol high checked three questions for seven settings, and consequential claims were checked directly against the
+paper and plots. [Measured results](../reviews/MODEL_COMPARISON_RESULTS_20261016.md) preserve the answers, grades,
+costs and disagreements. Gemini Flash is the provisional next-validation lead, with Haiku and Luna still relevant
+for further testing; maintenance effort is not an exclusion criterion. Haiku high's good average did not prevent
+a real algebra error. DeepSeek/Qwen misread a plotted series, and MiMo made unsupported mathematical/resource
+claims. No model is declared equivalent to Sonnet from this small sample, and Sonnet remains the default.
+
+The long-paper price tier and native tokenization matter: Haiku medium's cold Apertus question cost $0.1869,
+versus $0.0184 for DeepSeek/DeepInfra on that question. Haiku high's apparent $0.0465 total reused medium's cache;
+with medium's cache conditions its estimated total is $0.2595, not a 37× saving over Sonnet. The whole experiment
+reported $8.655776 plus $0.228190 unresolved holds. The 27-question finalist extension and actual deployed-adapter /
+figure-explainer checks remain pending. OpenRouter evidence is not a successful staging Anthropic live check.
 
 ### Browser (2026-10-16, local fixtures; not deployed)
 

@@ -1,9 +1,16 @@
 # Paper-chat model comparison, 2026-10-16
 
-Status, resumed 2026-10-16 20:16 UTC: OpenRouter now has **$10 purchased credit**. The six-answer smoke completed
+**Current status, ~21:25 UTC: the matched 12-question screening and independent spot checks are complete.**
+Read the [measured results](MODEL_COMPARISON_RESULTS_20261016.md) before using the prices or selecting a default.
+Reported cost is $8.655776, plus $0.228190 unresolved holds. No further paid request is running. Gemini Flash is
+the provisional next-validation lead; Sonnet remains the default. The 27-question extension and deployed-adapter
+validation are still pending. The working admission ceiling reached the already-funded **$10** for one image
+grading reservation; no new purchase or increase to the owner's $25 authorization occurred.
+
+Historical resumption checkpoint, 2026-10-16 20:16 UTC: OpenRouter now has **$10 purchased credit**. The six-answer smoke completed
 for **$0.03148947**, with no unresolved charges. The comparison is running; **no quality ranking yet**.
-The owner approved up to $25 including grading; this funded phase uses a tighter **$9 total admission cap**
-(contestant phase capped at $7 to reserve grading room) and the existing $20 provider-enforced key limit.
+The owner approved up to $25 including grading; this funded phase uses a tighter **$9.50 total admission cap**
+(initially $9, with $0.50 of the funded cushion reassigned to conservative temporary holds; contestant screening initially capped at $7) and the existing $20 provider-enforced key limit.
 Sonnet remains the app default. Browser and TestFlight 63 are shipped independently of this experiment.
 
 ### Funded screening and extension
@@ -12,7 +19,7 @@ Before the full matrix, every setting receives the same 12 questions in `_screen
 long-context synthesis and an unanswerable question, a derivation, exact training settings, two plot readings,
 an equation, a visual request, appendix details, a theorem limitation, a layout and a false premise.
 The six smoke answers are reused, including the weak ones; there are no selective quality retries.
-Blind grading follows, then the remaining 15 questions go to promising settings and a Sonnet control if the funded
+Blind grading uses Argon high with a 16,000-token output allowance, followed by a second judge on close finalists and manual source checks. This keeps grading within the $10 funded balance; the original Opus plan can be used in a separately funded extension. Then the remaining 15 questions go to promising settings and a Sonnet control if the funded
 budget permits. Report screening and finalist coverage separately; never compare a 12-question mean to a
 27-question mean. A reliable low-cost answer is the objective, not raw score divided by price regardless of errors.
 Use correctness/faithfulness, material mistakes, answer availability, latency and cost together. Review the close
@@ -24,6 +31,22 @@ excluded. Generation ids are now kept with the durable holds so later interrupte
 [OpenRouter's generation metadata](https://openrouter.ai/docs/api/api-reference/generations/get-generation).
 Cold/warm charges must be separated: medium/high settings of the same underlying model can share a cached prefix,
 so their observed average bills are not independent cold-start comparisons.
+
+DeepSeek's own endpoint was refused by OpenRouter's account-wide paid-training restriction (HTTP 404, zero charge).
+No account setting was changed. A separately named **DeepSeek / DeepInfra FP8** setting is added as an alternate
+host, with explicit `data_collection: deny`, exact route pinning and no fallback; if the account still refuses it,
+it remains untested. This is a host/precision variant, not evidence for DeepSeek's own endpoint. The routing filter
+uses [OpenRouter's policy metadata](https://openrouter.ai/docs/guides/routing/provider-selection#requiring-providers-to-comply-with-data-policies),
+not an independently verified zero-retention guarantee. DeepInfra's catalogue prices at this checkpoint are
+$0.14/M input and $0.42/M output. The interrupted calls' metadata lookups currently return 404 (including a known
+completed call); their full reservations remain. Completion-reported costs also exceed the account usage summary;
+preserve both readings and use the larger amount for admission until reconciled.
+
+The final implementation admits the most expensive price tier that the conservative serialized-byte token
+bound can reach. It excludes a long-context surcharge only when its numeric `min_prompt_tokens` is strictly
+above that upper bound; unknown and time-based overrides remain included. Boundary tests cover this rule.
+It still reserves all encoded image bytes and the full output allowance, with a 25% margin. Secondary spot checks
+are retained separately; they do not unevenly reweight the primary judge's common-question averages.
 
 ## Question set and protocol
 
@@ -54,7 +77,7 @@ Reference placeholders beginning `_` are excluded from scored runs. Every select
 and figure is validated before inference. Cached answers bind to their inputs; grading binds to answers and
 references; incomplete or stale grades are excluded. Scores require every requested label exactly once,
 finite values in 0–10, and valid key-point indices. The report shows answered/expected coverage and separates
-confirmed spend from outstanding uncertain charges. Unequal or partial coverage is not a model ranking.
+completion-reported spend from outstanding uncertain charges. Unequal or partial coverage is not a model ranking.
 
 ## Prices checked at takeover
 
@@ -114,7 +137,7 @@ node scripts/model-bakeoff.mjs judge --judge=opus --concurrency=1
 node scripts/model-bakeoff.mjs report
 ```
 
-Use a second judge on disagreements and close finalists if budget remains. Do not raise the cap to finish.
+Use a second judge on disagreements and close finalists if budget remains. Do not exceed funded credit or the owner-approved $25; keep temporary holds in the admission total.
 Before selecting a default, inspect critical wrong answers, compare identical question coverage and cold/warm
 costs, and run the finalist through the actual staging adapter/figure workflow. No direct-provider integration,
 customer consent change or default switch is included in this unpaid checkpoint.

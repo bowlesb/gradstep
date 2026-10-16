@@ -1,5 +1,10 @@
 # A cheaper chat provider (DeepSeek or similar) — proposal, 2026-10-14
 
+> Historical proposal, superseded: DeepSeek integration and the owner's later intelligence-per-dollar research
+> direction are recorded in [CHAT.md](../architecture/CHAT.md) and the
+> [2026-10-16 model comparison](../reviews/MODEL_COMPARISON_20261016.md). The implementation status, prices and
+> recommendation below describe the earlier checkpoint, not the current product.
+
 Owner question (2026-10-14): "do we have a cheap high-value AI provider like DeepSeek as an option?" Answer today:
 no. Every answer, title, follow-up and study-map update goes to Anthropic; the cheap tier is Claude Haiku 5.5, which
 the model picker already offers. This note says what adding a second provider would take, so the decision can be

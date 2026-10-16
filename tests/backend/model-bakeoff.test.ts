@@ -59,6 +59,19 @@ test('bake-off rejects missing, duplicate, out-of-range and malformed grades', (
   assert.equal(validateGrades([{ ...grade, key_points_hit: [1] }], ['A'], 1), false);
 });
 
+test('bake-off only excludes a length surcharge above the conservative byte bound', () => {
+  const messages = [{ role: 'user', content: 'short' }], tools: never[] = [];
+  const bound = Buffer.byteLength(JSON.stringify({ messages, tools })) + 16384;
+  const base = { prompt: '0.000001', completion: '0.000002', input_cache_write: '0.00000125' };
+  const long = { prompt: '0.000004', completion: '0.000008', input_cache_write: '0.000005' };
+  const cost = (overrides: object[]) => requestCeiling(messages, tools, 4096, rateCeiling([{ pricing: { ...base, overrides } }]));
+  const ordinary = cost([]);
+  assert.equal(cost([{ ...long, min_prompt_tokens: bound + 1 }]), ordinary);
+  assert.ok(cost([{ ...long, min_prompt_tokens: bound }]) > ordinary);
+  assert.ok(cost([{ ...long, min_prompt_tokens: String(bound + 1) }]) > ordinary, 'unknown metadata stays conservative');
+  assert.ok(cost([{ ...long, utc_start: 0, utc_end: 100 }]) > ordinary, 'time-based price remains reserved');
+});
+
 test('bake-off refuses placeholder references and source paragraphs outside the bundle', () => {
   const paper = () => ({ index: { blocks: [{}, {}], figures: [{}] } });
   const q = { id: 'test-q', paper: 'test', question: 'Why?', type: 'explain', reference: 'A verified reference answer long enough to contain substantive claims.', key_points: [{ point: 'Evidence', paragraphs: [2] }], errors_to_penalize: [], figure: 1 };

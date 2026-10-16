@@ -308,10 +308,27 @@ usage, or silently count this experiment as free just because it bypasses stagin
 [comparison protocol](../reviews/MODEL_COMPARISON_20261016.md).
 
 **Funded continuation, 2026-10-16 20:16 UTC:** OpenRouter reports a $10 top-up, $0 prior usage, and the unchanged
-$20 non-resetting key limit. No new recurring commitment. Working admission is reduced to $9 total, with $7 for
+$20 non-resetting key limit. No new recurring commitment. Working admission initially reduced to $9 total, with $7 for
 the contestant phase to leave grading room; this does not increase the $100 operating budget or $25 research
 authorization. The six-answer smoke settled at **$0.03148947**, $0 unresolved. A matched 12-question screening
-across all 13 settings is in progress, then selected extensions within the remaining funding. The running ledger
-is `.artifacts/bakeoff/spend-ledger.json`; its current holds are reservations, not consumed usage. Final actuals
-and outstanding amounts must be recorded after the run. Initial planning range is $5–9 including grading and
+across all 13 settings began at this checkpoint, with selected extensions planned within the remaining funding.
+The ledger is `.artifacts/bakeoff/spend-ledger.json`; its holds are reservations, not consumed usage. Final actuals
+and outstanding amounts are recorded below. The initial planning range was $5–9 including grading and
 extensions, conditional on measured costs and admission; do not top up automatically to finish.
+
+**Funded hold adjustment, same run:** $0.50 of the existing $10 funding cushion was reassigned to admission,
+making the working ceiling **$9.50**. This allowed a deferred long-context request's conservative temporary hold;
+the request actually reported $0.0174. No additional purchase, recurring commitment, operating-budget increase,
+privacy-setting change or increase to the owner's $25 authorization was made. Completion-reported charges exceed
+OpenRouter's aggregate usage reading; preserve both and control admission using the larger local ledger exposure.
+
+**Round completed, ~21:25 UTC:** contestant requests **$6.059726**, primary grading **$2.113472**, independent
+grading **$0.482578**: total **$8.655776 completion-reported**. Five interrupted requests retain **$0.228190**
+holds, so conservative total exposure is **$8.883966**. Further planned spend for this round is **$0**. The last
+image-grading request required $9.63 of temporary exposure under the existing **$10 funded ceiling**; no reservation
+overrun occurred. There was no further purchase, fixed commitment or change to the $100/month operating budget.
+The provider's account/key endpoints still reported **$3.451502566** usage at 21:25 UTC. This lower figure is
+unreconciled with the response records and is not used as permission to spend the difference. Generation metadata
+returned 404 even for a known completed call. Details and retained non-secret evidence:
+[measured comparison](../reviews/MODEL_COMPARISON_RESULTS_20261016.md). The 27-question finalist extension is
+pending; do not treat its cost as zero or expand it using the stale/lower account reading.

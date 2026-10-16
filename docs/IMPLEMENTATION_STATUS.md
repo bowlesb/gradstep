@@ -2,6 +2,22 @@
 
 Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Model comparison screening — 2026-10-16, ~21:25 UTC, complete
+
+The matched 12-question screening covers 13 usable settings across five papers: 151 completed responses, five
+timeouts and nine empty table requests. DeepSeek's own endpoint had 12 separate pre-inference policy refusals;
+the tested alternative is DeepInfra FP8, with the existing privacy restriction preserved. Argon high graded all
+completions; Sol high independently checked three questions for seven settings. Source and image checks confirmed
+errors the first grader missed, including Haiku high's equation explanation. **Gemini Flash is the provisional
+lead for further testing; Sonnet remains the default.** See [the results](reviews/MODEL_COMPARISON_RESULTS_20261016.md)
+and the committed raw evidence. The 27-question finalist extension and actual deployed-adapter/figure-explainer
+checks are still pending; this is not a production model rollout.
+
+Charges are $8.655776 completion-reported plus $0.228190 held for interrupted calls, within $10 funded credit and
+the owner's $25 authorization. The lower provider aggregate is unreconciled and not used to expand spending.
+Fast tests, six budget/reference/grade tests and offline math/diagram rendering pass. The answer viewer was
+checked at desktop/360px/320px. No app or backend deployment, physical phone, NAS or TextBrain work in this continuation.
+
 ## Claude takeover and build 63 release — 2026-10-16, ~20:00 UTC
 
 - Recovered Claude's active session, all three merged build-62 feedback branches and four saved model-question
