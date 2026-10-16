@@ -45,7 +45,7 @@ function itemRow(item: Item): Row {
   const m = item.metadata, readable = canRead(item);
   let status: Row['status'] = null;
   if (!readable) status = item.readiness === 'unavailable' || item.render_availability === 'quarantined' ? { kind: 'problem', text: 'No reading copy' }
-    : item.readiness === 'pdf_ready' ? { kind: 'info', text: 'Not converted' } : { kind: 'info', text: 'Not ready yet' };
+    : item.readiness === 'pdf_ready' ? { kind: 'problem', text: 'No reading copy' } : { kind: 'info', text: 'Not ready yet' };
   return {
     key: 'item:' + item.id, entry: item, title: m?.title ?? (item.source_id ? placeholder(item.source_id) : 'Untitled paper'),
     firstAuthor: m?.authors[0] ?? null, year: year(m?.published_at),

@@ -109,13 +109,21 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
 
   await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
   const settings = page.getByRole('dialog', { name: 'AI chat options' });
+  // Owner, build 59: "Default options for new chats" holds Model, Length and Visual answers; the rest is behind its ⓘ.
+  await expect(settings.getByRole('heading', { name: 'Default options for new chats' })).toBeVisible();
+  await expect(settings.getByTestId('visual-answers')).toBeVisible(); await expect(settings.getByTestId('chat-credits')).toHaveCount(0);
   await settings.getByRole('radio', { name: 'Haiku', exact: true }).click();
+  await page.screenshot({ path: `${SHOTS}/${info.project.name}-default-options.png` });
+  await settings.getByRole('button', { name: 'About AI chat options' }).click();
+  await expect(settings.getByRole('heading', { name: 'About AI chat options' })).toBeVisible();
   // Per-model detail with who processes it, the usual credits from the published table, and automatic effort.
   await expect(settings.getByTestId('chat-options-models')).toContainText('Processed by Anthropic');
   await expect(settings.getByTestId('chat-options-models')).toContainText('Processed by DeepSeek');
   await expect(settings.getByTestId('chat-credits').getByRole('row', { name: /Sonnet/ })).toContainText('4–24up to 41');
   await expect(settings.getByTestId('effort-note')).toContainText('Effort is chosen automatically for each question');
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-ai-chat-options.png` });
+  await settings.getByTestId('chat-options-back').click();
+  await expect(settings.getByRole('radio', { name: 'Haiku', exact: true })).toHaveAttribute('aria-checked', 'true');
   await settings.getByRole('button', { name: 'Done', exact: true }).click();
   // The open chat keeps its own choice; a new one starts from the default.
   expect(await summary(page)).toBe('Sonnet · Standard');
@@ -126,9 +134,11 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   await options.getByRole('radio', { name: 'Brief', exact: true }).click();
   await options.getByTestId('use-for-new-chats').click();
   await expect(options.getByTestId('default-note')).toHaveText('New chats start with these.');
-  // The link opens Settings › AI chat options with the same choice.
+  // The link opens About AI chat options; back from it, the defaults show the same choice.
   await options.getByTestId('about-chat-options').click();
   await expect(options).toBeHidden();
+  await expect(settings.getByRole('heading', { name: 'About AI chat options' })).toBeVisible();
+  await settings.getByTestId('chat-options-back').click();
   await expect(settings.getByRole('radio', { name: 'Brief', exact: true })).toHaveAttribute('aria-checked', 'true');
   await settings.getByRole('button', { name: 'Done', exact: true }).click();
   // A selection action answers with what the pane showed.
@@ -163,6 +173,7 @@ test('a server without automatic effort: no DeepSeek, and requests keep the stor
   expect((await evidence(request)).requests[1].profile).toEqual({ model: 'opus', effort: 'low', length: 'standard' });
   await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'AI chat options…' }).click();
   const settings = page.getByRole('dialog', { name: 'AI chat options' });
+  await settings.getByRole('button', { name: 'About AI chat options' }).click();
   await expect(settings.getByTestId('effort-note')).toHaveText('Answers use low effort.');
   await expect(settings.getByTestId('chat-credits').getByRole('row', { name: /Sonnet/ })).toContainText('4–24up to 37');
   await expect(settings.getByTestId('chat-options-models')).not.toContainText('DeepSeek');

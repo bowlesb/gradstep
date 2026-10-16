@@ -64,6 +64,9 @@ async function fixture(page: Page, options: { lengths?: boolean; sourceUnavailab
         url: `${API}/functions/v1/podcast-member?grant=${grant}&member=${body.release_id}`, bytes: audio.length, sha256: digest, media_type: 'audio/wav' }] } } });
     }
     if (action === 'paper') return route.fulfill({ json: { episode: null, job: started && state.mine === 'making' ? job() : null, capabilities } });
+    // The paper's text from this device (migration 066; a legacy arXiv item's too since 081), then named by its digest.
+    if (action === 'source') return route.fulfill({ json: { source: { text_sha256: createHash('sha256').update(String(body.text)).digest('hex'),
+      bytes: Buffer.byteLength(String(body.text)), format: 'paper-context-v2' } } });
     if (action === 'quote' && options.sourceUnavailable) return route.fulfill({ status: 409, json: { code: 'source_unavailable' } });
     if (action === 'quote' && options.lengths) {
       requestID = body.request_id; quoteID = randomUUID();

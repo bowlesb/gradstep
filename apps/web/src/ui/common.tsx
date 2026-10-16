@@ -84,11 +84,14 @@ export function InfoTip({ text, testID }: { text: string; testID?: string }) {
   // Kept inside the dialog (or window) it opens in: shifted left when it would run past the right edge.
   useLayoutEffect(() => {
     const n = note.current; if (!n) return;
-    n.style.left = '';
+    n.style.left = ''; n.style.top = ''; n.style.bottom = '';
     if (!open) return;
     const frame = (n.closest('dialog') ?? document.documentElement).getBoundingClientRect(), r = n.getBoundingClientRect();
     const over = r.right - (Math.min(frame.right, innerWidth) - 12);
     if (over > 0) n.style.left = `${-6 - Math.min(over, r.left - Math.max(frame.left, 0) - 12)}px`;
+    // Above its ⓘ when it would run past the bottom of its dialog (or window) and there is room above.
+    const bottom = Math.min(frame.bottom, innerHeight) - 12, top = Math.max(frame.top, 0) + 12, button = n.parentElement!.getBoundingClientRect();
+    if (r.bottom > bottom && button.top - r.height - 4 >= top) { n.style.top = 'auto'; n.style.bottom = 'calc(100% + 4px)'; }
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -100,6 +103,10 @@ export function InfoTip({ text, testID }: { text: string; testID?: string }) {
     <button type="button" className="info-tip-button" aria-label="More information" aria-expanded={open} aria-describedby={id} data-testid={testID}
       onClick={event => { event.preventDefault(); event.stopPropagation(); setOpen(o => !o); }}
       onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}><Icon name="info" size={14} /></button>
+    {/* The rest of the screen darkens while the bubble shows (owner, build 59: "so the bubble text stands out"); a
+        press on it hides the bubble. */}
+    {open && <span className="info-scrim" aria-hidden="true" data-testid="info-scrim" onPointerDown={event => event.preventDefault()}
+      onClick={event => { event.preventDefault(); event.stopPropagation(); setOpen(false); }} />}
     <span id={id} ref={note} role="note" className={open ? 'info-tip-text open' : 'info-tip-text'}>{text}</span>
   </span>;
 }

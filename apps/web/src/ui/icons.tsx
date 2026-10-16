@@ -46,6 +46,10 @@ const paths = {
   lightbulb: <><path d="M9.5 18h5M10.5 21h3" /><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.2 1.1 2V16h5v-.2c0-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z" /></>,
   compare: <><polyline points="17 3.5 20.5 7 17 10.5" /><line x1="3.5" y1="7" x2="20.5" y2="7" /><polyline points="7 13.5 3.5 17 7 20.5" /><line x1="20.5" y1="17" x2="3.5" y2="17" /></>,
   map: <><polygon points="3 6 3 21 9 18 15 21 21 18 21 3 15 6 9 3 3 6" /><line x1="9" y1="3" x2="9" y2="18" /><line x1="15" y1="6" x2="15" y2="21" /></>,
+  // The equation view's Explain (the app's "sparkles").
+  sparkles: <><path d="M10 3.5l1.7 4.8 4.8 1.7-4.8 1.7L10 16.5l-1.7-4.8L3.5 10l4.8-1.7z" /><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z" /></>,
+  // Contents › Figures › View as tiles.
+  grid: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

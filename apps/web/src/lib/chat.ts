@@ -2,7 +2,7 @@
 // app's ChatGeneration rules: the bounded request built from the decrypted branch, the incremental SSE parser, failure
 // wording, and what an outcome keeps (complete, interrupted, or nothing). The request carries plaintext only to the
 // chat function; the answer comes back here and is sealed into encrypted history.
-import { BackendError, functionStream } from './backend';
+import { BackendError, functionStream, rpc } from './backend';
 import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
 import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
@@ -71,8 +71,10 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   // Add paper may add an open-access web paper; visual answers (diagrams, drawn explanations) unless the reader turned
   // them off — always a list, so an empty one says "off" (servers before the setting ignore unknown values).
   // `figure_requests`: this browser holds the paper (local context) and can attach a figure the model asks for.
+  // `stop_signal` (2026-10-16): this browser records the reader's Stop (`v1_chat_stop`), so an answer that ends any other
+  // way early costs the reader nothing (CHAT.md, "When an answer stops early").
   body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers']),
-    ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : [])];
+    ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : []), 'stop_signal'];
   if (r.action !== 'diagram_fix' && r.autoEffort) body.profile = { model: r.profile.model, effort: 'auto', length: r.profile.length };
   else if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
   if (r.action !== 'diagram_fix' && !isEquationAction(r.action) && r.topicTitle) body.topic_title = true;
@@ -108,8 +110,10 @@ export type StreamEvent =
   | { type: 'figure_request'; figure: string }
   /** The equation view's symbols (action `equation`, servers from 2026-10-15; equation.ts). */
   | { type: 'equation'; symbols: EquationSymbols }
-  /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
-  | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string; credits?: number };
+  /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). `charged` and, when false, `reason`
+   * (servers from 2026-10-16): whether the reader paid for it (CHAT.md, "When an answer stops early"). */
+  | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string; charged?: boolean; reason?: string }
+  | { type: 'error'; code: string; credits?: number; charged?: boolean; reason?: string };
 
 /** A label from `done` (ChatSSEParser.label): a bounded plain identifier, else dropped (never fatal). */
 export function streamLabel(value: unknown): string | undefined {
@@ -232,16 +236,38 @@ export class SSEParser {
         const model = streamLabel(v.model), profile = streamLabel(v.profile);
         if (model) done.model = model;
         if (profile) done.profile = profile;
-        return done;
+        return { ...done, ...charge(v) };
       }
       case 'error': {
         if (typeof v?.code !== 'string' || v.code.length > 64) return bad();
         const credits = typeof v.credits === 'number' && Number.isSafeInteger(v.credits) && v.credits >= 0 ? v.credits : undefined;
-        return { type: 'error', code: v.code, ...(credits === undefined ? {} : { credits }) };
+        return { type: 'error', code: v.code, ...(credits === undefined ? {} : { credits }), ...charge(v) };
       }
       default: return null;
     }
   }
+}
+
+/** `charged` and, when false, its `reason` from `done`/`error` (servers from 2026-10-16); anything else is left out. */
+function charge(v: Record<string, unknown>): { charged?: boolean; reason?: string } {
+  if (typeof v.charged !== 'boolean') return {};
+  const reason = !v.charged && typeof v.reason === 'string' && /^[a-z_]{1,32}$/.test(v.reason) ? v.reason : undefined;
+  return { charged: v.charged, ...(reason ? { reason } : {}) };
+}
+
+/** What a kept, interrupted answer cost, said under it while this session lasts (CHAT.md, "When an answer stops early";
+ * as the app's chatInterruptionNotes): the reader's own Stop is charged for the part written, any other early end that
+ * the server says cost nothing is "not charged"; otherwise null, and the answer keeps "Answer interrupted". */
+export function interruptionNote(stopped: boolean, end: { credits?: number | null; charged?: boolean } | null): string | null {
+  const free = end?.credits === 0 || end?.charged === false;
+  if (stopped) return free ? 'Stopped · not charged' : 'Stopped · charged for the part written';
+  return free ? 'Interrupted · not charged' : null;
+}
+
+/** The reader pressed Stop (servers from 2026-10-16): recorded before the stream is cancelled, so the server charges the
+ * part written rather than treating the closed stream as a dropped connection. */
+export async function recordStop(account: string, operationID: string, signal?: AbortSignal): Promise<void> {
+  await rpc('v1_chat_stop', { p_operation_id: operationID }, { account, signal, maximum: 4096 });
 }
 
 /** The answer's events. The token is refreshed to at least five minutes of validity first (Ingest acts as the user afterwards). */

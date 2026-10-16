@@ -36,10 +36,10 @@ export function importStep(i: Import): Step | null {
 }
 
 const FAILURES: Record<string, [string, string]> = {
-  insufficient_credits: ['Not enough credits to convert this paper', 'Needs credits'],
-  too_large: ['This PDF is too large to convert', 'Too large to convert'],
+  insufficient_credits: ['Not enough credits to add this paper', 'Needs credits'],
+  too_large: ['This PDF is too large', 'Too large'],
   pdf_invalid: ['This PDF couldn’t be read', 'PDF unreadable'],
-  conversion_failed: ['Conversion failed', 'Conversion failed'],
+  conversion_failed: ['Couldn’t prepare this paper', 'Couldn’t prepare'],
   download_failed: ['Couldn’t download this paper', 'Download failed'],
   rate_limited: ['Couldn’t download this paper', 'Download failed'],
   download_retrying: ['Couldn’t download yet · Trying again automatically', 'Retrying soon'],

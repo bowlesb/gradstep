@@ -14,7 +14,7 @@ import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
-import { ChatOptionsDialog } from './ChatProfile';
+import { ChatOptionsDialog, type ChatOptionsView } from './ChatProfile';
 import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
 import type { ChatSession } from '../lib/chat-session';
 import { useChat } from './useChat';
@@ -156,7 +156,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [reportOpen, setReportOpen] = useState(false);
   const report = useCallback(() => setReportOpen(true), []);
   const [reportsOpen, setReportsOpen] = useState(false);
-  const [chatDefaults, setChatDefaults] = useState(false);
+  // AI chat options: closed, its Default options for new chats, or About AI chat options (Answer options' link, or the ⓘ).
+  const [chatDefaults, setChatDefaults] = useState<false | ChatOptionsView>(false);
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -526,10 +527,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
       : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
-        onAsked={podcasts.asked} openWith={listenAgain?.itemID === item.id ? listenAgain : null} onOpened={() => setListenAgain(null)} deviceSource={isSourcePaper(item) ? async signal => {
+        onAsked={podcasts.asked} openWith={listenAgain?.itemID === item.id ? listenAgain : null} onOpened={() => setListenAgain(null)} deviceSource={readingSource(item) ? async signal => {
         // The paper's own text on this device (migration 066): the verified bundle's numbered context, as the chat sends it.
-        const key = readerCacheKey(account, item); const bundle = readerCache.get(key) ?? await prepareArxivReader(paperReference(item)!, signal, undefined, { authors: item.metadata?.authors ?? [], title: item.metadata?.title });
-        const context = localChatContext(paperReference(item)!, bundle);
+        // An arXiv paper from before the HTML-first reader sends it too, named by its library item (migration 081: the
+        // server's copy was deleted), like its chat (setLegacyPapers); when it can't be prepared here nothing is sent,
+        // and Listen says to open it first.
+        const reference = (isSourcePaper(item) ? paperReference(item) : readingSource(item))!, legacy = !isSourcePaper(item);
+        const key = readerCacheKey(account, item), saved = readerCache.get(key);
+        let bundle;
+        try { bundle = saved?.manifest.source.kind === 'arxiv-html' ? saved : await prepareArxivReader(reference, signal, undefined, { authors: item.metadata?.authors ?? [], title: item.metadata?.title }); }
+        catch (e) { if (legacy && !signal.aborted) return null; throw e; }
+        const context = localChatContext(reference, bundle);
         return { text: { format: 'paper-context-v2', text: context.text }, identity: { source: 'arxiv', source_id: context.source_id, revision: context.revision, manifest_sha256: context.manifest_sha256, title: item.metadata?.title ?? undefined, authors: item.metadata?.authors ?? [] } };
       } : undefined} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
@@ -596,7 +604,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             <Icon name="panelRight" /></button>
           <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
-            onChatDefaults={chat ? () => setChatDefaults(true) : null} />
+            onChatDefaults={chat ? () => setChatDefaults('defaults') : null} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -620,7 +628,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
-          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults(true)} />
+          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
@@ -631,7 +639,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
       </RegionBoundary>
-      {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
+      {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
       <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
@@ -648,11 +656,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <h2>Delete account</h2>
         <p>This permanently deletes your account:</p>
         <ul className="delete-list">
-          <li>Your library, conversations, notes and diagrams, and the files of papers converted privately for you</li>
+          <li>Your library, conversations, notes and diagrams, and your private podcast episodes</li>
           <li>Your support reports and screenshots</li>
           <li>This browser’s copy; other devices are signed out and your recovery code stops working</li>
         </ul>
-        <p className="fine">Unused credits are forfeited. Records of credits, AI usage and which papers were converted for you are kept without your email or name, for accounting.</p>
+        <p className="fine">Unused credits are forfeited. Records of credits and AI usage are kept without your email or name, for accounting.</p>
         <p className="fine">An App Store subscription isn’t cancelled by deleting your account; manage it in your Apple Account’s Subscriptions settings.</p>
         <label>Type {TYPED_CONFIRMATION} to confirm
           <input ref={deleteField} value={deleteTyped} readOnly={deleteBusy} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder={TYPED_CONFIRMATION}
@@ -684,10 +692,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   );
 }
 
-function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolean; onClose: () => void }) {
+function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view: false | ChatOptionsView; onView: (view: ChatOptionsView) => void; onClose: () => void }) {
   useChatUpdates(chat);
   const [visualAnswers, setVisualAnswers] = useState(() => readVisualAnswers());
-  return <ChatOptionsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
+  return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
 function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;

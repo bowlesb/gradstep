@@ -225,7 +225,8 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
             : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}</>}
-        {m.payload.status === 'interrupted' && <span className="fine interrupted">Answer interrupted</span>}
+        {/* What an early end cost, while this session lasts (2026-10-16); earlier answers keep "Answer interrupted". */}
+        {m.payload.status === 'interrupted' && <span className="fine interrupted" data-testid="chat-interrupted">{chat.interruptionNote(m.payload.entityID) ?? 'Answer interrupted'}</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
         {diagrams.has(m.payload.entityID) && !inlineParts(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />}
       </div>)}

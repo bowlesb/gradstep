@@ -13,7 +13,7 @@ import type { VerifiedBundle } from './bundle';
 // is ever re-requested automatically. Without the journal, private text stays in memory only.
 import { BackendError, config, rpc } from './backend';
 import { sha256Hex, utf8 } from './bytes';
-import { boundedText, CONSENT_VERSION, makeRequest, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
+import { boundedText, CONSENT_VERSION, interruptionNote, makeRequest, recordStop, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { available, isProfileChoice, isStandard, parseProfileID, ProfileTableLoader, requestProfile, STANDARD_PROFILE, withChoice, type ProfileChoice, type ProfileTable } from './chat-profiles';
 import { starterPaper, type StarterPaper } from './chat-starters';
 import { cancellation } from './cancellation';
@@ -58,6 +58,8 @@ interface Locks {
 }
 interface Dependencies {
   stream: (account: string, request: ReturnType<typeof makeRequest>, signal: AbortSignal) => AsyncIterable<StreamEvent>;
+  /** Records the reader's Stop for an operation (`v1_chat_stop`, servers from 2026-10-16). */
+  recordStop: (account: string, operationID: string, signal: AbortSignal) => Promise<void>;
   readConsent: () => boolean; writeConsent: () => void;
   storage: { snapshot: () => StorageLifecycle; subscribe: (listener: () => void) => () => void };
   journal: Journal | null;
@@ -116,6 +118,12 @@ export class ChatSession {
   private version = 0;
   private streams = new Map<string, ReturnType<typeof cancellation>>();
   private starting = new Set<string>();
+  /** The request each answering composer has on its way (a figure's second request has its own): what Stop names. */
+  private operations = new Map<string, string>();
+  /** Composers whose answer the reader stopped. */
+  private stopping = new Set<string>();
+  /** What a kept, interrupted answer cost, by its message (this session only; chat.ts interruptionNote). */
+  private notes = new Map<string, string>();
   private tasks = new Set<Promise<void>>();
   private accepting = true;
   private retiredStorage = false;
@@ -134,7 +142,7 @@ export class ChatSession {
 
   constructor(readonly account: string, readonly history: History, readonly signal: AbortSignal, dependencies: Partial<Dependencies> = {}, journalState?: JournalState) {
     const consentKey = `gradstep.${config.environment}.${account}.cloud-ai-consent`;
-    this.deps = { stream: streamAnswer, readConsent: () => { try { return localStorage.getItem(consentKey) === CONSENT_VERSION; } catch { return false; } },
+    this.deps = { stream: streamAnswer, recordStop, readConsent: () => { try { return localStorage.getItem(consentKey) === CONSENT_VERSION; } catch { return false; } },
       writeConsent: () => { localStorage.setItem(consentKey, CONSENT_VERSION); if (localStorage.getItem(consentKey) !== CONSENT_VERSION) throw new Error('consent_unsaved'); },
       readDefault: () => { try { const v = JSON.parse(localStorage.getItem(DEFAULT_KEY) ?? 'null') as unknown; return isProfileChoice(v) ? { model: v.model, effort: v.effort, length: v.length } : null; } catch { return null; } },
       writeDefault: choice => { try { localStorage.setItem(DEFAULT_KEY, JSON.stringify(choice)); } catch { /* per-browser convenience only */ } },
@@ -713,7 +721,20 @@ export class ChatSession {
     try { this.deps.writeConsent(); } catch { c.phase = 'idle'; c.issue = 'consent_unsaved'; this.publish(); return Promise.resolve(); }
     return this.track(this.answerQuestion(c));
   }
-  stop(c: Composer) { this.streams.get(c.id)?.abort(); }
+  /** Stop: the server hears it was the reader's (charged for the part written; any other early end costs nothing,
+   * CHAT.md "When an answer stops early") before the stream is cancelled. At most 3 s; a failure doesn't hold it up. */
+  stop(c: Composer) {
+    if (!this.streams.has(c.id) || this.stopping.has(c.id)) return;
+    this.stopping.add(c.id);
+    const operation = this.operations.get(c.id);
+    const end = () => this.streams.get(c.id)?.abort();
+    if (!operation) { end(); return; }
+    const recording = cancellation([this.signal]), deadline = setTimeout(() => recording.abort(new DOMException('Deadline', 'TimeoutError')), 3_000);
+    void this.deps.recordStop(this.account, operation, recording.signal).catch(() => {})
+      .finally(() => { clearTimeout(deadline); recording.dispose(); end(); });
+  }
+  /** Under a kept, interrupted answer: "Interrupted · not charged", "Stopped · charged for the part written"… */
+  interruptionNote(entityID: string): string | null { return this.notes.get(entityID) ?? null; }
   /** Explicit sign-out drains nonempty partials and device writes while credentials/keys still belong to this account. */
   async settleBeforeSignOut() {
     this.accepting = false;
@@ -829,7 +850,10 @@ export class ChatSession {
     };
     let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
     let figureParts: FigureParts | null = null, asked: string | null = null, sent = request;
+    // What the answer's last done/error said it cost (credits, `charged`), for the note under an interrupted answer.
+    let end: { credits?: number; charged?: boolean } | null = null;
     for (let pass = 0; pass < 2; pass++) {
+    this.operations.set(c.id, sent.operationID);
     try {
       for await (const event of this.deps.stream(this.account, sent, controller.signal)) {
         controller.signal.throwIfAborted();
@@ -846,8 +870,8 @@ export class ChatSession {
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
         else if (event.type === 'equation') { /* the equation view's own event; a chat never asks for it */ }
-        else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; break; }
-        else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
+        else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }
+        else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; end = { credits: event.credits, charged: event.charged }; break; }
         this.publish();
       }
     } catch (error) {
@@ -856,11 +880,11 @@ export class ChatSession {
     } finally { clearTimeout(deadline); clearTimeout(checkpointTimer); controller.dispose(); this.streams.delete(c.id); }
     // The model asked for a figure the question is about (none was attached): the same question again, once, with that
     // figure from this paper; the first answer was only the request and is not kept.
-    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted) {
+    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted && !this.stopping.has(c.id)) {
       const figures = await chatFigureImages(asked, null, figureBundle);
       if (figures.length && !this.signal.aborted) {
         sent = { ...sent, operationID: crypto.randomUUID(), figures }; figureManifest = figureBundle.manifestSHA256;
-        c.liveText = ''; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null;
+        c.liveText = ''; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
         outcome = { kind: 'failed', code: 'transport' };
         c.progress = { kind: 'looking_at_figure', query: figures[0] ? figureLabel(figures[0].caption) ?? undefined : undefined }; this.publish();
         controller = cancellation([this.signal]); deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
@@ -870,6 +894,7 @@ export class ChatSession {
     }
     break;
     }
+    const stopped = this.stopping.delete(c.id); this.operations.delete(c.id);
     await checkpointing;
     // An externally retired login cannot write or expose text in its replacement. Its turn checkpoint stays on this
     // device and reopens as interrupted on the next sign-in; it is never re-requested.
@@ -890,6 +915,11 @@ export class ChatSession {
     c.followUps = result.status === 'complete' ? followUps : null;
     // The map advances only with a complete tutored answer; a failed or interrupted one keeps the previous map.
     if (result.status === 'complete' && nextMap && c.study && request.action === 'study') c.study = nextMap;
+    if (result.status === 'interrupted') {
+      // What it cost, said under it (2026-10-16): the server charges nothing for an early end that wasn't the reader's Stop.
+      const note = interruptionNote(stopped, end);
+      if (note) this.notes.set(entityID, note);
+    }
     if (result.status) {
       const answer: PrivateEvent = { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
         documentID: c.documentID ?? undefined, paperReference:this.reference(c.documentID), text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() };

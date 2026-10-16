@@ -1,5 +1,6 @@
-// The equation view (docs/architecture/EQUATION_VIEW.md): a tapped equation opens large with its symbols described,
-// optional background, ¶ links that land in the paper with Back, and Ask in chat; both requests are the chat's own.
+// The equation view (docs/architecture/EQUATION_VIEW.md): a tapped equation opens large with Explain and Ask in chat
+// beside each other and nothing asked of the AI (owner, build 59); Explain describes its symbols, then background is
+// offered; ¶ links land in the paper with Back; no credit counts anywhere. Both requests are the chat's own.
 import {readFileSync} from 'node:fs';
 import {expect,test} from '@playwright/test';
 import {RECOVERY_CODE} from './fixture-keys.mjs';
@@ -32,7 +33,7 @@ async function openFixture(page:import('@playwright/test').Page,request:import('
  await page.getByTestId('library-table').getByRole('link',{name:'Authored HTML fixture',exact:true}).click();
 }
 
-test('a tapped equation opens large, its symbols described from the paper, background on request, then into the chat',async({page,request})=>{
+test('a tapped equation opens large, explained only on request, background after that, then into the chat',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  await openFixture(page,request,html);
  const frame=page.frameLocator('[data-testid=reader-frame]');
@@ -48,9 +49,19 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  const view=page.getByTestId('equation-view');
  await expect(view.getByRole('heading',{name:'Equation (1)'})).toBeVisible();
  await expect(view.frameLocator('[data-testid=equation-frame]').locator('math')).toBeVisible();
- // Nothing is sent before the chat's own consent.
+ // Owner, build 59: nothing is asked on opening; Explain and Ask in chat sit side by side under the equation.
+ const explain=view.getByTestId('equation-explain'),ask=view.getByTestId('equation-ask');
+ await expect(explain).toHaveText('Explain');await expect(ask).toHaveText('Ask in chat');
+ const [explainBox,askBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!];
+ expect(Math.abs(explainBox.y-askBox.y)).toBeLessThan(2);expect(explainBox.x).toBeLessThan(askBox.x);
+ await expect(view.getByRole('heading',{name:'What it says'})).toHaveCount(0);await expect(view.getByTestId('equation-more')).toHaveCount(0);
+ await expect(view.getByTestId('equation-consent')).toHaveCount(0);
+ await page.waitForTimeout(500);expect(await chats()).toHaveLength(0);
+ await page.screenshot({path:`../../.artifacts/equation-view-opened-${test.info().project.name}.png`});
+ // Explain asks the chat's own consent first; nothing is sent before it.
+ await explain.click();
  await expect(view.getByTestId('equation-consent')).toBeVisible();expect(await chats()).toHaveLength(0);
- await view.getByRole('button',{name:'Allow and describe'}).click();
+ await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toHaveText('It squares x: the value multiplied by itself.');
  await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(3);
  // Every symbol is typeset: from its LaTeX, or from its text when the model gave none ("L_DPO(π_θ; π_ref)").
@@ -58,6 +69,8 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  await expect(view.getByTestId('equation-symbols').locator('li').nth(2).locator('.equation-symbol msub')).toHaveCount(3);
  await expect(view.getByTestId('equation-source')).toHaveText('From the paper ¶2');
  await expect(view.getByTestId('equation-symbols')).toContainText('General meaning');
+ // Explained: Explain has gone, Ask in chat stays, More background is offered.
+ await expect(explain).toHaveCount(0);await expect(ask).toBeVisible();await expect(view.getByTestId('equation-more')).toBeVisible();
 
  // Size: larger keeps growing the equation; sideways scroll keeps the size instead of fitting the width.
  const frameBox=view.getByTestId('equation-frame');
@@ -68,21 +81,19 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  await expect.poll(async()=>(await frameBox.boundingBox())!.height).toBeGreaterThan(before);
  await view.getByTestId('equation-scroll').check();await expect(view.getByTestId('equation-scroll')).toBeChecked();
 
- // Background only on request, rendered like an answer; credits shown quietly.
+ // Background only on request, rendered like an answer.
  await view.getByTestId('equation-more').click();
  const background=view.getByTestId('equation-background');
  await expect(background).toContainText('That symmetry is why the paper uses it.');
  // Every paragraph stays once streaming has finished (landing-page capture, 2026-10-15: only the first remained).
- await expect(view.getByTestId('equation-credits')).toContainText('Background: 3 credits');
  await page.waitForTimeout(3000);
  await expect(background.locator('p')).toHaveCount(3);await expect(background.locator('h2, h3, h4')).toHaveCount(1);await expect(background.locator('li')).toHaveCount(2);
- // It reads in view: its heading was brought up, and its last paragraph can be scrolled to above the pinned footer.
+ // It reads in view: its heading was brought up, and its last paragraph can be scrolled to.
  await expect(view.getByRole('heading',{name:'Background'})).toBeInViewport();
  const last=background.locator('p').last();await last.scrollIntoViewIfNeeded();await expect(last).toBeInViewport();
- const [lastBox,footBox]=[(await last.boundingBox())!,(await view.locator('.equation-foot').boundingBox())!];
- expect(lastBox.y+lastBox.height).toBeLessThanOrEqual(footBox.y+1);
  await expect(background).toContainText('For x = 3 it gives 9.');await expect(background).toContainText('That symmetry is why the paper uses it.');
- await expect(view.getByTestId('equation-credits')).toHaveText('Symbols: 2 credits · Background: 3 credits');
+ // No credit counts in the view (owner, build 59).
+ await expect(view.getByTestId('equation-credits')).toHaveCount(0);await expect(view).not.toContainText(/\d+\s+credits?\b/);
  const sent=await chats();
  expect(sent.map(r=>r.action)).toEqual(['equation','equation_background']);
  for(const r of sent){
@@ -109,6 +120,7 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  // Reopened, the results come back without a new request; Ask in chat starts a draft about the equation, unsent.
  await display.click();await bar.getByTestId('equation-open').click();
  await expect(view.getByTestId('equation-summary')).toBeVisible();await expect(view.getByTestId('equation-background')).toContainText('That symmetry is why the paper uses it.');
+ await expect(view.getByTestId('equation-explain')).toHaveCount(0);
  await expect(view.getByTestId('equation-scale')).toHaveText('240%');
  expect(await chats()).toHaveLength(2);
  await view.getByTestId('equation-ask').click();
@@ -117,6 +129,85 @@ test('a tapped equation opens large, its symbols described from the paper, backg
  await expect(composer).toBeVisible();await expect(composer).toHaveValue('About “\\[x^2\\]”: ');
  await expect(composer).toBeFocused();
  expect(await chats()).toHaveLength(2);
+});
+
+// Contents with Figures, Tables and Equations (owner, build 59): Contents first; a figure or table row is its number and
+// caption and opens the figure with its whole caption (Show in paper), Figures starts with View as tiles, and an equation
+// row goes to the equation in the paper with Back.
+async function openContents(page:import('@playwright/test').Page){
+ const tabs=page.getByRole('tablist',{name:'Show',exact:true});
+ // Wide windows keep the contents in the side panel once the paper is ready; narrow ones open it as a drawer.
+ await expect(page.getByTestId('contents')).toBeEnabled();
+ if(!await tabs.isVisible())await page.getByTestId('contents').click();
+ await expect(tabs).toBeVisible();
+ return tabs;
+}
+/** Closes the contents (a side panel stays open beside the paper) and opens it again. */
+async function reopenContents(page:import('@playwright/test').Page){
+ if(await page.getByRole('tablist',{name:'Show',exact:true}).isVisible())await page.getByTestId('contents').click();
+ await expect(page.getByRole('tablist',{name:'Show',exact:true})).toHaveCount(0);
+ return openContents(page);
+}
+test('Contents, Figures, Tables and Equations: each row goes into the paper',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ // Its table as arXiv sometimes publishes one, an image (a TikZ table): the index lists figures and tables with images.
+ await openFixture(page,request,html.toString('utf8').replace(/<figure id="tab1">[\s\S]*?<\/figure>/,'<figure id="tab1"><img src="2601.01234v2/figure.jpg"><figcaption>Table 1: Values.</figcaption></figure>'));
+ const frame=page.frameLocator('[data-testid=reader-frame]');
+ await expect(frame.locator('.reader-display[data-reader-equation]').first()).toBeVisible({timeout:20000});
+ let tabs=await openContents(page);
+ await expect(tabs.getByRole('tab')).toHaveText(['Contents','Figures','Tables','Equations']);
+ await expect(tabs.getByRole('tab',{name:'Contents'})).toHaveAttribute('aria-selected','true');
+ await expect(page.getByRole('navigation',{name:'Contents'}).getByRole('button')).toHaveText(['1 Introduction','References']);
+ await page.screenshot({path:`../../.artifacts/contents-tabs-${test.info().project.name}.png`});
+
+ // Figures: View as tiles, then "Figure 1 — caption"; the row opens the figure with its whole caption and Show in paper.
+ await tabs.getByRole('tab',{name:'Figures'}).click();
+ await expect(page.getByTestId('contents-figure-tiles')).toHaveText('View as tiles');
+ await expect(page.getByTestId('contents-figure-0')).toHaveText('Figure 1 — A test figure.');
+ await expect(page.getByTestId('contents-figure-1')).toHaveCount(0); // the table is under Tables
+ await page.screenshot({path:`../../.artifacts/contents-figures-${test.info().project.name}.png`});
+ await page.getByTestId('contents-figure-0').click();
+ const viewer=page.getByRole('dialog',{name:'Figures'});
+ await expect(viewer.frameLocator('iframe.figure-frame').locator('figcaption')).toContainText('A test figure.');
+ await viewer.getByTestId('show-in-paper').click();
+ await expect(viewer).toBeHidden(); await expect(page.getByTestId('citation-back')).toBeVisible();
+ await page.getByTestId('citation-back').click(); await expect(page.getByTestId('citation-back')).toBeHidden();
+
+ // Reopened, Contents is chosen again; View as tiles is the figure gallery.
+ tabs=await reopenContents(page);
+ await expect(tabs.getByRole('tab',{name:'Contents'})).toHaveAttribute('aria-selected','true');
+ await tabs.getByRole('tab',{name:'Figures'}).click(); await page.getByTestId('contents-figure-tiles').click();
+ await expect(viewer.getByRole('list',{name:'Figures'}).getByRole('button')).toHaveCount(2);
+ await viewer.getByRole('button',{name:'Done'}).click(); await expect(viewer).toBeHidden();
+
+ // Tables, then Equations by keyboard: the printed number and the LaTeX as text; the row goes to it with Back.
+ tabs=await openContents(page);
+ await tabs.getByRole('tab',{name:'Figures'}).click(); await tabs.getByRole('tab',{name:'Figures'}).press('ArrowRight');
+ await expect(tabs.getByRole('tab',{name:'Tables'})).toBeFocused();
+ await expect(page.getByTestId('contents-table-0')).toHaveText('Table 1 — Values.');
+ await page.keyboard.press('ArrowRight'); await expect(tabs.getByRole('tab',{name:'Equations'})).toHaveAttribute('aria-selected','true');
+ const row=page.getByTestId('contents-equation-0');
+ await expect(row.locator('.contents-row-title')).toHaveText('Equation (1)'); await expect(row.locator('.contents-row-math')).toHaveText('x²');
+ await page.screenshot({path:`../../.artifacts/contents-equations-${test.info().project.name}.png`});
+ await row.click();
+ await expect(page.getByTestId('citation-back')).toBeVisible();
+ await expect(frame.locator('.reader-display[data-reader-equation]').first()).toBeInViewport();
+ // Dark: the same quiet tabs and rows.
+ await page.emulateMedia({colorScheme:'dark'});
+ tabs=await openContents(page); await tabs.getByRole('tab',{name:'Figures'}).click();
+ await page.screenshot({path:`../../.artifacts/contents-figures-${test.info().project.name}-dark.png`});
+ await page.emulateMedia({colorScheme:'light'});
+});
+
+test('Contents says when a paper has no tables or equations',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ const source=html.toString('utf8').replace(/<table class="ltx_equation"[\s\S]*?<\/table>/,'').replace(/<figure id="tab1">[\s\S]*?<\/figure>/,'');
+ await openFixture(page,request,source);
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('h2').first()).toBeVisible({timeout:20000});
+ const tabs=await openContents(page);
+ await tabs.getByRole('tab',{name:'Tables'}).click(); await expect(page.locator('#contents-tabpanel')).toHaveText('No tables');
+ await tabs.getByRole('tab',{name:'Equations'}).click(); await expect(page.locator('#contents-tabpanel')).toHaveText('No equations');
+ await tabs.getByRole('tab',{name:'Figures'}).click(); await expect(page.getByTestId('contents-figure-0')).toHaveText('Figure 1 — A test figure.');
 });
 
 test('a wide equation fits the width, or keeps its size and scrolls sideways',async({page,request})=>{

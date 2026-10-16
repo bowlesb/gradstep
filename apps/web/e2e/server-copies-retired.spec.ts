@@ -3,6 +3,7 @@
 // A legacy arXiv item still opens from arXiv on this device and its questions send this device's text; one whose
 // revision has no arXiv HTML offers the PDF from arXiv, never "isn't ready" and never the server; a paper from
 // another site says it has no reading copy.
+import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {expect,test,type Page} from '@playwright/test';
 import {RECOVERY_CODE} from './fixture-keys.mjs';
@@ -66,6 +67,42 @@ test('a legacy arXiv item opens from arXiv and asks with this device\'s text; no
  expect(asked.mode).toBe('paper');expect(asked.document_id).toBeUndefined();
  expect(asked.local_context).toMatchObject({format:'reader-local-context-v2',membership_id:legacy,source_id:'2601.01234',revision:2});
  expect(artifacts).toEqual([]);
+});
+
+test('Listen on a legacy arXiv item sends this device\'s text, named by its library item (migration 081)',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await request.post(`${fixtureOrigin}/__reset`);
+ await page.route('https://arxiv.org/**',async route=>{
+  const url=route.request().url();
+  if(url==='https://arxiv.org/html/2601.01234v2')await route.fulfill({status:200,contentType:'text/html',headers:{'access-control-allow-origin':'*'},body:html});
+  else if(url==='https://arxiv.org/html/2601.01234v2/figure.jpg')await route.fulfill({status:200,contentType:'image/jpeg',headers:{'access-control-allow-origin':'*'},body:raster});
+  else throw Error('Unexpected source acquisition '+url);
+ });
+ // The podcast function as staging answers it since 081: the paper's text from the device, then a quote naming it.
+ const calls:{action:string;body:Record<string,unknown>}[]=[];let digest='';
+ const capabilities={catalog:true,delivery:true,generation:true,max_credits:150,target_seconds:300};
+ await page.route('**/functions/v1/podcast**',async route=>{
+  const action=new URL(route.request().url()).searchParams.get('action')!,body=route.request().method()==='POST'?route.request().postDataJSON():{};
+  calls.push({action,body});
+  if(action==='catalog')return route.fulfill({json:{episodes:[],next:null,capabilities,mine:{episodes:[],requests:[]}}});
+  if(action==='paper')return route.fulfill({json:{episode:null,job:null,capabilities}});
+  if(action==='source'){digest=createHash('sha256').update(body.text as string).digest('hex');
+   return route.fulfill({json:{source:{text_sha256:digest,bytes:Buffer.byteLength(body.text as string),format:'paper-context-v2'}}});}
+  if(action==='quote')return route.fulfill({json:{quote:{id:'b0000000-0000-4000-8000-000000000001',expires_at:new Date(Date.now()+60_000).toISOString(),max_credits:150,
+   target_seconds:300,estimate:'Estimate: up to 150 credits',providers:['Anthropic (script)','Google Vertex AI (speech)'],consent_version:'podcast-private-v1'}}});
+  throw new Error(`Unexpected podcast action: ${action}`);
+ });
+ await retiredLibrary(page);
+ await page.getByTestId('library-table').getByRole('link',{name:'A paper from before the HTML reader',exact:true}).click();
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('math').first()).toBeVisible({timeout:20000});
+ await page.getByTestId('podcast-paper-listen').click();
+ await expect(page.getByTestId('podcast-confirm')).toBeEnabled();
+ await expect(page.getByText('Open this paper first')).toHaveCount(0);
+ const source=calls.find(c=>c.action==='source')!,quote=calls.find(c=>c.action==='quote')!;
+ expect(source.body.format).toBe('paper-context-v2');expect(String(source.body.text)).toContain('¶1');
+ expect(quote.body.item_id).toBe(legacy);
+ expect(quote.body.device_source).toMatchObject({source:'arxiv',source_id:'2601.01234',revision:2,text_sha256:digest,title:'A paper from before the HTML reader'});
+ expect((quote.body.device_source as {manifest_sha256:string}).manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
 });
 
 for(const render of ['unavailable','available'])

@@ -52,7 +52,7 @@ export function addOutcome(result: AddPaperResult): AddOutcome {
   switch (result.status) {
     case 'added': return outcome(`Added ${named ?? 'the paper'}. It’s being prepared to read.`, true);
     case 'present': return outcome(`${named ?? 'This paper'} is already in your library.`, true);
-    case 'closed': return outcome(`${named ?? 'This paper'} isn’t openly available. If you have the PDF, ${PDF_ACTION}; it will be converted for you alone.`);
+    case 'closed': return outcome(`${named ?? 'This paper'} isn’t openly available. If you have the PDF, ${PDF_ACTION}; it stays on this device.`);
     case 'blocked': {
       const why = result.reason === 'pdf_restricted' ? 'This paper’s website needs a sign-in or subscription, so our servers can’t download it.'
         : result.reason === 'source_unavailable' ? 'The paper’s website isn’t responding to our servers.'

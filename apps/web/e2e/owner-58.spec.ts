@@ -35,7 +35,7 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await expect(privacy.getByRole('heading', { level: 3 })).toHaveText(['Your notes and conversations', 'AI answers', 'Papers and arXiv', 'Reports']);
   const arxiv = privacy.getByTestId('privacy-arxiv');
   await expect(arxiv).toContainText('Papers open from the official web version or PDF that arXiv publishes. Your device downloads them directly from arXiv when you open a paper, and prepares them for reading on the device, for you alone. A PDF you open comes straight from arXiv in a new tab.');
-  await expect(arxiv).toContainText('Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.');
+  await expect(arxiv).toContainText('Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv and keep no copies of papers; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.');
   await expect(arxiv).toContainText('Requests to arXiv are spaced out, name Gradstep, and stop for a day if arXiv asks this device to slow down, as arXiv’s API Terms of Use require. Each paper stays under its authors’ license, with a link back to arXiv.');
   await expect(arxiv.getByRole('link', { name: 'arXiv API Terms of Use' })).toHaveAttribute('href', 'https://info.arxiv.org/help/api/tou.html');
   await expect(arxiv).toContainText('Thank you to arXiv for use of its open access interoperability.');
@@ -54,9 +54,18 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await tip.focus(); await page.keyboard.press('Enter');
   await expect(options.getByText('Lets the assistant draw diagrams')).toBeVisible();
   await expect(tip).toHaveAttribute('aria-expanded', 'true');
-  await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-ai-chat-options-info.png` });
+  // The rest of the screen darkens while the bubble shows (owner, build 59); the bubble itself stays bright, above it.
+  const scrim = page.getByTestId('info-scrim');
+  await expect(scrim).toBeVisible();
+  expect(await scrim.evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgba(0, 0, 0, 0.4)');
+  const bubble = options.getByText('Lets the assistant draw diagrams'), at = (await bubble.boundingBox())!;
+  expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.info-tip-text'), [at.x + at.width / 2, at.y + at.height / 2])).toBe(true);
+  await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-ai-chat-options-info.png`, animations: 'disabled' });
   await page.keyboard.press('Escape');
-  await expect(options.getByText('Lets the assistant draw diagrams')).toBeHidden();
+  await expect(options.getByText('Lets the assistant draw diagrams')).toBeHidden(); await expect(scrim).toHaveCount(0);
+  // A press anywhere else hides it too, and only it.
+  await tip.click(); await expect(scrim).toBeVisible();
+  await page.mouse.click(5, 5); await expect(scrim).toHaveCount(0); await expect(options).toBeVisible();
   await expect(options).toBeVisible(); // Esc on the ⓘ hides only its text
   await expect(page.getByTestId('visual-answers')).toBeChecked(); // the ⓘ never toggles the setting it explains
 });

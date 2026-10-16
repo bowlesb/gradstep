@@ -1,7 +1,7 @@
 // Answer options (chat redesign from build 57, docs/architecture/CHAT.md 2026-10-16): the reader chooses the model and
 // the length; effort is chosen automatically where the server offers it. The chat's ⋯ menu opens Answer options for
-// this chat; Settings › AI chat options (the account menu) sets what new chats start with and explains each model and
-// its usual cost. Estimates and labels come from the server's published table; nothing here decides a price or limit
+// this chat; AI chat options (the account menu) sets the Default options for new chats, and its ⓘ, About AI chat
+// options, explains each model and its usual cost. Estimates and labels come from the server's published table; nothing here decides a price or limit
 // (the chat function holds and charges).
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { EFFORTS, effortOption, hasAutoEffort, LENGTHS, lengthOption, listedModels, MODEL_STRENGTHS, modelOption, modelProvider, offersModelLength,
@@ -57,7 +57,7 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
   </div>;
 }
 
-/** The chat's ⋯ › Answer options: Model, Length, Use for new chats and the link to Settings › AI chat options. Nothing else. */
+/** The chat's ⋯ › Answer options: Model, Length, Use for new chats and the link to About AI chat options. Nothing else. */
 export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoice, onChange, onMakeDefault, onRetry, onAbout }: {
   open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; defaultChoice: ProfileChoice;
   onChange: (choice: ProfileChoice) => void; onMakeDefault: (choice: ProfileChoice) => void; onRetry: () => Promise<void>; onAbout: () => void;
@@ -79,20 +79,40 @@ export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoic
 
 const range = (e: Estimate) => e.low === e.high ? `${e.low}` : `${e.low}–${e.high}`;
 
-/** Account menu › AI chat options (formerly Chat defaults): what new chats start with in this browser, each model in a
- * little more detail, and the usual credits per question from the server's published estimates. */
-export function ChatOptionsDialog({ open, onClose, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers }: {
-  open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; onChange: (choice: ProfileChoice) => void; onRetry: () => Promise<void>;
+/** Account menu › AI chat options (formerly Chat defaults), as the app's Settings since build 59 (owner: "it should say
+ * default options for new chats… the actual toggles belong with the rest of the toggles, all the info can stay in the
+ * special info section… accessible with another info icon"): Default options for new chats (Model, Length, Visual
+ * answers), and behind its ⓘ, About AI chat options: each model in a little more detail, who processes it, and the
+ * usual credits per question from the server's published estimates. Answer options' "About AI chat options" opens the
+ * About view directly. */
+export type ChatOptionsView = 'defaults' | 'about';
+export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers }: {
+  open: boolean; onClose: () => void; view: ChatOptionsView; onView: (view: ChatOptionsView) => void;
+  table: ProfileTable | null; choice: ProfileChoice; onChange: (choice: ProfileChoice) => void; onRetry: () => Promise<void>;
   visualAnswers?: boolean; onVisualAnswers?: (on: boolean) => void;
 }) {
   const models = listedModels(table), auto = hasAutoEffort(table);
-  return <Dialog open={open} onClose={onClose} title="AI chat options" wide className="chat-options">
-    <h2 className="with-info">AI chat options <InfoTip text="New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options." testID="chat-options-info" /></h2>
+  if (view === 'defaults') return <Dialog open={open} onClose={onClose} title="AI chat options" className="chat-options">
+    <div className="chat-options-heading">
+      <h2>Default options for new chats</h2>
+      <button type="button" className="info-tip-button" aria-label="About AI chat options" title="About AI chat options" onClick={() => onView('about')}
+        data-testid="chat-options-about"><Icon name="info" size={14} /></button>
+    </div>
+    <p className="fine">New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options.</p>
     <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />
-    <p className="fine" data-testid="effort-note">{auto ? 'Effort is chosen automatically for each question: harder questions and longer answers get more thinking.'
-      : `Answers use ${effortOption(table, EFFORTS.includes(choice.effort) ? choice.effort : 'low').label.toLowerCase()} effort.`}</p>
     {onVisualAnswers && <label className="check-row"><input type="checkbox" checked={visualAnswers ?? true} onChange={e => onVisualAnswers(e.target.checked)} data-testid="visual-answers" />
       <span className="with-info">Visual answers <InfoTip text="Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose." testID="visual-answers-info" /></span></label>}
+    {!table && <p className="fine">Answer options couldn’t be loaded. <RetryOptions onRetry={onRetry} /></p>}
+    <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
+  </Dialog>;
+  return <Dialog open={open} onClose={onClose} title="AI chat options" wide className="chat-options">
+    <div className="chat-options-heading">
+      <button type="button" className="link" onClick={() => onView('defaults')} data-testid="chat-options-back"><Icon name="chevronLeft" size={14} /> Default options</button>
+      <h2>About AI chat options</h2>
+    </div>
+    <p className="fine"><span data-testid="effort-note">{auto ? 'Effort is chosen automatically for each question: harder questions and longer answers get more thinking.'
+      : `Answers use ${effortOption(table, EFFORTS.includes(choice.effort) ? choice.effort : 'low').label.toLowerCase()} effort.`}</span>
+      {' '}Change a chat’s model and length from its ⋯ menu › Answer options; new chats start with your default options.</p>
     {!table && <p className="fine">Answer options couldn’t be loaded. <RetryOptions onRetry={onRetry} /></p>}
     <section className="chat-options-section" aria-labelledby="chat-options-models">
       <h3 id="chat-options-models">Models</h3>
