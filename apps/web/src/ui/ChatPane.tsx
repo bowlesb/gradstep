@@ -209,8 +209,11 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
     }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
       {empty && <div className="chat-empty" data-testid="chat-empty">
-        <p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
-        <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p>
+        {/* With starters there is no heading, as on iPhone, iPad and Mac (owner, build 57: Gemini's empty chat). */}
+        {!(showStarters && starters.length > 0) && <>
+          <p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
+          <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p>
+        </>}
         {/* Gemini's layout (owner, build 57): three rows, a small icon and one line each, no heading; a click fills the box. */}
         {showStarters && starters.length > 0 && <div className="chat-starters" role="group" aria-label="Starter questions" data-testid="chat-starters">
           {starters.map(s => { const icon = iconName(s.icon);
