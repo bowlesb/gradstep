@@ -9,6 +9,12 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight build 55, 2026-10-15: "Couldn't open this paper" (YouZhi, 2606.05868)
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | Screenshot: "Couldn't open this paper — The HTML reader couldn't preserve an equation in this paper." | Reader (all surfaces) | One `vertical-align:-2.1pt` on one formula refused the paper (`arxiv_math_style`). Unknown math styling/attributes are now left out, not refused (revision 13). The staging-library sweep, now running the app's validator, found two more refusals in the owner's library: VideoJev (picture title, `index_title`) and The Parallelism Tradeoff (empty headings, `index_heading`), both fixed; revision 14 adds notes on figures arXiv's HTML lost, real names over template placeholders, and a footnote-mark fix. | Fixed: build 56 (rev 13), build 57 + browser (rev 14) |
+
 ## Chat, 2026-10-15: figure display, and monitoring at 100 → 1,000 people
 
 | # | Owner said | Where | Cause / plan | Status |
