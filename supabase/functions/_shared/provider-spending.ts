@@ -27,20 +27,26 @@ async function identity(deps: SpendingDependencies, route: Route, ordinal: numbe
     requestSHA: `\\x${requestSHA}` };
 }
 
-async function admit(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
-  route: Route, model: string, ceiling: number, units: Units): Promise<boolean> {
+/** Whether the database granted this send; `reason` is its refusal (`operation_ceiling`: the request no longer fits the
+ * operation's hold), null when granted or when the admission itself could not be read. */
+async function admission(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
+  route: Route, model: string, ceiling: number, units: Units): Promise<{ granted: boolean; reason: string | null }> {
   try {
     const result = await deps.rpc('worker_provider_attempt_begin', {
       p_account_id: deps.accountID, p_operation_id: deps.operationID, p_attempt_id: attempt.id,
       p_provider: provider, p_route: route, p_model: model, p_request_sha256: attempt.requestSHA,
       p_ceiling_microusd: ceiling, p_reserved_units: units,
-    }) as { granted?: unknown } | null;
-    return result?.granted === true;
+    }) as { granted?: unknown; reason?: unknown } | null;
+    return { granted: result?.granted === true, reason: typeof result?.reason === 'string' ? result.reason : null };
   } catch {
     // The transaction may have committed. Never retry into another send grant.
     deps.log?.({ event: 'provider_admission_unavailable', operation_id: deps.operationID, attempt_id: attempt.id, provider, route });
-    return false;
+    return { granted: false, reason: null };
   }
+}
+async function admit(deps: SpendingDependencies, attempt: Awaited<ReturnType<typeof identity>>, provider: string,
+  route: Route, model: string, ceiling: number, units: Units): Promise<boolean> {
+  return (await admission(deps, attempt, provider, route, model, ceiling, units)).granted;
 }
 
 async function finish(deps: SpendingDependencies, attemptID: string, state: State, requestID: string | null,
@@ -77,17 +83,19 @@ export function admittedAnthropic(deps: SpendingDependencies,
     // web_search_20250305 has no enforceable result-token ceiling. The old
     // 30k estimate is not a hard cap. A policy flag alone cannot bypass the
     // missing context-bound quote: keep this route gated until implemented.
-    if (search) return unavailable();
+    if (search) return { ...unavailable(), cause: 'server' };
     // The requested model's own hold rule (chat profiles, the title's Haiku request), never a fixed Sonnet card.
     const hold = holdForParams(params);
     const ceiling = hold.microusd + (maxSearches ? webSearchHoldMicrousd(hold.inputTokens, maxSearches, params.model) : 0);
-    if (!await admit(deps, attempt, providerForModel(params.model), 'chat', params.model, ceiling,
-      { output_tokens: params.max_tokens, web_searches: maxSearches })) return unavailable();
+    const granted = await admission(deps, attempt, providerForModel(params.model), 'chat', params.model, ceiling,
+      { output_tokens: params.max_tokens, web_searches: maxSearches });
+    // Not sent: our own bound when the round no longer fits the hold, else our server (a pause, capacity, a lost reply).
+    if (!granted.granted) return { ...unavailable(), cause: granted.reason === 'operation_ceiling' ? 'limit' : 'server' };
     let outcome: ProviderOutcome;
     try { outcome = await generate(params, options); }
     catch {
       await finish(deps, attempt.id, 'unknown', null, null, {}, 'transport_unknown');
-      return { ...unavailable(), exact: false };
+      return { ...unavailable(), exact: false, cause: 'server' };
     }
     const units = outcome.attempts.reduce((sum, item) => ({
       input_tokens: sum.input_tokens + item.usage.input,
@@ -102,7 +110,7 @@ export function admittedAnthropic(deps: SpendingDependencies,
       { ...units, web_searches: outcome.webSearches ?? 0, attempts: outcome.attempts.length }, outcome.failure);
     // Stop here when the exact result could not be recorded, instead of sending
     // another round under headroom the database cannot know is available.
-    return recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false };
+    return recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false, cause: 'server' };
   };
 }
 

@@ -157,6 +157,20 @@ export interface Health {
     last_hour: { provider: string; calls: number; failed: number; throttled: number; breaker_open: number; latency_ms_avg: number | null }[];
     breakers: { provider: string; state: 'open' | 'half_open'; reopen_at: string | null }[];
   };
+  /** Migration 079 (RESILIENCE.md fix 1): operations whose provider cost passed their ceiling. Recorded, never a pause by
+   * itself; more than `pause_after` within `window_minutes` pause the month (the tripwire). Absent on older servers. */
+  anomalies?: {
+    pause_after: number; window_minutes: number; in_window: number; last_24h: number; last_24h_test: number;
+    recent: { at: string; kind: 'attempt_over_ceiling' | 'operation_over_ceiling'; operation_kind: string; ceiling_microusd: number;
+      observed_microusd: number; paused_month: boolean; test_account: boolean }[];
+  };
+  /** Migration 079 (CHAT.md "When an answer stops early"): chat answers by how they ended over the window, the provider
+   * cost Gradstep absorbed, and real accounts over the daily number of unpaid early endings (never blocked). */
+  early_endings?: {
+    attention_daily: number; answers: number; uncharged: number; absorbed_microusd: number; by_ending: Record<string, number>;
+    today: { uncharged: number; absorbed_microusd: number };
+    accounts_over_today: { account_id: string; uncharged: number; absorbed_microusd: number }[];
+  };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

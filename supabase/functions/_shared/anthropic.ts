@@ -368,6 +368,10 @@ export interface ProviderOutcome {
   webSearches?: number;
   /** Web sources cited by the answer (must be shown with it). */
   sources?: { url: string; title: string | null }[];
+  /** Why a failed outcome failed when it was not the provider's doing (2026-10-16, CHAT.md "When an answer stops
+   * early"): `server`, our own server (an admission it could not grant or record, a fault in our code); `limit`, our own
+   * bound (the next round no longer fits the hold or the search allowance). Absent: the provider failed. */
+  cause?: 'server' | 'limit';
 }
 
 /**

@@ -60,6 +60,27 @@ DataCite on our servers, so our servers never contact arXiv. New papers show abo
 - Migration 075 sets the three switches and records them in the admin audit log. Server arXiv calls that remain (the
   metadata stage, chat's find-paper and references) and the rest of the rollout: ARXIV_DEVICE_ONLY.md §6.0.2.
 
+## Overruns and answers that stop early (owner decided 2026-10-16; on staging)
+
+Owner answers: on containing overruns, "Yes, I agree with your suggestions"; on failed answers, "we need to better
+define the situation. If we were charged by the provider, the onus is now on us to provide the value back to the
+owner."
+
+- **Overruns are contained.** An operation whose actual or uncertain provider cost exceeds its ceiling is recorded (a
+  `budget_anomaly` row) and shown in the admin's Health › Attention; it no longer pauses the month. The month pauses
+  only when spent + reserved + a new hold would pass the hard monthly limit (unchanged), when more than 5 operations
+  overrun within a rolling hour (the tripwire; counted afresh after it pauses), or when an operator pauses it.
+- **The reader pays for work that finishes, or for the part of an answer they chose to stop.** The provider failing or
+  overloading, our server failing, our own time limit (130 s) or length limit (`max_tokens`), the connection between our
+  server and the reader dropping, and a refusal cost the reader nothing; Gradstep pays the provider and the cost is
+  recorded as absorbed, in the month's spend and on Health, never hidden. Partial text stays the reader's. Per-feature
+  definitions: [CHAT.md](architecture/CHAT.md#when-an-answer-stops-early--2026-10-16); podcasts already worked this way.
+- **Agent decisions (reversible):** a Stop is told apart from a dropped connection only when the app says so
+  (`stop_signal` and `v1_chat_stop`); builds up to 60 keep today's rule (a closed stream is charged as a Stop). More
+  than 20 unpaid early endings for one account in a UTC day raise an Attention line; the reader is never blocked. An
+  undelivered title, suggestion or map update is Gradstep's. Built: migration 079 and the chat function (staging,
+  2026-10-16); the clients' copy and Stop call are not built yet ([RESILIENCE.md](architecture/RESILIENCE.md#fix-1-and-early-endings-as-built--2026-10-16)).
+
 ## Agent v2 and framework stance (agent decisions, 2026-10-14; reversible)
 
 The owner asked for a materially better chat agent ("new tools, new capabilities, better performance, more stable,

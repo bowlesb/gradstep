@@ -28,6 +28,14 @@ What the server cannot see is said on the page, not guessed: reading happens on 
 and compiled there), so a reader's preparation failures reach the owner through TestFlight and support reports only.
 Counting them would need a new, consented device report; that is a separate decision.
 
+**Added 2026-10-16 (migration 079, [RESILIENCE.md](RESILIENCE.md#fix-1-and-early-endings-as-built--2026-10-16)).**
+Attention lists operations that cost more than their ceiling in the last 24 hours (recorded, not paused; the largest,
+and how many count toward the hourly tripwire), says when the tripwire paused new paid work, and names any real
+account with more than 20 answers that ended early without charge today, with what Gradstep paid (they are still
+served). "Is it working?" shows answers not charged over the window and the provider cost Gradstep absorbed for them
+(`v1_admin_health.early_endings`; `anomalies`). Not yet deployed to `admin.gradstep.ai`; the database side is live on
+staging.
+
 ## Who counts
 
 Test accounts are left out of the people and use graphs: an Auth address ending `@example.invalid` (the live smoke
