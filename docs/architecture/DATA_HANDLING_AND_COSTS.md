@@ -107,7 +107,7 @@ Storage's own listing (Storage API, recursive) and `storage.objects` agree, and 
 
 | Bucket / prefix | Objects | Bytes | What it is |
 |---|---:|---:|---|
-| `paper-assets/originals/` | 28 | 209,137,904 | Shared PDFs (CC BY/CC0 approvals) |
+| `paper-assets/originals/` | 28 | 209,137,904 | Shared-catalog PDFs |
 | `paper-assets/private/<account>/originals/` | 47 | 170,668,581 | Private PDFs, 9 accounts (`legacy_private` arXiv conversions and web papers) |
 | `paper-assets/raw/<sha>/` | 300 | 163,482,296 | Mathpix output: `standalone.mmd`, `lines.json`, `output.mmd.zip`, `manifest.json` (75 runs) |
 | `paper-assets/reader/<sha>/` | 1,256 | 105,979,674 | Server reader bundles: `index.html`, `reader.json`, figures, manifest, notices (75 bundles) |
@@ -160,6 +160,22 @@ unresolved); (2) `worker_paper_copies_project` recomputes and emits the library 
 file goes; (3) page by page, removes the files from Storage, lists their folders again, and only then confirms them
 `deleted`; (4) removes any untracked object on a pipeline path (anything else stops the run); (5) lists Storage again:
 zero objects in the paper buckets, controls unchanged, zero tracked live. Counts only go to `.artifacts/paper-copies/`.
+
+### Evidence (staging, 2026-10-16)
+
+- Migration 080 applied and verified in the ledger after 079. Browser deployed first (Pages `768a86a0`, then
+  `afa4262f`), so the browser never saw an unavailable row without the new reading rules; How Gradstep works now says
+  the earlier copies were deleted (browser `e855f3c6`; the apps from their next build).
+- `delete-paper-copies.mjs --apply`: retired at 06:35:52 UTC; 172 availability rows marked; 96 library rows projected;
+  1,631 objects (649,268,455 bytes) removed in two pages, each re-listed before it was confirmed; 0 untracked objects;
+  complete at 06:36:42 UTC. Report: `.artifacts/paper-copies/2026-10-16T06-35-52-126Z-apply.json` (counts only).
+- Afterwards: Storage lists 0 objects in `paper-assets` and `paper-uploads`; `storage.objects` holds only
+  `podcast-assets` (18 objects, 12,308,378 bytes, as before); the 1,749 tracked `paper-assets` rows are all `deleted`;
+  every library projection is unavailable/unavailable.
+- Server answers on real rows, in rolled-back transactions: legacy arXiv item `reader_unavailable`,
+  `document_unavailable`, no podcast pin, device-text chat accepted; web item the same, device text refused.
+- `storage.no-papers` passed and was recorded locally and from the hosted job's new image.
+- No provider spend. Storage use falls by 649 MB; the Supabase plan's fixed cost is unchanged.
 
 ### Keeping it at zero
 

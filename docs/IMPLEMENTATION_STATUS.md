@@ -1,6 +1,39 @@
 # Implementation status
 
-Updated 2026-10-15 PDT (reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (server paper copies deleted; reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+
+## Server paper copies deleted on staging — 2026-10-16, 06:36 UTC
+
+Owner: "Yes, we can even delete them now, so it's obvious we have zero on our system" (design, inventory and client
+behaviour: DATA_HANDLING_AND_COSTS.md "Server paper copies: retired").
+
+- **Deleted:** 1,631 objects, 649,268,455 bytes (619.2 MiB), all of `paper-assets`: originals 28 (209.1 MB), private
+  47 (170.7 MB), raw 300 (163.5 MB), reader 1,256 (106.0 MB), from 86 documents (75 still had files). `paper-uploads`
+  was already empty. Storage's listing and `storage.objects` now show 0 paper objects; 0 tracked live. Controls
+  unchanged: `podcast-assets` 18 objects / 12,308,378 bytes before and after; `private-content` and `support` 0.
+- **Migration 080** applied after 079 (ledger verified): retirement RPCs, a fence refusing new paper-copy rows,
+  `document_unavailable` for chat on a deleted text, local-context chat for legacy arXiv items. Rows kept; 1,749
+  `paper-assets` rows are `deleted`; 172 availability rows and all 96 library rows (23 accounts) say unavailable at a
+  newer revision, ids kept.
+- **Probed on real rows (rolled back):** a legacy arXiv item answers `reader_unavailable`, `document_unavailable`, no
+  podcast pin, and accepts device-text chat; a web item answers the same and refuses device text.
+- **Browser** deployed from this branch before the deletion (Pages `768a86a0` then `afa4262f`), and again with How
+  Gradstep works saying the earlier copies were deleted (`efa73b53` then `e855f3c6`): legacy arXiv items open from
+  arXiv and ask with the tab's text; no-HTML revisions offer the PDF; papers from other sites say "No reading copy".
+  The apps' How Gradstep works sentence changes with their next build.
+  **Native 57–60 unchanged:** they stop asking `reader-artifact` (the row is unavailable), open arXiv items from arXiv,
+  keep installed copies, say "no reading copy on the server" for web papers; chat on a legacy item says "isn't ready
+  for questions yet" until a native build sends device text (server ready).
+- **Guard:** `storage.no-papers` (all suites) passed recorded, locally (run `ff75035f`) and on the hosted job (image
+  `e1139ca-1792132666`, run `963fdb5a`); schedules unchanged.
+- **Tests:** database suite (full, plus 079+080 together); backend 597 pass, 1 skip; operations 16; egress scan; browser
+  units 434; browser journeys reader, chat, parity, arxiv-html, podcast-workspace, resilience, layout and the new
+  server-copies-retired on desktop and phone: 81 passed, 15 skipped by their own conditions; Swift Core LibraryReconciler
+  and OfflineCache, 54; app LegacyArxivReaderTests and OfflineModelTests on the iPhone 17 Pro Max Simulator, 19. The
+  compiler-freshness gate fails only when built from a `.claude/worktrees` path (identical 58 inputs; built from the
+  main checkout it equals the committed bundle).
+- **Not covered:** 7-day database backups still name the deleted files (no bytes); encrypted manual checkpoints on the
+  developer's Mac (`.artifacts/backups/`, Oct 3–9) include them; Mathpix's own retention.
 
 ## Releases — 2026-10-16
 
