@@ -37,7 +37,7 @@ function png(width: number, height: number, pixels: Uint8ClampedArray): Uint8Arr
 
 /** SVG is rasterized only after rejecting every executable/external resource.
  * It is decoded as an image under a no-network host CSP, never inserted into DOM. */
-function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height: number } {
+export function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height: number } {
   const source = decodeUTF8(input);
   // arXiv/Matplotlib SVG often has a public SVG doctype. Remove only that exact
   // declaration, never entities or an internal subset, before XML parsing.
@@ -48,7 +48,7 @@ function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height
   check(root.localName === 'svg' && !doc.querySelector('parsererror'), 'svg_invalid');
   const allowed = new Set(['svg','g','defs','path','rect','circle','ellipse','line','polyline','polygon','text','tspan','textPath','use',
     'symbol','clipPath','mask','linearGradient','radialGradient','stop','pattern','title','desc','style','metadata']);
-  const ids = new Set<string>(), fragments = new Set<string>(); let count = 0;
+  const ids = new Set<string>(), duplicates = new Set<string>(), fragments = new Set<string>(), styles: string[] = []; let count = 0;
   const safeCSS = (css: string) => {
     check(!/[@\\<>]|expression\s*\(|(?:https?|data|javascript):/i.test(css), 'svg_style');
     for (const match of css.matchAll(/url\s*\(([^)]*)\)/gi)) {
@@ -59,7 +59,9 @@ function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height
   function visit(node: Element, depth: number) {
     check(++count <= 100_000 && depth <= 100 && node.namespaceURI === 'http://www.w3.org/2000/svg' && allowed.has(node.localName), 'svg_element');
     if (node.localName === 'metadata') { node.remove(); return; }
-    if (node.id) { check(!ids.has(node.id), 'svg_id'); ids.add(node.id); }
+    // An id given twice (2610.19820's teaser: two Illustrator layers both "layer_1") is kept on its first element; a
+    // later copy loses it, which changes nothing unless something refers to that id (checked below).
+    if (node.id) { if (ids.has(node.id)) { duplicates.add(node.id); node.removeAttribute('id'); } else ids.add(node.id); }
     for (const attr of Array.from(node.attributes)) {
       // MuPDF's vector glyphs carry their source character in data-text. It is
       // metadata, not CSS or rendered text; the referenced glyph path remains.
@@ -69,11 +71,13 @@ function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height
       if (attr.localName === 'href') { check(/^#[A-Za-z_][A-Za-z0-9_.:-]*$/.test(attr.value), 'svg_resource'); fragments.add(attr.value.slice(1)); }
       else safeCSS(attr.value);
     }
-    if (node.localName === 'style') safeCSS(node.textContent ?? '');
+    if (node.localName === 'style') { safeCSS(node.textContent ?? ''); styles.push(node.textContent ?? ''); }
     for (const child of Array.from(node.children)) visit(child, depth + 1);
   }
   visit(root, 0);
   check([...fragments].every(id => ids.has(id)), 'svg_fragment');
+  // A reference to an id given twice (a fragment, or a style selector naming it) would be ambiguous: not drawn.
+  check([...duplicates].every(id => !fragments.has(id) && !styles.some(css => css.includes('#' + id))), 'svg_id');
   const dimension = (s: string | null) => {
     const m = /^(\d+(?:\.\d+)?)(px|pt)?$/.exec(s ?? '');
     return m ? Number(m[1]) * (m[2] === 'pt' ? 4 / 3 : 1) : null;
@@ -82,8 +86,14 @@ function svgImage(input: Uint8Array): { bytes: Uint8Array; width: number; height
   const w = dimension(root.getAttribute('width')) ?? (view.length === 4 ? view[2] : NaN);
   const h = dimension(root.getAttribute('height')) ?? (view.length === 4 ? view[3] : NaN);
   check(Number.isFinite(w) && Number.isFinite(h) && w! > 0 && h! > 0, 'svg_dimensions');
-  const width = Math.ceil(w! * 2), height = Math.ceil(h! * 2);
-  check(width <= LIMITS.imageDimension && height <= LIMITS.imageDimension && width * height <= LIMITS.imagePixels, 'image_dimensions');
+  let width = Math.ceil(w! * 2), height = Math.ceil(h! * 2);
+  if (width > LIMITS.imageDimension || height > LIMITS.imageDimension || width * height > LIMITS.imagePixels) {
+    // A picture too large to draw at twice its size (2610.16784's 1,802 × 1,275 pt data-engine diagram, refused
+    // `image_dimensions` on build 58) is drawn at the largest size the reader allows: it is a vector, and the pixel
+    // budget below keeps fewer pixels than that anyway.
+    const scale = Math.min(LIMITS.imageDimension / w!, LIMITS.imageDimension / h!, Math.sqrt(LIMITS.imagePixels / (w! * h!)));
+    width = Math.max(1, Math.floor(w! * scale)); height = Math.max(1, Math.floor(h! * scale));
+  }
   root.setAttribute('width', String(width)); root.setAttribute('height', String(height));
   return { bytes: utf8(new XMLSerializer().serializeToString(root)), width, height };
 }
@@ -133,6 +143,18 @@ async function raster(input: Uint8Array, svg: boolean, budget = PIXEL_CAP): Prom
   } finally { clearTimeout(timer); image.removeAttribute('src'); }
 }
 
+/** One image's own refusals (revision 15; `raster` and `svgImage` above, the shared inspector's codes, the browser's
+ * decode errors): an SVG the admission refuses, a raster too large to read or not a PNG/JPEG, a decode that fails or
+ * times out, a drawing that encodes too large. That figure says it couldn't be shown; every other refusal (the
+ * paper's totals, its structure, the host's inputs) still refuses the paper. */
+const UNPREPARABLE = new Set(['utf8_invalid', 'svg_doctype', 'svg_invalid', 'svg_element', 'svg_id', 'svg_attribute', 'svg_resource',
+  'svg_style', 'svg_fragment', 'svg_dimensions', 'image_dimensions', 'image_dimensions_exceeded', 'invalid_image', 'image_decode',
+  'image_timeout', 'image_limit']);
+export function unpreparable(error: unknown): boolean {
+  const e = typeof error === 'object' && error !== null ? error as { message?: unknown; name?: unknown } : {};
+  return UNPREPARABLE.has(String(e.message)) || ['EncodingError', 'SecurityError', 'InvalidStateError'].includes(String(e.name));
+}
+
 /** The catalog record the compile may lean on (names that were graphics, a paper without an `h1`), bounded. */
 function convertOptions(options?: { authors?: unknown; title?: unknown }) {
   const authors = Array.isArray(options?.authors) ? options!.authors.filter((a): a is string => typeof a === 'string').slice(0, 64).map(a => a.slice(0, 256)) : [];
@@ -147,7 +169,7 @@ export async function prepare(source64: string, sourceID: string, revision: numb
   const source = decode64(source64, ARXIV_SOURCE_BYTES), urls = assets(source64, sourceID, revision, options);
   check(Array.isArray(inputs) && inputs.length === urls.length && new Set(inputs.map(i => i.url)).size === inputs.length &&
     inputs.every(i => urls.includes(i.url)), 'arxiv_asset_set');
-  const images = new Map<string, ArxivImage>(); let bytes = source.length, pixels = 0;
+  const images = new Map<string, ArxivImage | null>(); let bytes = source.length, pixels = 0;
   const inline = arxivInlineImages(decodeUTF8(source), arxivHTMLURL(sourceID, revision), { authors, title });
   check(inputs.length + inline.size <= LIMITS.archiveImages, 'image_limit');
   function* decodeInputs() {
@@ -157,8 +179,13 @@ export async function prepare(source64: string, sourceID: string, revision: numb
   const budget = pixelBudget(inputs.length + inline.size);
   for (const input of decodeInputs()) {
     const data = input.data; bytes += data.length; check(bytes <= LIMITS.bundleBytes, 'bundle_limit');
-    const image = await raster(data, input.svg, budget); pixels += image.width * image.height;
-    check(pixels <= LIMITS.totalImagePixels, 'image_total_limit'); images.set(input.key, image);
+    let image: ArxivImage | null;
+    // One image this device can't prepare is that figure's loss, never the paper's: its figure says so and points to
+    // the PDF (arxiv/figures.ts). Only the paper's totals (bytes, pixels, image count) refuse.
+    try { image = await raster(data, input.svg, budget); }
+    catch (error) { if (!unpreparable(error)) throw error; image = null; }
+    if (image) { pixels += image.width * image.height; check(pixels <= LIMITS.totalImagePixels, 'image_total_limit'); }
+    images.set(input.key, image);
   }
   const bundle = composeArxivReader({ source, sourceID, revision, images, authors, title });
   validateHTML(bundle.members.get('index.html')!, bundle.index,

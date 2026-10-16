@@ -8,6 +8,9 @@ import type { ReaderIndex } from '../render.ts';
 
 export type Child = OutNode | string;
 export type HTMLImage = { path: string; width: number; height: number };
+/** What the host admitted for an image URL: the published image, or `null` when this device couldn't prepare it (an SVG
+ * its admission refuses, a raster too large to read, a decode that fails: device-compiler.ts). Its figure says so. */
+export type ResolveImage = (url: string) => HTMLImage | null;
 
 export interface ArxivConvertOptions {
   /** The library's author names for this paper, used when the HTML's own names are graphics or missing. */
@@ -56,7 +59,7 @@ export interface Block { id: string; kind: string; node: OutNode }
 export interface ArxivContext {
   readonly root: DomNode;
   readonly sourceURL: string;
-  readonly resolveImage: (url: string) => HTMLImage;
+  readonly resolveImage: ResolveImage;
   readonly options: ArxivConvertOptions;
   /** The library's author names, cleaned (at most 64). */
   readonly metadataAuthors: string[];
@@ -77,6 +80,8 @@ export interface ArxivContext {
   readonly links: { node: OutNode; target: string }[];
   readonly imageURLs: Set<string>;
   readonly figureImages: Map<string, OutNode[]>;
+  /** Per figure block: the images this device couldn't prepare (`ResolveImage` gave null). */
+  readonly unshownImages: Map<string, number>;
   /** Blocks the converter made up from metadata (a catalog title or author line), not the paper's own. */
   readonly synthetic: Set<OutNode>;
   issued: number;
@@ -91,13 +96,13 @@ export interface ArxivContext {
   readonly templateAffiliations: { mark: string; text: string }[];
 }
 
-export function createContext(root: DomNode, sourceURL: string, resolveImage: (url: string) => HTMLImage, options: ArxivConvertOptions,
+export function createContext(root: DomNode, sourceURL: string, resolveImage: ResolveImage, options: ArxivConvertOptions,
   digest: string, dropped: number): ArxivContext {
   const metadataAuthors = (Array.isArray(options.authors) ? options.authors : []).filter(a => typeof a === 'string')
     .map(a => normalizeSpace(a)).filter(Boolean).slice(0, 64).map(a => a.slice(0, 256));
   const metadataTitle = typeof options.title === 'string' ? normalizeSpace(options.title).slice(0, 2000) : '';
   return { root, sourceURL, resolveImage, options, metadataAuthors, metadataTitle, digest, blocks: [], top: [], equations: [], figures: [],
-    usedMath: new Set(), skippedMath: new Set(), aliases: new Map(), links: [], imageURLs: new Set(), figureImages: new Map(), synthetic: new Set(),
+    usedMath: new Set(), skippedMath: new Set(), aliases: new Map(), links: [], imageURLs: new Set(), figureImages: new Map(), unshownImages: new Map(), synthetic: new Set(),
     issued: 0, dropped, omittedGraphics: 0, unresolvedCitations: 0, titleSeen: false, pendingAbstract: null, templateNotes: [], templateAffiliations: [] };
 }
 
