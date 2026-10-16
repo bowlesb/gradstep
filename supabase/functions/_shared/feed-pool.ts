@@ -18,7 +18,9 @@ export interface RefreshClaim {
 export type RefreshStatus = 'updated' | 'not_modified' | 'failed' | 'busy';
 export interface RefreshOutcome { status: RefreshStatus; items: number; inserted: number; updated: number; code?: string; pool?: number }
 
-export const POOL_CATEGORY = /^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/;
+// An arXiv category: an archive (`cs`, `q-bio`, `astro-ph`) and an optional subject class (`.LG`, `.NC`, or
+// physics' lower-case `.comp-ph`). `q-bio`/`q-fin` start with one letter (egress.no-arxiv, 2026-10-16: q-bio.NC was 400).
+export const POOL_CATEGORY = /^(q-[a-z]{3,4}|[a-z]{2,8}(-[a-z]{2,6})?)(\.([A-Z]{2}|[a-z]{2,8}(-[a-z]{2,4})?))?$/;
 export const POOL_BATCH = 400;
 
 /** Authors as the pool keeps them: at most 12, the last author kept for long lists (first 11 + last). */
