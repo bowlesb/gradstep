@@ -26,6 +26,18 @@ describe('library entries', () => {
     expect(decoded.kind === 'item' && canRead(decoded)).toBe(true);
     expect(decodeEntry(imported()).kind).toBe('import');
   });
+  it('after the server copies were retired, an arXiv item still reads from arXiv; a web paper has no reading copy', () => {
+    // docs/architecture/DATA_HANDLING_AND_COSTS.md "Server paper copies: retired": unavailable at a newer revision, ids kept.
+    const retired = { readiness: 'unavailable', render_availability: 'unavailable', original_availability: 'unavailable',
+      render_availability_revision: 2, original_availability_revision: 2 };
+    const arxiv = decodeEntry(item(retired));
+    expect(arxiv.kind === 'item' && canRead(arxiv)).toBe(true);
+    const web = decodeEntry(item({ ...retired, source: 'web', source_id: 'openalex:W2741809807', source_revision: 1, source_url: 'https://example.org/paper' }));
+    expect(web.kind === 'item' && canRead(web)).toBe(false);
+    const [row] = rows([web]);
+    expect(row.readable).toBe(false);
+    expect(row.status).toEqual({ kind: 'problem', text: 'No reading copy' });
+  });
   it('rejects entries the native decoder rejects', () => {
     expect(() => decodeEntry(item({ source_url: 'https://arxiv.org/abs/2305.18290v2' }))).toThrow();
     expect(() => decodeEntry(item({ page_count: 0 }))).toThrow();

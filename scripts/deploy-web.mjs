@@ -21,6 +21,17 @@ function dotenv(path) {
   return Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
     .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '')]; }));
 }
+/** The checkout that holds .env.staging and the snapshot of the live release: this one, or, from a git worktree, the
+ * main checkout (one live release, one snapshot, whichever checkout deploys it). */
+export function sharedRoot(root, run = execFileSync) {
+  if (existsSync(join(root, '.env.staging'))) return root;
+  try {
+    const common = String(run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim();
+    const main = resolve(common, '..');
+    if (common && existsSync(join(main, '.env.staging'))) return main;
+  } catch { /* not a git checkout */ }
+  return root;
+}
 function files(dir) {
   return readdirSync(dir).flatMap(name => {
     const path = join(dir, name), stat = lstatSync(path);
@@ -84,7 +95,7 @@ export function validateClientOutput(root, directory, target, backend, env) {
 }
 export function deployWeb(target, { root = repository, buildOnly = false, publish = true, run = execFileSync, processEnv = process.env, log = console.log } = {}) {
   if (!Object.hasOwn(TARGETS, target)) fail('Usage: node scripts/deploy-web.mjs app|admin|site [--build-only]');
-  const selected = TARGETS[target], env = dotenv(join(root, '.env.staging'));
+  const selected = TARGETS[target], env = dotenv(join(sharedRoot(root), '.env.staging'));
   if (!buildOnly) for (const name of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']) if (!env[name]) fail(`${name} is missing from .env.staging`);
   let directory = join(root, selected.path);
   if (target !== 'site') {
@@ -185,8 +196,8 @@ export async function waitForMarker(host, marker, id, { fetchImpl = fetch, wait 
  * snapshot of the live release (the first phased deploy) it publishes once, as before, and keeps the snapshot. */
 export async function publishInPhases(target, dist, { root = repository, run = execFileSync, processEnv = process.env, log = console.log,
   fetchImpl = fetch, wait = ms => new Promise(r => setTimeout(r, ms)), id = Date.now().toString(36) } = {}) {
-  const env = dotenv(join(root, '.env.staging')), host = TARGETS[target].host;
-  const snapshot = join(root, '.artifacts/web-deployed', target), stageRoot = join(root, '.artifacts/web-deploy-stage', target);
+  const shared = sharedRoot(root), env = dotenv(join(shared, '.env.staging')), host = TARGETS[target].host;
+  const snapshot = join(shared, '.artifacts/web-deployed', target), stageRoot = join(shared, '.artifacts/web-deploy-stage', target);
   mkdirSync(stageRoot, { recursive: true });
   let final = dist;
   if (existsSync(join(snapshot, 'index.html'))) {

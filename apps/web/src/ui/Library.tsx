@@ -2,7 +2,7 @@ import type { DevicePDFs } from './useDevicePDFs';
 import { compactAuthors, firstAuthorLine } from '../lib/authors';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
-import { type ReaderPaper, isNewPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
+import { type ReaderPaper, isNewPaper, isReaderPaper, isSourcePaper, paperIdentity, readingSource } from '../lib/reader-paper';
 // The library on a large screen (legacy LibraryView/PaperTable density, today's data): a dense,
 // full-width table — Title, Authors, Year, Tags, Added, Opened, Progress — with sortable headers,
 // the filters in the left rail (or as chips when the rail is hidden), live import progress with
@@ -56,7 +56,7 @@ export function deviceCopy(entry: ClientEntry, prepared: boolean): DeviceCopy | 
     : { kind: 'cloud', glyph: '☁︎', label: 'Not on this device yet; choose the PDF again to read it' };
   if (!isReaderPaper(entry)) return null;
   if (prepared) return { kind: 'device', glyph: '✓', label: 'On this device (prepared in this tab)' };
-  if (isSourcePaper(entry) || (entry.readiness === 'converted_ready' && entry.render_availability !== 'quarantined'))
+  if (isSourcePaper(entry) || readingSource(entry) || (entry.readiness === 'converted_ready' && entry.render_availability !== 'quarantined'))
     return { kind: 'cloud', glyph: '☁︎', label: 'Not on this device yet; downloads when you open it' };
   return { kind: 'unavailable', glyph: '!', label: 'No readable copy on this device' };
 }

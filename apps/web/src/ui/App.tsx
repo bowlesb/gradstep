@@ -216,6 +216,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       const bundle=await prepareArxivReader(paperReference(paper)!,chat.signal,undefined,{authors:paper.metadata?.authors??[],title:paper.metadata?.title});chat.signal.throwIfAborted();
       readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
     }}])));
+    // arXiv papers from before the HTML-first reader: their chats keep the document id, their questions send this
+    // device's text (the server's copy is gone).
+    chat.setLegacyPapers(new Map(library.entries.filter((e):e is Item=>e.kind==='item'&&e.visible&&!!readingSource(e)).map(paper=>[paper.document_id,{reference:readingSource(paper)!,load:async()=>{
+      const key=readerCacheKey(account,paper),saved=readerCache.get(key);if(saved)return saved;
+      const bundle=await prepareArxivReader(readingSource(paper)!,chat.signal,undefined,{authors:paper.metadata?.authors??[],title:paper.metadata?.title});chat.signal.throwIfAborted();
+      readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
+    }}])));
   },[chat,library.entries,readerCache,account]);
   // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter and the tag are
   // remembered between visits too, as the apps remember them (owner-approved follow-up, 2026-10-07).
@@ -435,7 +442,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     else { setRailTab('contents'); ws.show('left'); }
   };
   const railVisible = ws.left.open && ws.left.inline;
-  const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
+  const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || !!readingSource(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
     if (!documentID) setChatMode('general');
