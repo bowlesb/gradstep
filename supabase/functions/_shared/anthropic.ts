@@ -19,6 +19,8 @@ export const MICROUSD_PER_CREDIT = 5_000;
 const ESTIMATED_OUTPUT_TOKENS_PER_SECOND = 100;
 
 /** Provider prices in micro-USD per token. */
+/** How long the paper block stays in Anthropic's prompt cache. */
+export const PAPER_CACHE_TTL = '1h' as const;
 export interface TokenRates { input: number; cacheWrite5m: number; cacheWrite1h: number; cacheRead: number; output: number }
 // Anthropic list prices, https://platform.claude.com/docs/en/about-claude/pricing (read 2026-10-08), $/MTok = µ$/token.
 // Claude Sonnet 5.5 and Opus 5.5 cache reads are 0.05x input ($0.10 and $0.20); other models 0.1x.
@@ -98,18 +100,27 @@ export function holdRule(model: string, promptTokens: number): { rates: TokenRat
 /**
  * Hold ceiling: every estimated input token at the cache-write rate plus the
  * whole output budget (thinking counts toward max_tokens), times the fallback
- * headroom. `inputCharacters` is the weighted count from `promptCharacters`.
+ * headroom. `inputCharacters` is the weighted count from `promptCharacters`;
+ * `hourCharacters` is the part cached for an hour (the paper, `PAPER_CACHE_TTL`),
+ * held at the one-hour write rate so a hold always covers the real write.
  */
-export function holdFor(inputCharacters: number, maxTokens = CHAT_MAX_TOKENS, model = CHAT_MODEL): { inputTokens: number; microusd: number; credits: number } {
+export function holdFor(inputCharacters: number, maxTokens = CHAT_MAX_TOKENS, model = CHAT_MODEL, hourCharacters = 0): { inputTokens: number; microusd: number; credits: number } {
   const inputTokens = estimateTokens(inputCharacters);
+  const hourTokens = Math.min(inputTokens, estimateTokens(hourCharacters));
   const { rates, attempts } = holdRule(model, inputTokens);
-  const microusd = Math.ceil((inputTokens * rates.cacheWrite5m + maxTokens * rates.output) * attempts);
+  const microusd = Math.ceil((hourTokens * rates.cacheWrite1h + (inputTokens - hourTokens) * rates.cacheWrite5m + maxTokens * rates.output) * attempts);
   return { inputTokens, microusd, credits: creditsFor(microusd) };
+}
+
+/** The characters of the system blocks cached for an hour (weighted as `promptCharacters` weighs them). */
+export function hourCachedCharacters(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): number {
+  const blocks = (Array.isArray(params.system) ? params.system : []).filter(b => (b as { cache_control?: { ttl?: string } }).cache_control?.ttl === '1h');
+  return blocks.length ? new TextEncoder().encode(JSON.stringify(blocks)).byteLength * 3 : 0;
 }
 
 /** The hold for one admitted request, from its own model, prompt and output allowance. */
 export function holdForParams(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): { inputTokens: number; microusd: number; credits: number } {
-  return holdFor(promptCharacters(params), params.max_tokens, params.model);
+  return holdFor(promptCharacters(params), params.max_tokens, params.model, hourCachedCharacters(params));
 }
 
 type Usage = Anthropic.Beta.Messages.BetaUsage;
@@ -276,7 +287,10 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
   if (input.paper) {
     const cleaned = input.paper.title?.replace(/["<>\n\r]/g, ' ').trim().slice(0, 300);
     const title = cleaned ? ` title="${cleaned}"` : '';
-    system.push({ type: 'text', text: `<paper${title}>\n${input.paper.text}\n</paper>`, cache_control: { type: 'ephemeral' } });
+    // The paper is cached for an hour (owner, 2026-10-16): readers pause longer than five minutes between questions,
+    // and each pause re-wrote the whole paper (25 % of chat input read from cache on staging). One-hour writes cost
+    // 1.6× a five-minute write and are held and settled at their own rate (`holdFor`, `priceAttempts`).
+    system.push({ type: 'text', text: `<paper${title}>\n${input.paper.text}\n</paper>`, cache_control: { type: 'ephemeral', ttl: PAPER_CACHE_TTL } });
     if (input.actionInstructions) system.push({ type: 'text', text: input.actionInstructions });
   }
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = input.turns.map((turn, index) => {

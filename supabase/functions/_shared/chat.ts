@@ -581,7 +581,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   }
   const params = makeParams(paper);
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
-  const hold = holdFor(promptCharacters(params), params.max_tokens, params.model);
+  const hold = holdForParams(params);
   if (searchOffered) {
     // Sized for Anthropic's search, which also bounds Tavily and a mid-answer switch between them.
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);

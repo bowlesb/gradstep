@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import { BUSY_RETRY_MAX_MS, retryOnceWhenBusy } from '../../supabase/functions/_shared/anthropic.ts';
 import {
-  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
+  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, holdForParams, hourCachedCharacters, PAPER_CACHE_TTL, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
@@ -127,7 +127,7 @@ test('request params cache the paper prefix and enable adaptive thinking with se
   for (const mode of ['paper', 'general'] as const) assert.match(chatInstructions(mode), /no label such as "Answer:"/);
   const system = params.system as Anthropic.Beta.Messages.BetaTextBlockParam[];
   assert.equal(system.length, 2); assert.equal(system[0].cache_control, undefined);
-  assert.deepEqual(system[1].cache_control, { type: 'ephemeral' });
+  assert.deepEqual(system[1].cache_control, { type: 'ephemeral', ttl: '1h' });
   assert.ok(system[1].text.startsWith('<paper title="A  quoted   title">\n'));
   assert.ok(system[1].text.endsWith(`${paperText}\n</paper>`));
   assert.match(system[0].text, /\\\( \.\.\. \\\)/); assert.match(system[0].text, /\\\[ \.\.\. \\\]/);
@@ -1216,7 +1216,7 @@ test('Why it matters uses only the paper: no search tool, even with Tavily ready
   assert.equal(runs.length, 0);
   // No search allowance in the hold either.
   const held = Number(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
-  assert.equal(held, holdFor(promptCharacters(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming)).microusd);
+  assert.equal(held, holdForParams(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming).microusd);
   assert.equal(h.answers[0].web_search_offered, false); assert.equal(h.answers[0].action, 'relevance');
   // Ordinary questions on the same paper still search.
   const plain = harness(); plain.deps.webSearch = true;
@@ -1335,7 +1335,7 @@ test('the paper is cached with the shared instructions; a selection action\'s ow
   const plain = request(null, true), related = request('related', true);
   const system = (params: ReturnType<typeof request>) => params.system as { text: string; cache_control?: unknown }[];
   assert.deepEqual(system(related).slice(0, 2), system(plain).slice(0, 2), 'a question and Related share the cached prefix');
-  assert.deepEqual(system(related)[1].cache_control, { type: 'ephemeral' });
+  assert.deepEqual(system(related)[1].cache_control, { type: 'ephemeral', ttl: '1h' });
   assert.equal(system(related).length, 3); assert.match(system(related)[2].text, /The reader used "Related"/);
   assert.equal(system(plain).length, 2);
   assert.match(system(request('relevance', true))[2].text, /Why it matters/);
@@ -1444,7 +1444,7 @@ test('each profile sends its model, effort, allowance and length; the paper bloc
   assert.match(system[0][2].text, /brief answers/); assert.match(system[1][2].text, /detailed answers/);
   for (const blocks of system) {
     assert.equal(blocks[0].text, system[2][0].text, 'shared instructions do not change with the profile');
-    assert.equal(blocks[1].text, system[2][1].text); assert.deepEqual(blocks[1].cache_control, { type: 'ephemeral' });
+    assert.equal(blocks[1].text, system[2][1].text); assert.deepEqual(blocks[1].cache_control, { type: 'ephemeral', ttl: '1h' });
   }
   // The answer reports which model and profile answered.
   assert.deepEqual(haiku.events.at(-1)?.data, { stop_reason: 'end_turn', credits: 1,
@@ -1478,7 +1478,7 @@ test('every admitted request fits the operation hold: the answer\'s first round 
   let reserved = 0;
   const h = harness({ script: { worker_reserve_chat: params => { reserved = Number(params.p_microusd); return { replayed: false }; } },
     generate: async (params, stream) => {
-      ceilings.push(holdFor(promptCharacters(params), params.max_tokens, params.model).microusd);
+      ceilings.push(holdForParams(params).microusd);
       if (params.model === 'claude-haiku-5-5' && params.max_tokens === 40) { stream.onText('Scaled attention'); return titleOutcome(); }
       stream.onText('An answer.'); return completeOutcome({ model: params.model });
     } });
@@ -1660,7 +1660,7 @@ test('follow-ups are held with the answer, only when asked for, and never for In
   let reserved = 0; const ceilings: number[] = [];
   const held = harness({ script: { worker_reserve_chat: params => { reserved = Number(params.p_microusd); return { replayed: false }; } },
     generate: async (params, stream) => {
-      ceilings.push(holdFor(promptCharacters(params), params.max_tokens, params.model).microusd);
+      ceilings.push(holdForParams(params).microusd);
       if (params.model === 'claude-haiku-5-5') return followUpOutcome(['One?', 'Two?']);
       stream.onText('An answer.'); return completeOutcome();
     } });
@@ -2163,4 +2163,17 @@ test('an answer that can\'t run says how long to wait (the provider\'s Retry-Aft
   const plain = harness({ generate: async () => refusedBefore({}) });
   await runChat(plain.deps, paperBody(), plain.emit, new AbortController().signal);
   assert.equal((plain.events.find(e => e.event === 'error')?.data as { retry_after?: number }).retry_after, 10);
+});
+
+test('the paper is cached for an hour: held at the one-hour write rate, settled at it, and the turn marker stays five minutes', () => {
+  const params = chatRequestParams({ instructions: 'Answer.', paper: { title: 'P', text: 'x '.repeat(20_000) }, turns: [{ role: 'user', text: 'Q' }], selection: null,
+    model: { id: 'claude-sonnet-5-5', effort: 'low' } });
+  const paperBlock = (params.system as { cache_control?: { ttl?: string } }[])[1];
+  assert.equal(PAPER_CACHE_TTL, '1h'); assert.deepEqual(paperBlock.cache_control, { type: 'ephemeral', ttl: '1h' });
+  assert.ok(hourCachedCharacters(params) > 0 && hourCachedCharacters(params) < promptCharacters(params));
+  const hourHold = holdForParams(params).microusd, fiveMinuteHold = holdFor(promptCharacters(params), params.max_tokens, params.model).microusd;
+  assert.ok(hourHold > fiveMinuteHold, 'a one-hour write costs more, and the hold covers it');
+  const rates = ratesFor('claude-sonnet-5-5', 1000).rates;
+  const priced = priceAttempts([{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 1000, cacheRead: 0, output: 0 } }]);
+  assert.equal(priced, 1000 * rates.cacheWrite1h, 'settlement prices one-hour writes at their own rate');
 });
