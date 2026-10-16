@@ -2,6 +2,23 @@
 
 Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Figure, table and equation pages: one top row; AI Explainer — 2026-10-16 (apps; not yet in a build)
+
+- Owner, build 62 (OWNER_FEEDBACK.md items 6, 7, 14; DESIGN.md "Sheet top row", "Explain actions"): every figure or
+  table page, the walkthrough and the equation view have one glass row at the top: **Explain in Chat** and **AI
+  Explainer** (tinted) as glass capsules in the bar's middle, a round **X** on the right, no title, no Done; a pushed
+  page keeps the system Back. Show in paper / previous / next stay in the bottom bar. `SheetChrome.swift`.
+- The walkthrough and the equation view open with a heading, **Figure 3 ⌄** / **Equation (4) ⌄**, a menu of the
+  paper's other figures (tables) or display equations; one switched to shows what is kept or waits for AI Explainer.
+- The tapped equation's menu item **Equation** is now **AI Explainer** and asks for the explanation at once.
+- Evidence (merged with main's figure_detail and reader batch): iPhone 17 Simulator FigureViewJourneyTests 2/2, the
+  equation view (both), installed-paper, Contents tabs/Tables/gallery and figure-reference journeys 9/9, app unit
+  `FigureViewAppTests` 3/3 (new: a figure switched to waits); iPad Pro 13 the same set 9/9 (the gallery journey once on
+  a rerun: its sample paper hadn't loaded); Mac FigureViewJourneyTests 2/2 (its Mac scroll now clears the top row) and
+  MacKeyboardTests 4/4. Screenshots reviewed: iPhone light/dark (figure page, walkthrough, table, equation view, the
+  equation menu), iPad, Mac. Not covered by a journey: switching from a heading (the fixture paper has one figure and
+  one display equation).
+
 ## Figure view: one part extracted (TestFlight 62 feedback) — 2026-10-16, ~15:50 UTC (server on staging; apps and browser built, not shipped)
 
 - Owner (build 62): "Extract the subfigure and more context… opens up a loader below, gets the info, and puts it

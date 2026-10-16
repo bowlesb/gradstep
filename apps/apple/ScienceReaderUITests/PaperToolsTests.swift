@@ -227,10 +227,11 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Figures tab")
         // A row opens the figure with its whole caption (owner, build 59), then back to the list.
         figure.tap()
-        XCTAssertTrue(app.navigationBars["Figure 1"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["figures.showInPaper"].exists)
+        // The figure's page: its top row (DESIGN.md "Sheet top row"), no title (the caption names it).
+        XCTAssertTrue(app.buttons["figures.showInPaper"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["sheet.close"].exists)
         capture(app, "A figure from Contents")
-        app.navigationBars["Figure 1"].buttons.firstMatch.tap()
+        app.navigationBars.buttons["BackButton"].firstMatch.tap()
         // The same tiles as the gallery, from the list.
         app.buttons["contents.figureTiles"].tap()
         XCTAssertTrue(app.buttons["figures.item.0"].waitForExistence(timeout: 5), "The tiles")
@@ -272,7 +273,7 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertFalse(app.buttons["contents.table.1"].exists, "One table in the fixture paper")
         capture(app, "Tables tab: the paper's captioned tables")
         table.tap()
-        XCTAssertTrue(app.navigationBars["Table 1"].waitForExistence(timeout: 5), "The table's own view")
+        XCTAssertTrue(app.buttons["figures.showInPaper"].waitForExistence(timeout: 5), "The table's own view")
         // The figure view on a table too (FIGURE_VIEW.md): the arXiv paper on this device can be explained.
         XCTAssertTrue(app.buttons["figureView.explain"].waitForExistence(timeout: 5), "A table can be explained")
         XCTAssertTrue(app.buttons["figureView.askInChat"].exists)
@@ -300,12 +301,16 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Figure gallery")
 
         second.tap()
-        XCTAssertTrue(app.navigationBars["Figure 2"].waitForExistence(timeout: 5))
+        // The figure's page, named by its caption (no title in its top row).
+        XCTAssertTrue(app.buttons["sheet.close"].waitForExistence(timeout: 5))
         let detail = app.webViews.allElementsBoundByIndex.last!
+        let caption = { (number: String) in detail.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", number)).firstMatch }
+        XCTAssertTrue(caption("Figure 2").waitForExistence(timeout: 5))
         XCTAssertTrue(detail.images.firstMatch.waitForExistence(timeout: 5), "The figure's offline image")
         XCTAssertFalse(app.buttons["Next figure"].isEnabled)
         app.buttons["Previous figure"].tap()
-        XCTAssertTrue(app.navigationBars["Figure 1"].waitForExistence(timeout: 5))
+        let earlier = app.webViews.allElementsBoundByIndex.last!.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Figure 1")).firstMatch
+        XCTAssertTrue(earlier.waitForExistence(timeout: 5))
         capture(app, "A figure from the gallery")
 
         app.buttons["figures.showInPaper"].tap()

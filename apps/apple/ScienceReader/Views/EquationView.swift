@@ -7,11 +7,13 @@ import WebKit
 // describes it (a link to that paragraph) and from general usage where it does not; optional background; Ask in chat.
 // The two requests are chat actions on the chat's own profile and paper, so they share the chat's cached paper.
 
-/// "Equation" chosen on a tapped equation of this paper.
+/// "AI Explainer" chosen on a tapped equation of this paper (owner, build 62), or the view opened on an equation.
 struct EquationViewRequest: Identifiable, Equatable {
     let id = UUID()
     let paperID: UUID
     let equationID: String
+    /// Asks for the explanation at once (AI Explainer was the reader's request); otherwise only on the view's button.
+    var explains = false
 }
 
 /// One equation resolved from the paper's verified bundle (`ReaderModel.equationContext(for:)`).
@@ -169,6 +171,10 @@ struct EquationView: View {
     let finish: (EquationViewOutcome?) -> Void
     @State private var session: EquationSession?
     @State private var missing = false
+    /// The equation shown: the request's, or another chosen from the heading (owner, build 62: "a little thing you can
+    /// expand to get to… all your equation listings"); one switched to waits for AI Explainer.
+    @State private var equationID: String?
+    @State private var equations: [PaperContentsSheet.Equation] = []
     /// The equation's size against the reader's text: 100–400 %, 160 % to start (remembered on this device).
     @AppStorage("equation.scale") private var scale = 1.6
     @AppStorage("equation.scrollSideways") private var scrollSideways = false
@@ -184,18 +190,34 @@ struct EquationView: View {
                 else if missing { ContentUnavailableView("Couldn’t open this equation", systemImage: "function") }
                 else { ProgressView() }
             }
-            .navigationTitle(session?.context.label ?? "Equation").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { finish(nil) }.accessibilityIdentifier("equation.done") } }
+            // The top row (DESIGN.md "Sheet top row"): Explain in Chat, AI Explainer until it is asked, and the X.
+            .sheetTopRow(
+                chat: session.map { session in
+                    ExplainAction(identifier: "equation.askInChat", hint: "Opens the paper’s chat with this equation as the passage; nothing is sent") {
+                        finish(.askInChat(session.context))
+                    }
+                },
+                explainer: session.flatMap { session in
+                    session.symbols.state == .idle && session.context.localContext != nil
+                        ? ExplainAction(identifier: "equation.explain", hint: "Describes the equation and each of its symbols. Uses credits.") { session.explain() }
+                        : nil
+                },
+                close: { finish(nil) })
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .frame(minWidth: Platform.isMac ? 560 : nil, minHeight: Platform.isMac ? 640 : nil)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
-        .task {
-            guard session == nil else { return }
-            guard let context = model.equationContext(for: request) else { missing = true; return }
+        .task(id: equationID ?? request.equationID) {
+            let shown = equationID ?? request.equationID
+            session?.stop()
+            guard let context = model.equationContext(for: EquationViewRequest(paperID: request.paperID, equationID: shown)) else { missing = true; return }
+            missing = false
             let opened = EquationSession(context: context, model: model)
             session = opened
             opened.start()
+            // AI Explainer from the equation's menu asks at once; an equation switched to from the heading waits.
+            if request.explains, equationID == nil { opened.explain() }
+            if equations.isEmpty { equations = await PaperContentsSheet.equations(in: context.bundle) }
         }
         .onDisappear { session?.stop() }
         .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
@@ -208,24 +230,13 @@ struct EquationView: View {
     private func content(_ session: EquationSession) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                display(session.context)
-                // Owner, build 59: the explanation on request, and Ask in chat in view from the start.
-                HStack(spacing: 10) {
-                    if session.symbols.state == .idle {
-                        Button { session.explain() } label: {
-                            Label("Explain", systemImage: "sparkles").frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityHint("Describes the equation and each of its symbols. Uses credits.")
-                        .accessibilityIdentifier("equation.explain")
-                    }
-                    Button { finish(.askInChat(session.context)) } label: {
-                        Label("Ask in chat", systemImage: "bubble.left.and.text.bubble.right").frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityHint("Opens the paper’s chat with this equation selected")
-                    .accessibilityIdentifier("equation.askInChat")
+                // "Equation (4) ⌄": the paper's other equations to switch to.
+                ExplainerHeadingMenu(title: session.context.label, items: equations, current: session.context.equationID,
+                                     itemTitle: { $0.label == "Equation" ? "Equation — \($0.text.prefix(40))" : $0.label },
+                                     identifier: "equation.heading") { other in
+                    if other.id != session.context.equationID { equationID = other.id }
                 }
+                display(session.context)
                 symbols(session)
                 if session.symbols.state == .done { backgroundSection(session) }
             }

@@ -56,28 +56,38 @@ final class FigureViewJourneyTests: XCTestCase {
         tabs.buttons["Figures"].tap()
         let row = app.buttons["contents.figure.0"]
         XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
-        XCTAssertTrue(app.navigationBars["Figure 1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["figureView.askInChat"].waitForExistence(timeout: 5), "The figure's page")
     }
 
     func testExplainWalksThroughAFigureWithCropsAndEachPartsMenu() throws {
         let app = launch()
         openFigureOne(app)
-        // Owner, build 59 (as the equation view): nothing is asked of the AI on opening; Explain and Ask in chat side by side.
-        let explain = app.buttons["figureView.explain"], ask = app.buttons["figureView.askInChat"]
-        XCTAssertTrue(explain.waitForExistence(timeout: 5)); XCTAssertTrue(ask.exists)
-        XCTAssertEqual(explain.frame.midY, ask.frame.midY, accuracy: 2, "side by side")
+        // Owner, build 62 (DESIGN.md "Sheet top row"): one row at the top, Explain in Chat and AI Explainer on the left and
+        // the X on the right, no Done; nothing is asked of the AI on opening.
+        let explain = app.buttons["figureView.explain"], ask = app.buttons["figureView.askInChat"], close = app.buttons["sheet.close"]
+        XCTAssertTrue(explain.waitForExistence(timeout: 5)); XCTAssertTrue(ask.exists); XCTAssertTrue(close.exists)
+        XCTAssertEqual(explain.label, "AI Explainer"); XCTAssertEqual(ask.label, "Explain in Chat")
+        XCTAssertEqual(explain.frame.midY, ask.frame.midY, accuracy: 4, "one row")
+        XCTAssertEqual(close.frame.midY, ask.frame.midY, accuracy: 4, "the X in the same row")
+        XCTAssertLessThan(ask.frame.maxX, close.frame.minX, "the actions on the left, the X on the right")
+        XCTAssertFalse(app.buttons["Done"].exists, "no Done")
         XCTAssertFalse(app.descendants(matching: .any)["figureView.section.1"].exists)
-        capture(app, "Figure page: Explain and Ask in chat")
+        capture(app, "Figure page: the top row")
 
         explain.tap()
         let first = app.descendants(matching: .any)["figureView.section.1"]
         XCTAssertTrue(first.waitForExistence(timeout: 8), "The walkthrough's parts")
         // Contents opens at half height on a phone; the walkthrough takes the full height.
         if UIDevice.current.userInterfaceIdiom == .phone {
-            XCTAssertTrue(wait(5) { app.navigationBars["Figure 1"].frame.minY < app.windows.firstMatch.frame.height * 0.25 },
-                          "full height: \(app.navigationBars["Figure 1"].frame)")
+            let heading = app.descendants(matching: .any)["figureView.heading"].firstMatch
+            XCTAssertTrue(wait(5) { heading.exists && heading.frame.minY < app.windows.firstMatch.frame.height * 0.3 },
+                          "full height: \(heading.frame)")
         }
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.3"].exists, "every part")
+        // The walkthrough's own row: Explain in Chat and the X; its heading names the figure, a menu of the others.
+        XCTAssertTrue(app.buttons["figureView.walkthrough.askInChat"].exists)
+        XCTAssertFalse(app.buttons["figureView.walkthrough.explain"].exists, "asked already: no AI Explainer")
+        XCTAssertEqual(app.descendants(matching: .any)["figureView.heading"].firstMatch.label, "Figure 1")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.summary"].exists, "what it shows")
         XCTAssertTrue(app.images["figureView.section.1.crop"].exists, "the left half, cropped from the paper's own image")
         XCTAssertFalse(app.images["figureView.section.2.crop"].exists, "a part without a box has no crop")
@@ -121,13 +131,14 @@ final class FigureViewJourneyTests: XCTestCase {
 
         // Show in the paper: the part's paragraph, the sheet gone.
         #if targetEnvironment(macCatalyst)
-        for _ in 0..<3 where !second.isHittable { page.scroll(byDeltaX: 0, deltaY: 300) }
+        // Clear of the sheet's top row too: content scrolls behind the bar, and a click there lands on the bar.
+        for _ in 0..<4 where !(second.isHittable && second.frame.minY > page.frame.minY + 60) { page.scroll(byDeltaX: 0, deltaY: 150) }
         #else
         for _ in 0..<3 where !second.isHittable { app.swipeDown() }
         #endif
         second.tap()
         menuItem(app, "figureView.showInPaper", "Show in the paper").tap()
-        XCTAssertTrue(app.navigationBars["Figure 1"].waitForNonExistence(timeout: 5), "The figure's sheet closes")
+        XCTAssertTrue(app.buttons["sheet.close"].waitForNonExistence(timeout: 5), "The figure's sheet closes")
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The paper is shown")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "doesn’t have")).firstMatch.waitForExistence(timeout: 2),
                        "The paragraph is found")
@@ -161,7 +172,8 @@ final class FigureViewJourneyTests: XCTestCase {
         app.buttons["figureView.explain"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 8))
         capture(app, "Figure walkthrough, dark")
-        app.navigationBars["Figure 1"].buttons.firstMatch.tap()
+        // Back (the sheet bar's system Back) to the figure's page.
+        app.navigationBars.buttons["BackButton"].firstMatch.tap()
         let ask = app.buttons["figureView.askInChat"]
         XCTAssertTrue(ask.waitForExistence(timeout: 5)); ask.tap()
         let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch

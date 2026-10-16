@@ -402,7 +402,8 @@ final class WorkflowJourneyTests: XCTestCase {
         }
         XCTAssertTrue(figure.waitForExistence(timeout: 5)); XCTAssertTrue(figure.isHittable)
         figure.tap()
-        let done = app.buttons["Done"]
+        // The figure sheet's X (DESIGN.md "Sheet top row").
+        let done = app.buttons["sheet.close"]
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
         capture(app, "Figure reopened from encrypted local member bytes")
@@ -497,9 +498,10 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["figureParts.part.2"].waitForExistence(timeout: 5), "the full view opens")
     }
 
-    /// The equation view (owner, 2026-10-15; EQUATION_VIEW.md): Equation sits right after Explain in Chat on a tapped
-    /// equation; the view shows it large with its size and sideways scrolling, what it says and each symbol, background
-    /// on request, a symbol's paragraph with Back, and Ask in chat with the equation as the passage, nothing sent.
+    /// The equation view (owner, 2026-10-15; EQUATION_VIEW.md): AI Explainer (build 62; it was "Equation") sits right after
+    /// Explain in Chat on a tapped equation and opens the view explaining it: the equation large with its size and
+    /// sideways scrolling, what it says and each symbol, background on request, a symbol's paragraph with Back, and
+    /// Explain in Chat with the equation as the passage, nothing sent. One top row: Explain in Chat and the X.
     func testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat() throws {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
@@ -515,8 +517,8 @@ final class WorkflowJourneyTests: XCTestCase {
             let number = web.staticTexts["(1)"].firstMatch
             XCTAssertTrue(number.waitForExistence(timeout: 10), "The paper's numbered equation")
             number.tap()
-            let item = app.revealEditMenuItem("Equation")
-            XCTAssertTrue(item.exists, "Equation is offered on a tapped equation")
+            let item = app.revealEditMenuItem("AI Explainer")
+            XCTAssertTrue(item.exists, "AI Explainer is offered on a tapped equation")
             return item
         }
         let item = openEquation()
@@ -524,16 +526,19 @@ final class WorkflowJourneyTests: XCTestCase {
         // Right after Explain in Chat: below it in the menu's list, or beside it in a horizontal menu.
         XCTAssertTrue(explain.exists)
         XCTAssertTrue(explain.frame.maxY <= item.frame.minY + 1 || explain.frame.maxX <= item.frame.minX + 1, "right after Explain in Chat")
-        capture(app, "Equation in a tapped equation's menu")
+        capture(app, "AI Explainer in a tapped equation's menu")
         item.tap()
-        XCTAssertTrue(app.navigationBars["Equation (1)"].waitForExistence(timeout: 5), "The view is titled with the equation's number")
-        // Owner, build 59: the AI explains only when asked; Ask in chat is in view from the start.
+        let heading = app.descendants(matching: .any)["equation.heading"].firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 5)); XCTAssertEqual(heading.label, "Equation (1)", "The view names the equation")
+        // AI Explainer is the reader's request: the explanation comes at once (owner, build 62), so the row offers
+        // Explain in Chat and the X only; no Done.
         let symbol = app.descendants(matching: .any)["equation.symbol.1"]
-        XCTAssertFalse(symbol.waitForExistence(timeout: 2), "Nothing is asked of the AI on opening")
-        XCTAssertTrue(app.buttons["equation.askInChat"].isHittable, "Ask in chat is in view at once")
-        capture(app, "Equation view on opening")
-        app.buttons["equation.explain"].tap()
         XCTAssertTrue(symbol.waitForExistence(timeout: 8), "The symbols are described")
+        let ask = app.buttons["equation.askInChat"], close = app.buttons["sheet.close"]
+        XCTAssertTrue(ask.isHittable, "Explain in Chat is in view at once"); XCTAssertEqual(ask.label, "Explain in Chat")
+        XCTAssertEqual(close.frame.midY, ask.frame.midY, accuracy: 4, "one top row")
+        XCTAssertFalse(app.buttons["equation.explain"].exists, "asked already")
+        XCTAssertFalse(app.buttons["Done"].exists, "no Done")
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].exists)
         XCTAssertTrue(app.staticTexts["equation.summary"].exists)
         XCTAssertTrue(app.buttons["equation.symbolSource.1"].exists, "a symbol the paper defines links to its paragraph")
@@ -566,7 +571,7 @@ final class WorkflowJourneyTests: XCTestCase {
         // top; this short paper is read from the top, so none is offered).
         for _ in 0..<3 where !app.buttons["equation.symbolSource.1"].isHittable { app.swipeDown() }
         app.buttons["equation.symbolSource.1"].tap()
-        XCTAssertTrue(app.navigationBars["Equation (1)"].waitForNonExistence(timeout: 5), "The view closes")
+        XCTAssertTrue(heading.waitForNonExistence(timeout: 5), "The view closes")
         XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The paper is shown")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "doesn’t have")).firstMatch.waitForExistence(timeout: 2),
                        "The paragraph is found")
@@ -576,9 +581,7 @@ final class WorkflowJourneyTests: XCTestCase {
         openEquation().tap()
         XCTAssertTrue(symbol.waitForExistence(timeout: 3), "kept symbols")
         XCTAssertTrue(app.descendants(matching: .any)["equation.backgroundText"].exists, "kept background, no new request")
-        let ask = app.buttons["equation.askInChat"]
-        for _ in 0..<4 where !ask.isHittable { app.swipeUp() }
-        ask.tap()
+        XCTAssertTrue(ask.waitForExistence(timeout: 5)); ask.tap()
         let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 8), "The chat opens")
         let prefilled = NSPredicate { _, _ in (composer.value as? String ?? "").hasPrefix("About Equation (1) [¶5]") }
@@ -602,19 +605,17 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         let number = web.staticTexts["(1)"].firstMatch
         XCTAssertTrue(number.waitForExistence(timeout: 10)); number.tap()
-        let item = app.revealEditMenuItem("Equation")
+        let item = app.revealEditMenuItem("AI Explainer")
         XCTAssertTrue(item.exists); item.tap()
-        let explain = app.buttons["equation.explain"]
-        XCTAssertTrue(explain.waitForExistence(timeout: 5)); explain.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8), "explained at once")
         app.buttons["equation.background"].tap()
         let text = app.descendants(matching: .any)["equation.backgroundText"]
         XCTAssertTrue(text.waitForExistence(timeout: 8))
         let finished = NSPredicate { _, _ in text.label.contains("synthetic fixture answer") }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: finished, object: nil)], timeout: 8), .completed)
         capture(app, "Equation view, wide layout")
-        app.buttons["equation.done"].tap()
-        XCTAssertTrue(app.buttons["equation.done"].waitForNonExistence(timeout: 5))
+        app.buttons["sheet.close"].tap()
+        XCTAssertTrue(app.buttons["sheet.close"].waitForNonExistence(timeout: 5))
         XCUIDevice.shared.portraitWhereSupported()
     }
 
@@ -1259,7 +1260,8 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(figure.waitForExistence(timeout: 5)); XCTAssertTrue(figure.isHittable)
         let readingOffset = figure.frame.minY - web.frame.minY
         figure.tap()
-        let done = app.buttons["Done"]
+        // The figure sheet's X (DESIGN.md "Sheet top row").
+        let done = app.buttons["sheet.close"]
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
         let detail = app.webViews.allElementsBoundByIndex.last!

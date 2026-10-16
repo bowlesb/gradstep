@@ -172,7 +172,7 @@ struct GalleryFigureDetail: View {
     @State var current: String
     let baseFontSize: Double
     let onShowInPaper: (String) -> Void
-    /// Closes the gallery (Done), as from its grid.
+    /// Closes the sheet (its X).
     let close: () -> Void
     /// What one entry is called where its caption names no number ("Figure", or "Table" from Contents › Tables).
     var noun = "Figure"
@@ -182,12 +182,10 @@ struct GalleryFigureDetail: View {
     var body: some View {
         FigureWebView(bundle: bundle, figureID: current, baseFontSize: baseFontSize)
             .id(current)
-            // Explain and Ask in chat under the figure (FIGURE_VIEW.md).
-            .figurePageActions(figureID: current)
-            .navigationTitle(figures.indices.contains(index) ? figures[index].number ?? "\(noun) \(index + 1)" : noun)
-            .navigationBarTitleDisplayMode(.inline)
+            // The top row: Explain in Chat, AI Explainer and the X (DESIGN.md "Sheet top row"); the caption names the
+            // figure, so the bar has no title.
+            .figurePageActions(figureID: current, close: close)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done", action: close) }
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button { current = figures[index - 1].id } label: { Image(systemName: "chevron.left") }
                         .accessibilityLabel("Previous \(noun.lowercased())").disabled(index == 0)
