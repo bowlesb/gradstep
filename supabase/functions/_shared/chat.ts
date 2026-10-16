@@ -434,6 +434,49 @@ export function ingestReport(request: PaperRequest, found: FoundPaper | null, re
     default: return `\n\nI couldn't search for ${wanted} right now, so it wasn't added. Try again later.`;
   }
 }
+/** Ingest outcomes that added nothing for a reason that isn't the reader's: not charged, and the report says so. A turn
+ * without an add (`no_call`: the model couldn't tell which paper the passage names) added nothing either (live check
+ * 2026-10-16: 38 credits for "I haven't added anything"). */
+export const INGEST_NOT_ADDED: readonly string[] = ['failed', 'not_found', 'unavailable', 'closed', 'needs_update', 'invalid_input', 'no_call'];
+/** Ingest after the model's turn: find the paper the add_paper call names and add it as the reader. Returns the outcome
+ * and the report to show (null when there is nothing to say). Durable counts and timings only, never text. */
+async function runIngest(deps: ChatDependencies, request: ChatRequest, outcome: ProviderOutcome, signal: AbortSignal,
+  status: (data: ChatStatus) => void): Promise<{ result: IngestResult | 'invalid_input' | 'no_call'; report: string | null }> {
+  const call = outcome.stopReason === 'tool_use' ? outcome.toolCalls?.find(c => c.name === 'add_paper') : undefined;
+  const wanted = call ? paperRequest(call.input) : null;
+  const record = (units: Record<string, unknown>) => deps.rpc('worker_record_provider_usage', { p_account_id: deps.accountID,
+    p_operation_id: request.operationID, p_provider: 'ingest', p_provider_event_id: `operation:${request.operationID}`,
+    p_model: 'find-paper', p_microusd: 0, p_units: units })
+    .catch(() => deps.log({ event: 'chat_usage_record_failed', operation_id: request.operationID, provider: 'ingest' }));
+  if (!wanted) {
+    // Never end silently: say why nothing was added, and record it.
+    const result = call ? 'invalid_input' as const : 'no_call' as const;
+    deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
+    await record({ result, stop_reason: outcome.stopReason, keys: call && call.input && typeof call.input === 'object' ? Object.keys(call.input).slice(0, 8).join(',') : null });
+    return { result, report: call ? '\n\nI couldn’t read the paper’s details, so it wasn’t added. Try Add paper again. Not charged.' : '\n\nNot charged.' };
+  }
+  if (!deps.findPaper || !deps.importPaper || signal.aborted) return { result: 'stopped', report: null };
+  const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
+  const web = request.capabilities.includes('web_import');
+  const clock = deps.now ?? Date.now, started = clock();
+  status({ kind: 'finding_paper' });
+  const search = await deps.findPaper(wanted, budget, { web,
+    tavily: namesTavily(request.consentVersion) && deps.webSearch === true }).catch((): FindResult => ({ status: 'unavailable' }));
+  const findMs = clock() - started;
+  const found = 'paper' in search ? search.paper : null;
+  let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
+  if (signal.aborted) result = 'stopped';
+  else if (search.status === 'found' && search.paper.kind === 'web' && !web) result = 'needs_update';
+  else if (search.status === 'found' && budget.aborted) result = 'unavailable';
+  else if (search.status === 'found') {
+    status({ kind: 'adding_paper' });
+    result = await deps.importPaper(search.paper, budget).catch(() => 'failed' as const);
+  }
+  deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
+  // Durable outcome (counts and timings only), so failures are visible without the log service.
+  await record({ result, kind: found?.kind ?? null, find_ms: findMs, total_ms: clock() - started, web, budget_expired: budget.aborted });
+  return { result, report: ingestReport(wanted, found, result) + (INGEST_NOT_ADDED.includes(result) ? ' Not charged.' : '') };
+}
 /** Owner decision (2026-10-05): a reader whose balance is at least this but
  * below the full hold may still ask; the credit hold is capped at their
  * balance and the platform absorbs a rare overrun. The platform-budget hold
@@ -771,10 +814,17 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const sides = ending === 'completed' ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
   const delivered = priceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? priceAttempts(part.attempts) : 0), 0);
   const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
+  // Ingest: at most one add per request, only of a strictly matched arXiv paper, only when the turn ended in the tool
+  // call (not cut off). It runs before the settlement (import takes no hold) so an add that doesn't happen costs the
+  // reader nothing (owner, 2026-10-16: provider cost without value for the reader is Gradstep's); the reader's own
+  // Stop still pays for the part written.
+  const ingest = outcome.status === 'complete' && outcome.stopReason !== 'refusal' && request.action === 'ingest'
+    ? await runIngest(deps, request, outcome, signal, status) : null;
+  const notAdded = ingest !== null && INGEST_NOT_ADDED.includes(ingest.result);
   // The customer is never charged above the hold, but the platform budget records the true provider cost (an overrun
   // is recorded and alerted, migration 079). A request the provider never started (no message_start) charges the
   // reader nothing even when they stopped it; the attempt keeps the platform's liability until it is resolved.
-  const credits = charged && (answer.status === 'complete' || answer.messageID) ? Math.min(creditsFor(priced), hold.credits) : 0;
+  const credits = charged && !notAdded && (answer.status === 'complete' || answer.messageID) ? Math.min(creditsFor(priced), hold.credits) : 0;
   // Gradstep pays the rest: everything for an uncharged ending, the undelivered side requests otherwise.
   const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;
   if (credits > 0 && priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
@@ -802,46 +852,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const billing = charged ? { charged: true } : { charged: false, reason: ending as UnchargedReason };
   if (outcome.status === 'complete') {
     if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused', credits: 0, charged: false, reason: 'refusal' } }); return; }
-    // Ingest: at most one add per request, only of a strictly matched arXiv
-    // paper, only when the turn ended in the tool call (not cut off).
-    const call = request.action === 'ingest' && outcome.stopReason === 'tool_use'
-      ? outcome.toolCalls?.find(c => c.name === 'add_paper') : undefined;
-    const wanted = call ? paperRequest(call.input) : null;
-    if (request.action === 'ingest' && !wanted) {
-      // Never end silently: say why nothing was added, and record it.
-      const result = call ? 'invalid_input' : 'no_call';
-      deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
-      if (call && !signal.aborted) emit({ event: 'delta', data: { text: '\n\nI couldn’t read the paper’s details, so it wasn’t added. Try Add paper again.' } });
-      await deps.rpc('worker_record_provider_usage', { p_account_id: deps.accountID, p_operation_id: request.operationID, p_provider: 'ingest',
-        p_provider_event_id: `operation:${request.operationID}`, p_model: 'find-paper', p_microusd: 0,
-        p_units: { result, stop_reason: outcome.stopReason, keys: call && call.input && typeof call.input === 'object' ? Object.keys(call.input).slice(0, 8).join(',') : null } })
-        .catch(() => deps.log({ event: 'chat_usage_record_failed', operation_id: request.operationID, provider: 'ingest' }));
-    }
-    if (wanted && deps.findPaper && deps.importPaper && !signal.aborted) {
-      const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
-      const web = request.capabilities.includes('web_import');
-      const clock = deps.now ?? Date.now, started = clock();
-      status({ kind: 'finding_paper' });
-      const search = await deps.findPaper(wanted, budget, { web,
-        tavily: namesTavily(request.consentVersion) && deps.webSearch === true }).catch((): FindResult => ({ status: 'unavailable' }));
-      const findMs = clock() - started;
-      const found = 'paper' in search ? search.paper : null;
-      let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
-      if (signal.aborted) result = 'stopped';
-      else if (search.status === 'found' && search.paper.kind === 'web' && !web) result = 'needs_update';
-      else if (search.status === 'found' && budget.aborted) result = 'unavailable';
-      else if (search.status === 'found') {
-        status({ kind: 'adding_paper' });
-        result = await deps.importPaper(search.paper, budget).catch(() => 'failed' as const);
-      }
-      deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
-      // Durable outcome (counts and timings only), so failures are visible without the log service.
-      await deps.rpc('worker_record_provider_usage', { p_account_id: deps.accountID, p_operation_id: request.operationID, p_provider: 'ingest',
-        p_provider_event_id: `operation:${request.operationID}`, p_model: 'find-paper', p_microusd: 0,
-        p_units: { result, kind: found?.kind ?? null, find_ms: findMs, total_ms: clock() - started, web, budget_expired: budget.aborted } })
-        .catch(() => deps.log({ event: 'chat_usage_record_failed', operation_id: request.operationID, provider: 'ingest' }));
-      if (!signal.aborted) emit({ event: 'delta', data: { text: ingestReport(wanted, found, result) } });
-    }
+    // Ingest's report, after the settlement it decided (run before it, below).
+    if (ingest?.report && !signal.aborted) emit({ event: 'delta', data: { text: ingest.report } });
     const usage = outcome.attempts.reduce((sum, attempt) => ({
       input_tokens: sum.input_tokens + attempt.usage.input,
       cache_creation_input_tokens: sum.cache_creation_input_tokens + attempt.usage.cacheWrite5m + attempt.usage.cacheWrite1h,

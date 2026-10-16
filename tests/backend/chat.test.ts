@@ -256,12 +256,13 @@ const toolGenerate = (input: unknown) => async (_params: unknown, stream: Stream
   return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'add_paper', input }] });
 };
 
-test('ingest adds one title-matched paper after settlement and reports it in the answer', async () => {
+test('ingest adds one title-matched paper before settlement and reports it in the answer', async () => {
   const found: unknown[] = [], imported: string[] = [];
   let tools: unknown;
   const h = harness({ generate: async (params, stream) => { tools = (params as { tools?: unknown }).tools; return toolGenerate({ title: 'Direct Preference Optimization', year: 2023 })(params, stream); } });
   h.deps.findPaper = async wanted => { found.push(wanted); return { status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023 } }; };
-  h.deps.importPaper = async paper => { imported.push(paper.source_id); assert.ok(names(h.calls).includes('worker_settle_chat')); return 'added'; };
+  // The add runs before the settlement (import takes no hold), so an add that fails can cost the reader nothing.
+  h.deps.importPaper = async paper => { imported.push(paper.source_id); assert.ok(!names(h.calls).includes('worker_settle_chat')); return 'added'; };
   await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
   assert.deepEqual(tools, [ADD_PAPER_TOOL]);
   assert.deepEqual(found, [{ title: 'Direct Preference Optimization', year: 2023, firstAuthor: null, arxivID: null }]);
@@ -272,6 +273,38 @@ test('ingest adds one title-matched paper after settlement and reports it in the
   assert.match(delta(h, 1).text, /^\n\nQueued “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” \(arXiv:2305\.18290\)/);
   assert.equal((h.events.at(-1)!.data as { stop_reason: string }).stop_reason, 'end_turn');
   assert.deepEqual(h.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'added' }]);
+  const settled = h.calls.find(c => c.name === 'worker_settle_chat')!;
+  assert.ok((settled.params.p_actual_credits as number) > 0, 'an added paper is paid for');
+});
+
+test('an add that doesn\'t happen costs the reader nothing and says so; Gradstep absorbs the provider cost', async () => {
+  for (const [label, find, importPaper] of [
+    ['not found', async () => ({ status: 'not_found' as const }), async () => 'added' as const],
+    ['import failed', async () => ({ status: 'found' as const, paper: { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 } }),
+      async () => { throw new Error('library_active_import_limit'); }],
+    ['search unavailable', async () => { throw new Error('search_busy'); }, async () => 'added' as const],
+  ] as const) {
+    const h = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
+    h.deps.findPaper = find as never; h.deps.importPaper = importPaper as never;
+    await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
+    const settled = h.calls.find(c => c.name === 'worker_settle_chat')!;
+    assert.equal(settled.params.p_actual_credits, 0, label);
+    assert.equal(settled.params.p_absorbed_microusd, settled.params.p_actual_microusd, `${label}: absorbed`);
+    assert.match(delta(h, 1).text, /Not charged\.$/, label);
+    assert.equal((h.events.at(-1)!.data as { credits: number }).credits, 0, `${label}: done says 0 credits`);
+  }
+  // No add asked for (the model couldn't tell which paper): nothing added, nothing charged.
+  const none = harness({ generate: async (_p, stream) => { stream.onText('This passage names no paper.'); return completeOutcome({ stopReason: 'end_turn' }); } });
+  await runChat(none.deps, ingestBody(), none.emit, new AbortController().signal);
+  assert.equal(none.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_credits, 0);
+  assert.equal(delta(none, 1).text, '\n\nNot charged.');
+  // Already in the library: the reader was answered, and pays.
+  const present = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
+  present.deps.findPaper = async () => ({ status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 } });
+  present.deps.importPaper = async () => 'present';
+  await runChat(present.deps, ingestBody(), present.emit, new AbortController().signal);
+  assert.ok((present.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_credits as number) > 0);
+  assert.doesNotMatch(delta(present, 1).text, /Not charged/);
 });
 
 test('ingest reports a missing paper, ignores invalid tool input and never adds for non-ingest requests', async () => {

@@ -633,8 +633,13 @@ Builds 57–60 keep working unchanged: they ignore the new fields, already show 
 
 ### Open items
 
-- **Add paper after settlement.** Ingest settles before its lookup and add (by design, so the add runs as the reader with
-  no open hold); a lookup or add that fails afterwards is not refunded. Settling after the add would close it.
+- **Add paper after settlement** (closed 2026-10-16). Ingest now finds and adds the paper before the settlement (the
+  import takes no hold), so an add that doesn't happen for a reason that isn't the reader's (`not_found`, `unavailable`,
+  `failed`, `closed`, `needs_update`, an `add_paper` call the server couldn't read, or no call at all because the model
+  couldn't tell which paper the passage names) settles 0 credits with the provider cost absorbed, and its report ends
+  "Not charged." An add (`added`) or a paper already there (`present`) is paid as any answer; the reader's own Stop pays
+  for the part written. `done.credits` is 0. Live (staging, 2026-10-16): `scripts/chat-live-smoke.mjs --ingest=…`.
+  Tests: `chat.test.ts` "an add that doesn't happen costs the reader nothing…".
 - **Aborted attempts stay unknown.** A Stop or a dropped connection leaves the provider attempt `unknown` (no final
   usage) until an operator reconciles it; the scheduled budget check flags any older than an hour
   ([SPENDING_CONTROLS.md](SPENDING_CONTROLS.md), audit item 1).

@@ -10,6 +10,7 @@
 //   node scripts/chat-live-smoke.mjs --profile=deepseek-auto-standard --eval   (the recorded DeepSeek check, under $0.10)
 //   node scripts/chat-live-smoke.mjs --figure-view=1 --warm                     (the figure view on DPO's Figure 1)
 //   node scripts/chat-live-smoke.mjs --paper=2610.16784v1 --index=<bundle>/reader.json --figure-view=4 --table-view=1
+//   node scripts/chat-live-smoke.mjs --ingest="Zzyzx et al. A paper that does not exist. 2031."   (Add paper; not charged)
 //
 // --figure-view=N (FIGURE_VIEW.md): the figure view's requests on figure N, prepared as the browser prepares a figure
 // (stacked panels, at most 1,568 px and 1.15 MP, JPEG on white): the walkthrough (`figure`), then one part again, more
@@ -46,6 +47,9 @@ const EQUATION = process.argv.includes('--equation');
 const FIGURE_VIEW = Number(process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? 0);
 const TABLE_VIEW = Number(process.argv.find(a => a.startsWith('--table-view='))?.slice(13) ?? 0);
 const WARM = process.argv.includes('--warm');
+/** `--ingest=<reference text>`: Add paper from the chat on that reference (CHAT.md "Add paper after settlement"); prints
+ * the report and the operation's settlement (an add that doesn't happen settles 0 credits with the cost absorbed). */
+const INGEST = process.argv.find(a => a.startsWith('--ingest='))?.slice(9) ?? null;
 const PAPER = (() => {
   const value = process.argv.find(a => a.startsWith('--paper='))?.slice(8) ?? '2305.18290v3';
   const m = /^(\d{4}\.\d{4,5})v(\d+)$/.exec(value);
@@ -339,7 +343,9 @@ try {
     const body = { operation_id: randomUUID(), consent_version: consent, mode: 'paper', local_context, messages: turns,
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
       ...(PROFILE ? { profile: PROFILE } : {}),
-      ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } } : { follow_ups: true }) };
+      ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } }
+        : INGEST ? { action: 'ingest', selection: { quote: INGEST } } : { follow_ups: true }) };
+    if (INGEST) delete body.topic_title;
     if (equationAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);
     const started = Date.now();
@@ -407,7 +413,12 @@ try {
     }
     turns.push({ role: 'assistant', text: answer });
   };
-  if (FIGURE_VIEW || TABLE_VIEW) {
+  if (INGEST) {
+    const before = await rpc('v1_credit_balance', {}, token);
+    await ask('Add this paper to my library.');
+    const after = await rpc('v1_credit_balance', {}, token);
+    log(`balance ${before.available} → ${after.available} available`);
+  } else if (FIGURE_VIEW || TABLE_VIEW) {
     await figureViews({ local_context, token, ask });
   } else if (EQUATION) {
     const loss = index.equations.find(e => e.display && /DPO/.test(e.latex) && /\\sigma/.test(e.latex));
