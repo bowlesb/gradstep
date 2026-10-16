@@ -1704,7 +1704,7 @@ struct AcknowledgementsView: View {
         ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
         ("htmlparser2, Temml", "Prepare a paper's arXiv HTML for the reader on this device, and typeset formulas the on-device model reads. Each reading carries these notices.", "MIT License"),
         ("arXiv", "Papers' official HTML versions, downloaded by this device, and their metadata. Papers keep their authors' licenses; shared episodes are limited to CC BY and CC0 papers.", "arXiv API terms"),
-        ("DataCite", "ML paper search and the shared Feed: the records arXiv registers for its papers.", "CC0 data"),
+        ("DataCite", "Paper details, ML paper search and the shared Feed: the records arXiv registers for its papers. Our servers never contact arXiv.", "CC0 data"),
     ]
     var body: some View {
         List {

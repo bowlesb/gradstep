@@ -17,7 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve4, resolve6 } from 'node:dns/promises';
 import { verifyReaderDelivery } from './reader-workflow.mjs';
-// No request from this job (it runs on Cloud Run) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this job (it runs on Cloud Run) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('workflow-checks');
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -625,7 +625,9 @@ check('budget.health', {title:'Platform budget is enabled, under 80 %, without a
  return problems.length?fail(`${summary}; ${problems.join('; ')}`):pass(summary,{spent_microusd:spent,reserved_microusd:reserved,limit_microusd:limit});
 });
 
-check('html.membership', {title:'Exact arXiv metadata membership, source tags/archive and replay',suites:ALL,timeout:180},async({signal})=>{
+// The metadata comes from DataCite (migration 077: our servers never contact arXiv); a device's own record for the
+// import is then accepted for that account alone (v1_submit_source_metadata).
+check('html.membership', {title:'Exact arXiv metadata membership, device record, source tags/archive and replay',suites:ALL,timeout:180},async({signal})=>{
  const acct=await account('device-reader',0),id=randomUUID(),source='2305.18290';
  const {cursor}=await acct.entries(signal);
  await acct.rpc('v2_begin_import',{p_operation_id:id,p_source_id:source,p_observed_cursor:cursor??0,p_requested_revision:3},signal);
@@ -639,12 +641,63 @@ check('html.membership', {title:'Exact arXiv metadata membership, source tags/ar
  if(member?.phase!=='source_only'||member.source_revision!==3||member.document_id||member.library_item_id||!member.metadata?.title)return fail('Pinned metadata membership did not become available without a PDF identity');
  const caps=await acct.rpc('v1_reader_capabilities',{},signal);
  if(caps.device_reader?.protocol!=='source-membership-v1'||caps.uploads?.enabled)return fail('Device reader capabilities mismatch');
+ if(caps.source_metadata?.enabled!==true||caps.source_metadata.format!=='arxiv-source-metadata-v1')return fail('Devices are not asked for their metadata (source_metadata capability off)');
+ const m=member.metadata,record={format:'arxiv-source-metadata-v1',source_id:source,revision:3,origin:'arxiv_html',title:m.title,authors:m.authors,
+  abstract:m.abstract??null,categories:m.categories??[],license_uri:null,version_date:m.updated_at??null,html_available:true,observed_at:new Date().toISOString()};
+ const sent=await acct.rpc('v1_submit_source_metadata',{p_import_id:id,p_metadata:record,p_expected_revision:3},signal);
+ const again=await acct.rpc('v1_submit_source_metadata',{p_import_id:id,p_metadata:record,p_expected_revision:3},signal);
+ if(sent?.status!=='stored'||again?.status!=='unchanged')return fail(`Device metadata not accepted: ${sent?.status}, then ${again?.status}`);
  const command={p_dataset_epoch:caps.library.dataset_epoch,p_operation_id:randomUUID(),p_import_id:id,p_archived:true,p_tags:['Device reader'],p_expected_revision:member.intent_revision};
  const result=await acct.rpc('v5_set_source_details',command,signal),replay=await acct.rpc('v5_set_source_details',command,signal);
  if(result.result?.status!=='applied'||!replay.replayed||JSON.stringify(result.result)!==JSON.stringify(replay.result))return fail('Source command/replay mismatch');
  const updated=(await acct.entries(signal)).entries.find(e=>e.id===id);
  if(updated?.archived!==true||updated.user_tags?.[0]!=='Device reader')return fail('Source details missing from library projection');
- return pass('Exact v3 metadata with no document/PDF/artifact; archive/tags and idempotent replay verified');
+ return pass('Exact v3 metadata (DataCite) with no document/PDF/artifact; device record stored once; archive/tags and idempotent replay verified');
+});
+
+// Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md §6.5). Every former caller is exercised: search,
+// a Feed chip from the pool and one outside it, Add by arXiv ID, arXiv DOI and text, Add to library on a reference, and the
+// pipeline's metadata stage for the papers added; the pool's source must be DataCite (its refresh runs on the database
+// schedule). Then the egress counter must read zero for the last 24 hours: provider health's `arxiv` rows, written by every
+// function and the worker for any attempt, refused (EGRESS_ARXIV=block) or not.
+check('egress.no-arxiv', {title:'Our servers made no request to arXiv (search, chips, Add, references, metadata, pool)',suites:ALL,timeout:300},async({signal})=>{
+ const acct=await account('egress',0),seen=[],problems=[];
+ const policy=await rpc('worker_search_policy',{},{service:true});
+ if(policy?.feed_source!=='datacite')problems.push(`the Feed's pool source is ${policy?.feed_source}, not DataCite`);
+ for(const query of ['q=direct%20preference%20optimization','category=cs.LG','category=q-bio.NC']){
+  const r=await acct.fn(`discover?${query}`,{signal});
+  seen.push(`discover?${query.split('=')[0]} ${r.status}`);
+  if(r.status!==200||!Array.isArray(r.json?.results))problems.push(`discover?${query}: HTTP ${r.status}`);
+  else if(query.startsWith('q=')&&!r.json.results.some(x=>x.source_id==='2305.18290'))problems.push('search did not find DPO');
+ }
+ const before=new Set((await acct.entries(signal)).entries.filter(e=>e.kind==='import').map(e=>e.id));
+ for(const [label,query,expect] of [['id','2010.11929','2010.11929'],['doi','10.48550/arXiv.1706.03762','1706.03762'],
+  ['text','Vaswani et al. Attention Is All You Need. In Advances in Neural Information Processing Systems 30, 2017.','1706.03762']]){
+  const r=await acct.fn('add-paper',{method:'POST',body:{operation_id:randomUUID(),query,capabilities:['web_import']},signal});
+  seen.push(`add-paper ${label} ${r.json?.status??r.status}`);
+  if(r.status!==200||!['added','present'].includes(r.json?.status)||r.json?.paper?.source_id!==expect)problems.push(`add-paper by ${label}: HTTP ${r.status} ${r.json?.status} ${r.json?.paper?.source_id??''}`);
+ }
+ const ref=await acct.fn('add-reference',{method:'POST',signal,body:{operation_id:randomUUID(),capabilities:['web_import'],
+  reference:'Rafailov, R., Sharma, A., Mitchell, E., Ermon, S., Manning, C. D., and Finn, C. Direct preference optimization: Your language model is secretly a reward model. arXiv:2305.18290, 2023.'}});
+ seen.push(`add-reference ${ref.json?.status??ref.status}`);
+ if(ref.status!==200||!['added','present'].includes(ref.json?.status)||ref.json?.paper?.source_id!=='2305.18290')problems.push(`add-reference: HTTP ${ref.status} ${ref.json?.status} ${ref.json?.paper?.source_id??''}`);
+ // The pipeline names each added paper from DataCite.
+ let pending=[];
+ for(let n=0;n<40;n++){
+  const imports=(await acct.entries(signal)).entries.filter(e=>e.kind==='import'&&!before.has(e.id)&&e.visible);
+  pending=imports.filter(e=>e.phase!=='source_only');
+  if(imports.length&&!pending.length)break;
+  if(pending.some(e=>e.phase==='failed'))break;
+  await sleep(3000,signal);
+ }
+ if(pending.length)problems.push(`metadata stage: ${pending.map(e=>`${e.source_id} ${e.phase}${e.error_code?` (${e.error_code})`:''}`).join(', ')}`);
+ else seen.push('metadata stage source_only');
+ await sleep(3000,signal); // recordings are written after each response
+ const rows=(await rpc('worker_provider_health_recent',{p_minutes:1440},{service:true})).filter(r=>r.provider==='arxiv');
+ const attempts=rows.reduce((n,r)=>n+Number(r.calls),0);
+ const metrics={arxiv_attempts_24h:attempts,exercised:seen.length};
+ if(attempts>0)return fail(`${attempts} server request(s) to arXiv in the last 24 h: ${rows.map(r=>`${r.route} ${r.outcome} ×${r.calls}`).join(', ')}${problems.length?`; also ${problems.join('; ')}`:''}`,metrics);
+ return problems.length?fail(`no arXiv requests, but: ${problems.join('; ')}`,metrics):pass(`0 arXiv requests in 24 h; exercised ${seen.join(', ')}`,metrics);
 });
 
 check('import.arxiv', { title: 'Add an arXiv paper → ready → reader bundle verified', suites: ALL, timeout: 300 }, async ({ signal }) => {

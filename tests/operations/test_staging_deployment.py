@@ -46,6 +46,8 @@ class StagingDeploymentTests(unittest.TestCase):
                 if 'migrate-supabase.py' in command[1]:
                     events.append('migrate')
                     if migration_fails: raise subprocess.CalledProcessError(1, command)
+                elif command[0] == 'node' and 'check-arxiv-egress.mjs' in command[1]:
+                    events.append('egress_scan'); self.assertIn('--block', command)
                 elif command[0] == 'node': events.append(('workflow', command))
                 else: events.append(('deploy', command[3]))
                 return subprocess.CompletedProcess(command, 0, '')
@@ -95,6 +97,12 @@ class StagingDeploymentTests(unittest.TestCase):
         self.assertLess(events.index('remote_identity'), events.index('function_secrets'))
         self.assertLess(events.index('function_secrets'), events.index(('deploy', 'chat')))
 
+    def test_egress_scan_blocks_first_and_functions_refuse_arxiv(self):
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'chat'])
+        self.assertIsNone(error)
+        self.assertEqual(events.index('egress_scan'), 0, 'the block-mode scan runs before any credential, request or deploy')
+        self.assertIn('EGRESS_ARXIV', self.secret_names)
+
     def test_purchase_cleanup_still_gates_deferred_deploy_after_migration(self):
         events, error = self.run_fixture(['--defer-activation', '--functions', 'store-sync'])
         self.assertIsNone(error)
@@ -135,7 +143,7 @@ class StagingDeploymentTests(unittest.TestCase):
         for arguments, secret in [(['--defer-activation', '--rotate-pipeline-secret'], True), (['--defer-activation'], False)]:
             events, error = self.run_fixture(arguments, secret=secret)
             self.assertIsInstance(error, SystemExit)
-            self.assertEqual(events, [])
+            self.assertEqual([e for e in events if e != 'egress_scan'], [], 'at most the local scan; no request')
 
     def test_feed_refresh_secret_reaches_the_function_and_vault_only_when_present(self):
         events, error = self.run_fixture(['--functions', 'chat'])

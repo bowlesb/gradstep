@@ -39,7 +39,8 @@ for (const source of ['2305.18290', args.private ?? '1706.03762']) {
   const begun = await user.rpc('v2_begin_import', { p_operation_id: randomUUID(), p_source_id: source, p_observed_cursor: await cursor() });
   assert.equal(begun.error, null, begun.error?.message);
 }
-await fetch(`${env.SUPABASE_URL}/functions/v1/paper-worker`, { method: 'POST', headers: { 'x-pipeline-secret': env.PIPELINE_SECRET } });
+// The Cloud Run worker (the Edge paper-worker is retired and undeployed).
+await fetch(JSON.parse(readFileSync(new URL('infra/staging.json', root), 'utf8')).pipeline_worker_url, { method: 'POST', headers: { 'x-pipeline-secret': env.PIPELINE_SECRET } });
 const started = Date.now();
 for (;;) {
   const entries = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 100 })).data.entries;

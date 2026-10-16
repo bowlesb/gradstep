@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dailyPapersURL, HF_PAGE, HF_SPACING_MS, parseDailyPapers, runSignals, type SignalDeps, type Upvote } from '../../supabase/functions/_shared/feed-signals.ts';
-import { runRefresh, type RefreshClaim, type RefreshDeps } from '../../supabase/functions/_shared/feed-pool.ts';
+import { runRefresh, type PoolFetch, type PoolSource, type RefreshClaim, type RefreshDeps } from '../../supabase/functions/_shared/feed-pool.ts';
 import { displayTopics, feedTopics } from '../../supabase/functions/_shared/feed-topics.ts';
 import { COMPOUND_TOPICS, compoundsParameter, interestTopics, isGenericTag, resolveTopic, specificity,
   type TopicStats } from '../../supabase/functions/_shared/feed-interests.ts';
@@ -111,25 +111,24 @@ test('switched off, an unusable plan, or a failed record never throws', async ()
 });
 
 test('the pool refresh runs the popularity pass once, under its claim, before releasing it', async () => {
-  const claim: RefreshClaim = { claim_id: 'c1', source: 'arxiv-ml', categories: ['cs.LG'], etag: '"e"', last_modified: null, max_items: 3000 };
+  const claim: RefreshClaim = { claim_id: 'c1', source: 'datacite-ml', kind: 'datacite', categories: ['cs.LG'], etag: null, last_modified: null, max_items: 3000 };
   const order: string[] = [];
   const deps: RefreshDeps = {
-    slot: async () => ({ reserved: true, wait_ms: 0 }),
-    fetch: (async () => new Response(null, { status: 304 })) as unknown as typeof fetch,
+    fetch: (async () => { throw new Error('the source brings its own transport'); }) as unknown as typeof fetch,
     upsert: async () => ({ inserted: 0, updated: 0 }),
     finish: async (_claim, status) => { order.push(`finish:${status}`); return { pruned: 0, pool: 0 }; },
     sleep: async () => {}, today: () => '2026-10-08',
     signals: async id => { order.push(`signals:${id}`); return { status: 'ok', days: 1, requests: 1, matched: 3 }; },
   };
-  assert.equal((await runRefresh(deps, claim)).status, 'not_modified');
+  const answer = (fetched: PoolFetch): PoolSource => async () => fetched;
+  assert.equal((await runRefresh(deps, claim, answer({ status: 'not_modified' }))).status, 'not_modified');
   assert.deepEqual(order, ['signals:c1', 'finish:not_modified']);
   order.length = 0;
-  deps.slot = async () => ({ reserved: false, wait_ms: 0 });
   deps.signals = async () => { order.push('signals'); throw new Error('boom'); };
-  assert.equal((await runRefresh(deps, claim)).status, 'busy');
+  assert.equal((await runRefresh(deps, claim, answer({ status: 'busy' }))).status, 'busy');
   assert.deepEqual(order, ['signals', 'finish:busy'], 'a failing pass never blocks the release');
   order.length = 0;
-  assert.equal((await runRefresh(deps, { ...claim, categories: ['bad category'] })).code, 'invalid_categories');
+  assert.equal((await runRefresh(deps, { ...claim, categories: ['bad category'] }, answer({ status: 'failed', code: 'invalid_categories' }))).code, 'invalid_categories');
   assert.deepEqual(order, ['finish:failed']);
 });
 

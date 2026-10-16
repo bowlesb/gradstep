@@ -61,12 +61,11 @@ select test.assert((select last_status='not_modified' and last_modified='2026-10
 -- The cron wake-up reads the active row (not due now) and needs pg_net (absent locally) either way.
 select test.assert(not app_private.feed_refresh_kick(),'nothing to wake');
 
--- Switching back reads arXiv's RSS on its own row again.
-update app_private.pipeline_policy set feed_source='arxiv_rss' where singleton;
-select test.assert(app_private.feed_active_source()='arxiv-ml','switched back');
-set role service_role;
-select test.assert(public.worker_search_policy()->>'feed_source'='arxiv_rss','the functions see it');
-select public.worker_feed_refresh_claim() as claim3 \gset
-select test.assert((:'claim3'::jsonb->>'source')='arxiv-ml' and (:'claim3'::jsonb->>'kind')='arxiv_rss','RSS claim');
-reset role;
+-- Migration 077: the Feed can no longer be switched back to arXiv's RSS (our servers never contact arXiv); claims stay
+-- on DataCite's row.
+select test.reject($q$update app_private.pipeline_policy set feed_source='arxiv_rss' where singleton$q$,'pipeline_policy_feed_source_check');
+select test.assert(app_private.feed_active_source()='datacite-ml','still DataCite');
+select test.assert(not exists(select 1 from app_private.feed_sources where name='arxiv-ml' and last_attempt_at is not null),'no claim touched the RSS row');
+select test.assert(exists(select 1 from app_private.admin_audit_events where action='arxiv_egress' and actor_id=:'O'
+ and details->>'migration'='202610160077'),'077 recorded against the owner');
 rollback;

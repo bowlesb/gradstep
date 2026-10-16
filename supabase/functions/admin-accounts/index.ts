@@ -5,7 +5,7 @@ import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { adminAccounts, type AdminService, type RpcClient } from '../_shared/admin-accounts.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('admin-accounts');
 
 Deno.serve(async request => {

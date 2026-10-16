@@ -1,7 +1,8 @@
 // "No server request to arXiv" (docs/architecture/ARXIV_DEVICE_ONLY.md §5.1, §6.5). Every server entry point (Edge
 // functions, the Cloud Run worker's server and threads, the workflow job) installs this guard on its global `fetch`.
 // A request to any *.arxiv.org host, on the first request or on any redirect hop, is logged and counted; in `block`
-// mode it is refused. The mode comes from EGRESS_ARXIV (`report` until the cutover, then `block`). Self-contained on
+// mode it is refused. Block is the default since the cutover (rollout step 6, 2026-10-16); only EGRESS_ARXIV=report
+// (a developer diagnosing a test, never a deployment) lets a request through to be reported. Self-contained on
 // purpose: the workflow job copies this one file into its image.
 
 export type EgressMode = 'report' | 'block';
@@ -37,7 +38,7 @@ const env = (name: string): string | undefined => {
   const g = globalThis as { Deno?: { env?: { get?: (n: string) => string | undefined } }; process?: { env?: Record<string, string | undefined> } };
   try { return g.Deno?.env?.get?.(name) ?? g.process?.env?.[name]; } catch { return undefined; }
 };
-export const egressMode = (): EgressMode => env('EGRESS_ARXIV') === 'block' ? 'block' : 'report';
+export const egressMode = (): EgressMode => env('EGRESS_ARXIV') === 'report' ? 'report' : 'block';
 
 const attempts: EgressAttempt[] = [];
 /** How many arXiv requests this process saw (report) or refused (block); the hosted check reads it from logs. */

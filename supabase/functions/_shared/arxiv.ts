@@ -1,42 +1,22 @@
-import { children, one, plain, sourceXML, SourceError, type XMLNode } from './source-xml.ts';
-import { sha256 } from './http.ts';
+// arXiv identity: what a reader typed or a page names, parsed into an identifier and version. Our servers never
+// contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md, owner 2026-10-15): this module only recognizes input and
+// builds the links people follow. Catalog records come from DataCite (datacite.ts); the device reads arXiv itself.
+/** A malformed identifier (`invalid_arxiv_id`): the input names no arXiv paper. */
+export class SourceError extends Error {
+  readonly code: string;
+  constructor(code: string) { super(code); this.code = code; }
+}
 
-const ATOM = 'http://www.w3.org/2005/Atom';
-const ARXIV_ATOM = 'http://arxiv.org/schemas/atom'; // egress-ok: namespace
-const OAI = 'http://www.openarchives.org/OAI/2.0/';
-const RAW = 'http://arxiv.org/OAI/arXivRaw/'; // egress-ok: namespace
 const allowedInputHosts = new Set(['arxiv.org', 'www.arxiv.org', 'export.arxiv.org']); // egress-ok: parse
 
 export interface ArxivReference { sourceID: string; revision: number | null }
-export interface ArxivMetadata {
-  title: string;
-  authors: string[];
-  abstract: string | null;
-  // Full UTC instants are retained for version/license correlation. Convert to
-  // the date-only catalog DTO only at the database persistence boundary.
-  published_at: string | null;
-  updated_at: string | null;
-  categories: string[];
-  venue: string | null;
-}
-export interface ArxivRecord {
-  sourceID: string;
-  revision: number;
-  metadata: ArxivMetadata;
-}
-export interface ArxivCatalogMetadata extends Omit<ArxivMetadata, 'published_at' | 'updated_at'> {
-  /** Calendar dates (YYYY-MM-DD), as required by the catalog RPC. */
-  published_at: string | null;
-  updated_at: string | null;
-}
 
 function revisionNumber(value: string): number {
   if (!/^[1-9][0-9]{0,9}$/.test(value) || Number(value) > 2_147_483_647) throw new SourceError('invalid_arxiv_id');
   return Number(value);
 }
 
-// Input URLs are parsed only for identity; they are never fetched. Always derive
-// outbound URLs below. URL credentials, nonstandard ports, arbitrary hosts/paths
+// Input URLs are parsed only for identity; they are never fetched. URL credentials, nonstandard ports, arbitrary hosts/paths
 // and encoded path syntax are refused, including before URL normalization.
 export function arxivReference(input: string): ArxivReference {
   if (typeof input !== 'string' || input.length > 2048) throw new SourceError('invalid_arxiv_id');
@@ -75,218 +55,9 @@ export function arxivReference(input: string): ArxivReference {
   return { sourceID: value, revision };
 }
 
-function validated(reference: ArxivReference): ArxivReference {
-  const result = arxivReference(`${reference.sourceID}${reference.revision === null ? '' : `v${reference.revision}`}`);
-  if (result.sourceID !== reference.sourceID || result.revision !== reference.revision) throw new SourceError('invalid_arxiv_id');
-  return result;
-}
-
-export function arxivURLs(reference: ArxivReference): { abstract: string; atom: string; raw: string; pdf: string | null } {
-  const ref = validated(reference);
-  const id = `${ref.sourceID}${ref.revision === null ? '' : `v${ref.revision}`}`;
-  const atom = new URL('https://export.arxiv.org/api/query');
-  atom.search = new URLSearchParams({ id_list: id, max_results: '1' }).toString();
-  // The identifier's colons stay literal: arXiv's OAI server stopped answering the percent-encoded form
-  // (`oai%3AarXiv.org%3A…`) on 2026-10-14 (every import hung for 60 s at the metadata stage); the plain form answers
-  // at once. `sourceID` is validated above (digits and dots, or archive/NNNNNNN), so nothing else needs encoding.
-  const raw = new URL('https://oaipmh.arxiv.org/oai');
-  raw.search = `verb=GetRecord&identifier=oai:arXiv.org:${ref.sourceID}&metadataPrefix=arXivRaw`; // egress-ok: namespace
-  return { abstract: `https://arxiv.org/abs/${id}`, atom: atom.href, raw: raw.href, // egress-ok: link
-    pdf: ref.revision === null ? null : `https://arxiv.org/pdf/${id}` }; // egress-ok: link
-}
-
-function catalogInstant(value: string): boolean {
-  // PostgreSQL has no year zero. Keep the four-digit UTC form used by the
-  // catalog wire contract, including after a source timezone is normalized.
-  return /^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
-    Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
-}
-
-function dateValue(node: XMLNode | undefined): string | null {
-  const value = plain(node, 64, false);
-  if (value === null) return null;
-  if (!/^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new SourceError('invalid_source_metadata');
-  const timestamp = Date.parse(value);
-  // Check the source calendar day independently of its timezone; Date.parse
-  // alone normalizes invalid dates such as February 30.
-  if (!Number.isFinite(timestamp) || new Date(`${value.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) !== value.slice(0, 10)) throw new SourceError('invalid_source_metadata');
-  const utc = new Date(timestamp).toISOString();
-  if (!catalogInstant(utc)) throw new SourceError('invalid_source_metadata');
-  return utc;
-}
-
-export function arxivAtomRecord(bytes: Uint8Array, expected: ArxivReference): ArxivRecord {
-  validated(expected);
-  const root = sourceXML(bytes);
-  if (root.uri !== ATOM || root.local !== 'feed') throw new SourceError('invalid_source_metadata');
-  const entries = children(root, ATOM, 'entry');
-  if (!entries.length) throw new SourceError('source_not_found');
-  if (entries.length !== 1) throw new SourceError('source_identity_mismatch');
-  const entry = entries[0];
-  let ref: ArxivReference;
-  try { ref = arxivReference(plain(one(entry, ATOM, 'id'), 256)!); }
-  catch { throw new SourceError('invalid_source_metadata'); }
-  if (ref.sourceID !== expected.sourceID || ref.revision === null || (expected.revision !== null && ref.revision !== expected.revision)) throw new SourceError('source_identity_mismatch');
-  const authors = children(entry, ATOM, 'author').map(author => plain(one(author, ATOM, 'name'), 256)!);
-  const categoryNodes = children(entry, ATOM, 'category');
-  if (authors.length > 512 || categoryNodes.length > 64) throw new SourceError('metadata_size_limit');
-  const categories = [...new Set(categoryNodes.map(category => {
-    const term = category.attributes['{}term'];
-    if (!term || !/^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(term)) throw new SourceError('invalid_source_metadata');
-    return term;
-  }))];
-  const metadata: ArxivMetadata = {
-    title: plain(one(entry, ATOM, 'title'), 2000)!, authors,
-    abstract: plain(one(entry, ATOM, 'summary', false), 24_000, false),
-    published_at: dateValue(one(entry, ATOM, 'published', false)),
-    updated_at: dateValue(one(entry, ATOM, 'updated', false)),
-    categories, venue: plain(one(entry, ARXIV_ATOM, 'journal_ref', false), 1024, false),
-  };
-  // Leave room for PostgreSQL's JSONB spacing in the 32 KiB catalog bound.
-  if (new TextEncoder().encode(JSON.stringify(metadata)).length > 30_000) throw new SourceError('metadata_size_limit');
-  return { sourceID: ref.sourceID, revision: ref.revision, metadata };
-}
-
-/** Arguments for migration010's metadata RPC; preserves the evidence record. */
-export function arxivCatalogArguments(record: ArxivRecord): {
-  p_source_id: string; p_revision: number; p_metadata: ArxivCatalogMetadata;
-} {
-  const ref = validated(record);
-  if (ref.revision === null) throw new SourceError('invalid_source_metadata');
-  const calendarDate = (value: string | null) => {
-    if (value === null) return null;
-    if (!catalogInstant(value)) throw new SourceError('invalid_source_metadata');
-    return value.slice(0, 10);
-  };
-  return { p_source_id: ref.sourceID, p_revision: ref.revision, p_metadata: {
-    title: record.metadata.title, authors: [...record.metadata.authors], categories: [...record.metadata.categories],
-    abstract: record.metadata.abstract, venue: record.metadata.venue,
-    published_at: calendarDate(record.metadata.published_at), updated_at: calendarDate(record.metadata.updated_at),
-  } };
-}
-
-export type ArxivReuse =
-  | { eligible: false; reason: 'revision_unverified' | 'license_unverified' | 'license_not_supported' }
-  | { eligible: true; licenseURI: string; policyVersion: 'arxiv-reuse-v1'; evidence: {
-    source_id: string; source_revision: number; source_url: string; license_uri: string;
-    evidence_url: string; evidence_format: 'arXivRaw'; evidence_sha256: string; observed_at: string; latest_version_at: string;
-  } };
-
-function rawVersionDate(node: XMLNode | undefined): string | null {
-  const value = plain(node, 64, false);
-  if (!value) return null;
-  const match = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT$/.exec(value);
-  if (!match) return null;
-  const time = Date.parse(value);
-  const canonical = `${match[1]}, ${match[2].padStart(2, '0')} ${match[3]} ${match[4]} ${match[5]} GMT`;
-  if (!Number.isFinite(time) || new Date(time).toUTCString() !== canonical) return null;
-  return new Date(time).toISOString();
-}
-
-function supportedLicense(value: string): string | null {
-  // Only normalize the HTTP/HTTPS spelling of these exact public licenses.
-  // Do not follow redirects or accept lookalikes, query strings, or other terms.
-  if (/^https?:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/.test(value)) return 'https://creativecommons.org/licenses/by/4.0/';
-  if (/^https?:\/\/creativecommons\.org\/publicdomain\/zero\/1\.0\/$/.test(value)) return 'https://creativecommons.org/publicdomain/zero/1.0/';
-  return null;
-}
-
-interface RawRecord { raw: XMLNode; versions: { revision: number; submittedAt: string | null }[] }
-
-// The arXivRaw record in a GetRecord response for exactly this identifier, with its version history.
-function oaiRawRecord(bytes: Uint8Array, ref: ArxivReference): RawRecord {
-  const root = sourceXML(bytes);
-  if (root.uri !== OAI || root.local !== 'OAI-PMH') throw new SourceError('invalid_source_metadata');
-  const errors = children(root, OAI, 'error');
-  if (errors.length) {
-    // GetRecord's idDoesNotExist is an absent identifier, not malformed paper
-    // metadata: https://www.openarchives.org/OAI/openarchivesprotocol.html#GetRecord
-    if (errors.length === 1 && !children(root, OAI, 'GetRecord').length &&
-        errors[0].attributes['{}code'] === 'idDoesNotExist') {
-      plain(errors[0], 4096, false); // Validate structure; never expose provider text.
-      throw new SourceError('source_not_found');
-    }
-    throw new SourceError('source_unavailable');
-  }
-  const get = one(root, OAI, 'GetRecord')!, record = one(get, OAI, 'record')!, header = one(record, OAI, 'header')!;
-  if (header.attributes['{}status'] === 'deleted') throw new SourceError('source_not_found');
-  const identity = plain(one(header, OAI, 'identifier'), 256);
-  if (identity !== `oai:arXiv.org:${ref.sourceID}`) throw new SourceError('source_identity_mismatch'); // egress-ok: namespace
-  const raw = one(one(record, OAI, 'metadata')!, RAW, 'arXivRaw')!;
-  const rawRef = arxivReference(plain(one(raw, RAW, 'id'), 128)!);
-  if (rawRef.sourceID !== ref.sourceID || rawRef.revision !== null) throw new SourceError('source_identity_mismatch');
-  const versions = children(raw, RAW, 'version').map(version => {
-    const value = version.attributes['{}version'];
-    if (!value?.startsWith('v')) throw new SourceError('invalid_source_metadata');
-    let revision: number;
-    try { revision = revisionNumber(value.slice(1)); } catch { throw new SourceError('invalid_source_metadata'); }
-    return { revision, submittedAt: rawVersionDate(one(version, RAW, 'date', false)) };
-  });
-  if (!versions.length || versions.length > 4096 || new Set(versions.map(v => v.revision)).size !== versions.length) throw new SourceError('invalid_source_metadata');
-  return { raw, versions };
-}
-
-// arXivRaw lists authors as one string ("A, B and C"), sometimes with affiliations in parentheses.
-function rawAuthors(value: string | null): string[] {
-  let text = value ?? '';
-  for (let depth = 0; depth < 3 && /\([^()]*\)/.test(text); depth++) text = text.replace(/\s*\([^()]*\)/g, '');
-  const names: string[] = [];
-  for (const part of text.split(/\s*,\s*|\s+and\s+/)) {
-    const name = part.replace(/\s+/g, ' ').trim();
-    if (!name) continue;
-    // "Smith, Jr." is one author.
-    if (/^(?:Jr|Sr|II|III|IV)\.?$/.test(name) && names.length) { names[names.length - 1] += `, ${name}`; continue; }
-    if (new TextEncoder().encode(name).length > 256) throw new SourceError('invalid_source_metadata');
-    names.push(name);
-  }
-  return names;
-}
-
-/** The catalog record from arXiv's OAI-PMH arXivRaw response: the fallback when the Atom API is throttled
- * (owner feedback build 16 #10). Same identity checks and the same dates as the Atom record (version 1's
- * submission, the pinned version's), so the license evidence below verifies against it unchanged. */
-export function arxivRawRecord(bytes: Uint8Array, expected: ArxivReference): ArxivRecord {
-  const ref = validated(expected);
-  const { raw, versions } = oaiRawRecord(bytes, ref);
-  if (versions.some(version => version.submittedAt === null)) throw new SourceError('invalid_source_metadata');
-  const latest = versions.reduce((a, b) => a.revision > b.revision ? a : b);
-  const first = versions.reduce((a, b) => a.revision < b.revision ? a : b);
-  const pinned = ref.revision === null ? latest : versions.find(version => version.revision === ref.revision);
-  if (!pinned) throw new SourceError('source_not_found');
-  const authors = rawAuthors(plain(one(raw, RAW, 'authors', false), 64_000, false));
-  const terms = (plain(one(raw, RAW, 'categories', false), 4096, false) ?? '').split(' ').filter(Boolean);
-  if (authors.length > 512 || terms.length > 64) throw new SourceError('metadata_size_limit');
-  for (const term of terms) if (!/^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(term)) throw new SourceError('invalid_source_metadata');
-  const metadata: ArxivMetadata = {
-    title: plain(one(raw, RAW, 'title'), 2000)!, authors,
-    abstract: plain(one(raw, RAW, 'abstract', false), 24_000, false),
-    published_at: first.submittedAt, updated_at: pinned.submittedAt,
-    categories: [...new Set(terms)], venue: plain(one(raw, RAW, 'journal-ref', false), 1024, false),
-  };
-  if (new TextEncoder().encode(JSON.stringify(metadata)).length > 30_000) throw new SourceError('metadata_size_limit');
-  return { sourceID: ref.sourceID, revision: pinned.revision, metadata };
-}
-
-// This consumes a response obtained from the derived OAI URL by a trusted,
-// rate-limited worker. It is never an endpoint accepting client license claims.
-// A hash is evidence provenance, not a signature from arXiv or byte verification.
-export async function arxivReuseEvidence(bytes: Uint8Array, pinned: ArxivRecord, observedAt: string): Promise<ArxivReuse> {
-  const ref = validated(pinned);
-  if (ref.revision === null || !catalogInstant(observedAt)) throw new SourceError('invalid_source_metadata');
-  const { raw, versions } = oaiRawRecord(bytes, ref);
-  // OAI describes the latest version. Its history does not prove the license
-  // of an older revision; never reuse the latest license for an older PDF.
-  const latest = versions.reduce((a, b) => a.revision > b.revision ? a : b);
-  if (latest.revision !== ref.revision || versions.some(version => version.submittedAt === null) ||
-      !latest.submittedAt || latest.submittedAt !== pinned.metadata.updated_at) return { eligible: false, reason: 'revision_unverified' };
-  const license = plain(one(raw, RAW, 'license', false), 512, false);
-  if (!license) return { eligible: false, reason: 'license_unverified' };
-  const licenseURI = supportedLicense(license);
-  if (!licenseURI) return { eligible: false, reason: 'license_not_supported' };
-  const urls = arxivURLs(ref);
-  return { eligible: true, licenseURI, policyVersion: 'arxiv-reuse-v1', evidence: {
-    source_id: ref.sourceID, source_revision: ref.revision, source_url: urls.abstract,
-    license_uri: licenseURI, evidence_url: urls.raw, evidence_format: 'arXivRaw',
-    evidence_sha256: await sha256(bytes), observed_at: observedAt, latest_version_at: latest.submittedAt,
-  } };
+/** The paper's abstract page, for people to follow (a link shown in the library, never requested by a server). */
+export function arxivAbstractURL(reference: ArxivReference): string {
+  const ref = arxivReference(`${reference.sourceID}${reference.revision === null ? '' : `v${reference.revision}`}`);
+  if (ref.sourceID !== reference.sourceID || ref.revision !== reference.revision) throw new SourceError('invalid_arxiv_id');
+  return `https://arxiv.org/abs/${ref.sourceID}${ref.revision === null ? '' : `v${ref.revision}`}`; // egress-ok: link
 }

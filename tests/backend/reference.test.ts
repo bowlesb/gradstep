@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { arxivIDs, candidateTitles, citationText, crossrefCandidates, dois, referenceYear, resolveReference, titleInReference, type ReferenceDeps } from '../../supabase/functions/_shared/reference.ts';
 import type { FindResult } from '../../supabase/functions/_shared/chat.ts';
 
@@ -11,6 +12,7 @@ test('reference parsing: arXiv ids, DOIs, citation text and the title check', ()
   assert.deepEqual(arxivIDs(palm), ['2204.02311']);
   assert.deepEqual(arxivIDs('see arXiv:1706.03762v5 and 1706.03762'), ['1706.03762']);
   assert.deepEqual(arxivIDs('pages 1234.56789012'), []);
+  assert.deepEqual(arxivIDs('Wei et al. Chain of thought. doi:10.48550/arXiv.2201.11903. 2022.'), ['2201.11903'], "arXiv's own DOI names the paper");
   assert.deepEqual(dois('J. Doe. A paper. Nature 521, 436 (2015). doi:10.1038/nature14539.'), ['10.1038/nature14539']);
   assert.deepEqual(dois('https://doi.org/10.1145/3292500.3330701)'), ['10.1145/3292500.3330701']);
   assert.equal(citationText('[24] D. P. Kingma. Adam. https://arxiv.org/abs/1412.6980 ICLR 2015'), 'D. P. Kingma. Adam. ICLR 2015');
@@ -39,9 +41,12 @@ test('the title is read from common citation styles (authors, then title, then v
   assert.equal(referenceYear(eusipco), 2004);
 });
 
-const atom = (id: string, title: string) => `<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"><entry><id>http://arxiv.org/abs/${id}v1</id><title>${title}</title>
-  <published>2022-04-05T17:57:34Z</published><updated>2022-04-05T17:57:34Z</updated><author><name>Aakanksha Chowdhery</name></author>
-  <summary>Abstract.</summary><category term="cs.CL"/></entry></feed>`;
+// PaLM's DataCite record, recorded (tests/backend/fixtures/lookup/README.md); `retitled` makes it name another paper.
+const palmRecord = (retitled?: string) => {
+  const body = JSON.parse(readFileSync(new URL('fixtures/lookup/datacite-id-2204.02311.json', import.meta.url), 'utf8'));
+  if (retitled) body.data.attributes.titles = [{ title: retitled }];
+  return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/vnd.api+json' } });
+};
 const openAlexWork = (extra: Record<string, unknown>) => ({ id: 'https://openalex.org/W1572676502', doi: null, publication_year: 2004,
   title: 'Restoration Of Atmospheric Turbulent Video Containing Real Motion Using Rank Filtering And Elastic Image Registration',
   authorships: [{ author: { display_name: 'Shai Gepshtein' } }], locations: [], best_oa_location: null, ...extra });
@@ -56,20 +61,19 @@ function deps(routes: Record<string, (url: URL) => Response>, findPaper?: Refere
       if (!route) throw new Error('unexpected ' + url.href);
       return route[1](url);
     }) as typeof fetch,
-    slot: async () => ({ reserved: true, wait_ms: 0 }),
     findPaper: findPaper ?? (async (): Promise<FindResult> => ({ status: 'not_found' })),
   };
 }
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
-test('an arXiv id in the entry is used directly, but only when the title matches the entry', async () => {
-  const ok = deps({ 'export.arxiv.org/api/query': () => new Response(atom('2204.02311', 'PaLM: Scaling Language Modeling with Pathways')) });
+test('an arXiv id in the entry is named by DataCite (never arXiv), but only when the title matches the entry', async () => {
+  const ok = deps({ 'api.datacite.org/dois/10.48550/arXiv.2204.02311': () => palmRecord() });
   const found = await resolveReference(ok, palm, true, new AbortController().signal);
   assert.equal(found.route, 'arxiv_id');
   assert.deepEqual(found.result, { status: 'found', paper: { source_id: '2204.02311', title: 'PaLM: Scaling Language Modeling with Pathways', year: 2022, kind: 'arxiv' } });
-  assert.deepEqual(ok.calls, ['export.arxiv.org/api/query'], 'no citation search needed');
+  assert.deepEqual(ok.calls, ['api.datacite.org/dois/10.48550/arXiv.2204.02311'], 'one DataCite request; no citation search needed');
   // A mistyped id that resolves to another paper is not accepted; the entry falls through to Crossref.
-  const wrong = deps({ 'export.arxiv.org/api/query': () => new Response(atom('2204.02311', 'Unrelated Protein Folding Results')),
+  const wrong = deps({ 'api.datacite.org/dois/10.48550/arXiv.2204.02311': () => palmRecord('Unrelated Protein Folding Results'),
     'api.crossref.org/works': () => json({ message: { items: [] } }), 'api.openalex.org/works': () => json({ results: [] }) });
   assert.equal((await resolveReference(wrong, palm, true, new AbortController().signal)).result.status, 'not_found');
 });

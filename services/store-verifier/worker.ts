@@ -4,7 +4,7 @@ import { sdkPatchProof } from './sdk-patch.ts';
 import { appleVerifier, verificationError } from '../../supabase/functions/_shared/app-store.ts';
 import { storeVerificationObservation, verifyNotificationRecord, verifyTransactionRecord } from '../../supabase/functions/_shared/store-purchases.ts';
 import { parseRequest, unavailable, type VerificationDecision } from './protocol.ts';
-// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('store-verifier/thread');
 
 if (!parentPort) throw new Error('worker_required');

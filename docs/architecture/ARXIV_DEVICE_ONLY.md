@@ -1,7 +1,9 @@
 # arXiv terms audit and device-only access design
 
-**Status:** rollout steps 1–3 and the search part of step 4 are implemented and switched off (§6.0); the rest is a
-proposal. Nothing here is deployed, applied to staging or switched on. **Date: 2026-10-15.**
+**Status (2026-10-16):** rollout steps 1–7 are implemented. Steps 1–4 are deployed and switched on in staging (§6.0,
+§6.0.2). Steps 5–7 (§6.0.3) are built and tested locally: the code makes **zero server requests to any `*.arxiv.org`
+host** (the block-mode scan finds no server call site). Migration 077 and the function and worker deploys that carry
+them wait for the lead's deploy order (§6.0.3). Audit and design written 2026-10-15.
 Owner request (2026-10-15): audit the app against arXiv's current terms; ensure user devices exclusively interact
 with arXiv servers and ours do not; stop server metadata calls to arXiv and have devices fetch what they need and
 pass it to our server; examine the related sites.
@@ -11,6 +13,8 @@ guidance (ticket AH-211376). Items marked for counsel need a lawyer, not another
 
 ## Summary
 
+- **Resolved by rollout steps 5–7 (§6.0.3): no server code calls arXiv.** The rest of this summary is the audit as
+  written on 2026-10-15.
 - **Yes, our servers call arXiv for metadata today.** The audit found 8 call sites to 3 arXiv hosts
   (`export.arxiv.org`, `oaipmh.arxiv.org`, `rss.arxiv.org`). They run behind 7 deployed server entry points: the
   Cloud Run pipeline worker, the retired-but-deployed Edge `paper-worker`, `feed-refresh`, `discover`, `add-paper`,
@@ -892,7 +896,105 @@ code ratchet and these stay as switch-guarded code until step 7):
 
 DOI naming (`identify.resolveDOI`) uses Crossref alone with `openalex_enabled` off; `find-paper.ts` and
 `reference.ts` still use OpenAlex for titles (§6.0.1). The egress guard stays in report mode until S1, S2 and S6–S8
-are gone.
+are gone. **Update (2026-10-16): all of S1–S8 are gone; §6.0.3.**
+
+### 6.0.3 Steps 5–7: our servers never contact arXiv (built 2026-10-16)
+
+Directive (lead, 2026-10-16, from the owner's principle): each device calls arXiv only as its user's own agent; servers
+never; shared data from DataCite. Built and tested locally on top of `2be1a53`; **not deployed, migration 077 not
+applied.**
+
+**Step 5, the metadata stage.** `metadata-pipeline.ts` names an arXiv paper from DataCite by its DOI
+(`10.48550/arXiv.<id>`, one request, one retry after a 429 or 503): title, authors, abstract and categories as DataCite
+holds them (the latest version's), the first version's and the requested version's submission days, no venue. The
+record goes through the new `worker_pipeline_datacite_metadata` (migration 077), which checks DataCite's evidence
+against the claimed paper (DOI, version, abstract link, licence table), decides shared reuse itself (only the exact
+version DataCite describes under CC BY 4.0 or CC0; an older version's licence is unknown, so it stays source only) and
+keeps the record's provenance (`catalog_metadata_provenance`, origin `datacite`). A paper DataCite doesn't list yet
+(arXiv registers a new paper's DOI about 3 h after announcement; a new version likewise) waits as `metadata_pending`,
+asked again 10, 20 … 60 minutes apart, and fails retryably as `metadata_unavailable` after 12 attempts (about 9 h); its
+import shows its placeholder meanwhile. `fetchArxiv`, the Atom and arXivRaw parsers, `arxivReuseEvidence` and the
+pacing wait are deleted.
+- `v1_submit_source_metadata` (071) is on (`source_metadata_enabled`), and a device's record for an import whose paper
+  still waits asks the pipeline again at once. Device records stay account-scoped (rule 2); nothing a device sends
+  enters the shared catalog unverified.
+- **Not built, and why:** a device's record cannot fill an import on its own yet. Today's clients (build 55 and later)
+  prepare a paper, and so read its HTML, only once the import has catalog metadata (`source_only` with a revision),
+  and their library decoders require catalog identifiers with any metadata. Filling an import from its device record
+  needs a client change (prepare a pinned import before its metadata; show a `device_metadata` projection). With
+  DataCite filling every listed paper, the gap is the hours before DataCite lists a brand-new paper.
+- `worker_pipeline_arxiv_slot` fails closed for any forgotten caller: `{reserved: false, code: "arxiv_egress_disabled",
+  wait_ms: 600000}`. No server code calls it any more.
+
+**Title and ID lookups** (Ingest, Add by text or DOI, a reference's Add to library): an arXiv ID is named by its DataCite
+record (several in one request for Tavily's IDs or a reference's), a title by DataCite title queries (the earliest
+papers titled with the phrase, then every title word), under the same strict `matchPaper`; Crossref still names
+non-arXiv DOIs (now with its subtitle, so "Optuna" finds its preprint). arXiv's own DOI (`10.48550/arXiv.<id>`) names the
+paper with no lookup, in Add and in references. A reader's link to an arXiv page names its paper (abstract, PDF or HTML)
+and is never fetched; any other arXiv page, or a redirect to one, is not followed. Result contracts are unchanged.
+
+**Search and chips.** `discover?q=` searches DataCite whatever the switches say (the OpenAlex-ranked server search and
+its arXiv metadata are deleted; `openalex_enabled` now governs only DOI naming); a chip the pool doesn't answer reads
+DataCite. **The Feed's pool** reads DataCite only: migration 077 constrains `feed_source` to `datacite`,
+`feed_active_source()` returns `datacite-ml`, and `feed-refresh` records any other claim as failed
+(`arxiv_egress_disabled`) without a request. The `arxiv-ml` row stays for the record.
+
+**Step 6, enforcement.**
+- The egress guard blocks by default (`_shared/egress.ts`); only `EGRESS_ARXIV=report` lets a request through, for a
+  developer. Deploys state `EGRESS_ARXIV=block`: the Edge function secrets (`deploy-staging.py`), the Cloud Run worker's
+  environment (`deploy-pipeline-worker.py`) and the workflow job's (`schedule-workflow-checks.py`). The store verifier
+  takes the default.
+- The static scan runs with `--block` in `npm test` and before `deploy-staging.py`, `deploy-pipeline-worker.py` (deploy
+  and build) and `schedule-workflow-checks.py apply`; the baseline `scripts/arxiv-egress-baseline.json` is empty.
+- **The egress counter:** provider health (migration 073) now counts arXiv as a provider, `arxiv`: every attempt by a
+  function or the worker, refused (outcome `rejected`, which never moves a breaker) or not. The Health tab names it
+  "arXiv (never: refused)" and raises an Attention item for any attempt in the last hour.
+- **Hosted check `egress.no-arxiv`** (deploy, daily and weekly suites, free): search, a pool chip and one outside the
+  pool, Add by arXiv ID, arXiv DOI and text, Add to library on a reference, the metadata stage for the papers added,
+  and the Feed's source; then the counter must read zero for the last 24 hours. `html.membership` now also submits the
+  device's record for its import (stored once, then unchanged) and requires the `source_metadata` capability on.
+- The Edge `paper-worker` is deleted from the repository (its `config.toml` entry too; operator scripts kick the Cloud
+  Run worker). Undeploying it is in the deploy order below.
+
+**Step 7, dead code.** Deleted: `fetchArxiv`, `arxivURLs`' Atom and raw URLs, the Atom and arXivRaw parsers,
+`arxivReuseEvidence`, `source-xml.ts` (`SourceError` moved into `arxiv.ts`), `poolFeedURL`, `parsePoolRSS`,
+`announcementDay`, `rssPoolSource`, `xmlText`, `arxivSearchURL(s)`, `arxivIDListURL`, `arxivRecentURL`, `parseArxivRSS`,
+`parseArxivSearch`, `searchArxiv`, `arxivTitleURLs`, `mergeDiscovery`, the OpenAlex search ranking (`openAlexSearchURLs`,
+`rankOpenAlex`, `openAlexResult`, `orderByRanking`, `exactTitleMatches`, `openAlexArxivWorkURL`) and the recorded arXiv
+Atom, OAI and RSS test fixtures. Kept: `arxivReference` (identity parsing) and `arxivAbstractURL`, the link people
+follow (`// egress-ok: link`). `scripts/search-eval.mjs` is marked a local developer script and compares the device
+search with DataCite (the retired server engine's 2026-10-15 results are in §5.6.1). The `saxes` dependency is now
+unused by code; removing it from the package manifests and locks is left for a dependency pass.
+
+**Copy.** The privacy draft (`web/site-next/privacy/`) now says our servers never contact arXiv, that catalog details
+come from DataCite and Crossref (OpenAlex for papers not on arXiv, and with Crossref and DataCite for identifying a
+reference) and that a device's details stay with its own library; republish the preview after the deploy. Native
+Settings › Acknowledgements: DataCite supplies "Paper details, ML paper search and the shared Feed … Our servers never
+contact arXiv" (ships with the next build). How Gradstep works (both clients) names no server lookup and is unchanged.
+
+**Tests.** Backend: DataCite and Crossref recordings for every replaced path (`tests/backend/fixtures/lookup/`, recorded
+2026-10-16 from a developer machine; the metadata stage reuses `fixtures/datacite/`), the metadata stage's waits and
+failures, the guard's block default, the arXiv counter, arXiv DOIs and links. Database: `tests/database/arxiv_egress_off.sql`
+(switches and constraints, the closed gate, DataCite evidence checks and eligibility, provenance, the nudge), with
+`device_source_metadata.sql`, `device_search.sql` and `feed_datacite.sql` updated for 077.
+
+**Deploy order** (the lead runs it; nothing here is deployed):
+0. Numbering: this is migration 077 because the podcast source-deletion branch adds 076. `migrate-supabase.py` requires
+   the applied ledger to be a prefix of the sources, so apply 076 first (merge that branch before running step 1), or
+   renumber whichever migration is applied second.
+1. Migration and functions: `python3 scripts/deploy-staging.py staging --functions discover add-paper add-reference chat feed-refresh --skip-checks`.
+   It runs the block scan, applies 077 (switches, the closed gate, the DataCite RPC, the nudge), sets the function secrets
+   (now with `EGRESS_ARXIV=block`, which every function reads) and deploys the five functions. Checks wait for the worker.
+   Until step 2 the old worker's arXiv gate refuses, so new papers wait at the metadata stage (10 minutes a time); none
+   fail and nothing reaches arXiv.
+2. Worker: `python3 scripts/deploy-pipeline-worker.py deploy --project gradstep` (block scan; `EGRESS_ARXIV=block`;
+   the DataCite metadata stage). Its deploy-suite checks then run, `egress.no-arxiv` and `html.membership` among them.
+3. Admin: `node scripts/deploy-web.mjs admin` (the Health tab's arXiv name and Attention item).
+4. Workflow job: `python3 scripts/schedule-workflow-checks.py apply` (the hosted image gains `egress.no-arxiv` and
+   `EGRESS_ARXIV=block`).
+5. Undeploy the Edge paper-worker: `SUPABASE_ACCESS_TOKEN=$(security find-generic-password -s 'Supabase CLI' -w) npx supabase functions delete paper-worker --project-ref coxhjvqpflgxkleydati`.
+6. First run, if step 2's checks were skipped: `node scripts/workflow-checks.mjs --only=egress.no-arxiv,html.membership --record`;
+   the next deploy suite's `config.edge-functions` no longer reports the retired paper-worker.
 
 ### 6.1 Steps and tests
 

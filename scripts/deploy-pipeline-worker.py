@@ -49,7 +49,12 @@ def context():
                     ignore=shutil.ignore_patterns('node_modules', '*.test.ts'))
     return target
 
+def egress_scan():
+    """Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md §6.5): refuse to build code naming one."""
+    subprocess.run(['node', str(ROOT / 'scripts/check-arxiv-egress.mjs'), '--block'], cwd=ROOT, check=True)
+
 def build():
+    egress_scan()
     path = context()
     subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '-t', f'{SERVICE}:local', str(path)], check=True)
     print('Built', f'{SERVICE}:local')
@@ -79,7 +84,8 @@ def podcast_env():
 def deployment_args(project, region, image, account, mapping, *, deferred=False, extra_env=None):
     # Request-based billing depends on server.ts awaiting and joining its bounded worker thread.
     # Set both scopes: a revision-only maximum leaves the service ceiling at its old value.
-    env = 'PIPELINE_MAINTENANCE=' + ('true' if deferred else 'false')
+    # EGRESS_ARXIV=block: the worker refuses any request to arXiv (the guard's default, stated; _shared/egress.ts).
+    env = 'PIPELINE_MAINTENANCE=' + ('true' if deferred else 'false') + ',EGRESS_ARXIV=block'
     for name, value in sorted((extra_env or {}).items()):
         if name not in PODCAST_ENV: raise ValueError('unexpected environment variable')
         env += f',{name}={value}'
@@ -175,6 +181,7 @@ def deploy(project, region, *, deferred=False):
         previous = deployment_policy(describe_service(project, region))
         verify_policy(previous, maintenance=False)
         verify_health(False, previous['revision'])
+    egress_scan()
     env = secrets()
     # A dedicated runtime identity that can read only these secrets.
     account = f'{SERVICE}@{project}.iam.gserviceaccount.com'

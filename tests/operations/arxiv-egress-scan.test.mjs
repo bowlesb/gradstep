@@ -1,5 +1,6 @@
 // The static half of "no server request to arXiv" (docs/architecture/ARXIV_DEVICE_ONLY.md §6.5): the scan finds
-// requests, not explained mentions, and report mode's ratchet fails only on a new call site.
+// requests, not explained mentions. Since the cutover (rollout step 6) it runs in block mode: any call site fails, and
+// the report mode's ratchet baseline is empty.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -41,7 +42,7 @@ test('the ratchet: report mode fails only for a site beyond the baseline', () =>
   assert.deepEqual(beyondBaseline(findings.slice(1), { 'a.ts': 2, 'b.ts': 1 }), [], 'retiring a site is always fine');
 });
 
-test('the scan covers every server tree, and today\'s repository matches its recorded baseline', () => {
+test('the scan covers every server tree, and today\'s repository has no server call site to arXiv', () => {
   const root = mkdtempSync(join(tmpdir(), 'egress-scan-'));
   for (const dir of ['supabase/functions/x', 'services/w', 'workers/r', 'supabase/migrations', 'infra', 'scripts', 'apps/web/src', 'supabase/functions/x/node_modules/p'])
     mkdirSync(join(root, dir), { recursive: true });
@@ -57,5 +58,6 @@ test('the scan covers every server tree, and today\'s repository matches its rec
 
   const repository = new URL('../../', import.meta.url).pathname;
   const baseline = JSON.parse(readFileSync(join(repository, 'scripts/arxiv-egress-baseline.json'), 'utf8')).sites;
-  assert.deepEqual(beyondBaseline(scan(repository), baseline), [], 'no server call site beyond the recorded baseline');
+  assert.deepEqual(baseline, {}, 'the ratchet holds no site: every one is retired');
+  assert.deepEqual(scan(repository).map(f => `${f.path}:${f.line} ${f.host}`), [], 'no server call site to arXiv');
 });

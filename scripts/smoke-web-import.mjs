@@ -69,7 +69,8 @@ const changes = (await user.rpc('v2_library_changes', { p_after: 0 })).data;
 assert.ok(!changes.changes.some(c => c.entries.some(e => e.source === 'web')), 'v2 changes hide web entries');
 log('import', imported.source_id, imported.phase, '— hidden from v2, shown in v3');
 
-await fetch(`${env.SUPABASE_URL}/functions/v1/paper-worker`, { method: 'POST', headers: { 'x-pipeline-secret': env.PIPELINE_SECRET } });
+// The Cloud Run worker (the Edge paper-worker is retired and undeployed).
+await fetch(JSON.parse(readFileSync(new URL('infra/staging.json', root), 'utf8')).pipeline_worker_url, { method: 'POST', headers: { 'x-pipeline-secret': env.PIPELINE_SECRET } });
 const started = Date.now(); let item, last = '';
 while (Date.now() - started < Number(args.timeout ?? 900) * 1000) {
   const all = await entries('v3_library_page');

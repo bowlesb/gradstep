@@ -9,7 +9,7 @@ import { errorResponse } from '../_shared/retry-after.ts';
 import { MAX_SYNC_TRANSACTIONS, REJECTED_DATA, storeConfig, storeRecordingCode, syncTransactions } from '../_shared/store-purchases.ts';
 import { configuredStoreGoogleIdentity } from '../_shared/store-google-auth.ts';
 import { createStoreRecordTransport, privateStorePolicy, storeBoundedOperation, STORE_REQUEST_BUDGET_MS } from '../_shared/store-verifier-transport.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('store-sync');
 
 let connection: ReturnType<typeof configuredStoreGoogleIdentity> | undefined;

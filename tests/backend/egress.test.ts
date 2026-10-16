@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EgressBlocked, guardedFetch, isArxivHost, requestHost, type EgressMode } from '../../supabase/functions/_shared/egress.ts';
+import { EgressBlocked, egressMode, guardedFetch, isArxivHost, requestHost, type EgressMode } from '../../supabase/functions/_shared/egress.ts';
 
 // "No server request to arXiv" (docs/architecture/ARXIV_DEVICE_ONLY.md §6, step 1): the fetch guard on every server.
 
@@ -77,4 +77,19 @@ test('report mode notices a platform-followed redirect that ended on arXiv', asy
   const inner = (async () => { const r = new Response('x', { status: 200 }); Object.defineProperty(r, 'redirected', { value: true }); Object.defineProperty(r, 'url', { value: 'https://arxiv.org/abs/1' }); return r; }) as typeof fetch;
   await guardedFetch(inner, 'c', { mode: () => 'report', log: line => logs.push(line) })('https://doi.org/x');
   assert.equal(JSON.parse(logs[0]).host, 'arxiv.org');
+});
+
+test('block is the default since the cutover: only an explicit EGRESS_ARXIV=report lets a request through', async () => {
+  const saved = process.env.EGRESS_ARXIV;
+  try {
+    for (const [value, mode] of [[undefined, 'block'], ['block', 'block'], ['', 'block'], ['off', 'block'], ['report', 'report']] as const) {
+      if (value === undefined) delete process.env.EGRESS_ARXIV; else process.env.EGRESS_ARXIV = value;
+      assert.equal(egressMode(), mode, String(value));
+    }
+    delete process.env.EGRESS_ARXIV;
+    let requested = 0;
+    const guarded = guardedFetch(async () => { requested++; return new Response('x'); }, 'default', { log: () => {} });
+    await assert.rejects(guarded('https://export.arxiv.org/api/query?id_list=1'), EgressBlocked);
+    assert.equal(requested, 0);
+  } finally { if (saved === undefined) delete process.env.EGRESS_ARXIV; else process.env.EGRESS_ARXIV = saved; }
 });

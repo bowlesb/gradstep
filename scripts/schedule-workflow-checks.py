@@ -72,7 +72,8 @@ def steps(project, region, alert_email, daily_days):
         ('Cloud Run job (1 task, no retries, 45 min limit)', ['gcloud', 'run', 'jobs', 'deploy', JOB, '--project', project, '--region', region,
           '--image', image, '--service-account', account, '--tasks', '1', '--max-retries', '0', '--task-timeout', '2700s',
           '--memory', '512Mi', '--cpu', '1',
-          '--set-env-vars', f'SUPABASE_PROJECT_REF=coxhjvqpflgxkleydati{"," + "WORKFLOW_ALERT_EMAIL=" + alert_email if alert_email else ""}',
+          # EGRESS_ARXIV=block: the job refuses any request to arXiv (the guard's default, stated; _shared/egress.ts).
+          '--set-env-vars', f'SUPABASE_PROJECT_REF=coxhjvqpflgxkleydati,EGRESS_ARXIV=block{"," + "WORKFLOW_ALERT_EMAIL=" + alert_email if alert_email else ""}',
           '--set-secrets', ','.join(f'{env}={secret}:latest' for secret, env in SECRETS.items())]),
         ('Let the scheduler start the job with arguments', ['gcloud', 'run', 'jobs', 'add-iam-policy-binding', JOB, '--project', project, '--region', region,
           '--member', f'serviceAccount:{invoker}', '--role', 'roles/run.jobsExecutorWithOverrides']),
@@ -111,6 +112,8 @@ def main():
         for index, (title, command) in enumerate(plan, 1):
             print(f'  {index}. {title}\n     ' + ' '.join(command))
         sys.exit(0)
+    # Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md §6.5): refuse to ship a job naming one.
+    subprocess.run(['node', str(ROOT / 'scripts/check-arxiv-egress.mjs'), '--block'], cwd=ROOT, check=True)
     ensure_secrets(args.project)
     build = context()
     for title, command in plan:

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { addPaper, type AddPaperDeps } from '../../supabase/functions/_shared/add-paper.ts';
+import { paperFinder } from '../../supabase/functions/_shared/find-paper.ts';
 import { doiInURL, doiOf, landingForPDF, pageFacts, parseAddInput, probeLink } from '../../supabase/functions/_shared/identify.ts';
 import type { FindResult, FoundPaper } from '../../supabase/functions/_shared/chat.ts';
 
@@ -13,6 +15,11 @@ const pdf = () => new Response(new ReadableStream({ start(c) { c.enqueue(new Tex
 test('the Add input: arXiv IDs and links, DOIs in any common form, links, references', () => {
   assert.deepEqual(parseAddInput(' 2305.18290v2 '), { kind: 'arxiv', sourceID: '2305.18290', revision: 2 });
   assert.deepEqual(parseAddInput('https://arxiv.org/pdf/1706.03762'), { kind: 'arxiv', sourceID: '1706.03762', revision: null });
+  // arXiv's own DOI names the paper: no DOI lookup (OpenAlex is off and Crossref doesn't hold DataCite DOIs).
+  for (const doi of ['10.48550/arXiv.1706.03762', 'doi:10.48550/arXiv.1706.03762v5', 'https://doi.org/10.48550/arXiv.1706.03762']) {
+    assert.deepEqual({ ...parseAddInput(doi), revision: null }, { kind: 'arxiv', sourceID: '1706.03762', revision: null }, doi);
+  }
+  assert.deepEqual(parseAddInput('10.48550/arXiv.hep-th/9711200'), { kind: 'arxiv', sourceID: 'hep-th/9711200', revision: null });
   for (const doi of ['10.1145/3292500.3330701', 'doi:10.1145/3292500.3330701', 'https://doi.org/10.1145/3292500.3330701', 'http://dx.doi.org/10.1145%2F3292500.3330701', 'DOI: 10.1145/3292500.3330701.']) {
     assert.deepEqual(parseAddInput(doi), { kind: 'doi', doi: '10.1145/3292500.3330701' }, doi);
   }
@@ -92,6 +99,11 @@ test('probing a link: every hop resolved and checked, a PDF is recognised withou
     'repo.example.org/x.pdf': () => pdf() }, 'https://repo.example.org/p')).kind, 'pdf', 'http redirects are followed over https');
   assert.deepEqual(await go({ 'repo.example.org/p': () => new Response(null, { status: 301, headers: { location: 'https://arxiv.org/abs/2305.18290v3' } }) }, 'https://repo.example.org/p'),
     { kind: 'arxiv', sourceID: '2305.18290', revision: 3 });
+  // Our servers never contact arXiv: its HTML page names the paper; any other arXiv page, or a redirect to one, is never fetched.
+  assert.deepEqual(await go({}, 'https://arxiv.org/html/2305.18290v3/'), { kind: 'arxiv', sourceID: '2305.18290', revision: 3 });
+  assert.deepEqual(await go({}, 'https://arxiv.org/list/cs.LG/recent'), { kind: 'refused', url: new URL('https://arxiv.org/list/cs.LG/recent'), code: 'download_failed' });
+  const hop = await go({ 'repo.example.org/p': () => new Response(null, { status: 302, headers: { location: 'https://export.arxiv.org/api/query?id_list=1' } }) }, 'https://repo.example.org/p');
+  assert.equal(hop.kind === 'refused' && hop.code, 'download_failed', 'the redirect to arXiv is not followed');
   const blocked = await go({ 'dl.acm.org/doi': () => html('<title>Just a moment...</title><div class="cf-turnstile"></div>', 403) }, 'https://dl.acm.org/doi/10.1145/1');
   assert.equal(blocked.kind === 'refused' && blocked.code, 'source_blocked');
   const challenged = await go({ 'openreview.net/forum': () => html('<title>Just a moment...</title><script src="/cdn-cgi/challenge-platform/x.js"></script>') }, 'https://openreview.net/forum?id=X');
@@ -110,7 +122,6 @@ function deps(routes: Routes, options: { findPaper?: AddPaperDeps['findPaper']; 
   return {
     fetch: fetcher(routes, options.calls), resolveHost: publicDNS,
     findPaper: options.findPaper ?? (async () => ({ status: 'not_found' })),
-    slot: async () => ({ reserved: true, wait_ms: 0 }),
     importPaper: async paper => { options.imported?.push(paper); return 'added'; },
   };
 }
@@ -165,6 +176,25 @@ test('with OpenAlex switched off (migration 072), a DOI is named by Crossref and
   assert.equal(unknown.status, 'not_found');
   const down = await addPaper({ ...deps({ 'api.crossref.org/works/': () => json({}, 503) }), openAlex: false }, '10.5555/nothing', true, signal());
   assert.equal(down.status, 'unavailable');
+});
+
+test('recorded: Crossref names a DOI (title with its subtitle), DataCite finds its arXiv preprint; arXiv is never asked', async () => {
+  const recorded = (name: string) => readFileSync(new URL(`fixtures/lookup/${name}`, import.meta.url), 'utf8');
+  const answer = (body: string) => () => new Response(body, { headers: { 'content-type': 'application/json' } });
+  const calls: string[] = [], imported: FoundPaper[] = [];
+  const routes: Routes = {
+    'api.crossref.org/works/10.1145%2F3292500.3330701': answer(recorded('crossref-10.1145-3292500.3330701.json')),
+    'api.openalex.org/works': () => json({ results: [] }), // the finder's OpenAlex step knows nothing here
+    'api.datacite.org/dois?query=titles.title%3A%22optuna': answer(recorded('datacite-title-optuna-phrase.json')),
+  };
+  const fetch = fetcher(routes, calls);
+  const finder = paperFinder(null as never, undefined, fetch);
+  const outcome = await addPaper({ fetch, resolveHost: publicDNS, findPaper: finder.findPaper, openAlex: false,
+    importPaper: async paper => { imported.push(paper); return 'added'; } }, 'https://doi.org/10.1145/3292500.3330701', true, signal());
+  assert.equal(outcome.status, 'added');
+  assert.deepEqual(imported.map(p => [p.source_id, p.title]), [['1907.10902', 'Optuna: A Next-generation Hyperparameter Optimization Framework']]);
+  assert.ok(calls.some(c => c.startsWith('api.crossref.org')) && calls.some(c => c.startsWith('api.datacite.org')), calls.join(' '));
+  assert.ok(!calls.some(c => /arxiv\.org/.test(c.split('/')[0])), 'no arXiv host');
 });
 
 test('a link: proceedings PDFs through their landing page, DOIs in the path, citation tags, or the device', async () => {

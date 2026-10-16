@@ -6,7 +6,7 @@
 // (`blocked`, `link_only`).
 import type { FindResult, FoundPaper } from './chat.ts';
 import { parseAddInput, resolveDOI, resolveLink, type AddResolution, type AddRoute, type IdentifyDeps } from './identify.ts';
-import { resolveReference, type ReferenceDeps } from './reference.ts';
+import { resolveReference } from './reference.ts';
 
 export type AddStatus = 'added' | 'present' | 'closed' | 'blocked' | 'link_only' | 'not_found' | 'needs_update' | 'unavailable' | 'invalid' | 'failed';
 export interface AddPaperResponse {
@@ -22,7 +22,6 @@ export interface AddPaperResponse {
 }
 
 export interface AddPaperDeps extends IdentifyDeps {
-  slot: ReferenceDeps['slot'];
   importPaper(paper: FoundPaper, signal: AbortSignal): Promise<'added' | 'present' | 'failed'>;
 }
 
@@ -47,7 +46,7 @@ export async function addPaper(deps: AddPaperDeps, raw: string, web: boolean, si
       case 'doi': resolved = { route: 'doi', result: await resolveDOI(deps, input.doi, web, signal) }; break;
       case 'url': resolved = await resolveLink(deps, input.url, web, signal); break;
       case 'text': {
-        const reference = await resolveReference({ fetch: deps.fetch, slot: deps.slot, findPaper: deps.findPaper }, input.text, web, signal);
+        const reference = await resolveReference({ fetch: deps.fetch, findPaper: deps.findPaper }, input.text, web, signal);
         resolved = { route: reference.route === 'none' ? 'none' : 'reference', result: reference.result };
         break;
       }

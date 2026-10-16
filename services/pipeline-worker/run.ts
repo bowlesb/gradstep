@@ -11,7 +11,7 @@ import { runMetadataPipeline, type MetadataDeps } from '../../supabase/functions
 import { pipelineService, rpcAdapter, runtimeEnv } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
-// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('pipeline-worker/run');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
 installProviderHealth('pipeline-worker/run', pipelineService);

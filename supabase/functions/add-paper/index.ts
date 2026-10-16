@@ -11,7 +11,7 @@ import { paperFinder } from '../_shared/find-paper.ts';
 import { addPaper } from '../_shared/add-paper.ts';
 import { MAX_INPUT_CHARS } from '../_shared/identify.ts';
 import { edgeResolveHost } from '../_shared/edge-dns.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('add-paper');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
 installProviderHealth('add-paper', serviceClient);
@@ -41,16 +41,11 @@ Deno.serve(async request => {
     const started = Date.now();
     const budget = AbortSignal.any([request.signal, AbortSignal.timeout(BUDGET_MS)]);
     // Add is free: it never uses the paid web search (it passed the key text here, which was never called).
-    const finder = paperFinder(service, user);
-    const slot = async (slots: number) => {
-      const { data, error } = await service.rpc('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 10_000 });
-      if (error) throw new Error('search_busy');
-      return data;
-    };
+    const finder = paperFinder(user);
     // OpenAlex names DOIs until `openalex_enabled` is switched off (migration 072); a server without it keeps OpenAlex.
     const policy = await service.rpc('worker_search_policy');
     const openAlex = policy.error ? true : (policy.data as { openalex?: unknown } | null)?.openalex !== false;
-    const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, slot, importPaper: finder.importPaper, openAlex }, query, web, budget);
+    const outcome = await addPaper({ fetch, resolveHost: edgeResolveHost, findPaper: finder.findPaper, importPaper: finder.importPaper, openAlex }, query, web, budget);
     // Outcomes join the reliability events (no account ids; the reader's text is never stored).
     await service.rpc('worker_record_reference_event', { p_result: outcome.status, p_route: `add_${outcome.route}`,
       p_source_id: outcome.paper?.source_id?.slice(0, 200) ?? null, p_duration_ms: Date.now() - started }).then(() => {}, () => {});

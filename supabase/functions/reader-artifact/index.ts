@@ -6,7 +6,7 @@ import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256, uuid } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { boundedStorageDownload } from '../_shared/reader-delivery.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('reader-artifact');
 
 type Descriptor = { item_id: string; document_id: string; artifact_id: string; renderer_version: string; bucket: string;

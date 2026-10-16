@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { FEED_TOPIC_TAGS, FEED_TOPICS_VERSION, feedTopics } from '../../supabase/functions/_shared/feed-topics.ts';
 import { TAG_NAMES } from '../../supabase/functions/_shared/tag-vocabulary.ts';
-import { announcementDay, parsePoolRSS, poolAuthors, poolFeedURL, POOL_BATCH, runRefresh, sameSecret, withTopics,
-  type PoolItem, type RefreshClaim, type RefreshDeps, type RefreshStatus } from '../../supabase/functions/_shared/feed-pool.ts';
+import { poolAuthors, POOL_BATCH, runRefresh, sameSecret, withTopics,
+  type PoolFetch, type PoolItem, type PoolSource, type RefreshClaim, type RefreshDeps, type RefreshStatus } from '../../supabase/functions/_shared/feed-pool.ts';
 import { categoryName, FEED_RANKING_VERSION, poolResult, rankForYou, seeded,
   type CandidateSet, type FeedCandidate, type ProfilePaper } from '../../supabase/functions/_shared/feed-rank.ts';
 
@@ -53,92 +52,29 @@ test('at most eight rule tags plus two category tags, strongest first', () => {
   assert.deepEqual(busy.slice(-2), ['Natural language processing', 'Machine learning']);
 });
 
-// ---- Pool parsing ------------------------------------------------------------------------------
+// ---- Pool items and the refresh loop (the source is DataCite: feed-datacite.test.ts; arXiv's RSS is retired) -------------
 
-const fixture = new Uint8Array(readFileSync(new URL('../fixtures/arxiv/rss-cs.LG-sample.xml', import.meta.url)));
+const poolItem = (i: number, title = `Diffusion models ${i}`): PoolItem => ({ source_id: `2610.${String(10000 + i)}`, revision: 1, title,
+  authors: ['Ada Lovelace'], abstract: 'We study things & stuff.', categories: ['cs.LG'], topics: [], announced_on: '2026-10-08', announce_type: 'new' });
 
-function rss(items: string[]): Uint8Array {
-  return new TextEncoder().encode(`<?xml version='1.0' encoding='UTF-8'?>\n<rss xmlns:arxiv="http://arxiv.org/schemas/atom" ` +
-    `xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0"><channel><title>x</title>${items.join('')}</channel></rss>`);
-}
-function item(id: string, type: string, options: { title?: string; categories?: string[]; authors?: string; pubDate?: string; abstract?: string } = {}) {
-  return `<item><title>${options.title ?? `Paper ${id}`}</title><link>https://arxiv.org/abs/${id}</link>` +
-    `<description>arXiv:${id}v2 Announce Type: ${type} \nAbstract: ${options.abstract ?? 'We study things &amp; stuff.'}</description>` +
-    (options.categories ?? ['cs.LG']).map(c => `<category>${c}</category>`).join('') +
-    `<pubDate>${options.pubDate ?? 'Thu, 08 Oct 2026 00:00:00 -0400'}</pubDate><arxiv:announce_type>${type}</arxiv:announce_type>` +
-    `<dc:creator>${options.authors ?? 'Ada Lovelace, Alan Turing'}</dc:creator></item>`;
-}
-
-test('parses the real arXiv RSS sample into pool items', () => {
-  const { items, skipped } = parsePoolRSS(fixture, { limit: 3000, today: '2026-10-05' });
-  assert.equal(skipped, 0);
-  assert.equal(items.length, 3);
-  assert.equal(items[0].source_id, '2610.02224');
-  assert.equal(items[0].announced_on, '2026-10-05');
-  assert.equal(items[0].announce_type, 'new');
-  assert.deepEqual(items[0].categories, ['cs.LG', 'cond-mat.mtrl-sci']);
-  assert.equal(items[0].authors[0], 'Quach Thi Thai Binh');
-  assert.ok(items[0].abstract!.startsWith('Rapid and reliable identification'));
-  assert.ok(items[0].abstract!.length <= 2000);
-  const tagged = withTopics(items);
-  assert.ok(tagged[0].topics.includes('Machine learning') && tagged[0].topics.length <= 10, String(tagged[0].topics));
-});
-
-test('keeps new and cross-lists, skips replacements, merges duplicates, bounds every field', () => {
-  const longAuthors = Array.from({ length: 30 }, (_, i) => `Author ${i + 1}`).join(', ');
-  const { items, skipped } = parsePoolRSS(rss([
-    item('2610.00001', 'new', { categories: ['cs.CL'] }),
-    item('2610.00002', 'replace'),
-    item('2610.00003', 'replace-cross'),
-    item('2610.00004', 'cross', { authors: longAuthors, categories: ['cs.CV', 'cs.LG'] }),
-    item('2610.00001', 'cross', { categories: ['cs.LG'] }),
-    item('not-an-id', 'new'),
-    item('2610.00005', 'new', { categories: [] }),
-    item('2610.00006', 'new', { pubDate: 'Thu, 08 Oct 2025 00:00:00 -0400' }),
-    item('2610.00007', 'new', { title: '' }),
-  ]), { limit: 3000, today: '2026-10-08' });
-  assert.deepEqual(items.map(i => i.source_id), ['2610.00001', '2610.00004']);
-  assert.equal(skipped, 4, 'bad id, no category, a year-old date and an empty title');
-  assert.deepEqual(items[0].categories, ['cs.CL', 'cs.LG'], 'a duplicate merges its categories');
-  assert.equal(items[0].announce_type, 'new');
-  assert.equal(items[0].revision, 2);
-  assert.equal(items[0].abstract, 'We study things & stuff.');
-  assert.equal(items[1].authors.length, 12);
-  assert.equal(items[1].authors[11], 'Author 30', 'the last author is kept');
-  assert.equal(items[1].announce_type, 'cross');
-});
-
-test('limits, unsafe XML and the announcement day', () => {
-  assert.equal(parsePoolRSS(rss([item('2610.00001', 'new'), item('2610.00004', 'new')]), { limit: 1, today: '2026-10-08' }).items.length, 1);
-  assert.throws(() => parsePoolRSS(new TextEncoder().encode('<!DOCTYPE x><rss></rss>'), { limit: 10, today: '2026-10-08' }), /invalid_feed/);
-  assert.throws(() => parsePoolRSS(new TextEncoder().encode('<html/>'), { limit: 10, today: '2026-10-08' }), /invalid_feed/);
-  assert.equal(announcementDay('Thu, 8 Oct 2026 00:00:00 -0400'), '2026-10-08');
-  assert.equal(announcementDay('garbage'), null);
+test('pool authors and topics match the database rules (migration 043 feed_valid_item)', () => {
   assert.deepEqual(poolAuthors(['  Ada   Lovelace ', '', 'x'.repeat(300)]), ['Ada Lovelace']);
-  assert.equal(poolFeedURL(['cs.LG', 'stat.ML', 'eess.AS']), 'https://rss.arxiv.org/rss/cs.LG+stat.ML+eess.AS');
-  assert.throws(() => poolFeedURL(['cs.LG', 'cs.LG/../x']), /invalid_categories/);
-  assert.throws(() => poolFeedURL([]), /invalid_categories/);
-});
-
-test('items match the database rules (migration 043 feed_valid_item)', () => {
-  const tagged = withTopics(parsePoolRSS(rss([item('2610.00004', 'cross', { title: 'Mixture of experts for RAG' })]), { limit: 10, today: '2026-10-08' }).items);
-  const keys = Object.keys(tagged[0]).sort();
-  assert.deepEqual(keys, ['abstract', 'announce_type', 'announced_on', 'authors', 'categories', 'revision', 'source_id', 'title', 'topics']);
+  const long = Array.from({ length: 30 }, (_, i) => `Author ${i + 1}`);
+  assert.deepEqual([poolAuthors(long).length, poolAuthors(long)[11]], [12, 'Author 30'], 'the last author is kept');
+  const tagged = withTopics([poolItem(4, 'Mixture of experts for RAG')]);
+  assert.deepEqual(Object.keys(tagged[0]).sort(), ['abstract', 'announce_type', 'announced_on', 'authors', 'categories', 'revision', 'source_id', 'title', 'topics']);
   for (const topic of tagged[0].topics) assert.ok(topic.length <= 40 && topic === topic.trim(), topic);
   assert.equal(new Set(tagged[0].topics.map(t => t.toLowerCase())).size, tagged[0].topics.length);
 });
 
-// ---- Refresh loop ------------------------------------------------------------------------------
+const claim: RefreshClaim = { claim_id: '0a2b5c7e-0000-4000-8000-000000000001', source: 'datacite-ml', kind: 'datacite', categories: ['cs.LG', 'cs.CL'],
+  etag: null, last_modified: '2026-10-07T04:31:42Z', max_items: 3000 };
+const source = (fetched: PoolFetch | (() => never)): PoolSource => async () => typeof fetched === 'function' ? fetched() : fetched;
 
-const claim: RefreshClaim = { claim_id: '0a2b5c7e-0000-4000-8000-000000000001', source: 'arxiv-ml', categories: ['cs.LG', 'cs.CL'],
-  etag: '"previous"', last_modified: 'Wed, 07 Oct 2026 04:31:42 GMT', max_items: 3000 };
-
-function refreshDeps(response: () => Response, options: { reserved?: boolean; wait?: number; failFinish?: boolean } = {}) {
-  const calls = { fetches: [] as { url: string; headers: Record<string, string> }[], upserts: [] as PoolItem[][], sleeps: [] as number[],
-    finishes: [] as { status: RefreshStatus; etag: string | null; lastModified: string | null; items: number | null }[] };
+function refreshDeps(options: { failFinish?: boolean } = {}) {
+  const calls = { upserts: [] as PoolItem[][], finishes: [] as { status: RefreshStatus; etag: string | null; lastModified: string | null; items: number | null }[] };
   const deps: RefreshDeps = {
-    slot: async () => ({ reserved: options.reserved ?? true, wait_ms: options.wait ?? 0 }),
-    fetch: (async (url: string, init?: RequestInit) => { calls.fetches.push({ url, headers: init?.headers as Record<string, string> }); return response(); }) as typeof fetch,
+    fetch: (async () => { throw new Error('the source brings its own transport'); }) as typeof fetch,
     upsert: async (claimID, items, version) => {
       assert.equal(claimID, claim.claim_id); assert.equal(version, FEED_TOPICS_VERSION); calls.upserts.push(items);
       return { inserted: items.length, updated: 0 };
@@ -148,51 +84,40 @@ function refreshDeps(response: () => Response, options: { reserved?: boolean; wa
       if (options.failFinish) throw new Error('database_unavailable');
       return { pruned: 0, pool: 42 };
     },
-    sleep: async ms => { calls.sleeps.push(ms); },
+    sleep: async () => {},
     today: () => '2026-10-08',
   };
   return { deps, calls };
 }
 
-test('a conditional request that is not modified records success without parsing', async () => {
-  const { deps, calls } = refreshDeps(() => new Response(null, { status: 304 }), { wait: 1500 });
-  const outcome = await runRefresh(deps, claim);
-  assert.equal(outcome.status, 'not_modified');
-  assert.deepEqual(calls.sleeps, [1500], 'waits for the shared arXiv slot');
-  assert.equal(calls.fetches[0].url, 'https://rss.arxiv.org/rss/cs.LG+cs.CL');
-  assert.equal(calls.fetches[0].headers['if-none-match'], '"previous"');
-  assert.equal(calls.fetches[0].headers['if-modified-since'], 'Wed, 07 Oct 2026 04:31:42 GMT');
+test('nothing new is recorded as success without writing', async () => {
+  const { deps, calls } = refreshDeps();
+  assert.equal((await runRefresh(deps, claim, source({ status: 'not_modified' }))).status, 'not_modified');
   assert.equal(calls.upserts.length, 0);
   assert.deepEqual(calls.finishes, [{ status: 'not_modified', etag: null, lastModified: null, items: null }]);
 });
 
-test('a new listing is tagged, written in batches and recorded with its validators', async () => {
-  const many = Array.from({ length: POOL_BATCH + 25 }, (_, i) => item(`2610.${String(10000 + i)}`, 'new', { title: `Diffusion models ${i}` }));
-  const { deps, calls } = refreshDeps(() => new Response(rss(many), { status: 200, headers: { etag: '"next"', 'last-modified': 'Thu, 08 Oct 2026 04:31:42 GMT' } }));
-  const outcome = await runRefresh(deps, claim);
+test('new items are tagged, written in batches and recorded with the source\'s mark', async () => {
+  const many = Array.from({ length: POOL_BATCH + 25 }, (_, i) => poolItem(i));
+  const { deps, calls } = refreshDeps();
+  const outcome = await runRefresh(deps, claim, source({ status: 'updated', items: many, lastModified: '2026-10-08T04:31:42Z' }));
   assert.deepEqual({ status: outcome.status, items: outcome.items, inserted: outcome.inserted, pool: outcome.pool },
     { status: 'updated', items: POOL_BATCH + 25, inserted: POOL_BATCH + 25, pool: 42 });
   assert.deepEqual(calls.upserts.map(batch => batch.length), [POOL_BATCH, 25]);
   assert.ok(calls.upserts[0][0].topics.includes('Diffusion models'));
-  assert.deepEqual(calls.finishes, [{ status: 'updated', etag: '"next"', lastModified: 'Thu, 08 Oct 2026 04:31:42 GMT', items: POOL_BATCH + 25 }]);
+  assert.deepEqual(calls.finishes, [{ status: 'updated', etag: null, lastModified: '2026-10-08T04:31:42Z', items: POOL_BATCH + 25 }]);
 });
 
-test('throttling, a busy slot, oversize and a lost database are recorded, never thrown', async () => {
-  let run = refreshDeps(() => new Response('slow down', { status: 429 }));
-  assert.deepEqual([(await runRefresh(run.deps, claim)).code, run.calls.finishes[0].status], ['arxiv_429', 'failed']);
-  run = refreshDeps(() => { throw new Error('unused'); }, { reserved: false });
-  assert.equal((await runRefresh(run.deps, claim)).status, 'busy');
-  assert.equal(run.calls.fetches.length, 0, 'no request without the pacing slot');
-  run = refreshDeps(() => new Response('x', { status: 200, headers: { 'content-length': String(64 * 1024 * 1024) } }));
-  assert.equal((await runRefresh(run.deps, claim)).code, 'feed_too_large');
-  run = refreshDeps(() => new Response('<html/>', { status: 200 }));
-  assert.equal((await runRefresh(run.deps, claim)).code, 'invalid_feed');
-  run = refreshDeps(() => new Response(null, { status: 304 }), { failFinish: true });
-  const lost = await runRefresh(run.deps, claim);
-  assert.equal(lost.code, 'finish_failed', 'the lease expires and the next kick retries');
-  const bad = refreshDeps(() => new Response(null, { status: 304 }));
-  assert.equal((await runRefresh(bad.deps, { ...claim, categories: ['../x'] })).code, 'invalid_categories');
-  assert.equal(bad.calls.fetches.length, 0);
+test('a busy or failing source, a thrown error and a lost database are recorded, never thrown', async () => {
+  let run = refreshDeps();
+  assert.equal((await runRefresh(run.deps, claim, source({ status: 'busy' }))).status, 'busy');
+  run = refreshDeps();
+  assert.deepEqual([(await runRefresh(run.deps, claim, source({ status: 'failed', code: 'datacite_unavailable' }))).code, run.calls.finishes[0].status],
+    ['datacite_unavailable', 'failed']);
+  run = refreshDeps();
+  assert.equal((await runRefresh(run.deps, claim, source(() => { throw new Error('invalid_feed'); }))).code, 'invalid_feed');
+  run = refreshDeps({ failFinish: true });
+  assert.equal((await runRefresh(run.deps, claim, source({ status: 'not_modified' }))).code, 'finish_failed', 'the lease expires and the next kick retries');
 });
 
 test('the cron secret comparison', () => {

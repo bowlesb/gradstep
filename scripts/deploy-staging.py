@@ -50,9 +50,15 @@ def request(url, headers, body=None, method=None, allow_missing=False):
             if str(raw.get('statusCode', '')) == '404' or error.code == 404: return None
         raise RuntimeError(f'Infrastructure request failed: HTTP {error.code}') from None
 
+def egress_scan():
+    """Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md §6.5): refuse to deploy code naming one."""
+    subprocess.run(['node', str(ROOT/'scripts/check-arxiv-egress.mjs'), '--block'], cwd=ROOT, check=True)
+
+
 def deploy(args):
     if args.defer_activation and args.rotate_pipeline_secret:
         raise SystemExit('--defer-activation cannot rotate the pipeline secret; coordinate that separately')
+    egress_scan()
     manifest = json.loads((ROOT/'infra/account.json').read_text())
     project = manifest['projects'][args.environment]['id']
     config = json.loads((ROOT/'infra'/f'{args.environment}.json').read_text())
@@ -138,6 +144,8 @@ def deploy(args):
     function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                         {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
                         {'name': 'CHAT_WEB_SEARCH', 'value': web_search},
+                        # Every function refuses requests to arXiv (the guard's default, stated here; _shared/egress.ts).
+                        {'name': 'EGRESS_ARXIV', 'value': 'block'},
                         # Fault drills (docs/architecture/RESILIENCE.md): test accounts only; never set for production.
                         {'name': 'FAULT_INJECTION', 'value': 'on' if config.get('fault_injection') and args.environment == 'staging' else 'off'}]
     if env.get('FEED_REFRESH_SECRET'):

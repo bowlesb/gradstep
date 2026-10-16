@@ -9,7 +9,7 @@ import { paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
 import { publishedProfiles } from '../_shared/chat-profiles.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('chat');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
 installProviderHealth('chat', serviceClient);
@@ -64,7 +64,7 @@ Deno.serve(async request => {
   const rawID = body && typeof body === 'object' ? (body as { operation_id?: unknown }).operation_id : null;
   const spending = { accountID, operationID: typeof rawID === 'string' ? rawID.toLowerCase() : '', rpc, sha256Hex: sha256, log };
   const search = tavilyKey ? admittedTavily(spending, 'chat_search', providerFetch, tavilyKey) : null;
-  const finder = paperFinder(service, user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined);
+  const finder = paperFinder(user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined);
   const deps: ChatDependencies = {
     accountID,
     rpc,

@@ -83,7 +83,6 @@ function dataCiteDeps(options: { failFinish?: boolean } = {}) {
   const calls = { upserts: [] as PoolItem[][], sleeps: [] as number[],
     finishes: [] as { status: RefreshStatus; etag: string | null; lastModified: string | null; items: number | null }[] };
   const deps: RefreshDeps = {
-    slot: async () => { throw new Error('the DataCite source never takes the arXiv slot'); },
     fetch: (async () => { throw new Error('no direct request'); }) as typeof fetch,
     upsert: async (claimID, items, version) => {
       assert.equal(claimID, claim.claim_id); assert.equal(version, FEED_TOPICS_VERSION); calls.upserts.push(items);

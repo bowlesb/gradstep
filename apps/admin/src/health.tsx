@@ -169,6 +169,9 @@ function derive(data: HealthData, budget: Budget | null) {
     const top = Object.entries(data.reliability.podcast_failure_codes).sort((a, b) => b[1] - a[1])[0];
     attention.push({ tone: 'warning', text: `${data.reliability.podcasts_failed} of ${data.use.podcasts_started} podcast episodes failed${top ? `, most often “${codeName(top[0])}”` : ''}.` });
   }
+  // Our servers never contact arXiv (ARXIV_DEVICE_ONLY.md §6.5): any attempt in the last hour, refused or not, is shown.
+  const arxiv = (data.providers?.last_hour ?? []).find(r => r.provider === 'arxiv');
+  if (arxiv && arxiv.calls > 0) attention.push({ tone: 'warning', text: `Our servers tried to reach arXiv ${arxiv.calls.toLocaleString()} time${arxiv.calls === 1 ? '' : 's'} in the last hour. They must never contact arXiv: find the caller in the logs (event arxiv_egress).` });
   // Outside providers (RESILIENCE.md): a breaker open now, or 5 % or more of the last hour's calls failing (with 20 or more calls).
   for (const breaker of data.providers?.breakers ?? []) {
     attention.push({ tone: 'warning', text: `${providerName(breaker.provider)} kept failing, so calls to it are paused${breaker.reopen_at && breaker.state === 'open'

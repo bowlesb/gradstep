@@ -9,6 +9,7 @@
 // can try (`blocked`, `link_only`, `closed` with a link). Deno and Node compatible.
 import type { FindResult, FoundPaper, PaperRequest } from './chat.ts';
 import { arxivReference } from './arxiv.ts';
+import { isArxivHost } from './egress.ts';
 import { openAlexCandidates, type OpenAlexCandidate } from './discover.ts';
 import { checkHost, declaredURL, landingPagePDF, publicHTTPS, refusal, WEB_USER_AGENT, type ResolveHost } from './web-source.ts';
 
@@ -40,6 +41,9 @@ export function parseAddInput(raw: string): AddInput | null {
   if (!text || [...text].length > MAX_INPUT_CHARS || /\p{Cc}/u.test(text)) return null;
   try { const ref = arxivReference(text); return { kind: 'arxiv', sourceID: ref.sourceID, revision: ref.revision }; } catch { /* not arXiv */ }
   const doi = doiOf(text);
+  // arXiv's own DOI (DataCite registers 10.48550/arXiv.<id> for every paper) names the paper outright.
+  const arxivDOI = doi ? /^10\.48550\/arxiv\.(.+)$/.exec(doi)?.[1] : undefined;
+  if (arxivDOI) { try { const ref = arxivReference(arxivDOI); return { kind: 'arxiv', sourceID: ref.sourceID, revision: ref.revision }; } catch { /* not an arXiv identifier */ } }
   if (doi) return { kind: 'doi', doi };
   if (/^(https?:\/\/|www\.)\S+$/i.test(text)) {
     // A link is fetched over https only; http is upgraded (never fetched in the clear).
@@ -68,10 +72,13 @@ export function doiInURL(url: URL): string | null {
   return null;
 }
 
-/** An arXiv link anywhere in a URL (an arXiv page, or a redirect to one). */
+/** An arXiv link anywhere in a URL (an arXiv page, or a redirect to one): its abstract, PDF or HTML page. */
 export function arxivInURL(url: URL): { sourceID: string; revision: number | null } | null {
-  if (!/(^|\.)arxiv\.org$/.test(url.hostname)) return null;
-  try { return arxivReference(url.href.replace(/^http:/, 'https:')); } catch { return null; }
+  if (!isArxivHost(url.hostname)) return null;
+  // The HTML page (`/html/<id>v<n>/`) names the same paper as its abstract page.
+  const html = /^\/html\/([^/?#]+?)\/?$/.exec(url.pathname);
+  const href = html ? `https://arxiv.org/abs/${html[1]}` : url.href.replace(/^http:/, 'https:'); // egress-ok: parse
+  try { return arxivReference(href); } catch { return null; }
 }
 
 /** The landing page of a proceedings PDF, whose citation tags name the paper. */
@@ -154,6 +161,9 @@ export async function probeLink(fetcher: typeof fetch, start: URL, resolve: Reso
     if (!current) return { kind: 'refused', url: start, code: 'download_failed' };
     const arxiv = arxivInURL(current);
     if (arxiv) return { kind: 'arxiv', ...arxiv };
+    // Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md): an arXiv page naming no paper, or a
+    // redirect to one, is not followed.
+    if (isArxivHost(current.hostname)) return { kind: 'refused', url: current, code: 'download_failed' };
     try { await checkHost(current, resolve); }
     catch { return { kind: 'refused', url: current, code: 'download_failed' }; }
     let response: Response;
@@ -273,8 +283,10 @@ export async function resolveDOI(deps: IdentifyDeps, doi: string, web: boolean, 
   }
   const crossref = await getJSON(deps.fetch, `https://api.crossref.org/works/${encodeURIComponent(doi)}?mailto=${MAILTO}`, signal);
   if (!crossref.ok) return (work.ok || work.missing) && crossref.missing ? { status: 'not_found' } : { status: 'unavailable' };
-  const message = (crossref.json as { message?: { title?: unknown; issued?: { 'date-parts'?: unknown }; author?: unknown } })?.message;
-  const title = Array.isArray(message?.title) && typeof message.title[0] === 'string' ? pageText(message.title[0]) : null;
+  const message = (crossref.json as { message?: { title?: unknown; subtitle?: unknown; issued?: { 'date-parts'?: unknown }; author?: unknown } })?.message;
+  // Crossref keeps a subtitle apart ("Optuna" + "A Next-generation …"); the preprint is titled with both.
+  const subtitle = Array.isArray(message?.subtitle) && typeof message.subtitle[0] === 'string' ? message.subtitle[0].trim() : '';
+  const title = Array.isArray(message?.title) && typeof message.title[0] === 'string' ? pageText(subtitle ? `${message.title[0]}: ${subtitle}` : message.title[0]) : null;
   if (!title) return { status: 'not_found' };
   const parts = message?.issued?.['date-parts'];
   const year = Array.isArray(parts) && Array.isArray(parts[0]) && Number.isInteger(parts[0][0]) ? parts[0][0] as number : null;

@@ -10,7 +10,7 @@ import { paperFinder } from '../_shared/find-paper.ts';
 import { MAX_REFERENCE_CHARS, resolveReference } from '../_shared/reference.ts';
 import { RpcFailure } from '../_shared/chat.ts';
 import { referenceLookupSpending } from '../_shared/provider-spending.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('add-reference');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
 installProviderHealth('add-reference', serviceClient);
@@ -51,13 +51,8 @@ Deno.serve(async request => {
       reference, web, consentVersion: body.consent_version, enabled: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
       apiKey: Deno.env.get('TAVILY_API_KEY'), fetcher: fetch,
     });
-    const finder = paperFinder(service, user, spending.search);
-    const slot = async (slots: number) => {
-      const { data, error } = await service.rpc('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 10_000 });
-      if (error) throw new Error('search_busy');
-      return data;
-    };
-    const { result, route } = await resolveReference({ fetch, slot,
+    const finder = paperFinder(user, spending.search);
+    const { result, route } = await resolveReference({ fetch,
       findPaper: (wanted, signal, options) => finder.findPaper(wanted, signal, { ...options, tavily: !!spending.search }) }, reference, web, budget)
       .catch(() => ({ result: { status: 'unavailable' as const }, route: 'none' as const }))
       .finally(spending.finish);
