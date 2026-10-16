@@ -39,7 +39,12 @@ extension XCUIApplication {
         let tab = buttons["tab.\(place)"]
         if tab.waitForExistence(timeout: 2) { tab.tap(); return }
         // The wide layout's mode control by its identifier: the Library's search switch also has a "Library" segment.
+        // On the Mac it is the window toolbar's segmented control, which accessibility reports as check boxes.
+        #if targetEnvironment(macCatalyst)
+        let modes = toolbars.checkBoxes
+        #else
         let modes = segmentedControls["wide.mode"].buttons
+        #endif
         switch place {
         case "feed": modes["Feed"].tap()
         case "library": modes["Library"].tap()
@@ -70,7 +75,32 @@ extension XCUIApplication {
     func returnToPaper() {
         let back = buttons["chat.returnToPaper"]
         if back.waitForExistence(timeout: 2) { back.tap(); return }
+        #if targetEnvironment(macCatalyst)
+        toolbars.checkBoxes["Library"].tap(); toolbars.checkBoxes["Reader"].tap()
+        #else
         segmentedControls["wide.mode"].buttons["Library"].tap()
         segmentedControls["wide.mode"].buttons["Reader"].tap()
+        #endif
+    }
+}
+
+/// Portrait on iPhone and iPad; the Mac has no device orientation (setting it there throws "Unsupported code path").
+extension XCUIDevice {
+    func portraitWhereSupported() {
+        #if !targetEnvironment(macCatalyst)
+        orientation = .portrait
+        #endif
+    }
+}
+
+extension XCUIApplication {
+    /// One of the wide layout's modes ("Feed", "Library", "Reader", "Browse", "General Chat"): the iPad's segmented
+    /// control, or the Mac window toolbar's, which accessibility reports as check boxes.
+    func wideMode(_ title: String) -> XCUIElement {
+        #if targetEnvironment(macCatalyst)
+        return toolbars.checkBoxes[title]
+        #else
+        return segmentedControls["wide.mode"].buttons[title]
+        #endif
     }
 }

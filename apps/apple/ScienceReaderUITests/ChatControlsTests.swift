@@ -10,7 +10,7 @@ final class ChatControlsTests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
     private func launch(_ appearance: String, _ extra: [String] = []) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture",
                                "-appearance", appearance, "-chat.defaultProfile", "sonnet-low-standard"] + extra

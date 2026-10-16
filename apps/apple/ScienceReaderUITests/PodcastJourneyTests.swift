@@ -15,7 +15,7 @@ final class PodcastJourneyTests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
     private func launch(_ extra: [String] = [], reset: Bool = true) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--feed-fixture", "--podcast-fixture"] + (reset ? ["--reset-podcast-fixture"] : []) + extra
         app.launch()

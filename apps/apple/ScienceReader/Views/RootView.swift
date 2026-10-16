@@ -1395,7 +1395,8 @@ struct SettingsView: View {
                     openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
                     // Owner, build 59: "a downloaded papers section… that will allow you to delete them".
                     NavigationLink { DownloadedPapersView(model: model) } label: {
-                        LabeledContent("Downloaded papers", value: DownloadedPapersView.size(model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }))
+                        let bytes = model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }
+                        LabeledContent("Downloaded papers", value: bytes > 0 ? DownloadedPapersView.size(bytes) : "None")
                     }.accessibilityIdentifier("settings.downloads")
                 }
                 // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.

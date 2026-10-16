@@ -6,7 +6,7 @@ final class WorkflowJourneyTests: XCTestCase {
     private let sampleID = "paper.aaaaaaaa-0000-0000-0000-000000000001"
 
     private func launch(additionalArguments: [String] = []) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture"] + additionalArguments
         app.launch()
@@ -233,7 +233,7 @@ final class WorkflowJourneyTests: XCTestCase {
     }
 
     func testEncryptedDraftsSurviveRelaunchAndSentTextDoesNotReturn() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         let paperDraft = "Explain how attention scales."
         let generalDraft = "Compare retrieval methods."
@@ -328,7 +328,7 @@ final class WorkflowJourneyTests: XCTestCase {
 
     private func installedEncryptedReaderJourney(_ journey: ReaderJourney) throws {
         let mathpix = journey.mathpix
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
         let variant = mathpix ? ["--mathpix-reader-fixture"] : []
         app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture"] + variant
@@ -415,7 +415,7 @@ final class WorkflowJourneyTests: XCTestCase {
     /// A diagram Mermaid can't parse is sent back once ("Fixing the diagram…"); when the correction fails too, its view
     /// says so plainly, with the source collapsed.
     func testABrokenDiagramIsFixedOnceThenExplained() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=broken_diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
@@ -452,7 +452,7 @@ final class WorkflowJourneyTests: XCTestCase {
     /// Figure parts sit in the answer where it discusses each one (owner, 2026-10-15: "the crops should be inline, right
     /// as the chat discusses each one"); under the answer, the whole figure with the parts outlined.
     func testFigurePartsAreInlineWhereTheAnswerDiscussesThem() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=figure_parts", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
@@ -489,7 +489,7 @@ final class WorkflowJourneyTests: XCTestCase {
     /// equation; the view shows it large with its size and sideways scrolling, what it says and each symbol, background
     /// on request, a symbol's paragraph with Back, and Ask in chat with the equation as the passage, nothing sent.
     func testEquationViewDescribesSymbolsAndLeadsToThePaperAndTheChat() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture"]
         app.launch()
@@ -596,11 +596,11 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Equation view, wide layout")
         app.buttons["equation.done"].tap()
         XCTAssertTrue(app.buttons["equation.done"].waitForNonExistence(timeout: 5))
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
     }
 
     func testAnAnswerDiagramOpensFromTheAnswerAndFromAllDiagrams() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
@@ -652,7 +652,7 @@ final class WorkflowJourneyTests: XCTestCase {
     }
 
     func testNotEnoughCreditsOffersGetCredits() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=insufficient_credits", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
@@ -701,7 +701,7 @@ final class WorkflowJourneyTests: XCTestCase {
     }
 
     func testAnswerSourcesShowTheirAddressBeforeOpening() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=sources", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
@@ -735,7 +735,7 @@ final class WorkflowJourneyTests: XCTestCase {
     /// Launches the chat fixture in `mode` and asks one question in chat (the
     /// wide iPad layout has no tab bar; its general chat is a segment).
     private func askChatFixture(_ mode: String, _ question: String, extraArguments: [String] = []) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"] + extraArguments
         app.launch()
@@ -916,7 +916,7 @@ final class WorkflowJourneyTests: XCTestCase {
     /// Run with `TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test …`; read the `AXAUDIT` lines.
     func testAccessibilityAuditOfMainScreens() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["SCIENCE_READER_AX_AUDIT"] == "1", "Opt-in discovery audit")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
@@ -972,7 +972,7 @@ final class WorkflowJourneyTests: XCTestCase {
         if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
         let closed = NSPredicate { _, _ in app.keyboards.count == 0 }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: closed, object: nil)], timeout: 5), .completed)
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 5), "Tabs return once no keyboard is shown")
     }
 
@@ -1169,7 +1169,7 @@ final class WorkflowJourneyTests: XCTestCase {
     }
 
     func testTouchEquationActionsSaveExactMathAndReturnToThePassage() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"]
         app.launch()

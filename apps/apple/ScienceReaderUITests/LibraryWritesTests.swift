@@ -21,7 +21,7 @@ final class LibraryWritesTests: XCTestCase {
     }
 
     func testFeedAddIsEnabledUnderV5AndTheLibraryShowsTheAddedPaper() {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--library-v5-fixture", "--library-layout=table", "--feed-layout=table",
                                "--feed-columns=topic,published,authors,arxiv"]

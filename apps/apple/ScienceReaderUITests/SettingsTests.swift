@@ -10,7 +10,7 @@ final class SettingsTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     private func openSettings(_ arguments: [String]) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = arguments
         app.launch()
@@ -41,7 +41,12 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(info.waitForExistence(timeout: 5)); info.tap()
         XCTAssertTrue(element(labelContaining: "Each AI answer uses credits", in: app).waitForExistence(timeout: 5), "ⓘ shows the explanation")
         attach("settings-info-popover")
-        app.tap() // dismiss the popover
+        // Dismiss the popover.
+        #if targetEnvironment(macCatalyst)
+        app.typeKey(.escape, modifierFlags: [])
+        #else
+        app.tap()
+        #endif
         if app.descendants(matching: .any)["PopoverDismissRegion"].exists { app.descendants(matching: .any)["PopoverDismissRegion"].tap() }
         XCTAssertFalse(app.staticTexts["Paper text size"].exists || app.staticTexts["Chat text size"].exists, "Text sizes live where you read and chat")
         let chats = app.descendants(matching: .any)["settings.chats"]

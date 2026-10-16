@@ -4,7 +4,7 @@ import UIKit
 @MainActor
 final class ReaderNavigationTests: XCTestCase {
     func testLibraryStartsFirstAndReaderWorksOffline() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.searchFields["library.search"].waitForExistence(timeout: 10), "The app starts in the Library")
@@ -30,7 +30,7 @@ final class ReaderNavigationTests: XCTestCase {
     /// Owner report (build 35): "Back to where you were … no longer is there". An HTML paper's own in-page links
     /// (a citation "[1]", a figure reference) jump with Back on this surface, and Back returns to the place left.
     func testHTMLPaperInPageLinksOfferBack() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--study-fixture"]
         app.launch()
@@ -58,7 +58,7 @@ final class ReaderNavigationTests: XCTestCase {
     /// Owner feedback (build 11 session): citations link to their references, Back returns to the
     /// same place, references offer actions, and the year shows under the authors.
     func testCitationGoesToItsReferenceAndBackReturnsToTheSamePlace() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
         app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
         app.launch()
@@ -117,7 +117,7 @@ final class ReaderNavigationTests: XCTestCase {
     // MARK: - Owner feedback, build 21
 
     private func openDPO(appearance: String) -> (XCUIApplication, XCUIElement) {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
         app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture", "-appearance", appearance]
         app.launch()
@@ -246,7 +246,7 @@ final class ReaderNavigationTests: XCTestCase {
     }
 
     func testScreenshotPreviewRedactionAndRemoval() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication(); app.launch()
         app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
@@ -272,7 +272,7 @@ final class ReaderNavigationTests: XCTestCase {
 
     func testTabletLandscapeReaderAndBrowseArrangement() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad layout check")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication(); app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft

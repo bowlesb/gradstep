@@ -74,7 +74,7 @@ final class LiveJourneyTests: XCTestCase {
 
     func testAddConvertDownloadReadAskAndRelaunch() throws {
         try XCTSkipIf(runsSomethingElse, "This run does something else")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
@@ -173,7 +173,7 @@ final class LiveJourneyTests: XCTestCase {
     /// arXiv to this device and shows it, where it used to offer only Try again.
     func testAPaperWithoutArxivHTMLOpensItsPDF() throws {
         try XCTSkipIf(!pdfOnly, "Runs with --pdf-only")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
@@ -200,7 +200,7 @@ final class LiveJourneyTests: XCTestCase {
     /// afterwards. Runs only when the runner asks for it (it ends the account).
     func testDeleteAccountFromSettings() throws {
         try XCTSkipUnless(deletesAccount && openTiming.isEmpty && !checksStore && reference == nil, "Runs only with scripts/live-journey.mjs --delete")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
@@ -251,7 +251,7 @@ final class LiveJourneyTests: XCTestCase {
     /// API check `store.products` (scripts/workflow-checks.mjs) reads the same states directly.
     func testGetCreditsListsEveryProduct() throws {
         try XCTSkipUnless(checksStore, "Runs only with scripts/live-journey.mjs --store")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
@@ -272,7 +272,7 @@ final class LiveJourneyTests: XCTestCase {
     /// first (`--reference=11:PaLM` with the default DPO paper; PaLM is a shared conversion).
     func testReferenceAddToLibraryImportsThePaper() throws {
         guard let reference else { throw XCTSkip("Runs only with scripts/live-journey.mjs --reference=N:Title") }
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)
@@ -318,7 +318,7 @@ final class LiveJourneyTests: XCTestCase {
     /// copy) while a test session records the timeline; the runner prints each step's time.
     func testOpenTimingsOfConvertedPapers() throws {
         try XCTSkipIf(openTiming.isEmpty, "Runs only with scripts/live-journey.mjs --open-timing")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         launch(app)
         waitForSignedInAccount(app)

@@ -12,7 +12,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
     }
 
     private func launch(_ scenario: [String] = [], accessibility: Bool = false) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--authentication-fixture", "--reset-authentication-fixture"] + scenario + [
             "-appearance", accessibility ? "dark" : "light",

@@ -8,7 +8,7 @@ final class PaperToolsTests: XCTestCase {
     private let sampleID = "paper.aaaaaaaa-0000-0000-0000-000000000001"
 
     private func openSample(_ arguments: [String] = [], appearance: String = "light") -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "-appearance", appearance] + arguments
         app.launch()
@@ -171,7 +171,7 @@ final class PaperToolsTests: XCTestCase {
     /// The DPO conversion: Abstract left out, subsections indented under their sections, and the appendix's
     /// "A. 1"… (which Mathpix printed at A's level) indented under A by their numbers.
     func testContentsShowSectionLevels() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
         app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture", "-appearance", "light"]
         app.launch()
@@ -289,7 +289,7 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(app.buttons["find.doneButton"].waitForExistence(timeout: 5), "⌘F shows the find bar")
         app.buttons["find.doneButton"].tap()
 
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         XCTAssertTrue(wait { app.frame.width < app.frame.height }, "Portrait")
         XCTAssertTrue(wait { abs(web.frame.width - app.frame.width) < 2 }, "Still full width after rotating")
         capture(app, "iPad portrait: full-width paper")

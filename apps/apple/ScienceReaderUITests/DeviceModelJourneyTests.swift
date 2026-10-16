@@ -15,7 +15,7 @@ final class DeviceModelJourneyTests: XCTestCase {
     }
 
     func testReadingAPaperWithTheOnDeviceModelAndGoingBack() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--device-model-fixture", "-appearance", "light"]
         app.launch()

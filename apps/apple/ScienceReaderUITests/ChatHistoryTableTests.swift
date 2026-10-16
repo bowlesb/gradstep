@@ -8,12 +8,12 @@ final class ChatHistoryTableTests: XCTestCase {
     private let sample = "paper.aaaaaaaa-0000-0000-0000-000000000001"
 
     private func launch() -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--chat-history-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[sample].waitForExistence(timeout: 15))
-        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.segmentedControls["wide.mode"].buttons["General Chat"].tap() }
+        if app.buttons["tab.chat"].exists { app.show("chat") } else { app.wideMode("General Chat").tap() }
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
         XCTAssertTrue(options(app).waitForExistence(timeout: 5))

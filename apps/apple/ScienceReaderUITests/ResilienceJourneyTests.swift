@@ -10,7 +10,7 @@ final class ResilienceJourneyTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     private func launch(_ arguments: [String], waitForSample: Bool = true) -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = arguments
         app.launch()

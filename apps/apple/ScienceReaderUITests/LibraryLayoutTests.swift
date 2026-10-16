@@ -139,7 +139,7 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
 
         // Portrait (11": 834 pt) keeps the table, without the Tags column.
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         XCTAssertTrue(header("Opened", in: app).waitForExistence(timeout: 5), "Portrait iPad keeps the table")
         XCTAssertTrue(header("Tags", in: app).exists, "Chosen Tags remains available by scrolling sideways")
         // Past the edge on an 11-inch iPad (834 pt); a 13-inch iPad's portrait (1032 pt) has room for it.
@@ -154,7 +154,7 @@ final class LibraryLayoutTests: XCTestCase {
     /// Library options › Columns: turning columns on and off changes the table at once; one that doesn't fit says it
     /// scrolls sideways.
     func testColumnChooserTurnsColumnsOnAndOff() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = launch(["--library-layout=table"])
         XCTAssertTrue(header("Year", in: app).waitForExistence(timeout: 5))
         app.buttons["Library options"].tap()
@@ -227,7 +227,7 @@ final class LibraryLayoutTests: XCTestCase {
 
     /// Quick filters and the tag menu narrow the table; a failed download shows Retry, and Retry shows it running again.
     func testFiltersTagsAndRetryOnAFailedImport() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = launch(["--library-layout=table", "--slow-import-fixture"])
         let failed = filter("failed", in: app)
         XCTAssertTrue(failed.waitForExistence(timeout: 5), "Failed chip")
@@ -281,7 +281,7 @@ final class LibraryLayoutTests: XCTestCase {
 
     func testPhoneTableFitsPortraitAndAddsColumnsInLandscape() throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Phone")
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = launch()
         choose("Table", in: app, screenshot: "Library options menu (iPhone)")
@@ -329,7 +329,7 @@ final class LibraryLayoutTests: XCTestCase {
         assertAbove(cell(sample, in: app), cell(attention, in: app), "Opened: most recent first")
         // The first row opens the paper. In landscape its element can report a frame above the window while it is in
         // view (Simulator), so it is opened back in portrait, where the sort holds.
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let first = cell(sample, in: app)
         for _ in 0..<3 where !(first.exists && first.isHittable) { app.swipeDown() }
         first.tap()
@@ -339,7 +339,7 @@ final class LibraryLayoutTests: XCTestCase {
     /// The Feed's Table layout is the same table: chosen from the Feed's "…" menu, sorted by its headers; a row's
     /// tap shows its abstract.
     func testFeedTableSortsAndShowsAnAbstract() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]
         app.launch()
@@ -375,7 +375,7 @@ final class LibraryLayoutTests: XCTestCase {
     /// A tag chip in a row filters the Library by that tag; the same chip again shows all papers (owner-approved
     /// follow-up, 2026-10-07).
     func testTappingATagChipFiltersTheLibraryByIt() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = launch(["--library-layout=table", "--library-columns=tags"])
         // The chips are left out of accessibility (the row reads its tags; the Tags menu filters by voice), so they are
         // tapped where they are drawn.

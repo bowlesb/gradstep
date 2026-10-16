@@ -10,7 +10,7 @@ final class SessionCaptureTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     func testRecordASessionAroundAJourney() throws {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=insufficient_credits", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()

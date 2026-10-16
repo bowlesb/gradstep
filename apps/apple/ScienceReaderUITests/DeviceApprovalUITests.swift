@@ -12,7 +12,7 @@ final class DeviceApprovalUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     private func launch(_ extra: [String] = [], appearance: String = "light") -> XCUIApplication {
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--device-approval-fixture",
                                "-appearance", appearance] + extra

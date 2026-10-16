@@ -25,7 +25,7 @@ final class PassageJourneyTests: XCTestCase {
     func testTabletSplitLinksChatAndPassage() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet split layout")
         try journey(.landscapeLeft)
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.portraitWhereSupported()
     }
 
     private func journey(_ orientation: UIDeviceOrientation) throws {
