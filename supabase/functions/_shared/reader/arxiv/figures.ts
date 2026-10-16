@@ -6,18 +6,31 @@ import { active, bind, block, children, loneImage, type ArxivContext, type Child
 import { inline } from './inline.ts';
 import { arxivAssetURL } from './urls.ts';
 
+/** Opens the caption of a figure none of whose images this device could prepare (revision 15: ActionOPD 2610.19820's
+ * teaser, refused `svg_id`; InfoVis 2610.16784, refused `image_dimensions`, build 58). The paper still opens. */
+export const UNSHOWN_FIGURE_NOTE = 'This figure couldn’t be shown here; the PDF has it.';
+/** In place of one panel of a figure that this device couldn't prepare (the figure's other images stay). */
+export const UNSHOWN_PART_NOTE = 'Part of this figure couldn’t be shown here; the PDF has it.';
+const unshownNotes = new WeakSet<OutNode>();
+const unshownNote = (): OutNode => { const note = el('p', {}, [el('em', {}, [UNSHOWN_PART_NOTE])]); unshownNotes.add(note); return note; };
+const isUnshownNote = (part: Child | undefined) => typeof part === 'object' && unshownNotes.has(part);
+
 /** One of a figure's images: an asset (or an inline picture by id) admitted by the host, at most `imagesPerFigure`. */
 export function figureImage(cx: ArxivContext, n: DomNode, owner: string, inlineImage = false): Child {
   bind(cx, n, owner);
   // A grid past the figure's image limit (112 thumbnails in a tabular, 2610.20584): the first ones stay, the rest
-  // are left out and counted, never a refusal.
-  if ((cx.figureImages.get(owner)?.length ?? 0) >= LIMITS.imagesPerFigure) { cx.omittedGraphics += 1; for (const m of elements(n, c => c.name === 'math')) cx.skippedMath.add(m); return ''; }
+  // are left out and counted, never a refusal. An image the device couldn't prepare still takes its place, so the
+  // same images are planned, fetched and placed whichever of them a device can show.
+  if ((cx.figureImages.get(owner)?.length ?? 0) + (cx.unshownImages.get(owner) ?? 0) >= LIMITS.imagesPerFigure) { cx.omittedGraphics += 1; for (const m of elements(n, c => c.name === 'math')) cx.skippedMath.add(m); return ''; }
   // Math drawn inside an inline SVG picture (a TikZ node's foreignObject) travels with the picture, not as an equation.
   if (n.name === 'svg') for (const m of elements(n, c => c.name === 'math')) cx.skippedMath.add(m);
   check(n.name !== 'object' || n.attribs.type === 'image/svg+xml', 'arxiv_asset_type');
   const url = n.name === 'svg' ? '#' + n.attribs.id : arxivAssetURL(n.attribs[n.name === 'img' ? 'src' : 'data'] ?? '', cx.sourceURL);
   cx.imageURLs.add(url);
   const asset = cx.resolveImage(url);
+  // An image this device couldn't prepare: a note takes its place (a legend symbol is left out of its line and the
+  // figure says so once, imageFigure); a figure left with no image reads as its caption.
+  if (!asset) { cx.unshownImages.set(owner, (cx.unshownImages.get(owner) ?? 0) + 1); return inlineImage ? '' : unshownNote(); }
   check(/^assets\/[a-f0-9]{64}\.(png|jpg)$/.test(asset.path) && Number.isSafeInteger(asset.width) && Number.isSafeInteger(asset.height)
     && asset.width > 0 && asset.height > 0 && asset.width <= LIMITS.imageDimension && asset.height <= LIMITS.imageDimension, 'arxiv_asset');
   const output = el('img', {src:asset.path,alt:'Figure',width:String(asset.width),height:String(asset.height),
@@ -32,7 +45,7 @@ export function imageFigure(cx: ArxivContext, n: DomNode): OutNode {
   // the others read as paragraphs inside the figure.
   const captions = elements(n, c => c.name === 'figcaption');
   const mainCaption = children(n).find(c => c.name === 'figcaption') ?? captions[captions.length - 1];
-  return block(cx, n, 'figure', 'figure', id => {
+  const figure = block(cx, n, 'figure', 'figure', id => {
     const imageNodes: OutNode[] = []; cx.figureImages.set(id, imageNodes);
     let caption: OutNode | null = null;
     // Preserve legend text and inline symbols instead of collecting images
@@ -70,10 +83,16 @@ export function imageFigure(cx: ArxivContext, n: DomNode): OutNode {
     };
     for (const part of parts) {
       if (typeof part !== 'string' && (['p','figcaption'].includes(part.name) || (part.name === 'img' && !part.attribs.class))) {
-        flush(); output.push(part);
+        // Panels side by side that the device couldn't prepare say so once.
+        flush(); if (!(isUnshownNote(part) && isUnshownNote(output[output.length - 1]))) output.push(part);
       } else run.push(part);
     }
     flush();
+    // A legend symbol the device couldn't prepare: the figure says so once, before its caption.
+    if ((cx.unshownImages.get(id) ?? 0) > 0 && !output.some(isUnshownNote)) {
+      const at = output.findIndex(part => typeof part === 'object' && part.name === 'figcaption');
+      output.splice(at < 0 ? output.length : at, 0, unshownNote());
+    }
     const captionText = caption ? excerpt(normalizeSpace(outText(caption)), LIMITS.textBytes) : '';
     const alt = boundedText(captionText || images.map(i => i.attribs.alt ?? '').filter(Boolean).join(' ') || 'Figure', LIMITS.textBytes, 'arxiv_alt');
     for (const image of imageNodes) image.attribs.alt = alt;
@@ -81,4 +100,26 @@ export function imageFigure(cx: ArxivContext, n: DomNode): OutNode {
     cx.figures.push({ id, block_id: id, asset_paths: [...new Set(paths)], caption: captionText, alt });
     return output;
   }, {});
+  const id = figure.attribs.id;
+  return cx.figureImages.get(id)!.length === 0 && (cx.unshownImages.get(id) ?? 0) > 0 ? unshownFigure(cx, figure) : figure;
+}
+
+/** A figure none of whose images this device could prepare reads as its caption, opened by a note that the PDF has it
+ * (as a figure arXiv's HTML lost does, flow.ts): a caption paragraph, its legend lines kept, so no figure without an
+ * image reaches the index and the paper still opens. Its equations and links stay in the block. */
+function unshownFigure(cx: ArxivContext, figure: OutNode): OutNode {
+  const id = figure.attribs.id;
+  const listed = cx.figures.findIndex(f => f.id === id); if (listed >= 0) cx.figures.splice(listed, 1);
+  const entry = cx.blocks.find(b => b.id === id); if (entry) entry.kind = 'paragraph';
+  const words: Child[] = [];
+  for (const part of figure.children) {
+    if (typeof part === 'string') { words.push(part); continue; }
+    if (isUnshownNote(part)) continue;
+    if (words.length) words.push(el('br'));
+    words.push(...part.children);
+  }
+  figure.name = 'p';
+  figure.attribs = { class: 'reader-caption', id, 'data-reader-block': id, 'data-reader-kind': 'paragraph' };
+  figure.children = [el('em', {}, [UNSHOWN_FIGURE_NOTE]), ...(words.length ? [' ', ...words] : [])];
+  return figure;
 }

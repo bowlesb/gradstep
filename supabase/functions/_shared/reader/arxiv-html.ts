@@ -10,7 +10,7 @@ import { elements, serialize } from './html.ts';
 import { LIMITS } from './profile.ts';
 import { check, sha256Hex, utf8 } from './util.ts';
 import type { ReaderIndex } from './render.ts';
-import { createContext, nearest, type ArxivConvertOptions, type HTMLImage } from './arxiv/context.ts';
+import { createContext, nearest, type ArxivConvertOptions, type ResolveImage } from './arxiv/context.ts';
 import { article, omitForeignGraphics } from './arxiv/source.ts';
 import { svgOnly, svgTextLabels, withSharedDefinitions } from './arxiv/pictures.ts';
 import { catalogHeader, catalogTitle, dropRepeatedTitle, frontMatterFirst } from './arxiv/front-matter.ts';
@@ -19,7 +19,7 @@ import { checkMathCoverage, checkNotStub, closingNote, compose, dropEmptyParagra
 
 export { ARXIV_ID, arxivAssetURL, arxivHTMLURL } from './arxiv/urls.ts';
 export { CONVERSION_ERROR_LIMIT } from './arxiv/source.ts';
-export type { ArxivConvertOptions, HTMLImage } from './arxiv/context.ts';
+export type { ArxivConvertOptions, HTMLImage, ResolveImage } from './arxiv/context.ts';
 
 export const ARXIV_RENDERER_ID = 'gradstep-arxiv-html-mathml-v2';
 export const ARXIV_SOURCE_KIND = 'arxiv-html';
@@ -29,9 +29,11 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * split into components, output proven identical apart from the ids this revision hashes; revision 12: picture panels
  * under one caption are one figure; revision 13: math styling or attributes outside the allow-list are left out, not
  * refused, 2606.05868 on build 55; revision 14: a figure whose image arXiv's HTML lacks says so in its caption, a
- * placeholder author block gives way to the catalog's names, a picture title's alt is the title), so a device re-prepares
- * papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 14;
+ * placeholder author block gives way to the catalog's names, a picture title's alt is the title; revision 15: an image the
+ * device can't prepare says so in its figure instead of refusing the paper, an SVG's unreferenced repeated id is dropped
+ * and an over-large SVG is drawn smaller, 2610.19820 and 2610.16784 on build 58), so a device re-prepares papers it
+ * compiled with an older app (ReaderModel.openHTMLReader). */
+export const ARXIV_RENDERER_REVISION = 15;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {
@@ -65,7 +67,7 @@ export function arxivInlineImages(source: string, sourceURL: string, options: Ar
   return result;
 }
 
-export function convertArxivHTML(source: string, sourceURL: string, resolveImage: (url: string) => HTMLImage, options: ArxivConvertOptions = {}): {
+export function convertArxivHTML(source: string, sourceURL: string, resolveImage: ResolveImage, options: ArxivConvertOptions = {}): {
   index: ReaderIndex; html: string; imageURLs: string[];
 } {
   const { root, dropped } = article(source);

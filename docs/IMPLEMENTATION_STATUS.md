@@ -1,6 +1,24 @@
 # Implementation status
 
-Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-15 PDT (reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+
+## Reader revision 15: one figure never refuses a paper; flat wide tables — 2026-10-16, ~03:50 UTC
+
+- Builds 57–58 reports: ActionOPD (2610.19820v1) refused `svg_id`, InfoVis (2610.16784v1) refused `image_dimensions`
+  ("exceeds the device reader's preparation limits"). An image the device can't prepare now becomes a note in its
+  figure ("This figure couldn’t be shown here; the PDF has it.") and the paper opens; only the paper's totals,
+  structure and host inputs refuse (HTML_FIRST_READER.md, after "Images on the device"). Both papers now open with
+  every figure: an SVG id given twice that nothing refers to is dropped, an over-large SVG is drawn smaller.
+- "I really dislike this gradient": the reader bridge's scroll shadows on wide tables and equations are gone on every
+  surface (iPhone, iPad, Mac and the browser share `reader-bridge.js`); the boxes are flat and still scroll sideways,
+  with a 1 px hairline on an edge that has more beyond it, light and dark.
+- Evidence (not yet in a build or deployed): `reader-device-compile.mjs` on both papers ok (3/3 and 13/13 images), on
+  the 22 papers with cached assets 22 ok (rev 14: 20; 2312.14235's 25 large PNGs close the harness's headless page on
+  rev 14 and 15 alike); sweep replay of the union of the 110 recorded reports (117 cached papers) 0 fail / 8 warn;
+  equivalence against `432c023` with `--ignore-ids`: 150 sources, 287 runs identical; `npm test`; browser
+  `arxiv-compiler.spec.ts` on Chromium, WebKit and Firefox, and the reader, layout and HTML-paper journeys (desktop);
+  iPad Simulator: the native tier (ArxivHTMLReaderTests, PDFUploadTests) and PaperWebViewTests 28 (one rerun after
+  the Simulator killed its runner).
 
 ## Browser: chat redesign and builds 57–58 reports — 2026-10-16 (local fixtures; not deployed)
 

@@ -8,7 +8,10 @@ export interface ArxivImage {
   bytes: Uint8Array; inputSHA256: string; mediaType: 'image/png' | 'image/jpeg'; width: number; height: number;
 }
 export interface ArxivBundleInput {
-  source: Uint8Array; sourceID: string; revision: number; images: Map<string, ArxivImage>;
+  source: Uint8Array; sourceID: string; revision: number;
+  /** Every image the paper references, by source URL (or `#id` for an inline picture): the admitted image, or `null` when
+   * this device couldn't prepare it (device-compiler.ts). A null image is not published and its figure says so. */
+  images: Map<string, ArxivImage | null>;
   /** The library's author names (see `ArxivConvertOptions.authors`); part of the bundle, so the same on every device of one library. */
   authors?: readonly string[];
   /** The catalog's title (see `ArxivConvertOptions.title`). */
@@ -34,7 +37,7 @@ export function composeArxivReader(input: ArxivBundleInput) {
   const published = new Map<string, ArxivImage>();
   const references = new Map<string, { path: string; width: number; height: number }>();
   let pixels = 0, inputBytes = input.source.length;
-  const imageInputs = required.map(sourceURL => {
+  const imageInputs = required.filter(sourceURL => input.images.get(sourceURL) !== null).map(sourceURL => {
     const image = input.images.get(sourceURL)!;
     check(image.bytes instanceof Uint8Array && image.bytes.length > 0 && image.bytes.length <= LIMITS.memberBytes &&
       HEX64.test(image.inputSHA256) && ['image/png', 'image/jpeg'].includes(image.mediaType) &&
@@ -50,6 +53,7 @@ export function composeArxivReader(input: ArxivBundleInput) {
       media_type: image.mediaType, width: image.width, height: image.height };
   });
   const rendered = convertArxivHTML(source, url, reference => {
+    if (input.images.get(reference) === null) return null;
     const image = references.get(reference); check(image, 'arxiv_asset_missing'); return image;
   }, options);
   check(JSON.stringify(rendered.imageURLs) === JSON.stringify(required), 'arxiv_asset_coverage');

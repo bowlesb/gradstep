@@ -437,6 +437,25 @@ device); a picture, or a raster over the budget or outside the admission, is dra
 TikZ picture carries the patterns and symbols LaTeXML defined elsewhere in the page in its own `defs`; a reference
 nothing defines is left out. `scripts/reader-device-compile.mjs` exercises this path in a headless browser.
 
+One figure the device can't prepare is that figure's loss, never the paper's (revision 15, 2026-10-16; build 58
+refused ActionOPD 2610.19820 over `svg_id` and InfoVis 2610.16784 over `image_dimensions`). `device-compiler.ts`
+`prepare` catches an image's own refusals (`unpreparable`: the SVG admission's `svg_*` codes, `image_dimensions`,
+the shared inspector's `image_dimensions_exceeded` and `invalid_image`, `image_decode`, `image_timeout`, an
+over-large drawing's `image_limit`, a broken UTF-8 picture, and the browser's `EncodingError`/`SecurityError`/
+`InvalidStateError` from decoding) and hands the composer `null` for that URL; the paper's totals (`bundle_limit`,
+`image_total_limit`, the image count), its structure and the host's inputs (`arxiv_asset_set`, `base64_limit`) still
+refuse. The converter (`arxiv/figures.ts`) puts *"Part of this figure couldn’t be shown here; the PDF has it."* in
+place of a lost panel (once for panels side by side, once before the caption for a lost legend symbol), and a figure
+left with no image reads as its caption paragraph opened by *"This figure couldn’t be shown here; the PDF has it."*,
+the same shape as a figure arXiv's own HTML lost (revision 14), so no figure without an image reaches the index. A
+lost image still takes its place in the figure's 16-image allowance, so planning, fetching and placement agree
+whatever a device can show. Provenance lists the published images only. Before falling back to the note, two
+pictures are now drawn: an id an SVG gives twice is kept on its first element and dropped from the later ones when
+nothing refers to it (a fragment, `url(#…)` or a style selector naming it still refuses that picture, as
+ambiguous), and a picture over the pixel limit at twice its size is drawn at the largest size the reader allows.
+`reader-device-compile.mjs` reports "N not shown" per paper. Tests: `tests/backend/arxiv-unshown-figures.test.ts`
+and `apps/web/e2e/arxiv-compiler.spec.ts` (Chromium, WebKit, Firefox).
+
 The header: the catalog's title and author names are the ground truth; LaTeXML's author block contributes marks,
 affiliations and notes (an author block set as a table reads by rows and cells; several names in one creator split
 by their marks), and a custom title page without an author block folds into the header the same way. Affiliations

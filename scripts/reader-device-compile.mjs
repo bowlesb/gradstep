@@ -3,7 +3,8 @@
 // plans the assets, this script fetches them once (paced, cached under .artifacts/reader-sweep/assets/<id>/), the
 // compiler rasterizes/admits them and composes the bundle, and the result says ok (bundle size, members, pixels) or the
 // reason code. The sweep (reader-sweep.mjs) converts the HTML only; a paper can pass it and still fail on a device
-// over its images (Apertus 1.5 on build 42, 2026-10-15). Sources: .artifacts/reader-sweep/sources/<id>v<rev>.html.
+// over its images (Apertus 1.5 on build 42, 2026-10-15). Since revision 15 one image the device can't prepare is
+// that figure's note, not a refusal: the line counts them ("2 not shown"). Sources: .artifacts/reader-sweep/sources/<id>v<rev>.html.
 //
 //   node scripts/reader-device-compile.mjs --ids=2610.15542v1,2610.17288v1 [--title=...] [--out=<dir>]
 // --out writes each bundle as the device installs it (<dir>/<id>/manifest.json and its members) for tests that need a
@@ -48,7 +49,9 @@ for (const key of IDS) {
       const p = await GradstepArxivReader.prepare(s, i, r, inputs, o);
       const members = p.members ?? []; const bytes = members.reduce((n, m) => n + Math.floor(m.base64.length * 3 / 4), 0);
       const images = members.filter(m => /^assets\//.test(m.path));
-      return { ok: true, members: members.length, images: images.length, bytes, largest: Math.max(0, ...images.map(m => Math.floor(m.base64.length * 3 / 4))),
+      const page = new TextDecoder().decode(Uint8Array.from(atob(members.find(m => m.path === 'index.html')?.base64 ?? ''), c => c.charCodeAt(0)));
+      const unshown = (page.match(/couldn’t be shown here; the PDF has it/g) ?? []).length;
+      return { ok: true, members: members.length, images: images.length, unshown, bytes, largest: Math.max(0, ...images.map(m => Math.floor(m.base64.length * 3 / 4))),
         written: { manifest: p.manifest ?? null, sha256: p.manifestSHA256 ?? p.manifest_sha256 ?? null, members } };
     } catch (e) { return { ok: false, code: e?.message?.slice(0, 80) ?? String(e) }; }
   }, [source64, id, revision, inputs, options]);
@@ -60,7 +63,7 @@ for (const key of IDS) {
     for (const m of result.written.members) { mkdirSync(`${target}/${m.path}`.replace(/\/[^/]*$/, ''), { recursive: true }); writeFileSync(`${target}/${m.path}`, Buffer.from(m.base64, 'base64')); }
     writeFileSync(`${target}/manifest.sha256`, String(result.written.sha256 ?? ''));
   }
-  if (result.ok) console.log(`ok   ${key}: ${urls.length} assets in, ${result.images} images out, bundle ${(result.bytes / 1048576).toFixed(1)} MiB (largest image ${(result.largest / 1048576).toFixed(1)} MiB), ${seconds} s`);
+  if (result.ok) console.log(`ok   ${key}: ${urls.length} assets in, ${result.images} images out${result.unshown ? `, ${result.unshown} not shown` : ''}, bundle ${(result.bytes / 1048576).toFixed(1)} MiB (largest image ${(result.largest / 1048576).toFixed(1)} MiB), ${seconds} s`);
   else { console.log(`FAIL ${key}: ${result.code} (${urls.length} assets, ${seconds} s)`); failed++; }
 }
 await browser.close();

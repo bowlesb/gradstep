@@ -31,7 +31,9 @@ change (manifests record the new build hash). Staging conversions made before it
 Device presentation (`reader-bridge.js`, applied to every bundle version without changing content): per-cell
 `columnalign` (WebKit ignores it on `mtable`/`mtr`, which centered aligned derivations), equation numbers pinned
 visible while a wide equation scrolls, display/inline math scaled to the column when within 75% (otherwise it
-scrolls in its own box; the page never scrolls sideways) and edge shadows on scrollable equations and tables.
+scrolls in its own box; the page never scrolls sideways). Scrollable equations and tables are flat: the edge
+shadows were removed on 2026-10-16 (owner, build 58: "I really dislike this gradient"); an edge with more of the box
+beyond it shows a 1 px hairline (`sr-more-left`/`sr-more-right`).
 At iPhone width this fixed page-level sideways scrolling on 4 of 6 real papers; at iPad width every equation fits.
 
 Citations and references (owner feedback on build 11, 2026-10-06; same bridge, no re-render): the bibliography is
