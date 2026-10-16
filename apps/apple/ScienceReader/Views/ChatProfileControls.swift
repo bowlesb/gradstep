@@ -117,17 +117,17 @@ struct AnswerOptionsSheet: View {
     }
 }
 
-/// Settings › AI chat options (and About AI chat options from a chat): the same model and length choices, setting what
-/// new chats start with, then what each model is, who processes it and what a question usually costs.
+/// About AI chat options (Settings › Default options for new chats › ⓘ, and the chat's Answer options): what each model
+/// is, who processes a question asked with it, and what a question usually costs at each length. The choices themselves
+/// live in Settings and in each chat's Answer options (owner, build 59).
 struct AIChatOptionsView: View {
     @Bindable var model: ReaderModel
     var body: some View {
         let table = model.chatProfileTable
         List {
             Section {
-                ChatChoiceControls(model: model, mode: .defaults).padding(.vertical, 6)
-            } header: { Text("New chats start with") } footer: {
-                Text("Each chat can change these from its ⋯ menu › Answer options. How much the model thinks is chosen for each question: quickly for simple ones, more carefully for derivations and comparisons.")
+                Text("How much the model thinks is chosen for each question: quickly for simple ones, more carefully for derivations and comparisons. Change a chat’s model and length from its ⋯ menu › Answer options; new chats start with your defaults in Settings.")
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             ForEach(table?.offeredModels ?? [.haiku, .sonnet, .opus], id: \.self) { option in
                 Section {
@@ -145,7 +145,7 @@ struct AIChatOptionsView: View {
                 Section { } footer: { Text("Credits per question. \(note)").accessibilityIdentifier("settings.aiChat.note") }
             }
         }
-        .navigationTitle("AI chat options").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("About AI chat options").navigationBarTitleDisplayMode(.inline)
         .task { model.refreshChatProfiles() }
         .tabBarSpace(color: .chromeGroupedBackground)
     }

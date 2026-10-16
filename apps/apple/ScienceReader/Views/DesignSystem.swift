@@ -201,6 +201,12 @@ struct InfoButton: View {
     var identifier: String? = nil
     @State private var shown = false
     var body: some View {
+        button
+            // The rest of the screen darkens while the bubble shows (owner, build 59: "so the bubble text stands out").
+            .onChange(of: shown) { _, now in InfoBubbleDim.shared.count = max(0, InfoBubbleDim.shared.count + (now ? 1 : -1)) }
+            .onDisappear { if shown { InfoBubbleDim.shared.count = max(0, InfoBubbleDim.shared.count - 1) } }
+    }
+    private var button: some View {
         Button { shown = true } label: {
             Image(systemName: "info.circle").font(.system(size: 15, weight: .regular)).foregroundStyle(.secondary)
                 .frame(width: 30, height: 30).contentShape(Rectangle())
@@ -230,4 +236,26 @@ struct LabelWithInfo: View {
 extension Color {
     /// The Admin section's grey rows in Settings (owner, build 57), set apart from the reader's own settings.
     static var adminRow: Color { Color(uiColor: .systemGray5) }
+}
+
+/// How many ⓘ bubbles are open; the screen under them darkens while any is (`infoBubbleDimming`).
+@Observable final class InfoBubbleDim {
+    @MainActor static let shared = InfoBubbleDim()
+    var count = 0
+}
+
+extension View {
+    /// Darkens this screen while an ⓘ bubble shows above it.
+    func infoBubbleDimming() -> some View { modifier(InfoBubbleDimming()) }
+}
+
+private struct InfoBubbleDimming: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        let dimmed = InfoBubbleDim.shared.count > 0
+        content.overlay {
+            if dimmed { Color.black.opacity(0.4).ignoresSafeArea().allowsHitTesting(false).transition(.opacity) }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: dimmed)
+    }
 }

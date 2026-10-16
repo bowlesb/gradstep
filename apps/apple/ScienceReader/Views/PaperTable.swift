@@ -567,8 +567,11 @@ struct PaperTableTitleCell: View {
                 .modifier(TitleLines(expanded: title.expanded, reservesSpace: title.reservesSpace)).truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
+            // A Library row's second line is always the cloud button's height (24 pt), so a row doesn't change height as
+            // a paper is added, downloaded and opened (owner, builds 58–59).
+            let libraryLine: CGFloat? = title.deviceCopy != nil || title.reservesSpace ? 24 : nil
             if title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil {
-                Text(" ").font(.footnote).accessibilityHidden(true)
+                Text(" ").font(.footnote).frame(minHeight: libraryLine).accessibilityHidden(true)
             }
             if title.subtitle != nil || title.deviceCopy != nil {
                 HStack(spacing: 5) {
@@ -587,6 +590,7 @@ struct PaperTableTitleCell: View {
                         Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(title.subtitleLines).truncationMode(.tail)
                     }
                 }
+                .frame(minHeight: libraryLine)
             }
         }
     }

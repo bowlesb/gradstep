@@ -99,6 +99,7 @@ struct RootView: View {
                 AuthenticationView(model: model, presentationID: presentationID).id(presentationID).macSheetKeys()
             }
         }
+        .infoBubbleDimming()
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
         .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID, startsOnPaper: model.allChatsStartsOnPaper).macSheetKeys() }
@@ -1346,18 +1347,25 @@ struct SettingsView: View {
                     } header: { Text("AI credits") }
                 }
                 if model.chatTransport != nil {
+                    // Owner, build 59: "it should say default options for new chats… the actual toggles belong with the
+                    // rest of the toggles, all the info can stay in the special info section… accessible with another
+                    // info icon".
                     Section {
-                        NavigationLink {
-                            AIChatOptionsView(model: model)
-                        } label: {
-                            LabeledContent("AI chat options", value: ChatProfileText.summary(model.chatDefaultProfile, table: model.chatProfileTable))
-                        }
-                        .accessibilityIdentifier("settings.chatDefaults")
+                        ChatChoiceControls(model: model, mode: .defaults).padding(.vertical, 4)
                         Toggle(isOn: $model.visualAnswers) {
                             LabelWithInfo(title: "Visual answers", info: "Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
                         }
                         .accessibilityIdentifier("settings.visualAnswers")
+                    } header: {
+                        HStack(spacing: 4) {
+                            Text("Default options for new chats")
+                            NavigationLink { AIChatOptionsView(model: model) } label: {
+                                Image(systemName: "info.circle").font(.system(size: 14)).frame(width: 30, height: 24)
+                            }
+                            .accessibilityLabel("About AI chat options").accessibilityIdentifier("settings.aiChatInfo")
+                        }
                     }
+                    .task { model.refreshChatProfiles() }
                 }
                 Section {
                     Toggle(isOn: $model.autoDownloadNewPapers) {
@@ -1385,6 +1393,10 @@ struct SettingsView: View {
                 Section("Your assets") {
                     openRow("Chats") { model.showAllChats = true }.accessibilityIdentifier("settings.chats")
                     openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
+                    // Owner, build 59: "a downloaded papers section… that will allow you to delete them".
+                    NavigationLink { DownloadedPapersView(model: model) } label: {
+                        LabeledContent("Downloaded papers", value: DownloadedPapersView.size(model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }))
+                    }.accessibilityIdentifier("settings.downloads")
                 }
                 // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
                 Section {
@@ -1423,6 +1435,8 @@ struct SettingsView: View {
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshOperatorRoles() } }
                 .toolbar { if let dismissSettings { ToolbarItem(placement: .confirmationAction) { Button("Done", action: dismissSettings) } } }
         }
+        // As a sheet (iPad, Mac) the window's own dimming sits under it.
+        .modifier(SheetInfoDimming(enabled: dismissSettings != nil))
     }
 
     /// Admin and test tools: operators (the owner, support) and internal builds.
@@ -1444,6 +1458,11 @@ struct SettingsView: View {
             }.contentShape(Rectangle())
         }.tint(.primary)
     }
+}
+
+private struct SheetInfoDimming: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View { if enabled { content.infoBubbleDimming() } else { content } }
 }
 
 /// The admin site's address for an operator: the owner lands on Health, support on Support.

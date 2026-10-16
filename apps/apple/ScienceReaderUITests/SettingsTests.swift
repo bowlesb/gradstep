@@ -48,6 +48,12 @@ final class SettingsTests: XCTestCase {
         for _ in 0..<4 where !chats.waitForExistence(timeout: 1) { app.swipeUp() }
         XCTAssertTrue(app.staticTexts["Your assets"].exists && app.staticTexts["Diagrams"].exists)
         attach("settings-assets")
+        // Downloaded papers (owner, build 59): what this device keeps, removable without touching the library.
+        let downloads = app.buttons["settings.downloads"]
+        XCTAssertTrue(downloads.exists); downloads.tap()
+        XCTAssertTrue(app.navigationBars["Downloaded papers"].waitForExistence(timeout: 5))
+        attach("settings-downloaded-papers")
+        app.navigationBars["Downloaded papers"].buttons.firstMatch.tap()
         let operations = app.descendants(matching: .any)["settings.operations"]
         for _ in 0..<4 where !operations.waitForExistence(timeout: 1) { app.swipeUp() }
         XCTAssertTrue(app.staticTexts["Admin"].exists, "Operators see the Admin section")

@@ -96,13 +96,13 @@ final class ChatControlsTests: XCTestCase {
             XCTAssertEqual(app.staticTexts["chat.profile.model.detail"].label, "Low cost; processed by DeepSeek")
             XCTAssertTrue(app.buttons["chat.profile.makeDefault"].exists, "A chat that differs from the defaults can become them")
             app.buttons["chat.profile.about"].tap()
-            XCTAssertTrue(app.navigationBars["AI chat options"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.navigationBars["About AI chat options"].waitForExistence(timeout: 5))
             let row = app.descendants(matching: .any).matching(identifier: "settings.aiChat.sonnet.standard").firstMatch
             for _ in 0..<4 where !row.waitForExistence(timeout: 1) { app.swipeUp() }
             XCTAssertTrue(row.exists)
             XCTAssertTrue(row.label.contains("Usually 4–24 credits · up to 41"), row.label)
             save("\(device())-\(appearance)-about-ai-chat-options")
-            app.navigationBars["AI chat options"].buttons.firstMatch.tap()
+            app.navigationBars["About AI chat options"].buttons.firstMatch.tap()
             app.buttons["chat.profile.done"].tap()
             XCTAssertTrue(model.waitForNonExistence(timeout: 5))
 
@@ -128,30 +128,29 @@ final class ChatControlsTests: XCTestCase {
         }
     }
 
-    /// Settings › AI chat options: new chats start with them; the row shows the choice; the credit table per model.
-    func testAIChatOptionsInSettings() {
+    /// Settings › Default options for new chats (owner, build 59): the model and length right in Settings, the credit
+    /// detail behind ⓘ (About AI chat options); new chats start with them.
+    func testDefaultOptionsInSettings() {
         let app = launch("light", ["--chat-fixture-auto-profiles"])
         app.show("settings")
-        let row = app.buttons["settings.chatDefaults"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
-        XCTAssertTrue(row.label.contains("Sonnet · Standard"), row.label)
-        row.tap()
-        XCTAssertTrue(app.navigationBars["AI chat options"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Default options for new chats"].waitForExistence(timeout: 10) ||
+                      app.otherElements["Default options for new chats"].exists)
         let model = app.segmentedControls["chat.profile.model"]
-        XCTAssertTrue(model.waitForExistence(timeout: 5))
+        XCTAssertTrue(model.waitForExistence(timeout: 10), "The model choice is in Settings itself")
+        XCTAssertTrue(model.buttons["Sonnet"].isSelected)
         model.buttons["Haiku"].tap()
         app.segmentedControls["chat.profile.length"].buttons["Brief"].tap()
+        save("\(device())-light-settings-default-options")
+        app.buttons["settings.aiChatInfo"].tap()
+        XCTAssertTrue(app.navigationBars["About AI chat options"].waitForExistence(timeout: 5))
         let haikuBrief = app.descendants(matching: .any).matching(identifier: "settings.aiChat.haiku.brief").firstMatch
+        XCTAssertTrue(haikuBrief.waitForExistence(timeout: 5))
         XCTAssertTrue(haikuBrief.label.contains("Usually 1–2 credits · up to 2"), haikuBrief.label)
-        save("\(device())-light-ai-chat-options")
+        save("\(device())-light-about-ai-chat-options")
         let deepseek = app.descendants(matching: .any).matching(identifier: "settings.aiChat.deepseek.standard").firstMatch
         for _ in 0..<5 where !deepseek.waitForExistence(timeout: 1) { app.swipeUp() }
         XCTAssertTrue(deepseek.exists, "DeepSeek's credits, as the server lists it")
-        save("\(device())-light-ai-chat-options-deepseek")
-        for _ in 0..<5 { app.swipeDown() }
-        app.navigationBars["AI chat options"].buttons.firstMatch.tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        XCTAssertTrue(row.label.contains("Haiku · Brief"), row.label)
+        app.navigationBars["About AI chat options"].buttons.firstMatch.tap()
         app.show("chat")
         app.buttons["New chat"].tap()
         answerOptions(app)

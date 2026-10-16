@@ -649,6 +649,14 @@ final class ReaderModel {
         await localPersistence.localPaperStore?.records() ?? []
     }
     func refreshLocalPaperRecords() async { localPaperRecords = await loadLocalPaperRecords() }
+    /// Both of this device's stores, read again (Downloaded papers).
+    func refreshLocalRecords() async {
+        localReaderRecords = await localPersistence.localReaderStore?.records() ?? []
+        await refreshLocalPaperRecords()
+    }
+    func acceptLocalReaderStoreWrite<Value: Sendable>(_ operation: @escaping @Sendable (DeviceReaderStore) async throws -> Value) throws -> Task<Value, Error> {
+        try localPersistence.acceptLocalReaderWrite(operation)
+    }
     func localPaperAvailable(for item: LibraryImportRecord) -> Bool {
         localPaperRecord(for: item) != nil
     }
