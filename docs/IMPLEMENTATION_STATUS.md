@@ -2,6 +2,19 @@
 
 Updated 2026-10-15 PDT (reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
 
+## Releases — 2026-10-16
+
+- **TestFlight 58** (iOS 19:57, Mac ~20:00 PDT Oct 15, VALID): papers without arXiv HTML open their PDF; ML paper search
+  rename; simpler podcasts.
+- **TestFlight 59** (`b5f5029`; iOS 21:36, Mac 21:41 PDT, VALID) and **60** (`0fda2ae`, the expanded-title fix; iOS
+  22:18, Mac 22:23 PDT, VALID): the chat redesign, Settings, Feed and Library changes below, consent v4, reader
+  revision 15. Built from clean checkouts.
+- **Browser**: app.gradstep.ai deployed from main twice (two phases verified; live bundle carries the redesign, consent
+  v4 and the revision-15 compiler). **Landing preview** republished (noindex) with DeepSeek named for chat.
+- iPhone UI regression (10 suites): 74 passed; 2 failures then fixed (expanded Feed titles capped at two lines) or
+  passing on rerun (broken-diagram journey). iPad: ChatControls, ChatHistoryTable, Settings pass after the empty-chat
+  hit-testing fix.
+
 ## Native chat redesign, Settings, Feed and Library from builds 57–58 — 2026-10-16, ~05:00 UTC
 
 - **iPhone, iPad, Mac** (CHAT.md "Chat redesign from build 57 feedback"): starters above one pill message box (the
