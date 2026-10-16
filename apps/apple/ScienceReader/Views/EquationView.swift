@@ -232,7 +232,7 @@ struct EquationView: View {
             VStack(alignment: .leading, spacing: 22) {
                 // "Equation (4) ⌄": the paper's other equations to switch to.
                 ExplainerHeadingMenu(title: session.context.label, items: equations, current: session.context.equationID,
-                                     itemTitle: { $0.label == "Equation" ? "Equation — \($0.text.prefix(40))" : $0.label },
+                                     itemTitle: { $0.label },  // "Equation (4)", or "Equation · 3.2 Method" when unnumbered
                                      identifier: "equation.heading") { other in
                     if other.id != session.context.equationID { equationID = other.id }
                 }
