@@ -85,7 +85,7 @@ struct PodcastGeneration: Identifiable, Equatable {
         self.selectedWriter = lengths.first { $0.profile == chosen }?.writers.first?.writer
     }
 
-    /// After a request finishes the server deletes the text it was made from (migration 074): a new request sends it
+    /// After a request finishes the server deletes the text it was made from (migration 076): a new request sends it
     /// again under new request ids.
     mutating func forgetFinishedRequest() { deviceTextSHA256 = nil; quoteRequestIDs = [:]; startRequestIDs = [:] }
 
@@ -193,7 +193,7 @@ final class PodcastCenter {
         }
     }
     var readyNotice: ReadyNotice?
-    /// Listen's own section (migration 074): the account's ready private episodes, newest first, and the episodes it
+    /// Listen's own section (migration 076): the account's ready private episodes, newest first, and the episodes it
     /// asked for that are being made or couldn't be made.
     private(set) var myEpisodes: [PodcastEpisode] = []
     private(set) var myRequests: [PodcastMine.Request] = []
@@ -794,7 +794,7 @@ final class PodcastCenter {
         Task {
             do {
                 // The paper's text is sent once per request and named by its digest in every quote; the server deletes
-                // it once the episode is made (migration 074), so text it no longer has is sent again, once.
+                // it once the episode is made (migration 076), so text it no longer has is sent again, once.
                 let send: @MainActor (PodcastDeviceSource) async throws -> String = { source in
                     let digest = try await account.transport.uploadSource(source)
                     if self.generation?.id == current.id { self.generation?.deviceTextSHA256 = digest }
@@ -855,7 +855,7 @@ final class PodcastCenter {
     }
 
     /// Try again in the sheet: the same length and writer, asked afresh. A finished request's text was deleted with it
-    /// (migration 074), so the paper's text is sent again with the new quote.
+    /// (migration 076), so the paper's text is sent again with the new quote.
     func askAgain() {
         guard var current = generation else { return }
         if case .finished = current.phase { current.forgetFinishedRequest() }

@@ -1,4 +1,4 @@
--- 074: An episode's paper text is deleted once the episode is made (owner, 2026-10-16: "I dont think we should even
+-- 076: An episode's paper text is deleted once the episode is made (owner, 2026-10-16: "I dont think we should even
 -- expose the podcast source text"; docs/architecture/PAPER_PODCASTS.md "The paper text is deleted once the episode is
 -- made"). The text a device sends for a private episode (private-content/podcast-sources/<account>/...) was kept until
 -- the account was deleted. Now:
@@ -123,7 +123,7 @@ begin
  else
   select * into dev from app_private.podcast_device_sources where episode_id=j.episode_id;
   if not found then j:=app_private.podcast_settle(j,'failed','source_unavailable'); return jsonb_build_object('claimed',false,'more',true); end if;
-  -- The text by its digest, the newest verified copy (migration 074): a finished job's copy is deleted, and a retry of
+  -- The text by its digest, the newest verified copy (migration 076): a finished job's copy is deleted, and a retry of
   -- the same episode brings a fresh upload, which the episode's first row (immutable) does not name.
   select * into t from app_private.stored_objects where bucket='private-content' and owner_id=dev.owner_id and state='verified'
    and sha256=dev.text_sha256 and byte_count=dev.text_bytes and app_private.podcast_source_path(dev.owner_id,encode(dev.text_sha256,'hex'),path)

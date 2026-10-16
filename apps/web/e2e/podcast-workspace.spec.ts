@@ -21,7 +21,7 @@ const LENGTHS = ([['podcast-short-v1', 'Short', 150, 60], ['podcast-5min-v1', '5
   .map(([profile, label, target_seconds, max_credits]) => ({ profile, label, target_seconds, max_credits, writers: writers(max_credits) }));
 async function fixture(page: Page, options: { lengths?: boolean; sourceUnavailable?: boolean } = {}) {
   const state = { documentID: '', inLibrary: true, deployed: true, calls: [] as { action: string; body: Record<string, unknown> }[],
-    /** What the account's own section says about the started request (migration 074). */ mine: 'making' as 'making' | 'ready' | 'failed' };
+    /** What the account's own section says about the started request (migration 076). */ mine: 'making' as 'making' | 'ready' | 'failed' };
   await page.route('**/rest/v1/rpc/v3_library_page', async route => {
     const response = await route.fetch(), data = await response.json();
     state.documentID = data.entries.find((e: { id: string }) => e.id === dpoID)?.document_id ?? state.documentID;

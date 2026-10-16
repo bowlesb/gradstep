@@ -45,7 +45,7 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('podcast contract decoding', () => {
-  it('decodes your own episodes and requests (migration 074) strictly, and says the plain words', async () => {
+  it('decodes your own episodes and requests (migration 076) strictly, and says the plain words', async () => {
     const { podcast } = await setup();
     const asked = 'b0000000-0000-4000-8000-000000000001', failed = 'b0000000-0000-4000-8000-000000000002';
     const catalog = podcast.decodeCatalog({ episodes: [], mine: {

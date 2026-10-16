@@ -36,7 +36,7 @@ export function usePodcasts(account: string) {
   const [next, setNext] = useState<string | null>(null);
   // When the list shown was last loaded: a failed check keeps it, said as of then (RESILIENCE.md fix 10).
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
-  // Listen's own section (migration 074): your ready episodes and the ones you asked for.
+  // Listen's own section (migration 076): your ready episodes and the ones you asked for.
   const [mine, setMine] = useState<Mine | null>(null);
   const request = useRef<AbortController | null>(null);
   const mineRequest = useRef<AbortController | null>(null);
@@ -585,7 +585,7 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
   const visible = useRef(shown); visible.current = shown;
   const startedPolling = useRef(0);
   // The paper's text is sent once per request and named by digest; the server deletes it once the episode is made
-  // (migration 074), so a finished request forgets it and the next one sends it again.
+  // (migration 076), so a finished request forgets it and the next one sends it again.
   const uploadedDevice = useRef<DeviceSourceDescriptor | null>(null);
   const reset = useCallback(() => { pending.current?.abort(); pending.current = null; requestID.current = null; uploadedDevice.current = null;
     setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); setUnavailable(false); setTrackingBlocked(false); setSourceTooLarge(false); setWantQuote(false); }, []);

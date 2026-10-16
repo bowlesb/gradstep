@@ -51,7 +51,7 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
         if (error) throw new Error('storage_upload_failed');
       },
       async remove(bucket, paths) {
-        // Finished episodes' paper text (migration 074); an object already gone is not an error.
+        // Finished episodes' paper text (migration 076); an object already gone is not an error.
         const { error } = await service.storage.from(bucket).remove(paths);
         if (error) throw new Error('storage_remove_failed');
       },

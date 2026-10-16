@@ -171,7 +171,7 @@ def main(argv=None):
                                              headers={'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
             with urllib.request.urlopen(request, timeout=60): pass
             result['confirmed'] = rpc(env, 'worker_podcast_cleanup_confirm', {'p_object_ids': [o['id'] for o in objects]})
-        # Finished episodes' paper text (migration 074); the worker deletes it after each run, this catches up by hand.
+        # Finished episodes' paper text (migration 076); the worker deletes it after each run, this catches up by hand.
         sources = rpc(env, 'worker_podcast_source_cleanup', {'p_limit': 50})
         due = [o for o in sources.get('objects') or [] if o.get('bucket') == 'private-content' and o.get('path', '').startswith('podcast-sources/')]
         if due:

@@ -105,7 +105,7 @@ export async function runPodcast(deps: PodcastDeps, deadline: number, options: {
 
 const SOURCE_PATH = /^podcast-sources\/[0-9a-f-]{36}\/[0-9a-f]{64}(\/[0-9a-f-]{36})?\.txt$/;
 
-/** The paper text of finished episodes (migration 074): one bounded batch after each run, deleted from Storage and then
+/** The paper text of finished episodes (migration 076): one bounded batch after each run, deleted from Storage and then
  * confirmed. A failure is logged and left for the next run; it never changes the run's outcome. */
 export async function sweepPodcastSources(deps: PodcastDeps, deadline: number): Promise<number> {
   if (!deps.storage.remove || deadline - deps.now() < 15_000) return 0;

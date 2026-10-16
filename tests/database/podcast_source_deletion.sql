@@ -1,4 +1,4 @@
--- An episode's paper text is deleted once the episode is made (migration 074; owner, 2026-10-16: "I dont think we
+-- An episode's paper text is deleted once the episode is made (migration 076; owner, 2026-10-16: "I dont think we
 -- should even expose the podcast source text"): each upload has its own path; a finished job schedules the copies of
 -- its text uploaded before it started, unless another unfinished job needs the same text; the worker's sweep lists
 -- them for Storage and confirms; a retry of the same episode uses its fresh upload; an upload no job used is swept a

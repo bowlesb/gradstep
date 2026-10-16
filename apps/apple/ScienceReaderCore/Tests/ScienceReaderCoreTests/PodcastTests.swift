@@ -51,7 +51,7 @@ struct PodcastContractTests {
         #expect(full.summary.transcript == nil)
     }
 
-    /// Listen's own section (migration 074): ready private episodes with the request that made them, and requests being
+    /// Listen's own section (migration 076): ready private episodes with the request that made them, and requests being
     /// made or that couldn't be made. Older servers send no `mine`.
     @Test func decodesTheAccountsOwnEpisodesAndRequests() throws {
         let request = "22222222-3333-4444-8555-666666666666", making = "33333333-4444-4555-8666-777777777777"

@@ -10,7 +10,7 @@ export interface PodcastAPIDeps {
   service<T>(name: string, params: Record<string, unknown>): Promise<T>;
   /** One bounded Storage read of a trusted object. */
   download(bucket: string, path: string, maximum: number): Promise<Uint8Array>;
-  /** Stores a device's paper text for a private episode (migrations 066, 074); replaces an object at the same path. */
+  /** Stores a device's paper text for a private episode (migrations 066, 076); replaces an object at the same path. */
   upload(bucket: string, path: string, bytes: Uint8Array, mediaType: string): Promise<void>;
   /** The Supabase origin used for single-use member URLs. */
   origin: string;
@@ -70,7 +70,7 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
       return json(await session.rpc('v1_podcast_status', { p_request_id: uuid(url.searchParams.get('request_id')) }), headers);
     case 'source': {
       // The paper's own text from the device (PAPER_CONTEXT_FORMAT v2), the quote then names it by digest. Each upload
-      // has its own path (migration 074): the copy is deleted once the episode is made, without touching a newer upload
+      // has its own path (migration 076): the copy is deleted once the episode is made, without touching a newer upload
       // of the same text. At most the longest length's source bound; nothing is stored for a bad request.
       const b = await body(request, 450_000);
       if (b.format !== 'paper-context-v2' || typeof b.text !== 'string' || !b.text.trim()) throw new PublicError(400, 'invalid_podcast_request');

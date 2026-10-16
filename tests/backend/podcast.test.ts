@@ -1420,7 +1420,7 @@ test('a removed opening turn is repaired before the episode is spoken, or refuse
   assert.ok(!refused.names().includes('worker_podcast_speech_begin'));
 });
 
-test('device sources (066, 074): each upload has its own path and the quote names the text by digest; bad descriptors never reach the database', async () => {
+test('device sources (066, 076): each upload has its own path and the quote names the text by digest; bad descriptors never reach the database', async () => {
   const uploads: { bucket: string; path: string; bytes: number; mediaType: string }[] = [];
   const h = api({ upload: async (bucket, path, bytes, mediaType) => { uploads.push({ bucket, path, bytes: bytes.byteLength, mediaType }); } });
   const text = '¶1 A paper read on this device.\n\n¶2 Its second paragraph.';
@@ -1455,7 +1455,7 @@ test('device sources (066, 074): each upload has its own path and the quote name
   assert.notEqual(uploads[1].path, uploads[0].path);
 });
 
-test('finished episodes\' paper text is deleted after the run (074); a failed sweep never changes the outcome', async () => {
+test('finished episodes\' paper text is deleted after the run (076); a failed sweep never changes the outcome', async () => {
   const due = [{ id: 'o1', bucket: 'private-content', path: `podcast-sources/${OWNER}/${'a'.repeat(64)}/74000000-0000-4000-8000-000000000001.txt` },
     { id: 'o2', bucket: 'private-content', path: `podcast-sources/${OWNER}/${'b'.repeat(64)}.txt` },
     { id: 'o3', bucket: 'podcast-assets', path: `private/${OWNER}/${'c'.repeat(64)}/audio.m4a` }];

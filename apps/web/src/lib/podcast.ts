@@ -40,7 +40,7 @@ export function aboutMinutes(seconds: number): string {
   return `About ${whole}${half ? '½' : ''} minute${whole === 1 && !half ? '' : 's'}`;
 }
 export interface Catalog { episodes: Episode[]; next: string | null; capabilities: Capabilities;
-  /** The account's own episodes and requests, on the first page (migration 074); null from older servers and later pages. */
+  /** The account's own episodes and requests, on the first page (migration 076); null from older servers and later pages. */
   mine: Mine | null }
 /** An episode the account asked for: being made, or couldn't be made (until it asks again for that paper). */
 export interface MineRequest { requestID: string; status: 'making' | 'failed'; profile: string | null; label: string | null;

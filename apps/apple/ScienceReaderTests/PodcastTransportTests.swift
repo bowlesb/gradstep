@@ -349,7 +349,7 @@ final class PodcastPresentationTests: XCTestCase {
         XCTAssertEqual(PodcastGeneration.plainProviders(["Anthropic (script)", "Google Vertex AI (speech)"]), "Anthropic and Google")
     }
 
-    /// After a request finishes the server deletes the text it was made from (migration 074): asking again sends it again.
+    /// After a request finishes the server deletes the text it was made from (migration 076): asking again sends it again.
     func testAFinishedRequestForgetsItsText() {
         var current = generation()
         current.deviceTextSHA256 = String(repeating: "d", count: 64)

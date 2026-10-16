@@ -33,7 +33,7 @@ let state, calls, grants, job, quoteIDs, reused;
 function reset() { state = { catalog: true, delivery: true, generation: true, releaseState: 'ready', paperReady: false, corrupt: false, memberDelay: 0, episodeDelay: 0,
   loseStart: false, readyAfter: 2, statusReads: 0, quoteOutcome: 'quote', quoteError: null }; calls = []; grants = new Set(); job = null; quoteIDs = new Map(); reused = new Set(); }
 reset();
-// Listen's own section (migration 074): the request being made, or that couldn't be, or its ready episode.
+// Listen's own section (migration 076): the request being made, or that couldn't be, or its ready episode.
 function mine() {
   if (!job) return { episodes: [], requests: [] };
   const done = state.mineState ?? job.state, asked = { request_id: job.request_id, profile: 'podcast-5min-v1', label: '5 min', target_seconds: 300, document_id: document, title: 'My library paper title' };

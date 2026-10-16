@@ -370,7 +370,7 @@ public struct PodcastCatalogPage: Codable, Equatable, Sendable {
     public let episodes: [PodcastEpisode]
     public let next: String?
     public let capabilities: PodcastCapabilities?
-    /// The account's own episodes and requests, on the first page (migration 074); nil from older servers and later pages.
+    /// The account's own episodes and requests, on the first page (migration 076); nil from older servers and later pages.
     public let mine: PodcastMine?
     public init(episodes: [PodcastEpisode], next: String?, capabilities: PodcastCapabilities?, mine: PodcastMine? = nil) {
         self.episodes = episodes; self.next = next; self.capabilities = capabilities; self.mine = mine
