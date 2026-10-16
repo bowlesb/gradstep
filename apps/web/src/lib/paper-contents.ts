@@ -8,7 +8,9 @@ import { equationTurn } from './equation';
 /** One figure or table as listed: "Figure 3" / "Table 2" (null when its caption names none) and the caption after it.
  * `block`: a table block the index lists by its caption (it opens as a table, not in the figure viewer). */
 export interface ContentsFigure { id: string; number: string | null; caption: string; table: boolean; block?: boolean }
-/** One display equation as listed: "Equation (4)" and its LaTeX as plain text (at most 160 characters). */
+/** One display equation as listed: "Equation (4)", or "Equation · 3.2 Method" for one the paper doesn't number (owner,
+ * build 62: "remove the equation text from this view and instead put Equation 1, Equation 2"); `text`: its LaTeX as
+ * plain text (at most 160 characters), for a tile's accessible name only. */
 export interface ContentsEquation { id: string; label: string; text: string }
 
 /** Splits "Figure 4: Best of N …" into ("Figure 4", "Best of N …"); "Fig. 2", "FIGURE 2", "Figure A.1", "Table 3" and
@@ -42,12 +44,23 @@ export function contentsTables(index: Pick<ReaderIndex, 'figures' | 'tables' | '
 
 /** The paper's display equations in order, numbered as printed (the page's tag, else a \tag{…} in the source), with
  * their LaTeX read as text; labels and numbering switches aren't shown. */
-export function contentsEquations(index: Pick<ReaderIndex, 'equations'>, printed: (id: string) => string | null): ContentsEquation[] {
+export function contentsEquations(index: Pick<ReaderIndex, 'equations'> & Partial<Pick<ReaderIndex, 'headings' | 'blocks'>>,
+  printed: (id: string) => string | null): ContentsEquation[] {
+  // The section an equation sits in: the last heading before its block.
+  const order = new Map((index.blocks ?? []).map((b, i) => [b.id, i]));
+  const headings = (index.headings ?? []).map(h => ({ at: order.get(h.id) ?? -1, title: h.title })).filter(h => h.at >= 0).sort((a, b) => a.at - b.at);
+  const section = (block: string) => {
+    const at = order.get(block); if (at === undefined) return null;
+    let title: string | null = null;
+    for (const h of headings) { if (h.at <= at) title = h.title; else break; }
+    return title;
+  };
   return index.equations.filter(e => e.display).map(e => {
     const tag = /\\tag\*?\{([^}]{1,12})\}/.exec(e.latex);
     const number = printed(e.id) ?? (tag ? `(${tag[1]})` : null);
     const source = e.latex.replace(/\\(?:label|tag\*?)\{[^}]*\}|\\(?:nonumber|notag)\b/g, '');
-    return { id: e.id, label: equationTurn(number), text: [...mathText(source)].slice(0, 160).join('') };
+    const where = number ? null : section(e.block_id);
+    return { id: e.id, label: where ? `Equation · ${where}` : equationTurn(number), text: [...mathText(source)].slice(0, 160).join('') };
   });
 }
 

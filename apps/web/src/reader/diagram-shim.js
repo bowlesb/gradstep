@@ -5,7 +5,8 @@
   window.addEventListener('message', async e => {
     if (used || e.source !== parent || e.data?.gradstep !== 'diagram' || typeof e.data.requestID !== 'string' || !/^[0-9a-f-]{36}$/.test(e.data.requestID) || typeof e.data.source !== 'string' || typeof e.data.dark !== 'boolean') return;
     used = true;
-    const post = ok => parent.postMessage({ gradstep: 'diagram-result', requestID: e.data.requestID, ok }, '*');
+    // The drawing's own size (its viewBox), so Full size can start it across the width.
+    const post = (ok, size = null) => parent.postMessage({ gradstep: 'diagram-result', requestID: e.data.requestID, ok, size }, '*');
     try {
       const source = e.data.source;
       if (!source.trim() || new TextEncoder().encode(source).length > 16000 || /%%\{|^\s*---/.test(source)) throw new Error('unsupported');
@@ -19,7 +20,8 @@
       document.querySelectorAll('script,foreignObject,image,iframe,object,embed').forEach(n => n.remove());
       document.querySelectorAll('*').forEach(n => { for (const a of [...n.attributes]) if (/^on|href$/i.test(a.name)) n.removeAttribute(a.name); });
       document.documentElement.style.colorScheme = e.data.dark ? 'dark' : 'light';
-      post(true);
+      const box = document.querySelector('#diagram > svg')?.viewBox?.baseVal;
+      post(true, box && box.width > 0 && box.height > 0 ? [box.width, box.height] : null);
     } catch { document.getElementById('diagram').replaceChildren(); post(false); }
   });
 })();

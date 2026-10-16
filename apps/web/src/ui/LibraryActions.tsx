@@ -19,13 +19,18 @@ interface Selection { item: LibraryPaper; trigger: HTMLButtonElement; region: El
 type OpenMenu = (item: LibraryPaper, trigger: HTMLButtonElement, last?: boolean) => void;
 const title = (item: LibraryPaper) => item.metadata?.title ?? (item.source_id ? `arXiv ${item.source_id}` : 'Untitled paper');
 
-export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void) {
+/** A reader-only item at the top of the paper's menu (the reader's ⋯ › Reader version details). */
+export interface ExtraAction { label: string; testID: string; applies: (item: LibraryPaper) => boolean; run: (item: LibraryPaper) => void }
+/** Whether the library manages this paper (tags, archive, remove): every visible paper but a legacy item outside the shared catalog. */
+const managed = (item: LibraryPaper) => !(item.kind === 'item' && item.scope !== 'shared_catalog');
+
+export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extra?: ExtraAction) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const current = useRef(selection), latest = useRef(library), returnTo = useRef<Selection | null>(null);
-  current.current = selection; latest.current = library;
+  const current = useRef(selection), latest = useRef(library), returnTo = useRef<Selection | null>(null), latestExtra = useRef(extra);
+  current.current = selection; latest.current = library; latestExtra.current = extra;
   const open: OpenMenu = useCallback((item, trigger, last) => {
-    if (!item.visible || item.kind === 'item' && item.scope !== 'shared_catalog' || latest.current.pending.has(item.id)) return;
+    if (!item.visible || !managed(item) && !latestExtra.current?.applies(item) || latest.current.pending.has(item.id)) return;
     if (last === undefined && current.current?.action === 'menu' && current.current.trigger === trigger) {
       setSelection(null); return;
     }
@@ -48,13 +53,14 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
     if (owner.trigger.isConnected && !owner.trigger.disabled) owner.trigger.focus();
     else if (owner.region?.isConnected) owner.region.querySelector<HTMLElement>('.table-wrap, .paper-menu-button, a.compact-link')?.focus();
   }, [selection]);
-  return { library, selection, notice, open, close, choose, beforeSequentialNavigation, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
+  return { library, selection, notice, open, close, choose, beforeSequentialNavigation, extra, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
 }
 type Actions = ReturnType<typeof useLibraryActions>;
 
 /** Lightweight title-cell control. Never nest it inside the paper link. */
-export function PaperMenuButton({ item, busy, expanded, onOpen }: { item: LibraryPaper; busy: boolean; expanded: boolean; onOpen: OpenMenu }) {
-  if (!item.visible || item.kind === 'item' && item.scope !== 'shared_catalog') return null;
+export function PaperMenuButton({ item, busy, expanded, onOpen, extra = false }: { item: LibraryPaper; busy: boolean; expanded: boolean; onOpen: OpenMenu;
+  /** The menu has a reader-only item, so it opens for a paper the library doesn't manage too. */ extra?: boolean }) {
+  if (!item.visible || !managed(item) && !extra) return null;
   return <button type="button" className="paper-menu-button" aria-label={`Actions for ${title(item)}`} title="Paper actions" disabled={busy}
     aria-haspopup="menu" aria-expanded={expanded} onClick={event => { event.stopPropagation(); onOpen(item, event.currentTarget); }}
     onContextMenu={event => { event.preventDefault(); event.stopPropagation(); onOpen(item, event.currentTarget); }}
@@ -113,14 +119,18 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
       else { event.preventDefault(); actions.close(selection); }
     }
   };
+  const extra = actions.extra;
   return <div ref={ref} role="menu" aria-label="Paper actions" className="paper-action-menu" data-library-row-owner={`${selection.item.kind}:${selection.item.id}`} onKeyDown={move}>
+    {extra?.applies(selection.item) && <button type="button" role="menuitem" data-testid={extra.testID} onClick={() => { actions.close(selection, undefined, false); extra.run(selection.item); }}>{extra.label}</button>}
     {selection.item.kind === 'import' && <button type="button" role="menuitem" onClick={() => {
       window.open(`https://arxiv.org/pdf/${selection.item.source_id}v${selection.item.source_revision}`, '_blank', 'noopener,noreferrer');
       actions.close(selection);
     }}>Open PDF on this device</button>}
-    <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'tags')}>Edit tags…</button>
-    <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'archive')}>{selection.item.archived ? 'Unarchive…' : 'Archive…'}</button>
-    <button type="button" role="menuitem" className="remove-action" onClick={() => actions.choose(selection, 'remove')}>Remove from library…</button>
+    {managed(selection.item) && <>
+      <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'tags')}>Edit tags…</button>
+      <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'archive')}>{selection.item.archived ? 'Unarchive…' : 'Archive…'}</button>
+      <button type="button" role="menuitem" className="remove-action" onClick={() => actions.choose(selection, 'remove')}>Remove from library…</button>
+    </>}
   </div>;
 }
 

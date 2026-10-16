@@ -1,5 +1,5 @@
-// The figure view (docs/architecture/FIGURE_VIEW.md), on the figure page: Explain and Ask in chat side by side under
-// the figure, as the equation view. Nothing is asked of the AI on opening; Explain asks the chat's consent first. The
+// The figure view (docs/architecture/FIGURE_VIEW.md), on the figure page: the walkthrough AI Explainer asks for from the
+// page's top row (owner, build 62), as the equation view. Nothing is asked of the AI unasked; it asks the chat's consent first. The
 // walkthrough says what the figure shows, then goes part by part, with a crop at the top of a part only where the model
 // drew a box (cut here from the image that was sent, so it costs nothing more). Each part's ⋯ offers Explain more
 // simply (streamed under it), Extract the subfigure and more context (owner, TestFlight 62: a loader under the part, then
@@ -24,8 +24,11 @@ type Props = { manifest: string; figureID: string; host?: FigureHost;
   onActive: (active: boolean) => void;
   /** A `[¶N]` or a part's Show in the paper: the page closes and the paper lands there with Back. */
   onCite: (paragraph: number) => void; onShowFigure: () => void;
-  /** Ask in chat (the caption) or Ask in chat about this (a part's text): an unsent draft; true once it was made. */
-  onAsk?: (text: string) => Promise<boolean>; busy: boolean };
+  /** Ask in chat about this (a part's text): an unsent draft; true once it was made. */
+  onAsk?: (text: string) => Promise<boolean>; busy: boolean;
+  /** AI Explainer, pressed in the page's top row (or chosen to open the page): asks for this figure's walkthrough when
+   * `id` is this figure and `n` is new. A figure switched to waits for its own press. */
+  request?: { id: string; n: number } | null };
 
 const partKey = (s: FigureSection, i: number) => `${i}:${s.label}:${s.title}`;
 const words = (r: FigureResult | null) => !!r && (!!r.walkthrough || !!r.text.trim());
@@ -34,7 +37,7 @@ const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' &
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
 
-export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy }: Props) {
+export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request }: Props) {
   const [consented, setConsented] = useState(() => !!host?.consented());
   const [asking, setAsking] = useState(false);
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure') ?? null);
@@ -82,6 +85,11 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     requestAnimationFrame(() => panel.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
   };
   const allow = () => { if (host?.accept()) { setConsented(true); setAsking(false); run('figure'); } };
+  const handled = useRef(0);
+  useEffect(() => {
+    if (!request || request.id !== figureID || request.n === handled.current) return;
+    handled.current = request.n; explain();
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [link, setLink] = useState<string | null>(null);
   const answerClick = (e: React.MouseEvent | React.KeyboardEvent) => {
@@ -98,12 +106,6 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const background = useMemo(() => image ? `url("data:image/jpeg;base64,${image.data}")` : null, [image]);
 
   return <div className="figure-explain" ref={panel}>
-    {(onAsk || (host && !walk && !asking)) && <div className="equation-actions">
-      {host && !walk && !asking && <button className="primary" onClick={explain} disabled={busy} data-testid="figure-explain"
-        title="Walks through the figure part by part. Uses credits."><Icon name="sparkles" />Explain</button>}
-      {onAsk && <button className="secondary" onClick={() => void onAsk('')} disabled={busy} data-testid="figure-ask"
-        title="Opens the paper’s chat with this figure selected"><Icon name="chat" />Ask in chat</button>}
-    </div>}
     {!host ? null : asking && !consented ? <section className="equation-consent" data-testid="figure-consent">
       <p>Explaining the figure uses cloud AI: the figure’s image and the paper’s text go to Anthropic, or DeepSeek when you choose it, as with chat. They may retain requests under their API terms. Answers use credits.</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>

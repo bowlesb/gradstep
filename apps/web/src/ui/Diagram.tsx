@@ -35,30 +35,59 @@ export function Diagram({ title, source, format, figureImage = null }: { title: 
     <div className="diagram-inline"><DiagramFrame source={source} compact /></div>
     <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Full size</button></div>
     <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
-      <DiagramFrame source={source} /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>
+      <DiagramFrame source={source} fit="width" /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>
     </Dialog></div>;
 }
-/** `compact`: drawn in the answer, without zoom tools (they belong to Full size). */
-export function DiagramFrame({ source, compact = false }: { source: string; compact?: boolean }) {
+/** `compact`: drawn in the answer, without zoom tools (they belong to Full size). `fit`: `width` (Full size) starts the
+ * diagram across the width, never larger than it is drawn, scrolling down a tall one; `contain` shows all of it at once.
+ * Outside `compact`: pinch (or ctrl/⌘ + wheel) zooms about the fingers or pointer, a drag pans, a double-click returns to
+ * the start (owner, build 62: "Zooming with two fingers should work well here"). */
+const ZOOM = { min: 0.25, max: 6 };
+export function DiagramFrame({ source, compact = false, fit = 'contain' }: { source: string; compact?: boolean; fit?: 'contain' | 'width' }) {
   const [doc, setDoc] = useState<string | null>(null), [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [zoom, setZoom] = useState(1);
+  // The diagram's own size (its drawing's viewBox), as the frame reported it, and the viewport's.
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [room, setRoom] = useState<{ w: number; h: number } | null>(null);
   const [requestID] = useState(() => crypto.randomUUID());
   const frame = useRef<HTMLIFrameElement>(null);
   const viewport = useRef<HTMLDivElement>(null), previousZoom = useRef(1);
+  // Where a zoom keeps still (the pointer or the fingers' midpoint, in viewport coordinates); the centre otherwise.
+  const focus = useRef<{ x: number; y: number } | 'start' | null>(null);
+  const zoomRef = useRef(zoom); zoomRef.current = zoom;
+  const lowest = useRef(1);
+  const zoomTo = (next: number, at?: { x: number; y: number }) => {
+    const clamped = Math.min(ZOOM.max, Math.max(lowest.current, next));
+    if (Math.abs(clamped - zoomRef.current) < 0.001) return;
+    focus.current = at ?? null; setZoom(clamped);
+  };
   // Resize the opaque frame itself: zoom never grants access to its DOM or changes its protocol.
   useLayoutEffect(() => {
-    const view = viewport.current, ratio = zoom / previousZoom.current;
-    if (view) {
-      view.scrollLeft = (view.scrollLeft + view.clientWidth / 2) * ratio - view.clientWidth / 2;
-      view.scrollTop = (view.scrollTop + view.clientHeight / 2) * ratio - view.clientHeight / 2;
+    const view = viewport.current, ratio = zoom / previousZoom.current, held = focus.current;
+    if (view && held === 'start') { view.scrollLeft = 0; view.scrollTop = 0; }
+    else if (view) {
+      const at = held && held !== 'start' ? held : { x: view.clientWidth / 2, y: view.clientHeight / 2 };
+      view.scrollLeft = (view.scrollLeft + at.x) * ratio - at.x;
+      view.scrollTop = (view.scrollTop + at.y) * ratio - at.y;
     }
+    focus.current = null;
     previousZoom.current = zoom;
   }, [zoom]);
+  useEffect(() => {
+    const view = viewport.current;
+    if (!view || compact) return;
+    const measure = () => setRoom({ w: view.clientWidth, h: view.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(view);
+    return () => observer.disconnect();
+  }, [compact, doc]);
   useEffect(() => {
     let live = true;
     const timer = setTimeout(() => { if (live) { setStatus('failed'); setDoc(null); } }, 10_000);
     const receive = (e: MessageEvent) => {
-      if (e.source !== frame.current?.contentWindow || e.data?.gradstep !== 'diagram-result' || typeof e.data.ok !== 'boolean' || e.data.requestID !== requestID || Object.keys(e.data).sort().join(',') !== 'gradstep,ok,requestID') return;
+      if (e.source !== frame.current?.contentWindow || e.data?.gradstep !== 'diagram-result' || typeof e.data.ok !== 'boolean' || e.data.requestID !== requestID || Object.keys(e.data).sort().join(',') !== 'gradstep,ok,requestID,size') return;
+      const size = e.data.size;
+      if (Array.isArray(size) && size.length === 2 && size.every((n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= 100_000)) setNatural({ w: size[0], h: size[1] });
       clearTimeout(timer); setStatus(e.data.ok ? 'ready' : 'failed');
     };
     window.addEventListener('message', receive);
@@ -68,14 +97,90 @@ export function DiagramFrame({ source, compact = false }: { source: string; comp
     }, () => { if (live) setStatus('failed'); });
     return () => { live = false; clearTimeout(timer); window.removeEventListener('message', receive); };
   }, []);
+
+  // The frame's size. Across the width: the drawing scaled to the viewport's width (16 px margins), never above its own
+  // size, at `zoom` times that; it can zoom out until all of it is in view. Otherwise the viewport's size times `zoom`.
+  const PAD = 32;
+  let size: { width: string | number; height: string | number } = { width: `${zoom * 100}%`, height: `${zoom * 100}%` };
+  lowest.current = 1;
+  if (!compact && fit === 'width' && natural && room && room.w > PAD) {
+    const base = Math.min(1, (room.w - PAD) / natural.w);
+    const whole = Math.min((room.w - PAD) / natural.w, (room.h - PAD) / natural.h) / base;
+    lowest.current = Math.max(ZOOM.min, Math.min(1, whole));
+    size = { width: Math.round(natural.w * base * zoom + PAD), height: Math.round(natural.h * base * zoom + PAD) };
+  }
+
+  // Back to the start: zoom 1, scrolled to the top left (also when already at zoom 1).
+  const reset = () => {
+    focus.current = 'start'; setZoom(1);
+    if (zoomRef.current === 1 && viewport.current) { viewport.current.scrollLeft = 0; viewport.current.scrollTop = 0; focus.current = null; }
+  };
+  // Gestures over the frame (it is opaque and takes no input of its own): a layer above it reads them.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ distance: number; zoom: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const local = (x: number, y: number) => { const r = viewport.current!.getBoundingClientRect(); return { x: x - r.left, y: y - r.top }; };
+  const startDrag = (p: { x: number; y: number }) => { const v = viewport.current!; drag.current = { ...p, left: v.scrollLeft, top: v.scrollTop }; };
+  const twoFingers = () => {
+    const [a, b] = [...pointers.current.values()];
+    return { distance: Math.hypot(a.x - b.x, a.y - b.y), middle: local((a.x + b.x) / 2, (a.y + b.y) / 2) };
+  };
+  useEffect(() => {
+    const view = viewport.current;
+    if (!view || compact) return;
+    // A trackpad pinch arrives as a wheel with ctrlKey (Chrome, Firefox, Edge); ⌘ + wheel zooms too.
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomTo(zoomRef.current * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.01)), local(e.clientX, e.clientY));
+    };
+    // Safari's trackpad pinch.
+    let gestureStart = 1;
+    const gestureBegin = (e: Event) => { e.preventDefault(); gestureStart = zoomRef.current; };
+    const gesture = (e: Event) => { e.preventDefault(); const g = e as Event & { scale: number; clientX: number; clientY: number }; zoomTo(gestureStart * g.scale, local(g.clientX, g.clientY)); };
+    view.addEventListener('wheel', wheel, { passive: false });
+    view.addEventListener('gesturestart', gestureBegin); view.addEventListener('gesturechange', gesture);
+    return () => { view.removeEventListener('wheel', wheel); view.removeEventListener('gesturestart', gestureBegin); view.removeEventListener('gesturechange', gesture); };
+  }, [compact, doc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gestures = compact ? null : <div className="diagram-gesture" data-testid="diagram-gesture" aria-hidden="true"
+    onPointerDown={e => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size === 2) { drag.current = null; pinch.current = { distance: twoFingers().distance, zoom: zoomRef.current }; }
+      else if (pointers.current.size === 1) startDrag({ x: e.clientX, y: e.clientY });
+    }}
+    onPointerMove={e => {
+      if (!pointers.current.has(e.pointerId)) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch.current && pointers.current.size >= 2) {
+        const { distance, middle } = twoFingers();
+        if (pinch.current.distance > 0) zoomTo(pinch.current.zoom * distance / pinch.current.distance, middle);
+      } else if (drag.current) {
+        const v = viewport.current!;
+        v.scrollLeft = drag.current.left - (e.clientX - drag.current.x); v.scrollTop = drag.current.top - (e.clientY - drag.current.y);
+      }
+    }}
+    onPointerUp={e => {
+      pointers.current.delete(e.pointerId);
+      if (pointers.current.size < 2) pinch.current = null;
+      const rest = [...pointers.current.values()][0];
+      if (rest) startDrag(rest); else drag.current = null;
+    }}
+    onPointerCancel={e => { pointers.current.delete(e.pointerId); pinch.current = null; drag.current = null; }}
+    onDoubleClick={reset} />;
+
   return <>{status === 'loading' && <p role="status">Drawing diagram…</p>}{status === 'failed' && <p role="alert">Couldn’t draw this diagram. Its source is available below.</p>}
     {status === 'ready' && !compact && <div className="diagram-tools" role="group" aria-label="Diagram zoom">
-      <button className="secondary small" aria-label="Zoom out diagram" disabled={zoom <= 1} onClick={() => setZoom(z => Math.max(1, z - 0.5))}>−</button>
-      <button className="secondary small" onClick={() => setZoom(1)} aria-label="Fit diagram">Fit</button>
-      <button className="secondary small" aria-label="Zoom in diagram" disabled={zoom >= 4} onClick={() => setZoom(z => Math.min(4, z + 0.5))}>+</button>
+      <span className="fine diagram-hint">Pinch or drag · double-click to fit</span>
+      <button className="secondary small" aria-label="Zoom out diagram" disabled={zoom <= lowest.current + 0.001} onClick={() => zoomTo(zoom - 0.5 >= 1 ? zoom - 0.5 : zoom / 1.5)}>−</button>
+      <button className="secondary small" onClick={reset} aria-label="Fit diagram">Fit</button>
+      <button className="secondary small" aria-label="Zoom in diagram" disabled={zoom >= ZOOM.max} onClick={() => zoomTo(zoom < 1 ? Math.min(1, zoom * 1.5) : zoom + 0.5)}>+</button>
     </div>}
-    {doc && <div ref={viewport} className="diagram-viewport" {...(compact ? {} : { tabIndex: 0, role: 'region', 'aria-label': 'Diagram viewport' })}>
-      <iframe ref={frame} title="Diagram" className="diagram-frame" style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }} sandbox="allow-scripts" srcDoc={doc} onLoad={() => frame.current?.contentWindow?.postMessage({ gradstep: 'diagram', requestID, source, dark: (document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches)) }, '*')} />
+    {doc && <div ref={viewport} className={`diagram-viewport${fit === 'width' && !compact ? ' fit-width' : ''}`} {...(compact ? {} : { tabIndex: 0, role: 'region', 'aria-label': 'Diagram viewport' })}>
+      <div className="diagram-canvas" style={{ width: size.width, height: size.height }}>
+        <iframe ref={frame} title="Diagram" className="diagram-frame" sandbox="allow-scripts" srcDoc={doc} onLoad={() => frame.current?.contentWindow?.postMessage({ gradstep: 'diagram', requestID, source, dark: (document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches)) }, '*')} />
+        {status === 'ready' && gestures}
+      </div>
     </div>}</>;
 }
 

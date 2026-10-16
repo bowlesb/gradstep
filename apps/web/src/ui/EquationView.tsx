@@ -1,17 +1,20 @@
-// The equation view (docs/architecture/EQUATION_VIEW.md): the tapped equation large (a size control and an optional
-// sideways scroll), then Explain and Ask in chat side by side. Nothing is asked of the AI on opening (owner, build 59:
-// "The AI explanation should only come if you ask for it"): Explain asks for what it says and each symbol described with
-// where that comes from, after which More background is offered. No credit counts are shown here (owner, build 59).
-// Loaded only when opened (it brings the math typesetter with it).
+// The equation view (docs/architecture/EQUATION_VIEW.md): one top row — Explain in Chat (an unsent draft) and AI Explainer
+// on the left, the close X on the right (owner, build 62; docs/DESIGN.md "Sheet top row") — then the equation's heading,
+// a small menu of the paper's other equations to switch to, and the equation large (a size control and an optional
+// sideways scroll). Nothing is asked of the AI unasked (owner, build 59): AI Explainer asks for what it says and each
+// symbol described with where that comes from, after which More background is offered; chosen from the equation's own
+// menu it asks at once (consent first), while an equation switched to from the heading waits for it. No credit counts
+// are shown here (owner, build 59). Loaded only when opened (it brings the math typesetter with it).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VerifiedBundle } from '../lib/bundle';
 import { failureText } from '../lib/chat';
-import { equationLatex, equationNumber, type EquationAction, type EquationResult } from '../lib/equation';
+import { equationLatex, equationNumber, equationNumbers, type EquationAction, type EquationResult } from '../lib/equation';
+import { contentsEquations } from '../lib/paper-contents';
 import { safeLink } from '../lib/markdown';
 import { symbolMath } from '../lib/equation-math';
 import { equationDocument } from '../reader/equation-frame';
 import Answer from './Answer';
-import { Dialog } from './common';
+import { Dialog, MenuButton, SheetTop } from './common';
 import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 
@@ -22,6 +25,10 @@ export interface EquationHost {
   run: (input: { equationID: string; latex: string; number: string | null }, action: EquationAction, update: (result: EquationResult) => void, signal: AbortSignal) => Promise<EquationResult>;
 }
 type Props = { bundle: VerifiedBundle; equationID: string; theme: 'light' | 'dark'; fontSize: number; host?: EquationHost;
+  /** AI Explainer was chosen on the equation in the paper: the explanation is asked for at once (after the consent). */
+  autoExplain?: boolean;
+  /** Another of the paper's equations, chosen from the heading's menu: shown in its place, waiting for AI Explainer. */
+  onSwitch?: (equationID: string) => void;
   onClose: () => void; onCite: (paragraph: number) => void; onAsk?: () => void };
 
 const VIEW_KEY = 'gradstep.equation-view.v1';
@@ -29,8 +36,10 @@ const SCALES = [100, 120, 140, 160, 200, 240, 280, 320, 360, 400];
 const readView = () => readStored<{ scale: number; scroll: boolean }>(VIEW_KEY, { scale: 160, scroll: false },
   v => !!v && typeof v === 'object' && SCALES.includes((v as { scale: unknown }).scale as number) && typeof (v as { scroll: unknown }).scroll === 'boolean');
 
-export default function EquationView({ bundle, equationID, theme, fontSize, host, onClose, onCite, onAsk }: Props) {
+export default function EquationView({ bundle, equationID, theme, fontSize, host, autoExplain = false, onSwitch, onClose, onCite, onAsk }: Props) {
   const number = useMemo(() => equationNumber(bundle, equationID), [bundle, equationID]);
+  // The heading's menu: every display equation as Contents lists it ("Equation (4)", "Equation · 3.2 Method").
+  const others = useMemo(() => { const numbers = equationNumbers(bundle); return contentsEquations(bundle.index, id => numbers.get(id) ?? null); }, [bundle]);
   const latex = useMemo(() => equationLatex(bundle, equationID), [bundle, equationID]);
   const title = number ? `Equation ${number}` : 'Equation';
   const [view, setView] = useState(readView);
@@ -83,6 +92,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
     setConsented(true); setAsking(false); setSymbols(loading); run('equation');
   };
   const allow = () => { if (host?.accept()) { setConsented(true); setAsking(false); setSymbols(loading); run('equation'); } };
+  const autoAsked = useRef(false);
+  useEffect(() => { if (autoExplain && !autoAsked.current) { autoAsked.current = true; explain(); } }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // More background brings its section to the top of the panel as its first words arrive, so the answer reads in view
   // rather than below the fold (landing-page capture, 2026-10-15: only the first paragraph showed).
@@ -102,7 +113,18 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
 
   return <Dialog open onClose={onClose} title={title} className="equation-dialog">
     <div className="equation-view" data-testid="equation-view">
-      <header className="equation-head"><h2>{title}</h2><button className="link" onClick={onClose} data-testid="equation-done">Done</button></header>
+      {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
+      <SheetTop onClose={onClose} testID="equation-close">
+        {onAsk && <button className="sheet-action" onClick={onAsk} data-testid="equation-ask"
+          title="Opens the paper’s chat with this equation as the passage; nothing is sent"><Icon name="chat" size={15} />Explain in Chat</button>}
+        {host && !symbols && !asking && <button className="sheet-action prominent" onClick={explain} data-testid="equation-explain"
+          title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
+      </SheetTop>
+      <h2 className="explainer-heading">{onSwitch && others.length > 1
+        ? <MenuButton icon="chevronDown" text={title} label={title} align="start" testID="equation-heading">{close => others.map(e =>
+          <button key={e.id} type="button" role="menuitemradio" aria-checked={e.id === equationID} className="menu-item"
+            onClick={() => { close(false); if (e.id !== equationID) onSwitch(e.id); }}>{e.label}</button>)}</MenuButton>
+        : title}</h2>
       <div className={`equation-stage${view.scroll ? ' scrolling' : ''}`}>
         {doc ? <iframe ref={frame} className="equation-frame" sandbox="allow-scripts" srcDoc={doc} title={title} style={{ height }} data-testid="equation-frame" />
           : <p className="fine" role="status">{missing ? 'This equation can’t be shown larger.' : 'Preparing…'}</p>}
@@ -116,12 +138,6 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
         <label className="equation-toggle"><input type="checkbox" checked={view.scroll} onChange={e => change({ ...view, scroll: e.target.checked })} data-testid="equation-scroll" />Scroll sideways</label>
       </div>
 
-      {/* Owner, build 59: the explanation on request, and Ask in chat in view from the start. */}
-      {(onAsk || (host && !symbols && !asking)) && <div className="equation-actions">
-        {host && !symbols && !asking && <button className="primary" onClick={explain} data-testid="equation-explain"
-          title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" />Explain</button>}
-        {onAsk && <button className="secondary" onClick={onAsk} data-testid="equation-ask" title="Opens the paper’s chat with this equation selected"><Icon name="chat" />Ask in chat</button>}
-      </div>}
       {!host ? <p className="fine">Explanations need a signed-in chat.</p> : asking && !consented ? <section className="equation-consent" data-testid="equation-consent">
         <p>Explaining the equation uses cloud AI: the equation and the paper’s text go to Anthropic, as with chat. Anthropic may retain requests under its API terms. Answers use credits.</p>
         <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>

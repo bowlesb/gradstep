@@ -25,6 +25,10 @@ import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
 import { detailQuote, figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
 
+/** One equation or figure this tab explained (its symbols or its walkthrough): the paper's document id, the bundle it was
+ * read from, the equation or figure id and its name ("Equation (4)", "Figure 2"). */
+export interface Explanation { kind: 'equation' | 'figure'; documentID: string; manifest: string; targetID: string; label: string; at: number }
+
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
 type Receipt = NonNullable<StoredDraft['receipt']>;
@@ -531,6 +535,13 @@ export class ChatSession {
   get cloudConsent(): boolean { return this.deps.readConsent(); }
   acceptCloudConsent(): boolean { try { this.deps.writeConsent(); return true; } catch { return false; } }
   private equations = new Map<string, EquationResult>();
+  // Your assets › Equation explanations / Figure explanations: what this tab explained, newest first, each once.
+  private explained: Explanation[] = [];
+  /** This session's explanations of one kind, newest first (the account menu's Your assets; memory only). */
+  explanations(kind: Explanation['kind']): Explanation[] { return this.explained.filter(e => e.kind === kind); }
+  private noteExplanation(entry: Explanation) {
+    this.explained = [entry, ...this.explained.filter(e => !(e.kind === entry.kind && e.documentID === entry.documentID && e.targetID === entry.targetID))].slice(0, 500);
+  }
   private equationProfile(): ProfileChoice { return this.profiles.table ? this.defaultProfile : STANDARD_PROFILE; }
   /** A finished result for this equation with the current default model (memory only, this login lifetime). */
   savedEquation(manifest: string, equationID: string, action: EquationAction): EquationResult | null {
@@ -574,7 +585,10 @@ export class ChatSession {
       finish(controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled'
         : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
     } finally { clearTimeout(deadline); controller.dispose(); }
-    if (result.phase === 'done') this.equations.set(key, result);
+    if (result.phase === 'done') {
+      this.equations.set(key, result);
+      if (action === 'equation') this.noteExplanation({ kind: 'equation', documentID, manifest: bundle.manifestSHA256, targetID: input.equationID, label: equationTurn(input.number), at: Date.now() });
+    }
     void this.refreshBalance();
     return result;
   }
@@ -641,7 +655,10 @@ export class ChatSession {
       finish(controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? 'cancelled'
         : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
     } finally { clearTimeout(deadline); controller.dispose(); }
-    if (result.phase === 'done') this.figureResults.set(key, result);
+    if (result.phase === 'done') {
+      this.figureResults.set(key, result);
+      if (action === 'figure') this.noteExplanation({ kind: 'figure', documentID, manifest: bundle.manifestSHA256, targetID: figure.id, label: name, at: Date.now() });
+    }
     void this.refreshBalance();
     return result;
   }
