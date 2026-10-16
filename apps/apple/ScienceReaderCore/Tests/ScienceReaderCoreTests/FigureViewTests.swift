@@ -49,6 +49,35 @@ import Testing
         #expect(walkthrough.sections.count == 2)
     }
 
+    /// One part extracted (`figure_detail`, owner, TestFlight 62): the event needs a usable box; it rides the same stream.
+    @Test func aDetailNeedsItsBoxAndRidesTheStream() throws {
+        let event: [String: Any] = ["format": "figure-detail-v1", "label": "(a)", "title": "The RLHF pipeline",
+                                    "text": "Up close: three boxes [¶12].", "paragraphs": [12, 12, 0], "box": ["x": 0.02, "y": 0.1, "w": 0.45, "h": 0.5]]
+        let detail = try #require(FigureDetail.validated(Self.json(event)))
+        #expect(detail.label == "(a)" && detail.title == "The RLHF pipeline" && detail.paragraphs == [12])
+        #expect(detail.box == .init(x: 0.02, y: 0.1, w: 0.45, h: 0.5))
+        for bad in [["x": 0, "y": 0, "w": 1, "h": 1], ["x": 0.1, "y": 0.1, "w": 0.01, "h": 0.5], ["x": 0.9, "y": 0.1, "w": 0.5, "h": 0.5]] {
+            var row = event; row["box"] = bad
+            #expect(FigureDetail.validated(Self.json(row)) == nil)
+        }
+        var boxless = event; boxless["box"] = nil
+        #expect(FigureDetail.validated(Self.json(boxless)) == nil, "no box, no detail: the words come as text")
+        var empty = event; empty["text"] = " "
+        #expect(FigureDetail.validated(Self.json(empty)) == nil)
+        var parser = ChatSSEParser()
+        let payload = String(decoding: Self.json(event), as: UTF8.self)
+        let events = try parser.consume(Array("event: figure_detail\ndata: \(payload)\n\nevent: figure_detail\ndata: {\"format\":\"x\"}\n\nevent: done\ndata: {\"stop_reason\":\"end_turn\",\"credits\":3}\n\n".utf8))
+        #expect(events.count == 2)
+        guard case .figureDetail(let streamed) = events.first else { Issue.record("no figure_detail event"); return }
+        #expect(streamed == detail)
+        // An answer kept before details existed still reads; one with a detail keeps it.
+        let old = try JSONDecoder().decode(FigureAnswer.self, from: Data(#"{"text":"words","model":"m"}"#.utf8))
+        #expect(old.detail == nil && old.text == "words")
+        let kept = FigureAnswer(detail: detail, model: "m")
+        #expect(try JSONDecoder().decode(FigureAnswer.self, from: JSONEncoder().encode(kept)) == kept)
+        #expect(ChatAction.figureDetail.isFigure && ChatAction.figureDetail.rawValue == "figure_detail")
+    }
+
     @Test func aBoxIsCutInWholePixelsInsideTheImage() throws {
         let box = FigureWalkthrough.Box(x: 0.5, y: 0, w: 0.5, h: 0.9)
         let sent = try #require(box.pixels(width: 1376, height: 275))
@@ -92,6 +121,11 @@ import Testing
                                                        profile: profile, localContext: context, visualAnswers: false, image: image)
         let simplerBody = try #require(try JSONSerialization.jsonObject(with: simpler.encoded()) as? [String: Any])
         #expect(simplerBody["action"] as? String == "figure_simpler"); #expect(simplerBody["capabilities"] as? [String] == ["figure_view", "stop_signal"])
+        let detail = try ChatGenerationRequest.figure(.figureDetail, operationID: UUID(), label: "Figure 1 (a)", quote: "(a) The red panel\nThe red panel fits a reward model.",
+                                                      profile: profile, localContext: context, visualAnswers: true, image: image)
+        let detailBody = try #require(try JSONSerialization.jsonObject(with: detail.encoded()) as? [String: Any])
+        #expect(detailBody["action"] as? String == "figure_detail"); #expect(detailBody["follow_ups"] == nil); #expect(detailBody["topic_title"] == nil)
+        #expect(detailBody["capabilities"] as? [String] == chatBody["capabilities"] as? [String])
         // Never offered for Add paper, a repair or general chat.
         #expect(!ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true, figureRequests: true, paper: true).contains("figure_view"))
         #expect(!ChatGenerationRequest.capabilities(action: .diagramFix, visualAnswers: true, paper: true).contains("figure_view"))

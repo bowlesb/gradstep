@@ -443,6 +443,8 @@ device); a picture, or a raster over the budget or outside the admission, is dra
 TikZ picture carries the patterns and symbols LaTeXML defined elsewhere in the page in its own `defs`; a reference
 nothing defines is left out. `scripts/reader-device-compile.mjs` exercises this path in a headless browser.
 
+Versions, updates and failure codes on the device: [READER_VERSIONS.md](READER_VERSIONS.md) (build 62).
+
 One figure the device can't prepare is that figure's loss, never the paper's (revision 15, 2026-10-16; build 58
 refused ActionOPD 2610.19820 over `svg_id` and InfoVis 2610.16784 over `image_dimensions`). `device-compiler.ts`
 `prepare` catches an image's own refusals (`unpreparable`: the SVG admission's `svg_*` codes, `image_dimensions`,

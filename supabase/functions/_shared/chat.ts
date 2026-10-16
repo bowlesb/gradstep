@@ -16,8 +16,8 @@ import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
-import { FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes,
-  isFigureAction, type FigureWalkthrough } from './chat-figure-view.ts';
+import { FIGURE_DETAIL_INSTRUCTIONS, FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureDetail, figureDetailMaxTokens,
+  figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes, isFigureAction, type FigureDetail, type FigureWalkthrough } from './chat-figure-view.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -128,8 +128,8 @@ export const CHARGED_ENDINGS: readonly ChatEnding[] = ['completed', 'stopped', '
 const LIMIT_STOP_REASONS: readonly string[] = ['max_tokens', 'model_context_window_exceeded'];
 /** A Stop's record (v1_chat_stop) may still be on its way when the stream closes: one more look after this long. */
 export const STOP_GRACE_MS = 1_500;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler';
-const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler'];
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail';
+const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler', 'figure_detail'];
 /** The equation and figure views: no conversation (one turn, no title, no suggestions), and no tool result relayed. */
 const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action);
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
@@ -363,7 +363,8 @@ export function chatInstructionParts(mode: 'paper' | 'general', action: ChatActi
   const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS
     : action === 'study' ? `${STUDY_INSTRUCTIONS}\n\n${studyMapForPrompt(options.studyMap ?? EMPTY_STUDY_MAP)}`
     : action === 'equation' ? EQUATION_INSTRUCTIONS : action === 'equation_background' ? EQUATION_BACKGROUND_INSTRUCTIONS
-    : action === 'figure' ? FIGURE_INSTRUCTIONS : action === 'figure_simpler' ? FIGURE_SIMPLER_INSTRUCTIONS : null;
+    : action === 'figure' ? FIGURE_INSTRUCTIONS : action === 'figure_simpler' ? FIGURE_SIMPLER_INSTRUCTIONS
+    : action === 'figure_detail' ? FIGURE_DETAIL_INSTRUCTIONS : null;
   const paper = mode === 'paper' ? `${PAPER_INSTRUCTIONS}${options.citations ? `\n\n${CITATION_INSTRUCTIONS}` : ''}` : GENERAL_INSTRUCTIONS;
   return { shared: `${BASE_INSTRUCTIONS}\n\n${paper}\n\n${tools}`, action: own };
 }
@@ -504,6 +505,7 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'equation'; data: EquationSymbols }
   /** The figure view's checked walkthrough (FIGURE_VIEW.md), sent once before `done`. */
   | { event: 'figure'; data: FigureWalkthrough }
+  | { event: 'figure_detail'; data: FigureDetail }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile, `auto`
    * resolved; `effort`: the effort the server picked, present only when the request asked for `auto`. */
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string; effort?: string;
@@ -626,9 +628,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const symbolsOnly = request.action === 'equation';
   // The figure view's walkthrough is one tool call, checked before the device sees it; any words are held back with it.
   const walkthroughOnly = request.action === 'figure';
-  const heldBack = symbolsOnly || walkthroughOnly;
+  // One part extracted (owner, build 62): the same tool with one section and its box, checked and held back the same way.
+  const detailOnly = request.action === 'figure_detail';
+  const heldBack = symbolsOnly || walkthroughOnly || detailOnly;
   // The resolved profile (above); a repair always uses the default model with its own small allowance.
-  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? EQUATION_MAX_TOKENS : walkthroughOnly ? figureMaxTokens(profile.effort) : profile.maxTokens;
+  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? EQUATION_MAX_TOKENS : walkthroughOnly ? figureMaxTokens(profile.effort)
+    : detailOnly ? figureDetailMaxTokens(profile.effort) : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
     { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
@@ -798,10 +803,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const walkthrough = walkthroughOnly && walkthroughCall ? figureWalkthrough(walkthroughCall.input, paragraphs) : null;
   const walkthroughWords = walkthroughOnly && !walkthrough
     ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : '') || heldText.trim()).slice(0, 12_000) : '';
+  // One part extracted: its section with a usable box; without one, its words (else the model's own) reach the reader
+  // without a crop, and the device says the part couldn't be cropped.
+  const detail = detailOnly && walkthroughCall ? figureDetail(walkthroughCall.input, paragraphs) : null;
+  const detailWords = detailOnly && !detail
+    ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : '') || heldText.trim()).slice(0, 6_000) : '';
   // How the answer ended decides whether the reader pays (owner decision 2026-10-16, CHAT.md "When an answer stops
   // early"): work that finished, or the part the reader chose to stop. Anything else that ended it costs them nothing.
   // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
-  const showsWork = walkthroughOnly ? !!walkthrough || !!walkthroughWords : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
+  const showsWork = walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
+    : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
   const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
@@ -922,6 +933,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         boxes_offered: walkthroughCall ? offeredBoxes(walkthroughCall.input) : 0 });
       if (walkthrough) emit({ event: 'figure', data: walkthrough });
       else if (walkthroughWords) emit({ event: 'delta', data: { text: walkthroughWords } });
+    }
+    // One part extracted: checked, relayed once (format figure-detail-v1); without a usable box, its words.
+    if (detailOnly && !signal.aborted) {
+      deps.log({ event: detail ? 'chat_figure_detail' : 'chat_figure_detail_invalid_output', operation_id: request.operationID,
+        called: !!walkthroughCall, boxes_offered: walkthroughCall ? offeredBoxes(walkthroughCall.input) : 0 });
+      if (detail) emit({ event: 'figure_detail', data: detail });
+      else if (detailWords) emit({ event: 'delta', data: { text: detailWords } });
     }
     // An ordinary answer that called figure_walkthrough anyway (it is only the figure view's): never relayed as one, and
     // when it wrote nothing else, its words are the answer.

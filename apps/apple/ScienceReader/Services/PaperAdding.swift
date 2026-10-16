@@ -223,6 +223,17 @@ extension ReaderModel {
     }
     /// Whether "Open PDF" is fetching this paper's PDF now.
     func isDownloadingPDF(_ paper: Paper) -> Bool { localPaperDownloads.contains(paper.id) }
+    /// The reader's failure screen › Read with the on-device model (owner, build 62): the paper's PDF is fetched from arXiv
+    /// on this device first when it isn't here, then the model reads it.
+    func readPDFWithDeviceModel(_ paper: Paper) {
+        if canReadWithDeviceModel(paper) { readWithDeviceModel(paper); return }
+        guard deviceModelAvailable, deviceModelRun == nil, localPDFRecord(for: paper) == nil, let source = paper.arxivReaderSource,
+              hasLocalPaperStore, let link = URL(string: "https://arxiv.org/pdf/\(source.sourceID)v\(source.revision)") else { return }
+        saveArxivPDF(sourceID: source.sourceID, revision: source.revision, link: link, key: paper.id) { [weak self] in
+            guard let self, self.selectedPaper?.id == paper.id else { return }
+            self.readWithDeviceModel(paper)
+        }
+    }
 
     /// Fetches an arXiv PDF on this device into the encrypted local paper store; `key` marks it downloading meanwhile.
     private func saveArxivPDF(sourceID: String, revision: Int, link: URL, key: UUID, saved: (@MainActor () -> Void)? = nil) {

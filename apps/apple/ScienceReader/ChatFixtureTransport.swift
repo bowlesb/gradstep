@@ -65,6 +65,15 @@ struct ChatFixtureTransport: ChatTransport {
               box: .init(x: 0, y: 0, w: 0.5, h: 1)),
         .init(label: "Right half", title: "What it shows", text: "The right half is the result the caption sums up [¶6].", paragraphs: [6]),
         .init(label: "", title: "Reading it as a whole", text: "Together the halves make the figure’s single point. This is a synthetic fixture answer; no AI request was made.")])
+    /// One part extracted: the right half, boxed; the whole-figure part comes as words without a box (no crop).
+    static let figureDetail = FigureDetail(label: "Right half", title: "What it shows",
+        text: "Up close, the right half is a single filled block: the result the caption sums up [¶6]. The introduction sets it against the left half [¶4].\n\nThis is a synthetic fixture answer; no AI request was made.",
+        paragraphs: [6, 4], box: .init(x: 0.5, y: 0, w: 0.5, h: 1))
+    static let figureDetailWords = """
+    The figure reads as one point: start left, end right [¶4].
+
+    This is a synthetic fixture answer; no AI request was made.
+    """
     static let figureSimpler = """
     Start with the left half: it is only the starting point, nothing more [¶4].
 
@@ -117,6 +126,16 @@ struct ChatFixtureTransport: ChatTransport {
                         try await Task.sleep(for: .milliseconds(500))
                         continuation.yield(.figure(Self.figureWalkthrough))
                         continuation.yield(.done(stopReason: "end_turn", credits: 5, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
+                        continuation.finish(); return
+                    }
+                    if request.action == .figureDetail {
+                        try await Task.sleep(for: .milliseconds(600))
+                        if request.selection?.contains("Reading it as a whole") == true {
+                            continuation.yield(.delta(Self.figureDetailWords))
+                        } else {
+                            continuation.yield(.figureDetail(Self.figureDetail))
+                        }
+                        continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }
                     if request.action == .figureSimpler {

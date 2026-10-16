@@ -330,3 +330,57 @@ figure page), wired through `Reader` and `App` like the equation view's host.
   a failed walkthrough tried again; the page's Ask in chat; words without a walkthrough, cut off and "Interrupted · not
   charged"), screenshots light and dark reviewed; the equation-view,
   reader-drafts, chat, chat-redesign and arxiv-html journeys still pass; `npm test`.
+
+## One part extracted (owner, TestFlight 62, 2026-10-16)
+
+Owner, on a walkthrough's part: "a new button for 'Extract the subfigure and more context' where it opens up a loader
+below, gets the info, and puts it below". Each part's menu now has **Extract the subfigure and more context**: a loader
+under the part, then the region of the figure that part occupies, cropped on the device from the image that was sent,
+and a closer reading of it with more of the paper (Up close). Unlike the walkthrough's boxes (rare by design), this one
+always asks for a region.
+
+**Server** (`chat-figure-view.ts`, `chat.ts`; staging): action `figure_detail`, validated like `figure_simpler` (paper
+chat, numbered local context, consent v3+, `figure_view`, exactly one figure, no title or suggestions). The request is
+the figure (F1) and the part as `selection.quote`: its label and title, a line break, its text. It uses the
+walkthrough's own tool, `figure_walkthrough`, so the cached prefix (tools, model, thinking, shared instructions, paper)
+stays the chat's byte for byte (test); `FIGURE_DETAIL_INSTRUCTIONS` after the paper ask for exactly one section with a
+**required** box (tight around the part, not the whole figure), a closer reading of every detail in the region and more
+context from the paper with `[¶N]`, 800–1,500 characters. Allowance: 2,500 tokens plus the effort's thinking. The call
+is held back and checked (`figureDetail`: the first usable section with a usable box) and relayed once:
+
+```
+event: figure_detail
+data: {"format":"figure-detail-v1","label":"(a)","title":"The RLHF pipeline","text":"Up close: … [¶12] …","paragraphs":[12,13],
+       "box":{"x":0.02,"y":0.1,"w":0.45,"h":0.5}}
+
+event: done
+data: {"stop_reason":"end_turn","credits":3,…,"charged":true}
+```
+
+Field bounds as a walkthrough section; `box` always present and valid (inside the image, each side at least 0.04, not
+the whole figure). Without a usable box (or no call), the words come as one `delta` (the call's words, else the model's
+own): show them with "Couldn't crop this part". Billing as `figure`: shown → charged; nothing to show → `done
+{charged:false, reason:"provider"}`; cut off → `reason:"limit"`. Logs `chat_figure_detail` / `_invalid_output` with
+`called`, `boxes_offered`. **Migration 083** adds `figure_detail` to `chat_endings.action` and `worker_settle_chat`
+(as 082 did for the other two); applied to staging 2026-10-16 ~15:45 UTC with the chat function (deploy checks 19 pass,
+`chat.smoke` failing only because the Anthropic account was out of credit).
+
+**Apps** (`FigureView.swift` `FigureDetail`, `ChatStream` `.figureDetail`, `FigureViewSession` `details`/`extract`,
+`FigureExplainView` `detailBlock`): the menu item, a loader ("Extracting this part…"), then the crop (`figureView.section.N.detailCrop`)
+and the reading (`…detail`); without a box, the words and "Couldn't crop this part; here is the closer reading." Kept on
+the device with the walkthrough (`FigureAnswer.detail`; answers kept before it read as before); Try again on failure;
+"Not charged." when the server says 0 credits; no credit counts. Fixture: the right half boxed; the whole-figure part as
+words.
+
+**Browser** (`figure-view.ts` `parseFigureDetail`, `detailQuote`; `chat.ts` event; `ChatSession.figure` with
+`figure_detail`; `FigureView.tsx`): the same menu item and block, the crop as CSS over the sent image, kept for the
+session. Fixture backend: part (a) boxed (left half), the Legend as words.
+
+**Evidence**: `tests/backend/chat.test.ts` (validation, the cached prefix byte-identical to a chat's, instructions and
+allowance, the check, relay, words without a box, billing); `tests/database/figure_view_actions.sql` (083: charged when
+finished, not when the provider failed, a replay with another action conflicts); ScienceReaderCore `FigureViewTests`
+(event, stream, request, kept answers); iPhone 17 Simulator `FigureViewJourneyTests` 2/2 (extract with crop, the
+no-crop part, kept on reopen) with `FigureViewAppTests` and `ChatVisualTests`; browser `figure-view.test.ts`,
+`figure-view.spec.ts` desktop and phone 6/6; `npm test`. Live: `node scripts/chat-live-smoke.mjs --figure-view=2
+--paper=… --index=…` now also extracts the first part without a box (its box drawn to
+`<paper>-<figure>-detail.png`); not yet run (the staging Anthropic account was out of credit).

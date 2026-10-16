@@ -11,7 +11,7 @@ import { publishedProfiles } from '../../supabase/functions/_shared/chat-profile
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
 import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
-import { figureBox, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes } from '../../supabase/functions/_shared/chat-figure-view.ts';
+import { figureBox, figureDetail, figureDetailMaxTokens, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes } from '../../supabase/functions/_shared/chat-figure-view.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
@@ -885,6 +885,13 @@ test('the SDK adapter treats an explicit validation rejection as unbilled', asyn
   const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'invalid_request_error', message: 'Invalid' } }, { status: 400 }));
   const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
   assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_rejected'); assert.deepEqual(outcome.attempts, []);
+});
+
+test('the SDK adapter names a refusal for the account\'s balance (staging, 2026-10-16), unbilled', async () => {
+  const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'invalid_request_error',
+    message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } }, { status: 400 }));
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
+  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_billing'); assert.deepEqual(outcome.attempts, []);
 });
 
 test('the SDK adapter estimates usage after an abort mid-stream', async () => {
@@ -2327,6 +2334,76 @@ test('the walkthrough is held back, checked and relayed once; without one the wo
   const cut = equationHarness({ generate: async (_params, stream) => { stream.onText('Partial'); return completeOutcome({ stopReason: 'max_tokens' }); } });
   await runChat(cut.deps, figureBody(), cut.emit, new AbortController().signal);
   assert.deepEqual([settledWith(cut).p_action, settledWith(cut).p_ending, settledWith(cut).p_actual_credits], ['figure', 'limit', 0]);
+});
+
+// One part extracted (owner, TestFlight 62: "Extract the subfigure and more context"): `figure_detail`, the walkthrough's
+// tool with one section and its box required, on the chat's cached prefix.
+const detailBody = (overrides: Record<string, unknown> = {}) => figureBody({ action: 'figure_detail',
+  selection: { quote: '(a) The RLHF pipeline\nThree stages: a reward model, then RL [¶12].' }, messages: [{ role: 'user', text: 'Figure 2 (a)' }], ...overrides });
+const detailInput = (box: unknown = { x: 0.02, y: 0.1, w: 0.45, h: 0.5 }) => ({ summary: 'The left half: the RLHF pipeline.', sections: [
+  { label: '(a)', title: 'The RLHF pipeline', text: 'Up close: three boxes left to right [¶12]; the reward model is fit first [¶13].', paragraphs: [12], box },
+  { label: '(b)', title: 'Ignored', text: 'A second section is not the part asked for.', paragraphs: [] }] });
+
+test('figure_detail: validated like the figure view, the chat\'s cached prefix, its own instructions and allowance', async () => {
+  assert.equal(validateChatRequest(detailBody()).action, 'figure_detail');
+  for (const bad of [detailBody({ figures: undefined }), detailBody({ capabilities: ['visual_answers', 'figure_requests'] }), detailBody({ consent_version: 'cloud-ai-v2' }),
+    detailBody({ follow_ups: true }), detailBody({ topic_title: true })]) assert.throws(() => validateChatRequest(bad), /invalid_request/);
+  const seen: Params[] = [];
+  const h = equationHarness({ generate: async (params, stream) => { seen.push(params); stream.onText('Words.'); return completeOutcome(); } });
+  h.deps.webSearch = true;
+  const device = { document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3', capabilities: FIGURE_DEVICE };
+  for (const body of [paperBody({ ...device, messages: [{ role: 'user', text: 'What does the method optimize?' }] }), detailBody()]) {
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+  }
+  const [chat, detail] = seen;
+  const prefix = (p: Params) => Buffer.from(JSON.stringify({ model: p.model, thinking: p.thinking, tools: p.tools, system: (p.system as unknown[]).slice(0, 2) }));
+  assert.ok(prefix(detail).equals(prefix(chat)), 'the cached prefix (tools, model, thinking, shared instructions, paper) is the chat\'s');
+  assert.equal(detail.tool_choice, undefined);
+  const after = (detail.system as { text: string }[])[2].text;
+  assert.match(after, /asked to extract one part of it/); assert.match(after, /box: required/); assert.match(after, /exactly one section/);
+  assert.equal(detail.max_tokens, figureDetailMaxTokens('low'));
+  const last = detail.messages.at(-1)!.content as { type: string; text?: string }[];
+  assert.deepEqual(last.map(b => b.type), ['text', 'text', 'image', 'text']);
+  assert.match(last[0].text!, /\(a\) The RLHF pipeline/);
+});
+
+test('figure_detail input: the first section with its box; no usable box is no detail', () => {
+  assert.deepEqual(figureDetail(detailInput(), 14), { format: 'figure-detail-v1', label: '(a)', title: 'The RLHF pipeline',
+    text: 'Up close: three boxes left to right [¶12]; the reward model is fit first [¶13].', paragraphs: [12, 13], box: { x: 0.02, y: 0.1, w: 0.45, h: 0.5 } });
+  for (const bad of [null, { x: 0, y: 0, w: 1, h: 1 }, { x: 0.9, y: 0.9, w: 0.02, h: 0.05 }, { x: 0.5, y: 0.5, w: 0.7, h: 0.2 }]) {
+    assert.equal(figureDetail(detailInput(bad), 14), null, JSON.stringify(bad));
+  }
+  const { box: _none, ...boxless } = detailInput().sections[0];
+  assert.equal(figureDetail({ summary: 's', sections: [boxless] }, 14), null, 'a section without a box');
+  for (const bad of [null, [], 'x', {}, { sections: [] }, { sections: ['x', { label: 'a' }] }]) assert.equal(figureDetail(bad, 14), null, JSON.stringify(bad));
+});
+
+test('figure_detail: relayed once with its box and charged; without a box its words, no crop; nothing shown is not charged', async () => {
+  const h = equationHarness({ generate: async (_params, stream) => { stream.onText('Looking closely.'); return walkthroughCall(detailInput()); } });
+  await runChat(h.deps, detailBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['figure_detail', 'done'], 'no words and no tool result reach the device');
+  assert.deepEqual((h.events[0].data as { box: unknown }).box, { x: 0.02, y: 0.1, w: 0.45, h: 0.5 });
+  assert.deepEqual(h.logs, [{ event: 'chat_figure_detail', operation_id: operation, called: true, boxes_offered: 1 }]);
+  assert.deepEqual([settledWith(h).p_action, settledWith(h).p_ending], ['figure_detail', 'completed']); assert.ok(Number(settledWith(h).p_actual_credits) > 0);
+  // The whole figure as its box (no crop to make): the part's words, once, charged.
+  const whole = equationHarness({ generate: async () => walkthroughCall(detailInput({ x: 0, y: 0, w: 1, h: 1 })) });
+  await runChat(whole.deps, detailBody(), whole.emit, new AbortController().signal);
+  assert.deepEqual(whole.events.map(e => e.event), ['delta', 'done']);
+  assert.match((whole.events[0].data as { text: string }).text, /^The left half: the RLHF pipeline\.\n\n\*\*\(a\) The RLHF pipeline\*\*/);
+  assert.equal(whole.logs[0].event, 'chat_figure_detail_invalid_output'); assert.equal(settledWith(whole).p_ending, 'completed');
+  // No call, only words: the words.
+  const words = equationHarness({ generate: async (_params, stream) => { stream.onText('The left half up close [¶12].'); return completeOutcome(); } });
+  await runChat(words.deps, detailBody(), words.emit, new AbortController().signal);
+  assert.deepEqual(words.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(words.events[0].data, { text: 'The left half up close [¶12].' });
+  // Nothing at all: the provider's, not charged.
+  const empty = equationHarness({ generate: async () => walkthroughCall({}) });
+  await runChat(empty.deps, detailBody(), empty.emit, new AbortController().signal);
+  assert.deepEqual(empty.events.map(e => e.event), ['done']);
+  assert.deepEqual([settledWith(empty).p_action, settledWith(empty).p_ending, settledWith(empty).p_actual_credits], ['figure_detail', 'provider', 0]);
+  // Cut off at its allowance: our limit, not charged.
+  const cut = equationHarness({ generate: async (_params, stream) => { stream.onText('Partial'); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, detailBody(), cut.emit, new AbortController().signal);
+  assert.deepEqual([settledWith(cut).p_ending, settledWith(cut).p_actual_credits], ['limit', 0]);
 });
 
 test('figure_simpler streams words like an answer; tool calls are never relayed; a stray walkthrough in a chat answer becomes its words', async () => {

@@ -151,6 +151,7 @@ struct ReaderFigureReference: Identifiable, Equatable {
 struct PaperView: View {
     @Bindable var model: ReaderModel
     @State private var showContents = false
+    @State private var showReaderVersion = false
     @State private var selection: ReaderSelection?
     @State private var readerFailed = false
     @State private var reloadID = UUID()
@@ -294,8 +295,6 @@ struct PaperView: View {
                         else if model.isModelReading(paper), !readerFailed {
                             DeviceModelBanner(summary: model.shownDeviceModelSummary, report: { model.beginReport() }, showHTML: { model.showHTMLReading() })
                         }
-                        else if let notice = model.readerFallbackNotice, !readerFailed { fallbackNotice(notice) }
-                        else if model.readerUpdateReady, !readerFailed { updateReadyBar }
                     }
                     // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
                     // outcome spans the bottom. "Back to where you were" sits at the left of the same row.
@@ -345,26 +344,39 @@ struct PaperView: View {
                             ProgressView("Preparing…").accessibilityIdentifier("paper.openingLocalCopy")
                         }
                     } else if let issue = model.readerOpenIssue {
-                        // No arXiv HTML for this version: the paper is its PDF, not a failure to retry (build 57).
-                        let pdfOnly = model.readerOpenFallback == .pdfOnly
+                        // One screen whatever stopped the reader (owner, build 62: "there should be just one — with the pdf
+                        // option and the on device option"; "remove the try again"): the paper's PDF, or the on-device model
+                        // reading it. Only when arXiv was busy or unreachable is Try again the useful action.
+                        let network = model.readerOpenFallback == .none
                         ContentUnavailableView {
-                            Label(pdfOnly ? "No web version of this paper" : "Couldn’t open this paper", systemImage: pdfOnly ? "doc.richtext" : "doc.badge.ellipsis")
+                            Label(network ? "Couldn’t reach arXiv" : "Read this paper as its PDF", systemImage: network ? "wifi.exclamationmark" : "doc.richtext")
                         }
-                            description: { Text(issue) }
+                            description: {
+                                Text(network ? issue : model.readerOpenFallback == .pdfOnly ? "arXiv has no web version of this paper."
+                                     : "Its web version couldn’t be prepared on this device.")
+                            }
                             actions: {
-                                if model.readerOpenFallback != .none {
+                                if network {
+                                    Button("Try again") { model.retryOpeningSelectedPaper() }.buttonStyle(.borderedProminent)
+                                } else {
                                     if model.isDownloadingPDF(selected) {
                                         ProgressView("Downloading PDF…").accessibilityIdentifier("paper.downloadingPDF")
                                     } else {
                                         Button { model.openPDF(selected) } label: { Label("Open PDF", systemImage: "doc.text") }
                                             .buttonStyle(.borderedProminent).accessibilityIdentifier("paper.openPDF")
                                     }
-                                }
-                                if !pdfOnly { Button("Try again") { model.retryOpeningSelectedPaper() } }
-                                // The experiment, when this paper's PDF is on the device (docs/architecture/DEVICE_PDF_ROUTE.md).
-                                if model.canReadWithDeviceModel(selected) {
-                                    Button("Read the PDF with the on-device model (experimental)") { model.readWithDeviceModel(selected) }
+                                    // The experiment (docs/architecture/DEVICE_PDF_ROUTE.md): fetches the PDF first when needed.
+                                    if model.deviceModelAvailable {
+                                        Button { model.readPDFWithDeviceModel(selected) } label: {
+                                            Label("Read with the on-device model", systemImage: "cpu")
+                                        }
+                                        .buttonStyle(.bordered).disabled(model.deviceModelRun != nil || model.isDownloadingPDF(selected))
                                         .accessibilityIdentifier("deviceModel.tryFromIssue")
+                                        Text("Experimental").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                if let code = model.readerOpenCode, model.readerOpenFallback != .pdfOnly {
+                                    InfoButton(text: "\(issue)\n\nCode: \(code)", identifier: "paper.openIssueInfo")
                                 }
                                 if let issue = model.deviceModelIssue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
                             }
@@ -446,6 +458,11 @@ struct PaperView: View {
                         if let paper = model.selectedPaper, !paper.isSample {
                             MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
                         }
+                        // The reader's version for this paper, and Update when a newer one is here (owner, build 62).
+                        if let paper = model.selectedPaper, paper.readerBundle?.manifest.source.kind == "arxiv-html" {
+                            MenuRow("Reader version details", systemImage: "info.circle") { showReaderVersion = true }
+                                .accessibilityIdentifier("paper.readerVersion")
+                        }
                         MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
@@ -462,6 +479,9 @@ struct PaperView: View {
                 }
                 .environment(\.figureViewHost, figureHost { showContents = false })
                 .macSheetKeys()
+            }
+            .sheet(isPresented: $showReaderVersion) {
+                if let paper = model.selectedPaper { ReaderVersionSheet(model: model, paper: paper).macSheetKeys() }
             }
             .sheet(isPresented: $showFigures, onDismiss: {
                 // After the gallery has gone, so the jump and its highlight are seen.
@@ -663,36 +683,6 @@ struct PaperView: View {
         .accessibilityLabel("Back to chat")
         .accessibilityIdentifier("reader.chat.back")
         .transition(.opacity)
-    }
-    /// The open copy was prepared by an earlier version and preparing it again failed: said on the page, with a way
-    /// to try again (owner, build 42: old headers were still shown with nothing said).
-    private func fallbackNotice(_ notice: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-            Text(notice).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button("Try again") { model.reprepareSelectedPaper() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("paper.fallbackNotice")
-    }
-    /// A newer copy of this paper was prepared behind the page (build 43: a stored copy opens at once and is
-    /// prepared again in the background).
-    private var updateReadyBar: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary)
-            Text("An updated copy of this paper is ready.").font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button("Reload") { model.reprepareSelectedPaper() }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("paper.updateReady")
     }
     /// The hooks added in build 46, set after construction so the page's long initializer still type-checks.
     private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {

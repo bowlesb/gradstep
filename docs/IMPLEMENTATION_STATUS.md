@@ -2,6 +2,52 @@
 
 Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Figure view: one part extracted (TestFlight 62 feedback) — 2026-10-16, ~15:50 UTC (server on staging; apps and browser built, not shipped)
+
+- Owner (build 62): "Extract the subfigure and more context… opens up a loader below, gets the info, and puts it
+  below". New chat action `figure_detail` on the chat's cached prefix: the walkthrough's tool with one section and a
+  required box, relayed as `figure_detail` (`figure-detail-v1`); words without a box. Apps and browser: the part's menu
+  item, a loader, then the crop and the closer reading under the part; kept with the walkthrough
+  ([FIGURE_VIEW.md](architecture/FIGURE_VIEW.md#one-part-extracted-owner-testflight-62-2026-10-16)).
+- Migration 083 (`figure_detail` in `chat_endings` and `worker_settle_chat`) and the chat function deployed to staging;
+  deploy checks 19 pass, `chat.smoke` failed only on the Anthropic credit balance. No live extract yet for that reason.
+- Evidence: backend, database (full suite), core, iPhone Simulator journeys (FigureViewJourneyTests 2/2 with the new
+  steps), browser units and `figure-view.spec.ts` desktop/phone 6/6, `npm test`.
+
+## Build 62 feedback: reader on the phone, versions, billing — 2026-10-16, ~15:50 UTC (not yet in a build)
+
+- **Broken?? (Related papers)**: the staging Anthropic account's credit balance ran out about 15:00 UTC; every Claude
+  request (plain questions too) answered 400 "Your credit balance is too low" (reproduced with the server's own request
+  params, `chat-live-smoke.mjs --action/--caps`). Owner to top up. Now recorded as `provider_billing`; migration 084 adds
+  `provider_billing` to v1_admin_health (DeepSeek's 402 too) and the admin's Attention says to top up. Database suite and
+  backend tests pass; staging deploy waits for the figure-detail branch (its migration 083 is already applied there).
+- **MLExpert retried forever**: every library sync reopened the selected paper and started another preparation after a
+  failure; now only the reader's own action retries (`failedHTMLOpens`).
+- **Papers failing only on the phone** (2504.02792, 2610.22083 re-preparations; 2610.22344 first open): all prepare on
+  the Mac and in the iOS Simulator with the app's own code and the catalog's authors and title (2–12 s). Hardened without
+  a device: one compile at a time (`ArxivCompileGate`), a killed or stalled compile runs once more with the downloads it
+  has, and the real reason is kept as a code (`ArxivHTMLError.code`), shown behind an ⓘ and in Reader version details.
+- **One failure screen**: "Read this paper as its PDF" — Open PDF and Read with the on-device model (fetches the PDF
+  first); Try again only for arXiv busy/unreachable. **No banner**: ⋯ › Reader version details (this paper's version,
+  the app's, what changed, Update this paper); `reader-versions.json` (revisions 3–16 by build identity), kept current
+  by the compiler build check; READER_VERSIONS.md.
+- **Formula images from the on-device model** are cleaned of the neighbouring lines' fragments and given an even margin
+  (converter revision 3; DEVICE_PDF_ROUTE.md).
+- Evidence: `npm test`; database suite; ArxivCompilerFailureTests + ArxivHTMLReaderTests + ArxivCompilerIdentityTests +
+  ArxivCompileGateTests on Mac Catalyst; ReaderVersionTests on the iPhone 17 Pro Simulator; device-PDF tests (core 330 +
+  23, backend 16).
+
+## On-device PDF model: formula crops cleaned (port revision 3) — 2026-10-16 (not yet in a build)
+
+- Owner, TestFlight 62 (Waypoint-OPD read by the on-device model): formula images carried the cut tails of the lines
+  above and below. The converter now asks the host to clean each formula crop (`clean: { em, margin }`): pieces of ink
+  at the crop's edge, outside the formula's own ink with a clear gap and small for a line of text, are dropped; the
+  image is trimmed and given an even margin (0.25 em display, 0.12 em inline) and sized/aligned from where it now
+  sits (DEVICE_PDF_ROUTE.md "Formula crops are cleaned"). `DEVICE_PDF_PORT_REVISION` 2 → 3.
+- Evidence: `DevicePDFFormulaCleanTests` (7), `device-pdf.test.ts` (16), `npm test`, ScienceReaderCore 330 + 23;
+  before/after on Waypoint-OPD (14 formula images) and Mamba's first 10 pages (63): every neighbour's tail gone, bars,
+  scripts, roots and equation numbers kept, dark mode checked. A cut word wider than 0.3 em at a side stays.
+
 ## Figure view, apps — 2026-10-16, ~08:35 UTC (iPhone, iPad, Mac; not yet in a build)
 
 - Owner, build 59: a figure page has **Explain** and **Ask in chat** side by side; Explain opens a walkthrough in the

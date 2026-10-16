@@ -171,6 +171,9 @@ export interface Health {
     today: { uncharged: number; absorbed_microusd: number };
     accounts_over_today: { account_id: string; uncharged: number; absorbed_microusd: number }[];
   };
+  /** Migration 084: requests a provider refused for the account's own balance (Anthropic "credit balance is too low",
+   * DeepSeek 402), last hour and day. Absent on older servers. */
+  provider_billing?: { last_hour: number; last_24h: number; last_at: string | null; by_provider: Record<string, number> };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

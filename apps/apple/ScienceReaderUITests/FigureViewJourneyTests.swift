@@ -102,13 +102,38 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(wait { simpler.label.contains("synthetic fixture answer") }, "The simpler explanation streams in: \(simpler.label)")
         capture(app, "A part, more simply")
 
-        // Show in the paper: the part's paragraph, the sheet gone.
+        // Owner, TestFlight 62: "Extract the subfigure and more context" — a loader under the part, then its crop and the
+        // closer reading under it; a part the model can't box gets the words and says it couldn't crop.
         let second = partMenu(app, 2)
         #if targetEnvironment(macCatalyst)
         let page = app.scrollViews["figureView.walkthrough"]
         for _ in 0..<3 where !second.isHittable { page.scroll(byDeltaX: 0, deltaY: -300) }
         #else
         for _ in 0..<3 where !second.isHittable { app.swipeUp() }
+        #endif
+        second.tap()
+        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
+        let extractedCrop = app.images["figureView.section.2.detailCrop"], extracted = app.descendants(matching: .any)["figureView.section.2.detail"]
+        XCTAssertTrue(extractedCrop.waitForExistence(timeout: 8), "the part, cropped")
+        XCTAssertTrue(extracted.waitForExistence(timeout: 2)); XCTAssertTrue(extracted.label.contains("single filled block"), extracted.label)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
+        capture(app, "A part extracted, up close")
+        let third = partMenu(app, 3)
+        #if targetEnvironment(macCatalyst)
+        for _ in 0..<3 where !third.isHittable { page.scroll(byDeltaX: 0, deltaY: -300) }
+        #else
+        for _ in 0..<3 where !third.isHittable { app.swipeUp() }
+        #endif
+        third.tap()
+        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
+        XCTAssertTrue(app.staticTexts["figureView.section.3.detailNoCrop"].waitForExistence(timeout: 8), "no region: the words, and it says so")
+        XCTAssertFalse(app.images["figureView.section.3.detailCrop"].exists)
+
+        // Show in the paper: the part's paragraph, the sheet gone.
+        #if targetEnvironment(macCatalyst)
+        for _ in 0..<3 where !second.isHittable { page.scroll(byDeltaX: 0, deltaY: 300) }
+        #else
+        for _ in 0..<3 where !second.isHittable { app.swipeDown() }
         #endif
         second.tap()
         menuItem(app, "figureView.showInPaper", "Show in the paper").tap()
@@ -123,6 +148,7 @@ final class FigureViewJourneyTests: XCTestCase {
         app.buttons["figureView.explain"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 3), "kept walkthrough")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.simpler"].exists, "kept simpler part")
+        XCTAssertTrue(app.descendants(matching: .any)["figureView.section.2.detail"].exists, "kept extract")
         XCTAssertFalse(app.descendants(matching: .any)["figureView.loading"].exists)
 
         // Ask in chat about one part: the paper's chat, the part's text as the passage, nothing sent.
