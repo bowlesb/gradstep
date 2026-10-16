@@ -21,8 +21,10 @@ final class ReaderVersionTests: XCTestCase {
         XCTAssertTrue(details.waitForExistence(timeout: 5)); details.tap()
         let paperVersion = app.staticTexts["readerVersion.paper"], appVersion = app.staticTexts["readerVersion.app"]
         XCTAssertTrue(paperVersion.waitForExistence(timeout: 5))
-        XCTAssertTrue(paperVersion.label.hasPrefix("Version "), paperVersion.label)
-        XCTAssertEqual(paperVersion.label, appVersion.label, "the fixture paper was prepared by this app's reader")
+        // The row reads as one element ("This paper, Version 16"): compare the version numbers.
+        let number = { (label: String) in label.split(separator: " ").last.map(String.init) ?? "" }
+        XCTAssertTrue(paperVersion.label.contains("Version "), paperVersion.label)
+        XCTAssertEqual(number(paperVersion.label), number(appVersion.label), "the fixture paper was prepared by this app's reader")
         XCTAssertTrue(app.descendants(matching: .any)["readerVersion.latest"].exists, "nothing to update")
         XCTAssertFalse(app.buttons["readerVersion.update"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "Reader version details"; attachment.lifetime = .keepAlways; add(attachment)
