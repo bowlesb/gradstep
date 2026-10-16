@@ -32,13 +32,31 @@ host.page(i)      -> { width, height (points), image_width, image_height (150 dp
 host.tag(lines)   -> logits[][]   lines: [{ x: number[T*10], font: int[T], cls: int[T], char: int[T] }]
 host.recognise(c) -> [{ latex, probs[] }]   c: [{ page, rect: [x0, y0, x1, y1] (150 dpi pixels, halo included) }]
                      the host pastes the crop on white with the 8 px margin, preprocesses, decodes greedily
-host.image(r)     -> { png (base64), width, height }   r: { page, dpi: 150 | 216, rect: [x0, y0, x1, y1] (pixels at dpi) }
+host.image(r)     -> { png (base64), width, height, rect? }   r: { page, dpi: 150 | 216, rect: [x0, y0, x1, y1] (pixels at dpi),
+                     clean?: { em, margin } (pixels at dpi; formula crops) }; with `clean` the host trims the crop (below)
+                     and returns where the image now sits, `rect`, in the same pixels
 host.progress(stage, done, total); host.cancelled() -> bool
 result = { manifest (base64 of canonical bytes), manifest_sha256, members: { path: base64 }, summary, trace? }
 ```
 
 Crop rectangles are computed by the converter exactly as the reference does (integer pixel rounding included),
 so the rules live in one place; the host only renders, cuts, encodes and infers.
+
+**Formula crops are cleaned** (port revision 3, 2026-10-16; owner, TestFlight 62: "an outline clean step where excess
+pixels around the edge are cleaned and then with margin"). A formula's crop is its layout box with 2 pt of padding,
+so the lines above and below left their cut glyph tails along its edges (Waypoint-OPD 2610.21601 on the phone). The
+converter asks for `clean: { em: font size × 3, margin: 0.25 em display, 0.12 em inline }`; the host
+(`DevicePDFRaster.cleanFormula`) finds the ink's 8-connected pieces, drops a piece only when it touches the crop's edge,
+lies wholly outside the formula's own ink (the pieces clear of the edges, specks aside) with a clear gap, and is small
+for a line of text (under 0.45 em tall above or below, 0.3 em wide beside), plus specks in the zone of the pieces
+dropped; nothing is dropped when that would take a quarter of the ink (a formula its box cut into is never cut
+further). It trims to the kept ink with a one-pixel rim and adds the margin in white (dark mode inverts it with the
+image). The image is sized and aligned from its returned `rect`: display width = its width in points over the font
+size; inline height likewise, and its bottom as far below the formula's box as on the page, on a line's descender
+(0.22 em). Tests: `DevicePDFFormulaCleanTests` (tails above and below with their grey rims, a tall integral with limits,
+a fraction, nothing to trim, a clipped formula, specks, a side sliver), `device-pdf.test.ts` (requests, sizing, a host
+whose rectangle disagrees). On Waypoint-OPD and Mamba (first 10 pages) every neighbour's tail went and every bar,
+script, root and equation number stayed; a cut word wider than 0.3 em at a side ("an|d B̄ = …") stays.
 
 ## Output: this app's reader vocabulary, not the Python bundle's
 

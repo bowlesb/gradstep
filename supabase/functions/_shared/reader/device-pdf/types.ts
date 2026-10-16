@@ -8,7 +8,7 @@ export const DEVICE_PDF_PROVENANCE_FORMAT = 'device-pdf-reader-provenance-v1';
 /** The reference converter's version this port follows (its block and equation id scheme hashes it). */
 export const DEVICE_PDF_CONVERTER_VERSION = '0.1.0';
 /** This port's own revision: bump whenever the output can change for the same inputs. */
-export const DEVICE_PDF_PORT_REVISION = 2;
+export const DEVICE_PDF_PORT_REVISION = 3;
 
 export const PLACEHOLDER = '￼';
 export const DPI = 150;
@@ -43,8 +43,11 @@ export interface PageInput {
 }
 export interface TagLine { x: number[]; font: number[]; cls: number[]; char: number[] }
 export interface RecogniseRequest { page: number; rect: [number, number, number, number] }
-export interface ImageRequest { page: number; dpi: number; rect: [number, number, number, number] }
-export interface ImageResult { png: string; width: number; height: number }
+/** `clean` (formula crops only): the formula's font size and the margin kept around its ink, in pixels at `dpi`; the host
+ * drops the cut tails of neighbouring lines, trims to the ink and adds the margin (DevicePDFRaster.cleanFormula). */
+export interface ImageRequest { page: number; dpi: number; rect: [number, number, number, number]; clean?: { em: number; margin: number } }
+/** `rect`: where a cleaned image sits on the page, in pixels at the request's `dpi` (it may reach past the request's). */
+export interface ImageResult { png: string; width: number; height: number; rect?: [number, number, number, number] }
 
 /** The Swift host (JavaScriptCore) or a test double: every call is synchronous. */
 export interface DevicePDFHost {

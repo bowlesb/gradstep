@@ -210,6 +210,110 @@ public enum DevicePDFRaster {
         return out
     }
 
+    // MARK: Formula crops
+
+    /// A formula crop cleaned for showing, and where it now sits in the crop's own pixels (it may reach past the crop by
+    /// the margin): owner, build 62 (2026-10-16), "an outline clean step where excess pixels around the edge are cleaned
+    /// and then with margin". The crop is the layout box with 2 pt of padding, so the lines above and below leave cut
+    /// glyph tails along its edges; those are dropped, the image is trimmed to the formula's own ink and given `margin`
+    /// pixels of white on every side.
+    public struct CleanedCrop: Sendable { public let image: RGB; public let rect: [Int] }
+
+    /// `em`: the formula's font size in pixels at this resolution; `margin`: pixels of white kept around the ink. A piece
+    /// of ink is dropped only when it touches the crop's edge, lies wholly outside the formula's own ink with a clear gap,
+    /// and is small for a line of text (under 0.45 em tall above or below, 0.3 em wide beside); specks in the zone of
+    /// dropped pieces go with them. Nothing is dropped when that would take a quarter of the ink, so a formula the layout
+    /// box cut into is never cut further. Deterministic: the same pixels give the same result.
+    public static func cleanFormula(_ crop: RGB, em: Double, margin: Int) -> CleanedCrop {
+        let w = crop.width, h = crop.height, margin = max(0, margin)
+        guard w > 0, h > 0, em.isFinite, em > 0 else { return CleanedCrop(image: crop, rect: [0, 0, w, h]) }
+        func luminance(_ i: Int) -> Int { (Int(crop.pixels[i * 3]) * 299 + Int(crop.pixels[i * 3 + 1]) * 587 + Int(crop.pixels[i * 3 + 2]) * 114) / 1000 }
+        // Ink and its 8-connected pieces.
+        var ink = [Bool](repeating: false, count: w * h)
+        for i in 0..<(w * h) { ink[i] = luminance(i) < 192 }
+        struct Piece { var minX: Int, minY: Int, maxX: Int, maxY: Int, count: Int }
+        var label = [Int32](repeating: -1, count: w * h), pieces: [Piece] = [], stack: [Int] = []
+        for start in 0..<(w * h) where ink[start] && label[start] < 0 {
+            let id = Int32(pieces.count)
+            var piece = Piece(minX: start % w, minY: start / w, maxX: start % w, maxY: start / w, count: 0)
+            label[start] = id; stack.append(start)
+            while let i = stack.popLast() {
+                let x = i % w, y = i / w
+                piece.count += 1
+                piece.minX = min(piece.minX, x); piece.maxX = max(piece.maxX, x); piece.minY = min(piece.minY, y); piece.maxY = max(piece.maxY, y)
+                for dy in -1...1 {
+                    let ny = y + dy
+                    guard ny >= 0, ny < h else { continue }
+                    for dx in -1...1 where dx != 0 || dy != 0 {
+                        let nx = x + dx
+                        guard nx >= 0, nx < w else { continue }
+                        let j = ny * w + nx
+                        if ink[j], label[j] < 0 { label[j] = id; stack.append(j) }
+                    }
+                }
+            }
+            pieces.append(piece)
+        }
+        guard !pieces.isEmpty else { return CleanedCrop(image: crop, rect: [0, 0, w, h]) }
+
+        let small = 0.15 * em, gap = max(1, Int((0.06 * em).rounded())), sideGap = max(gap, Int((0.3 * em).rounded()))
+        func touches(_ p: Piece) -> Bool { p.minX == 0 || p.minY == 0 || p.maxX == w - 1 || p.maxY == h - 1 }
+        func isSmall(_ p: Piece) -> Bool { Double(p.maxX - p.minX + 1) <= small && Double(p.maxY - p.minY + 1) <= small }
+        // The formula's own ink: the pieces clear of the edges, specks aside (a dot or prime decides nothing).
+        var core = pieces.indices.filter { !touches(pieces[$0]) && !isSmall(pieces[$0]) }
+        if core.isEmpty { core = pieces.indices.filter { !touches(pieces[$0]) } }
+        var dropped = Set<Int>()
+        if !core.isEmpty {
+            let top = core.map { pieces[$0].minY }.min()!, bottom = core.map { pieces[$0].maxY }.max()!
+            let left = core.map { pieces[$0].minX }.min()!, right = core.map { pieces[$0].maxX }.max()!
+            var above: Int?, below: Int?
+            for (i, p) in pieces.enumerated() {
+                let height = Double(p.maxY - p.minY + 1), width = Double(p.maxX - p.minX + 1)
+                if p.minY == 0, p.maxY < top - gap, height <= 0.45 * em { dropped.insert(i); above = max(above ?? p.maxY, p.maxY) }
+                else if p.maxY == h - 1, p.minY > bottom + gap, height <= 0.45 * em { dropped.insert(i); below = min(below ?? p.minY, p.minY) }
+                else if p.minX == 0, p.maxX < left - sideGap, width <= 0.3 * em { dropped.insert(i) }
+                else if p.maxX == w - 1, p.minX > right + sideGap, width <= 0.3 * em { dropped.insert(i) }
+            }
+            // Specks among the dropped pieces (the dot of an i on the next line): no lower than the lowest piece dropped
+            // above, no higher than the highest dropped below.
+            for (i, p) in pieces.enumerated() where !dropped.contains(i) && isSmall(p) {
+                if let above, p.maxY <= above, p.maxY < top - gap { dropped.insert(i) }
+                if let below, p.minY >= below, p.minY > bottom + gap { dropped.insert(i) }
+            }
+            let total = pieces.reduce(0) { $0 + $1.count }, lost = dropped.reduce(0) { $0 + pieces[$1].count }
+            if lost * 4 > total { dropped = [] }
+        }
+
+        // Kept and dropped ink, each grown by a pixel for its antialiased edge.
+        var keep = [Bool](repeating: false, count: w * h), drop = [Bool](repeating: false, count: w * h)
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for i in 0..<(w * h) where label[i] >= 0 {
+            let x = i % w, y = i / w, gone = dropped.contains(Int(label[i]))
+            for dy in -1...1 {
+                let ny = y + dy
+                guard ny >= 0, ny < h else { continue }
+                for dx in -1...1 {
+                    let nx = x + dx
+                    guard nx >= 0, nx < w else { continue }
+                    if gone { drop[ny * w + nx] = true }
+                    else { keep[ny * w + nx] = true; minX = min(minX, nx); maxX = max(maxX, nx); minY = min(minY, ny); maxY = max(maxY, ny) }
+                }
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return CleanedCrop(image: crop, rect: [0, 0, w, h]) }
+        let W = maxX - minX + 1 + 2 * margin, H = maxY - minY + 1 + 2 * margin
+        var out = [UInt8](repeating: 255, count: W * H * 3)
+        for y in minY...maxY {
+            for x in minX...maxX {
+                let i = y * w + x
+                guard keep[i] || !drop[i] else { continue }
+                let d = ((y - minY + margin) * W + x - minX + margin) * 3
+                out[d] = crop.pixels[i * 3]; out[d + 1] = crop.pixels[i * 3 + 1]; out[d + 2] = crop.pixels[i * 3 + 2]
+            }
+        }
+        return CleanedCrop(image: RGB(width: W, height: H, pixels: out), rect: [minX - margin, minY - margin, maxX + 1 + margin, maxY + 1 + margin])
+    }
+
     // MARK: PNG
 
     /// 8-bit RGB, filter 0, one IDAT: the restricted profile `ReaderPNGValidator` and `admitReaderImage` accept.

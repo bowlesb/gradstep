@@ -2,6 +2,17 @@
 
 Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## On-device PDF model: formula crops cleaned (port revision 3) — 2026-10-16 (not yet in a build)
+
+- Owner, TestFlight 62 (Waypoint-OPD read by the on-device model): formula images carried the cut tails of the lines
+  above and below. The converter now asks the host to clean each formula crop (`clean: { em, margin }`): pieces of ink
+  at the crop's edge, outside the formula's own ink with a clear gap and small for a line of text, are dropped; the
+  image is trimmed and given an even margin (0.25 em display, 0.12 em inline) and sized/aligned from where it now
+  sits (DEVICE_PDF_ROUTE.md "Formula crops are cleaned"). `DEVICE_PDF_PORT_REVISION` 2 → 3.
+- Evidence: `DevicePDFFormulaCleanTests` (7), `device-pdf.test.ts` (16), `npm test`, ScienceReaderCore 330 + 23;
+  before/after on Waypoint-OPD (14 formula images) and Mamba's first 10 pages (63): every neighbour's tail gone, bars,
+  scripts, roots and equation numbers kept, dark mode checked. A cut word wider than 0.3 em at a side stays.
+
 ## Figure view, apps — 2026-10-16, ~08:35 UTC (iPhone, iPad, Mac; not yet in a build)
 
 - Owner, build 59: a figure page has **Explain** and **Ask in chat** side by side; Explain opens a walkthrough in the

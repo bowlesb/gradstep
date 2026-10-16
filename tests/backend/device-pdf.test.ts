@@ -237,3 +237,49 @@ test('the built converter runs in a bare JavaScript context (no TextEncoder, ato
   const failure = (() => { try { vm.runInContext('GradstepDevicePDF.convert({ pdf: {} }, host)', sandbox); return null; } catch (e) { return e as { code: string }; } })();
   assert.equal(failure?.code, 'device_pdf_input');
 });
+
+test('formula crops are cleaned by the host and shown where the cleaned image sits (owner, build 62)', () => {
+  const pages = syntheticPaper();
+  const base = host(pages);
+  const requests: { clean?: { em: number; margin: number }; rect: number[] }[] = [];
+  let made = 0;
+  // A host that cleans: each formula image loses 4 px of a neighbour's tails at the top and 30 px at the bottom (so an
+  // inline image ends above its box and rises from the baseline), and comes back with its place on the page.
+  const cleaning = { ...base, image: (r: Parameters<typeof base.image>[0]) => {
+    requests.push(r);
+    if (!r.clean) return base.image(r);
+    const rect: [number, number, number, number] = [r.rect[0] + 3, r.rect[1] + 4, r.rect[2] - 3, r.rect[3] - 30];
+    const w = rect[2] - rect[0], h = rect[3] - rect[1];
+    return { png: png(w, h, 9000 + made++), width: w, height: h, rect };
+  } };
+  const bundle = composeDevicePDFReader(input(pages.length), cleaning);
+  const formulas = requests.filter(r => r.clean), figures = requests.filter(r => !r.clean);
+  assert.ok(formulas.length > 0 && figures.length > 0, 'formula crops ask for cleaning, figures do not');
+  for (const r of formulas) {
+    assert.ok(r.clean!.em >= 15 && r.clean!.em <= 60, 'the em is the font size at 216 dpi');
+    assert.ok([Math.round(r.clean!.em * 0.12), Math.round(r.clean!.em * 0.25)].includes(r.clean!.margin), 'inline 0.12 em, display 0.25 em');
+  }
+  const html = decoder.decode(bundle.members.get('index.html')!);
+  const manifest = JSON.parse(decoder.decode(bundle.manifestBytes));
+  const index = JSON.parse(decoder.decode(bundle.members.get('reader.json')!));
+  const images = new Map(manifest.members.filter((m: { role: string }) => m.role === 'image').map((m: { path: string; width: number; height: number }) => [m.path, { width: m.width, height: m.height }]));
+  assert.doesNotThrow(() => validateHTML(bundle.members.get('index.html')!, index, images as Map<string, { width: number; height: number }>, false, true));
+  // Sized from the cleaned image: its height in points over the font size; an image ending 30 px (10 pt) above its
+  // box's bottom rises from the baseline (a positive vertical-align, no minus).
+  const inline = [...html.matchAll(/class="reader-equation reader-inline reader-math-image"[^>]*><img [^>]*height="(\d+)"[^>]*style="height:([0-9.]+)em;vertical-align:(-?)([0-9.]+)em"/g)];
+  assert.ok(inline.length > 0);
+  for (const [, pixels, em] of inline) {
+    const r = formulas.find(q => q.rect[3] - 30 - (q.rect[1] + 4) === Number(pixels) && q.clean!.margin === Math.round(q.clean!.em * 0.12))!;
+    assert.ok(r, 'an inline image is one of the cleaned crops');
+    assert.ok(Math.abs(Number(em) - Number(pixels) / 3 / (r.clean!.em / 3)) < 0.002, 'height = cleaned pixels / 3 / font size');
+  }
+  assert.ok(inline.some(([, , , sign]) => sign === ''), 'an image ending well above its box rises: no minus');
+  // A host whose rectangle disagrees with its image is an image failure: the formula shows its LaTeX instead.
+  const lying = { ...base, image: (r: Parameters<typeof base.image>[0]) => {
+    if (!r.clean) return base.image(r);
+    return { png: png(10, 10, 99), width: 10, height: 10, rect: [0, 0, 11, 10] as [number, number, number, number] };
+  } };
+  const fallback = decoder.decode(composeDevicePDFReader(input(pages.length), lying).members.get('index.html')!);
+  assert.doesNotMatch(fallback, /reader-math-image/);
+  assert.match(fallback, /reader-math-fallback/);
+});
