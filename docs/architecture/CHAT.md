@@ -1027,6 +1027,19 @@ it has not been run through `--eval` yet (the staging Anthropic balance ran out 
 and a figure walkthrough on Haiku, then pick the default (published table `default`/`default_auto`; a Haiku default is a
 known profile older builds accept, a DeepSeek default would need consent v4 from every reader).
 
+Owner, same day: "Are you sure Haiku 5.5 is really smart enough? are there other cost efficient options out there?"
+Prices re-read from the providers' own pages 2026-10-16 ($/M input · output): Haiku 5.5 0.10 · 0.50 (≤100k prompt);
+DeepSeek Flash 0.15 · 0.60 off-peak, 0.30 · 1.20 peak, image input; Gemini 3.8 Flash 0.75 · 3.75, doubling to
+1.50 · 7.50 on 2027-01-01, cache reads 0.075 plus 0.50/M per hour of storage; Gemini 3.5 Flash-Lite 0.30 · 2.50;
+Gemini 2.5 Flash-Lite 0.10 · 0.40 (older generation). No other provider is cheaper than Haiku for this workload, and
+each would be a new processor (consent, privacy label) and, for Gemini or OpenAI, a new adapter. Anthropic's pricing
+page confirms Sonnet 5.5 cache reads at $0.10/M (the rate card is right). Third-party benchmark sites put Sonnet ahead on
+reasoning and nearly level on long-context reading, so Haiku's quality is measured on our tasks before it becomes the
+default: the four `--eval` questions plus harder DPO questions with known answers (a misconception to correct, the
+gradient's weighting, a result read from a plot, Theorem 1's condition) on Haiku medium and high, Sonnet as the
+baseline and DeepSeek, graded side by side (under $1). Blocked on the staging Anthropic balance (still "credit balance
+is too low" at 17:09 UTC).
+
 ### Browser (2026-10-16, local fixtures; not deployed)
 
 - **Table decoding** (`apps/web/src/lib/chat-profiles.ts`): `chat-profiles-v1` with or without the additions. `auto`
