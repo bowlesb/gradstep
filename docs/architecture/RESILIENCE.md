@@ -352,8 +352,10 @@ worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn'
 
 ## Owner decisions
 
-- **Resend plan:** the free plan sends 100 emails a day (3,000 a month), account-wide; the project now allows 100 an
-  hour (set 2026-10-15). A paid plan (about $20/month) removes the daily wall; counts against the $100 budget.
+- **Resend plan — decided 2026-10-16 (owner: "Still on the free one").** Stay on the free plan for the private beta:
+  100 emails a day (3,000 a month), account-wide; the project allows 100 sign-in emails an hour (set 2026-10-15).
+  Revisit before the public release, or sooner if sign-in emails approach 100 a day; a paid plan (about $20/month)
+  removes the daily wall and would count against the $100 budget.
 - **Anthropic tier:** limits are per organisation and rise with cumulative purchases; check the console tier before
   launch and decide whether to pre-purchase to reach the next tier.
 - **Charging for failed answers:** today a stream that fails after it started is charged for the tokens used
