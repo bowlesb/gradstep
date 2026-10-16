@@ -1,19 +1,21 @@
 import { decodeStoredFigureParts, hasPartMarkers, partSegments, storedPaths, stripPartMarkers } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { transcriptFollows } from '../lib/chat-follow';
-import { chatTitle, failureText, progressText } from '../lib/chat';
+import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary } from '../lib/chat-profiles';
 import { ChatSession, composerBusy } from '../lib/chat-session';
+import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
-import { ProfileControl } from './ChatProfile';
+import { AnswerOptionsDialog } from './ChatProfile';
 import { safeLink } from '../lib/links';
-import { Dialog, formatDate } from './common';
+import { Dialog, formatDate, MenuButton } from './common';
 import { CopyButton } from './CopyButton';
 import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL } from './Diagram';
-import { Icon } from './icons';
+import { Icon, iconName } from './icons';
+import { useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
@@ -49,16 +51,19 @@ function RenameField({ initial, onSave, onCancel, label }: { initial: string; on
   </form>;
 }
 
-export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage }: {
+/** A fresh 32-bit seed for a new empty chat's starter questions. */
+const starterSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
+
+export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions }: {
   chat: ChatSession | null; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
-  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void;
+  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
 }) {
-  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} />
+  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} />
     : <div className="empty" role="status">Opening chats…</div>;
 }
-function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
+function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions }: {
   chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
-  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void;
+  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
 }) {
   const historyVersion = useChatUpdates(chat);
   const workspace = useWorkspaceControls();
@@ -128,21 +133,60 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   // Study (experimental): an adaptive tutor for this paper; offered when the paper is numbered on this device.
   const studyOffered = mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
   const startStudy = () => { if (!disabled) void chat.startStudy(c); };
+  const choiceBusy = retired || composerBusy(c) || !!c.answer;
+  const [answerOptions, setAnswerOptions] = useState(false);
+  useEffect(() => setAnswerOptions(false), [c.id]);
 
-  return <div className="chat-pane" data-testid="chat-pane">
+  // Starter questions (CHAT.md, 2026-10-16): a fresh seed whenever another empty chat is shown, kept while it stays on
+  // screen; the paper's structure from its verified bundle on this device (none for a general chat).
+  const empty = !messages.length && !composerBusy(c) && !c.liveID;
+  const seed = useMemo(starterSeed, [c.id]);
+  const structures = useRef(new Map<string, StarterPaper>());
+  const [structure, setStructure] = useState<{ documentID: string; paper: StarterPaper } | null>(null);
+  useEffect(() => {
+    if (!empty || !documentID) return;
+    const known = structures.current.get(documentID);
+    if (known) { setStructure({ documentID, paper: known }); return; }
+    let live = true;
+    void chat.starterPaper(documentID).then(paper => { structures.current.set(documentID, paper); if (live) setStructure({ documentID, paper }); });
+    return () => { live = false; };
+  }, [chat, documentID, empty]);
+  const starters = useMemo(() => !documentID ? chooseStarters(null, seed) : structure?.documentID === documentID ? chooseStarters(structure.paper, seed) : [],
+    [documentID, structure, seed]);
+  const showStarters = empty && !deleted && !retired && !c.study && (!c.draft.trim() || starters.some(s => s.text === c.draft));
+  const pickStarter = (text: string) => {
+    if (!chat.edit(c, text)) return;
+    requestAnimationFrame(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } });
+  };
+  // The pill grows with its text up to its maximum height, then scrolls.
+  useLayoutEffect(() => {
+    const f = field.current; if (!f) return;
+    f.style.height = 'auto'; f.style.height = `${Math.min(f.scrollHeight + 2, 168)}px`;
+  }, [c.draft, c.id]);
+
+  return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane">
     <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
       <button className={mode === 'paper' ? 'segment on' : 'segment'} aria-pressed={mode === 'paper'} disabled={!paper} onClick={() => onMode('paper')}>Paper</button>
       <button className={mode === 'general' ? 'segment on' : 'segment'} aria-pressed={mode === 'general'} onClick={() => onMode('general')}>General</button>
     </span>} onClose={() => workspace?.show('right', false)} closeLabel="Hide chat">
       <button className="icon-button" onClick={onAllChats} aria-label="All chats" title="All chats"><Icon name="chats" /></button>
       <button className="icon-button" onClick={() => { chat.newChat(documentID); field.current?.focus(); }} aria-label="New chat" title="New chat"><Icon name="plus" /></button>
+      {/* The chat's ⋯ menu (owner, build 57: "put the chat settings in the top right drop down … Enter Study Mode"). */}
+      <MenuButton icon="more" label="Chat menu" testID="chat-menu">{close => <>
+        <button type="button" role="menuitem" className="menu-item menu-item-detail" data-testid="answer-options-item" disabled={choiceBusy}
+          onClick={() => { close(); setAnswerOptions(true); }}>
+          <Icon name="sliders" size={14} /><span><span className="menu-item-title">Answer options…</span><span className="fine" data-testid="answer-options-summary">{profileSummary(choice, table)}</span></span></button>
+        {studyOffered && <button type="button" role="menuitem" className="menu-item" data-testid="study-start" disabled={disabled || composerBusy(c) || !!c.answer}
+          onClick={() => { close(); startStudy(); }}><Icon name="book" size={14} /> Study mode</button>}
+        {c.study && <button type="button" role="menuitem" className="menu-item" data-testid="study-end-menu" disabled={composerBusy(c) || !!c.answer}
+          onClick={() => { close(); chat.endStudy(c); }}><Icon name="book" size={14} /> End study mode</button>}
+      </>}</MenuButton>
     </PaneHeader>
     <div className="chat-heading">
       {renaming && summary ? <RenameField initial={titleText} label="Chat name" onCancel={() => setRenaming(false)}
         onSave={async name => { const ok = await chat.rename(summary.id, name); if (ok) setRenaming(false); return ok; }} />
         : <div className="chat-title-row"><strong title={titleText} data-testid="chat-title">{titleText}</strong>
-          {summary && !deleted && <button className="link small rename-link" disabled={retired} onClick={() => setRenaming(true)} aria-label={`Rename “${titleText}”`}>Rename</button>}
-          {studyOffered && messages.length > 0 && <button className="link small" data-testid="study-start" disabled={disabled || composerBusy(c) || !!c.answer} onClick={startStudy}>Study this paper</button>}</div>}
+          {summary && !deleted && <button className="link small rename-link" disabled={retired} onClick={() => setRenaming(true)} aria-label={`Rename “${titleText}”`}>Rename</button>}</div>}
       {mode === 'paper' && <span className="fine chat-paper" title={paper?.title}>{paper?.title ?? 'Paper chat'}</span>}
       {summary?.anchor && summary.documentID && <button className="link small" onClick={() => onPassage(summary.documentID!, summary.anchor!)}>Go to passage</button>}
       {branches.length > 1 && <label className="branch-picker">Branch <select aria-label="Conversation branch" value={c.head ?? ''} disabled={composerBusy(c) || !!c.answer} onChange={e => chat.chooseBranch(c, e.target.value)}>
@@ -164,10 +208,16 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       const a = (e.target as Element).closest('a[href]'); if (!a) return;
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
     }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
-      {!messages.length && !composerBusy(c) && <div className="chat-empty"><Icon name="chat" size={28} /><p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
+      {empty && <div className="chat-empty" data-testid="chat-empty">
+        <p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
         <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p>
-        {studyOffered && <div className="study-offer"><button type="button" className="secondary small" data-testid="study-start" disabled={disabled} onClick={startStudy}>Study this paper</button>
-          <p className="fine">A tutor asks one question at a time, teaches what you miss, and maps what you know. Experimental.</p></div>}</div>}
+        {/* Gemini's layout (owner, build 57): three rows, a small icon and one line each, no heading; a click fills the box. */}
+        {showStarters && starters.length > 0 && <div className="chat-starters" role="group" aria-label="Starter questions" data-testid="chat-starters">
+          {starters.map(s => { const icon = iconName(s.icon);
+            return <button key={`${s.category}:${s.text}`} type="button" className="chat-starter" data-testid="chat-starter" data-category={s.category} title={s.text} disabled={disabled}
+              onClick={() => pickStarter(s.text)}>{icon ? <Icon name={icon} size={16} /> : <span className="chat-starter-dot" aria-hidden="true" />}<span>{s.text}</span></button>; })}
+        </div>}
+      </div>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
@@ -199,17 +249,17 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
     </div>
     {c.study && <StudyPanel map={c.study} busy={composerBusy(c) || !!c.answer} onEnd={() => chat.endStudy(c)}
       onPassage={paragraph => { if (documentID) onPassage(documentID, citationAnchor(paragraph)); }} />}
+    {/* One full-width pill: the field, then Send (Stop while answering) inside it on the right; nothing beside it
+        (owner, build 57: "We can't have the typing window awkwardly to the right side"). */}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
-      <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={c.study ? 'Your answer…' : mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
-        title="Enter sends; Shift+Enter starts a new line"
-        onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
-      <div className="composer-footer"><div className="composer-meta">
-        <ProfileControl table={table} choice={choice} defaultChoice={chat.defaultProfile} disabled={retired || composerBusy(c) || !!c.answer}
-          onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />
-        <span className="fine composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : 'Uses credits'}</span></div>
-        {c.phase === 'streaming' ? <button type="button" className="secondary small" onClick={() => chat.stop(c)}>Stop</button>
-          : <button type="submit" className="primary small" disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}>{c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'}</button>}
+      <div className="composer-pill">
+        <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={composerPlaceholder(mode, !!c.study)} value={c.draft} rows={1} maxLength={200_000} readOnly={retired}
+          title="Enter sends; Shift+Enter starts a new line"
+          onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
+        {c.phase === 'streaming' ? <button type="button" className="composer-send stop" aria-label="Stop" title="Stop" onClick={() => chat.stop(c)}><Icon name="stop" size={16} /></button>
+          : <button type="submit" className="composer-send" aria-label={c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'} title="Send (Enter)"
+            disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}><Icon name="arrowUp" size={17} /></button>}
       </div>
       {inputIssue && <p className="issue fine">This draft is too long. Shorten it to continue.</p>}
       {(() => {
@@ -218,9 +268,16 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
           : chat.durable ? (c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
             : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : persistence === 'best-effort' ? 'Saved in this browser. It may clear this when space runs low.' : 'Saved on this device.')
           : 'Unsent drafts stay in this tab only and aren’t kept after a reload.';
-        return hint ? <p className="fine draft-hint" data-testid="draft-status">{hint}</p> : null;
+        const balance = chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : null;
+        return <div className="composer-status">
+          {hint && <p className="fine draft-hint" data-testid="draft-status">{hint}</p>}
+          {balance && <p className="fine draft-hint composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{balance}</p>}
+        </div>;
       })()}
     </form>
+    <AnswerOptionsDialog open={answerOptions} onClose={() => setAnswerOptions(false)} table={table} choice={choice} defaultChoice={chat.defaultProfile}
+      onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()}
+      onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       <h2>Cloud AI answers</h2><p>Your question, selected passage, earlier turns and the paper’s text go to Anthropic to write an answer. When you ask about a figure or table, its image from the paper goes too.</p>
       <p>Web searches may go to Tavily or Anthropic’s search provider. Anthropic and the search services may retain requests under their API terms.</p>
@@ -245,10 +302,26 @@ export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOp
 }) {
   return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} /> : <p>Loading chats…</p>}</Dialog>;
 }
+interface HistoryColumns { paper: boolean; messages: boolean; started: boolean }
+const DEFAULT_HISTORY_COLUMNS: HistoryColumns = { paper: true, messages: false, started: false };
+const validHistoryColumns = (v: unknown) => !!v && typeof v === 'object' && ['paper', 'messages', 'started'].every(k => typeof (v as Record<string, unknown>)[k] === 'boolean');
+function useNarrow() {
+  const query = '(max-width: 600px)';
+  const [narrow, setNarrow] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const list = matchMedia(query), change = () => setNarrow(list.matches);
+    list.addEventListener('change', change); change();
+    return () => list.removeEventListener('change', change);
+  }, []);
+  return narrow;
+}
 function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null) => void }) {
   useChatUpdates(chat);
-  const [search, setSearch] = useState(''), [filter, setFilter] = useState(currentDocument ? 'this' : 'all');
+  // All first and chosen (owner, build 57: "You can put All to the left and make that the default").
+  const [search, setSearch] = useState(''), [filter, setFilter] = useState('all');
   const [sort, setSort] = useState<'last' | 'title' | 'started'>('last');
+  const [columns, setColumns] = useStored<HistoryColumns>('gradstep.chat-history.columns.v1', DEFAULT_HISTORY_COLUMNS, validHistoryColumns);
   const [deleting, setDeleting] = useState<ConversationSummary | null>(null), [deleteError, setDeleteError] = useState(false);
   const [deleteEntry, setDeleteEntry] = useState<{ id: string; event: { kind: 'tombstone'; entityID: string; parents: string[]; createdAt: number } } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -266,25 +339,52 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
   const rows = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
     && normalized(search).split(/\s+/).filter(Boolean).every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
   rows.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
+  // The reader's columns (≡ › Columns); a narrow window shows the conversation and Last read only (as an iPhone in portrait).
+  const narrow = useNarrow();
+  const shown = { paper: columns.paper && !narrow, messages: columns.messages && !narrow, started: columns.started && !narrow };
+  const paperName = (c: ConversationSummary) => c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General';
+  // Owner, build 57: "The paper should only be in its column not duplicated on left column".
+  const secondLine = (c: ConversationSummary) => shown.paper || !c.documentID ? conversationPreview(c) : paperName(c);
+  const sortTitles = { last: 'Last read', started: 'Started', title: 'Title' } as const;
   return <>
-    <div className="dialog-heading"><h2>All chats</h2><div className="history-heading-actions">
-      <button className="secondary small" disabled={chat.storageRetired} onClick={newGeneral}>New general chat</button>
-      <button className="link" onClick={onClose}>Done</button>
-    </div></div>
-    <input type="search" autoFocus aria-label="Search chats" placeholder="Search chats" value={search} onChange={e => setSearch(e.target.value)} />
-    <div className="history-filters">{(currentDocument ? ['this', 'all', 'paper', 'general'] : ['all', 'paper', 'general']).map(f => <button key={f} className={`seg${filter === f ? ' on' : ''}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{({ this: 'This paper', all: 'All', paper: 'Paper chats', general: 'General' })[f]}</button>)}</div>
+    {/* One row (owner, build 57: "the search bar at the top with the three lines at the right of the search bar"). */}
+    <div className="history-top">
+      <input type="search" autoFocus aria-label="Search chats" placeholder="Search chats" value={search} onChange={e => setSearch(e.target.value)} />
+      <MenuButton icon="menu" label="All chats options" testID="history-menu">{close => <>
+        <button type="button" role="menuitem" className="menu-item" disabled={chat.storageRetired} onClick={() => { close(false); newGeneral(); }}><Icon name="plus" size={14} /> New general chat</button>
+        <div className="menu-section" role="group" aria-label="Sort by"><p className="fine menu-heading">Sort by</p>
+          {(['last', 'started', 'title'] as const).map(s => <button key={s} type="button" role="menuitemradio" aria-checked={sort === s} className="menu-item menu-check"
+            onClick={() => { setSort(s); close(); }}><span className="menu-check-mark" aria-hidden="true">{sort === s ? '✓' : ''}</span>{sortTitles[s]}</button>)}</div>
+        <div className="menu-section" role="group" aria-label="Columns"><p className="fine menu-heading">Columns</p>
+          {(['paper', 'messages', 'started'] as const).map(k => <button key={k} type="button" role="menuitemcheckbox" aria-checked={columns[k]} className="menu-item menu-check"
+            onClick={() => setColumns(v => ({ ...v, [k]: !v[k] }))}><span className="menu-check-mark" aria-hidden="true">{columns[k] ? '✓' : ''}</span>{({ paper: 'Paper', messages: 'Messages', started: 'Started' })[k]}</button>)}
+          {narrow && <p className="fine">A wider window shows them.</p>}</div>
+        <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onClose(); }} data-testid="history-close"><Icon name="close" size={14} /> Close</button>
+      </>}</MenuButton>
+    </div>
+    <div className="history-filters">{(currentDocument ? ['all', 'this', 'paper', 'general'] : ['all', 'paper', 'general']).map(f => <button key={f} className={`seg${filter === f ? ' on' : ''}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{({ this: 'This paper', all: 'All', paper: 'Paper chats', general: 'General' })[f]}</button>)}</div>
     <p className="fine">{rows.length} chats · Synced encrypted history</p>
     {[...chat.composers.values()].filter(c => c.draft).map(c => <div className="history-draft" key={c.id}><button className="link" onClick={() => { chat.chooseDraft(c.id); onOpen(c.documentID); onClose(); }}>Draft · {papers.get(c.documentID ?? '') ?? 'General chat'}</button><button className="link" disabled={composerBusy(c) || !!c.answer || chat.hasUnresolvedTurn(c) || chat.storageRetired}
       title={c.answer || chat.hasUnresolvedTurn(c) ? 'Finish saving this answer before discarding the draft.' : undefined} onClick={() => chat.discardDraft(c.id)}>Discard</button></div>)}
     {chat.history.issue && <p role="alert">{chat.history.issue}</p>}
-    <div className="history-table-wrap"><table className="history-table"><thead><tr><th><button className="link" onClick={() => setSort('title')}>Conversation</button></th><th className="history-paper">Paper</th><th><button className="link" onClick={() => setSort(sort === 'started' ? 'last' : 'started')}>{sort === 'started' ? 'Started' : 'Last used'}</button></th><th><span className="sr-only">Actions</span></th></tr></thead>
+    <div className="history-table-wrap"><table className="history-table" data-testid="history-table"><thead><tr>
+      <th className="history-conversation"><button className="link" aria-pressed={sort === 'title'} onClick={() => setSort('title')}>Conversation</button></th>
+      {shown.paper && <th className="history-paper">Paper</th>}
+      {shown.messages && <th className="history-count">Messages</th>}
+      {shown.started && <th className="history-started"><button className="link" aria-pressed={sort === 'started'} onClick={() => setSort('started')}>Started</button></th>}
+      <th className="history-last"><button className="link" aria-pressed={sort === 'last'} onClick={() => setSort('last')}>Last read</button></th>
+      <th className="history-actions"><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>{rows.map(c => <tr key={c.id}><td>{renamingID === c.id
         ? <RenameField initial={summaryTitle(c) || 'Chat'} label="Chat name" onCancel={() => setRenamingID(null)}
           onSave={async name => { const ok = await chat.rename(c.id, name); if (ok) setRenamingID(null); return ok; }} />
         : <><button className="history-title" onClick={() => { chat.open(c.id); onOpen(c.documentID ?? null); onClose(); }}>{summaryTitle(c) || 'Chat'}</button>
-          <span className="fine history-meta">{c.messageCount} messages · <button className="link history-rename" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button></span></>}</td>
-        <td className="history-paper">{c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General'}</td><td className="fine">{formatDate(sort === 'started' ? c.startedAt : c.lastUsedAt)}</td>
-        <td><button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
+          <span className="fine history-meta" data-testid="history-second-line">{secondLine(c) || ' '}</span></>}</td>
+        {shown.paper && <td className="history-paper">{paperName(c)}</td>}
+        {shown.messages && <td className="fine history-count">{c.messageCount}</td>}
+        {shown.started && <td className="fine">{formatDate(c.startedAt)}</td>}
+        <td className="fine">{formatDate(c.lastUsedAt)}</td>
+        <td className="history-row-actions"><button className="link" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button>
+          <button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
     </table></div>
     {!rows.length && <p className="muted">{search ? 'No matching chats.' : 'Your saved conversations will appear here.'}</p>}
     {deleting && <div className="chat-delete" role="alert"><p>Delete “{summaryTitle(deleting) || 'this chat'}” from chats on all your devices?</p><div className="dialog-actions"><button className="secondary" onClick={() => setDeleting(null)}>Cancel</button><button className="primary" disabled={deleteBusy} onClick={() => {

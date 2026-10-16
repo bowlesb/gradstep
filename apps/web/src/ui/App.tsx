@@ -14,7 +14,7 @@ import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
-import { ChatDefaultsDialog } from './ChatProfile';
+import { ChatOptionsDialog } from './ChatProfile';
 import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
 import type { ChatSession } from '../lib/chat-session';
 import { useChat } from './useChat';
@@ -596,7 +596,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
-          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />
+          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults(true)} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
@@ -607,7 +607,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
         <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
       </RegionBoundary>
-      {chat && <RegionBoundary region="chat-defaults" label="Chat defaults" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
+      {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
       <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
@@ -662,7 +662,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolean; onClose: () => void }) {
   useChatUpdates(chat);
   const [visualAnswers, setVisualAnswers] = useState(() => readVisualAnswers());
-  return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
+  return <ChatOptionsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
 function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
@@ -696,7 +696,7 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onReport
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
-          <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> Chat defaults…</button>
+          <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> AI chat options…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onInfo(); }} data-testid="how-gradstep-works"><Icon name="info" size={14} /> How Gradstep works</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReport(); }} data-testid="report-issue"><Icon name="bug" size={14} /> Report this screen…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReports(); }} data-testid="my-reports"><Icon name="bubble" size={14} /> My reports</button>

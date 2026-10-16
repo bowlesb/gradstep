@@ -20,6 +20,9 @@ export interface ChatRequest {
   operationID: string; documentID: string | null; turns: ChatTurn[]; selection: string | null; action: ChatAction | null;
   /** Sent only when not the standard profile, so a default request stays exactly what servers before profiles accept. */
   profile: ProfileChoice;
+  /** The server picks the effort (`effort: "auto"`, servers from 2026-10-16 that publish an `auto` profile for this
+   * model and length); `profile.effort` is then only the stored choice. Always sent, since such a server accepts it. */
+  autoEffort?: boolean;
   /** Ask the server for a topic title alongside the answer (server 2026-10-08). */
   topicTitle: boolean;
   /** Study: the knowledge map so far (lib/study.ts); sent with every `study` turn, an empty map first. */
@@ -35,7 +38,7 @@ const scalars = (s: string, limit: number) => { const all = [...s]; return all.l
 
 /** The newest turns that fit the server bounds, starting and ending with a user turn (ChatGenerationRequest.make). */
 export function makeRequest(operationID: string, documentID: string | null, transcript: ChatTurn[], selection: string | null, action: ChatAction | null = null,
-  options: { profile?: ProfileChoice; topicTitle?: boolean; visualAnswers?: boolean } = {}): ChatRequest {
+  options: { profile?: ProfileChoice; autoEffort?: boolean; topicTitle?: boolean; visualAnswers?: boolean } = {}): ChatRequest {
   const usable = transcript.filter(t => t.text.trim());
   const last = usable.at(-1);
   if (!last || last.role !== 'user') throw new BackendError('invalid_request');
@@ -53,7 +56,8 @@ export function makeRequest(operationID: string, documentID: string | null, tran
   const kept_quote = quote && quote.trim() ? quote : null;
   // Every selection action needs its quote; Study acts on the paper (a quote only starts it on a passage).
   return { operationID, documentID, turns: kept, selection: kept_quote, action: action === 'study' || kept_quote ? action : null,
-    profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, topicTitle: action !== 'diagram_fix' && options.topicTitle === true, visualAnswers: options.visualAnswers ?? true };
+    profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, ...(action !== 'diagram_fix' && options.autoEffort ? { autoEffort: true } : {}),
+    topicTitle: action !== 'diagram_fix' && options.topicTitle === true, visualAnswers: options.visualAnswers ?? true };
 }
 
 export function requestBody(r: ChatRequest): Record<string, unknown> {
@@ -68,7 +72,8 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   // `figure_requests`: this browser holds the paper (local context) and can attach a figure the model asks for.
   body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers']),
     ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : [])];
-  if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
+  if (r.action !== 'diagram_fix' && r.autoEffort) body.profile = { model: r.profile.model, effort: 'auto', length: r.profile.length };
+  else if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
   if (r.action !== 'diagram_fix' && !isEquationAction(r.action) && r.topicTitle) body.topic_title = true;
   // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own; the
   // equation view is no conversation).
@@ -261,6 +266,25 @@ export function resolution(outcome: Outcome, text: string): { status: TurnStatus
       return { status: empty ? null : 'interrupted', issue: outcome.code };
     case 'cancelled': return { status: empty ? null : 'interrupted', issue: null };
   }
+}
+
+/** The message box's placeholder, as on iPhone, iPad and Mac (chat redesign, build 57: "Change Chat to Ask Anything
+ * about the Paper"). */
+export function composerPlaceholder(mode: 'paper' | 'general', studying: boolean): string {
+  return studying ? 'Your answer' : mode === 'paper' ? 'Ask anything about the paper' : 'Ask anything';
+}
+
+/** All chats: a conversation's second line beside the Paper column (owner, build 57: the paper only in its column) —
+ * its passage in quotes, else the first paragraph of its newest answer with the markup left out, as one plain line. */
+export function conversationPreview(c: { anchor?: { quote: string }; latestAnswer?: string }): string {
+  const line = (s: string) => s.replace(/\s*\[¶\d+\]/g, '').replace(/[*_`#>]+/g, '').replace(/\s+/g, ' ').trim();
+  const clip = (s: string, n: number) => [...s].length > n ? `${[...s].slice(0, n).join('').trimEnd()}…` : s;
+  const quote = c.anchor?.quote ? line(c.anchor.quote) : '';
+  if (quote) return `“${clip(quote, 140)}”`;
+  // Display math, tables and rules make no line; inline math keeps its source without delimiters.
+  const prose = (c.latestAnswer ?? '').replace(/\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$/g, '\n\n').replace(/\\\(|\\\)/g, '').split(/\n\s*\n/)
+    .map(p => p.split('\n').filter(l => !/^\s*(\||-{3,}|\*{3,}|_{3,})/.test(l)).join(' ')).map(line).find(Boolean) ?? '';
+  return clip(prose, 200);
 }
 
 export function failureText(code: string): string {

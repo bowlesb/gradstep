@@ -1,4 +1,5 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Icon, type IconName } from './icons';
 
 export function Brand({ small = false }: { small?: boolean }) {
   return (
@@ -24,6 +25,54 @@ export function Dialog({ open, onClose, title, children, wide = false, className
       {open && <div className="dialog-body">{children}</div>}
     </dialog>
   );
+}
+
+/** An icon button that opens a small menu under it (the chat's ⋯, All chats' ≡): the first item takes focus; arrow
+ * keys, Home and End move; Esc closes it (and only it, inside a dialog) and returns focus to the button; Tab or a
+ * click elsewhere closes it. `children` gets `close` for items that act. */
+export function MenuButton({ icon, label, testID, className, disabled = false, children }: {
+  icon: IconName; label: string; testID?: string; className?: string; disabled?: boolean; children: (close: (focus?: boolean) => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null), button = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
+  const close = useCallback((focus = true) => { setOpen(false); if (focus) button.current?.focus(); }, []);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  // Fixed to the viewport under the button, so a pane or a dialog's scrolling never clips it.
+  useLayoutEffect(() => {
+    const m = menu.current, b = button.current;
+    if (!open || !m || !b) return;
+    const place = () => {
+      const r = b.getBoundingClientRect(), below = innerHeight - r.bottom - 12, above = r.top - 12, up = below < 220 && above > below;
+      m.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+      m.style.maxHeight = `${Math.max(160, up ? above : below)}px`;
+      if (up) { m.style.top = ''; m.style.bottom = `${innerHeight - r.top + 6}px`; } else { m.style.bottom = ''; m.style.top = `${r.bottom + 6}px`; }
+    };
+    place();
+    addEventListener('resize', place);
+    return () => removeEventListener('resize', place);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[role^=menuitem]:not(:disabled)')?.focus();
+    const away = (event: PointerEvent) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [open]);
+  const keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role^=menuitem]:not(:disabled)')];
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+    } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
+    else if (event.key === 'Tab') setOpen(false);
+  };
+  return <div className={`menu-anchor${className ? ` ${className}` : ''}`} ref={box}>
+    <button ref={button} type="button" className={`icon-button${open ? ' on' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={label} title={label}
+      data-testid={testID} disabled={disabled} onClick={() => setOpen(o => !o)}
+      onKeyDown={event => { if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !open) { event.preventDefault(); setOpen(true); } }}><Icon name={icon} /></button>
+    {open && <div ref={menu} className="menu popup-menu" role="menu" aria-label={label} onKeyDown={keys}>{children(close)}</div>}
+  </div>;
 }
 
 export const NOT_YET = 'Not yet available in the browser. Use Gradstep on iPhone, iPad or Mac for this for now.';

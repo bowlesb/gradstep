@@ -611,7 +611,7 @@ annotated steps. The written answer stays complete on its own; the model is told
   at most 16 KB (the tool asks for under 12 KB so a Standard answer fits), output at most 24 KB. The sanitized
   fragment is relayed once as the SSE event `visual {title, html}` before `done` (`chat_visual` /
   `chat_visual_invalid_input` in the logs; never the text). Builds before the event ignore it.
-- **Setting.** "Visual answers" (Settings › Chat on the apps; Chat defaults in the browser), per device, on by default.
+- **Setting.** "Visual answers" (Settings › Chat on the apps; AI chat options in the browser), per device, on by default.
   The request's `capabilities` list carries `visual_answers` when on and is sent empty when off; a request that names
   no capabilities at all (builds before the setting) still gets diagrams. Off, the model is told to answer in prose and
   neither tool is offered.
@@ -752,3 +752,32 @@ three lines at the right of the search bar… done can be an option remove it. A
 - Filter chips: **All** first and chosen by default, then This paper (when opened from a paper), Paper chats, General.
 - The time column is **Last read**.
 - With the Paper column chosen, the conversation's second line is its passage or newest answer, never the paper title.
+
+### Browser (2026-10-16, local fixtures; not deployed)
+
+- **Table decoding** (`apps/web/src/lib/chat-profiles.ts`): `chat-profiles-v1` with or without the additions. `auto`
+  profiles (any profile whose effort is `auto`), an `auto` effort label, `default_auto` (used only when it names an
+  offered `auto` profile) and a `deepseek` model decode additively; a table without them decodes exactly as before.
+  Stored choices (a chat's, the browser default, a saved question, the journal) keep a concrete effort, so older tabs
+  read them unchanged; the request sends `effort: "auto"` (always, Sonnet · Standard included) where the table offers
+  an `auto` profile for that model and length, else the stored effort as before (the standard profile still unsent).
+  DeepSeek is listed only when the table lists it. Summaries are model · length everywhere (menu, retry line, consent,
+  the line under answers). Fixtures: `apps/web/tests/fixtures/chat-profiles-v1-auto.json` (served by default by the
+  e2e fixture backend; `__chat-fixture {profiles:'v1'}` serves the table without the additions).
+- **Chat ⋯ menu** (`chat-menu`): Answer options… (with the summary) and Study mode / End study mode (`study-start`,
+  `study-end-menu`). **Answer options** is a dialog: Model, Length, Use for new chats / "New chats start with these.",
+  About AI chat options (opens the account menu's **AI chat options**: the same pickers for new chats, each model's
+  detail and provider, the credit table from the `auto` estimates or else low effort's, the effort line, Visual
+  answers).
+- **Composer and empty chat**: the pill (field, then Send/Stop), placeholders as above; the draft status and balance
+  stay as one fine line under it. Starters: `chooseStarters` with `starterPaper(index)` from the open paper's verified
+  bundle (figures from figure captions, tables from any figure caption or block text starting "Table N", display
+  equations, heading titles; an empty structure when the paper has no bundle on this device; `null` for general chat),
+  seeded per new empty chat, hidden once the box holds anything but a starter; the glow is `--chat-glow` and is
+  dropped under `prefers-contrast: more`, `prefers-reduced-transparency` and forced colors.
+- **All chats**: search and ≡ (New general chat, Sort by, Columns — Paper, Messages, Started, kept in this browser —
+  and Close; Esc closes the menu first, then the sheet), All first and chosen, Last read; a window under 600 px shows
+  Conversation and Last read with the paper as the second line.
+- Evidence: vitest; Playwright `chat-redesign`, `chat-controls`, `study` (desktop and phone) and the chat-adjacent
+  journeys. Not done: the consent text still names Anthropic only; a DeepSeek request needs the consent version the
+  server ties to DeepSeek before it is offered for real.

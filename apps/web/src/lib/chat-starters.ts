@@ -76,3 +76,12 @@ export function chooseStarters(paper: StarterPaper | null, seed: number): Starte
     return { category: c.category, icon: c.icon, text };
   });
 }
+
+/** The selection's input from the open paper's verified reader index, as the native app builds it: the figures its
+ * figure captions name; the tables named by any figure caption or block text that starts with "Table N"; the display
+ * equations; the headings' titles in order. */
+export function starterPaper(index: { figures: { caption: string }[]; blocks: { text: string }[]; equations: { display: boolean }[]; headings: { title: string }[] }): StarterPaper {
+  const captions = index.figures.map(f => f.caption);
+  return { figures: captionNumbers(captions, 'Figure'), tables: captionNumbers([...captions, ...index.blocks.map(b => b.text)], 'Table'),
+    equations: index.equations.filter(e => e.display).length, headings: index.headings.map(h => h.title) };
+}

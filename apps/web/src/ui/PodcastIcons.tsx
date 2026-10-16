@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Icon as SharedIcon } from './icons';
+import { Icon as SharedIcon, iconName } from './icons';
 const paths: Record<string, ReactNode> = {
   // Paper podcasts (ui/Podcast.tsx).
   headphones: <><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z" /><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></>,
@@ -10,5 +10,5 @@ const paths: Record<string, ReactNode> = {
   transcript: <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="10" x2="16" y2="10" /><line x1="4" y1="14" x2="20" y2="14" /><line x1="4" y1="18" x2="12" y2="18" /></>,
 };
 export function Icon({ name, size = 16 }: { name: string; size?: number }) {
-  return paths[name] ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg> : <SharedIcon name={name} size={size} />;
+  return paths[name] ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg> : iconName(name) ? <SharedIcon name={iconName(name)!} size={size} /> : null;
 }

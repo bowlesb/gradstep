@@ -16,6 +16,9 @@ const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b217
 const CODE = '123456';
 // Public profile contract fixture from chat-controls-titles (3286b43); this browser fixture does not call a hosted server.
 const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+// The same version with the 2026-10-16 additions (auto profiles and effort, default_auto, a deepseek model): served by
+// default, as the server after the chat redesign deploy; `profiles: 'v1'` serves the table without them (staging before it).
+const CHAT_PROFILES_AUTO = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1-auto.json', import.meta.url), 'utf8'));
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -30,7 +33,7 @@ const oauthCodes = new Map(); // one-use PKCE authorization codes
 const state = new Map();
 const deletedAccounts = new Set(); // account-delete: their email no longer signs in, until /__reset
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: 'auto' });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -320,8 +323,9 @@ createServer(async (request, response) => {
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
     if (typeof p?.labels === 'boolean') a.chatLabels = p.labels;
-    // profiles: false answers GET functions/v1/chat with 405, as a server before profiles does.
-    if (typeof p?.profiles === 'boolean') a.chatProfiles = p.profiles;
+    // profiles: false answers GET functions/v1/chat with 405, as a server before profiles does; 'v1' serves the table without
+    // automatic effort or DeepSeek (as staging before the 2026-10-16 deploy); true or 'auto' the table with them.
+    if (p?.profiles === false || p?.profiles === 'v1') a.chatProfiles = p.profiles; else if (p?.profiles === true || p?.profiles === 'auto') a.chatProfiles = 'auto';
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__device-search' && request.method === 'POST') {
@@ -472,7 +476,7 @@ createServer(async (request, response) => {
     }
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'GET') {
-    return a.chatProfiles ? send(response, 200, CHAT_PROFILES) : send(response, 405, { code: 'method_unavailable' });
+    return a.chatProfiles ? send(response, 200, a.chatProfiles === 'v1' ? CHAT_PROFILES : CHAT_PROFILES_AUTO) : send(response, 405, { code: 'method_unavailable' });
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
@@ -482,10 +486,11 @@ createServer(async (request, response) => {
       || body.figures.some(f => !/^F[1-3]$/.test(f.id) || !Number.isSafeInteger(f.paragraph) || !['image/jpeg', 'image/png'].includes(f.media_type) || typeof f.data !== 'string' || f.data.length < 16))) {
       return send(response, 400, { code: 'invalid_figures' });
     }
-    // As chat.ts validates: a profile is exactly {model, effort, length} with known values; topic_title is a boolean.
-    const p = body.profile;
-    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus'].includes(p.model)
-      || !['low', 'medium', 'high'].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
+    // As chat.ts validates: a profile is exactly {model, effort, length} with known values (`auto` and `deepseek` only
+    // where the served table offers them); topic_title is a boolean.
+    const p = body.profile, auto = a.chatProfiles === 'auto';
+    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus', ...(auto ? ['deepseek'] : [])].includes(p.model)
+      || !['low', 'medium', 'high', ...(auto ? ['auto'] : [])].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
@@ -555,8 +560,10 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
         title: 'The figure, part by part', parts: [{ label: 'Left half', box: [0, 0, 0.5, 1], note: 'The left half of the figure.' }, { label: 'Right half', box: [0.5, 0, 1, 1], note: 'The right half.' }] });
       if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
       if (body.follow_ups === true) event('followups', { questions: ['How is β chosen?', 'What does the KL term do?'] });
-      const profile = body.profile ? `${body.profile.model}-${body.profile.effort}-${body.profile.length}` : 'sonnet-low-standard';
-      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }[body.profile?.model ?? 'sonnet'];
+      // Automatic effort resolves before the answer, and the answer records what was picked (CHAT.md, 2026-10-16).
+      const effort = body.profile?.effort === 'auto' ? (body.profile.length === 'detailed' ? 'medium' : 'low') : body.profile?.effort;
+      const profile = body.profile ? `${body.profile.model}-${effort}-${body.profile.length}` : 'sonnet-low-standard';
+      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', deepseek: 'deepseek-flash' }[body.profile?.model ?? 'sonnet'];
       event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile } : {}) }); response.end();
     };
     setTimeout(tick, 200); return;

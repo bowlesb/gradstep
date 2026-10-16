@@ -67,8 +67,9 @@ for (const scheme of ['light', 'dark'] as const) {
     }
     await page.getByTestId('follow-up').first().click();
     await shot(page, name('chat-follow-up-filled'), info);
-    await page.getByTestId('profile-button').click();
-    await expect(page.getByTestId('profile-panel')).toBeVisible();
+    await page.getByTestId('chat-menu').click();
+    await page.getByTestId('answer-options-item').click();
+    await expect(page.getByTestId('answer-options')).toBeVisible();
     await shot(page, name('chat-answer-settings'), info);
     await page.keyboard.press('Escape');
     // Failure wording: no credits.
@@ -78,7 +79,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.getByRole('alert')).toContainText('Not enough credits');
     await shot(page, name('chat-no-credits'), info);
     await page.getByTestId('chat-pane').getByRole('button', { name: 'All chats' }).click();
-    await expect(page.getByRole('heading', { name: 'All chats' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'All chats' }).getByRole('searchbox', { name: 'Search chats' })).toBeVisible();
     await shot(page, name('all-chats'), info);
   });
 }
