@@ -292,9 +292,12 @@ final class PodcastJourneyTests: XCTestCase {
         capture(app, "Listen while it's being made")
 
         // Leave the app, come back: still there, then ready, marked New, with a small notice (never an alert).
+        // (The Mac has no Home button; its window simply stays, and Listen keeps checking.)
+        #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.press(.home)
         sleep(2)
         app.activate()
+        #endif
         let toast = element(app, "podcast.toast")
         XCTAssertTrue(toast.waitForExistence(timeout: 40), "A small notice says it's ready")
         XCTAssertFalse(app.alerts.firstMatch.exists, "Not a modal alert")
