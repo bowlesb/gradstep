@@ -65,7 +65,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   no Done. Glass = `ChromeSurface` (Liquid Glass on iOS 26, a material before it, solid with Reduce Transparency); tabs
   are a glass segmented control. A pushed page keeps a round glass Back on the left of the same row. Code:
   `Views/SheetChrome.swift` (`SheetTopRow`, `GlassTabs`, `SheetRowTitle`; the round buttons are `HeaderButtonLabel`);
-  first used by Contents (iPhone, iPad, Mac).
+  first used by Contents (iPhone, iPad, Mac). Figure, table and equation pages use the same file's `sheetTopRow(...)`,
+  which puts the two Explain actions in the sheet's own navigation bar: there they sit in the middle, between a pushed
+  page's system Back and the X, as one item that shrinks to fit (iOS 26 moves bar buttons that don't fit into a "More"
+  menu). The browser puts them on the left of its row.
 - **Explain actions**: wherever a figure, table or equation is shown on its own, the top row offers **Explain in Chat**
   (a draft in the paper's chat, nothing sent) and **AI Explainer** (the walkthrough / symbol explanation, requested only
   then). The equation's edit menu item "Equation" is **AI Explainer** too (owner, build 62). An explainer's title is a
