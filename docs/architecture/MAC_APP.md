@@ -235,3 +235,17 @@ builds have their own build-number train, separate from iOS. Logs: `.artifacts/a
 - Library list rows have hover but no arrow-key selection. The table implementation is described above;
   its existing keyboard and hover behavior needs runtime verification rather than reimplementation.
 - Session recording (Settings › Testing) is untested on the Mac (ReplayKit and microphone permission).
+
+## Known issues (2026-10-16, found once Mac UI automation could run)
+
+- **⌘W while typing a tag closes the tag sheet.** The sheet's guard (`macSheetKeys(enabled: false)` while a tag is being
+  typed or tags changed) is a hidden button with ⌘W, but the menu bar's Close takes the key equivalent first on Mac
+  Catalyst, so the sheet closes and the typed tag is lost (changed chips survive only if already added). Fix: replace the
+  File › Close command (UIMenuBuilder) with one that asks the frontmost sheet's guard before closing it, and closes the
+  window only when no sheet is shown. `MacKeyboardTests.testCommandWPreservesDirtyTagsAndTheWindowButClosesACleanSheet`
+  marks the step as an expected failure until then.
+- The iPhone/iPad journeys assume touch and the iPad's segmented mode control; on the Mac the mode control is the
+  toolbar's (check boxes to automation), menus are pop-up buttons and there is no swipe. `show()`, `wideMode()` and
+  `portraitWhereSupported()` (ReaderMenuSupport.swift) cover the first two; Mac-specific journeys live in
+  `MacKeyboardTests` and `MacChatRedesignTests`.
+
