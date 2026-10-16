@@ -2,7 +2,7 @@
 
 **Status (2026-10-16):** rollout steps 1–7 are implemented. Steps 1–4 are deployed and switched on in staging (§6.0,
 §6.0.2). Steps 5–7 (§6.0.3) are built and tested locally: the code makes **zero server requests to any `*.arxiv.org`
-host** (the block-mode scan finds no server call site). Migration 076 and the function and worker deploys that carry
+host** (the block-mode scan finds no server call site). Migration 077 and the function and worker deploys that carry
 them wait for the lead's deploy order (§6.0.3). Audit and design written 2026-10-15.
 Owner request (2026-10-15): audit the app against arXiv's current terms; ensure user devices exclusively interact
 with arXiv servers and ours do not; stop server metadata calls to arXiv and have devices fetch what they need and
@@ -901,13 +901,13 @@ are gone. **Update (2026-10-16): all of S1–S8 are gone; §6.0.3.**
 ### 6.0.3 Steps 5–7: our servers never contact arXiv (built 2026-10-16)
 
 Directive (lead, 2026-10-16, from the owner's principle): each device calls arXiv only as its user's own agent; servers
-never; shared data from DataCite. Built and tested locally on top of `2be1a53`; **not deployed, migration 076 not
+never; shared data from DataCite. Built and tested locally on top of `2be1a53`; **not deployed, migration 077 not
 applied.**
 
 **Step 5, the metadata stage.** `metadata-pipeline.ts` names an arXiv paper from DataCite by its DOI
 (`10.48550/arXiv.<id>`, one request, one retry after a 429 or 503): title, authors, abstract and categories as DataCite
 holds them (the latest version's), the first version's and the requested version's submission days, no venue. The
-record goes through the new `worker_pipeline_datacite_metadata` (migration 076), which checks DataCite's evidence
+record goes through the new `worker_pipeline_datacite_metadata` (migration 077), which checks DataCite's evidence
 against the claimed paper (DOI, version, abstract link, licence table), decides shared reuse itself (only the exact
 version DataCite describes under CC BY 4.0 or CC0; an older version's licence is unknown, so it stays source only) and
 keeps the record's provenance (`catalog_metadata_provenance`, origin `datacite`). A paper DataCite doesn't list yet
@@ -935,7 +935,7 @@ and is never fetched; any other arXiv page, or a redirect to one, is not followe
 
 **Search and chips.** `discover?q=` searches DataCite whatever the switches say (the OpenAlex-ranked server search and
 its arXiv metadata are deleted; `openalex_enabled` now governs only DOI naming); a chip the pool doesn't answer reads
-DataCite. **The Feed's pool** reads DataCite only: migration 076 constrains `feed_source` to `datacite`,
+DataCite. **The Feed's pool** reads DataCite only: migration 077 constrains `feed_source` to `datacite`,
 `feed_active_source()` returns `datacite-ml`, and `feed-refresh` records any other claim as failed
 (`arxiv_egress_disabled`) without a request. The `arxiv-ml` row stays for the record.
 
@@ -976,11 +976,14 @@ contact arXiv" (ships with the next build). How Gradstep works (both clients) na
 2026-10-16 from a developer machine; the metadata stage reuses `fixtures/datacite/`), the metadata stage's waits and
 failures, the guard's block default, the arXiv counter, arXiv DOIs and links. Database: `tests/database/arxiv_egress_off.sql`
 (switches and constraints, the closed gate, DataCite evidence checks and eligibility, provenance, the nudge), with
-`device_source_metadata.sql`, `device_search.sql` and `feed_datacite.sql` updated for 076.
+`device_source_metadata.sql`, `device_search.sql` and `feed_datacite.sql` updated for 077.
 
 **Deploy order** (the lead runs it; nothing here is deployed):
+0. Numbering: this is migration 077 because the podcast source-deletion branch adds 076. `migrate-supabase.py` requires
+   the applied ledger to be a prefix of the sources, so apply 076 first (merge that branch before running step 1), or
+   renumber whichever migration is applied second.
 1. Migration and functions: `python3 scripts/deploy-staging.py staging --functions discover add-paper add-reference chat feed-refresh --skip-checks`.
-   It runs the block scan, applies 076 (switches, the closed gate, the DataCite RPC, the nudge), sets the function secrets
+   It runs the block scan, applies 077 (switches, the closed gate, the DataCite RPC, the nudge), sets the function secrets
    (now with `EGRESS_ARXIV=block`, which every function reads) and deploys the five functions. Checks wait for the worker.
    Until step 2 the old worker's arXiv gate refuses, so new papers wait at the metadata stage (10 minutes a time); none
    fail and nothing reaches arXiv.

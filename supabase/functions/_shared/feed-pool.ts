@@ -10,7 +10,7 @@ export interface PoolItem {
   categories: string[]; topics: string[]; announced_on: string; announce_type: 'new' | 'cross';
 }
 
-/** What `worker_feed_refresh_claim` returns; `kind` is the source (migration 074; DataCite only since 076). */
+/** What `worker_feed_refresh_claim` returns; `kind` is the source (migration 074; DataCite only since 077). */
 export interface RefreshClaim {
   claim_id: string; source: string; kind?: 'arxiv_rss' | 'datacite'; categories: string[]; etag: string | null; last_modified: string | null; max_items: number;
 }
@@ -76,7 +76,7 @@ export interface PoolFetch {
   status: 'updated' | 'not_modified' | 'busy' | 'failed'; items?: PoolItem[]; skipped?: number;
   etag?: string | null; lastModified?: string | null; code?: string;
 }
-/** Where the pool's items come from: DataCite (feed-datacite.ts, migrations 074 and 076). */
+/** Where the pool's items come from: DataCite (feed-datacite.ts, migrations 074 and 077). */
 export type PoolSource = (deps: RefreshDeps, claim: RefreshClaim) => Promise<PoolFetch>;
 
 /** One refresh under a claim: the source's items, tagged, upserted in batches, then the popularity pass (if any),

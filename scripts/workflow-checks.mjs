@@ -625,7 +625,7 @@ check('budget.health', {title:'Platform budget is enabled, under 80 %, without a
  return problems.length?fail(`${summary}; ${problems.join('; ')}`):pass(summary,{spent_microusd:spent,reserved_microusd:reserved,limit_microusd:limit});
 });
 
-// The metadata comes from DataCite (migration 076: our servers never contact arXiv); a device's own record for the
+// The metadata comes from DataCite (migration 077: our servers never contact arXiv); a device's own record for the
 // import is then accepted for that account alone (v1_submit_source_metadata).
 check('html.membership', {title:'Exact arXiv metadata membership, device record, source tags/archive and replay',suites:ALL,timeout:180},async({signal})=>{
  const acct=await account('device-reader',0),id=randomUUID(),source='2305.18290';

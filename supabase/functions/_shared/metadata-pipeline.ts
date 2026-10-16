@@ -46,7 +46,7 @@ export function retryAfterSeconds(value: string | null, now: number): number | n
   return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 3600) : null;
 }
 /** Attempts before a paper DataCite doesn't list fails as `metadata_unavailable` (about 9 hours: 10, 20, … 60 minutes
- * apart); any other failure fails after 10. A failed import can be retried, and a device's record nudges it (076). */
+ * apart); any other failure fails after 10. A failed import can be retried, and a device's record nudges it (077). */
 export const PENDING_ATTEMPTS = 12;
 export const pendingDelaySeconds = (failures: number) => Math.min(3600, 600 * Math.max(1, failures));
 
@@ -61,7 +61,7 @@ export interface CatalogFromDataCite {
   revision: number;
   /** `worker_record_arxiv_metadata`'s shape (migration 010): dates are calendar days. */
   metadata: { title: string; authors: string[]; abstract: string | null; published_at: string | null; updated_at: string | null; categories: string[]; venue: null };
-  /** What migration 076's `worker_pipeline_datacite_metadata` checks and keeps as the record's provenance. */
+  /** What migration 077's `worker_pipeline_datacite_metadata` checks and keeps as the record's provenance. */
   evidence: { origin: 'datacite'; doi: string; source_id: string; source_revision: number; source_url: string; version: number;
     title: string; first_author: string; license_uri: string | null; evidence_url: string; evidence_format: 'datacite'; evidence_sha256: string; observed_at: string };
   /** Shared reuse: the exact version DataCite describes (its latest) under CC BY 4.0 or CC0 (the database decides again). */

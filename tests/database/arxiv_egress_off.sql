@@ -1,4 +1,4 @@
--- Migration 076 (docs/architecture/ARXIV_DEVICE_ONLY.md, rollout steps 5–7): our servers never contact arXiv. The switches
+-- Migration 077 (docs/architecture/ARXIV_DEVICE_ONLY.md, rollout steps 5–7): our servers never contact arXiv. The switches
 -- cannot point a server at arXiv again; the old pacing gate never reserves; the metadata stage records an arXiv paper from
 -- DataCite's evidence, deciding shared reuse itself and keeping the record's provenance; a device's record for an import
 -- still waiting for DataCite asks the pipeline again. Synthetic local SQL.
@@ -15,7 +15,7 @@ begin begin execute statement; exception when others then
 grant execute on all functions in schema test to anon,authenticated,service_role;
 
 -- 1. Switches.
-select test.assert((select not arxiv_egress and source_metadata_enabled and feed_source='datacite' from app_private.pipeline_policy where singleton),'076 switched');
+select test.assert((select not arxiv_egress and source_metadata_enabled and feed_source='datacite' from app_private.pipeline_policy where singleton),'077 switched');
 select test.reject($q$update app_private.pipeline_policy set arxiv_egress=true where singleton$q$,'pipeline_policy_arxiv_egress_off');
 select test.reject($q$update app_private.pipeline_policy set feed_source='arxiv_rss' where singleton$q$,'pipeline_policy_feed_source_check');
 select test.assert(app_private.feed_active_source()='datacite-ml','the pool reads DataCite''s row');

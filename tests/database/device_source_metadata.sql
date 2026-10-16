@@ -58,8 +58,8 @@ select test.assert(app_private.valid_source_metadata((select m from good)||'{"ab
 select test.assert(app_private.valid_source_metadata((select m from good)||'{"source_id":"hep-th/9711200","version_date":"1997-11-27"}','hep-th/9711200',3),'old-style identifier');
 select test.assert(not app_private.valid_source_metadata('[1]'::jsonb,'2305.18290',3) and not app_private.valid_source_metadata(null,'2305.18290',3),'not an object');
 
--- Migration 076 switched devices on (arxiv_egress_off.sql checks it); off, the capability says so and the RPC refuses.
-select test.assert((select source_metadata_enabled from app_private.pipeline_policy where singleton),'switched on by 076');
+-- Migration 077 switched devices on (arxiv_egress_off.sql checks it); off, the capability says so and the RPC refuses.
+select test.assert((select source_metadata_enabled from app_private.pipeline_policy where singleton),'switched on by 077');
 update app_private.pipeline_policy set source_metadata_enabled=false where singleton;
 set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);

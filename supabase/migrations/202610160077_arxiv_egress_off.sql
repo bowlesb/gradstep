@@ -99,7 +99,7 @@ end $$;
 insert into app_private.admin_audit_events(actor_id,action,target_id,reason,details)
 select r.account_id,'arxiv_egress','pipeline_policy',
  'Owner direction 2026-10-15: our servers never contact arXiv; metadata from DataCite and devices (docs/architecture/ARXIV_DEVICE_ONLY.md)',
- jsonb_build_object('arxiv_egress',false,'source_metadata_enabled',true,'feed_source','datacite','migration','202610160076')
+ jsonb_build_object('arxiv_egress',false,'source_metadata_enabled',true,'feed_source','datacite','migration','202610160077')
 from app_private.app_roles r join app_private.accounts a on a.id=r.account_id
 where r.role='owner' and a.closed_at is null order by r.account_id limit 1;
 

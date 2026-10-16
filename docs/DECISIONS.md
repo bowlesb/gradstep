@@ -54,7 +54,7 @@ DataCite on our servers, so our servers never contact arXiv. New papers show abo
   the server get DataCite results; OpenAlex leaves search and DOI naming (Crossref names DOIs).
 - The Feed's shared pool comes from DataCite's records of arXiv papers, read by our servers once for everyone; a chip
   outside the pool reads DataCite too. The `arxiv-ml` row stays for audit; the RSS code and the switch back are removed
-  by migration 076 (above).
+  by migration 077 (above).
 - The Library's search segment is "ML paper search" (sentence case like the app's other labels; it fits the narrowest
   iPhone at every text size). The field reads "Search ML papers"; the Mac menu item is "Search ML Papers".
 - Migration 075 sets the three switches and records them in the admin audit log. Server arXiv calls that remain (the

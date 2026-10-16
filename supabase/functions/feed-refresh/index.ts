@@ -2,7 +2,7 @@
 // (app_private.feed_refresh_kick, migration 043) only when refreshing is on and the source is due;
 // the claim names the source (migration 074): DataCite's arXiv records (feed-datacite.ts). Our
 // servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md): a claim for any other
-// source (arXiv's RSS, retired by migration 076) is recorded as failed, never fetched. Authenticated by the dedicated FEED_REFRESH_SECRET header, never a user token. Claims the source,
+// source (arXiv's RSS, retired by migration 077) is recorded as failed, never fetched. Authenticated by the dedicated FEED_REFRESH_SECRET header, never a user token. Claims the source,
 // answers 202, and finishes the fetch in the background under the claim's lease. The same run reads
 // Hugging Face Papers upvotes for the pool (feed-signals.ts, migration 046) before releasing the claim.
 import { installEgressGuard } from '../_shared/egress.ts';
