@@ -351,13 +351,25 @@ final class WorkflowJourneyTests: XCTestCase {
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         app.buttons["Table of contents"].tap()
-        let heading = app.buttons[journey.heading]
+        // The row in Contents' own list: the paper behind the sheet has the same heading, and a tap aimed at it closes
+        // the sheet without going anywhere (iPhone 17 Pro, 2026-10-16).
+        let list = app.descendants(matching: .any)["contents.list.contents"]
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+        let heading = list.buttons[journey.heading]
         // A real paper has more Contents rows than the medium detent shows, and
         // the list realizes rows lazily: scroll until the row exists.
-        for _ in 0..<6 where !heading.waitForExistence(timeout: 2) { app.swipeUp() }
+        // Drags inside the list (a swipe can start on the sheet's tabs and move the sheet instead).
+        func dragList() {
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+                .press(forDuration: 0.05, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        }
+        // Well inside the sheet: a row at the very bottom of the half-height sheet counts as hittable, but a tap there
+        // lands on the screen's edge, not the row (iPhone 17 Pro, 2026-10-16).
+        let bottom = app.windows.firstMatch.frame.maxY - 140
+        for _ in 0..<10 where !(heading.exists && heading.isHittable && heading.frame.maxY < bottom) { dragList() }
         XCTAssertTrue(heading.exists)
-        if !heading.isHittable { app.swipeUp() }
-        heading.tap()
+        heading.tapWhenSettled()
+        XCTAssertTrue(list.waitForNonExistence(timeout: 5), "A Contents row closes Contents")
         let before = web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", journey.before)).firstMatch
         let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", journey.after)).firstMatch
         let positioned = NSPredicate { _, _ in before.isHittable && after.isHittable && after.frame.minY > before.frame.maxY + 20 }
@@ -438,7 +450,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let title = app.buttons["chat.context"]
         XCTAssertGreaterThanOrEqual(title.frame.minX, app.buttons["Chat history"].frame.maxX, "Long titles leave room for history")
         XCTAssertLessThanOrEqual(title.frame.maxX, app.buttons["New chat"].frame.minX, "Long titles leave room for New chat")
-        open.tap()
+        open.tapWhenSettled()
         XCTAssertTrue(app.staticTexts["Couldn’t draw this diagram"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Queries (Q)")).firstMatch.exists,
                        "The source starts collapsed")

@@ -2,6 +2,26 @@
 
 Updated 2026-10-16 UTC (browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Browser deployed; Add paper refunds; checks — 2026-10-16, ~08:30 UTC
+
+- **Browser deployed** to app.gradstep.ai (~08:25 UTC, two phases verified) from main 17590db: reader revision 16 with
+  the tables list, Contents › Tables, the figure view (staging server), AI credits / Subscription plan / Your assets in
+  the account menu, build-59 parity, Listen on legacy items. The heading-jump fix below is not in it yet.
+- **Add paper from chat** (chat function on staging): an add that doesn't happen costs nothing and says "Not charged."
+  (CHAT.md "Add paper after settlement"). Live on staging: a made-up reference (no add) and Bradley–Terry 1952 (not
+  found as an open copy) each 0 credits, balance unchanged; before the change the first cost 38 credits.
+- **Checks**: `npm test`; browser journeys (figure view, equation view with Contents/Tables, account assets, owner-58,
+  chat, chat redesign) desktop and phone 48 passed; `arxiv-compiler.spec.ts` Chromium, WebKit, Firefox; reader sweep
+  replay of 123 cached papers 0 fail / 8 warn (as revision 15); MacKeyboardTests 4/4, MacChatRedesignTests 1/1.
+- **iPhone regression** (10 UI classes, iPhone 17 Pro): 75 passed, 2 failed, both test mechanics on that device,
+  confirmed with app logging and the run's screen recording. The broken-diagram journey tapped the answer's diagram
+  while the transcript was still moving (passes on iPhone 17); the installed-paper journey tapped a Contents row
+  sitting at the bottom edge of the half-height sheet (the new tabs push rows down), which landed on the screen's
+  edge. The journeys now tap once the element is still (`tapWhenSettled`) and drag Contents' own list until the row is
+  well inside it; both pass. App changes alongside: a diagram that can't be drawn in the answer keeps its place's height
+  ("Couldn't draw it here") instead of collapsing; Contents jumps once its sheet has closed, as the gallery does.
+- Known flakes under load: `spending-retry` concurrency and `reader-flow` "pathological lines stay fast" (pass alone).
+
 ## Figure view, browser — 2026-10-16 (built; not deployed)
 
 - The browser's figure page has **Explain** and **Ask in chat** under the figure; Explain (after the chat's consent)

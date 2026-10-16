@@ -449,8 +449,7 @@ struct PaperView: View {
                 }
             }
             .sheet(isPresented: $showContents, onDismiss: {
-                // After the sheet has gone, as the gallery does: a jump started while a sheet pulled up to full height
-                // was still closing didn't move a long paper (the installed-paper journey on DPO, 2026-10-16).
+                // After the sheet has gone, as the gallery does, so the jump is seen.
                 if case let (target, id)? = contentsJump, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
                 contentsJump = nil
             }) {

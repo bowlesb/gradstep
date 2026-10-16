@@ -104,3 +104,20 @@ extension XCUIApplication {
         #endif
     }
 }
+
+extension XCUIElement {
+    /// Taps once the element has stopped moving: a tap on a list or transcript still coasting from a swipe (or an
+    /// answer's last scroll) only stops it, as iOS does, and the row's button doesn't fire (journeys on the iPhone 17 Pro
+    /// Simulator, 2026-10-16: Contents › a heading and an answer's diagram).
+    func tapWhenSettled(timeout: TimeInterval = 3) {
+        var previous = frame
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            usleep(250_000)
+            let current = frame
+            if current == previous { break }
+            previous = current
+        }
+        tap()
+    }
+}
