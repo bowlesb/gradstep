@@ -182,7 +182,7 @@ async function* sse(stream) {
     }
   }
 }
-async function complete(model, messages, tools, maxTokens = 16_000) {
+async function complete(model, messages, tools, maxTokens = 16_000, timeoutMs = 130_000) {
   const body = { model: model.id, messages, ...(tools?.length ? { tools } : {}), stream: true, max_tokens: maxTokens, usage: { include: true },
     ...(model.effort ? { reasoning: { effort: model.effort } } : {}),
     provider: { order: [model.route], only: [model.route], allow_fallbacks: false, require_parameters: true,
@@ -193,7 +193,7 @@ async function complete(model, messages, tools, maxTokens = 16_000) {
   try {
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST',
       headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Title': 'Science Reader model bake-off' },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(130_000) });
+      body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     return { error: 'Transport failed; full hold retained, no automatic retry', seconds: (Date.now() - started) / 1000 };
   }
@@ -380,7 +380,7 @@ async function judgeQuestion(judgeName, judge, q) {
     `Grade answers ${labels.join(', ')}.`,
   ].filter(Boolean).join('\n\n');
   const content = figure ? [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${figure.data}` } }, { type: 'text', text: prompt }] : prompt;
-  const reply = await complete(judge, [{ role: 'system', content: system }, { role: 'user', content }], null, 32_000);
+  const reply = await complete(judge, [{ role: 'system', content: system }, { role: 'user', content }], null, 32_000, 400_000);
   let grades = null;
   if (!reply.error) { try { grades = JSON.parse(reply.text.slice(reply.text.indexOf('{'), reply.text.lastIndexOf('}') + 1)).grades; } catch { /* below */ } }
   if (!validateGrades(grades, labels, q.key_points.length)) grades = null;

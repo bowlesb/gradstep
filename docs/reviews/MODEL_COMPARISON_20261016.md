@@ -85,7 +85,7 @@ node --test tests/backend/model-bakeoff.test.ts
 ```
 
 After credit exists, start with three questions on Haiku and one different provider, inspect their images,
-tool output, usage and stopping behavior, then broaden. Both answer generation and judging share the same cap:
+tool output, usage and stopping behavior, then broaden. Both answer generation and judging share the same spend cap. Grading allows 400 seconds and 32,000 output tokens per question (its output is a batch of scores, not a reader answer); contestants retain the 130-second deadline:
 
 ```sh
 node scripts/model-bakeoff.mjs run --models=haiku-medium,mimo-flash --questions=dpo-detail,dpo-figure,prism-false_premise --concurrency=2
