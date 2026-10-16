@@ -508,3 +508,54 @@ test('picture panels under one caption are one figure, panel captions inside, a 
  assert.match(html, /<p>\(a\) Panel a\.<\/p>/);
  assert.match(html, new RegExp(`href="#${one!.id}"`), 'a reference to panel (b) opens the figure');
 });
+
+// Revision 14 (staging-library sweep, 2026-10-15): what arXiv's HTML lacks or a template left behind reads honestly.
+function buildWith(text: string, catalog: { title?: string; authors?: string[] } = {}) {
+ const bundle=composeArxivReader({source:utf8(text),sourceID:'2601.01234',revision:2,
+  images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]]),...catalog});
+ const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ return {checked,html:new TextDecoder().decode(bundle.members.get('index.html'))};
+}
+
+test('a figure whose image arXiv\'s HTML lost says so before its caption (CyberArena, 2610.19005)',()=>{
+ const lost='<figure class="ltx_figure" id="S1.F9"><img src="" id="S1.F9.g1" class="ltx_graphics ltx_missing ltx_missing_image" alt="Refer to caption"><figcaption class="ltx_caption">Figure 9: Lost on arXiv.</figcaption></figure>';
+ const {checked,html}=buildWith(source.replace('<ol>',lost+'<ol>'));
+ assert.match(html,/<p class="reader-caption"[^>]*><em>This figure is not in arXiv’s HTML version of the paper; the PDF has it\.<\/em> Figure 9: Lost on arXiv\.<\/p>/);
+ assert.equal(checked.index.figures.length,1,'no figure entry without an image');
+ assert.doesNotMatch(html,/inline graphic/,'not counted as a stray graphic');
+ // A caption whose figure had no graphic at all (\captionof after an unwrapped image) gets no note.
+ const plain=buildWith(source.replace('<ol>','<figure id="S1.F8"><figcaption>Figure 8: Just a caption.</figcaption></figure><ol>')).html;
+ assert.match(plain,/<p class="reader-caption"[^>]*>Figure 8: Just a caption\.<\/p>/);
+});
+
+test('a title set as a picture is named by the catalog title, in the heading and the index (VideoJev, 2610.18615)',()=>{
+ const pictured=source.replace('<h1>Authored HTML fixture</h1>','<h1 class="ltx_title ltx_title_document"><span class="ltx_text"><object type="image/svg+xml" data="2601.01234v2/title.svg" class="ltx_graphics"></object></span></h1>');
+ const {checked,html}=buildWith(pictured,{title:'VideoJev: A Catalog Title',authors:['A. Author']});
+ assert.equal(checked.index.title,'VideoJev: A Catalog Title');
+ assert.match(html,/<h1[^>]*>VideoJev: A Catalog Title<\/h1>/);
+ assert.throws(()=>buildWith(pictured.replace('</h1>','</h1><h1>Second</h1>')),'two titles still refuse');
+});
+
+test('an author block naming none of the paper\'s authors gives way to the catalog; real names with marks stay (2610.20588)',()=>{
+ const placeholder=buildWith(source.replace('<div class="ltx_authors">A. Author</div>','<div class="ltx_authors">Lorem Dolor</div>'),{authors:['Walter Simoncini','Ada Lovelace']}).html;
+ assert.match(placeholder,/<p class="reader-authors"[^>]*>Walter Simoncini, Ada Lovelace<\/p>/);
+ const real=buildWith(source.replace('<div class="ltx_authors">A. Author</div>','<div class="ltx_authors">Rafael Rafailov<sup>2,†</sup>, Berkay Köprü</div>'),{authors:['Rafael Rafailov','Berkay Kopru']}).html;
+ assert.match(real,/Rafael Rafailov<sup>2,†<\/sup>, Berkay Köprü/,'the HTML\'s own spelling and marks are kept');
+});
+
+test('a heading with no words is no heading: links to it go to the next block (2207.00729, refused index_heading)',()=>{
+ const runIn='<section class="ltx_paragraph" id="S1.P1"><h4 class="ltx_title ltx_title_paragraph"></h4><div class="ltx_para"><p class="ltx_p">Run-in paragraph.</p></div></section>';
+ const {checked,html}=buildWith(source.replace('<ol>',runIn+'<p>See <a href="#S1.P1">that paragraph</a>.</p><ol>'));
+ assert.deepEqual(checked.index.headings.map(h=>h.title),['1 Introduction','References']);
+ assert.doesNotMatch(html,/<h4[^>]*><\/h4>/);
+ const target=checked.index.blocks.find(b=>b.text==='Run-in paragraph.')!;
+ assert.match(html,new RegExp(`<a href="#${target.id}">that paragraph</a>`));
+});
+
+test('a mark set as a formula reads as its symbol in the title page\'s notes (PrismaCoder, 2610.20538)',()=>{
+ const star='<math alttext="\\ast" display="inline"><semantics><mo>∗</mo><annotation encoding="application/x-tex">\\ast</annotation></semantics></math>';
+ const page=source.replace('<div class="ltx_authors">A. Author</div>',`<div class="ltx_para"><p class="ltx_p">a@x.org, b@y.org <br class="ltx_break"><sup class="ltx_sup">${star}</sup> Equal contribution</p></div>`);
+ const {html}=buildWith(page,{authors:['Ada Lovelace','Alan Turing']});
+ assert.match(html,/<span class="reader-notes"><sup>∗<\/sup> Equal contribution<\/span>/);
+ assert.doesNotMatch(html.replace(/<math[\s\S]*?<\/math>|<[^>]+>/g,' '),/\\ast|, ,/);
+});

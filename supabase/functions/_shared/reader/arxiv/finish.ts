@@ -51,17 +51,27 @@ export function checkMathCoverage(cx: ArxivContext): void {
 
 /** Figures marked, in-page links pointed at the blocks that hold their targets, one title, the index and the page. */
 export function compose(cx: ArxivContext): { index: ReaderIndex; html: string; imageURLs: string[] } {
+  // A heading with no words (LaTeXML's run-in `\paragraph{}` with an empty title: eight in 2207.00729, refused
+  // `index_heading` because the page's navigable headings and the index disagreed) is no heading: links to it go to
+  // the block after it.
+  for (const entry of cx.blocks.filter(b => b.kind === 'heading' && b.node.name !== 'h1' && !normalizeSpace(outText(b.node)))) {
+    const next = cx.blocks[cx.blocks.indexOf(entry) + 1];
+    for (const [source, target] of cx.aliases) if (target === entry.id) { if (next) cx.aliases.set(source, next.id); else cx.aliases.delete(source); }
+    remove(cx, entry);
+  }
   for (const entry of cx.blocks) if (entry.kind === 'figure') entry.node.attribs['data-reader-figure'] = entry.id;
   for (const link of cx.links) {
     const id = cx.aliases.get(link.target); check(id, 'arxiv_unresolved_fragment'); link.node.attribs.href = `#${id}`;
   }
   const titles = cx.blocks.filter(b => b.node.name === 'h1');
   check(titles.length === 1, 'arxiv_title');
-  // A title set as a picture (2610.18615's word-mark, in the owner's library on build 55) has no words of its own: the
-  // picture stays as the heading and the catalog's title names the paper, never a refusal.
+  // A title set as a picture (2610.18615's word-mark, in the owner's library on build 55) has no words of its own (a
+  // heading keeps no graphics): the catalog's title is the heading's text and names the paper, never a refusal. The
+  // validator requires the index title to be the heading's own text (revision 13 named only the index: `index_title`).
   const own = normalizeSpace(outText(titles[0].node));
   const title = boundedText(own || normalizeSpace(cx.metadataTitle ?? '') || 'Untitled paper', LIMITS.headingBytes, 'arxiv_title');
   check(title.length > 0, 'arxiv_title');
+  if (!own) titles[0].node.children = [title];
   const headings = cx.blocks.filter(b => b.kind === 'heading' && b !== titles[0]).map(b => ({ id: b.id,
     level: Number(b.node.name.slice(1)), title: boundedText(normalizeSpace(outText(b.node)), LIMITS.headingBytes, 'heading_limit') }));
   check(headings.length <= LIMITS.headings, 'heading_limit');

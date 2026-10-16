@@ -61,7 +61,19 @@ export function frontMatterFirst(cx: ArxivContext): void {
 // No author block in the HTML (a template that set the names in a tabular, 2610.19861): the library's names head
 // the paper after its title, and a paragraph that merely lists them again is left out.
 export function catalogHeader(cx: ArxivContext): void {
-  if (!cx.metadataAuthors.length || cx.blocks.some(b => b.node.attribs.class === 'reader-authors')) return;
+  if (!cx.metadataAuthors.length) return;
+  // An author block that names none of the paper's authors (a template's placeholder: 2610.20588's "Lorem Dolor"; a
+  // submission's "Anonymous Authors") gives way to the library's names. Accents are compared without their marks, so
+  // "Köprü" in the HTML still matches "Kopru" in the catalog and keeps the HTML's own spelling.
+  const existing = cx.blocks.find(b => b.node.attribs.class === 'reader-authors');
+  if (existing) {
+    // Marks and footnote numbers run into the names in the HTML ("Rafailov2,†"): only the letters are compared.
+    const bare = (t: string) => fold(t.normalize('NFKD').replace(/\p{M}/gu, '').replace(/\p{N}+/gu, ' '));
+    const shown = ` ${bare(outText(existing.node))} `;
+    const families = cx.metadataAuthors.map(name => bare(name).split(' ').filter(Boolean).pop() ?? '').filter(f => f.length > 1);
+    if (families.length && !families.some(f => shown.includes(` ${f} `))) existing.node.children = [cx.metadataAuthors.join(', ')];
+    return;
+  }
   const names = cx.metadataAuthors.join(', ');
   const authors = block(cx, cx.root, 'p', 'paragraph', () => [names], { class: 'reader-authors' }); cx.synthetic.add(authors);
   const titleAt = cx.top.findIndex(node => node.name === 'h1');
@@ -75,10 +87,15 @@ export function catalogHeader(cx: ArxivContext): void {
   // and reads tables cell by cell (build 46: LensErase's logo stopped it; FiLM's table stayed a table).
   const catalog = new Set(cx.metadataAuthors.map(fold));
   const parsedNames: Child[][] = [], affiliations: Child[][] = [], addresses: Child[][] = [], notes: { mark: string; body: Child[] }[] = [];
+  // A mark set as a formula reads as its LaTeX (`\ast`, 2610.20538's "Equal contribution"): the symbol it draws, and
+  // the separators left where e-mail addresses were go.
+  const marked = (text: string) => text.replace(EMAIL, '').replace(/\\(?:ast|star|textasteriskcentered)(?![A-Za-z])/g, '∗')
+    .replace(/\\ddagger(?![A-Za-z])/g, '‡').replace(/\\dagger(?![A-Za-z])/g, '†').replace(/\\S(?![A-Za-z])/g, '§')
+    .replace(/\\P(?![A-Za-z])/g, '¶').replace(/^[\s,;:]+/, '').replace(/[\s,;:]+([∗*†‡§¶‖])/g, ' $1');
   const splitNotes = (text: string): { mark: string; body: Child[] }[] => {
-    const found = [...text.replace(EMAIL, '').matchAll(/([∗*†‡§¶‖])\s*([^∗*†‡§¶‖]+)/g)]
+    const found = [...marked(text).matchAll(/([∗*†‡§¶‖])\s*([^∗*†‡§¶‖]+)/g)]
       .map(m => ({ mark: m[1], body: [m[2].replace(/\s+([.,;:])/g, '$1').replace(/[\s,;:]+$/, '').trim()] as Child[] })).filter(n => (n.body[0] as string).length > 0);
-    return found.length ? found : [{ mark: '', body: [text.replace(EMAIL, '').replace(/[\s,;:]+$/, '').trim()] }];
+    return found.length ? found : [{ mark: '', body: [marked(text).replace(/[\s,;:]+$/, '').trim()] }];
   };
   const isEmailOnly = (text: string) => text.length > 0 && !text.replace(EMAIL, '').replace(/[\s,;{}()]/g, '').length;
   // One unit (a paragraph, or a table cell): true when it belongs to the header and was taken.
