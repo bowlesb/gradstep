@@ -21,6 +21,22 @@ import Testing
         #expect(own.id == "F1" && own.paragraph == 6)
     }
 
+    /// Owner, build 62: AI Explainer asks for the walkthrough; a figure switched to from the explainer's heading shows what
+    /// is kept and waits for AI Explainer (nothing is asked unasked).
+    @Test func aFigureSwitchedToWaitsForAIExplainer() async throws {
+        let bundle = try bundle()
+        let figure = try #require(bundle.index.figures.first)
+        let model = ReaderModel(configuration: nil)
+        let context = FigureViewContext(paperID: UUID(), bundle: bundle, figureID: figure.id, label: "Figure 1", caption: figure.caption,
+                                        paragraph: 6, assetPaths: figure.assetPaths, localContext: nil)
+        let switched = FigureExplainSession(context: context, model: model)
+        await switched.start(requesting: false)
+        #expect(switched.walkthrough.state == .idle, "nothing asked")
+        let asked = FigureExplainSession(context: context, model: model)
+        await asked.start()
+        #expect(asked.walkthrough.state != .idle, "AI Explainer asks (here: sign in first, no account)")
+    }
+
     @Test func aTableIsDrawnAsTheModelReadsIt() async throws {
         let bundle = try bundle()
         let data = try #require(bundle.data(for: bundle.manifest.entrypoint))

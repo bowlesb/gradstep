@@ -258,7 +258,7 @@ struct PaperView: View {
                                          selection = nil; selectionClearID = UUID()
                                      }, hasSelection: selection != nil, onEquation: { id in
                                          guard model.readerDocumentScope == readerScope else { return }
-                                         equation = EquationViewRequest(paperID: paper.id, equationID: id)
+                                         equation = EquationViewRequest(paperID: paper.id, equationID: id, explains: true)
                                          selection = nil; selectionClearID = UUID()
                                      }, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
@@ -489,15 +489,13 @@ struct PaperView: View {
                 NavigationStack {
                     Group {
                         if let bundle = model.selectedPaper?.readerBundle {
-                            // A figure or a table gets Explain and Ask in chat (an algorithm's code block, neither).
+                            // A figure or a table gets Explain in Chat and AI Explainer (an algorithm's code block, neither).
                             FigureWebView(bundle: bundle, figureID: value.targetID, baseFontSize: model.paperFontSize)
-                                .figurePageActions(figureID: value.targetID)
+                                .figurePageActions(figureID: value.targetID) { figureReference = nil }
                         }
-                        else { Color.clear }
+                        else { Color.clear.sheetTopRow(close: { figureReference = nil }) }
                     }
-                    .navigationTitle(value.label).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) { Button("Done") { figureReference = nil } }
                         // Words, not a symbol (a bottom-bar Label shows only its icon on iOS 26).
                         ToolbarItem(placement: .bottomBar) {
                             Button(value.goTitle) { figureReferenceToShow = value.targetID; figureReference = nil }
@@ -529,12 +527,10 @@ struct PaperView: View {
                                 if model.readerDocumentScope == scope, self.figure == figure { OfflineResourceProbe.shared.finish(.figure) }
                                 #endif
                             })
-                            .figurePageActions(figureID: figure)
+                            .figurePageActions(figureID: figure) { self.figure = nil }
                         }
-                        else { Color.clear }
+                        else { Color.clear.sheetTopRow(close: { self.figure = nil }) }
                     }
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { figure = nil } } }
                 }
                 .environment(\.figureViewHost, figureHost { figure = nil })
                 .macSheetKeys()
@@ -553,7 +549,7 @@ struct PaperView: View {
     private func figureHost(close: @escaping @MainActor () -> Void) -> FigureViewHost? {
         guard let paperID = model.selectedPaper?.id else { return nil }
         let model = model
-        return FigureViewHost(model: model, paperID: paperID) { outcome in model.pendingFigureOutcome = outcome; close() }
+        return FigureViewHost(model: model, paperID: paperID, finish: { outcome in model.pendingFigureOutcome = outcome; close() }, close: close)
     }
 
     /// What a figure page chose, once its sheet has gone (so the jump, the chat or the sign-in is seen).

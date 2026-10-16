@@ -205,7 +205,8 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             }
             XCTAssertTrue(figure.exists); XCTAssertTrue(figure.isHittable)
             figure.tap()
-            let done = app.buttons["Done"]
+            // The figure sheet's X (DESIGN.md "Sheet top row").
+            let done = app.buttons["sheet.close"]
             XCTAssertTrue(done.waitForExistence(timeout: 10))
             XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
             let detail = app.webViews.element(boundBy: app.webViews.count - 1)

@@ -73,8 +73,9 @@ enum FigureViewOutcome {
 
     init(context: FigureViewContext, model: ReaderModel) { self.context = context; self.model = model }
 
-    /// Shows what this device kept; asks for the walkthrough when nothing is kept (Explain was chosen to get here).
-    func start() async {
+    /// Shows what this device kept; asks for the walkthrough when nothing is kept and `requesting` (AI Explainer was chosen
+    /// to get here; a figure switched to from the explainer's heading waits for AI Explainer).
+    func start(requesting: Bool = true) async {
         guard let model else { return }
         let profile = model.equationProfile
         if let kept = model.figureAnswer(key(.figure, part: nil, profile: profile)) {
@@ -84,7 +85,7 @@ enum FigureViewOutcome {
             }
         }
         await prepareImage()
-        if walkthrough.state == .idle { explain() }
+        if requesting, walkthrough.state == .idle { explain() }
     }
 
     func explain() { if walkthrough.state != .loading, walkthrough.state != .done { run(.figure, part: nil) } }

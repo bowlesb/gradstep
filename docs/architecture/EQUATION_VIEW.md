@@ -10,9 +10,10 @@ the chat."
 ## Where it opens
 
 Tapping an equation already selects it and offers Explain in Chat, Why it matters, Related papers. A new action,
-**Equation** (`function` symbol on Apple), sits right after Explain in Chat and opens the view; the others are unchanged
-and keep their order. The browser's selection bar gains the same button, in the same place, when the selection is one
-equation.
+**AI Explainer** (`sparkles` on Apple; it was **Equation** until build 62: owner, "Replace Explain with AI Explainer"),
+sits right after Explain in Chat and opens the view explaining the equation at once (choosing it is the request; the
+chat's consent comes first). The others are unchanged and keep their order. The browser's selection bar gains the same
+button, in the same place, when the selection is one equation.
 
 ## What it shows, top to bottom
 
@@ -20,11 +21,14 @@ equation.
    bundle holds), in the reader's colours. A size control (A− / A+, 100 % to 400 % of the reader's text size, starting
    at 160 %) and a **Scroll sideways** toggle: off, the equation is scaled down to fit the width when it is wider; on,
    it keeps the chosen size and scrolls horizontally. The equation number, when it has one, stays beside it.
-   Right under it, side by side: **Explain** (prominent, a sparkle) and **Ask in chat** (owner, build 59: "The AI
-   explanation should only come if you ask for it… When you enter in there, you should also see the Ask in chat option
-   as well"). Nothing is asked of the AI on opening; Explain goes once the explanation is there (or kept from before).
+   **The top row** (owner, build 62; DESIGN.md "Sheet top row"): one glass row, **Explain in Chat** and **AI Explainer**
+   (tinted) as glass capsules in its middle, a round **X** on the right; no title, no Done. AI Explainer shows until the explanation
+   is asked for (from the menu it is asked at once, so the row is Explain in Chat and the X). Above the equation its
+   name is a small menu, **Equation (4) ⌄**, listing the paper's display equations ("Equation — …" with the start of an
+   unnumbered one's text): choosing one shows it, with its kept explanation or AI Explainer (nothing is asked unasked).
+   With one display equation the heading is the plain name.
    No credit counts are shown anywhere in the view ("Don't display the number of credits in the response please").
-2. **What it says** (after Explain): the one- or two-sentence summary.
+2. **What it says** (once explained): the one- or two-sentence summary.
 3. **Symbols**: one row per symbol, in order of appearance: the symbol (plain Unicode text as the model wrote it,
    e.g. `π_θ(y|x)`), its meaning, and where that comes from — **From the paper ¶N** (a link: closes the view and
    scrolls the reader to that paragraph, with Back to return), or **General meaning** (the paper does not define it;
@@ -33,12 +37,12 @@ equation.
 4. **More background** (a button, offered once the explanation is there; optional, never automatic): streams a short explainer under it (what problem the
    equation solves, the intuition per term, prerequisite concepts, a small example), rendered like a chat answer with
    its `[¶N]` citations working.
-5. **Ask in chat** (beside Explain from the start): closes the view and opens the paper's chat with this equation as the selected passage and the
-   composer focused, so the reader types their own question (no answer is sent automatically). Explain in Chat stays in
-   the tap menu as before.
+5. **Explain in Chat** (the top row, from the start; it was "Ask in chat"): closes the view and opens the paper's chat
+   with this equation as the selected passage and the composer focused, so the reader types their own question (no
+   answer is sent automatically). Explain in Chat stays in the tap menu as before.
 
 The view is a sheet on iPhone (large detent), a sheet or inspector-width panel on iPad and Mac, and a right-side dialog
-in the browser; Escape / Done closes it.
+in the browser; Escape, ⌘W or the X closes it.
 
 ## The requests: chat actions on the chat's cache
 

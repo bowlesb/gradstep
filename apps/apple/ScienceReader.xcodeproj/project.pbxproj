@@ -67,9 +67,11 @@
 		2BF31044CA712D8C01FBBDEA /* ReaderSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F2F1B3D692A2A834D7DA37 /* ReaderSplit.swift */; };
 		2CC76E5B6931F69513066CFA /* AuthenticationWorkflowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6269CAE29584F72291E72D /* AuthenticationWorkflowFixture.swift */; };
 		2CDCF4C402B06CE842CAE54F /* ReaderBundleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA835CA7767FB4EF7E692A1 /* ReaderBundleCoordinator.swift */; };
+		2D6A382256F8FEF455C5A0DA /* SheetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6945B2A88AF9218FC58307 /* SheetChrome.swift */; };
 		2D9597F2E12812D93114D5F8 /* LibrarySearchCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62440BEEE36E6C96B12FC5E5 /* LibrarySearchCoordinatorTests.swift */; };
 		2DB55F5640A55F6CE4586888 /* AuthenticationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A587BFED5778D7F7DE7832D5 /* AuthenticationModelTests.swift */; };
 		2F1F4AF6A11515867AD29422 /* MacWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25E2DC7BACDEE17ACC7F182A /* MacWindowTests.swift */; };
+		31034D48C254CF51FF3FC057 /* SheetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6945B2A88AF9218FC58307 /* SheetChrome.swift */; };
 		33BD5512E640C2243C3889E2 /* AddPaperFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93C2F82D510A407BCF879B44 /* AddPaperFixture.swift */; };
 		342DEE7611F75E2939A0A8E3 /* FeedPersonalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB6773FA1555465D82AF9329 /* FeedPersonalization.swift */; };
 		353965D02397B85D22B7DD96 /* SettingsPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 217F3A9C7AD8E72195BBD32B /* SettingsPages.swift */; };
@@ -571,6 +573,7 @@
 		FAA254ACD14AC9B4BF8515F1 /* SourceMetadataReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceMetadataReporterTests.swift; sourceTree = "<group>"; };
 		FB450154C4E74D39C9BBB1CC /* ChatCitationTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCitationTextTests.swift; sourceTree = "<group>"; };
 		FBE77086C9EDDE9924EB4229 /* arxiv-reader.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "arxiv-reader.js"; sourceTree = "<group>"; };
+		FC6945B2A88AF9218FC58307 /* SheetChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetChrome.swift; sourceTree = "<group>"; };
 		FCB86C221E1C6004E7485C6E /* LibrarySearchModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchModelTests.swift; sourceTree = "<group>"; };
 		FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandCoordinator.swift; sourceTree = "<group>"; };
 		FF2AF682F191DAAA468C083F /* DeviceApprovalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceApprovalViews.swift; sourceTree = "<group>"; };
@@ -867,6 +870,7 @@
 				2673CB0144CC1585AD755137 /* ReportsView.swift */,
 				A87576DE63B383CD1FD6B82E /* RootView.swift */,
 				217F3A9C7AD8E72195BBD32B /* SettingsPages.swift */,
+				FC6945B2A88AF9218FC58307 /* SheetChrome.swift */,
 				5BED4F114BFBFFDA47C676BD /* StudyMapViews.swift */,
 				9300C7CCC4755D769A6097C5 /* TableColumns.swift */,
 				59D4EA1A2220F8E1670ACA1E /* TagEditorView.swift */,
@@ -1252,6 +1256,7 @@
 				353965D02397B85D22B7DD96 /* SettingsPages.swift in Sources */,
 				AF05367468D870A642096853 /* ShareInbox.swift in Sources */,
 				94096EE69F953D76B0E83CC6 /* SharedItemsImport.swift in Sources */,
+				31034D48C254CF51FF3FC057 /* SheetChrome.swift in Sources */,
 				3CC8C9EFC434C307A4BE7B6F /* SourceMetadataReporter.swift in Sources */,
 				9AB4A23366D37CF5920E85B6 /* StorePurchases.swift in Sources */,
 				96468657EFB4E12EF9D14EF3 /* StudyMapViews.swift in Sources */,
@@ -1476,6 +1481,7 @@
 				DA01E9A74EF318679C2D2E04 /* SettingsPages.swift in Sources */,
 				4F864AA15454DA20379860BF /* ShareInbox.swift in Sources */,
 				756BAE336AE1C03663DEF5FD /* SharedItemsImport.swift in Sources */,
+				2D6A382256F8FEF455C5A0DA /* SheetChrome.swift in Sources */,
 				8EE358D1ADD8A74A3882FF43 /* SourceMetadataReporter.swift in Sources */,
 				5A93DAE1144E242B2ECA45DC /* StorePurchases.swift in Sources */,
 				1A9941D0A685F1B35B31202F /* StudyMapViews.swift in Sources */,

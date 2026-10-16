@@ -146,9 +146,10 @@ final class LiveJourneyTests: XCTestCase {
             XCTAssertFalse(app.descendants(matching: .any)["figureView.failure"].exists)
             sleep(2); capture(app, "Figure walkthrough (live)")
             app.swipeUp(); sleep(1); capture(app, "Figure walkthrough, further down (live)")
-            // Back to the figure, then Contents' Done below closes the sheet.
-            app.navigationBars.buttons.element(boundBy: 0).tap()
+            // Back to the figure, then its X closes the sheet (DESIGN.md "Sheet top row").
+            app.navigationBars.buttons["BackButton"].firstMatch.tap()
             XCTAssertTrue(explain.waitForExistence(timeout: 10))
+            app.buttons["sheet.close"].tap()
         }
         let done = app.buttons["Done"]
         if done.waitForExistence(timeout: 5) { done.tap() }

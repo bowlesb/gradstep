@@ -270,6 +270,23 @@ data: {"stop_reason":"end_turn","credits":4,"usage":{…},"model":"claude-sonnet
   clipped it instead of growing the sheet); an HTML table can be explained only from a figure reference until
   Contents › Tables opens a table's page.
 
+### Top row (owner, build 62; DESIGN.md "Sheet top row", "Explain actions")
+
+- **One row at the top** of every figure or table page and of the walkthrough, in the sheet's own navigation bar (Liquid
+  Glass on iOS 26, a material before): **Explain in Chat** (it was "Ask in chat") and **AI Explainer** (it was
+  "Explain"; tinted) as two glass capsules in the bar's middle, a round **X** on the right (`Button(role: .close)` on
+  iOS 26, an xmark before; `sheet.close`). No title (the caption names the figure) and no Done; a pushed page keeps the
+  system Back on the left and its swipe. The two actions are one bar item (`ViewThatFits`: with symbols, without, a
+  step smaller), because iOS 26 moved two text bar buttons and the X into a "More" overflow in a half-height sheet.
+  `sheetTopRow(chat:explainer:close:)` and `figurePageActions(figureID:close:)` (SheetChrome.swift,
+  FigureExplainView.swift); the bottom bar keeps previous/next and Show in paper (the gallery, Contents) or Go to figure
+  (a reference).
+- **The walkthrough's row**: Explain in Chat and the X (and AI Explainer while nothing is asked, after switching). Its
+  heading is **Figure 3 ⌄**, a menu of the paper's other figures (or tables, from a table), each "Figure 4 — caption…";
+  choosing one shows that figure with its kept walkthrough, or AI Explainer to ask (nothing is asked unasked). With
+  nothing to switch to the heading is the plain name.
+  `FigureViewHost` gained `close` (the X); `FigureExplainSession.start(requesting:)`.
+
 ## Browser — as built (phase 3, 2026-10-16)
 
 Built on a branch with fixtures; **not deployed**. Code: `apps/web/src/lib/figure-view.ts` (the event's check, crop

@@ -12,6 +12,8 @@ struct FigureViewHost {
     let model: ReaderModel
     let paperID: UUID
     let finish: @MainActor (FigureViewOutcome) -> Void
+    /// Closes the sheet with nothing chosen (an explainer's X).
+    let close: @MainActor () -> Void
 }
 
 private struct FigureViewHostKey: EnvironmentKey { nonisolated(unsafe) static let defaultValue: FigureViewHost? = nil }
@@ -29,13 +31,17 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// A figure page's Explain and Ask in chat, under the figure, and the walkthrough Explain opens (in the page's own
-    /// navigation stack, so Back returns to the figure). Nothing without a host (a figure outside the open paper).
-    func figurePageActions(figureID: String) -> some View { modifier(FigurePageActions(figureID: figureID)) }
+    /// A figure page's top row (DESIGN.md "Sheet top row"): Explain in Chat and AI Explainer on the left, the X on the
+    /// right, and the walkthrough AI Explainer opens (in the page's own navigation stack, so Back returns to the figure).
+    /// Without a host (a figure outside the open paper) only the X.
+    func figurePageActions(figureID: String, close: @escaping () -> Void) -> some View {
+        modifier(FigurePageActions(figureID: figureID, close: close))
+    }
 }
 
 private struct FigurePageActions: ViewModifier {
     let figureID: String
+    let close: () -> Void
     @Environment(\.figureViewHost) private var host
     @Environment(\.expandSheet) private var expandSheet
     @State private var context: FigureViewContext?
@@ -43,33 +49,19 @@ private struct FigurePageActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let host, let context {
-                    HStack(spacing: 10) {
-                        // An arXiv paper on this device only: the walkthrough reads the paper numbered here.
-                        if context.localContext != nil {
-                            Button { expandSheet?(); explaining = true } label: {
-                                Label("Explain", systemImage: "sparkles").frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityHint("Walks through this figure part by part. Uses credits.")
-                            .accessibilityIdentifier("figureView.explain")
-                        }
-                        Button { host.finish(.askInChat(context, part: nil)) } label: {
-                            Label("Ask in chat", systemImage: "bubble.left.and.text.bubble.right").frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Opens the paper’s chat with this figure selected")
-                        .accessibilityIdentifier("figureView.askInChat")
+            .sheetTopRow(
+                chat: host.flatMap { host in context.map { context in
+                    ExplainAction(identifier: "figureView.askInChat", hint: "Opens the paper’s chat with this figure as the passage; nothing is sent") {
+                        host.finish(.askInChat(context, part: nil))
                     }
-                    .frame(maxWidth: 560)
-                    .padding(.horizontal, DesignMetrics.margin).padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(.bar)
-                }
-            }
+                } },
+                // An arXiv paper on this device only: the walkthrough reads the paper numbered here.
+                explainer: host != nil && context?.localContext != nil
+                    ? ExplainAction(identifier: "figureView.explain", hint: "Walks through this figure part by part. Uses credits.") { expandSheet?(); explaining = true }
+                    : nil,
+                close: close)
             .navigationDestination(isPresented: $explaining) {
-                if let host, let context { FigureExplainView(model: host.model, context: context, finish: host.finish) }
+                if let host, let context { FigureExplainView(model: host.model, context: context, finish: host.finish, close: host.close) }
             }
             .task(id: figureID) {
                 explaining = false
@@ -79,25 +71,44 @@ private struct FigurePageActions: ViewModifier {
 }
 
 /// The walkthrough of one figure: the figure, what it shows, then part by part. Requested on opening when nothing is
-/// kept on this device (Explain was chosen to get here); kept answers show at once.
+/// kept on this device (AI Explainer was chosen to get here); kept answers show at once. Its heading switches to another
+/// figure of the paper, which shows its kept walkthrough or offers AI Explainer (nothing is asked unasked).
 struct FigureExplainView: View {
     let model: ReaderModel
-    let context: FigureViewContext
     let finish: @MainActor (FigureViewOutcome) -> Void
+    let close: @MainActor () -> Void
+    @State private var context: FigureViewContext
     @State private var session: FigureExplainSession?
+    /// The figure AI Explainer was chosen for is asked for at once; one switched to from the heading is not.
+    @State private var requestsOnOpen = true
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+
+    init(model: ReaderModel, context: FigureViewContext, finish: @escaping @MainActor (FigureViewOutcome) -> Void,
+         close: @escaping @MainActor () -> Void) {
+        self.model = model; self.finish = finish; self.close = close
+        _context = State(initialValue: context)
+    }
 
     var body: some View {
         Group {
             if let session { content(session) } else { ProgressView() }
         }
-        .navigationTitle(context.label).navigationBarTitleDisplayMode(.inline)
+        .sheetTopRow(
+            chat: ExplainAction(identifier: "figureView.walkthrough.askInChat", hint: "Opens the paper’s chat with this figure as the passage; nothing is sent") {
+                finish(.askInChat(context, part: nil))
+            },
+            explainer: session.map { $0.walkthrough.state == .idle } == true && context.localContext != nil
+                ? ExplainAction(identifier: "figureView.walkthrough.explain", hint: "Walks through this figure part by part. Uses credits.") { session?.explain() }
+                : nil,
+            close: close)
         .background(Color(uiColor: .systemGroupedBackground))
-        .task {
-            guard session == nil else { return }
+        .task(id: context.figureID) {
+            session?.stop()
             let opened = FigureExplainSession(context: context, model: model)
             session = opened
-            await opened.start()
+            let requesting = requestsOnOpen
+            requestsOnOpen = false
+            await opened.start(requesting: requesting)
         }
         .onDisappear { session?.stop() }
         .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
@@ -110,13 +121,8 @@ struct FigureExplainView: View {
     private func content(_ session: FigureExplainSession) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                heading
                 figureCard(session)
-                Button { finish(.askInChat(context, part: nil)) } label: {
-                    Label("Ask in chat", systemImage: "bubble.left.and.text.bubble.right").frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Opens the paper’s chat with this figure selected")
-                .accessibilityIdentifier("figureView.walkthrough.askInChat")
                 walkthrough(session)
             }
             .frame(maxWidth: 720, alignment: .leading)
@@ -127,6 +133,20 @@ struct FigureExplainView: View {
     }
 
     // MARK: The figure
+
+    /// "Figure 3 ⌄": the paper's other figures (or tables, from a table) to switch to.
+    private var heading: some View {
+        let index = context.bundle.index
+        let isTable = context.label.hasPrefix("Table") || context.isDrawnTable
+        let entries = isTable ? GalleryFigure.tables(in: index) : GalleryFigure.all(in: index).filter { !($0.number?.hasPrefix("Table") ?? false) }
+        return ExplainerHeadingMenu(title: context.label, items: entries, current: context.figureID,
+                                    itemTitle: { entry in [entry.number ?? (isTable ? "Table" : "Figure"), String(entry.caption.prefix(60))]
+                                        .filter { !$0.isEmpty }.joined(separator: " — ") },
+                                    identifier: "figureView.heading") { entry in
+            guard entry.id != context.figureID, let other = model.figureContext(paperID: context.paperID, figureID: entry.id) else { return }
+            context = other
+        }
+    }
 
     private func figureCard(_ session: FigureExplainSession) -> some View {
         VStack(alignment: .leading, spacing: 10) {
