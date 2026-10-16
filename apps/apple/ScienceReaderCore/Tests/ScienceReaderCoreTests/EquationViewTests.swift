@@ -108,4 +108,27 @@ import Testing
         #expect(try EquationResultStore(directory: directory, accountID: UUID(), localKey: localKey).read(key) == nil)
         #expect(throws: (any Error).self) { try EquationResultStore(directory: directory, accountID: account, localKey: Data(count: 16)) }
     }
+
+    /// Settings › Your assets (owner, build 62): every kept answer opens by its own file name, with what it explains; an
+    /// answer kept before the subject existed still reads (and has none); another account's key lists nothing.
+    @Test func keptAnswersAreListedWithWhatTheyExplain() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("equation-answers-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = UUID(), localKey = Data(repeating: 7, count: 32), paper = UUID()
+        let store = try EquationResultStore(directory: directory, accountID: account, localKey: localKey)
+        let subject = ExplanationSubject(paperID: paper, paperTitle: "Direct Preference Optimization", manifestSHA256: String(repeating: "a", count: 64),
+                                         itemID: "e-1", label: "Equation (7)", action: "equation", savedAt: Date(timeIntervalSince1970: 1_000))
+        let first = EquationResultKey(manifestSHA256: subject.manifestSHA256, equationID: "e-1", action: .equation, profile: .standard)
+        let old = EquationResultKey(manifestSHA256: subject.manifestSHA256, equationID: "e-2", action: .equation, profile: .standard)
+        try store.write(EquationAnswer(text: "words", subject: subject), for: first)
+        try store.write(EquationAnswer(text: "before subjects"), for: old)
+        let kept = store.all(as: EquationAnswer.self)
+        #expect(kept.count == 2)
+        #expect(kept.compactMap(\.subject) == [subject])
+        #expect(store.read(old)?.subject == nil, "an answer kept before the subject still reads")
+        // Answers written before 2026-10-16 had no `subject` key at all.
+        #expect(try JSONDecoder().decode(EquationAnswer.self, from: Data(#"{"text":"x"}"#.utf8)).subject == nil)
+        #expect(try JSONDecoder().decode(FigureAnswer.self, from: Data(#"{"text":"x"}"#.utf8)).subject == nil)
+        #expect(try EquationResultStore(directory: directory, accountID: UUID(), localKey: localKey).all(as: EquationAnswer.self).isEmpty)
+    }
 }

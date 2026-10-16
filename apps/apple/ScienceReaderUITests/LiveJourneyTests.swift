@@ -134,7 +134,7 @@ final class LiveJourneyTests: XCTestCase {
         sleep(1); capture(app, "Contents")
         if explainsFigure {
             // The figure view's walkthrough from the app itself: the request the server checks, the sections it relays.
-            app.segmentedControls["contents.tabs"].buttons["Figures"].tap()
+            app.contentsTab("Figures").tap()
             let figure = app.buttons["contents.figure.0"]
             XCTAssertTrue(figure.waitForExistence(timeout: 10)); figure.tap()
             let explain = app.buttons["figureView.explain"]

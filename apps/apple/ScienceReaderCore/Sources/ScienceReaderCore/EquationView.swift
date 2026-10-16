@@ -141,8 +141,30 @@ public struct EquationAnswer: Codable, Equatable, Sendable {
     public var text: String
     public var credits: Int?
     public var model: String?
-    public init(symbols: EquationSymbols? = nil, text: String = "", credits: Int? = nil, model: String? = nil) {
-        self.symbols = symbols; self.text = text; self.credits = credits; self.model = model
+    /// What it explains, for Settings › Your assets (answers kept before 2026-10-16 have none and aren't listed).
+    public var subject: ExplanationSubject?
+    public init(symbols: EquationSymbols? = nil, text: String = "", credits: Int? = nil, model: String? = nil, subject: ExplanationSubject? = nil) {
+        self.symbols = symbols; self.text = text; self.credits = credits; self.model = model; self.subject = subject
+    }
+}
+
+/// The paper and the equation or figure a kept explanation is about, sealed inside it with the answer (owner, build 62:
+/// "Equation Explanations, and Figure Explanations in the list of your assets"). Nothing of it is in the file's name.
+public struct ExplanationSubject: Codable, Equatable, Sendable {
+    public let paperID: UUID
+    public let paperTitle: String
+    /// The paper revision's bundle (the answer's key names it too).
+    public let manifestSHA256: String
+    /// The equation's or figure's id in the bundle.
+    public let itemID: String
+    /// "Equation (4)", "Figure 1", "Table 2".
+    public let label: String
+    /// The chat action that made it (`equation`, `equation_background`, `figure`, `figure_simpler`).
+    public let action: String
+    public let savedAt: Date
+    public init(paperID: UUID, paperTitle: String, manifestSHA256: String, itemID: String, label: String, action: String, savedAt: Date) {
+        self.paperID = paperID; self.paperTitle = paperTitle; self.manifestSHA256 = manifestSHA256; self.itemID = itemID
+        self.label = label; self.action = action; self.savedAt = savedAt
     }
 }
 
@@ -215,7 +237,24 @@ public final class EquationResultStore: @unchecked Sendable {
         prune()
     }
 
-    private func aad(_ answerKey: some SealedAnswerKey) -> Data { Data((Self.aadPrefix + accountID.wire + "/" + answerKey.fileName).utf8) }
+    /// Every kept answer that opens and decodes as `type`, newest first (Settings › Your assets). The associated data is
+    /// the file's own name, so each file is checked against the name it is kept under.
+    public func all<Value: Decodable>(as type: Value.Type) -> [Value] {
+        lock.lock(); defer { lock.unlock() }
+        let manager = FileManager.default
+        guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .isSymbolicLinkKey]) else { return [] }
+        return files.filter { $0.pathExtension == "sealed" }.compactMap { url -> (Value, Date)? in
+            guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
+                  let sealed = try? Data(contentsOf: url), sealed.count <= 1_048_576,
+                  let box = try? AES.GCM.SealedBox(combined: sealed),
+                  let data = try? AES.GCM.open(box, using: key, authenticating: aad(fileName: url.lastPathComponent)),
+                  let value = try? JSONDecoder().decode(Value.self, from: data) else { return nil }
+            return (value, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+        }.sorted { $0.1 > $1.1 }.map(\.0)
+    }
+
+    private func aad(_ answerKey: some SealedAnswerKey) -> Data { aad(fileName: answerKey.fileName) }
+    private func aad(fileName: String) -> Data { Data((Self.aadPrefix + accountID.wire + "/" + fileName).utf8) }
 
     private func prune() {
         let manager = FileManager.default

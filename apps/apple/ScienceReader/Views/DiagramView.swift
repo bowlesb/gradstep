@@ -67,7 +67,7 @@ struct HTMLVisualWebView: UIViewRepresentable {
     static func document(_ html: String, dark: Bool, fontSize: Double) -> String {
         let size = Int(min(26, max(12, fontSize)))
         return """
-        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=4">
+        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=8">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
         <style>:root{color-scheme:\(dark ? "dark" : "light dark")}html,body{margin:0;padding:0}body{padding:16px;font:\(size)px/1.45 -apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;overflow-wrap:anywhere}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid rgba(128,128,128,.45);padding:4px 8px;vertical-align:top}th{text-align:left}svg{max-width:100%;height:auto}pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}pre{white-space:pre-wrap}h1,h2,h3{line-height:1.25}h1{font-size:1.35em}h2{font-size:1.2em}h3{font-size:1.05em}img,iframe,object,embed,video{display:none !important}</style>
         </head><body>\(html)</body></html>
@@ -104,9 +104,9 @@ struct MermaidWebView: UIViewRepresentable {
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     static let page = """
         <!doctype html><html><head><meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=6">
+        <meta name="viewport" id="viewport" content="width=device-width,initial-scale=1,maximum-scale=8">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">
-        <style>:root{color-scheme:light dark}html,body{height:100%}body{margin:0;padding:16px;box-sizing:border-box;background:Canvas;font:-apple-system-body;display:flex}#diagram{margin:auto}#diagram svg{display:block;height:auto}</style>
+        <style>:root{color-scheme:light dark}body{margin:0;padding:16px;background:Canvas;font:-apple-system-body}#diagram{width:max-content;margin:0 auto}#diagram svg{display:block;height:auto}</style>
         </head><body><div id="diagram"></div></body></html>
         """
 
@@ -132,14 +132,21 @@ struct MermaidWebView: UIViewRepresentable {
                 if (window.innerWidth < 600 && window.innerHeight > window.innerWidth) {
                   source = source.replace(/^(\\s*(?:flowchart|graph)\\s+)(?:LR|RL)\\b/, '$1TD');
                 }
+                const screenWidth = document.documentElement.clientWidth;
                 const { svg } = await globalThis.mermaid.render('sr-diagram', source);
                 document.getElementById('diagram').innerHTML = svg;
-                // Fit the width, but never below 75% of natural size: labels stay readable and
-                // only very large diagrams scroll (pinch-zoom still works). Smaller ones sit centred.
+                // At its own size, the page as wide as the drawing: it opens fitted to the width and two fingers zoom it up
+                // to 8× and move around it (owner, build 62: "Zooming with two fingers should work well here"; a wide
+                // drawing centred by flexbox used to run off the left edge, out of reach). Smaller ones sit centred.
                 const drawn = document.querySelector('#diagram svg'), box = drawn?.viewBox?.baseVal;
                 if (drawn && box && box.width > 0) {
-                  const scale = Math.max(Math.min(1, (window.innerWidth - 32) / box.width), 0.75);
-                  drawn.removeAttribute('width'); drawn.style.maxWidth = 'none'; drawn.style.width = (box.width * scale) + 'px';
+                  drawn.removeAttribute('width'); drawn.style.maxWidth = 'none'; drawn.style.width = box.width + 'px';
+                  const page = Math.ceil(box.width + 32);
+                  if (page > screenWidth) {
+                    const fit = (screenWidth / page).toFixed(4);
+                    document.getElementById('viewport').setAttribute('content',
+                      'width=' + page + ',initial-scale=' + fit + ',minimum-scale=' + fit + ',maximum-scale=8');
+                  }
                 }
                 post({ ok: true });
               } catch (error) { post({ ok: false }); }

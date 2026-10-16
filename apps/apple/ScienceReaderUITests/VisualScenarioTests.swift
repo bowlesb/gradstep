@@ -109,7 +109,7 @@ final class VisualScenarioTests: XCTestCase {
             "paper-contents": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.openSample(app)
                 app.buttons["Table of contents"].tap()
-                XCTAssertTrue(app.navigationBars["Contents"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
             },
             "chat-conversation": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.go(app, "chat")

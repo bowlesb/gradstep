@@ -125,8 +125,10 @@ public struct FigureAnswer: Codable, Equatable, Sendable {
     /// A part explained more simply, or the words sent instead of a walkthrough.
     public var text: String
     public var model: String?
-    public init(walkthrough: FigureWalkthrough? = nil, text: String = "", model: String? = nil) {
-        self.walkthrough = walkthrough; self.text = text; self.model = model
+    /// What it explains, for Settings › Your assets (EquationView.swift).
+    public var subject: ExplanationSubject?
+    public init(walkthrough: FigureWalkthrough? = nil, text: String = "", model: String? = nil, subject: ExplanationSubject? = nil) {
+        self.walkthrough = walkthrough; self.text = text; self.model = model; self.subject = subject
     }
 }
 

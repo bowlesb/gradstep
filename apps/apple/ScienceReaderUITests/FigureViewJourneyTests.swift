@@ -51,9 +51,8 @@ final class FigureViewJourneyTests: XCTestCase {
     /// Contents › Figures › Figure 1: the figure's own page.
     private func openFigureOne(_ app: XCUIApplication) {
         app.buttons["Table of contents"].tap()
-        let tabs = app.segmentedControls["contents.tabs"]
-        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
-        tabs.buttons["Figures"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Figures").tap()
         let row = app.buttons["contents.figure.0"]
         XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
         XCTAssertTrue(app.navigationBars["Figure 1"].waitForExistence(timeout: 5))

@@ -3415,6 +3415,14 @@ final class ReaderModel {
         return stored
     }
     func keepEquationAnswer(_ answer: EquationAnswer, for key: EquationResultKey) {
+        var answer = answer
+        if answer.subject == nil {
+            answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: key.equationID, action: key.action) { paper in
+                guard let context = self.equationContext(for: EquationViewRequest(paperID: paper.id, equationID: key.equationID)) else { return nil }
+                guard context.number == nil else { return context.label }
+                return PaperContentsSheet.label(number: nil, section: PaperContentsSheet.sections(of: context.bundle.index)[context.blockID])
+            }
+        }
         equationAnswers[key] = answer
         try? equationResultStore()?.write(answer, for: key)
     }
@@ -3504,8 +3512,52 @@ final class ReaderModel {
         return stored
     }
     func keepFigureAnswer(_ answer: FigureAnswer, for key: FigureResultKey) {
+        var answer = answer
+        if answer.subject == nil {
+            answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: key.figureID, action: key.action) { paper in
+                self.figureContext(paperID: paper.id, figureID: key.figureID)?.label
+            }
+        }
         figureAnswers[key] = answer
         try? figureResultStore()?.write(answer, for: key)
+    }
+
+    // MARK: Kept explanations (Settings › Your assets; owner, build 62: "Equation Explanations, and Figure Explanations
+    // in the list of your assets")
+
+    /// The paper and item an answer explains, sealed with it; nil when its paper isn't open or in the library here.
+    private func explanationSubject(manifest: String, itemID: String, action: ChatAction, label: (Paper) -> String?) -> ExplanationSubject? {
+        guard let paper = papers.first(where: { $0.readerBundle?.manifestSHA256 == manifest })
+                ?? (selectedPaper?.readerBundle?.manifestSHA256 == manifest ? selectedPaper : nil) else { return nil }
+        return ExplanationSubject(paperID: paper.id, paperTitle: paper.title, manifestSHA256: manifest, itemID: itemID,
+                                  label: label(paper) ?? "", action: action.rawValue, savedAt: Date())
+    }
+
+    /// The equation and figure explanations kept on this device, each equation or figure once, newest first (read when
+    /// Settings shows them: every sealed answer is opened, so not on every change).
+    private(set) var keptEquationExplanations: [ExplanationSubject] = []
+    private(set) var keptFigureExplanations: [ExplanationSubject] = []
+    func refreshKeptExplanations() async {
+        let equations = equationResultStore(), figures = figureResultStore()
+        let (equationSubjects, figureSubjects) = await Task.detached(priority: .utility) {
+            (equations?.all(as: EquationAnswer.self).compactMap(\.subject) ?? [], figures?.all(as: FigureAnswer.self).compactMap(\.subject) ?? [])
+        }.value
+        let distinct = { (subjects: [ExplanationSubject]) -> [ExplanationSubject] in
+            var seen = Set<String>()
+            return subjects.sorted { $0.savedAt > $1.savedAt }.filter { seen.insert("\($0.paperID.wire)/\($0.itemID)").inserted }
+        }
+        keptEquationExplanations = distinct(equationSubjects); keptFigureExplanations = distinct(figureSubjects)
+    }
+
+    /// Opening a kept explanation: its paper opens as any paper does, then the paper's view shows the equation or figure
+    /// (`pendingExplanation`), where the kept answer shows without a new request. False when the paper isn't in the
+    /// library on this device.
+    var pendingExplanation: ExplanationSubject?
+    @discardableResult func openExplanation(_ subject: ExplanationSubject) -> Bool {
+        guard let paper = papers.first(where: { $0.id == subject.paperID && !$0.isSample }) else { return false }
+        pendingExplanation = subject
+        select(paper)
+        return true
     }
     private func figureResultStore() -> EquationResultStore? {
         if let figureStore { return figureStore }

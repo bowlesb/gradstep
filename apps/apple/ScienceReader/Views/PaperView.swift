@@ -545,6 +545,21 @@ struct PaperView: View {
             citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil; figureReferenceToShow = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
         }
+        // Settings › Your assets › an explanation: its equation or figure once its paper shows (ReaderModel.openExplanation),
+        // after the reset above; the kept answer shows there without a new request.
+        .task(id: "\(model.pendingExplanation?.paperID.uuidString ?? "")/\(model.pendingExplanation?.itemID ?? "")/\(model.readerDocumentScope?.manifestSHA256 ?? "")") {
+            guard let subject = model.pendingExplanation, let paper = model.selectedPaper, paper.id == subject.paperID,
+                  let bundle = paper.readerBundle, model.readerDocumentScope != nil else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, model.pendingExplanation == subject else { return }
+            model.pendingExplanation = nil
+            let earlier = "This explanation was made for an earlier copy of this paper. Open the \(subject.action.hasPrefix("equation") ? "equation" : "figure") to explain it again."
+            if subject.action.hasPrefix("equation") {
+                if bundle.index.equations.contains(where: { $0.id == subject.itemID }) { equation = EquationViewRequest(paperID: paper.id, equationID: subject.itemID) }
+                else { model.error = earlier }
+            } else if model.figureContext(paperID: paper.id, figureID: subject.itemID) != nil { figure = subject.itemID }
+            else { model.error = earlier }
+        }
     }
 
     // MARK: - Figure view
