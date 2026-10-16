@@ -1022,8 +1022,13 @@ struct ChatView: View {
         // Close above the tab bar (owner feedback, build 14: "space below chat box not well used").
         .padding(.top, 6).padding(.bottom, tabBarReserve > 0 ? 2 : 8)
         .frame(maxWidth: .infinity)
-        // An empty chat has nothing under the message box to fade out, and its glow runs on behind it (no seam).
-        .background { if !model.chatTranscriptMessages.isEmpty { ChromeFade(edge: .bottom, color: .chromeBackground, solid: false) } }
+        // An empty chat has nothing under the message box to fade out, and its glow runs on behind it (no seam). The band
+        // stays hit-testable even then: without a background, iPad's taps on the message box fell through to the
+        // transcript beneath and the box never took the focus.
+        .background {
+            if model.chatTranscriptMessages.isEmpty { Color.black.opacity(0.001) }
+            else { ChromeFade(edge: .bottom, color: .chromeBackground, solid: false) }
+        }
     }
 
     /// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
