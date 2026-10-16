@@ -8,12 +8,15 @@ import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './
 import { EMPTY_STUDY_MAP, studyMap, type StudyMap } from './study';
 import { parseFigureParts, type ChatFigureImage, type FigureParts } from './chat-figures';
 import { isEquationAction, parseEquationSymbols, type EquationSymbols } from './equation';
+import { isFigureAction, parseFigureWalkthrough, type FigureWalkthrough } from './figure-view';
 
 // v3 (2026-10-15) names figures: a question about a figure or table carries its image from the paper (CHAT.md); v4
 // (2026-10-16) adds DeepSeek, which answers only under it (servers before 2026-10-16 accept v1–v3 only).
 export const CONSENT_VERSION = 'cloud-ai-v4';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background';
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler';
+/** The equation and figure views: no conversation, so no title or suggestions (chat.ts `isViewAction` on the server). */
+export const isViewAction = (action: ChatAction | null | undefined) => isEquationAction(action) || isFigureAction(action);
 export interface ChatTurn { role: Role; text: string }
 export interface LocalPaperContext { format:'reader-local-context-v1'|'reader-local-context-v2';membership_id:string;source:'arxiv';source_id:string;revision:number;manifest_sha256:string;source_sha256:string;text:string }
 export interface ChatRequest {
@@ -73,16 +76,21 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   // `figure_requests`: this browser holds the paper (local context) and can attach a figure the model asks for.
   // `stop_signal` (2026-10-16): this browser records the reader's Stop (`v1_chat_stop`), so an answer that ends any other
   // way early costs the reader nothing (CHAT.md, "When an answer stops early").
+  // `figure_view` (2026-10-16, FIGURE_VIEW.md): this browser has the figure view, so every paper chat carries the
+  // walkthrough tool and a walkthrough reads the same cached prefix as the chat (servers before it ignore the value).
+  const paperChat = body.mode === 'paper' && r.action !== 'ingest' && r.action !== 'diagram_fix';
   body.capabilities = [...(r.action === 'ingest' ? ['web_import'] : []), ...(r.visualAnswers === false ? [] : ['visual_answers']),
-    ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : []), 'stop_signal'];
+    ...(r.visualAnswers !== false && r.localContext && r.action !== 'ingest' && r.action !== 'diagram_fix' ? ['figure_requests'] : []),
+    ...(paperChat ? ['figure_view'] : []), 'stop_signal'];
   if (r.action !== 'diagram_fix' && r.autoEffort) body.profile = { model: r.profile.model, effort: 'auto', length: r.profile.length };
   else if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
-  if (r.action !== 'diagram_fix' && !isEquationAction(r.action) && r.topicTitle) body.topic_title = true;
+  if (r.action !== 'diagram_fix' && !isViewAction(r.action) && r.topicTitle) body.topic_title = true;
   // Follow-up suggestions after every ordinary answer (not a diagram repair, not Ingest; the tutor asks its own; the
-  // equation view is no conversation).
-  if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study' && !isEquationAction(r.action)) body.follow_ups = true;
+  // equation and figure views are no conversation).
+  if (r.action !== 'diagram_fix' && r.action !== 'ingest' && r.action !== 'study' && !isViewAction(r.action)) body.follow_ups = true;
   if (r.action === 'study') body.study = r.study ?? EMPTY_STUDY_MAP;
-  // Figures go only with a paper question, never with Add paper or a diagram repair (chat-figures.ts).
+  // Figures go only with a paper question, never with Add paper or a diagram repair (chat-figures.ts); the figure view
+  // sends exactly its figure.
   if (r.figures?.length && body.mode === 'paper' && r.action !== 'ingest' && r.action !== 'diagram_fix' && !isEquationAction(r.action)) {
     body.figures = r.figures.map(f => ({ id: f.id, paragraph: f.paragraph, caption: f.caption, media_type: f.mediaType, data: f.data, width: f.width, height: f.height }));
   }
@@ -110,6 +118,8 @@ export type StreamEvent =
   | { type: 'figure_request'; figure: string }
   /** The equation view's symbols (action `equation`, servers from 2026-10-15; equation.ts). */
   | { type: 'equation'; symbols: EquationSymbols }
+  /** The figure view's walkthrough (action `figure`, servers from 2026-10-16; figure-view.ts). */
+  | { type: 'figure'; walkthrough: FigureWalkthrough }
   /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). `charged` and, when false, `reason`
    * (servers from 2026-10-16): whether the reader paid for it (CHAT.md, "When an answer stops early"). */
   | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string; charged?: boolean; reason?: string }
@@ -224,6 +234,11 @@ export class SSEParser {
         // Informational: symbols that are not usable are dropped, never fatal (the view then says so).
         const symbols = parseEquationSymbols(v);
         return symbols ? { type: 'equation', symbols } : null;
+      }
+      case 'figure': {
+        // Informational: a walkthrough that is not usable is dropped, never fatal (the view then shows the words).
+        const walkthrough = parseFigureWalkthrough(v);
+        return walkthrough ? { type: 'figure', walkthrough } : null;
       }
       case 'study': {
         // A map that is not whole is dropped; the answer and the previous map are unaffected.

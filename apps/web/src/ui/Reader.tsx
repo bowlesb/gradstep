@@ -22,6 +22,7 @@ import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 import { useWorkspaceControls } from './Shell';
 import type { EquationHost } from './EquationView';
+import type { FigureHost } from './FigureView';
 import { LINE_WIDTH_KEY, LineWidthControl, readLineWidth, type ReadingMode } from './ReadingMode';
 
 // The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
@@ -67,6 +68,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
   equations?: EquationHost;
+  /** The figure view's requests (FIGURE_VIEW.md), the same way. */
+  figureView?: FigureHost;
   /** After a chat citation closed the chat drawer: reopens it (PaperView's Back to chat). */
   onBackToChat?: () => void;
   /** Reading mode (READING_MODE.md): the toolbar becomes a quiet bar over the paper. */
@@ -81,7 +84,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -447,7 +450,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         onClose={() => setEquation(null)} onCite={marker => { setEquation(null); goToCited(marker); }}
         onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
       {bundle && figure.open && (
-        <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })}
+        <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
+          onCite={marker => { setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
           onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
     </div>

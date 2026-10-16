@@ -83,7 +83,7 @@ without a new request. The boxes are kept, never the crops. Nothing is sent with
    a table, recording cost and time.
 2. **Apps** — the buttons on the figure page, the walkthrough view with inline crops and the section menu, the local
    store, a fixture mode (`--chat-fixture-mode=figure_walkthrough`) and journeys (iPhone, iPad, Mac).
-3. **Browser** — the same in the figure dialog; journeys on desktop and phone.
+3. **Browser** (built 2026-10-16, not deployed: "Browser — as built" below) — the same in the figure dialog; journeys on desktop and phone.
 4. **Evaluation** — ten figures across recent papers (plots, diagrams, tables): are the details right, are boxes on
    the right regions, does every panel get a section; adjust the instructions; record per-figure cost.
 
@@ -222,3 +222,48 @@ data: {"stop_reason":"end_turn","credits":4,"usage":{…},"model":"claude-sonnet
 - Tables in the reader are HTML: the device must make the table's image (as the smoke does from the bundle) before it
   can send one.
 - The tool's `box` wording changed after the DPO and InfoVis runs (one paper write per paper on staging since).
+
+## Browser — as built (phase 3, 2026-10-16)
+
+Built on a branch with fixtures; **not deployed**. Code: `apps/web/src/lib/figure-view.ts` (the event's check, crop
+arithmetic, keys), `ChatSession.figure`/`savedFigure` (`chat-session.ts`), `ui/FigureView.tsx` (the panel, loaded with
+the first figure page so the Markdown and math typesetter stay out of the reader's bundle), `ui/Figures.tsx` (the
+figure page), wired through `Reader` and `App` like the equation view's host.
+
+- **Where:** the browser's figure page (Contents › Figures › a row, the Figures gallery's figure, a tapped figure).
+  Under the figure, **Explain** and **Ask in chat** side by side (Ask in chat replaces the page's "Discuss in chat":
+  an unsent draft about the caption, the composer focused). Nothing is requested on opening; Explain asks the chat's
+  consent first. While a walkthrough is asked for or shown the figure gets smaller (46 % of the window, 38 % on a
+  phone) and the page scrolls as one, the words at a reading width (760 px) under the figure. Not on a figure
+  *reference* preview (a "Figure 3" link's detail), which keeps Discuss in chat and Go to figure.
+- **Request:** exactly the chat's request for the paper (default model, automatic effort, Visual answers setting,
+  consent v4, the numbered paper on this device: a source membership or a legacy arXiv item) with `action`, one turn
+  ("Figure 1"; "Figure 1 (a)" for a part, its title when it has no label), `selection.quote` (the caption; the part's
+  text) and `figures: [F1]`, the figure's image prepared as a chat question naming it prepares it (stacked panels,
+  ≤1,568 px, JPEG). **Every browser paper chat now sends `figure_view`** (with `visual_answers`, `figure_requests`,
+  `stop_signal` as before), so its chats carry the walkthrough tool and the walkthrough reads their cache; never with
+  Add paper, a diagram repair or a general chat. No title, suggestions or conversation; nothing is written to history.
+- **Shown:** *What it shows* (the summary; without a walkthrough, the model's words as they stream), then *Part by
+  part*: each part's label as a quiet tag, its title, a crop where the model drew a box, and its text (Markdown, math,
+  `[¶N]` links that close the page and land on the paragraph with Back). The crop is CSS over the image that was sent
+  (`cropStyle`: background size 1/w × 1/h, position x/(1−w), y/(1−h)), sized to the box's shape (at most 560 px wide,
+  320 px tall at a square). The event is checked again (`parseFigureWalkthrough`: the server's bounds; an unusable
+  part or box is dropped, never the walkthrough).
+- **A part's ⋯** (a menu button, keyboard as the chat's ⋯): **Explain more simply** (`figure_simpler`, streamed under
+  the part in a quiet box, Try again on failure), **Show in the paper** (its first cited paragraph with Back, else the
+  figure), **Ask in chat about this** (an unsent draft with the part's text as the passage).
+- **Kept:** per paper revision, figure, action (and part) and the default model, in memory for the browser session
+  (as equation answers; never stored in the clear); reopening a figure shows its walkthrough and its simpler parts
+  without a request. The image goes with the result, so crops need nothing more.
+- **Endings:** a failure says why with Try again (`figure_unavailable`: the image couldn't be prepared in this
+  browser); a walkthrough or words that ended early say "Interrupted · not charged" under them (CHAT.md); no credit
+  counts anywhere.
+- **Evidence:** `apps/web/tests/figure-view.test.ts` (the event's degradation rules and stream event; the request equal
+  to the chat's with the action and one figure, `figure_view` with Visual answers off; crop arithmetic; the session's
+  request, cache, words fallback, failures and refusals before sending) and the capability expectations in
+  `tests/chat.test.ts`; `e2e/figure-view.spec.ts` on desktop and phone (opened with nothing sent; consent; three parts
+  and the one crop's CSS; the request; more simply; Show in the paper; reopened from the cache; Ask in chat about this;
+  a failed walkthrough tried again; the page's Ask in chat; words without a walkthrough, cut off and "Interrupted · not
+  charged"), screenshots light and dark reviewed; the equation-view,
+  reader-drafts, chat, chat-redesign and arxiv-html journeys still pass; `npm test`.
+

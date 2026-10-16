@@ -1,6 +1,18 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+
+## Figure view, browser — 2026-10-16 (built; not deployed)
+
+- The browser's figure page has **Explain** and **Ask in chat** under the figure; Explain (after the chat's consent)
+  shows What it shows and Part by part, with a crop where the model drew a box, `[¶N]` links with Back, and a ⋯ per
+  part: Explain more simply, Show in the paper, Ask in chat about this
+  ([FIGURE_VIEW.md](architecture/FIGURE_VIEW.md#browser--as-built-phase-3-2026-10-16)). Every browser paper chat now
+  sends `figure_view`. Kept for the session; no credit counts.
+- Evidence: browser units (`figure-view.test.ts`, `chat.test.ts`), `figure-view.spec.ts` desktop and phone, the
+  equation-view, reader-drafts, chat, chat-redesign and arxiv-html journeys desktop and phone (35 passed, 9 skipped by
+  their own conditions), `npm test`. Not live: the browser isn't deployed with it, and the staging walkthroughs so far
+  drew no boxes (phase 4).
 
 ## Browser: AI credits, Subscription plan and Your assets — 2026-10-16 (built; not deployed)
 
