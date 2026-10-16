@@ -9,6 +9,14 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight builds 57–58, 2026-10-16: two papers refused over one figure each, and the table gradient
+
+| # | Owner said | Where | Cause / plan | Status |
+|---|---|---|---|---|
+| 1 | "Fail" (ActionOPD: Distilling Decisions, Not Tokens, 2610.19820v1) | Reader (all surfaces) | The device compiler refused the paper (`svg_id`): its teaser SVG names two Illustrator layers both `layer_1`. Revision 15: a repeated id nothing refers to is dropped from the later element and the figure is drawn; any figure the device still can't prepare becomes a note ("This figure couldn't be shown here; the PDF has it."), never a refusal. | Fixed in revision 15 (not yet in a build) |
+| 2 | "Couldn't open this paper — This paper exceeds the device reader's preparation limits" (InfoVis, 2610.16784v1) | Reader (all surfaces) | One 1,802 × 1,275 pt diagram SVG was over the pixel limit at twice its size (`image_dimensions`). Revision 15 draws an over-large picture at the largest size the reader allows (it is a vector; the pixel budget keeps fewer pixels anyway). All 13 figures show. | Fixed in revision 15 (not yet in a build) |
+| 3 | "I really dislike this gradient" (a wide table's left/right edge) | Reader (iPhone, iPad, Mac, browser) | The reader bridge's scroll shadows (`reader-bridge.js`: grey radial gradients plus page-coloured covers) on every table and display equation that scrolls sideways. Removed; the box is flat and an edge with more beyond it shows a 1 px hairline, light and dark. | Fixed in the bridge (not yet in a build) |
+
 ## TestFlight build 55, 2026-10-15: "Couldn't open this paper" (YouZhi, 2606.05868)
 
 | # | Owner said | Where | Cause / plan | Status |
