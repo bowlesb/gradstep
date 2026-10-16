@@ -23,7 +23,7 @@ import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
-import { figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
+import { detailQuote, figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
 
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
@@ -598,7 +598,7 @@ export class ChatSession {
     const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
     if (this.retiredStorage) return finish('storage_retired');
     if (!this.deps.readConsent()) return finish('consent_required');
-    if (action === 'figure_simpler' && !input.part?.text.trim()) return finish('invalid_request');
+    if (action !== 'figure' && !input.part?.text.trim()) return finish('invalid_request');
     // A source membership's paper, or a legacy arXiv item's (named by its library item, as its chat).
     const reference = this.reference(documentID), local = reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
     const named = reference ?? local?.reference;
@@ -618,8 +618,9 @@ export class ChatSession {
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     result = { ...result, image: { data: image.data, width: image.width, height: image.height } }; update(result);
     const name = figureName(bundle, figure.id);
-    const quote = action === 'figure' ? (figure.caption || figure.alt || name) : input.part!.text;
-    const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: figureTurn(name, action === 'figure_simpler' ? (input.part!.label || input.part!.title) : undefined) }],
+    // A part extracted names the part (label and title) with its text, so the model knows which region to box.
+    const quote = action === 'figure' ? (figure.caption || figure.alt || name) : action === 'figure_detail' ? detailQuote(input.part!) : input.part!.text;
+    const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: figureTurn(name, action !== 'figure' ? (input.part!.label || input.part!.title) : undefined) }],
       quote, action, { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
     try { request.localContext = localChatContext(named, bundle); } catch { return finish('local_reader_unavailable'); }
     request.figures = [image];
@@ -628,10 +629,11 @@ export class ChatSession {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
         if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
         else if (event.type === 'figure') { result = { ...result, walkthrough: event.walkthrough }; update(result); }
+        else if (event.type === 'figure_detail') { result = { ...result, detail: event.detail }; update(result); }
         else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
         else if (event.type === 'done') {
           result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason };
-          finish(result.walkthrough || result.text.trim() ? null : 'provider_unavailable'); break;
+          finish(result.walkthrough || result.detail || result.text.trim() ? null : 'provider_unavailable'); break;
         }
       }
       if (result.phase === 'loading') finish('transport');
@@ -935,7 +937,7 @@ export class ChatSession {
         else if (event.type === 'study') nextMap = event.map;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
-        else if (event.type === 'equation' || event.type === 'figure') { /* the equation and figure views' own events; a chat never asks for them */ }
+        else if (event.type === 'equation' || event.type === 'figure' || event.type === 'figure_detail') { /* the equation and figure views' own events; a chat never asks for them */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; end = { credits: event.credits, charged: event.charged }; break; }
         this.publish();

@@ -2,6 +2,18 @@
 
 Updated 2026-10-16 UTC (figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Figure view: one part extracted (TestFlight 62 feedback) — 2026-10-16, ~15:50 UTC (server on staging; apps and browser built, not shipped)
+
+- Owner (build 62): "Extract the subfigure and more context… opens up a loader below, gets the info, and puts it
+  below". New chat action `figure_detail` on the chat's cached prefix: the walkthrough's tool with one section and a
+  required box, relayed as `figure_detail` (`figure-detail-v1`); words without a box. Apps and browser: the part's menu
+  item, a loader, then the crop and the closer reading under the part; kept with the walkthrough
+  ([FIGURE_VIEW.md](architecture/FIGURE_VIEW.md#one-part-extracted-owner-testflight-62-2026-10-16)).
+- Migration 083 (`figure_detail` in `chat_endings` and `worker_settle_chat`) and the chat function deployed to staging;
+  deploy checks 19 pass, `chat.smoke` failed only on the Anthropic credit balance. No live extract yet for that reason.
+- Evidence: backend, database (full suite), core, iPhone Simulator journeys (FigureViewJourneyTests 2/2 with the new
+  steps), browser units and `figure-view.spec.ts` desktop/phone 6/6, `npm test`.
+
 ## Build 62 feedback: reader on the phone, versions, billing — 2026-10-16, ~15:50 UTC (not yet in a build)
 
 - **Broken?? (Related papers)**: the staging Anthropic account's credit balance ran out about 15:00 UTC; every Claude

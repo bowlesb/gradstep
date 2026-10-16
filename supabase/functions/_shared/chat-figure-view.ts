@@ -10,10 +10,10 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { EFFORTS } from './chat-profiles.ts';
 
-export const FIGURE_ACTIONS = ['figure', 'figure_simpler'] as const;
+export const FIGURE_ACTIONS = ['figure', 'figure_simpler', 'figure_detail'] as const;
 export type FigureAction = typeof FIGURE_ACTIONS[number];
 export const isFigureAction = (action: string | null | undefined): action is FigureAction =>
-  action === 'figure' || action === 'figure_simpler';
+  action === 'figure' || action === 'figure_simpler' || action === 'figure_detail';
 
 /** A build with the figure view says so on every paper chat request; only then is figure_walkthrough among the tools. */
 export const FIGURE_VIEW_CAPABILITY = 'figure_view';
@@ -25,6 +25,12 @@ export const FIGURE_LIMITS = Object.freeze({ sections: 12, textChars: 1_500, sum
 export const FIGURE_ANSWER_TOKENS = 6_000;
 export function figureMaxTokens(effort: string): number {
   return FIGURE_ANSWER_TOKENS + (EFFORTS.find(entry => entry.id === effort)?.thinkingTokens ?? 4_000);
+}
+/** One part, extracted (`figure_detail`): its box and up to ~1,500 characters, plus the effort's thinking. */
+export const FIGURE_DETAIL_FORMAT = 'figure-detail-v1';
+export const FIGURE_DETAIL_ANSWER_TOKENS = 2_500;
+export function figureDetailMaxTokens(effort: string): number {
+  return FIGURE_DETAIL_ANSWER_TOKENS + (EFFORTS.find(entry => entry.id === effort)?.thinkingTokens ?? 4_000);
 }
 
 export const FIGURE_WALKTHROUGH_TOOL: Anthropic.Beta.Messages.BetaTool = {
@@ -62,6 +68,16 @@ Call figure_walkthrough once with the whole walkthrough, even when part of the i
 - box: a crop of the image the reader sees enlarged above the section. When the figure is large or dense (several panels, small print), give a box to each section whose text points at a detail that is hard to see at the figure's full size (a small inset, where two curves cross, a thin slice, a tiny label or marker); such a figure usually has one to three. The region as fractions of the image, x and y its top-left corner, w and h its width and height, tight around the detail, each side at least ${FIGURE_LIMITS.minSide}. At most ${FIGURE_LIMITS.boxes} boxes in the whole walkthrough; most sections have none, and a small or simple figure needs none.`;
 
 export const FIGURE_SIMPLER_INSTRUCTIONS = `The reader is reading a walkthrough of the attached figure (F1) and asked for one part of it, in the <selected_passage> block, to be explained more simply ("back up a bit"). Explain only that part again, for someone meeting it for the first time: where to look in the image and what is there, in plain words; the background it relies on, each idea briefly (what the axes or quantities mean, why this kind of plot or measure is used, any term the passage takes for granted); then what to notice and why it matters to the paper, with a small concrete example when it helps. Do not walk through the rest of the figure and do not repeat the passage. Cite the paper as usual. Do not use any tool and do not search the web.`;
+
+/** "Extract the subfigure and more context" (owner, build 62): one part of the walkthrough, cropped and read again with
+ * more of the paper around it. Same tool as the walkthrough (so the cached tools stay the chat's), one section, its box
+ * required: the device crops the image it sent to that region and shows the text under it. */
+export const FIGURE_DETAIL_INSTRUCTIONS = `The reader is reading a walkthrough of the attached figure (F1) and asked to extract one part of it, in the <selected_passage> block (the part's label, title and text from the walkthrough), and for more context about it. Look closely at that part of the image.
+Call figure_walkthrough once with exactly one section, that part, even when it is hard to read (say so in the text). Write no other text, use no other tool and do not search the web.
+- box: required. The region of the image this part occupies, tight around it with a little margin, as fractions of the image: x and y its top-left corner, w and h its width and height, each side at least ${FIGURE_LIMITS.minSide}. Not the whole figure: when the part is the whole figure, box the region its text points at.
+- label and title: the part's, as in the passage.
+- text: a closer reading of that region than the walkthrough gave: every detail visible in it (axes and their ranges, tick labels, legend entries, values, colours, markers, line styles, arrows, annotations, small print), then more context from the paper: what the text around the figure says about this part, the method or setting it comes from, how it supports the paper's claims, and any caveat the paper states. Cite paragraphs with their [¶N] markers right after the statements they support, and list their numbers in paragraphs. Do not repeat the passage. Usually 800 to 1,500 characters.
+- summary: one plain sentence saying what this part shows.`;
 
 export interface FigureBox { x: number; y: number; w: number; h: number }
 export interface FigureSection { label: string; title: string; text: string; paragraphs: number[]; box?: FigureBox }
@@ -132,6 +148,18 @@ export function figureWalkthrough(input: unknown, paragraphs: number): FigureWal
   }
   if (!sections.length) return null;
   return { format: FIGURE_FORMAT, summary: prose(v.summary, FIGURE_LIMITS.summaryChars, paragraphs), sections };
+}
+
+export interface FigureDetail { format: typeof FIGURE_DETAIL_FORMAT; label: string; title: string; text: string; paragraphs: number[]; box: FigureBox }
+/** The model's figure_walkthrough input for one part (`figure_detail`), checked: its first usable section with a usable
+ * box. Null when there is none (the words still reach the reader, without a crop: `figureWalkthroughText`). */
+export function figureDetail(input: unknown, paragraphs: number): FigureDetail | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || !Array.isArray((input as Record<string, unknown>).sections)) return null;
+  const first = ((input as Record<string, unknown>).sections as unknown[]).find(s => !!s && typeof s === 'object' && !Array.isArray(s));
+  const checked = first ? figureWalkthrough({ summary: '', sections: [first] }, paragraphs) : null;
+  const section = checked?.sections[0];
+  if (!section?.box) return null;
+  return { format: FIGURE_DETAIL_FORMAT, label: section.label, title: section.title, text: section.text, paragraphs: section.paragraphs, box: section.box };
 }
 
 /** How many sections of the model's input carried a box at all (a count for the log: boxes offered but dropped show a

@@ -3791,7 +3791,7 @@ final class ReaderModel {
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
                 // The equation and figure views' own events; an ordinary answer never gets them.
-                case .equation, .figure: break
+                case .equation, .figure, .figureDetail: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits

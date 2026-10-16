@@ -2,7 +2,8 @@
 // the figure, as the equation view. Nothing is asked of the AI on opening; Explain asks the chat's consent first. The
 // walkthrough says what the figure shows, then goes part by part, with a crop at the top of a part only where the model
 // drew a box (cut here from the image that was sent, so it costs nothing more). Each part's ⋯ offers Explain more
-// simply (streamed under it), Show in the paper and Ask in chat about this. No credit counts (owner, build 59).
+// simply (streamed under it), Extract the subfigure and more context (owner, TestFlight 62: a loader under the part, then
+// its crop and a closer reading), Show in the paper and Ask in chat about this. No credit counts (owner, build 59).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
 import { cropStyle, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
@@ -38,6 +39,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const [asking, setAsking] = useState(false);
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure') ?? null);
   const [simpler, setSimpler] = useState<Map<string, FigureResult>>(() => new Map());
+  const [details, setDetails] = useState<Map<string, FigureResult>>(() => new Map());
   const requests = useRef(new Map<string, AbortController>());
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
   useEffect(() => { onActive(asking || !!walk); }, [asking, walk, onActive]);
@@ -50,6 +52,11 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_simpler', k); if (saved && !next.has(k)) next.set(k, saved); });
       return next;
     });
+    setDetails(previous => {
+      const next = new Map(previous);
+      walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_detail', k); if (saved && !next.has(k)) next.set(k, saved); });
+      return next;
+    });
   }, [host, manifest, figureID, walk?.walkthrough]);
 
   const run = useCallback((action: FigureAction, part?: FigureSection, index = 0) => {
@@ -59,7 +66,9 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     const controller = new AbortController(); requests.current.set(`${action}|${key}`, controller);
     const set = (result: FigureResult) => {
       if (controller.signal.aborted) return;
-      if (action === 'figure') setWalk(result); else setSimpler(m => new Map(m).set(key, result));
+      if (action === 'figure') setWalk(result);
+      else if (action === 'figure_detail') setDetails(m => new Map(m).set(key, result));
+      else setSimpler(m => new Map(m).set(key, result));
     };
     set(loading());
     void host.run({ figureID, ...(part ? { part: { key, label: part.label, title: part.title, text: part.text } } : {}) }, action, set, controller.signal).catch(() => {});
@@ -109,12 +118,15 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
           const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), style = s.box && image ? cropStyle(s.box, image) : null;
+          const closer = details.get(key), closerImage = closer?.image ?? image, closerStyle = closer?.detail && closerImage ? cropStyle(closer.detail.box, closerImage) : null;
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
               <h4>{s.label && <span className="figure-section-label">{s.label}</span>}<span>{s.title}</span></h4>
               <MenuButton icon="more" label={`${heading}: options`} testID={`figure-section-menu-${i}`}>{close => <>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-simpler-item" disabled={!!more && more.phase !== 'failed'}
                   onClick={() => { close(false); run('figure_simpler', s, i); }}><Icon name="lightbulb" size={14} /> Explain more simply</button>
+                <button type="button" role="menuitem" className="menu-item" data-testid="figure-detail-item" disabled={!!closer && closer.phase !== 'failed'}
+                  onClick={() => { close(false); run('figure_detail', s, i); }}><Icon name="search" size={14} /> Extract the subfigure and more context</button>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-show-item"
                   onClick={() => { close(false); if (s.paragraphs[0]) onCite(s.paragraphs[0]); else onShowFigure(); }}><Icon name="book" size={14} /> Show in the paper</button>
                 {onAsk && <button type="button" role="menuitem" className="menu-item" data-testid="figure-ask-item" disabled={busy}
@@ -131,6 +143,19 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                 {more.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_simpler', s, i)}>Try again</button>}</div>
                 : more.text ? <Answer text={more.text} streaming={more.phase === 'loading'} /> : <p className="fine" role="status">Writing…</p>}
               {endedEarly(more) && <p className="fine">{endedEarly(more)}</p>}
+            </div>}
+            {closer && <div className="figure-simpler figure-detail" data-testid="figure-detail">
+              <p className="figure-simpler-head">Up close</p>
+              {closer.phase === 'failed' && !closer.text ? <div className="equation-issue" role="alert"><p>{issueText(closer.issue ?? 'provider_unavailable')}</p>
+                {closer.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_detail', s, i)}>Try again</button>}</div>
+                : closer.phase === 'loading' ? <p className="fine" role="status">Extracting this part…</p> : <>
+                  {closerStyle && closerImage && <div className="figure-crop" role="img" aria-label={`${heading}, up close`} data-testid="figure-detail-crop"
+                    style={{ aspectRatio: String(closerStyle.aspect), width: `min(100%, ${Math.round(Math.min(560, 360 * closerStyle.aspect))}px)`,
+                      backgroundImage: `url("data:image/jpeg;base64,${closerImage.data}")`, backgroundSize: closerStyle.size, backgroundPosition: closerStyle.position }} />}
+                  <Answer text={closer.detail?.text ?? closer.text} />
+                  {!closer.detail && <p className="fine" data-testid="figure-detail-no-crop">Couldn’t crop this part; here is the closer reading.</p>}
+                </>}
+              {endedEarly(closer) && <p className="fine">{endedEarly(closer)}</p>}
             </div>}
           </li>;
         })}</ol>

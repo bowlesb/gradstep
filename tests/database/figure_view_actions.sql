@@ -1,4 +1,5 @@
--- The figure view's chat actions (migration 082, docs/architecture/FIGURE_VIEW.md): `figure` and `figure_simpler` settle
+-- The figure view's chat actions (migrations 082, 083, docs/architecture/FIGURE_VIEW.md): `figure`, `figure_simpler` and
+-- `figure_detail` (one part extracted) settle
 -- like every chat action, with their ending recorded (charged when completed, nothing for an early ending); every
 -- earlier action still settles, and an unknown action is still refused. Synthetic local SQL; nothing leaves the machine.
 -- Runs after the HTML-first cutover migrations (scripts/test-database.py).
@@ -19,6 +20,8 @@ grant execute on all functions in schema test to anon,authenticated,service_role
 \set F2 '82000000-0000-0000-0001-000000000002'
 \set F3 '82000000-0000-0000-0001-000000000003'
 \set E1 '82000000-0000-0000-0001-000000000004'
+\set D1 '82000000-0000-0000-0001-000000000005'
+\set D2 '82000000-0000-0000-0001-000000000006'
 \set X '82000000-0000-0000-0001-000000000009'
 insert into auth.users(id,email) values(:'A','reader-82@gradstep.test.org');
 select date_trunc('month',now() at time zone 'UTC')::date as month \gset
@@ -39,6 +42,12 @@ select public.worker_reserve_operation(:'A',:'F3','chat',sha256('f3'),'beta-cred
 select public.worker_settle_chat(:'A',:'F3',0,30000,'figure','limit',30000);
 select public.worker_reserve_operation(:'A',:'E1','chat',sha256('e1'),'beta-credits-v1',40,200000);
 select public.worker_settle_chat(:'A',:'E1',2,9000,'equation','completed',0);
+-- One part extracted (083): charged when it finished, nothing when the provider failed it.
+select public.worker_reserve_operation(:'A',:'D1','chat',sha256('d1'),'beta-credits-v1',40,200000);
+select public.worker_settle_chat(:'A',:'D1',3,12000,'figure_detail','completed',0);
+select public.worker_reserve_operation(:'A',:'D2','chat',sha256('d2'),'beta-credits-v1',40,200000);
+select public.worker_settle_chat(:'A',:'D2',0,5000,'figure_detail','provider',5000);
+select test.reject(format('select public.worker_settle_chat(%L,%L,6,28000,%L,%L,0)',:'A',:'F1','figure_detail','completed'),'settlement_id_conflict');
 -- Replays: identical is a no-op, a different action conflicts; a figure action that ended early can never charge.
 select public.worker_settle_chat(:'A',:'F1',6,28000,'figure','completed',0);
 select test.reject(format('select public.worker_settle_chat(%L,%L,6,28000,%L,%L,0)',:'A',:'F1','figure_simpler','completed'),'settlement_id_conflict');
@@ -48,9 +57,9 @@ select test.reject(format('select public.worker_settle_chat(%L,%L,0,9000,%L,%L,9
 select test.reject(format('select public.worker_settle_chat(%L,%L,0,9000,%L,%L,9000)',:'A',:'X','unknown','server'),'invalid_settlement');
 reset role;
 
-select test.assert(test.available(:'A')=:before_a-8-40,'only the finished walkthrough and the equation symbols are charged; the other holds are released (the refused one stays held)');
+select test.assert(test.available(:'A')=:before_a-8-3-40,'only the finished walkthrough, the equation symbols and the finished extract are charged; the other holds are released (the refused one stays held)');
 select test.assert((select array_agg(action||':'||ending||':'||charged||':'||credits||':'||absorbed_microusd order by operation_id) from app_private.chat_endings
- where account_id=:'A')='{figure:completed:true:6:0,figure_simpler:provider:false:0:9000,figure:limit:false:0:30000,equation:completed:true:2:0}',
+ where account_id=:'A')='{figure:completed:true:6:0,figure_simpler:provider:false:0:9000,figure:limit:false:0:30000,equation:completed:true:2:0,figure_detail:completed:true:3:0,figure_detail:provider:false:0:5000}',
  'each figure-view ending is recorded with the action');
 select test.assert((select state='reserved' from app_private.metered_operations where id=:'X'),'a refused settlement changes nothing');
 -- The table itself still refuses an action no client sends.
