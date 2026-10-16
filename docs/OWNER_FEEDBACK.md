@@ -383,3 +383,27 @@ The owner liked the episodes ("I like it … lets keep going with this") and app
    that actually run about 5 minutes.
 3. **A weekly curated catalog** on a **$3/month** allowance (about 10 episodes), inside the $25 provider cap.
    Episodes wait for the owner's review by default.
+
+## Build 62, 2026-10-16 14:43–15:07 UTC (iPhone, 15 items)
+
+| # | Owner's words (short) | Where | Plan |
+|---|---|---|---|
+| 1 | "Equations in this way need an outline clean step… excess pixels around the edge… then margin" | on-device PDF model: formulas shown as images | trim stray edge pixels from a formula crop, then a margin |
+| 2 | "Remove the try again. Have two options — the pdf view and the on device model" | Couldn't open this paper (MLExpert 2610.22344) | one failure screen: Open PDF, Read with the on-device model |
+| 3 | "keeps trying to Download repeatedly and failing, doesn't stop retrying" | Library row | every library sync reopened the selected paper after a failed open; retry only on the reader's action |
+| 4 | "This message… is too intrusive… 'Reader Version Details'… the option to update it" | banner after a failed re-preparation | no banner; ⋯ › Reader version details (this paper's, the app's, Update) |
+| 5 | "different types of screens in different situations, there should be just one" | No web version vs Couldn't open | same screen as 2 |
+| 6 | "top horizontal space is poorly used… X in top right… Explain in Chat and Explain with AI… liquid styling" | figure page | DESIGN.md "Sheet top row", "Explain actions" |
+| 7 | "options on top… a little thing you can expand to get to… all your equation listings" | explainer pages | top row; title ⌄ lists the other figures/equations |
+| 8 | "a new button for 'Extract the subfigure and more context'… loader below… puts it below" | a walkthrough part | new action per part: crop + more context, on request |
+| 9 | "remove Done, use x button, use Liquid… tabs" | Contents sheet | glass tabs + X in one row |
+| 10 | "remove the equation text… Equation 1, Equation 2… a tile view similar to figures?" | Contents › Equations | rows "Equation (n)"; View as tiles with the equations typeset |
+| 11 | "The title Equations is duplicative" | Contents sheet | no title (the tab says it) |
+| 12 | "Equation Explanations, and Figure Explanations in the list of your assets" | Settings › Your assets | two lists of the explanations kept on this device |
+| 13 | "Zooming with two fingers should work… but it doesn't" | a diagram full size | pinch to zoom and pan |
+| 14 | "Replace Explain with AI Explainer" | equation edit menu | "Equation" → "AI Explainer"; the pages' button is "AI Explainer" too |
+| 15 | "Broken??" (Related papers) | chat | Anthropic credit balance ran out on staging (~15:00 UTC); every Claude request failed. Owner tops up; operators alerted on billing rejections |
+
+Also seen: 2504.02792 and 2610.22083 failed their re-preparation (revision 16) on the phone while they prepare on the
+Mac and in the Simulator; the reason was hidden behind the default wording. The failure reason is now shown in Reader
+version details, a killed web compiler is retried once, and preparations run one at a time.

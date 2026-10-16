@@ -58,6 +58,17 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   accent for information, orange for problems), shown only when the reader can act, scrolling with content.
 - **Sheets**: centered inline title; information sheets have Done on the right; task sheets have Cancel on the
   left and the confirming action on the right; short sheets open at medium height.
+- **Sheet top row** (owner, build 62, 2026-10-16: "the top horizontal space is poorly used… use Liquid Glass… remove Done,
+  use an X"): an information sheet (Contents, a figure or table, the equation view, an explainer) has one glass row at
+  the top: its controls on the left (tabs, or the page's actions), a round glass **X** on the right. No centred title
+  when the controls already say where you are (Contents' tabs name the tab; a figure page's caption names the figure),
+  no Done. Glass = `ChromeSurface` (Liquid Glass on iOS 26, a material before it, solid with Reduce Transparency); tabs
+  are a glass segmented control. A pushed page keeps a round glass Back on the left of the same row.
+- **Explain actions**: wherever a figure, table or equation is shown on its own, the top row offers **Explain in Chat**
+  (a draft in the paper's chat, nothing sent) and **AI Explainer** (the walkthrough / symbol explanation, requested only
+  then). The equation's edit menu item "Equation" is **AI Explainer** too (owner, build 62). An explainer's title is a
+  small menu (⌄) listing the paper's other figures or equations, to switch without going back to Contents.
+
 - **Rows**: `.headline` title (≤ 2 lines), `.subheadline` authors, `.footnote` details/status; 16 pt side and 12 pt
   vertical padding; at most one trailing icon; navigation rows have a chevron, action rows accent text.
 - **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). A pinned
