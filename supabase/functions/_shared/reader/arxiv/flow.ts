@@ -9,6 +9,9 @@ import { imageFigure } from './figures.ts';
 import { table, tableContents } from './tables.ts';
 import { templatePreamble } from './front-matter.ts';
 
+/** Opens the caption of a figure whose image arXiv's own HTML conversion lost (owner's library sweep, 2026-10-15). */
+export const MISSING_FIGURE_NOTE = 'This figure is not in arXiv’s HTML version of the paper; the PDF has it.';
+
 /** The page's structure: one source node to the reader blocks it becomes, in order (sections, headings, paragraphs,
  * figures, tables, equations, lists, the author block, a title page's pieces). */
 export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
@@ -72,7 +75,11 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
       // 2610.17288's Figure 1): the caption paragraph, right under the figure the paragraph before it became.
       // A figure whose other children carry text (an algorithm's listing, a tabular in a paragraph) is a table
       // block below instead (audit 2026-10-15: nine of fifteen refusals were listings dropped here).
-      output = [block(cx, n, 'p', 'paragraph', id => children(captions[0]).flatMap(c => inline(cx, c, id)), { class: 'reader-caption' })];
+      // A figure whose image arXiv's HTML lacks (data-reader-missing, source.ts) says so before its caption.
+      const missing = n.attribs?.['data-reader-missing'] === '1'
+        || elements(n, c => c.attribs?.['data-reader-missing'] === '1').length > 0;
+      output = [block(cx, n, 'p', 'paragraph', id => [...(missing ? [el('em', {}, [MISSING_FIGURE_NOTE]), ' '] : []),
+        ...children(captions[0]).flatMap(c => inline(cx, c, id))], { class: 'reader-caption' })];
     } else if (tables.length || images.length === 0) {
       output = [block(cx, n, 'div', 'table', id => children(n).flatMap(c => tableContents(cx, c, id)), { class: 'reader-table' })];
     } else output = [imageFigure(cx, n)];

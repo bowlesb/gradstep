@@ -34,14 +34,18 @@ export function article(source: string): { root: DomNode; dropped: number } {
 }
 
 /** A graphic that is not one of the paper's own assets (arXiv's page chrome inside the article, an empty `src`:
- * 2610.20570, refused `arxiv_asset_url` on the fresh-paper sweep) is left out; returns how many, for the closing note. */
+ * 2610.20570, refused `arxiv_asset_url` on the fresh-paper sweep) is left out; returns how many, for the closing note.
+ * An image arXiv's own conversion lost (LaTeXML's `ltx_missing_image`, an empty `src`: 16 of CyberArena's 17 figures,
+ * 2610.19005) is not counted there: its figure is marked (`data-reader-missing`) so its caption says the PDF has it. */
 export function omitForeignGraphics(root: DomNode, sourceURL: string): number {
   let omitted = 0;
   for (const graphic of elements(root, c => c.name === 'img' || c.name === 'object')) {
     const reference = graphic.attribs?.[graphic.name === 'img' ? 'src' : 'data'] ?? '';
     let own = false; try { arxivAssetURL(reference, sourceURL); own = true; } catch { own = false; }
     if (own || !graphic.parent) continue;
-    graphic.parent.children = graphic.parent.children.filter(c => c !== graphic); omitted += 1;
+    graphic.parent.children = graphic.parent.children.filter(c => c !== graphic);
+    const figure = has(graphic, 'ltx_missing_image') ? nearest(graphic, 'figure') : null;
+    if (figure) figure.attribs = { ...(figure.attribs ?? {}), 'data-reader-missing': '1' }; else omitted += 1;
   }
   return omitted;
 }

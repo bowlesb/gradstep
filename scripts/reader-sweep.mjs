@@ -24,7 +24,8 @@ const DIR = join(ROOT, '.artifacts/reader-sweep'), SOURCES = join(DIR, 'sources'
 mkdirSync(SOURCES, { recursive: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { convertArxivHTML, arxivHTMLURL } = await import(`${ROOT}/supabase/functions/_shared/reader/arxiv-html.ts`);
-// The app's own validator runs on every compile (2026-10-15: VideoJev compiled here but the device refused it).
+// The device validates every compiled paper before showing it (device-compiler.ts); a converter output it would refuse
+// is a first-open failure (revision 13 named a picture title only in the index: `index_title` on 2610.18615).
 const { validateHTML } = await import(`${ROOT}/supabase/functions/_shared/reader/html-validate.ts`);
 const stub = () => ({ path: `assets/${'0'.repeat(64)}.png`, width: 10, height: 10 });
 
@@ -85,8 +86,9 @@ if (!papers.length) { console.error('no papers: pass --recent=N, --ids=…, --fr
 console.log(`${papers.length} papers`);
 
 // ---- checks -------------------------------------------------------------------------------------------------------
-const fold = s => norm(s).toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
-const family = name => { const words = norm(name).split(' ').filter(Boolean); return (words[words.length - 1] ?? '').toLowerCase(); };
+// Accents are compared without their marks ("Köprü" in the HTML, "Kopru" in arXiv's metadata).
+const fold = s => norm(s).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+const family = name => { const words = fold(name).split(' ').filter(Boolean); return words[words.length - 1] ?? ''; };
 const DATE = /^(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2},? \d{4}|\d{1,2} (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{4}|\d{4}-\d{2}-\d{2})$/i;
 function checks(paper, out, html) {
   const f = [];
@@ -97,7 +99,9 @@ function checks(paper, out, html) {
   const titleIndex = blocks.findIndex(b => b.kind === 'heading' && new RegExp(`<h1[^>]*id="${b.id}"`).test(html));
   if (titleIndex !== 0) fail('title_first', titleIndex < 0 ? 'no h1 title block' : `${titleIndex} block(s) before the title: ${JSON.stringify(blocks[0].text.slice(0, 80))}`);
   const title = blocks[titleIndex >= 0 ? titleIndex : 0];
-  if (fold(title.text) !== fold(paper.title) && !fold(title.text).includes(fold(paper.title).slice(0, 40))) warn('title_matches', `reader "${title.text.slice(0, 60)}" vs arXiv "${paper.title.slice(0, 60)}"`);
+  // A title set as a picture has no words in its heading; the index names it (finish.ts), and the picture's alt says it.
+  const titleText = title.text.trim() ? title.text : out.index.title;
+  if (fold(titleText) !== fold(paper.title) && !fold(titleText).includes(fold(paper.title).slice(0, 40))) warn('title_matches', `reader "${titleText.slice(0, 60)}" vs arXiv "${paper.title.slice(0, 60)}"`);
   const authorsBlock = blocks[titleIndex + 1];
   const authorsHTML = /<p class="reader-authors"[^>]*>(.*?)<\/p>/s.exec(html)?.[1] ?? null;
   if (!authorsBlock || !authorsHTML || !new RegExp(`class="reader-authors" data-reader-block="${authorsBlock.id}"`).test(html)) {
@@ -115,8 +119,10 @@ function checks(paper, out, html) {
     }
   }
   if (paper.summary) {
-    const head = fold(paper.summary).slice(0, 40);
-    const at = blocks.findIndex(b => fold(b.text).includes(head));
+    // Any of three stretches of the summary: a footnote inside the abstract (2610.19758: "Lumen¹ The open-source model
+    // is available at …") breaks its opening but not the rest.
+    const summary = fold(paper.summary), heads = [0, 60, 120].map(at => summary.slice(at, at + 40)).filter(h => h.length >= 20);
+    const at = blocks.findIndex(b => { const text = fold(b.text); return heads.some(h => text.includes(h)); });
     if (at < 0) warn('abstract_present', 'the arXiv summary\'s opening is in no block');
     else if (at < titleIndex) fail('abstract_position', `abstract at block ${at}, before the title`);
     else if (at > titleIndex + 6) warn('abstract_position', `abstract at block ${at}`);
@@ -128,7 +134,8 @@ function checks(paper, out, html) {
   }
   if (out.index.headings.length < 3) warn('headings', `${out.index.headings.length} headings (Contents)`);
   // A LaTeX command in running text (outside equations, which the index text writes as LaTeX by design).
-  const prose = html.replace(/<span class="reader-equation[\s\S]*?<\/span><\/span>|<span class="reader-equation[^>]*>[\s\S]*?<\/math><\/span>|<pre[\s\S]*?<\/pre>|<[^>]+>/g, ' ');
+  // What the reader shows as words: formulas (MathML; their LaTeX lives only in attributes) and code left out.
+  const prose = html.replace(/<math[\s\S]*?<\/math>|<pre[\s\S]*?<\/pre>|<[^>]+>/g, ' ');
   const leaked = [...prose.matchAll(/(^|\s)(\\[A-Za-z]{3,})\b/g)].map(m => m[2]).slice(0, 5);
   if (leaked.length) warn('macro_leak', [...new Set(leaked)].join(' '));
   const note = /left out (\d+) unsupported command/.exec(html);
@@ -139,10 +146,16 @@ function checks(paper, out, html) {
   // more and the reader not at all is a warning. `--ledger` prints the counts for every paper.
   const src = paper.source ?? '';
   const count = re => (src.match(re) || []).length;
-  const sourceFigures = count(/<figure[^>]*class="ltx_figure(?: |")/g), sourceTables = count(/<figure[^>]*class="ltx_table(?: |")/g);
+  // Panels (ltx_figure_panel) are parts of one figure in the reader (revision 12), not figures of their own.
+  const figureClasses = [...src.matchAll(/<figure[^>]*class="([^"]*)"/g)].map(m => m[1].split(' '));
+  const sourceFigures = figureClasses.filter(c => c.includes('ltx_figure') && !c.includes('ltx_figure_panel')).length;
+  const sourceTables = count(/<figure[^>]*class="ltx_table(?: |")/g);
   const sourceAlgorithms = count(/ltx_float_algorithm/g), sourceListings = count(/class="ltx_listing(?: |")/g);
   const sourceTabulars = count(/<table[^>]*class="ltx_tabular/g) + count(/<span[^>]*class="ltx_tabular/g);
-  const readerFigures = out.index.figures.length, readerTables = blocks.filter(b => b.kind === 'table').length, readerCode = blocks.filter(b => b.kind === 'code').length;
+  // A figure whose image arXiv's own HTML lacks reads as its caption with a note (flow.ts MISSING_FIGURE_NOTE): shown.
+  const noted = blocks.filter(b => b.text.startsWith('This figure is not in arXiv’s HTML version')).length;
+  if (noted) info('missing_images', `${noted} figures without an image in arXiv's HTML (the caption says so)`);
+  const readerFigures = out.index.figures.length + noted, readerTables = blocks.filter(b => b.kind === 'table').length, readerCode = blocks.filter(b => b.kind === 'code').length;
   info('ledger', `source ${sourceFigures} figures, ${sourceTables} tables, ${sourceAlgorithms} algorithms, ${sourceTabulars} tabulars, ${sourceListings} listings → reader ${readerFigures} figures, ${readerTables} tables, ${readerCode} code`);
   if (sourceFigures >= 2 && readerFigures === 0) warn('losses', `${sourceFigures} figures in the source, none in the reader`);
   if (sourceTables + sourceAlgorithms >= 2 && readerTables === 0) warn('losses', `${sourceTables + sourceAlgorithms} tables or algorithms in the source, none in the reader`);
@@ -172,8 +185,7 @@ for (const paper of papers) {
     const out = convertArxivHTML(source, arxivHTMLURL(paper.id, paper.revision), stub, { authors: paper.authors, title: paper.title,
       // Where math the converter did not account for sits (its ancestors' classes), so a coverage refusal names its cause.
       onUncoveredMath: uncovered => { row.uncoveredMath = uncovered.slice(0, 5).map(m => { const chain = []; for (let p = m.parent; p && chain.length < 6; p = p.parent) chain.push(`${p.name}${p.attribs?.class ? '.' + p.attribs.class.split(' ').slice(0, 2).join('.') : ''}`); return chain.join(' < '); }); } });
-    const placeholder = stub();
-    validateHTML(new TextEncoder().encode(out.html), out.index, new Map([[placeholder.path, { width: placeholder.width, height: placeholder.height }]]), true);
+    validateHTML(new TextEncoder().encode(out.html), out.index, new Map([[stub().path, { width: 10, height: 10 }]]), true);
     row.blocks = out.index.blocks.slice(0, 5).map(b => `${b.kind}: ${b.text.slice(0, 70)}`);
     row.findings = checks({ ...paper, source }, out, out.html);
   } catch (e) {

@@ -28,9 +28,10 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * revision 10: the shared validator's device-pdf extension, which arXiv output never uses; revision 11: the converter
  * split into components, output proven identical apart from the ids this revision hashes; revision 12: picture panels
  * under one caption are one figure; revision 13: math styling or attributes outside the allow-list are left out, not
- * refused, 2606.05868 on build 55), so a device re-prepares
+ * refused, 2606.05868 on build 55; revision 14: a figure whose image arXiv's HTML lacks says so in its caption, a
+ * placeholder author block gives way to the catalog's names, a picture title's alt is the title), so a device re-prepares
  * papers it compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 13;
+export const ARXIV_RENDERER_REVISION = 14;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {
