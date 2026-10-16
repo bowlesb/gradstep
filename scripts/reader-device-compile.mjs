@@ -36,7 +36,7 @@ for (const key of IDS) {
   for (const url of urls) {
     const file = `${dir}/${encodeURIComponent(url.split('/').slice(-1)[0])}`;
     if (!existsSync(file)) {
-      const r = await fetch(url, { headers: { 'user-agent': 'science-reader-device-compile (ben.bowles@gmail.com)' } });
+      const r = await fetch(url, { headers: { 'user-agent': 'Gradstep/0.1 reader-device-compile (+https://gradstep.ai; mailto:hello@gradstep.ai)' } });
       if (r.status !== 200) { console.log(`${key}: asset ${url} HTTP ${r.status}`); break; }
       writeFileSync(file, Buffer.from(await r.arrayBuffer())); await new Promise(r => setTimeout(r, 400));
     }

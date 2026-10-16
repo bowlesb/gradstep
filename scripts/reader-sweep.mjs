@@ -24,6 +24,8 @@ const DIR = join(ROOT, '.artifacts/reader-sweep'), SOURCES = join(DIR, 'sources'
 mkdirSync(SOURCES, { recursive: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { convertArxivHTML, arxivHTMLURL } = await import(`${ROOT}/supabase/functions/_shared/reader/arxiv-html.ts`);
+// The app's own validator runs on every compile (2026-10-15: VideoJev compiled here but the device refused it).
+const { validateHTML } = await import(`${ROOT}/supabase/functions/_shared/reader/html-validate.ts`);
 const stub = () => ({ path: `assets/${'0'.repeat(64)}.png`, width: 10, height: 10 });
 
 // ---- paper lists --------------------------------------------------------------------------------------------------
@@ -170,6 +172,8 @@ for (const paper of papers) {
     const out = convertArxivHTML(source, arxivHTMLURL(paper.id, paper.revision), stub, { authors: paper.authors, title: paper.title,
       // Where math the converter did not account for sits (its ancestors' classes), so a coverage refusal names its cause.
       onUncoveredMath: uncovered => { row.uncoveredMath = uncovered.slice(0, 5).map(m => { const chain = []; for (let p = m.parent; p && chain.length < 6; p = p.parent) chain.push(`${p.name}${p.attribs?.class ? '.' + p.attribs.class.split(' ').slice(0, 2).join('.') : ''}`); return chain.join(' < '); }); } });
+    const placeholder = stub();
+    validateHTML(new TextEncoder().encode(out.html), out.index, new Map([[placeholder.path, { width: placeholder.width, height: placeholder.height }]]), true);
     row.blocks = out.index.blocks.slice(0, 5).map(b => `${b.kind}: ${b.text.slice(0, 70)}`);
     row.findings = checks({ ...paper, source }, out, out.html);
   } catch (e) {
