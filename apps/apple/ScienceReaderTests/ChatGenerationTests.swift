@@ -718,7 +718,9 @@ final class ChatGenerationTests: XCTestCase {
         model.chatInput = "Why scale the dot products?"
         await model.sendMessage()
         try await waitUntil("request issued") { transport.requests.count == 1 }
-        XCTAssertEqual(transport.requests[0].profile, opus)
+        // The reader's model and length, with the effort the server chooses for each question (2026-10-16).
+        let sent = ChatProfileChoice(model: .opus, effort: .auto, length: .detailed)
+        XCTAssertEqual(transport.requests[0].profile, sent)
         XCTAssertTrue(transport.requests[0].topicTitle, "A chat without a topic title asks for one")
         transport.send(.delta("Scaling keeps logits bounded."), .title("Scaling in dot-product attention"),
                        .done(stopReason: "end_turn", credits: 9, model: "claude-opus-5-5", profile: opus.id))
@@ -737,7 +739,7 @@ final class ChatGenerationTests: XCTestCase {
         model.chatInput = "And without scaling?"
         await model.sendMessage()
         try await waitUntil("follow-up") { transport.requests.count == 2 }
-        XCTAssertEqual(transport.requests[1].profile, opus)
+        XCTAssertEqual(transport.requests[1].profile, sent)
         XCTAssertFalse(transport.requests[1].topicTitle)
         transport.send(.delta("Softmax saturates."), .title("Another title"), .done(stopReason: "end_turn", credits: 1))
         try await waitUntil("sealed") { !model.isAnswering }
@@ -748,7 +750,7 @@ final class ChatGenerationTests: XCTestCase {
         let reopened = ReaderModel(configuration: nil, chatTransport: ScriptedChatTransport(), chatConsentStore: ConsentMemory())
         try await reopened.configureDurableDraftFixture(reset: false)
         reopened.openConversation(try XCTUnwrap(model.activeConversation))
-        XCTAssertEqual(reopened.chatProfile, opus)
+        XCTAssertEqual(reopened.chatProfile.model, .opus); XCTAssertEqual(reopened.chatProfile.length, .detailed)
         XCTAssertEqual(reopened.chatTitle, "Scaling in dot-product attention")
 
         // A new chat starts from the default again.
@@ -781,14 +783,16 @@ final class ChatGenerationTests: XCTestCase {
         model.setChatProfile(haiku)
         model.selectionAction(.define, quote: "scaled dot-product attention")
         try await waitUntil("request issued") { transport.requests.count == 1 }
-        XCTAssertEqual(transport.requests[0].profile, haiku, "The action uses the choice visible in the chat")
+        // The chat's model and length, with the server's automatic effort (2026-10-16).
+        let sent = ChatProfileChoice(model: .haiku, effort: .auto, length: .brief)
+        XCTAssertEqual(transport.requests[0].profile, sent, "The action uses the choice visible in the chat")
         XCTAssertTrue(transport.requests[0].topicTitle)
         // The title arrives but the answer is interrupted: neither is kept as a title.
         transport.send(.delta("Partial"), .title("Should not be kept"))
         transport.end(throwing: URLError(.networkConnectionLost))
         try await waitUntil("interrupted") { !model.isAnswering }
         XCTAssertEqual(model.chatMessages.last?.payload.status, .interrupted)
-        XCTAssertEqual(model.chatMessages.last?.payload.profile, haiku.id, "An interrupted answer keeps the profile it was asked with")
+        XCTAssertEqual(model.chatMessages.last?.payload.profile, sent.id, "An interrupted answer keeps the profile it was asked with")
         XCTAssertFalse(model.chatHasTopicTitle)
         XCTAssertTrue(model.chatTitle.hasPrefix("Explain · scaled dot-product attention"))
 

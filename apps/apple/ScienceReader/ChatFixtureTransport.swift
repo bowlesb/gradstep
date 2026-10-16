@@ -148,7 +148,8 @@ struct ChatFixtureTransport: ChatTransport {
                         if mode == .research { try await Self.search("direct preference optimization follow-ups", continuation) }
                         for (index, piece) in pieces.enumerated() {
                             if mode == .interrupt, index == pieces.count / 2 {
-                                continuation.yield(.failure(code: "provider_unavailable"))
+                                // As the server since 2026-10-16: an answer the provider cut short costs the reader nothing.
+                                continuation.yield(.failure(code: "provider_unavailable", credits: 0))
                                 break
                             }
                             if index == secondSearch { try await Self.search("IPO KTO comparison", continuation) }

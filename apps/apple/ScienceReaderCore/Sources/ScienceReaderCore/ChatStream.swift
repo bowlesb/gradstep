@@ -143,9 +143,12 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     /// sent nothing and still get diagrams).
     /// `figureRequests`: the device holds the paper (local context) and can attach a figure the model asks for
     /// (`figure_request`, 2026-10-15), so the server may offer `look_at_figure`.
+    /// `stop_signal` (2026-10-16): this app records the reader's Stop (`v1_chat_stop`), so an answer that ends any other
+    /// way early costs the reader nothing (CHAT.md, "When an answer stops early").
     public static func capabilities(action: ChatAction?, visualAnswers: Bool, figureRequests: Bool = false) -> [String] {
         (action == .ingest ? ["web_import"] : []) + (visualAnswers ? ["visual_answers"] : [])
             + (visualAnswers && figureRequests && action != .ingest && action != .diagramFix ? ["figure_requests"] : [])
+            + ["stop_signal"]
     }
 
     /// The same question again with the figures the model asked for (a new operation: the first one is settled).

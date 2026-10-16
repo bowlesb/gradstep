@@ -11,18 +11,23 @@ struct PaperContentsSheet: View {
     }
     struct Equation: Identifiable, Equatable { let id: String; let label: String; let text: String }
 
+    /// The tiles, pushed from the Figures list (owner, build 59: "a link to the same squares based view").
+    enum Route: Hashable { case tiles }
+
     let headings: [PaperHeading]
     let bundle: VerifiedReaderBundle?
+    var baseFontSize: Double = 17
     let go: (PaperJumpRequest.Target, String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab = .contents
+    @State private var path = NavigationPath()
     @State private var equations: [Equation]? = nil
     @ScaledMetric(relativeTo: .body) private var indent = 18.0
 
     private var figures: [GalleryFigure] { bundle.map { GalleryFigure.all(in: $0.index) } ?? [] }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(spacing: 0) {
                 Picker("Show", selection: $tab) {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
@@ -35,6 +40,20 @@ struct PaperContentsSheet: View {
             .navigationTitle(tab.rawValue).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task(id: tab) { if tab == .equations, equations == nil { equations = await Self.equations(in: bundle) } }
+            // A figure's own page: the figure, its whole caption, Show in paper (owner, build 59: "get to the entire title
+            // without going all the way back to the paper").
+            .navigationDestination(for: String.self) { id in
+                if let bundle {
+                    GalleryFigureDetail(bundle: bundle, figures: figures, current: id, baseFontSize: baseFontSize,
+                                        onShowInPaper: { go(.figure, $0) }, close: { dismiss() })
+                }
+            }
+            .navigationDestination(for: Route.self) { _ in
+                if let bundle {
+                    FigureGrid(bundle: bundle, figures: figures).navigationTitle("Figures").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                }
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -53,11 +72,18 @@ struct PaperContentsSheet: View {
             .accessibilityIdentifier("contents.list.contents")
         case .figures, .tables:
             let wanted = figures.filter { ($0.number?.hasPrefix("Table") ?? false) == (tab == .tables) }
-            List(Array(wanted.enumerated()), id: \.element.id) { index, figure in
-                Button { go(.figure, figure.id) } label: {
-                    ContentsEntry(title: figure.number ?? (tab == .tables ? "Table" : "Figure"), detail: figure.caption.isEmpty ? nil : figure.caption, strong: true)
+            List {
+                if tab == .figures, !wanted.isEmpty {
+                    NavigationLink(value: Route.tiles) { Label("View as tiles", systemImage: "square.grid.2x2") }
+                        .accessibilityIdentifier("contents.figureTiles")
                 }
-                .accessibilityIdentifier("contents.\(tab == .tables ? "table" : "figure").\(index)")
+                ForEach(Array(wanted.enumerated()), id: \.element.id) { index, figure in
+                    // "Figure 1 — Subplots of …", the caption cut off; the row opens the figure with its whole caption.
+                    NavigationLink(value: figure.id) {
+                        CaptionEntry(number: figure.number ?? (tab == .tables ? "Table" : "Figure"), caption: figure.caption)
+                    }
+                    .accessibilityIdentifier("contents.\(tab == .tables ? "table" : "figure").\(index)")
+                }
             }
             .listStyle(.plain)
             .overlay { if wanted.isEmpty { ContentUnavailableView(tab == .tables ? "No tables" : "No figures", systemImage: tab == .tables ? "tablecells" : "photo") } }
@@ -91,6 +117,18 @@ struct PaperContentsSheet: View {
                 return Equation(id: equation.id, label: EquationMarkup.label(number: number), text: String(ChatMathText.plain(source).prefix(160)))
             }
         }.value
+    }
+}
+
+/// A figure or table: its number in bold and its caption after a dash, on two lines at most.
+private struct CaptionEntry: View {
+    let number: String
+    let caption: String
+    var body: some View {
+        (Text(number).fontWeight(.semibold) + Text(caption.isEmpty ? "" : " — \(caption)").foregroundColor(.secondary))
+            .font(.body).lineLimit(2).multilineTextAlignment(.leading)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

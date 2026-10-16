@@ -209,7 +209,10 @@ private struct TranscriptMessage: View {
                     }
                 }
                 if message.payload.status == .interrupted {
-                    Label("Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
+                    let note = papers?.model.chatInterruptionNotes[message.id] ?? papers?.model.chatInterruptionNotes[message.payload.entityID]
+                    Label(note ?? "Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
+                        .accessibilityElement(children: .ignore).accessibilityLabel(Text(note ?? "Response interrupted"))
+                        .accessibilityIdentifier("chat.message.interrupted")
                 }
                 // Which model and settings answered (2026-10-08), quietly; nothing for answers saved without them.
                 if !streaming, message.payload.role == .assistant,

@@ -66,6 +66,30 @@ final class ResilienceJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
     }
 
+    /// Who pays for an early end (2026-10-16): the provider cutting an answer short costs nothing, and says so under the
+    /// kept part; the reader's own Stop is charged for the part written.
+    func testAnInterruptedAnswerSaysItWasNotCharged() {
+        let app = launch(["--chat-fixture", "--chat-fixture-mode=interrupt", "--chat-fixture-consented", "--reset-draft-fixture"])
+        ask("What is the main result?", in: app)
+        let note = app.descendants(matching: .any)["chat.message.interrupted"].firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 15))
+        XCTAssertEqual(note.label, "Interrupted · not charged")
+        capture("Interrupted, not charged")
+    }
+
+    func testAStoppedAnswerSaysItWasChargedForThePartWritten() {
+        let app = launch(["--chat-fixture", "--chat-fixture-mode=slow", "--chat-fixture-consented", "--reset-draft-fixture"])
+        ask("What is the main result?", in: app)
+        let stop = app.buttons["chat.stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        sleep(2) // some of the answer is written
+        stop.tap()
+        let note = app.descendants(matching: .any)["chat.message.interrupted"].firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 15))
+        XCTAssertEqual(note.label, "Stopped · charged for the part written")
+        capture("Stopped by the reader")
+    }
+
     /// A stream that goes silent ends by itself (the idle deadline) instead of spinning forever.
     func testASilentAnswerEndsAsInterrupted() {
         let app = launch(["--chat-fixture", "--chat-fixture-mode=stall", "--chat-fixture-consented", "--reset-draft-fixture",

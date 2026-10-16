@@ -223,8 +223,19 @@ final class PaperToolsTests: XCTestCase {
         tabs.buttons["Figures"].tap()
         let figure = app.buttons["contents.figure.0"]
         XCTAssertTrue(figure.waitForExistence(timeout: 5), "Figures lists the paper's figures")
-        XCTAssertTrue(figure.label.hasPrefix("Figure 1"), figure.label)
+        XCTAssertTrue(figure.label.hasPrefix("Figure 1 — "), "The number and the caption: \(figure.label)")
         capture(app, "Figures tab")
+        // A row opens the figure with its whole caption (owner, build 59), then back to the list.
+        figure.tap()
+        XCTAssertTrue(app.navigationBars["Figure 1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["figures.showInPaper"].exists)
+        capture(app, "A figure from Contents")
+        app.navigationBars["Figure 1"].buttons.firstMatch.tap()
+        // The same tiles as the gallery, from the list.
+        app.buttons["contents.figureTiles"].tap()
+        XCTAssertTrue(app.buttons["figures.item.0"].waitForExistence(timeout: 5), "The tiles")
+        capture(app, "Figures as tiles from Contents")
+        app.navigationBars["Figures"].buttons.firstMatch.tap()
         tabs.buttons["Tables"].tap()
         sleep(1); capture(app, "Tables tab")
         tabs.buttons["Equations"].tap()

@@ -82,7 +82,7 @@ import Testing
         let background = try ChatGenerationRequest.equation(.equationBackground, operationID: UUID(), label: "Equation", latex: "x^2", profile: .standard,
                                                             localContext: context, visualAnswers: false)
         let backgroundBody = try #require(try JSONSerialization.jsonObject(with: background.encoded()) as? [String: Any])
-        #expect(backgroundBody["action"] as? String == "equation_background"); #expect(backgroundBody["capabilities"] as? [String] == [])
+        #expect(backgroundBody["action"] as? String == "equation_background"); #expect(backgroundBody["capabilities"] as? [String] == ["stop_signal"])
         #expect(throws: (any Error).self) { try ChatGenerationRequest.equation(.relevance, operationID: UUID(), label: "Equation", latex: "x", profile: .standard, localContext: context, visualAnswers: true) }
         #expect(throws: (any Error).self) { try ChatGenerationRequest.equation(.equation, operationID: UUID(), label: "Equation", latex: " ", profile: .standard, localContext: context, visualAnswers: true) }
     }

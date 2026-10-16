@@ -8,9 +8,21 @@ protocol ChatTransport: Sendable {
     func creditBalance(accountID: UUID) async throws -> CreditBalance
     /// The server's chat profile table (2026-10-08); throws when the server offers none.
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable
+    /// The reader pressed Stop on this answer (2026-10-16): it is charged for the part written; any other early end isn't.
+    func recordStop(operationID: UUID, accountID: UUID) async throws
 }
 
-extension BackendClient: ChatTransport {}
+extension ChatTransport {
+    func recordStop(operationID: UUID, accountID: UUID) async throws {}
+}
+
+extension BackendClient: ChatTransport {
+    func recordStop(operationID: UUID, accountID: UUID) async throws {
+        struct Params: Encodable, Sendable { let p_operation_id: String }
+        struct Ignored: Decodable, Sendable { init(from decoder: Decoder) throws {} }
+        _ = try await rpc("v1_chat_stop", params: Params(p_operation_id: operationID.wire), accountID: accountID, as: Ignored.self)
+    }
+}
 
 /// Every answer has an end (docs/architecture/RESILIENCE.md, "bounded time everywhere"): a stream that sends nothing for
 /// `idle` — the server pings every 15 s — ends with the connection-interrupted message instead of an endless spinner.
@@ -43,6 +55,7 @@ struct IdleBoundedChatTransport: ChatTransport {
     }
     func creditBalance(accountID: UUID) async throws -> CreditBalance { try await base.creditBalance(accountID: accountID) }
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable { try await base.chatProfiles(accountID: accountID) }
+    func recordStop(operationID: UUID, accountID: UUID) async throws { try await base.recordStop(operationID: operationID, accountID: accountID) }
 
     private actor LastEvent {
         private var at = ContinuousClock.now
@@ -114,6 +127,8 @@ struct ChatGeneration: Sendable {
     var text = ""
     var stopping = false
     var task: Task<Void, Never>?
+    /// The request on its way (a figure's second request has its own): what a Stop names to the server.
+    var operationID: UUID?
     /// The chat profile this answer was asked with (sent when not the default).
     var profile: ChatProfileChoice = .standard
     /// The figures sent with the question and the bundle they came from, so the answer's figure parts can be cropped.

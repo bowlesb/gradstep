@@ -447,7 +447,7 @@ struct PaperView: View {
                 }
             }
             .sheet(isPresented: $showContents) {
-                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle) { target, id in
+                PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize) { target, id in
                     if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
                     showContents = false
                 }

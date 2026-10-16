@@ -49,20 +49,7 @@ struct FigureGalleryView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 300), spacing: 16, alignment: .top)],
-                          alignment: .leading, spacing: 24) {
-                    ForEach(Array(figures.enumerated()), id: \.element.id) { offset, figure in
-                        NavigationLink(value: figure.id) {
-                            GalleryCell(bundle: bundle, figure: figure)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("figures.item.\(offset)")
-                    }
-                }
-                .padding(DesignMetrics.margin)
-            }
-            .overlay { if figures.isEmpty { ContentUnavailableView("No figures", systemImage: "photo", description: Text("This paper has no figures.")) } }
+            FigureGrid(bundle: bundle, figures: figures)
             .navigationTitle("Figures").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .navigationDestination(for: String.self) { id in
@@ -70,6 +57,29 @@ struct FigureGalleryView: View {
                                     onShowInPaper: onShowInPaper, close: { dismiss() })
             }
         }
+    }
+}
+
+/// The figures as tiles (the gallery, and Contents › Figures › tiles): each opens its figure (a `String` value the
+/// stack shows with `GalleryFigureDetail`).
+struct FigureGrid: View {
+    let bundle: VerifiedReaderBundle
+    let figures: [GalleryFigure]
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 300), spacing: 16, alignment: .top)],
+                      alignment: .leading, spacing: 24) {
+                ForEach(Array(figures.enumerated()), id: \.element.id) { offset, figure in
+                    NavigationLink(value: figure.id) {
+                        GalleryCell(bundle: bundle, figure: figure)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("figures.item.\(offset)")
+                }
+            }
+            .padding(DesignMetrics.margin)
+        }
+        .overlay { if figures.isEmpty { ContentUnavailableView("No figures", systemImage: "photo", description: Text("This paper has no figures.")) } }
     }
 }
 
@@ -141,7 +151,7 @@ private struct GalleryCell: View {
 }
 
 /// A figure from the gallery: the same view as a tap in the paper, with previous/next and "Show in paper".
-private struct GalleryFigureDetail: View {
+struct GalleryFigureDetail: View {
     let bundle: VerifiedReaderBundle
     let figures: [GalleryFigure]
     @State var current: String

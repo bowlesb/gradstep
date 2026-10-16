@@ -3563,8 +3563,24 @@ final class ReaderModel {
     func stopAnswer() {
         guard let composer = chatComposerID, let generation = chatGenerations[composer], !generation.stopping else { return }
         chatGenerations[composer]?.stopping = true
-        generation.task?.cancel()
+        // The server hears it was the reader's Stop (charged for the part written) before the stream closes; any other
+        // early end costs nothing (2026-10-16). At most 3 s, and a failure doesn't hold the Stop up.
+        guard let transport = chatTransport, let operationID = generation.operationID else { generation.task?.cancel(); return }
+        let accountID = generation.turn.accountID
+        Task {
+            let recorded = Task { try? await transport.recordStop(operationID: operationID, accountID: accountID) }
+            let deadline = Task { try? await Task.sleep(for: .seconds(3)) }
+            _ = await withTaskGroup(of: Void.self) { group in
+                group.addTask { await recorded.value }
+                group.addTask { await deadline.value }
+                await group.next(); group.cancelAll()
+            }
+            generation.task?.cancel()
+        }
     }
+    /// What an interrupted answer cost, said under it while this session lasts (2026-10-16): "Interrupted · not charged",
+    /// "Stopped · charged for the part written". Earlier answers keep "Response interrupted".
+    private(set) var chatInterruptionNotes: [UUID: String] = [:]
 
     private func startGeneration(_ turn: ChatAnswerTurn, transport: any ChatTransport, state: PrivateState) {
         chatAnswerIssues[turn.composerID] = nil
@@ -3630,7 +3646,7 @@ final class ReaderModel {
                                choice: ConversationBranchSelections.Choice) async {
         var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?, visual: (title: String, html: String)?
         var figureParts: ChatFigureParts?, figureRequest: String?
-        var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
+        var title: String?, followUps: [String]?, studyMap: StudyMap?, failedCredits: Int?, doneCredits: Int?, answered: (model: String?, profile: String?) = (nil, nil)
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
         // the HTTP request before any local sealing work begins.
@@ -3652,8 +3668,8 @@ final class ReaderModel {
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
                 case .equation: break
-                case .done(let stopReason, _, let model, let profile):
-                    outcome = .completed(stopReason: stopReason); answered = (model, profile)
+                case .done(let stopReason, let credits, let model, let profile):
+                    outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits
                 }
                 if outcome != nil { break }
@@ -3661,6 +3677,7 @@ final class ReaderModel {
             return true
         }
         func run(_ request: ChatGenerationRequest) async -> Bool {
+            chatGenerations[generation.turn.composerID]?.operationID = request.operationID
             do {
                 guard try await consume(try await transport.chatStream(request, accountID: generation.turn.accountID)) else { return false }
             } catch ChatTransportError.rejected(let code) {
@@ -3696,6 +3713,14 @@ final class ReaderModel {
         // A stream that ends without done/error is interrupted, never complete.
         let resolved = outcome ?? (Task.isCancelled || chatGenerations[generation.turn.composerID]?.stopping == true
             ? .cancelled : .failed(code: "transport"))
+        // What a kept, interrupted answer cost (the server charges nothing for an early end that wasn't the reader's Stop).
+        if resolved.resolution(text: text).status == .interrupted {
+            let stopped: Bool = { if case .cancelled = resolved { return true }; return chatGenerations[generation.turn.composerID]?.stopping == true }()
+            let credits = failedCredits ?? doneCredits
+            chatInterruptionNotes[generation.assistantID] = stopped
+                ? (credits == 0 ? "Stopped · not charged" : "Stopped · charged for the part written")
+                : (credits == 0 ? "Interrupted · not charged" : nil)
+        }
         // Only a diagram that will be kept (with a complete answer) is checked.
         if resolved.resolution(text: text).status == .complete, let drawn = diagram {
             diagram = await checkedDiagram(drawn, generation: generation, transport: transport)
@@ -3849,7 +3874,7 @@ final class ReaderModel {
     /// interrupted encrypted turn in the old account's store before it retires.
     private func retireChatGenerations() {
         let retiring = Array(chatGenerations.values), buffers = chatStreamBuffer
-        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
+        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]; chatInterruptionNotes = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false

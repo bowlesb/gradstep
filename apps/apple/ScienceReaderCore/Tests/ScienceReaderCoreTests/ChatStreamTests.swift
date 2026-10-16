@@ -16,7 +16,7 @@ import Testing
         let body = try object(request.encoded())
         // Visual answers are on by default, so the capability list is always sent (an empty list says off).
         #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection", "follow_ups", "capabilities"])
-        #expect(body["capabilities"] as? [String] == ["visual_answers"])
+        #expect(body["capabilities"] as? [String] == ["visual_answers", "stop_signal"])
         #expect(body["operation_id"] as? String == operation.wire)
         #expect(body["document_id"] as? String == document.wire)
         // v3 (2026-10-15) names figures (CHAT.md "Figures in chat").
@@ -34,11 +34,11 @@ import Testing
                                                            selection: "[12] Rafailov et al.", action: .ingest).encoded())
         #expect(ingest["action"] as? String == "ingest")
         // This build shows web papers, so Ingest may add them (server migration 019).
-        #expect(ingest["capabilities"] as? [String] == ["web_import", "visual_answers"])
+        #expect(ingest["capabilities"] as? [String] == ["web_import", "visual_answers", "stop_signal"])
         let unselected = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript, selection: " ", action: .ingest)
         #expect(unselected.action == nil)
         #expect(try object(unselected.encoded())["action"] == nil)
-        #expect(try object(unselected.encoded())["capabilities"] as? [String] == ["visual_answers"], "no Add paper without a selection")
+        #expect(try object(unselected.encoded())["capabilities"] as? [String] == ["visual_answers", "stop_signal"], "no Add paper without a selection")
     }
 
     @Test func generalRequestOmitsDocumentAndSelection() throws {
@@ -181,9 +181,9 @@ import Testing
         var parser = ChatSSEParser()
         let events = try parser.consume(Data("event: figure_request\ndata: {\"figure\":\"Figure 4\"}\n\nevent: figure_request\ndata: {\"figure\":\"the big one\"}\n\n".utf8))
         #expect(events == [.figureRequest("Figure 4")], "a label that is not a figure's is dropped")
-        #expect(ChatGenerationRequest.capabilities(action: nil, visualAnswers: true, figureRequests: true) == ["visual_answers", "figure_requests"])
-        #expect(ChatGenerationRequest.capabilities(action: nil, visualAnswers: false, figureRequests: true) == [])
-        #expect(ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true, figureRequests: true) == ["web_import", "visual_answers"])
+        #expect(ChatGenerationRequest.capabilities(action: nil, visualAnswers: true, figureRequests: true) == ["visual_answers", "figure_requests", "stop_signal"])
+        #expect(ChatGenerationRequest.capabilities(action: nil, visualAnswers: false, figureRequests: true) == ["stop_signal"])
+        #expect(ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true, figureRequests: true) == ["web_import", "visual_answers", "stop_signal"])
         #expect(ChatProgress(kind: .lookingAtFigure, query: "Figure 4").text == "Looking at Figure 4…")
     }
 }
