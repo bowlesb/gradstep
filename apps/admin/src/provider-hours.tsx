@@ -6,7 +6,7 @@ import { moment, percent } from './charts';
 // by outcome — what the Health tab's "Provider errors" chart and its Attention rules summarise.
 
 export const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Anthropic', deepseek: 'DeepSeek', google: 'Google voices', tavily: 'Tavily',
-  crossref: 'Crossref', datacite: 'DataCite', openalex: 'OpenAlex', huggingface: 'Hugging Face' };
+  crossref: 'Crossref', datacite: 'DataCite', openalex: 'OpenAlex', huggingface: 'Hugging Face', arxiv: 'arXiv (never: refused)' };
 export const providerName = (provider: string) => PROVIDER_NAMES[provider] ?? provider;
 
 export function ProviderHours({ load, reloadKey }: { load: (hours: number) => Promise<ProviderHour[]>; reloadKey: number }) {

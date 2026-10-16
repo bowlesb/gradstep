@@ -10,7 +10,7 @@ import { authenticatedUserID, cors, serviceClient } from '../_shared/backend.ts'
 import { PublicError } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { closePodcastWork, completeAccountDeletion, DELETION_CONFIRMATION } from '../_shared/account-deletion.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('account-delete');
 
 Deno.serve(async request => {

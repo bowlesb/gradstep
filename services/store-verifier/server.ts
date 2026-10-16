@@ -5,7 +5,7 @@ import { storeCryptoCapabilities } from '../../supabase/functions/_shared/app-st
 import { MAX_BODY_BYTES, parseRequest, POLICY_ID, replyFor, unavailable, type VerificationRequest } from './protocol.ts';
 import { Capacity, runVerification } from './thread-runner.ts';
 import { sdkPatchProof } from './sdk-patch.ts';
-// No request from this server may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this server may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('store-verifier');
 
 export const BODY_TIMEOUT_MS = 3_000;

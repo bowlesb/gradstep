@@ -26,9 +26,11 @@ test('hosts, outcomes, Retry-After and route names', () => {
   assert.equal(providerForHost('API.DeepSeek.com.'), 'deepseek');
   assert.equal(providerForHost('aiplatform.googleapis.com'), 'google');
   assert.equal(providerForHost('huggingface.co'), 'huggingface');
-  for (const host of ['coxhjvqpflgxkleydati.supabase.co', 'export.arxiv.org', 'iamcredentials.googleapis.com', 'anthropic.com.evil.test']) {
+  for (const host of ['coxhjvqpflgxkleydati.supabase.co', 'iamcredentials.googleapis.com', 'anthropic.com.evil.test', 'notarxiv.org']) {
     assert.equal(providerForHost(host), null, host);
   }
+  // arXiv is counted (never called): the egress counter of ARXIV_DEVICE_ONLY.md §6.5.
+  for (const host of ['arxiv.org', 'export.arxiv.org', 'OAIPMH.arxiv.org.']) assert.equal(providerForHost(host), 'arxiv', host);
   assert.deepEqual([200, 304, 400, 404, 408, 429, 500, 502, 503, 504, 529].map(classifyStatus),
     ['ok', 'ok', 'rejected', 'rejected', 'timeout', 'throttled', 'server_error', 'server_error', 'overloaded', 'timeout', 'overloaded']);
   assert.equal(retryAfterSeconds('12'), 12);
@@ -62,6 +64,15 @@ test('a timeout is the provider\'s; the reader leaving is nobody\'s', async () =
   const controller = new AbortController(); controller.abort();
   await assert.rejects(left.fetcher(ANTHROPIC, { signal: controller.signal }));
   assert.deepEqual([timeout.events[0].outcome, transport.events[0].outcome, deadline.events[0].outcome, left.events.length], ['timeout', 'transport', 'timeout', 0]);
+});
+
+test('an attempt to reach arXiv is counted as refused (our request, not a provider failure) and still refused', async () => {
+  resetBreakers();
+  const blocked = Object.assign(new Error('arxiv_egress_blocked'), { code: 'arxiv_egress_blocked' });
+  const h = harness({ route: 'discover', inner: async () => { throw blocked; } });
+  await assert.rejects(h.fetcher('https://export.arxiv.org/api/query?id_list=2305.18290'), /arxiv_egress_blocked/);
+  assert.deepEqual(h.events.map(e => [e.provider, e.route, e.outcome]), [['arxiv', 'discover', 'rejected']]);
+  assert.ok(!JSON.stringify(h.events).includes('2305'), 'no path or query is recorded');
 });
 
 test('an open breaker answers at once with an unbilled 429 and its cool-off; then one probe; a close lets everything through', async () => {

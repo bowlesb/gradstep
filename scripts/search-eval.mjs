@@ -1,22 +1,21 @@
-// Search without OpenAlex: is the experience roughly the same? (owner decision 2026-10-15; ARXIV_DEVICE_ONLY.md §5.6)
+// Paper search quality, device against DataCite (ARXIV_DEVICE_ONLY.md §5.6, §5.6.1). LOCAL DEVELOPER SCRIPT: run by hand on a
+// developer machine, never deployed, never run by a server or the hosted checks; it is not server code (the egress
+// scan covers server trees only). Its arXiv requests are the device engine's, made as one device would (paced, cached).
 // Runs a fixed set of queries through
-//   openalex  today's server search (discover?q=): OpenAlex ranks, arXiv supplies metadata, the same functions;
 //   arxiv     the native device search: arXiv's API, as `paper-search.ts` builds and orders it;
-//   datacite  the browser search: DataCite, as `paper-search.ts` builds and orders it;
-// records each engine's top 10 in .artifacts/search-eval/<date>.json with overlap@10 against OpenAlex and the expected
-// paper's rank, and writes a side-by-side HTML report. Relevance judgments (relevant / partly / not, for each query's top
+//   datacite  the browser search and the server's discover?q= for older builds: DataCite, as `paper-search.ts` orders it;
+// records each engine's top 10 in .artifacts/search-eval/<date>.json with overlap@10 against the device search and the
+// expected paper's rank, and writes a side-by-side HTML report. The retired server engine (OpenAlex ranking with arXiv
+// metadata) was removed with rollout step 7; its 2026-10-15 results are summarized in §5.6.1. Relevance judgments (relevant / partly / not, for each query's top
 // 5) are read from scripts/search-eval-judgments.json (Claude's, 2026-10-15); a paper not judged there counts as not
 // relevant, so judge new results after changing the order.
 //
 // Every response is cached (.artifacts/search-eval/cache), so a rerun reorders offline; `--refresh` fetches again.
-// Live requests are paced: arXiv one at a time at least 3.2 s apart, DataCite 1 s, OpenAlex 0.25 s. This is a developer
-// tool run by hand on a developer machine, never by a server.
+// Live requests are paced: arXiv one at a time at least 3.2 s apart, DataCite 1 s.
 //   node scripts/search-eval.mjs [--refresh] [--offline] [--only=<query substring>]
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { arxivIDListURL, arxivSearchURLs, exactTitleMatches, mergeDiscovery, openAlexSearchURLs, orderByRanking, parseArxivSearch,
-  rankOpenAlex } from '../supabase/functions/_shared/discover.ts';
 import { explainSearch, parseSearchResponse, planSearch, searchRequests, BROAD_BELOW, SearchNotFound } from '../supabase/functions/_shared/paper-search.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -67,9 +66,9 @@ export const QUERIES = [
 ].map(([kind, q, expect]) => ({ kind, q, expect }));
 
 // --- fetching: cached, paced per host, timed.
-const spacing = { arxiv: 3200, datacite: 1000, openalex: 250 };
+const spacing = { arxiv: 3200, datacite: 1000 };
 const lastStart = {};
-const hostGroup = url => /arxiv\.org$/.test(new URL(url).hostname) ? 'arxiv' : /datacite\.org$/.test(new URL(url).hostname) ? 'datacite' : 'openalex';
+const hostGroup = url => /arxiv\.org$/.test(new URL(url).hostname) ? 'arxiv' : 'datacite';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let liveRequests = 0;
 const stopped = {};
@@ -93,40 +92,7 @@ async function get(url, headers = {}) {
   return record;
 }
 
-// --- engine (a): today's discover?q= path, the same functions as supabase/functions/discover/index.ts.
-async function openalexEngine(query) {
-  const timings = [];
-  let urls = arxivSearchURLs(query);
-  let ranking = [];
-  const openAlex = openAlexSearchURLs(query);
-  if (openAlex.length) {
-    const answers = [];
-    for (const url of openAlex) { const r = await get(url, { accept: 'application/json' }); timings.push({ host: 'openalex', ms: r.ms, parallel: true }); answers.push(r); }
-    try { if (answers[0].status === 200) ranking = rankOpenAlex(JSON.parse(answers[0].body), answers[1]?.status === 200 ? JSON.parse(answers[1].body) : undefined, 25, true); }
-    catch { ranking = []; }
-    const ids = arxivIDListURL(ranking.map(r => r.sourceID));
-    if (ids) urls = [...urls.slice(0, urls.length - 1), ids];
-  }
-  const lists = [];
-  for (const url of urls) {
-    const r = await get(url, { accept: 'application/atom+xml' });
-    timings.push({ host: 'arxiv', ms: r.ms });
-    try { lists.push(r.status === 200 ? parseArxivSearch(new TextEncoder().encode(r.body), true) : null); } catch { lists.push(null); }
-  }
-  const last = lists.length - 1;
-  if (ranking.length) {
-    lists[last] = lists[last] ? orderByRanking(lists[last], ranking, query) : orderByRanking(ranking.map(r => r.result).filter(Boolean), ranking, query);
-    if (last > 0) lists[0] = lists[0] ? exactTitleMatches(lists[0], query) : [];
-  }
-  const results = mergeDiscovery(lists.filter(Boolean));
-  // OpenAlex's two requests run together; the server then spaces its arXiv requests 3 s apart.
-  const parallel = Math.max(0, ...timings.filter(t => t.parallel).map(t => t.ms));
-  const serial = timings.filter(t => !t.parallel);
-  const latency = parallel + serial.reduce((sum, t, i) => sum + (i < serial.length - 1 ? Math.max(t.ms, 3000) : t.ms), 0);
-  return { results, requests: timings.length, latency, explain: null };
-}
-
-// --- engines (b) and (c): paper-search.ts, as the device and the browser run it.
+// --- the engines: paper-search.ts, as the device and the browser run it.
 async function sharedEngine(engine, query) {
   const plan = planSearch(query);
   if (!plan) return { results: [], requests: 0, latency: 0, explain: [] };
@@ -169,14 +135,14 @@ const rows = [];
 for (const item of QUERIES.filter(q => !only || q.q.includes(only))) {
   console.log(`${item.kind.padEnd(11)} ${item.q}`);
   const engines = {};
-  for (const [name, run] of [['openalex', () => openalexEngine(item.q)], ['arxiv', () => sharedEngine('arxiv', item.q)], ['datacite', () => sharedEngine('datacite', item.q)]]) {
+  for (const [name, run] of [['arxiv', () => sharedEngine('arxiv', item.q)], ['datacite', () => sharedEngine('datacite', item.q)]]) {
     try { const r = await run(); engines[name] = { top: top(r.results), count: r.results.length, requests: r.requests, latency_ms: r.latency, explain: r.explain, raw: r.raw }; }
     catch (error) { engines[name] = { top: [], count: 0, requests: 0, latency_ms: null, error: String(error.message ?? error) }; console.warn(`  ${name}: ${error.message}`); }
   }
-  const reference = new Set(engines.openalex.top.map(p => p.id));
+  const reference = new Set(engines.arxiv.top.map(p => p.id));
   for (const [name, engine] of Object.entries(engines)) {
     const ids = engine.top.map(p => p.id);
-    engine.overlap10 = name === 'openalex' ? null : ids.filter(id => reference.has(id)).length;
+    engine.overlap10 = name === 'arxiv' ? null : ids.filter(id => reference.has(id)).length;
     const at = ids.findIndex(id => item.expect.includes(id));
     engine.expected_rank = item.expect.length ? (at >= 0 ? at + 1 : null) : undefined;
     const judged = engine.top.slice(0, 5).map(p => judgments[item.q]?.[p.id]);
@@ -189,7 +155,7 @@ for (const item of QUERIES.filter(q => !only || q.q.includes(only))) {
   rows.push({ ...item, engines });
 }
 
-const names = ['openalex', 'arxiv', 'datacite'];
+const names = ['arxiv', 'datacite'];
 const mean = values => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 const summary = Object.fromEntries(names.map(name => {
   const list = rows.map(r => r.engines[name]);
@@ -197,7 +163,7 @@ const summary = Object.fromEntries(names.map(name => {
   return [name, {
     queries: list.length,
     empty: list.filter(e => !e.top.length).length,
-    mean_overlap10: name === 'openalex' ? null : Number(mean(list.map(e => e.overlap10 ?? 0)).toFixed(2)),
+    mean_overlap10: name === 'arxiv' ? null : Number(mean(list.map(e => e.overlap10 ?? 0)).toFixed(2)),
     expected_found_top10: `${expected.filter(r => r.engines[name].expected_rank).length}/${expected.length}`,
     expected_first: `${expected.filter(r => r.engines[name].expected_rank === 1).length}/${expected.length}`,
     mean_relevance_at5: Number(mean(list.map(e => e.relevance5)).toFixed(3)),
@@ -215,16 +181,16 @@ writeFileSync(`${out}/${date}${variant}.json`, JSON.stringify({ date, live_reque
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const badge = j => j ? `<span class="j ${j}">${{ r: 'relevant', p: 'partly', n: 'not' }[j]}</span>` : '';
 const cell = (row, name) => {
-  const e = row.engines[name], reference = new Set(row.engines.openalex.top.map(p => p.id));
+  const e = row.engines[name], reference = new Set(row.engines.arxiv.top.map(p => p.id));
   if (e.error) return `<td class="err">${esc(e.error)}</td>`;
   const items = e.top.map((p, i) => `<li class="${row.expect.includes(p.id) ? 'hit' : ''}"><span class="rk">${i + 1}</span> <a href="https://arxiv.org/abs/${esc(p.id)}">${esc(p.title)}</a>
-    <span class="meta">${esc(p.id)} · ${esc(p.year ?? '')}${name !== 'openalex' && reference.has(p.id) ? ' · <b class="same">in OpenAlex top 10</b>' : ''}${row.expect.includes(p.id) ? ' · <b class="exp">expected</b>' : ''}</span>
+    <span class="meta">${esc(p.id)} · ${esc(p.year ?? '')}${name !== 'arxiv' && reference.has(p.id) ? ' · <b class="same">in the device top 10</b>' : ''}${row.expect.includes(p.id) ? ' · <b class="exp">expected</b>' : ''}</span>
     ${i < 5 ? badge(judgments[row.q]?.[p.id]) : ''}</li>`).join('');
-  const facts = [name !== 'openalex' ? `overlap ${e.overlap10}/10` : null, e.expected_rank !== undefined ? `expected at ${e.expected_rank ?? '—'}` : null,
+  const facts = [name !== 'arxiv' ? `overlap ${e.overlap10}/10` : null, e.expected_rank !== undefined ? `expected at ${e.expected_rank ?? '—'}` : null,
     `rel@5 ${e.relevance5.toFixed(2)}`, `${e.requests} req`, e.latency_ms !== null ? `≈${(e.latency_ms / 1000).toFixed(1)} s` : null].filter(Boolean).join(' · ');
   return `<td><div class="facts">${facts}</div><ol>${items || '<li class="none">No results</li>'}</ol></td>`;
 };
-const label = { openalex: 'OpenAlex + arXiv (today, server)', arxiv: 'arXiv API (native device)', datacite: 'DataCite (browser)' };
+const label = { arxiv: 'arXiv API (native device)', datacite: 'DataCite (browser; server for older builds)' };
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Search evaluation ${date}</title><style>
 :root{--bg:#fff;--fg:#1d1d1f;--muted:#6e6e73;--line:#e5e5ea;--hit:#e8f5e9;--r:#1b7f3b;--p:#9a6700;--n:#b42318}
@@ -235,9 +201,9 @@ td{width:30%}td.q{width:10%;font-weight:600}.kind{display:block;color:var(--mute
 li{margin:0 0 6px}li.hit{background:var(--hit)}.rk{color:var(--muted);display:inline-block;width:1.6em}.meta{display:block;color:var(--muted);font-size:12px;padding-left:1.6em}
 .facts{color:var(--muted);font-size:12px;margin-bottom:4px}.same{font-weight:600}.exp{color:var(--r)}.j{font-size:11px;margin-left:1.6em}.j.r{color:var(--r)}.j.p{color:var(--p)}.j.n{color:var(--n)}
 a{color:inherit}.summary td,.summary th{width:auto}.wrap{overflow-x:auto}
-</style></head><body><h1>Search without OpenAlex: side by side, ${date}</h1>
-<p>Top 10 per engine. Green rows are the paper a reader would expect; “in OpenAlex top 10” marks overlap with today's search. Judgments cover each engine's top 5.</p>
-<div class="wrap"><table class="summary"><tr><th>Engine</th>${Object.keys(summary.openalex).map(k => `<th>${esc(k.replaceAll('_', ' '))}</th>`).join('')}</tr>
+</style></head><body><h1>Paper search, device and DataCite side by side, ${date}</h1>
+<p>Top 10 per engine. Green rows are the paper a reader would expect; “in the device top 10” marks overlap with the native search. Judgments cover each engine's top 5.</p>
+<div class="wrap"><table class="summary"><tr><th>Engine</th>${Object.keys(summary.arxiv).map(k => `<th>${esc(k.replaceAll('_', ' '))}</th>`).join('')}</tr>
 ${names.map(n => `<tr><td>${esc(label[n])}</td>${Object.values(summary[n]).map(v => `<td>${esc(v && typeof v === 'object'
   ? Object.entries(v).map(([k, x]) => `${k} ${Number(x).toFixed(2)}`).join(' · ') : v ?? '—')}</td>`).join('')}</tr>`).join('')}</table></div>
 <div class="wrap"><table><tr><th>Query</th>${names.map(n => `<th>${esc(label[n])}</th>`).join('')}</tr>

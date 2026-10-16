@@ -27,6 +27,23 @@ The owner clarified the separate transfer request: copy the entire codebase, not
 the SSH user's home directory. Include current source and design changes; omit local credentials, dependency
 caches and generated build artifacts. This does not authorize a processing service or change NAS restrictions.
 
+## Our servers never contact arXiv (owner principle 2026-10-15; built 2026-10-16, not yet deployed)
+
+Owner principle: "each device calls arXiv only as its user's own agent; servers never; shared data from DataCite"
+(approved). Rollout steps 5–7 (ARXIV_DEVICE_ONLY.md §6.0.3), built on top of the search and Feed switch below:
+- The metadata stage names every arXiv paper from DataCite by its DOI, deciding shared reuse only from DataCite's record
+  of the exact version (CC BY 4.0 or CC0); a paper DataCite doesn't list yet waits (about 9 hours) and then fails
+  retryably. Devices send what they read (`source_metadata` on); their records stay on their own account's import.
+- Ingest, Add by text or DOI and a reference's Add to library name arXiv papers through DataCite (by DOI or title);
+  Crossref names other DOIs; arXiv's own DOI and arXiv links name the paper with no lookup.
+- The Feed reads DataCite only (no switch back to RSS); server search reads DataCite whatever `openalex_enabled` says.
+- Enforcement: the egress guard blocks by default, the static scan runs in block mode in `npm test` and before every
+  deploy, provider health counts any server attempt as provider `arxiv` (Health tab Attention item), and the hosted
+  check `egress.no-arxiv` requires zero attempts in 24 hours. The Edge `paper-worker` is removed from the code and is to
+  be undeployed.
+- Not built: filling an import from a device's record alone (today's clients read a paper only after it has catalog
+  metadata; a client change, proposed in §6.0.3).
+
 ## Search and the Feed without our servers asking arXiv (owner decided 2026-10-16)
 
 Owner answers: "5. Search: turn on device-only search, which drops OpenAlex — Sure"; "6. Shared Feed: take it from
@@ -36,8 +53,8 @@ DataCite on our servers, so our servers never contact arXiv. New papers show abo
 - Paper search runs on the person's device (apps: arXiv's API and DataCite; browser: DataCite). Builds that still ask
   the server get DataCite results; OpenAlex leaves search and DOI naming (Crossref names DOIs).
 - The Feed's shared pool comes from DataCite's records of arXiv papers, read by our servers once for everyone; a chip
-  outside the pool reads DataCite too. The RSS source stays in the code and as the `arxiv-ml` row, for audit and for
-  switching back.
+  outside the pool reads DataCite too. The `arxiv-ml` row stays for audit; the RSS code and the switch back are removed
+  by migration 076 (above).
 - The Library's search segment is "ML paper search" (sentence case like the app's other labels; it fits the narrowest
   iPhone at every text size). The field reads "Search ML papers"; the Mac menu item is "Search ML Papers".
 - Migration 075 sets the three switches and records them in the admin audit log. Server arXiv calls that remain (the
@@ -995,7 +1012,8 @@ to date and changing but have cost under control". Design and cost table: [Perso
   Oldest first, **skipping** an import the balance cannot cover (a later, smaller one may start), with the needs of
   already restarted, unfunded imports counted against the balance. Download-stage waits need 1 credit (016's
   admission). Suspended/closed accounts are never restarted.
-- **arXiv fallback is arXivRaw (OAI-PMH), not OpenAlex.** The stage already fetches arXivRaw for license evidence;
+- **arXiv fallback is arXivRaw (OAI-PMH), not OpenAlex.** (Superseded 2026-10-16: the stage reads DataCite, never
+  arXiv; see "Our servers never contact arXiv".) The stage already fetches arXivRaw for license evidence;
   its record matches the Atom API's (tested on a real fixture) and needs no extra request. OpenAlex cannot supply
   the arXiv license evidence shared reuse requires and lags new arXiv papers. Throttled metadata waits ~55 min
   (10 tries, Retry-After honored) before failing, shown as waiting.

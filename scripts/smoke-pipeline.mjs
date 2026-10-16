@@ -36,7 +36,8 @@ if (!args.skipImport) {
   const begun = await user.rpc('v2_begin_import', { p_operation_id: randomUUID(), p_source_id: arxiv, p_observed_cursor: cursor });
   assert.equal(begun.error, null, begun.error?.message); log('import', begun.data.entry.phase);
 }
-await fetch(`${env.SUPABASE_URL}/functions/v1/paper-worker`, { method: 'POST', headers: { 'x-pipeline-secret': env.PIPELINE_SECRET } });
+// The Cloud Run worker (the Edge paper-worker is retired and undeployed).
+await fetch(JSON.parse(readFileSync(new URL('infra/staging.json', root), 'utf8')).pipeline_worker_url, { method: 'POST', headers: { 'x-pipeline-secret': env.PIPELINE_SECRET } });
 const started = Date.now(); let item, last = '';
 while (Date.now() - started < Number(args.timeout ?? 600) * 1000) {
   const entries = await page();

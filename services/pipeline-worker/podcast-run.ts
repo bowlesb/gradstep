@@ -14,7 +14,7 @@ import { deepseekScriptProvider } from '../../supabase/functions/_shared/deepsee
 import { impersonatedTokenSource, vertexSpeechProvider } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { runPodcast, type PodcastDeps, type PodcastRunResult } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { ffmpegEncoder } from './podcast-encode.ts';
-// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('pipeline-worker/podcast');
 // Provider calls are counted per hour and fail fast while a provider's breaker is open (docs/architecture/RESILIENCE.md).
 installProviderHealth('pipeline-worker/podcast', pipelineService);

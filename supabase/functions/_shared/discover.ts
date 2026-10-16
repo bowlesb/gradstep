@@ -1,9 +1,11 @@
-// arXiv discovery for the Library "arXiv" search. Pure helpers (Deno + Node).
+// Finding papers on our servers without contacting arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md, rollout steps 5–7):
+// the shared result row, OpenAlex candidates for a cited title (Ingest, Add), strict citation matching, and DataCite
+// lookups by arXiv DOI or title. Paper search itself is paper-search.ts. Pure helpers (Deno + Node) apart from
+// `lookupDataCite`.
 import { arxivReference } from './arxiv.ts';
-import { children, one, plain, sourceXML } from './source-xml.ts';
+import { DATACITE_API, DataCiteError, dataciteBatchURL, dataciteGet, dataciteRecordURL, DATACITE_MAX_BATCH } from './datacite.ts';
+import { formEncode, parseDataCiteSearch } from './paper-search.ts';
 import { openPDFLocations } from './web-source.ts';
-
-const ATOM = 'http://www.w3.org/2005/Atom';
 
 export interface DiscoveryResult {
   source_id: string; revision: number; title: string; authors: string[]; year: number | null;
@@ -28,116 +30,16 @@ export function discoveryAbstract(text: string | null, full = false, sourceTrunc
     abstract_truncated: sourceTruncated || (value?.length ?? 0) > 24_000 };
 }
 
-/** Builds a bounded arXiv API query: an ID/URL looks up that paper; free text
- * matches all words. Returns null for an empty or unusable query. */
-export function arxivSearchURL(query: string, limit = 15): string | null {
-  const text = query.normalize('NFKC').trim().slice(0, 300);
-  if (!text) return null;
-  const url = new URL('https://export.arxiv.org/api/query');
-  try {
-    const ref = arxivReference(text);
-    url.search = new URLSearchParams({ id_list: `${ref.sourceID}${ref.revision ? `v${ref.revision}` : ''}`, max_results: '1' }).toString();
-    return url.href;
-  } catch { /* free text */ }
-  const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s.-]/gu, ' ').split(/\s+/).filter(w => w.length > 1 || /\d/.test(w)).slice(0, 12);
-  if (!words.length) return null;
-  url.search = new URLSearchParams({ search_query: words.map(w => `all:${w}`).join(' AND '), max_results: String(Math.min(Math.max(limit, 1), 25)),
-    sortBy: 'relevance', sortOrder: 'descending' }).toString();
-  return url.href;
-}
-
-/** Free-text queries of two or more words also run an oldest-first title
- * phrase search: arXiv's relevance ranking buries the original paper under
- * later derivatives (e.g. "direct preference optimization"). */
-export function arxivSearchURLs(query: string): string[] {
-  const primary = arxivSearchURL(query);
-  if (!primary || new URL(primary).searchParams.has('id_list')) return primary ? [primary] : [];
-  const phrase = query.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-  if (phrase.split(' ').length < 2) return [primary];
-  const url = new URL('https://export.arxiv.org/api/query');
-  url.search = new URLSearchParams({ search_query: `ti:"${phrase}"`, max_results: '3', sortBy: 'submittedDate', sortOrder: 'ascending' }).toString();
-  return [url.href, primary];
-}
-
-// Ranking: arXiv's own search scores word matches only, so a topic query such as
-// "CNN" put a physics paper that mentions CNNs first. OpenAlex (free scholarly
-// index, no key; called from the server, no user data sent) is asked twice, both
-// limited to arXiv works: most relevant, and most cited among works whose title
-// or abstract matches (finds classics such as ViT for "vision transformer").
-// arXiv then supplies metadata (revision, categories, abstract) for the chosen
-// IDs, and the final order favours ML categories and exact title matches.
-const OPENALEX_ARXIV_SOURCE = 'S4306400194';
-
-function openAlexText(query: string): string | null {
-  const text = query.normalize('NFKC').replace(/[^\p{L}\p{N}\s.+#-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-  if (!text) return null;
-  try { arxivReference(text); return null; } catch { return text; }
-}
-
-/** [most relevant, most cited matching] OpenAlex searches over arXiv works, or [] for an ID/empty query. */
-export function openAlexSearchURLs(query: string): string[] {
-  const text = openAlexText(query);
-  if (!text) return [];
-  const select = 'id,title,publication_year,cited_by_count,relevance_score,locations,authorships,abstract_inverted_index';
-  const relevant = new URL('https://api.openalex.org/works');
-  relevant.search = new URLSearchParams({ search: text, filter: `locations.source.id:${OPENALEX_ARXIV_SOURCE}`, 'per-page': '40', select }).toString();
-  const cited = new URL('https://api.openalex.org/works');
-  cited.search = new URLSearchParams({ filter: `locations.source.id:${OPENALEX_ARXIV_SOURCE},title_and_abstract.search:${text.replace(/[,:|]/g, ' ')}`,
-    sort: 'cited_by_count:desc', 'per-page': '25', select }).toString();
-  return [relevant.href, cited.href];
-}
-
-/** A ranked arXiv work; `result` is OpenAlex's own metadata, used when arXiv is unavailable. */
-export interface RankedWork { sourceID: string; score: number; result?: DiscoveryResult }
-
+/** The arXiv copy an OpenAlex work lists (identity only: the link is parsed, never requested). */
 function arxivLocationOf(work: { locations?: unknown }): { sourceID: string; version: number | null } | null {
   for (const location of Array.isArray(work.locations) ? work.locations.slice(0, 20) : []) {
     for (const key of ['landing_page_url', 'pdf_url']) {
       const value = (location as Record<string, unknown>)?.[key];
-      const match = typeof value === 'string' ? /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:v(\d{1,3}))?(?:\.pdf)?$/i.exec(value) : null;
+      const match = typeof value === 'string' ? /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:v(\d{1,3}))?(?:\.pdf)?$/i.exec(value) : null; // egress-ok: parse
       if (match) { try { return { sourceID: arxivReference(match[1]).sourceID, version: match[2] ? Number(match[2]) : null }; } catch { /* not an arXiv ID */ } }
     }
   }
   return null;
-}
-function arxivIDOf(work: { locations?: unknown }): string | null { return arxivLocationOf(work)?.sourceID ?? null; }
-
-/** OpenAlex's metadata as a search result (title, authors, year, abstract; no arXiv
- * categories; the version from its arXiv link, else 1 — adding ignores it). */
-export function openAlexResult(work: unknown, fullAbstracts = false): DiscoveryResult | null {
-  const w = work as { title?: unknown; publication_year?: unknown; authorships?: unknown; abstract_inverted_index?: unknown; locations?: unknown };
-  const location = arxivLocationOf(w);
-  if (!location || typeof w.title !== 'string' || !w.title.trim()) return null;
-  const authors = (Array.isArray(w.authorships) ? w.authorships.slice(0, 9) : [])
-    .map(a => (a as { author?: { display_name?: unknown } })?.author?.display_name).filter((n): n is string => typeof n === 'string').map(n => n.slice(0, 256));
-  let abstract: string | null = null;
-  let abstractTruncated = false;
-  const index = w.abstract_inverted_index;
-  if (index && typeof index === 'object' && !Array.isArray(index)) {
-    const words: string[] = [];
-    const entries = Object.entries(index as Record<string, unknown>);
-    abstractTruncated = entries.length > 5000;
-    for (const [word, positions] of entries.slice(0, 5000)) {
-      if (Array.isArray(positions)) for (const at of positions) {
-        if (Number.isInteger(at) && at >= 0 && at < 5000) words[at] = word;
-        else abstractTruncated = true;
-      } else abstractTruncated = true;
-    }
-    if (Object.keys(words).length !== words.length) abstractTruncated = true;
-    // Repeated positions may reference a very large word. Bound construction itself, before joining strings.
-    const ordered = words.filter(Boolean), parts: string[] = [];
-    let length = 0;
-    for (const [i, word] of ordered.entries()) {
-      if (length) { parts.push(' '); length += 1; }
-      const remaining = Math.max(0, 24_001 - length);
-      parts.push(word.slice(0, remaining)); length += Math.min(word.length, remaining);
-      if (word.length > remaining || (length >= 24_001 && i < ordered.length - 1)) abstractTruncated = true;
-      if (length >= 24_001) break;
-    }
-    abstract = parts.join('').replace(/\s+/g, ' ').trim() || null;
-  }
-  return { source_id: location.sourceID, revision: location.version ?? 1, title: w.title.replace(/\s+/g, ' ').trim().slice(0, 2000), authors,
-    year: typeof w.publication_year === 'number' ? w.publication_year : null, ...discoveryAbstract(abstract, fullAbstracts, abstractTruncated), categories: [] };
 }
 
 /** A paper as OpenAlex knows it, for Ingest: its arXiv copy if any, otherwise
@@ -182,162 +84,6 @@ export function openAlexCandidates(json: unknown): OpenAlexCandidate[] {
       license: typeof best?.license === 'string' ? best.license.slice(0, 40) : null });
   }
   return candidates;
-}
-
-/** OpenAlex's record of one arXiv paper (by its DataCite DOI), for ID lookups when arXiv is unavailable. */
-export function openAlexArxivWorkURL(sourceID: string): string {
-  return `https://api.openalex.org/works/doi:10.48550/arXiv.${encodeURIComponent(sourceID)}`;
-}
-
-/** arXiv IDs best first: 0.5 × relevance (normalized; 0.7 for a classic found
- * only among the most cited matches) + 0.5 × log citations (normalized). */
-export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }, limit = 25, fullAbstracts = false): RankedWork[] {
-  const lists = [relevant, cited].map(json => (json as { results?: unknown })?.results);
-  if (!Array.isArray(lists[0])) throw new Error('invalid_openalex');
-  const works = new Map<string, { relevance: number; citations: number; result?: DiscoveryResult }>();
-  lists.forEach((list, index) => {
-    for (const work of Array.isArray(list) ? list.slice(0, 50) : []) {
-      const w = work as { relevance_score?: unknown; cited_by_count?: unknown; locations?: unknown };
-      const sourceID = arxivIDOf(w);
-      if (!sourceID) continue;
-      const relevance = index === 0 && typeof w.relevance_score === 'number' && w.relevance_score > 0 ? w.relevance_score : 0;
-      if (index === 0 && !relevance) continue;
-      const citations = typeof w.cited_by_count === 'number' && w.cited_by_count > 0 ? w.cited_by_count : 0;
-      const known = works.get(sourceID);
-      works.set(sourceID, { relevance: Math.max(known?.relevance ?? 0, relevance), citations: Math.max(known?.citations ?? 0, citations),
-        result: known?.result ?? openAlexResult(work, fullAbstracts) ?? undefined });
-    }
-  });
-  // A work found only among the most cited matches counts when it is cited at
-  // least as much as the best-cited relevant work: a classic of the topic, not a
-  // paper that merely mentions it.
-  const relevantCitations = Math.max(0, ...[...works.values()].filter(w => w.relevance).map(w => w.citations));
-  for (const [sourceID, w] of works) if (!w.relevance && w.citations < relevantCitations) works.delete(sourceID);
-  const maxRelevance = Math.max(1, ...[...works.values()].map(w => w.relevance));
-  const maxCitations = Math.max(1, ...[...works.values()].map(w => w.citations));
-  return [...works].map(([sourceID, w]) => ({ sourceID, result: w.result,
-    score: 0.5 * (w.relevance ? w.relevance / maxRelevance : 0.7) + 0.5 * Math.log10(1 + w.citations) / Math.log10(1 + maxCitations) }))
-    .sort((a, b) => b.score - a.score).slice(0, limit);
-}
-
-/** arXiv metadata for ranked IDs, one request. */
-export function arxivIDListURL(sourceIDs: string[]): string | null {
-  if (!sourceIDs.length) return null;
-  const url = new URL('https://export.arxiv.org/api/query');
-  url.search = new URLSearchParams({ id_list: sourceIDs.slice(0, 25).join(','), max_results: String(Math.min(sourceIDs.length, 25)) }).toString();
-  return url.href;
-}
-
-const ML_CATEGORIES = new Set(['cs.LG', 'cs.CL', 'cs.CV', 'cs.AI', 'cs.NE', 'cs.IR', 'cs.RO', 'cs.MA', 'cs.SD', 'stat.ML', 'eess.IV', 'eess.AS', 'math.OC']);
-const titleKey = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-
-/** Final order: the ranking, × 1.15 for ML categories, × 0.7 outside computing and
- * statistics, × 3 when the query is the paper's title or main title (before ":").
- * Results not in the ranking are dropped. */
-export function orderByRanking(results: DiscoveryResult[], ranking: RankedWork[], query = ''): DiscoveryResult[] {
-  const scores = new Map(ranking.map(r => [r.sourceID, r.score]));
-  const wanted = titleKey(query);
-  const final = (r: DiscoveryResult) => {
-    const field = r.categories.some(c => ML_CATEGORIES.has(c)) ? 1.15 : r.categories.some(c => /^(cs|stat)\./.test(c)) ? 1 : 0.7;
-    const exact = wanted && (titleKey(r.title) === wanted || titleKey(r.title.split(':')[0]) === wanted) ? 3 : 1;
-    return (scores.get(r.source_id) ?? 0) * field * exact;
-  };
-  return results.filter(r => scores.has(r.source_id)).sort((a, b) => final(b) - final(a));
-}
-
-/** Keeps exact-title lookups only when the query is that paper's title or main title. */
-export function exactTitleMatches(results: DiscoveryResult[], query: string): DiscoveryResult[] {
-  const wanted = titleKey(query);
-  return results.filter(r => wanted && (titleKey(r.title) === wanted || titleKey(r.title.split(':')[0]) === wanted));
-}
-
-/** Newest announcements in one arXiv category (Feed): arXiv's daily RSS,
- * which is fast, unlike a date-sorted API query over a large category. */
-export function arxivRecentURL(category: string): string | null {
-  if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return null;
-  return `https://rss.arxiv.org/rss/${category}`;
-}
-
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
-export function xmlText(value: string): string {
-  return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]*>/g, '')
-    .replace(/&(#x[0-9a-fA-F]{1,6}|#\d{1,7}|amp|lt|gt|quot|apos);/g, (_, e: string) => e[0] === '#'
-      ? String.fromCodePoint(parseInt(e[1] === 'x' ? e.slice(2) : e.slice(1), e[1] === 'x' ? 16 : 10)) : ENTITIES[e])
-    .replace(/\s+/g, ' ').trim();
-}
-
-/** Parses the first new announcements of an arXiv RSS feed. Bounded text
- * extraction (no entity expansion, no DTD); malformed items are skipped. */
-export function parseArxivRSS(bytes: Uint8Array, limit = 25, fullAbstracts = false): DiscoveryResult[] {
-  const text = new TextDecoder().decode(bytes.subarray(0, 4 * 1024 * 1024));
-  if (!/^\s*(<\?xml[^>]*>\s*)?<rss[\s>]/.test(text) || /<!DOCTYPE/i.test(text)) throw new Error('invalid_feed');
-  const results: DiscoveryResult[] = [];
-  const itemPattern = /<item>([\s\S]*?)<\/item>/g;
-  let match: RegExpExecArray | null;
-  while ((match = itemPattern.exec(text)) && results.length < limit) {
-    const item = match[1];
-    const field = (name: string) => { const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(item); return m ? xmlText(m[1]) : null; };
-    const description = field('description') ?? '';
-    const header = /^arXiv:(\S+?)v(\d+) Announce Type: (\S+)/.exec(description);
-    if (!header || !['new', 'cross'].includes(header[3])) continue;
-    try {
-      const ref = arxivReference(header[1]);
-      const title = field('title');
-      if (!title) continue;
-      const year = /^\d{4}\./.test(ref.sourceID) ? 2000 + Number(ref.sourceID.slice(0, 2)) : null;
-      const authors = (field('dc:creator') ?? '').split(/,\s*|\s+and\s+/).map(a => a.trim()).filter(a => a && a.length <= 256).slice(0, 9);
-      const categories = [...item.matchAll(/<category>([^<]{1,64})<\/category>/g)].map(c => xmlText(c[1])).filter(c => /^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(c)).slice(0, 6);
-      const abstract = description.replace(/^arXiv:\S+ Announce Type: \S+\s*Abstract:\s*/, '') || null;
-      results.push({ source_id: ref.sourceID, revision: Number(header[2]), title: title.slice(0, 2000), authors, year,
-        ...discoveryAbstract(abstract, fullAbstracts), categories });
-    } catch { /* skip malformed */ }
-  }
-  return results;
-}
-
-/** Earliest title matches first, then relevance results, without duplicates. */
-export function mergeDiscovery(lists: DiscoveryResult[][]): DiscoveryResult[] {
-  const seen = new Set<string>(); const merged: DiscoveryResult[] = [];
-  for (const list of lists) for (const result of list) {
-    if (!seen.has(result.source_id)) { seen.add(result.source_id); merged.push(result); }
-  }
-  return merged.slice(0, 25);
-}
-
-/** Parses an arXiv Atom feed into compact results; malformed entries are skipped. */
-export function parseArxivSearch(bytes: Uint8Array, fullAbstracts = false): DiscoveryResult[] {
-  const root = sourceXML(bytes);
-  if (root.uri !== ATOM || root.local !== 'feed') throw new Error('invalid_feed');
-  const results: DiscoveryResult[] = [];
-  for (const entry of children(root, ATOM, 'entry').slice(0, 25)) {
-    try {
-      const ref = arxivReference(plain(one(entry, ATOM, 'id'), 256)!);
-      if (ref.revision === null) continue;
-      const title = plain(one(entry, ATOM, 'title'), 2000)!.replace(/\s+/g, ' ').trim();
-      const authors = children(entry, ATOM, 'author').slice(0, 9).map(a => plain(one(a, ATOM, 'name'), 256)!);
-      const published = plain(one(entry, ATOM, 'published', false), 64, false);
-      // The input feed is already bounded; preserve the row even when its abstract needs an explicit excerpt.
-      const abstract = plain(one(entry, ATOM, 'summary', false), 1024 * 1024, false)?.replace(/\s+/g, ' ').trim() ?? null;
-      const categories = [...new Set(children(entry, ATOM, 'category').map(c => c.attributes['{}term']).filter((t): t is string => !!t && /^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(t)))].slice(0, 6);
-      results.push({ source_id: ref.sourceID, revision: ref.revision, title, authors,
-        year: published && /^\d{4}/.test(published) ? Number(published.slice(0, 4)) : null,
-        ...discoveryAbstract(abstract, fullAbstracts), categories });
-    } catch { /* skip malformed entry */ }
-  }
-  return results;
-}
-
-/** Title lookup for Ingest: an id lookup when the model supplied one, then
- * oldest-first title phrase and all-title-words queries. */
-export function arxivTitleURLs(title: string, arxivID: string | null): string[] {
-  const urls: string[] = [];
-  if (arxivID) { try { const ref = arxivReference(arxivID); urls.push(`https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ref.sourceID, max_results: '1' })}`); } catch { /* ignored */ } }
-  const words = titleWords(title).slice(0, 14);
-  if (words.length < 2) return urls;
-  const phrase = new URLSearchParams({ search_query: `ti:"${words.join(' ')}"`, max_results: '5', sortBy: 'submittedDate', sortOrder: 'ascending' });
-  const all = new URLSearchParams({ search_query: words.filter(w => w.length > 2).slice(0, 10).map(w => `ti:${w}`).join(' AND '), max_results: '10', sortBy: 'relevance', sortOrder: 'descending' });
-  urls.push(`https://export.arxiv.org/api/query?${phrase}`, `https://export.arxiv.org/api/query?${all}`);
-  return urls;
 }
 
 export function titleWords(title: string): string[] {
@@ -390,29 +136,42 @@ export function matchPaper<T extends { source_id: string; title: string; year: n
   return best && best.score >= 0.9 ? best.item : null;
 }
 
-/** Runs arXiv API queries through the shared pacing (`slot` reserves request
- * slots and returns the wait). Used by the discover function and Ingest. */
-export async function searchArxiv(urls: readonly string[], fetcher: typeof fetch,
-  slot: (slots: number) => Promise<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>, signal?: AbortSignal): Promise<DiscoveryResult[]> {
-  if (!urls.length) return [];
-  const pause = (ms: number) => new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) { reject(new Error('aborted')); return; }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
-  });
-  const reserved = await slot(urls.length);
-  if (!reserved.reserved) throw new Error('search_busy');
-  if (reserved.wait_ms > 0) await pause(reserved.wait_ms);
-  const lists: DiscoveryResult[][] = [];
-  for (const [index, url] of urls.entries()) {
-    if (index > 0) await pause(reserved.spacing_ms ?? 3000);
-    const timeout = AbortSignal.timeout(20_000);
-    const response = await fetcher(url, { redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers: { accept: 'application/atom+xml', 'user-agent': 'Gradstep/0.1 (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)' } });
-    if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('search_unavailable'); }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length > 6 * 1024 * 1024) throw new Error('search_unavailable');
-    lists.push(parseArxivSearch(bytes));
+// --- DataCite lookups for a cited paper (Ingest, Add by text or DOI, a reference's Add to library). DataCite holds the
+// metadata arXiv registers for every paper (CC0), by DOI (10.48550/arXiv.<id>) and by title; arXiv's API is never asked.
+const LOOKUP_FIELDS = 'doi,titles,creators,descriptions,subjects,version,dates,publicationYear';
+const lookupURL = (query: string, size: number, sort: string) => `${DATACITE_API}/dois?${formEncode({ query, 'provider-id': 'arxiv', sort,
+  'page[size]': String(size), 'disable-facets': 'true', 'fields[dois]': LOOKUP_FIELDS })}`;
+
+/** A cited title as DataCite queries, in order: the earliest papers titled with its words as a phrase (arXiv numbers
+ * papers in order, so DOI order is submission order: the original before its derivatives), then papers whose titles
+ * have every word, most relevant first. Words are letters and digits only, so no query syntax reaches DataCite. */
+export function dataciteTitleURLs(title: string): string[] {
+  const words = titleWords(title).filter(w => /^[\p{L}\p{N}]+$/u.test(w)).slice(0, 14);
+  if (words.length < 2) return [];
+  const urls = [lookupURL(`titles.title:"${words.join(' ')}"`, 5, 'name')];
+  const all = words.filter(w => w.length > 2).slice(0, 10);
+  if (all.length >= 2) urls.push(lookupURL(`titles.title:(${all.join(' AND ')})`, 10, 'relevance'));
+  return urls;
+}
+
+/** The DataCite request for arXiv identifiers: one record by its DOI, or up to 25 in one request. Invalid IDs are dropped. */
+export function dataciteIDURL(sourceIDs: readonly string[]): string | null {
+  const ids = [...new Set(sourceIDs)].filter(id => { try { dataciteRecordURL(id); return true; } catch { return false; } }).slice(0, DATACITE_MAX_BATCH);
+  return !ids.length ? null : ids.length === 1 ? dataciteRecordURL(ids[0]) : dataciteBatchURL(ids);
+}
+
+/** Runs DataCite lookups in order (a DOI DataCite doesn't have is no result, not a failure), each within 10 s, without
+ * retrying a busy answer (these are interactive); results in order without duplicates. Throws when one fails. */
+export async function lookupDataCite(urls: readonly string[], fetcher: typeof fetch, signal?: AbortSignal): Promise<DiscoveryResult[]> {
+  const seen = new Set<string>(), results: DiscoveryResult[] = [];
+  for (const url of urls) {
+    let body: unknown;
+    const within = signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000);
+    try { body = await dataciteGet(url, { fetch: fetcher, signal: within, attempts: 1 }); }
+    catch (error) { if (error instanceof DataCiteError && error.code === 'datacite_not_found') continue; throw error; }
+    for (const { citations: _, topics: __, ...result } of parseDataCiteSearch(body)) {
+      if (!seen.has(result.source_id)) { seen.add(result.source_id); results.push(result); }
+    }
   }
-  return mergeDiscovery(lists);
+  return results;
 }

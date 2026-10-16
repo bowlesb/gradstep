@@ -1,16 +1,17 @@
-// "Add to library" on a bibliography entry, without a model: read the entry's arXiv id or
-// DOI, else match it with Crossref's citation matcher, then find an arXiv or open-access copy
-// with the shared finder. A found paper is accepted only if its title appears in the entry.
+// "Add to library" on a bibliography entry, without a model: read the entry's arXiv id (named by
+// DataCite, never arXiv: docs/architecture/ARXIV_DEVICE_ONLY.md) or DOI, else match it with
+// Crossref's citation matcher, then find an arXiv or open-access copy with the shared finder. A
+// found paper is accepted only if its title appears in the entry.
 import type { FindResult, FoundPaper } from './chat.ts';
-import { openAlexCandidates, searchArxiv, titleWords, type DiscoveryResult } from './discover.ts';
+import { dataciteIDURL, lookupDataCite, openAlexCandidates, titleWords, type DiscoveryResult } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
 
 export const MAX_REFERENCE_CHARS = 2_000;
 const MAILTO = 'hello@gradstep.ai';
 
-/** arXiv ids written in the entry (new style, with or without a version). */
+/** arXiv ids written in the entry (new style, with or without a version, or as arXiv's DOI 10.48550/arXiv.<id>). */
 export function arxivIDs(text: string): string[] {
-  const ids = [...text.matchAll(/(?<![\d.])(\d{4}\.\d{4,5})(?:v\d+)?(?![\d])/g)].map(m => m[1]);
+  const ids = [...text.matchAll(/(?<![\d.])(\d{4}\.\d{4,5})(?:v\d+)?(?![\d])|10\.48550\/arxiv\.(\d{4}\.\d{4,5})(?![\d])/gi)].map(m => m[1] ?? m[2]);
   return [...new Set(ids)].slice(0, 3);
 }
 
@@ -102,8 +103,6 @@ export function crossrefCandidates(json: unknown): CrossrefCandidate[] {
 export type ReferenceRoute = 'arxiv_id' | 'doi' | 'title' | 'crossref' | 'openalex' | 'none';
 export interface ReferenceDeps {
   fetch: typeof fetch;
-  /** Reserves paced arXiv API slots (shared with the pipeline). */
-  slot: (slots: number) => Promise<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>;
   findPaper: (wanted: { title: string; year: number | null; firstAuthor: string | null; arxivID: string | null }, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
 }
 
@@ -138,12 +137,11 @@ async function byDOI(deps: ReferenceDeps, doi: string, reference: string, web: b
 export async function resolveReference(deps: ReferenceDeps, reference: string, web: boolean, signal: AbortSignal)
   : Promise<{ result: FindResult; route: ReferenceRoute }> {
   let consulted = false;
-  // 1. An arXiv id in the entry: one direct lookup, accepted if the title matches the entry.
-  const ids = arxivIDs(reference);
-  if (ids.length) {
-    const url = `https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ids.join(','), max_results: String(ids.length) })}`;
+  // 1. An arXiv id in the entry: one DataCite lookup by its DOI, accepted if the title matches the entry.
+  const url = dataciteIDURL(arxivIDs(reference));
+  if (url) {
     try {
-      const found: DiscoveryResult[] = await searchArxiv([url], deps.fetch, deps.slot, signal);
+      const found: DiscoveryResult[] = await lookupDataCite([url], deps.fetch, signal);
       consulted = true;
       const match = found.find(paper => titleInReference(paper.title, reference)) ?? (found.length === 1 && citationText(reference).length < 40 ? found[0] : undefined);
       if (match) return { route: 'arxiv_id', result: { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year, kind: 'arxiv' } } };
@@ -156,7 +154,7 @@ export async function resolveReference(deps: ReferenceDeps, reference: string, w
     if (found) { consulted = true; if (found.status !== 'closed') return { route: 'doi', result: found }; closed ??= found; }
   }
   // 3. The entry's own title (quoted, or between the authors and the venue) through the shared strict
-  //    search: OpenAlex (arXiv copies, open-access PDFs) and arXiv. Fast, and what a reader would do.
+  //    search: OpenAlex (arXiv copies, open-access PDFs) and DataCite. Fast, and what a reader would do.
   for (const title of candidateTitles(reference).slice(0, 2)) {
     if (signal.aborted) break;
     const viaTitle = await deps.findPaper({ title, year: referenceYear(reference), firstAuthor: null, arxivID: null }, signal, { web })

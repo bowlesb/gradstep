@@ -97,4 +97,6 @@ elif args.command == 'reconcile':
     print(rpc('worker_provider_attempt_reconcile', {'p_actor_id': args.actor, 'p_request_id': str(uuid.uuid4()), 'p_attempt_id': args.attempt,
         'p_actual_microusd': args.microusd, 'p_actual_units': json.loads(args.units), 'p_evidence_reference': args.evidence, 'p_reason': args.reason}))
 elif args.command == 'kick':
-    print(http(env['SUPABASE_URL'] + '/functions/v1/paper-worker', {'x-pipeline-secret': env['PIPELINE_SECRET']}, {'reason': 'operator'}))
+    # The Cloud Run worker (the Edge paper-worker is retired and undeployed).
+    worker = json.loads((ROOT / 'infra/staging.json').read_text())['pipeline_worker_url']
+    print(http(worker, {'x-pipeline-secret': env['PIPELINE_SECRET']}, {'reason': 'operator'}))

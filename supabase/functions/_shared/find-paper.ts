@@ -1,29 +1,25 @@
 // Finding a cited paper and adding it to a reader's library: shared by Ingest in chat
 // (the model names the paper) and the direct "Add to library" on a reference (no model).
-// Strict matches only: arXiv first by id, then OpenAlex (arXiv copies, open-access PDFs),
-// then arXiv's title search and a scholarly web search in parallel (capped at 15 s).
+// Strict matches only: an arXiv id the citation names (its DataCite record), then OpenAlex (arXiv
+// copies, open-access PDFs), then DataCite's title search and a scholarly web search in parallel
+// (capped at 15 s). Our servers never contact arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FindResult, FoundPaper, PaperRequest } from './chat.ts';
-import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from './discover.ts';
+import { arxivReference } from './arxiv.ts';
+import { dataciteIDURL, dataciteTitleURLs, lookupDataCite, matchPaper, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
 import type { SearchInput, SearchOutcome } from './tavily.ts';
 
 /** Paid search is injected already admitted; a raw provider key is never accepted. */
-export function paperFinder(service: SupabaseClient, user: SupabaseClient,
+export function paperFinder(user: SupabaseClient,
   search?: (input: SearchInput, signal: AbortSignal) => Promise<SearchOutcome>, fetcher: typeof fetch = fetch) {
   async function findPaper(wanted: PaperRequest, signal: AbortSignal, { web, tavily = false }: { web: boolean; tavily?: boolean }): Promise<FindResult> {
-    // One paced request at a time, stopping at the first clear match. A
-    // failed query does not hide the others; all failing is "unavailable".
-    const slot = async (slots: number) => {
-      const { data, error } = await service.rpc('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 10_000 });
-      if (error) throw new Error('search_busy');
-      return data;
-    };
+    // Stopping at the first clear match. A failed query does not hide the others; all failing is "unavailable".
     const seen: DiscoveryResult[] = [];
     let answered = false, closed: FindResult | null = null;
     // OpenAlex first, in parallel: it answers in about a second and knows a paper's other
     // versions (an arXiv copy under a conference title; open-access PDFs elsewhere), under
-    // the same strict match. arXiv's own paced title search is the slower fallback.
+    // the same strict match. DataCite's title search is the fallback.
     const openAlex = (async (): Promise<FindResult | null> => {
       const find = openAlexFindURL(wanted);
       if (!find) return null;
@@ -51,26 +47,26 @@ export function paperFinder(service: SupabaseClient, user: SupabaseClient,
         return null;
       } catch { return null; }
     })();
-    const urls = arxivTitleURLs(wanted.title, wanted.arxivID);
-    const arxiv = async (url: string, within: AbortSignal): Promise<FindResult | null> => {
-      if (within.aborted) return null;
-      try { seen.push(...await searchArxiv([url], fetcher, slot, within)); answered = true; } catch { return null; }
+    const lookup = async (url: string | null, within: AbortSignal): Promise<FindResult | null> => {
+      if (!url || within.aborted) return null;
+      try { seen.push(...await lookupDataCite([url], fetcher, within)); answered = true; } catch { return null; }
       const match = matchPaper(wanted, seen);
       return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } } : null;
     };
-    // An arXiv id in the citation is checked directly (one paced request).
-    if (urls.length && new URL(urls[0]).searchParams.has('id_list')) {
-      const byID = await arxiv(urls.shift()!, signal);
+    // An arXiv id in the citation is checked directly (its DataCite record, one request).
+    const cited = (() => { try { return wanted.arxivID ? arxivReference(wanted.arxivID).sourceID : null; } catch { return null; } })();
+    if (cited) {
+      const byID = await lookup(dataciteIDURL([cited]), signal);
       if (byID) return byID;
     }
     const viaOpenAlex = await openAlex;
     if (viaOpenAlex) return viaOpenAlex;
-    // Fallbacks, in parallel and capped at 15 s so "not found" is said promptly: arXiv's own
-    // (paced, slow) title search, and a scholarly web search (Tavily) for an arXiv copy under
-    // another title. Both accept only the same strict match.
+    // Fallbacks, in parallel and capped at 15 s so "not found" is said promptly: DataCite's title
+    // search, and a scholarly web search (Tavily) for an arXiv copy under another title (named by
+    // DataCite). Both accept only the same strict match.
     const fallback = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
     const byTitle = (async (): Promise<FindResult | null> => {
-      for (const url of urls) { const found = await arxiv(url, fallback); if (found) return found; if (fallback.aborted) break; }
+      for (const url of dataciteTitleURLs(wanted.title)) { const found = await lookup(url, fallback); if (found) return found; if (fallback.aborted) break; }
       return null;
     })();
     const byWeb = (async (): Promise<FindResult | null> => {
@@ -80,9 +76,10 @@ export function paperFinder(service: SupabaseClient, user: SupabaseClient,
       const ids = searched?.status === 'ok'
         ? [...new Set(searched.results.flatMap(r => /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(r.url)?.[1] ?? []))].slice(0, 5) : [];
       if (!ids.length) return null;
-      const url = `https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ids.join(','), max_results: String(ids.length) })}`;
+      const url = dataciteIDURL(ids);
+      if (!url) return null;
       try {
-        const match = matchPaper(wanted, await searchArxiv([url], fetcher, slot, fallback));
+        const match = matchPaper(wanted, await lookupDataCite([url], fetcher, fallback));
         return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year, kind: 'arxiv' } } : null;
       } catch { return null; }
     })();

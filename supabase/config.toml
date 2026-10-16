@@ -41,9 +41,6 @@ verify_jwt = false
 # signing keys. Anon/service tokens cannot become a reporter or operator.
 verify_jwt = false
 
-[functions.paper-worker]
-# Authenticated by the dedicated PIPELINE_SECRET header, never a user token.
-verify_jwt = false
 
 [functions.reader-artifact]
 # Auth is verified against Auth.getUser inside the handler.

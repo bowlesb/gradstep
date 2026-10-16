@@ -72,8 +72,10 @@ the device.
   DataCite's records of arXiv papers**, one query for the twelve categories, read once for everyone by
   `feed-refresh` (`_shared/feed-datacite.ts`, migrations 074/075; ARXIV_DEVICE_ONLY.md §6.0.2). New papers appear
   about three hours after arXiv's announcement; the rows, topics, popularity and ranking are unchanged. Chips the
-  pool doesn't answer read DataCite too. The RSS below stays as the `feed_source = 'arxiv_rss'` setting.
-- **Source until then: arXiv's RSS, one combined request** for the twelve ML categories above (`feed_policy.categories`).
+  pool doesn't answer read DataCite too. Since migration 076 (built 2026-10-16, ARXIV_DEVICE_ONLY.md §6.0.3) DataCite is
+  the only source: `feed_source` accepts only `datacite`, the RSS code is removed, and `feed-refresh` records any other
+  claim as failed without a request. The `arxiv-ml` row stays for the record.
+- **Source until then (historical): arXiv's RSS, one combined request** for the twelve ML categories above (`feed_policy.categories`).
   Conditional (`If-None-Match`), checked every 2 hours: twelve requests a day, eleven of them `304 Not Modified`, one
   full 2.5 MB download per announcement day. Only `new` and `cross` items are kept (replacements are old papers).
   arXiv's [API terms](https://info.arxiv.org/help/api/tou.html) ask for one request every three seconds; the request

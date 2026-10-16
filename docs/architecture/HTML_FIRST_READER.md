@@ -59,12 +59,13 @@ when available; do not deploy a general content proxy or claim that opening a ne
 file intake remains local and does not justify sending PDFs to the existing upload endpoint. A broader browser
 intake interaction, such as a required extension, needs a concrete owner proposal.
 
-**Who talks to arXiv (restated 2026-10-15, owner question):** the device fetches content — the official HTML
-revision and, when the reader asks, the PDF — and nothing on the server ever requests a PDF or an HTML page
-(`fetchArxiv` in `metadata-pipeline.ts` refuses any URL that is not the Atom API or OAI-PMH). The server's import
-pipeline asks those two public metadata APIs for the catalog record and license evidence, paced (a global gate, two
-reserved slots per import, Retry-After honored). arXiv metadata is CC0; the terms concern behind the cutover was bulk
-content retrieval and redistribution.
+**Who talks to arXiv (restated 2026-10-16; ARXIV_DEVICE_ONLY.md §6.0.3):** only the reader's device, as that person's
+own agent: the official HTML revision and, when the reader asks, the PDF (and, on the apps, the export API for a paper
+without HTML and for the person's own searches). Our servers make no request to any arXiv host. The import pipeline
+names a paper from DataCite, where arXiv registers each paper's DOI and metadata (CC0): the catalog record and the
+latest version's licence; the first line of this section's "existing metadata service" is that DataCite stage. Devices
+also send the metadata they read from the HTML for their own account's import. Until the deploy of steps 5–7 (not yet
+done when written), the deployed pipeline still asked arXiv's Atom API and OAI-PMH, paced.
 
 ## HTML-to-bundle adapter
 

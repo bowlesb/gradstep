@@ -110,7 +110,7 @@ class PipelineDeploymentTests(unittest.TestCase):
                                       extra_env={'PODCAST_SPEECH_SERVICE_ACCOUNT': 'gradstep-podcast-speech@gradstep.iam.gserviceaccount.com',
                                                  'PODCAST_GCP_PROJECT': 'gradstep'})
         self.assertEqual(args[args.index('--update-env-vars') + 1],
-                         'PIPELINE_MAINTENANCE=false,PODCAST_GCP_PROJECT=gradstep,'
+                         'PIPELINE_MAINTENANCE=false,EGRESS_ARXIV=block,PODCAST_GCP_PROJECT=gradstep,'
                          'PODCAST_SPEECH_SERVICE_ACCOUNT=gradstep-podcast-speech@gradstep.iam.gserviceaccount.com')
         with self.assertRaises(ValueError):
             DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping', extra_env={'ANTHROPIC_API_KEY': 'x'})
@@ -120,7 +120,7 @@ class PipelineActivationOrderTests(unittest.TestCase):
     def test_deferred_flags_are_explicit_and_readback_cannot_mislabel_an_active_revision(self):
         for deferred in (False, True):
             args = DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping', deferred=deferred)
-            self.assertEqual(args[args.index('--update-env-vars') + 1], 'PIPELINE_MAINTENANCE=' + str(deferred).lower())
+            self.assertEqual(args[args.index('--update-env-vars') + 1], 'PIPELINE_MAINTENANCE=' + str(deferred).lower() + ',EGRESS_ARXIV=block')
             value = service()
             value['spec']['template']['spec']['containers'][0]['env'].append({'name': 'PIPELINE_MAINTENANCE', 'value': str(deferred).lower()})
             policy = DEPLOY.deployment_policy(value)

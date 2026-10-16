@@ -3,7 +3,7 @@ import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, readBounded, sha256, uuid } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { inspectImage } from '../_shared/images.ts';
-// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this function may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('support-assets');
 
 type ObjectDescriptor = { id: string; object_id: string; bucket: string; path: string; state: string; byte_count: number; media_type: string; sha256: string };

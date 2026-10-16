@@ -7,8 +7,12 @@
 // Installed on a realm's global fetch next to the egress guard, so every provider call is seen, whatever library makes
 // it. Counts only: never a URL path, query, body, header value or account. Self-contained (no SDK imports): the Edge
 // functions and the Cloud Run worker share it.
+//
+// arXiv is counted too, as the egress counter of docs/architecture/ARXIV_DEVICE_ONLY.md §6.5: our servers never contact
+// arXiv, so every `arxiv` row is an attempt the egress guard refused (outcome `rejected`, which never moves a breaker),
+// or one it let through in report mode. The hosted check `egress.no-arxiv` and the Health tab require none.
 
-export const PROVIDERS = ['anthropic', 'deepseek', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface'] as const;
+export const PROVIDERS = ['anthropic', 'deepseek', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface', 'arxiv'] as const;
 export type ProviderName = typeof PROVIDERS[number];
 export type HealthOutcome = 'ok' | 'throttled' | 'overloaded' | 'server_error' | 'timeout' | 'transport' | 'rejected' | 'breaker_open';
 export type FaultMode = 'throttle' | 'overload' | 'error' | 'timeout' | 'malformed';
@@ -21,11 +25,12 @@ export interface ActiveFault { provider: string; route: string | null; mode: Fau
 /** The account's active faults (only consulted where FAULT_INJECTION=on). */
 export type FaultSource = (account: string) => Promise<ActiveFault[]>;
 
-/** Hosts we call, by provider. A host not listed passes through untouched (our own database, storage, arXiv's guard). */
+/** Hosts we call, by provider, and arXiv (counted, never called). A host not listed passes through untouched (our own
+ * database, storage). */
 const HOSTS: [string, ProviderName][] = [
   ['api.anthropic.com', 'anthropic'], ['api.deepseek.com', 'deepseek'], ['aiplatform.googleapis.com', 'google'],
   ['api.tavily.com', 'tavily'], ['api.crossref.org', 'crossref'], ['api.datacite.org', 'datacite'],
-  ['api.openalex.org', 'openalex'], ['huggingface.co', 'huggingface'],
+  ['api.openalex.org', 'openalex'], ['huggingface.co', 'huggingface'], ['arxiv.org', 'arxiv'], // egress-ok: parse
 ];
 export function providerForHost(host: string): ProviderName | null {
   const name = host.toLowerCase().replace(/\.+$/, '');
@@ -42,10 +47,12 @@ export function classifyStatus(status: number): HealthOutcome {
   return 'rejected';
 }
 
-/** A thrown fetch error: a timeout (the request's own deadline) or a transport failure. */
-export function classifyError(error: unknown): 'timeout' | 'transport' {
-  const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
-  return name === 'TimeoutError' ? 'timeout' : 'transport';
+/** A thrown fetch error: a timeout (the request's own deadline), the egress guard's refusal (`rejected`: our request,
+ * not the provider's health), or a transport failure. */
+export function classifyError(error: unknown): 'timeout' | 'transport' | 'rejected' {
+  const fields = error && typeof error === 'object' ? error as { name?: unknown; code?: unknown } : {};
+  if (fields.code === 'arxiv_egress_blocked') return 'rejected';
+  return fields.name === 'TimeoutError' ? 'timeout' : 'transport';
 }
 
 /** Retry-After in seconds (delta or HTTP date), bounded to a day; null when absent or unreadable. */

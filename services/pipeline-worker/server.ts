@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { timingSafeEqual } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import type { RunResult } from './run.ts';
-// No request from this server may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); EGRESS_ARXIV sets report or block.
+// No request from this server may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
 installEgressGuard('pipeline-worker');
 
 /** Leave a full minute for termination, logging and the response before Cloud Run's 900 s limit. */
