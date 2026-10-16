@@ -512,6 +512,12 @@ createServer(async (request, response) => {
     const equation = body.action === 'equation' || body.action === 'equation_background';
     if (equation && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.selection?.quote || body.messages.length !== 1
       || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures !== undefined)) return send(response, 400, { code: 'invalid_request' });
+    // The figure view (chat-figure-view.ts): the same, with exactly one figure under consent v3 or v4, from a build that
+    // says it has the view (`figure_view`, whose chats carry the walkthrough tool).
+    const figureView = body.action === 'figure' || body.action === 'figure_simpler';
+    if (figureView && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.selection?.quote || body.messages.length !== 1
+      || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures?.length !== 1 || !['cloud-ai-v3', 'cloud-ai-v4'].includes(body.consent_version)
+      || !(body.capabilities ?? []).includes('figure_view'))) return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
@@ -544,6 +550,24 @@ createServer(async (request, response) => {
       let i = 0;
       const tick = () => { if (response.destroyed) return; if (i < pieces.length) { event('delta', { text: pieces[i++] }); return setTimeout(tick, 10); }
         event('done', { stop_reason: 'end_turn', credits: 3 }); response.end(); };
+      return void tick();
+    }
+    if (body.action === 'figure') {
+      // As the server relays it (FIGURE_VIEW.md "Server — as built"): one `figure` event, then `done`; one section has a box.
+      event('figure', { format: 'figure-walkthrough-v1', summary: 'The figure compares two pipelines: three stages with a reward model against one stage that trains on preferences directly [¶2].',
+        sections: [
+          { label: '(a)', title: 'The three-stage pipeline', text: 'Read left to right: preference data trains a **reward model**, which then scores samples for reinforcement learning [¶2].', paragraphs: [2] },
+          { label: '(b)', title: 'The one-stage pipeline', text: 'The same preference data goes straight into a classification loss, \\(L = -\\log \\sigma(\\beta x)\\), with no reward model [¶2].', paragraphs: [2],
+            box: { x: 0.5, y: 0, w: 0.5, h: 1 } },
+          { label: '', title: 'Legend', text: 'Arrows show where data flows; the trophy marks the preferred response.', paragraphs: [] }] });
+      event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
+    }
+    if (body.action === 'figure_simpler') {
+      const text = 'Start with the left half: it is the older way [¶2].\n\nA **reward model** is a second network that learns to score answers the way people did.';
+      const pieces = text.match(/[\s\S]{1,9}/g);
+      let i = 0;
+      const tick = () => { if (response.destroyed) return; if (i < pieces.length) { event('delta', { text: pieces[i++] }); return setTimeout(tick, 10); }
+        event('done', { stop_reason: 'end_turn', credits: 3, charged: true }); response.end(); };
       return void tick();
     }
     // A question about a figure with none attached, from a device that can attach one: the model asks for Figure 1.

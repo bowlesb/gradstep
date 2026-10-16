@@ -16,6 +16,8 @@ import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
+import { FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes,
+  isFigureAction, type FigureWalkthrough } from './chat-figure-view.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -109,8 +111,9 @@ function localPaperContext(input: unknown): LocalPaperContext {
 
 /** 'web_import' = the app shows web (non-arXiv) library entries; 'visual_answers' = the app draws HTML visuals and
  * Mermaid diagrams and the reader has them on. A request that names no capabilities at all (builds before the
- * setting) still gets diagrams. */
-export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers', 'figure_requests', 'stop_signal'] as const;
+ * setting) still gets diagrams. 'figure_view' (2026-10-16) = the build has the figure view (chat-figure-view.ts): its paper
+ * chats carry the figure_walkthrough tool, so a walkthrough reads the same cached prefix. */
+export const CLIENT_CAPABILITIES = ['web_import', 'visual_answers', 'figure_requests', 'stop_signal', FIGURE_VIEW_CAPABILITY] as const;
 /** How a paid answer ended (owner decision 2026-10-16; docs/architecture/CHAT.md "When an answer stops early"). The
  * reader pays for work that finishes (`completed`) or for the part they chose to stop (`stopped`: the app said so with
  * v1_chat_stop; `left`: a build without the `stop_signal` capability closed the stream, which can't be told apart from a
@@ -125,8 +128,10 @@ export const CHARGED_ENDINGS: readonly ChatEnding[] = ['completed', 'stopped', '
 const LIMIT_STOP_REASONS: readonly string[] = ['max_tokens', 'model_context_window_exceeded'];
 /** A Stop's record (v1_chat_stop) may still be on its way when the stream closes: one more look after this long. */
 export const STOP_GRACE_MS = 1_500;
-export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background';
-const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background'];
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler';
+const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler'];
+/** The equation and figure views: no conversation (one turn, no title, no suggestions), and no tool result relayed. */
+const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action);
 /** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
 export const DIAGRAM_FIX_MAX_BYTES = 24_000;
 /** A repair writes one diagram (no prose): a small output allowance keeps its hold and cost small. */
@@ -190,8 +195,9 @@ export function validateChatRequest(input: unknown): ChatRequest {
     } else if (action === 'study') {
       // Study tutors the numbered paper on the device ([¶N] citations); a selection may start it on a passage.
       if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2') invalid();
-    } else if (isEquationAction(action)) {
-      // The equation view: the tapped equation in the numbered paper on the device, one turn (EQUATION_VIEW.md).
+    } else if (isViewAction(action)) {
+      // The equation view: the tapped equation in the numbered paper on the device, one turn (EQUATION_VIEW.md). The
+      // figure view: the figure's caption (or, to explain one part more simply, that part's text), one turn (FIGURE_VIEW.md).
       if (mode !== 'paper' || localContext?.format !== 'reader-local-context-v2' || selection === null || turns.length !== 1) invalid();
     } else if (selection === null) invalid();
   }
@@ -225,13 +231,15 @@ export function validateChatRequest(input: unknown): ChatRequest {
   if (action === 'ingest' && followUps) invalid();
   // The tutor ends every turn with its own question: no follow-up suggestions beside it.
   if (action === 'study' && followUps) invalid();
-  // The equation view is no conversation: no title, no suggestions.
-  if (isEquationAction(action) && (topicTitle || followUps)) invalid();
+  // The equation and figure views are no conversation: no title, no suggestions.
+  if (isViewAction(action) && (topicTitle || followUps)) invalid();
   const visuals = body.capabilities === undefined || body.capabilities === null || capabilities.includes('visual_answers');
   let figures: FigureImage[];
   try { figures = figureImages(body.figures); } catch { invalid(); }
   // Figures only in a paper chat whose consent names them, and never with Add paper or a diagram repair.
   if (figures!.length && (!namesFigures(consentVersion) || mode !== 'paper' || action === 'ingest' || action === 'diagram_fix' || isEquationAction(action))) invalid();
+  // The figure view: exactly that figure's image, from a build that has the view (its chats carry the walkthrough tool).
+  if (isFigureAction(action) && (figures!.length !== 1 || !capabilities.includes(FIGURE_VIEW_CAPABILITY))) invalid();
   return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities, visuals, figures: figures!, choice, topicTitle, followUps,
     ...(localContext ? { localContext } : {}), ...(study ? { study } : {}) };
 }
@@ -354,7 +362,8 @@ export function chatInstructionParts(mode: 'paper' | 'general', action: ChatActi
     : `${visuals ? `${DIAGRAM_INSTRUCTIONS}\n\n${VISUAL_INSTRUCTIONS}` : NO_VISUAL_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
   const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS
     : action === 'study' ? `${STUDY_INSTRUCTIONS}\n\n${studyMapForPrompt(options.studyMap ?? EMPTY_STUDY_MAP)}`
-    : action === 'equation' ? EQUATION_INSTRUCTIONS : action === 'equation_background' ? EQUATION_BACKGROUND_INSTRUCTIONS : null;
+    : action === 'equation' ? EQUATION_INSTRUCTIONS : action === 'equation_background' ? EQUATION_BACKGROUND_INSTRUCTIONS
+    : action === 'figure' ? FIGURE_INSTRUCTIONS : action === 'figure_simpler' ? FIGURE_SIMPLER_INSTRUCTIONS : null;
   const paper = mode === 'paper' ? `${PAPER_INSTRUCTIONS}${options.citations ? `\n\n${CITATION_INSTRUCTIONS}` : ''}` : GENERAL_INSTRUCTIONS;
   return { shared: `${BASE_INSTRUCTIONS}\n\n${paper}\n\n${tools}`, action: own };
 }
@@ -450,6 +459,8 @@ export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'study'; data: { map: StudyMap } }
   /** The equation view's checked symbols (EQUATION_VIEW.md). */
   | { event: 'equation'; data: EquationSymbols }
+  /** The figure view's checked walkthrough (FIGURE_VIEW.md), sent once before `done`. */
+  | { event: 'figure'; data: FigureWalkthrough }
   /** `model`: the model that served the answer (a fallback model when one did); `profile`: the chosen profile, `auto`
    * resolved; `effort`: the effort the server picked, present only when the request asked for `auto`. */
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number>; model?: string; profile?: string; effort?: string;
@@ -570,8 +581,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const study = request.action === 'study';
   // The equation view's symbols are one JSON object, held back and checked before the device sees them.
   const symbolsOnly = request.action === 'equation';
+  // The figure view's walkthrough is one tool call, checked before the device sees it; any words are held back with it.
+  const walkthroughOnly = request.action === 'figure';
+  const heldBack = symbolsOnly || walkthroughOnly;
   // The resolved profile (above); a repair always uses the default model with its own small allowance.
-  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? EQUATION_MAX_TOKENS : profile.maxTokens;
+  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? EQUATION_MAX_TOKENS : walkthroughOnly ? figureMaxTokens(profile.effort) : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
     { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
   // The length's instructions follow the paper with the action's own, so neither invalidates the cached paper.
@@ -580,11 +594,19 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A device that can answer a figure request (and may send figures: consent v3) is offered look_at_figure with the parts
   // tool, whether or not this question has a figure, so the tools (part of the cached prefix) stay the same per device.
   const offersLook = offersParts && request.capabilities.includes('figure_requests') && namesFigures(request.consentVersion);
-  const trailing = [instructions.action, figureInstructions(request.figures, offersParts, offersLook), repair || study || symbolsOnly ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
+  // A build with the figure view (consent v3 or later) has figure_walkthrough in every paper chat, so its walkthroughs
+  // and its chats share the cached tools; the tool is the walkthrough's form, never offered for Add paper or a repair.
+  const offersWalkthrough = request.mode === 'paper' && request.action !== 'ingest' && !repair && namesFigures(request.consentVersion)
+    && request.capabilities.includes(FIGURE_VIEW_CAPABILITY);
+  const figureView = isFigureAction(request.action);
+  // The figure view's own instructions say how to read its figure; the chat's figure instructions (parts) do not apply.
+  const trailing = [instructions.action, figureView ? null : figureInstructions(request.figures, offersParts, offersLook),
+    repair || study || heldBack ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
     model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
       : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, ...(request.mode === 'paper' ? [SHOW_FIGURE_PARTS_TOOL] : []), ...(offersLook ? [LOOK_AT_FIGURE_TOOL] : [])] : []),
+        ...(offersWalkthrough ? [FIGURE_WALKTHROUGH_TOOL] : []),
         ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const held = balance ? await balance : null;
   const available = held?.ok ? held.value : null;
@@ -668,7 +690,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const stop = () => deadline.abort();
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
-  let wroteText = false, answerTail = '', answerHead = '', symbolsText = '';
+  let wroteText = false, answerTail = '', answerHead = '', heldText = '';
   const stats: SearchStats = { tavily: 0, credits: 0, failures: 0, failover: false };
   // Status lines go only to this reader's stream (the search query included); logs keep counts only.
   const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
@@ -682,7 +704,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (answerHead.length < ANSWER_HEAD_CHARACTERS) answerHead = (answerHead + text).slice(0, ANSWER_HEAD_CHARACTERS);
-        if (symbolsOnly) { symbolsText = (symbolsText + text).slice(0, 40_000); return; }
+        if (heldBack) { heldText = (heldText + text).slice(0, 40_000); return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
     }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
@@ -727,9 +749,17 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   }
 
+  // The figure view's walkthrough, checked; without one, the words in its call (else the model's own) are the description.
+  const walkthroughCall = offersWalkthrough ? answer.toolCalls?.find(c => c.name === FIGURE_WALKTHROUGH_TOOL.name) : undefined;
+  const paragraphs = walkthroughCall ? paragraphCount(paper?.text ?? '') : 0;
+  const walkthrough = walkthroughOnly && walkthroughCall ? figureWalkthrough(walkthroughCall.input, paragraphs) : null;
+  const walkthroughWords = walkthroughOnly && !walkthrough
+    ? ((walkthroughCall ? figureWalkthroughText(walkthroughCall.input, paragraphs) : '') || heldText.trim()).slice(0, 12_000) : '';
   // How the answer ended decides whether the reader pays (owner decision 2026-10-16, CHAT.md "When an answer stops
   // early"): work that finished, or the part the reader chose to stop. Anything else that ended it costs them nothing.
-  const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: wroteText || !!answer.toolCalls?.length });
+  // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
+  const showsWork = walkthroughOnly ? !!walkthrough || !!walkthroughWords : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
+  const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
   // Provider spend (the platform budget): tokens and Anthropic's per-search fee, whoever pays for them. Tavily
@@ -820,13 +850,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }), { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 });
     // Web results must be shown with the answer that used them.
     // Unless the answer already ends with its own Sources section.
-    if (outcome.sources?.length && !symbolsOnly && !signal.aborted && !/\n\nSources:\n/.test(answerTail)) {
+    if (outcome.sources?.length && !heldBack && !signal.aborted && !/\n\nSources:\n/.test(answerTail)) {
       const text = sourcesText(outcome.sources);
       if (text) { emit({ event: 'delta', data: { text } }); wroteText = true; }
     }
     // Diagram: relayed once to the device, which stores it encrypted. Only calls from
     // rounds that ended in tool use are reported (none cut off mid-call).
-    const drawing = request.action !== 'ingest' && !isEquationAction(request.action) ? outcome.toolCalls?.find(c => c.name === 'create_diagram') : undefined;
+    const drawing = request.action !== 'ingest' && !isViewAction(request.action) ? outcome.toolCalls?.find(c => c.name === 'create_diagram') : undefined;
     if (drawing) {
       const diagram = diagramRequest(drawing.input);
       deps.log({ event: diagram ? 'chat_diagram' : 'chat_diagram_invalid_input', operation_id: request.operationID });
@@ -837,7 +867,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       }
     }
     // Figure parts: the regions of an attached figure the device crops and shows, relayed once (format figure-parts-v1).
-    const breakdown = offersParts && request.figures.length ? outcome.toolCalls?.find(c => c.name === 'show_figure_parts') : undefined;
+    const breakdown = offersParts && request.figures.length && !figureView ? outcome.toolCalls?.find(c => c.name === 'show_figure_parts') : undefined;
     if (breakdown) {
       const parts = figurePartsRequest(breakdown.input, request.figures);
       deps.log({ event: parts ? 'chat_figure_parts' : 'chat_figure_parts_invalid_input', operation_id: request.operationID });
@@ -855,7 +885,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       if (wanted && !signal.aborted) emit({ event: 'figure_request', data: wanted });
     }
     // Visual: one sanitized HTML fragment, relayed once like a diagram; the device keeps it encrypted (format html-v1).
-    const shown = request.action !== 'ingest' && request.action !== 'diagram_fix' && !isEquationAction(request.action) && request.visuals ? outcome.toolCalls?.find(c => c.name === 'create_visual') : undefined;
+    const shown = request.action !== 'ingest' && request.action !== 'diagram_fix' && !isViewAction(request.action) && request.visuals ? outcome.toolCalls?.find(c => c.name === 'create_visual') : undefined;
     if (shown) {
       const visual = visualRequest(shown.input);
       deps.log({ event: visual ? 'chat_visual' : 'chat_visual_invalid_input', operation_id: request.operationID });
@@ -867,10 +897,26 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // The equation view's symbols: checked JSON, relayed once (format equation-symbols-v1). Without usable JSON the
     // model's words are the description, so the reader still sees something for what was paid.
     if (symbolsOnly && !signal.aborted) {
-      const described = equationSymbols(symbolsText, paragraphCount(paper?.text ?? ''));
+      const described = equationSymbols(heldText, paragraphCount(paper?.text ?? ''));
       deps.log({ event: described ? 'chat_equation' : 'chat_equation_invalid_output', operation_id: request.operationID, symbols: described?.symbols.length ?? 0 });
       if (described) emit({ event: 'equation', data: described });
-      else if (symbolsText.trim()) emit({ event: 'delta', data: { text: symbolsText.trim().slice(0, 8_000) } });
+      else if (heldText.trim()) emit({ event: 'delta', data: { text: heldText.trim().slice(0, 8_000) } });
+    }
+    // The figure view's walkthrough: checked, relayed once (format figure-walkthrough-v1). Without a usable one the
+    // model's words are the description, so the reader still sees what was paid for (counts only in the log).
+    if (walkthroughOnly && !signal.aborted) {
+      deps.log({ event: walkthrough ? 'chat_figure_walkthrough' : 'chat_figure_walkthrough_invalid_output', operation_id: request.operationID,
+        called: !!walkthroughCall, sections: walkthrough?.sections.length ?? 0, boxes: walkthrough?.sections.filter(s => s.box).length ?? 0,
+        boxes_offered: walkthroughCall ? offeredBoxes(walkthroughCall.input) : 0 });
+      if (walkthrough) emit({ event: 'figure', data: walkthrough });
+      else if (walkthroughWords) emit({ event: 'delta', data: { text: walkthroughWords } });
+    }
+    // An ordinary answer that called figure_walkthrough anyway (it is only the figure view's): never relayed as one, and
+    // when it wrote nothing else, its words are the answer.
+    if (walkthroughCall && !isViewAction(request.action) && !wroteText && !signal.aborted) {
+      const words = figureWalkthroughText(walkthroughCall.input, paragraphs);
+      deps.log({ event: 'chat_figure_walkthrough_in_answer', operation_id: request.operationID });
+      if (words) emit({ event: 'delta', data: { text: words.slice(0, 12_000) } });
     }
     // Follow-up questions: relayed once, never stored (chat-follow-ups.ts; counted in chat_answer).
     if (suggested?.questions && !signal.aborted) emit({ event: 'followups', data: { questions: suggested.questions } });

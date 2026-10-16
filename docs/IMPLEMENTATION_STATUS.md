@@ -1,6 +1,21 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+
+## Figure view, server — 2026-10-16, ~07:45 UTC (staging)
+
+- Chat actions `figure` (a walkthrough: one checked `figure_walkthrough` call relayed as a `figure` event,
+  `figure-walkthrough-v1`) and `figure_simpler` (one part again, streamed) on the chat's cached prefix
+  ([FIGURE_VIEW.md](architecture/FIGURE_VIEW.md#server--as-built-phase-1-2026-10-16-staging), with the exact JSON).
+  New capability `figure_view`: a build with the view sends it on every paper chat so its chats carry the tool; not a
+  forced tool (Sonnet 5.5 refuses one). Migration **082** (after 081, ledger verified) lets settlement record the two
+  actions; `chat` deployed (deploy suite 20/20).
+- Live: DPO Figure 1, InfoVis Figures 4 and 13, InfoVis Table 1 (rendered as an image), Mistral 7B Figure 5: 2–5
+  sections each, read from the images; 4–5 credits per walkthrough and 3–4 per "more simply" with the paper cached
+  (a walkthrough after a chat question read the 49,199 cached tokens the question wrote); 9–12 s. $0.82 of provider
+  spend in all.
+- **Open:** the model gave no crop box in 8 walkthroughs, so box placement is unchecked live (phase 4); apps and
+  browser not built (phases 2–3).
 
 ## Mac File menu fixed; reader revision 16 (an image arXiv doesn't serve never refuses) — 2026-10-16, ~07:45 UTC
 
@@ -45,7 +60,6 @@ The browser now matches the apps' build-59 changes (native commits `9903f50`, `5
   (skips by their own conditions). The compiler-freshness failure in `.claude/worktrees` checkouts noted below is a
   missing `supabase/functions/node_modules` (Deno's vendored packages, which esbuild resolves first in the main
   checkout); with it present the check passes.
-
 ## Server paper copies deleted on staging — 2026-10-16, 06:36 UTC
 
 Owner: "Yes, we can even delete them now, so it's obvious we have zero on our system" (design, inventory and client
