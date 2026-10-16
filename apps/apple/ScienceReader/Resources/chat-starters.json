@@ -1,0 +1,55 @@
+{
+ "version": 1,
+ "note": "Starter questions for an empty chat (docs/architecture/CHAT.md, chat redesign 2026-10-16). The browser reads this file; the native app ships an identical copy (apps/apple/ScienceReader/Resources/chat-starters.json, kept equal by the fast suite). Placeholders: {figure}, {table}, {method}.",
+ "paper": [
+  { "category": "overview", "icon": "target", "templates": [
+   "What problem does this paper solve?",
+   "Summarize the main contribution in two sentences",
+   "What's new here compared with earlier work?",
+   "Explain this paper to a first-year grad student"
+  ] },
+  { "category": "method", "icon": "gear", "templates": [
+   "How does {method} work?",
+   "Walk me through the method step by step",
+   "What are the key design choices, and why?"
+  ] },
+  { "category": "figure", "icon": "figure", "templates": [
+   "What does Figure {figure} show?",
+   "Break down Figure {figure} into its parts"
+  ] },
+  { "category": "equation", "icon": "function", "templates": [
+   "Explain the key equation term by term",
+   "What does the main objective optimize, intuitively?"
+  ] },
+  { "category": "table", "icon": "table", "templates": [
+   "What's the takeaway from Table {table}?"
+  ] },
+  { "category": "results", "icon": "chart", "templates": [
+   "What are the main results, and how strong are they?",
+   "Which experiment is the most convincing?",
+   "Where does the method fall short in the experiments?"
+  ] },
+  { "category": "critique", "icon": "question", "templates": [
+   "What limitations don't the authors emphasize?",
+   "What assumptions does this rely on?",
+   "How would you test this claim on new data?"
+  ] },
+  { "category": "background", "icon": "book", "templates": [
+   "What background do I need to follow this paper?",
+   "Which earlier papers should I read first?",
+   "Define the key terms this paper uses"
+  ] }
+ ],
+ "general": [
+  { "icon": "lightbulb", "text": "Explain diffusion models from first principles" },
+  { "icon": "compare", "text": "What's the difference between RLHF and DPO?" },
+  { "icon": "map", "text": "Suggest a reading path into mechanistic interpretability" },
+  { "icon": "gear", "text": "How do mixture-of-experts models route tokens?" },
+  { "icon": "chart", "text": "What makes long-context attention expensive?" },
+  { "icon": "compare", "text": "Compare LoRA with full fine-tuning" },
+  { "icon": "chart", "text": "What is a scaling law, and how is one measured?" },
+  { "icon": "question", "text": "How is benchmark contamination detected?" },
+  { "icon": "book", "text": "Explain transformer attention step by step" },
+  { "icon": "target", "text": "What are open problems in AI alignment research?" }
+ ]
+}

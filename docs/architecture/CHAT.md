@@ -740,3 +740,15 @@ DeepSeek's Anthropic-compatible API (`https://api.deepseek.com/anthropic`), so t
 another base URL, key and model. Priced at DeepSeek's peak list rates. Allowed only under a consent version that names
 DeepSeek; web search through Tavily (our tool), never a provider search tool. Offered only after a recorded check of
 equation handling, figure questions, citations ([¶n]) and the visual tool on the evaluation papers.
+
+### All chats (owner, build 57, 2026-10-16 02:51–02:55 UTC)
+
+"You can put All to the left and make that the default"; "Last read not last used"; "The paper should only be in its
+column not duplicated on left column"; "Poor use of space at the top. Please have the search bar at the top with the
+three lines at the right of the search bar… done can be an option remove it. All chats message can also go. simplify".
+
+- The top is one row: the search field, and beside it a ≡ button (three lines) holding the options: Sort by, Columns,
+  and Close. No title, no Done button (the sheet still closes by swiping down or Esc).
+- Filter chips: **All** first and chosen by default, then This paper (when opened from a paper), Paper chats, General.
+- The time column is **Last read**.
+- With the Paper column chosen, the conversation's second line is its passage or newest answer, never the paper title.

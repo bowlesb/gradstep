@@ -1,0 +1,875 @@
+{
+ "note": "Generated from apps/web/src/lib/chat-starters.ts; both clients must reproduce every case (docs/architecture/CHAT.md, chat redesign 2026-10-16).",
+ "random": {
+  "seed": 42,
+  "first": [
+   0.6011037519201636,
+   0.44829055899754167,
+   0.8524657934904099
+  ]
+ },
+ "methodHeadings": [
+  [
+   [
+    "Abstract",
+    "1 Introduction",
+    "2 Related Work",
+    "3 Preliminaries",
+    "4 Direct Preference Optimization",
+    "5 Theoretical Analysis of DPO",
+    "6 Experiments"
+   ],
+   "Direct Preference Optimization"
+  ],
+  [
+   [
+    "Abstract",
+    "Introduction",
+    "Conclusion"
+   ],
+   null
+  ],
+  [
+   [
+    "1 Introduction",
+    "2 Method",
+    "3 Experiments"
+   ],
+   null
+  ],
+  [
+   [
+    "I. INTRODUCTION",
+    "II. Sparse Mixture Routing",
+    "III. Results"
+   ],
+   "Sparse Mixture Routing"
+  ]
+ ],
+ "cases": [
+  {
+   "name": "dpo",
+   "seed": 1,
+   "input": {
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ],
+    "captions": [
+     "Figure 1: DPO optimizes for human preferences",
+     "Figure 2: Left. The frontier",
+     "Figure 3: Left. Win rates",
+     "Figure 4: Best of N baseline"
+    ],
+    "tableCaptions": [
+     "Table 1: GPT-4 win rates",
+     "Table 2: Human study"
+    ],
+    "equations": 12
+   },
+   "paper": {
+    "figures": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ],
+    "tables": [
+     "1",
+     "2"
+    ],
+    "equations": 12,
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "equation",
+     "icon": "function",
+     "text": "What does the main objective optimize, intuitively?"
+    },
+    {
+     "category": "overview",
+     "icon": "target",
+     "text": "Explain this paper to a first-year grad student"
+    },
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "What are the main results, and how strong are they?"
+    }
+   ]
+  },
+  {
+   "name": "dpo",
+   "seed": 42,
+   "input": {
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ],
+    "captions": [
+     "Figure 1: DPO optimizes for human preferences",
+     "Figure 2: Left. The frontier",
+     "Figure 3: Left. Win rates",
+     "Figure 4: Best of N baseline"
+    ],
+    "tableCaptions": [
+     "Table 1: GPT-4 win rates",
+     "Table 2: Human study"
+    ],
+    "equations": 12
+   },
+   "paper": {
+    "figures": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ],
+    "tables": [
+     "1",
+     "2"
+    ],
+    "equations": 12,
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "equation",
+     "icon": "function",
+     "text": "What does the main objective optimize, intuitively?"
+    },
+    {
+     "category": "table",
+     "icon": "table",
+     "text": "What's the takeaway from Table 2?"
+    },
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "What background do I need to follow this paper?"
+    }
+   ]
+  },
+  {
+   "name": "dpo",
+   "seed": 2026,
+   "input": {
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ],
+    "captions": [
+     "Figure 1: DPO optimizes for human preferences",
+     "Figure 2: Left. The frontier",
+     "Figure 3: Left. Win rates",
+     "Figure 4: Best of N baseline"
+    ],
+    "tableCaptions": [
+     "Table 1: GPT-4 win rates",
+     "Table 2: Human study"
+    ],
+    "equations": 12
+   },
+   "paper": {
+    "figures": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ],
+    "tables": [
+     "1",
+     "2"
+    ],
+    "equations": 12,
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "figure",
+     "icon": "figure",
+     "text": "Break down Figure 1 into its parts"
+    },
+    {
+     "category": "equation",
+     "icon": "function",
+     "text": "Explain the key equation term by term"
+    },
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "Where does the method fall short in the experiments?"
+    }
+   ]
+  },
+  {
+   "name": "dpo",
+   "seed": 4294967295,
+   "input": {
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ],
+    "captions": [
+     "Figure 1: DPO optimizes for human preferences",
+     "Figure 2: Left. The frontier",
+     "Figure 3: Left. Win rates",
+     "Figure 4: Best of N baseline"
+    ],
+    "tableCaptions": [
+     "Table 1: GPT-4 win rates",
+     "Table 2: Human study"
+    ],
+    "equations": 12
+   },
+   "paper": {
+    "figures": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ],
+    "tables": [
+     "1",
+     "2"
+    ],
+    "equations": 12,
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "table",
+     "icon": "table",
+     "text": "What's the takeaway from Table 2?"
+    },
+    {
+     "category": "method",
+     "icon": "gear",
+     "text": "Walk me through the method step by step"
+    },
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "How would you test this claim on new data?"
+    }
+   ]
+  },
+  {
+   "name": "dpo",
+   "seed": 123456789,
+   "input": {
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ],
+    "captions": [
+     "Figure 1: DPO optimizes for human preferences",
+     "Figure 2: Left. The frontier",
+     "Figure 3: Left. Win rates",
+     "Figure 4: Best of N baseline"
+    ],
+    "tableCaptions": [
+     "Table 1: GPT-4 win rates",
+     "Table 2: Human study"
+    ],
+    "equations": 12
+   },
+   "paper": {
+    "figures": [
+     "1",
+     "2",
+     "3",
+     "4"
+    ],
+    "tables": [
+     "1",
+     "2"
+    ],
+    "equations": 12,
+    "headings": [
+     "Abstract",
+     "1 Introduction",
+     "2 Related Work",
+     "3 Preliminaries",
+     "4 Direct Preference Optimization",
+     "5 Theoretical Analysis of DPO",
+     "6 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "figure",
+     "icon": "figure",
+     "text": "What does Figure 2 show?"
+    },
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "Define the key terms this paper uses"
+    },
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "Where does the method fall short in the experiments?"
+    }
+   ]
+  },
+  {
+   "name": "bare",
+   "seed": 1,
+   "input": {
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ],
+    "captions": [],
+    "tableCaptions": [],
+    "equations": 0
+   },
+   "paper": {
+    "figures": [],
+    "tables": [],
+    "equations": 0,
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ]
+   },
+   "expected": [
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "How would you test this claim on new data?"
+    },
+    {
+     "category": "overview",
+     "icon": "target",
+     "text": "Explain this paper to a first-year grad student"
+    },
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "What are the main results, and how strong are they?"
+    }
+   ]
+  },
+  {
+   "name": "bare",
+   "seed": 42,
+   "input": {
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ],
+    "captions": [],
+    "tableCaptions": [],
+    "equations": 0
+   },
+   "paper": {
+    "figures": [],
+    "tables": [],
+    "equations": 0,
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ]
+   },
+   "expected": [
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "How would you test this claim on new data?"
+    },
+    {
+     "category": "method",
+     "icon": "gear",
+     "text": "Walk me through the method step by step"
+    },
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "Which earlier papers should I read first?"
+    }
+   ]
+  },
+  {
+   "name": "bare",
+   "seed": 2026,
+   "input": {
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ],
+    "captions": [],
+    "tableCaptions": [],
+    "equations": 0
+   },
+   "paper": {
+    "figures": [],
+    "tables": [],
+    "equations": 0,
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ]
+   },
+   "expected": [
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "Which experiment is the most convincing?"
+    },
+    {
+     "category": "method",
+     "icon": "gear",
+     "text": "Walk me through the method step by step"
+    },
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "What limitations don't the authors emphasize?"
+    }
+   ]
+  },
+  {
+   "name": "bare",
+   "seed": 4294967295,
+   "input": {
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ],
+    "captions": [],
+    "tableCaptions": [],
+    "equations": 0
+   },
+   "paper": {
+    "figures": [],
+    "tables": [],
+    "equations": 0,
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ]
+   },
+   "expected": [
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "Define the key terms this paper uses"
+    },
+    {
+     "category": "overview",
+     "icon": "target",
+     "text": "Explain this paper to a first-year grad student"
+    },
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "What assumptions does this rely on?"
+    }
+   ]
+  },
+  {
+   "name": "bare",
+   "seed": 123456789,
+   "input": {
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ],
+    "captions": [],
+    "tableCaptions": [],
+    "equations": 0
+   },
+   "paper": {
+    "figures": [],
+    "tables": [],
+    "equations": 0,
+    "headings": [
+     "Abstract",
+     "Introduction",
+     "Conclusion"
+    ]
+   },
+   "expected": [
+    {
+     "category": "method",
+     "icon": "gear",
+     "text": "Walk me through the method step by step"
+    },
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "What background do I need to follow this paper?"
+    },
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "How would you test this claim on new data?"
+    }
+   ]
+  },
+  {
+   "name": "generic",
+   "seed": 1,
+   "input": {
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ],
+    "captions": [
+     "Fig. 7: Overview"
+    ],
+    "tableCaptions": [],
+    "equations": 3
+   },
+   "paper": {
+    "figures": [
+     "7"
+    ],
+    "tables": [],
+    "equations": 3,
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "equation",
+     "icon": "function",
+     "text": "What does the main objective optimize, intuitively?"
+    },
+    {
+     "category": "overview",
+     "icon": "target",
+     "text": "Explain this paper to a first-year grad student"
+    },
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "What are the main results, and how strong are they?"
+    }
+   ]
+  },
+  {
+   "name": "generic",
+   "seed": 42,
+   "input": {
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ],
+    "captions": [
+     "Fig. 7: Overview"
+    ],
+    "tableCaptions": [],
+    "equations": 3
+   },
+   "paper": {
+    "figures": [
+     "7"
+    ],
+    "tables": [],
+    "equations": 3,
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "equation",
+     "icon": "function",
+     "text": "What does the main objective optimize, intuitively?"
+    },
+    {
+     "category": "figure",
+     "icon": "figure",
+     "text": "What does Figure 7 show?"
+    },
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "What background do I need to follow this paper?"
+    }
+   ]
+  },
+  {
+   "name": "generic",
+   "seed": 2026,
+   "input": {
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ],
+    "captions": [
+     "Fig. 7: Overview"
+    ],
+    "tableCaptions": [],
+    "equations": 3
+   },
+   "paper": {
+    "figures": [
+     "7"
+    ],
+    "tables": [],
+    "equations": 3,
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "figure",
+     "icon": "figure",
+     "text": "Break down Figure 7 into its parts"
+    },
+    {
+     "category": "method",
+     "icon": "gear",
+     "text": "Walk me through the method step by step"
+    },
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "How would you test this claim on new data?"
+    }
+   ]
+  },
+  {
+   "name": "generic",
+   "seed": 4294967295,
+   "input": {
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ],
+    "captions": [
+     "Fig. 7: Overview"
+    ],
+    "tableCaptions": [],
+    "equations": 3
+   },
+   "paper": {
+    "figures": [
+     "7"
+    ],
+    "tables": [],
+    "equations": 3,
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "equation",
+     "icon": "function",
+     "text": "What does the main objective optimize, intuitively?"
+    },
+    {
+     "category": "method",
+     "icon": "gear",
+     "text": "What are the key design choices, and why?"
+    },
+    {
+     "category": "critique",
+     "icon": "question",
+     "text": "What assumptions does this rely on?"
+    }
+   ]
+  },
+  {
+   "name": "generic",
+   "seed": 123456789,
+   "input": {
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ],
+    "captions": [
+     "Fig. 7: Overview"
+    ],
+    "tableCaptions": [],
+    "equations": 3
+   },
+   "paper": {
+    "figures": [
+     "7"
+    ],
+    "tables": [],
+    "equations": 3,
+    "headings": [
+     "1 Introduction",
+     "2 Method",
+     "3 Experiments"
+    ]
+   },
+   "expected": [
+    {
+     "category": "figure",
+     "icon": "figure",
+     "text": "What does Figure 7 show?"
+    },
+    {
+     "category": "background",
+     "icon": "book",
+     "text": "Define the key terms this paper uses"
+    },
+    {
+     "category": "results",
+     "icon": "chart",
+     "text": "Where does the method fall short in the experiments?"
+    }
+   ]
+  },
+  {
+   "name": "general",
+   "seed": 1,
+   "input": null,
+   "paper": null,
+   "expected": [
+    {
+     "category": "general",
+     "icon": "chart",
+     "text": "What is a scaling law, and how is one measured?"
+    },
+    {
+     "category": "general",
+     "icon": "lightbulb",
+     "text": "Explain diffusion models from first principles"
+    },
+    {
+     "category": "general",
+     "icon": "compare",
+     "text": "Compare LoRA with full fine-tuning"
+    }
+   ]
+  },
+  {
+   "name": "general",
+   "seed": 7,
+   "input": null,
+   "paper": null,
+   "expected": [
+    {
+     "category": "general",
+     "icon": "lightbulb",
+     "text": "Explain diffusion models from first principles"
+    },
+    {
+     "category": "general",
+     "icon": "compare",
+     "text": "What's the difference between RLHF and DPO?"
+    },
+    {
+     "category": "general",
+     "icon": "target",
+     "text": "What are open problems in AI alignment research?"
+    }
+   ]
+  },
+  {
+   "name": "general",
+   "seed": 99,
+   "input": null,
+   "paper": null,
+   "expected": [
+    {
+     "category": "general",
+     "icon": "map",
+     "text": "Suggest a reading path into mechanistic interpretability"
+    },
+    {
+     "category": "general",
+     "icon": "book",
+     "text": "Explain transformer attention step by step"
+    },
+    {
+     "category": "general",
+     "icon": "compare",
+     "text": "Compare LoRA with full fine-tuning"
+    }
+   ]
+  }
+ ]
+}
