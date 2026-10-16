@@ -215,12 +215,17 @@ final class PaperToolsTests: XCTestCase {
         let app = openSample(appearance: "dark")
         let web = app.webViews.firstMatch
         app.buttons["Table of contents"].tap()
-        let tabs = app.segmentedControls["contents.tabs"]
+        let tabs = app.contentsTabs
         XCTAssertTrue(tabs.waitForExistence(timeout: 5))
-        XCTAssertTrue(tabs.buttons["Contents"].isSelected, "Contents is chosen on opening")
+        XCTAssertTrue(app.contentsTab("Contents").isSelected, "Contents is chosen on opening")
         XCTAssertTrue(app.descendants(matching: .any)["contents.list.contents"].exists)
+        // Owner, build 62: one glass row, the tabs and an X; no title (the tab says it), no Done.
+        XCTAssertTrue(app.buttons["sheet.close"].exists, "the sheet's X")
+        XCTAssertFalse(app.navigationBars["Contents"].exists, "no title")
+        XCTAssertFalse(app.buttons["Done"].exists, "no Done")
+        XCTAssertEqual(app.buttons["sheet.close"].frame.midY, tabs.frame.midY, accuracy: 4, "the X beside the tabs")
         capture(app, "Contents tab")
-        tabs.buttons["Figures"].tap()
+        app.contentsTab("Figures").tap()
         let figure = app.buttons["contents.figure.0"]
         XCTAssertTrue(figure.waitForExistence(timeout: 5), "Figures lists the paper's figures")
         XCTAssertTrue(figure.label.hasPrefix("Figure 1 — "), "The number and the caption: \(figure.label)")
@@ -231,18 +236,24 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(app.buttons["figures.showInPaper"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["sheet.close"].exists)
         capture(app, "A figure from Contents")
-        app.navigationBars.buttons["BackButton"].firstMatch.tap()
-        // The same tiles as the gallery, from the list.
-        app.buttons["contents.figureTiles"].tap()
+        app.sheetBack(from: "Figure 1")
+        // The same tiles as the gallery, from the list; the page's own glass Back and X.
+        let tiles = app.buttons["contents.figureTiles"]
+        XCTAssertTrue(tiles.waitForExistence(timeout: 5)); tiles.tap()
         XCTAssertTrue(app.buttons["figures.item.0"].waitForExistence(timeout: 5), "The tiles")
+        XCTAssertTrue(app.buttons["sheet.back"].exists && app.buttons["sheet.close"].exists)
         capture(app, "Figures as tiles from Contents")
-        app.navigationBars["Figures"].buttons.firstMatch.tap()
-        tabs.buttons["Tables"].tap()
+        app.buttons["sheet.back"].tap()
+        XCTAssertTrue(app.contentsTab("Tables").waitForExistence(timeout: 5)); app.contentsTab("Tables").tap()
         sleep(1); capture(app, "Tables tab")
-        tabs.buttons["Equations"].tap()
+        app.contentsTab("Equations").tap()
         let equation = app.buttons["contents.equation.0"]
         XCTAssertTrue(equation.waitForExistence(timeout: 5), "Equations lists the display equations")
-        XCTAssertTrue(equation.label.hasPrefix("Equation") && !equation.label.contains("label"), equation.label)
+        // Owner, build 62: "remove the equation text… Equation 1, Equation 2". The sample's number is drawn inside its
+        // picture, so it is named by its section.
+        XCTAssertTrue(equation.label == "Equation (1)" || equation.label.hasPrefix("Equation · "), equation.label)
+        XCTAssertFalse(equation.label.contains("\\") || equation.label.contains("^"), "no LaTeX: \(equation.label)")
+        XCTAssertFalse(app.navigationBars["Equations"].exists, "no title")
         capture(app, "Equations tab")
         equation.tap()
         XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "A row closes Contents")
@@ -264,9 +275,9 @@ final class PaperToolsTests: XCTestCase {
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         app.buttons["Table of contents"].tap()
-        let tabs = app.segmentedControls["contents.tabs"]
+        let tabs = app.contentsTabs
         XCTAssertTrue(tabs.waitForExistence(timeout: 5))
-        tabs.buttons["Tables"].tap()
+        app.contentsTab("Tables").tap()
         let table = app.buttons["contents.table.0"]
         XCTAssertTrue(table.waitForExistence(timeout: 5), "Tables lists the paper's captioned table")
         XCTAssertTrue(table.label.hasPrefix("Table 1 — Values."), table.label)
@@ -282,6 +293,41 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "Show in paper closes Contents")
         XCTAssertTrue(app.buttons["reader.citation.back"].waitForExistence(timeout: 5), "The paper goes to the table with Back")
         capture(app, "A table from Contents, in the paper")
+    }
+
+    /// Contents › Equations › View as tiles (owner, build 62: "a tile view similar to figures"): the equations typeset as
+    /// in the paper, each named by its number; a tile goes where its row goes, the paper at that equation with Back.
+    func testEquationTilesShowTheEquationsTypesetAndOpenOne() throws {
+        let app = openSample(appearance: "light")
+        let web = app.webViews.firstMatch
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Equations").tap()
+        let row = app.buttons["contents.equation.0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let name = row.label
+        let tilesLink = app.buttons["contents.equationTiles"]
+        XCTAssertTrue(tilesLink.waitForExistence(timeout: 5)); tilesLink.tap()
+        let tile = app.webViews.buttons[name].firstMatch
+        XCTAssertTrue(tile.waitForExistence(timeout: 8), "a tile named by its number")
+        XCTAssertTrue(app.buttons["sheet.back"].exists && app.buttons["sheet.close"].exists)
+        capture(app, "Equations as tiles (light)")
+        tile.tap()
+        XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5), "A tile closes Contents")
+        XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The equation is shown in the paper")
+    }
+
+    func testEquationTilesInDarkMode() throws {
+        let app = openSample(appearance: "dark")
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Equations").tap()
+        let row = app.buttons["contents.equation.0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let name = row.label
+        app.buttons["contents.equationTiles"].tap()
+        XCTAssertTrue(app.webViews.buttons[name].firstMatch.waitForExistence(timeout: 8))
+        sleep(1); capture(app, "Equations as tiles (dark)")
     }
 
     // MARK: - Figure gallery (gap 6)

@@ -63,7 +63,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   the top: its controls on the left (tabs, or the page's actions), a round glass **X** on the right. No centred title
   when the controls already say where you are (Contents' tabs name the tab; a figure page's caption names the figure),
   no Done. Glass = `ChromeSurface` (Liquid Glass on iOS 26, a material before it, solid with Reduce Transparency); tabs
-  are a glass segmented control. A pushed page keeps a round glass Back on the left of the same row.
+  are a glass segmented control. A pushed page keeps a round glass Back on the left of the same row. Code:
+  `Views/SheetChrome.swift` (`SheetTopRow`, `GlassTabs`, `SheetRowTitle`; the round buttons are `HeaderButtonLabel`);
+  first used by Contents (iPhone, iPad, Mac).
 - **Explain actions**: wherever a figure, table or equation is shown on its own, the top row offers **Explain in Chat**
   (a draft in the paper's chat, nothing sent) and **AI Explainer** (the walkthrough / symbol explanation, requested only
   then). The equation's edit menu item "Equation" is **AI Explainer** too (owner, build 62). An explainer's title is a

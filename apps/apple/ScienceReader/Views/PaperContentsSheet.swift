@@ -9,11 +9,14 @@ struct PaperContentsSheet: View {
         case contents = "Contents", figures = "Figures", tables = "Tables", equations = "Equations"
         var id: String { rawValue }
     }
-    struct Equation: Identifiable, Equatable { let id: String; let label: String; let text: String }
+    /// A display equation: "Equation (4)" as printed, or "Equation · 3.2 Method" when it has no number (owner, build 62:
+    /// "remove the equation text from this view and instead put Equation 1, Equation 2"); its element in the page draws
+    /// it in the tiles.
+    struct Equation: Identifiable, Equatable { let id: String; let label: String; let markup: String? }
 
     /// The tiles, pushed from the Figures list (owner, build 59: "a link to the same squares based view"); a table with
-    /// its whole caption, pushed from the Tables list.
-    enum Route: Hashable { case tiles, table(String) }
+    /// its whole caption, pushed from the Tables list; the equations typeset as tiles (owner, build 62).
+    enum Route: Hashable { case tiles, table(String), equationTiles }
 
     let headings: [PaperHeading]
     let bundle: VerifiedReaderBundle?
@@ -33,17 +36,15 @@ struct PaperContentsSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
+            // One glass row: the tabs (they name the tab, so no title) and an X (owner, build 62: "remove Done, use x
+            // button… Liquid… tabs"; "the title Equations is duplicative").
             VStack(spacing: 0) {
-                Picker("Show", selection: $tab) {
-                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+                SheetTopRow(close: { dismiss() }) {
+                    GlassTabs(options: Tab.allCases.map { ($0, $0.rawValue) }, selection: $tab, identifier: "contents.tabs")
                 }
-                .pickerStyle(.segmented).labelsHidden()
-                .padding(.horizontal, DesignMetrics.margin).padding(.top, 4).padding(.bottom, 8)
-                .accessibilityIdentifier("contents.tabs")
                 list
             }
-            .navigationTitle(tab.rawValue).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar(.hidden, for: .navigationBar)
             .task(id: tab) { if tab == .equations, equations == nil { equations = await Self.equations(in: bundle) } }
             // A figure's own page: the figure, its whole caption, Show in paper (owner, build 59: "get to the entire title
             // without going all the way back to the paper").
@@ -57,8 +58,19 @@ struct PaperContentsSheet: View {
                 if let bundle {
                     switch route {
                     case .tiles:
-                        FigureGrid(bundle: bundle, figures: figures).navigationTitle("Figures").navigationBarTitleDisplayMode(.inline)
-                            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                        VStack(spacing: 0) {
+                            SheetTopRow(back: { path.removeLast() }, close: { dismiss() }) { SheetRowTitle(text: "Figures") }
+                            FigureGrid(bundle: bundle, figures: figures)
+                        }
+                        .toolbar(.hidden, for: .navigationBar)
+                    case .equationTiles:
+                        VStack(spacing: 0) {
+                            SheetTopRow(back: { path.removeLast() }, close: { dismiss() }) { SheetRowTitle(text: "Equations") }
+                            // A tile goes where its row goes: the paper at that equation, with Back.
+                            EquationTilesView(bundle: bundle, equations: equations ?? []) { go(.equation, $0) }
+                                .accessibilityIdentifier("contents.equationTiles.page")
+                        }
+                        .toolbar(.hidden, for: .navigationBar)
                     // A table's own view (a table block or one published as an image), its whole caption, Show in paper:
                     // the paper goes to it as to a referenced table, with Back.
                     case .table(let id):
@@ -107,9 +119,15 @@ struct PaperContentsSheet: View {
             .accessibilityIdentifier("contents.list.\(tab == .tables ? "tables" : "figures")")
         case .equations:
             if let equations {
-                List(Array(equations.enumerated()), id: \.element.id) { index, equation in
-                    Button { go(.equation, equation.id) } label: { ContentsEntry(title: equation.label, detail: equation.text, strong: true, mathDetail: true) }
-                        .accessibilityIdentifier("contents.equation.\(index)")
+                List {
+                    if !equations.isEmpty {
+                        NavigationLink(value: Route.equationTiles) { Label("View as tiles", systemImage: "square.grid.2x2") }
+                            .accessibilityIdentifier("contents.equationTiles")
+                    }
+                    ForEach(Array(equations.enumerated()), id: \.element.id) { index, equation in
+                        Button { go(.equation, equation.id) } label: { ContentsEntry(title: equation.label, detail: nil, strong: true) }
+                            .accessibilityIdentifier("contents.equation.\(index)")
+                    }
                 }
                 .listStyle(.plain)
                 .overlay { if equations.isEmpty { ContentUnavailableView("No equations", systemImage: "function") } }
@@ -120,20 +138,40 @@ struct PaperContentsSheet: View {
         }
     }
 
-    /// The paper's display equations in order, numbered as printed, with their LaTeX read as text.
+    /// The paper's display equations in order: numbered as printed, else named by their section; each with its element in
+    /// the page for the tiles.
     static func equations(in bundle: VerifiedReaderBundle?) async -> [Equation] {
         guard let bundle else { return [] }
-        let display = bundle.index.equations.filter(\.display)
+        let index = bundle.index
         let html = bundle.data(for: bundle.manifest.entrypoint).flatMap { String(data: $0, encoding: .utf8) }
         return await Task.detached(priority: .userInitiated) {
-            display.map { equation in
-                // The printed number from the page, else a \tag{…} in the source; labels and number switches aren't shown.
+            let sections = Self.sections(of: index)
+            return index.equations.filter(\.display).map { equation in
+                let markup = html.flatMap { EquationMarkup.element(in: $0, equationID: equation.id) }
+                // The printed number from the page, else a \tag{…} in the source.
                 let tag = equation.latex.firstMatch(of: /\\tag\*?\{([^}]{1,12})\}/).map { "(\($0.output.1))" }
-                let number = html.flatMap { EquationMarkup.element(in: $0, equationID: equation.id) }.flatMap(EquationMarkup.number(in:)) ?? tag
-                let source = equation.latex.replacing(/\\(label|tag\*?)\{[^}]*\}|\\(nonumber|notag)\b/, with: "")
-                return Equation(id: equation.id, label: EquationMarkup.label(number: number), text: String(ChatMathText.plain(source).prefix(160)))
+                let number = markup.flatMap(EquationMarkup.number(in:)) ?? tag
+                return Equation(id: equation.id, label: label(number: number, section: sections[equation.blockID]), markup: markup)
             }
         }.value
+    }
+
+    /// "Equation (4)"; without a number, "Equation · 3.2 Method" (its section), else "Equation".
+    nonisolated static func label(number: String?, section: String?) -> String {
+        if number != nil { return EquationMarkup.label(number: number) }
+        guard let section, !section.isEmpty else { return "Equation" }
+        return "Equation · \(section)"
+    }
+
+    /// Each block's section: the heading last seen before it in reading order.
+    nonisolated static func sections(of index: ReaderBundleIndex) -> [String: String] {
+        let titles = Dictionary(index.headings.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        var current: String?, result: [String: String] = [:]
+        for block in index.blocks {
+            if let title = titles[block.id] { current = title }
+            if let current { result[block.id] = current }
+        }
+        return result
     }
 }
 
@@ -154,12 +192,11 @@ private struct ContentsEntry: View {
     let title: String
     let detail: String?
     var strong = false
-    var mathDetail = false
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(strong ? .body.weight(.semibold) : .body).multilineTextAlignment(.leading)
             if let detail {
-                Text(detail).font(mathDetail ? .system(.subheadline, design: .serif).italic() : .subheadline)
+                Text(detail).font(.subheadline)
                     .foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
             }
         }

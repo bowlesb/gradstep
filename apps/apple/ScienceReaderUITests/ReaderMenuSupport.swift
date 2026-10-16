@@ -121,3 +121,18 @@ extension XCUIElement {
         tap()
     }
 }
+
+/// An information sheet's one glass top row (docs/DESIGN.md "Sheet top row", owner build 62): Contents' tabs are buttons
+/// `contents.tabs.<name>` in the `contents.tabs` capsule; the sheet closes with `sheet.close`; a pushed page goes back
+/// with `sheet.back` (or its navigation bar's Back, where a page still has one).
+extension XCUIApplication {
+    var contentsTabs: XCUIElement { descendants(matching: .any)["contents.tabs"] }
+    func contentsTab(_ title: String) -> XCUIElement { buttons["contents.tabs.\(title.lowercased())"] }
+    func sheetBack(from title: String) {
+        let glass = buttons["sheet.back"]
+        if glass.exists, glass.isHittable { glass.tap(); return }
+        // A page with no title in its bar (the figure page's top row) is found by the system Back's identifier.
+        let titled = navigationBars[title]
+        if titled.exists { titled.buttons.firstMatch.tap() } else { navigationBars.buttons["BackButton"].firstMatch.tap() }
+    }
+}

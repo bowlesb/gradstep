@@ -1291,6 +1291,9 @@ struct SettingsView: View {
     var dismissSettings: (() -> Void)? = nil
     @State private var showDeleteAccount = false
     @State private var width: CGFloat = 0
+    /// A count in Your assets: "None" when empty, as Downloaded papers.
+    static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
+
     private static var version: String {
         let info = Bundle.main.infoDictionary
         return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
@@ -1393,6 +1396,13 @@ struct SettingsView: View {
                 Section("Your assets") {
                     openRow("Chats") { model.showAllChats = true }.accessibilityIdentifier("settings.chats")
                     openRow("Diagrams") { model.showDiagrams = true }.accessibilityIdentifier("settings.diagrams")
+                    // Owner, build 62: "Equation Explanations, and Figure Explanations in the list of your assets".
+                    NavigationLink { KeptExplanationsView(model: model, kind: .equations) } label: {
+                        LabeledContent("Equation explanations", value: Self.count(model.keptEquationExplanations.count))
+                    }.accessibilityIdentifier("settings.equationExplanations")
+                    NavigationLink { KeptExplanationsView(model: model, kind: .figures) } label: {
+                        LabeledContent("Figure explanations", value: Self.count(model.keptFigureExplanations.count))
+                    }.accessibilityIdentifier("settings.figureExplanations")
                     // Owner, build 59: "a downloaded papers section… that will allow you to delete them".
                     NavigationLink { DownloadedPapersView(model: model) } label: {
                         let bytes = model.downloadedPapers.reduce(0) { $0 + $1.totalBytes }
@@ -1432,6 +1442,7 @@ struct SettingsView: View {
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
                 .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model).macSheetKeys() }
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance(); await model.refreshStoreSummary() } }
+                .task { await model.refreshKeptExplanations() }
                 // Its own task: a slow balance or store answer never holds the operator row back.
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshOperatorRoles() } }
                 .toolbar { if let dismissSettings { ToolbarItem(placement: .confirmationAction) { Button("Done", action: dismissSettings) } } }

@@ -3437,13 +3437,25 @@ final class ReaderModel {
     /// reader data, so a reopened equation shows them without a new request.
     func equationAnswer(_ key: EquationResultKey) -> EquationAnswer? {
         if let kept = equationAnswers[key] { return kept }
+        // The exact answer (paper, equation, action, model); else the newest kept for the same paper, equation and action
+        // under another model or options (the defaults can resolve differently after a relaunch; Your assets lists it).
         let stored = equationResultStore()?.read(key)
+            ?? keptFileName(equations: true, key.manifestSHA256, key.equationID, key.action).flatMap { equationResultStore()?.read(fileName: $0, as: EquationAnswer.self) }
         if let stored { equationAnswers[key] = stored }
         return stored
     }
     func keepEquationAnswer(_ answer: EquationAnswer, for key: EquationResultKey) {
+        var answer = answer
+        if answer.subject == nil {
+            answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: key.equationID, action: key.action) { paper in
+                guard let context = self.equationContext(for: EquationViewRequest(paperID: paper.id, equationID: key.equationID)) else { return nil }
+                guard context.number == nil else { return context.label }
+                return PaperContentsSheet.label(number: nil, section: PaperContentsSheet.sections(of: context.bundle.index)[context.blockID])
+            }
+        }
         equationAnswers[key] = answer
         try? equationResultStore()?.write(answer, for: key)
+        if let subject = answer.subject { keptEquationFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
     }
     private func equationResultStore() -> EquationResultStore? {
         if let equationStore { return equationStore }
@@ -3526,13 +3538,83 @@ final class ReaderModel {
     /// The walkthroughs kept on this device, as the equation view keeps its answers (sealed with the account's local key).
     func figureAnswer(_ key: FigureResultKey) -> FigureAnswer? {
         if let kept = figureAnswers[key] { return kept }
+        // As equationAnswer: the exact answer, else (a walkthrough or detail, not a part) the newest kept for that figure.
         let stored = figureResultStore()?.read(key, as: FigureAnswer.self)
+            ?? (key.part == nil ? keptFileName(equations: false, key.manifestSHA256, key.figureID, key.action)
+                .flatMap { figureResultStore()?.read(fileName: $0, as: FigureAnswer.self) } : nil)
         if let stored { figureAnswers[key] = stored }
         return stored
     }
     func keepFigureAnswer(_ answer: FigureAnswer, for key: FigureResultKey) {
+        var answer = answer
+        if answer.subject == nil {
+            answer.subject = explanationSubject(manifest: key.manifestSHA256, itemID: key.figureID, action: key.action) { paper in
+                self.figureContext(paperID: paper.id, figureID: key.figureID)?.label
+            }
+        }
         figureAnswers[key] = answer
         try? figureResultStore()?.write(answer, for: key)
+        if key.part == nil, let subject = answer.subject { keptFigureFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
+    }
+
+    /// A kept answer's file for (paper revision, item, action), whatever model it was asked with: the newest of them,
+    /// from an index of the subjects sealed in the answers, read once per session (only on a miss).
+    private func keptFileName(equations: Bool, _ manifest: String, _ itemID: String, _ action: ChatAction) -> String? {
+        if equations, keptEquationFiles == nil {
+            keptEquationFiles = Self.keptIndex(equationResultStore()?.entries(as: EquationAnswer.self).map { ($0.fileName, $0.value.subject) } ?? [])
+        } else if !equations, keptFigureFiles == nil {
+            keptFigureFiles = Self.keptIndex(figureResultStore()?.entries(as: FigureAnswer.self).map { ($0.fileName, $0.value.subject) } ?? [])
+        }
+        return (equations ? keptEquationFiles : keptFigureFiles)?[Self.keptKey(manifest, itemID, action)]
+    }
+    private static func keptKey(_ manifest: String, _ itemID: String, _ action: ChatAction) -> String { "\(manifest)|\(itemID)|\(action.rawValue)" }
+    /// Newest first in, so the first file seen for a key wins.
+    private static func keptIndex(_ entries: [(String, ExplanationSubject?)]) -> [String: String] {
+        var index: [String: String] = [:]
+        for (fileName, subject) in entries {
+            guard let subject, let action = ChatAction(rawValue: subject.action) else { continue }
+            let key = keptKey(subject.manifestSHA256, subject.itemID, action)
+            if index[key] == nil { index[key] = fileName }
+        }
+        return index
+    }
+
+    // MARK: Kept explanations (Settings › Your assets; owner, build 62: "Equation Explanations, and Figure Explanations
+    // in the list of your assets")
+
+    /// The paper and item an answer explains, sealed with it; nil when its paper isn't open or in the library here.
+    private func explanationSubject(manifest: String, itemID: String, action: ChatAction, label: (Paper) -> String?) -> ExplanationSubject? {
+        guard let paper = papers.first(where: { $0.readerBundle?.manifestSHA256 == manifest })
+                ?? (selectedPaper?.readerBundle?.manifestSHA256 == manifest ? selectedPaper : nil) else { return nil }
+        return ExplanationSubject(paperID: paper.id, paperTitle: paper.title, manifestSHA256: manifest, itemID: itemID,
+                                  label: label(paper) ?? "", action: action.rawValue, savedAt: Date())
+    }
+
+    /// The equation and figure explanations kept on this device, each equation or figure once, newest first (read when
+    /// Settings shows them: every sealed answer is opened, so not on every change).
+    private(set) var keptEquationExplanations: [ExplanationSubject] = []
+    private(set) var keptFigureExplanations: [ExplanationSubject] = []
+    func refreshKeptExplanations() async {
+        let equations = equationResultStore(), figures = figureResultStore()
+        let (equationSubjects, figureSubjects) = await Task.detached(priority: .utility) {
+            (equations?.all(as: EquationAnswer.self).compactMap(\.subject) ?? [], figures?.all(as: FigureAnswer.self).compactMap(\.subject) ?? [])
+        }.value
+        let distinct = { (subjects: [ExplanationSubject]) -> [ExplanationSubject] in
+            var seen = Set<String>()
+            return subjects.sorted { $0.savedAt > $1.savedAt }.filter { seen.insert("\($0.paperID.wire)/\($0.itemID)").inserted }
+        }
+        keptEquationExplanations = distinct(equationSubjects); keptFigureExplanations = distinct(figureSubjects)
+    }
+
+    /// Opening a kept explanation: its paper opens as any paper does, then the paper's view shows the equation or figure
+    /// (`pendingExplanation`), where the kept answer shows without a new request. False when the paper isn't in the
+    /// library on this device.
+    var pendingExplanation: ExplanationSubject?
+    @discardableResult func openExplanation(_ subject: ExplanationSubject) -> Bool {
+        guard let paper = papers.first(where: { $0.id == subject.paperID && !$0.isSample }) else { return false }
+        pendingExplanation = subject
+        select(paper)
+        return true
     }
     private func figureResultStore() -> EquationResultStore? {
         if let figureStore { return figureStore }
@@ -4001,7 +4083,7 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]; chatInterruptionNotes = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
-        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; pendingFigureOutcome = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; pendingFigureOutcome = nil; keptEquationFiles = nil; keptFigureFiles = nil; keptEquationExplanations = []; keptFigureExplanations = []; pendingExplanation = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
@@ -4077,6 +4159,9 @@ final class ReaderModel {
     /// Equation view answers this session, by paper revision, equation, action and profile (sealed copies on disk).
     @ObservationIgnored private var equationAnswers: [EquationResultKey: EquationAnswer] = [:]
     @ObservationIgnored private var equationStore: EquationResultStore?
+    /// Kept answers' files by (paper revision, item, action), built on the first miss (`keptFileName`).
+    @ObservationIgnored private var keptEquationFiles: [String: String]?
+    @ObservationIgnored private var keptFigureFiles: [String: String]?
     @ObservationIgnored private var figureAnswers: [FigureResultKey: FigureAnswer] = [:]
     @ObservationIgnored private var figureStore: EquationResultStore?
     /// What a figure page asked for as it closed (FigureViewOutcome), applied by its container once the sheet has gone.

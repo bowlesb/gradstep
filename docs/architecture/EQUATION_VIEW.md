@@ -83,6 +83,24 @@ reopening an equation shows them without a new request. Apple apps: sealed with 
 Explain and background only on its button; until 2026-10-16 the symbols were asked as the view opened. Nothing is
 sent without chat consent: Explain asks for it first, as chat does.
 
+## Contents › Equations and Your assets (apps, owner build 62)
+
+- **Rows** name each display equation as printed, "Equation (4)", or, without a number, by its section: "Equation ·
+  3.2 Method" (`PaperContentsSheet.label`, the heading last seen before its block). No flattened LaTeX under it
+  (owner: "remove the equation text from this view and instead put Equation 1, Equation 2"). A row goes to the
+  equation in the paper with Back.
+- **View as tiles** (as Figures has): one web page (`EquationTilesView`), not a web view per tile, with the bundle's
+  own stylesheet and each equation's element from the page (`EquationMarkup.element`): a grid of tiles named by their
+  number, each equation scaled down to its tile, light and dark. Page scripts are off; a layout script in its own world
+  fits the equations and posts a tapped tile's id, which goes where its row goes.
+- **Your assets › Equation explanations / Figure explanations**: a kept answer (`EquationAnswer`, `FigureAnswer`)
+  carries its `ExplanationSubject` (paper id and title, bundle manifest, equation or figure id, its label, the action,
+  when), sealed inside the answer like the rest; file names still name nothing. `EquationResultStore.all(as:)` opens
+  every file by its own name. Settings lists each equation or figure once, newest first, "None" when empty; a row opens
+  the paper (`ReaderModel.openExplanation`) and then its equation view or figure page, where the kept answer shows
+  without a request. A paper no longer in the library on this device says so; a paper prepared again since (a new
+  bundle without that id) asks to explain it again. Answers kept before this change have no subject and aren't listed.
+
 ## Proof
 
 - Server: `tests/backend/chat.test.ts` (validation, identical cached prefix, checked symbols, fallback, background).
