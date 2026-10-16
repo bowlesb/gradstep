@@ -11,6 +11,7 @@ import { publishedProfiles } from '../../supabase/functions/_shared/chat-profile
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
 import { EQUATION_MAX_TOKENS, equationSymbols, paragraphCount } from '../../supabase/functions/_shared/chat-equation.ts';
+import { figureBox, figureMaxTokens, figureWalkthrough, figureWalkthroughText } from '../../supabase/functions/_shared/chat-figure-view.ts';
 import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_MAX_TOKENS, studyMap, UPDATE_STUDY_MAP_TOOL } from '../../supabase/functions/_shared/chat-study.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
@@ -2140,6 +2141,174 @@ test('symbols are held back, checked and relayed once; a made-up paragraph becom
   await runChat(background.deps, equationBody({ action: 'equation_background' }), background.emit, new AbortController().signal);
   assert.deepEqual(background.events.map(e => e.event), ['delta', 'delta', 'done']);
   assert.equal(equationSymbols('no json here', 3), null); assert.equal(paragraphCount(equationContext.text), 3);
+});
+
+// The figure view (chat-figure-view.ts, docs/architecture/FIGURE_VIEW.md): a walkthrough as one checked tool call and one
+// part again, more simply, both on the chat's own cached prefix (figure_walkthrough is among the chat's tools for a
+// build that has the view).
+const figureContext = { ...localContext, format: 'reader-local-context-v2', text: Array.from({ length: 14 }, (_, i) => `[¶${i + 1}] Block ${i + 1}.`).join('\n') };
+const toolNames = (p: Params) => (p.tools ?? []).map(t => (t as { name: string }).name);
+const FIGURE_DEVICE = ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'];
+const figureBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3',
+  capabilities: FIGURE_DEVICE, action: 'figure', selection: { quote: 'Figure 2: The pipeline.' }, messages: [{ role: 'user', text: 'Figure 2' }],
+  figures: [figure()], ...overrides });
+const walkthroughCall = (input: unknown, changes: Partial<ProviderOutcome> = {}) => completeOutcome({ stopReason: 'tool_use',
+  toolCalls: [{ id: 'toolu_1', name: 'figure_walkthrough', input }], ...changes });
+
+test('figure actions: the numbered paper on the device, one turn, a selection and exactly one figure, from a build with the view', () => {
+  assert.equal(validateChatRequest(figureBody()).action, 'figure');
+  assert.equal(validateChatRequest(figureBody({ action: 'figure_simpler', selection: { quote: 'The encoder reads the input.' } })).action, 'figure_simpler');
+  assert.equal(validateChatRequest(figureBody({ consent_version: 'cloud-ai-v4' })).figures.length, 1);
+  assert.ok(validateChatRequest(figureBody()).capabilities.includes('figure_view'), 'figure_view is a known capability');
+  for (const [label, change] of Object.entries({
+    'no figure': { figures: undefined }, 'two figures': { figures: [figure(), figure({ id: 'F2' })] }, 'consent v2 (names no figures)': { consent_version: 'cloud-ai-v2' },
+    'a build without the view': { capabilities: ['visual_answers', 'figure_requests'] }, 'no selection': { selection: null },
+    'unnumbered context (v1)': { local_context: localContext }, 'server document': { document_id: documentID, local_context: undefined },
+    'general mode': { mode: 'general', local_context: undefined }, 'title': { topic_title: true }, 'follow-ups': { follow_ups: true },
+    'two turns': { messages: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }] },
+  })) {
+    assert.throws(() => validateChatRequest(figureBody(change as Record<string, unknown>)), { code: 'invalid_request' }, label);
+    assert.throws(() => validateChatRequest(figureBody({ action: 'figure_simpler', ...change as Record<string, unknown> })), { code: 'invalid_request' }, `simpler: ${label}`);
+  }
+});
+
+test('the figure view reads the chat cache: tools, model, thinking, shared instructions and paper byte-identical to a chat about the paper', async () => {
+  const seen: Params[] = [];
+  const h = equationHarness({ generate: async (params, stream) => { seen.push(params); stream.onText('Words.'); return completeOutcome(); } });
+  h.deps.webSearch = true;
+  const device = { document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3', capabilities: FIGURE_DEVICE };
+  const bodies = [
+    paperBody({ ...device, messages: [{ role: 'user', text: 'What does the method optimize?' }] }),
+    paperBody({ ...device, messages: [{ role: 'user', text: 'What does Figure 2 show?' }], figures: [figure()] }),
+    figureBody(),
+    figureBody({ action: 'figure_simpler', selection: { quote: 'The encoder reads the input [¶12].' } }),
+  ];
+  for (const body of bodies) await runChat(h.deps, body, h.emit, new AbortController().signal);
+  assert.equal(seen.length, 4);
+  const [chat, asked, walkthrough, simpler] = seen;
+  // The cached prefix is tools → system blocks up to the paper's breakpoint; the model and thinking decide whose cache it is.
+  const prefix = (p: Params) => Buffer.from(JSON.stringify({ model: p.model, thinking: p.thinking, tools: p.tools, system: (p.system as unknown[]).slice(0, 2) }));
+  for (const other of [asked, walkthrough, simpler]) {
+    assert.ok(prefix(other).equals(prefix(chat)), 'the cached prefix is byte-identical');
+    assert.equal(other.tool_choice, undefined, 'no forced tool: Sonnet 5.5 refuses one, and it is the chat\'s tool_choice');
+    assert.deepEqual((other.system as { cache_control?: unknown }[])[1].cache_control, { type: 'ephemeral', ttl: '1h' }, 'the paper keeps its breakpoint');
+  }
+  assert.deepEqual(toolNames(chat), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure', 'figure_walkthrough', 'web_search']);
+  // Only the action's own instructions (after the paper) and the turn differ.
+  const after = (p: Params) => (p.system as { text: string }[])[2]?.text ?? '';
+  assert.match(after(walkthrough), /^The reader opened the figure view on the attached figure \(F1/);
+  assert.match(after(walkthrough), /Call figure_walkthrough once/);
+  assert.doesNotMatch(after(walkthrough), /show_figure_parts once/, 'the chat\'s figure-parts instructions do not apply');
+  assert.match(after(simpler), /explained more simply \("back up a bit"\)/);
+  assert.equal(walkthrough.max_tokens, figureMaxTokens('low'));
+  assert.equal(simpler.max_tokens, chat.max_tokens);
+  const last = walkthrough.messages.at(-1)!.content as { type: string; text?: string }[];
+  assert.deepEqual(last.map(b => b.type), ['text', 'text', 'image', 'text']);
+  assert.equal(last[0].text, '<selected_passage>\nFigure 2: The pipeline.\n</selected_passage>'); assert.equal(last[3].text, 'Figure 2');
+  // A build without the view keeps exactly the tools (and so the cache) it had.
+  const old: Params[] = [];
+  const before = equationHarness({ generate: sending(old) });
+  await runChat(before.deps, paperBody({ ...device, capabilities: ['visual_answers', 'figure_requests', 'stop_signal'] }), before.emit, new AbortController().signal);
+  assert.deepEqual(toolNames(old[0]), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure']);
+  // Visual answers off: the walkthrough tool alone, still the same for a chat and a walkthrough.
+  const off: Params[] = [];
+  const quiet = equationHarness({ generate: sending(off) });
+  for (const body of [paperBody({ ...device, capabilities: ['figure_view'] }), figureBody({ capabilities: ['figure_view'] })]) await runChat(quiet.deps, body, quiet.emit, new AbortController().signal);
+  assert.deepEqual(off.map(toolNames), [['figure_walkthrough'], ['figure_walkthrough']]);
+});
+
+test('figure_walkthrough input: sections kept in order, bounded, boxes inside the image (at most 4), citations inside the paper', () => {
+  assert.deepEqual(figureBox({ x: -0.01, y: 0.5, w: 0.31, h: 0.2 }), { x: 0, y: 0.5, w: 0.3, h: 0.2 }, 'a tiny overshoot is clamped');
+  assert.deepEqual(figureBox({ x: 0.7, y: 0.7, w: 0.31, h: 0.3 }), { x: 0.7, y: 0.7, w: 0.3, h: 0.3 });
+  for (const bad of [{ x: 0.9, y: 0.9, w: 0.02, h: 0.05 }, { x: 0, y: 0, w: 1, h: 1 }, { x: 0.5, y: 0.5, w: 0.6, h: 0.2 }, { x: 0, y: 0, w: 0.5 }, [0, 0, 0.5, 0.5],
+    { x: '0', y: 0, w: 0.5, h: 0.5 }, { x: Number.NaN, y: 0, w: 0.5, h: 0.5 }, null]) assert.equal(figureBox(bad), null, JSON.stringify(bad));
+  const box = (x: number) => ({ x, y: 0.1, w: 0.1, h: 0.1 });
+  const input = { summary: ' The figure compares RLHF with DPO [¶12][¶40]. ', sections: [
+    { label: '(a)', title: 'The RLHF pipeline', text: 'Three stages [¶12]. A made-up block [¶99].\r\n\n\n\nThen a reward model [¶13].', paragraphs: [12, 99, 0, 12.5], box: box(0) },
+    { label: '', title: 'Legend', text: 'Colours mark the models.', paragraphs: [], box: { x: 0.9, y: 0.9, w: 0.02, h: 0.05 } },
+    { label: '(b)', title: '', text: 'Only a label.', paragraphs: [13] },
+    { label: 'x', title: 'No text', text: '  ', paragraphs: [] },
+    'not a section',
+    { label: '(c)', title: 'C', text: 'c', paragraphs: [], box: box(0.2) },
+    { label: '(d)', title: 'D', text: 'd', paragraphs: [], box: box(0.4) },
+    { label: '(e)', title: 'E', text: 'e', paragraphs: [], box: box(0.6) },
+    { label: '(f)', title: 'F', text: 'f', paragraphs: [], box: box(0.8) },
+  ] };
+  const walkthrough = figureWalkthrough(input, 14)!;
+  assert.equal(walkthrough.format, 'figure-walkthrough-v1');
+  assert.equal(walkthrough.summary, 'The figure compares RLHF with DPO [¶12].');
+  assert.deepEqual(walkthrough.sections.map(s => [s.label, s.title]), [['(a)', 'The RLHF pipeline'], ['', 'Legend'], ['', '(b)'], ['(c)', 'C'], ['(d)', 'D'], ['(e)', 'E'], ['(f)', 'F']]);
+  assert.deepEqual(walkthrough.sections[0], { label: '(a)', title: 'The RLHF pipeline', text: 'Three stages [¶12]. A made-up block .\n\nThen a reward model [¶13].',
+    paragraphs: [12, 13], box: { x: 0, y: 0.1, w: 0.1, h: 0.1 } });
+  assert.deepEqual(walkthrough.sections.map(s => s.box?.x ?? null), [0, null, null, 0.2, 0.4, 0.6, null], 'the box too small is dropped, the fifth box too');
+  // At most 12 sections; a long text ends at a sentence before 1,500 characters; long labels and titles are shortened.
+  const many = figureWalkthrough({ summary: 's', sections: Array.from({ length: 13 }, (_, i) => ({ label: 'L'.repeat(70), title: 'T'.repeat(130),
+    text: `Sentence ${i} is here. `.repeat(100), paragraphs: [] })) }, 14)!;
+  assert.equal(many.sections.length, 12);
+  assert.ok([...many.sections[0].text].length <= 1_500 && many.sections[0].text.endsWith('here.'));
+  assert.equal([...many.sections[0].label].length, 60); assert.ok(many.sections[0].label.endsWith('…')); assert.equal([...many.sections[0].title].length, 120);
+  for (const bad of [null, [], 'x', {}, { summary: 's' }, { summary: 's', sections: 'x' }, { summary: 's', sections: [] }, { summary: 's', sections: [{ label: 'a', title: '', text: '' }] }]) {
+    assert.equal(figureWalkthrough(bad, 14), null, JSON.stringify(bad));
+  }
+  assert.equal(figureWalkthroughText({ summary: 'Only a summary [¶3].', sections: 'x' }, 14), 'Only a summary [¶3].');
+  assert.equal(figureWalkthroughText({ summary: 'S.', sections: [{ label: '(a)', title: 'A', text: 'T [¶2].', paragraphs: [2] }] }, 14), 'S.\n\n**(a) A**\n\nT [¶2].');
+  assert.equal(figureWalkthroughText(null, 14), '');
+});
+
+test('the walkthrough is held back, checked and relayed once; without one the words are the description; nothing shown is not charged', async () => {
+  const input = { summary: 'RLHF against DPO.', sections: [{ label: '(a)', title: 'RLHF', text: 'Three stages [¶12].', paragraphs: [12], box: { x: 0.02, y: 0.1, w: 0.45, h: 0.5 } },
+    { label: '(b)', title: 'DPO', text: 'One stage [¶13].', paragraphs: [13] }] };
+  const h = equationHarness({ generate: async (_params, stream) => { stream.onText('I’ll walk through it.'); return walkthroughCall(input); } });
+  await runChat(h.deps, figureBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['figure', 'done'], 'no words and no other tool result reach the device');
+  assert.deepEqual(h.events[0].data, { format: 'figure-walkthrough-v1', summary: 'RLHF against DPO.', sections: [
+    { label: '(a)', title: 'RLHF', text: 'Three stages [¶12].', paragraphs: [12], box: { x: 0.02, y: 0.1, w: 0.45, h: 0.5 } },
+    { label: '(b)', title: 'DPO', text: 'One stage [¶13].', paragraphs: [13] }] });
+  assert.deepEqual(h.logs, [{ event: 'chat_figure_walkthrough', operation_id: operation, called: true, sections: 2, boxes: 1 }]);
+  assert.equal(settledWith(h).p_action, 'figure'); assert.equal(settledWith(h).p_ending, 'completed'); assert.ok(Number(settledWith(h).p_actual_credits) > 0);
+  assert.equal((h.events[1].data as { charged: boolean }).charged, true);
+  // Parts, a diagram or a visual the model adds are never relayed in the view.
+  const extra = equationHarness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ id: 't1', name: 'figure_walkthrough', input },
+    { id: 't2', name: 'show_figure_parts', input: { figure: 'F1', title: 'x', parts: [{ label: 'a', box: [0, 0, 1, 1], note: 'n' }] } },
+    { id: 't3', name: 'create_visual', input: { title: 'v', html: '<p>v</p>' } }] }) });
+  await runChat(extra.deps, figureBody(), extra.emit, new AbortController().signal);
+  assert.deepEqual(extra.events.map(e => e.event), ['figure', 'done']);
+  // No tool call: the model's words, once, as the description (charged: the reader got them).
+  const words = equationHarness({ generate: async (_params, stream) => { stream.onText('The figure has two halves'); stream.onText(' [¶12].'); return completeOutcome(); } });
+  await runChat(words.deps, figureBody(), words.emit, new AbortController().signal);
+  assert.deepEqual(words.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(words.events[0].data, { text: 'The figure has two halves [¶12].' });
+  assert.equal(settledWith(words).p_ending, 'completed');
+  // A call with no usable section: its words.
+  const loose = equationHarness({ generate: async () => walkthroughCall({ summary: 'Only the summary.', sections: [{ label: 'a' }] }) });
+  await runChat(loose.deps, figureBody(), loose.emit, new AbortController().signal);
+  assert.deepEqual(loose.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(loose.events[0].data, { text: 'Only the summary.' });
+  assert.equal(loose.logs[0].event, 'chat_figure_walkthrough_invalid_output');
+  // Nothing to show at all: a finished turn with nothing in it is the provider's, not charged.
+  const empty = equationHarness({ generate: async () => walkthroughCall({}) });
+  await runChat(empty.deps, figureBody(), empty.emit, new AbortController().signal);
+  assert.deepEqual(empty.events.map(e => e.event), ['done']);
+  assert.deepEqual([settledWith(empty).p_ending, settledWith(empty).p_actual_credits], ['provider', 0]);
+  assert.deepEqual([(empty.events[0].data as { charged: boolean }).charged, (empty.events[0].data as { reason: string }).reason], [false, 'provider']);
+  // Cut off at its allowance: our limit, not charged.
+  const cut = equationHarness({ generate: async (_params, stream) => { stream.onText('Partial'); return completeOutcome({ stopReason: 'max_tokens' }); } });
+  await runChat(cut.deps, figureBody(), cut.emit, new AbortController().signal);
+  assert.deepEqual([settledWith(cut).p_action, settledWith(cut).p_ending, settledWith(cut).p_actual_credits], ['figure', 'limit', 0]);
+});
+
+test('figure_simpler streams words like an answer; tool calls are never relayed; a stray walkthrough in a chat answer becomes its words', async () => {
+  const simpler = equationHarness({ generate: async (_params, stream) => { stream.onText('Think of the left half'); stream.onText(' as the old way [¶12].');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ id: 't1', name: 'figure_walkthrough', input: { summary: 's', sections: [{ label: 'a', title: 't', text: 'x', paragraphs: [] }] } }] }); } });
+  await runChat(simpler.deps, figureBody({ action: 'figure_simpler', selection: { quote: 'The RLHF pipeline has three stages [¶12].' } }), simpler.emit, new AbortController().signal);
+  assert.deepEqual(simpler.events.map(e => e.event), ['delta', 'delta', 'done']);
+  assert.equal(settledWith(simpler).p_action, 'figure_simpler'); assert.equal(settledWith(simpler).p_ending, 'completed');
+  // A part again with nothing written (only a tool call): nothing shown, not charged.
+  const silent = equationHarness({ generate: async () => walkthroughCall({ summary: 's', sections: [{ label: 'a', title: 't', text: 'x', paragraphs: [] }] }) });
+  await runChat(silent.deps, figureBody({ action: 'figure_simpler' }), silent.emit, new AbortController().signal);
+  assert.deepEqual([settledWith(silent).p_ending, settledWith(silent).p_actual_credits], ['provider', 0]);
+  // An ordinary answer that called the view's tool anyway: never a `figure` event; with no words of its own, its words.
+  const chat = equationHarness({ generate: async () => walkthroughCall({ summary: 'S.', sections: [{ label: '(a)', title: 'A', text: 'T [¶2].', paragraphs: [2] }] }) });
+  await runChat(chat.deps, paperBody({ document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3', capabilities: FIGURE_DEVICE }), chat.emit, new AbortController().signal);
+  assert.deepEqual(chat.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(chat.events[0].data, { text: 'S.\n\n**(a) A**\n\nT [¶2].' });
 });
 
 // Resilience (docs/architecture/RESILIENCE.md, fixes 6 and 7): one more try when Anthropic refused an answer as busy
