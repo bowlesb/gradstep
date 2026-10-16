@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { fromBytea, sha256, toBytea } from '../src/lib/bytes';
-import type { ChatRequest, StreamEvent } from '../src/lib/chat';
+import { requestBody, type ChatRequest, type StreamEvent } from '../src/lib/chat';
 const server = vi.hoisted(() => ({ rows: [] as any[], fail: false }));
 vi.mock('../src/lib/backend', async original => {
   const mod = await original<typeof import('../src/lib/backend')>();
@@ -22,7 +22,8 @@ vi.mock('../src/lib/backend', async original => {
 const { ChatSession } = await import('../src/lib/chat-session');
 const { History } = await import('../src/lib/history');
 const { keyRing, generateBundle } = await import('../src/lib/wire');
-const published = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+// The table builds 57/58 shipped with (no additions) and the table staging serves since 2026-10-16 (auto, DeepSeek).
+const published = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
 const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001';
 type Script = (request: ChatRequest) => StreamEvent[];
 
@@ -174,4 +175,28 @@ it('a deferred version-1 tab replans a generated title when a rename arrives dur
   await chat.consent(c, true);
   expect(history.state.conversationSummaries()[0]).toMatchObject({ title: 'Renamed while encrypting', titleSource: 'renamed' });
   expect([...history.state.events.values()].some(e => e.payload.titleSource === 'generated')).toBe(false);
+});
+
+// Chat redesign from build 57 (CHAT.md, 2026-10-16): with the server's `auto` profiles every new request asks for
+// automatic effort; without them (today's staging) requests keep the stored effort.
+const publishedAuto = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+it('requests effort auto when the table offers it, and the stored effort when it does not', async () => {
+  const withAuto = await setup(answer(), { table: publishedAuto }), a = withAuto.chat.current(null);
+  expect(withAuto.chat.defaultProfile).toEqual({ model: 'sonnet', effort: 'low', length: 'standard' });
+  withAuto.chat.edit(a, 'Q'); await withAuto.chat.send(a);
+  expect(withAuto.requests[0].autoEffort).toBe(true);
+  expect(requestBody(withAuto.requests[0]).profile).toEqual({ model: 'sonnet', effort: 'auto', length: 'standard' });
+  withAuto.chat.setProfile(a, { model: 'deepseek', effort: 'low', length: 'brief' }); withAuto.chat.edit(a, 'Q2'); await withAuto.chat.send(a);
+  expect(requestBody(withAuto.requests[1]).profile).toEqual({ model: 'deepseek', effort: 'auto', length: 'brief' });
+  // The stored choice keeps its concrete effort (journals and older tabs read it unchanged).
+  expect(withAuto.requests[1].profile).toEqual({ model: 'deepseek', effort: 'low', length: 'brief' });
+
+  server.rows = []; // another account's keys
+  const without = await setup(answer()), b = without.chat.current(null);
+  without.chat.setProfile(b, expensive); without.chat.edit(b, 'Q'); await without.chat.send(b);
+  expect(without.requests[0].autoEffort).toBeUndefined();
+  expect(requestBody(without.requests[0]).profile).toEqual(expensive);
+  // A table that doesn't list DeepSeek doesn't offer it: the chat keeps a choice it can answer.
+  without.chat.setProfile(b, { model: 'deepseek', effort: 'low', length: 'brief' });
+  expect(without.chat.profileFor(b)).toEqual(expensive);
 });

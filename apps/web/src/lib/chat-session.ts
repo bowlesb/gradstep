@@ -14,7 +14,8 @@ import type { VerifiedBundle } from './bundle';
 import { BackendError, config, rpc } from './backend';
 import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, makeRequest, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
-import { isProfileChoice, isStandard, offers, parseProfileID, ProfileTableLoader, STANDARD_PROFILE, type ProfileChoice, type ProfileTable } from './chat-profiles';
+import { available, isProfileChoice, isStandard, parseProfileID, ProfileTableLoader, requestProfile, STANDARD_PROFILE, withChoice, type ProfileChoice, type ProfileTable } from './chat-profiles';
+import { starterPaper, type StarterPaper } from './chat-starters';
 import { cancellation } from './cancellation';
 import { cleanTopicTitle, encodeDiagram, makeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor, type SourcePaperReference, type DiagramFormat } from './events';
 import { History, type AppendOptions } from './history';
@@ -228,19 +229,21 @@ export class ChatSession {
 
   get profileTable(): ProfileTable | null { return this.profiles.table; }
   async reloadProfiles() { await this.profiles.load(); this.publish(); }
-  /** New chats start here: this browser's choice, else the server's default (Sonnet · Low · Standard). */
+  /** New chats start here: this browser's choice, else the server's default (Sonnet · Standard; its automatic default's
+   * model and length where it publishes one). */
   get defaultProfile(): ProfileChoice {
     const table = this.profiles.table, saved = this.browserDefault;
     if (!table) return STANDARD_PROFILE;
-    if (saved && offers(table, saved)) return saved;
-    return table?.defaultChoice ?? STANDARD_PROFILE;
+    if (saved && available(table, saved)) return saved;
+    const auto = table.autoDefault;
+    return auto ? withChoice(table, table.defaultChoice, { model: auto.model, length: auto.length }) : table.defaultChoice;
   }
   setDefaultProfile(choice: ProfileChoice) { this.browserDefault = { ...choice }; this.deps.writeDefault(this.browserDefault); this.publish(); }
   /** The chat's current choice: one made here, else the profile its newest answer used, else the default. */
   profileFor(c: Composer): ProfileChoice {
     const table = this.profiles.table;
     if (!table) return STANDARD_PROFILE;
-    const usable = (choice: ProfileChoice | null) => !!choice && (!table || offers(table, choice));
+    const usable = (choice: ProfileChoice | null) => !!choice && available(table, choice);
     if (c.profile && usable(c.profile)) return c.profile;
     const answers = this.branch(c)?.messages.filter(m => m.payload.role === 'assistant') ?? [];
     for (const answer of [...answers].reverse()) { const used = parseProfileID(answer.payload.profile); if (used && usable(used)) return used; }
@@ -536,7 +539,7 @@ export class ChatSession {
     const saved = this.equations.get(key);
     if (saved) { update(saved); return saved; }
     const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: equationTurn(input.number) }], input.latex, action,
-      { ...(table ? { profile } : {}), visualAnswers: readVisualAnswers() });
+      { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
     try { request.localContext = localChatContext(reference, bundle); } catch { return finish('local_reader_unavailable'); }
     const controller = cancellation([this.signal, signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
     try {
@@ -561,6 +564,13 @@ export class ChatSession {
 
   /** Study needs the paper numbered on this device (the HTML reader's bundle), as the server's tutor cites [¶N]. */
   canStudy(documentID: string | null): boolean { return !!documentID && this.sourcePapers.has(documentID); }
+  /** The open paper's structure for its starter questions (chat-starters.ts), from its verified bundle on this device;
+   * a paper without one (or one that doesn't load) has no structure to offer, so only its general paper starters. */
+  async starterPaper(documentID: string): Promise<StarterPaper> {
+    const reference = this.reference(documentID), local = this.sourcePapers.get(reference?.membershipID ?? documentID);
+    try { if (local) return starterPaper((await local.load()).index); } catch { /* no structure to offer */ }
+    return { figures: [], tables: [], equations: 0, headings: [] };
+  }
   /** A figure's image from this chat's paper on this device, when its bundle is the one the parts were cut from;
    * several panels composed exactly as they were sent. */
   async figureImage(documentID: string | null, manifestSHA256: string, paths: string[]): Promise<Blob | null> {
@@ -728,9 +738,11 @@ export class ChatSession {
     const table = await this.profiles.load();
     if (this.signal.aborted) return;
     if (this.retiredStorage || !this.accepting) { c.phase = 'idle'; this.publish(); return; }
-    if (table ? !offers(table, capturedProfile) : !isStandard(capturedProfile)) { c.phase = 'idle'; c.issue = 'profile_unavailable'; this.publish(); return; }
+    const asks = table ? requestProfile(table, capturedProfile) : isStandard(capturedProfile) ? capturedProfile : null;
+    if (!asks) { c.phase = 'idle'; c.issue = 'profile_unavailable'; this.publish(); return; }
+    // Where the server publishes automatic effort for this model and length, it picks the effort (CHAT.md, 2026-10-16).
     const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action,
-      { ...(table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {}), visualAnswers: readVisualAnswers() });
+      { ...(table ? { profile: capturedProfile, autoEffort: asks.effort === 'auto', topicTitle: !this.hasTopicTitle(c.conversationID) } : {}), visualAnswers: readVisualAnswers() });
     if (question.action === 'study') request.study = c.study ?? { ...EMPTY_STUDY_MAP };
     const reference=this.reference(c.documentID);
     let figureManifest:string|null=null, figureBundle:VerifiedBundle|null=null;

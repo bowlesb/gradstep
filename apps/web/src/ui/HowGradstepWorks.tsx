@@ -17,24 +17,24 @@ export function HowGradstepWorks({ open, onClose }: { open: boolean; onClose: ()
       <section className="info-section"><h3>How we keep costs bounded</h3>
         <p>A credit is a Gradstep usage unit, not cash. Before an AI action, the server estimates the work and reserves a bounded maximum. When it finishes, the actual measured usage is settled. Retries use the same operation identity so a lost response does not charge twice.</p>
         <p>Local HTML preparation uses no OCR credits. Chat, search and podcasts have separate limits and accounting. Ready-made podcast episodes avoid repeating provider work. Account and platform budgets stop one user or provider outage from creating an unlimited bill.</p>
-        <p>Tokens are the text units providers use for billing; they are not the same as words. The cost of an answer depends on paper and conversation size, cached context, model, effort, answer length, tools and searches, and the tokens actually used. Chat controls show an estimate and maximum before work starts.</p>
+        <p>Tokens are the text units providers use for billing; they are not the same as words. The cost of an answer depends on paper and conversation size, cached context, model, effort, answer length, tools and searches, and the tokens actually used. AI chat options (account menu) lists the usual credits per question for each model and length, and the most one answer can cost.</p>
       </section>
       <section className="info-section"><h3>What a normal month can cover</h3>
         <p>These are current planning guides, not a promise of a fixed number of answers. All paid actions use the same balance, and a longer paper or a more detailed profile can cost more.</p>
-        <p><strong>Paper preparation:</strong> official arXiv HTML is prepared on your device without an OCR charge. <strong>Chat:</strong> a typical Sonnet answer is usually about 4–24 credits, with the exact estimate shown before sending. <strong>Search:</strong> about 1–2 credits per search.</p>
+        <p><strong>Paper preparation:</strong> official arXiv HTML is prepared on your device without an OCR charge. <strong>Chat:</strong> a typical Sonnet answer is usually about 4–24 credits; AI chat options lists the range for each model and length. <strong>Search:</strong> about 1–2 credits per search.</p>
         <p><strong>Podcasts:</strong> browsing and playing a shared episode uses no generation credits. Recent five-minute private episodes used about 55–60 credits; the safety maximum is 150 and the actual charge is settled afterward.</p>
         <p>The current Standard and Pro plans include 800 and 1,800 credits. Think of them as a flexible monthly allowance: a light mix of new papers and chats leaves room for occasional audio, while repeated long papers, deep answers and private episodes use it faster.</p>
       </section>
       <section className="info-section"><h3>Models and providers</h3>
         <p>Current chat answers use Anthropic's Claude models: Haiku is the fast, lower-cost choice for simpler work, Sonnet is the default balance of quality and cost, and Opus is reserved for harder reasoning. On iPhone, iPad and Mac, an experimental on-device model can read a PDF on the device; nothing leaves the device for it. There is no Mathpix fallback; search and speech use separate providers when enabled. The server enforces the available profiles and records the model that actually answered, including an approved fallback.</p>
-        <p>Podcast scripts can be written by DeepSeek instead of Claude when you choose it for an episode; chat uses Claude only. A lower-priced model is not automatically a safe replacement for scientific reading: before using one anywhere, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.</p>
+        <p>Chat answers come from Anthropic’s Claude models, or from DeepSeek when you choose it in Answer options (Claude still writes the chat’s title and suggested questions); podcast scripts can also be written by DeepSeek when you choose it for an episode. A lower-priced model is not automatically a safe replacement for scientific reading: before using one anywhere, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.</p>
       </section>
       <section className="info-section"><h3>arXiv</h3>
         <p>Your browser downloads each paper's official HTML version from arXiv and prepares it here; paper links go to the exact version on arXiv, and each paper keeps its authors' license.</p>
         <p data-testid="arxiv-acknowledgement">{ARXIV_ACKNOWLEDGEMENT}</p>
       </section>
       <section className="info-section"><h3>Your controls</h3>
-        <p>You choose the chat profile and answer length, and you can leave web search off. Each request is bounded before it runs, and the app shows what was charged afterward. Report a problem from the account menu so we can inspect the workflow and its accounting record.</p>
+        <p>You choose the model and answer length, and you can leave web search off. Each request is bounded before it runs, and the app shows what was charged afterward. Report a problem from the account menu so we can inspect the workflow and its accounting record.</p>
       </section>
       <div className="dialog-actions"><button className="primary" onClick={onClose}>Done</button></div>
     </div>

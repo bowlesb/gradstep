@@ -1,7 +1,7 @@
 // Stroke icons in the legacy app's style (24-unit grid, 2-unit rounded strokes), drawn inline.
 import type { ReactNode } from 'react';
 
-const paths: Record<string, ReactNode> = {
+const paths = {
   sidebar: <><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="9" y1="4" x2="9" y2="20" /></>,
   panelRight: <><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="15" y1="4" x2="15" y2="20" /></>,
   chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
@@ -29,9 +29,28 @@ const paths: Record<string, ReactNode> = {
   external: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" /></>,
   info: <><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="12" y1="7" x2="12" y2="7" /></>,
-};
+  lock: <><rect x="4.5" y="10.5" width="15" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>,
+  more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
+  menu: <><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></>,
+  arrowUp: <><line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" /></>,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" />,
+  sliders: <><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="17" x2="20" y2="17" /><circle cx="9" cy="7" r="2.5" /><circle cx="15" cy="17" r="2.5" /></>,
+  // Starter questions (chat-starters.json icon keys).
+  target: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" /></>,
+  gear: <><circle cx="12" cy="12" r="3" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></>,
+  figure: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><polyline points="21 16 15.5 11 6 20" /></>,
+  function: <><path d="M16 3.5h-1.5A3 3 0 0 0 11.5 6.5v11a3 3 0 0 1-3 3H7" /><line x1="7.5" y1="10" x2="15.5" y2="10" /></>,
+  table: <><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9.5" x2="21" y2="9.5" /><line x1="3" y1="14.5" x2="21" y2="14.5" /><line x1="9.5" y1="9.5" x2="9.5" y2="20" /></>,
+  chart: <><line x1="3.5" y1="20" x2="20.5" y2="20" /><line x1="7" y1="16.5" x2="7" y2="11" /><line x1="12" y1="16.5" x2="12" y2="5" /><line x1="17" y1="16.5" x2="17" y2="8.5" /></>,
+  question: <><circle cx="12" cy="12" r="9" /><path d="M9.2 9.2a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2.6-2.8 2.6" /><line x1="12" y1="17" x2="12" y2="17" /></>,
+  lightbulb: <><path d="M9.5 18h5M10.5 21h3" /><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.2 1.1 2V16h5v-.2c0-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z" /></>,
+  compare: <><polyline points="17 3.5 20.5 7 17 10.5" /><line x1="3.5" y1="7" x2="20.5" y2="7" /><polyline points="7 13.5 3.5 17 7 20.5" /><line x1="20.5" y1="17" x2="3.5" y2="17" /></>,
+  map: <><polygon points="3 6 3 21 9 18 15 21 21 18 21 3 15 6 9 3 3 6" /><line x1="9" y1="3" x2="9" y2="18" /><line x1="15" y1="6" x2="15" y2="21" /></>,
+} satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;
+/** A name from data (a starter question's icon key) as an icon, or null when this build has no such icon. */
+export const iconName = (name: string): IconName | null => Object.hasOwn(paths, name) ? name as IconName : null;
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (

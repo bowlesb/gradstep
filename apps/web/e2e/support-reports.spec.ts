@@ -58,12 +58,17 @@ test('an operator gets the operations dashboard in the account menu; a reader do
   await page.getByTestId('account-menu').click();
   await expect(page.getByTestId('my-reports')).toBeVisible();
   await expect(page.getByTestId('operations-dashboard')).toHaveCount(0);
+  await expect(page.getByTestId('menu-admin')).toHaveCount(0); // no Admin group for readers
   roles = ['owner'];
   await page.reload();
   await expect(page.getByRole('link', { name: 'Library' })).toBeVisible();
   await page.getByTestId('account-menu').click();
-  const link = page.getByTestId('operations-dashboard');
+  // Operator tools sit in one grey Admin group (owner, build 58).
+  const admin = page.getByRole('group', { name: 'Admin' });
+  await expect(admin).toBeVisible();
+  const link = admin.getByTestId('operations-dashboard');
   await expect(link).toBeVisible();
   await expect(link).toHaveAttribute('href', 'https://admin.gradstep.ai/#health/30');
   await expect(link).toHaveAttribute('target', '_blank');
+  await page.screenshot({ path: `../../.artifacts/owner-58/${test.info().project.name}-account-menu-operator.png` });
 });

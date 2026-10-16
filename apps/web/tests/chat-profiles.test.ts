@@ -3,8 +3,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { canonicalJSON, fromBase64, toBase64, utf8 } from '../src/lib/bytes';
-import { SSEParser, makeRequest, requestBody, streamLabel } from '../src/lib/chat';
-import { answeredBy, decodeProfileTable, estimateText, modelName, parseProfileID, profileID, profileSummary, ProfileTableLoader, STANDARD_PROFILE,
+import { SSEParser, composerPlaceholder, conversationPreview, makeRequest, requestBody, streamLabel } from '../src/lib/chat';
+import { answeredBy, available, decodeProfileTable, estimateText, hasAutoEffort, listedModels, modelName, modelProvider, offersModelLength, parseProfileID, profileID, profileSummary, ProfileTableLoader, requestProfile, sameChoice, STANDARD_PROFILE, typicalEstimate, withChoice,
   tableEstimate, type ProfileChoice } from '../src/lib/chat-profiles';
 import { cleanTopicTitle, decodeEvent, encodeEvent, GENERATED_TITLE, PrivateState, RENAMED_TITLE, type PrivateEvent } from '../src/lib/events';
 import { decodeBundle, keyRing, openEvent, sealEvent } from '../src/lib/wire';
@@ -12,7 +12,9 @@ import { decodeBundle, keyRing, openEvent, sealEvent } from '../src/lib/wire';
 const fixtures = new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/', import.meta.url);
 const read = (name: string) => JSON.parse(readFileSync(new URL(name, fixtures), 'utf8'));
 const envelopes = read('envelopes-v1.json'), labelled = JSON.parse(readFileSync(new URL('./fixtures/labelled-events-v1.json', import.meta.url), 'utf8')) as { eventID: string; payload: Record<string, unknown>; ciphertext: string }[];
-const published = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+// The table builds 57/58 shipped with (no additions) and the table staging serves since 2026-10-16 (auto, DeepSeek).
+const published = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
+const publishedAuto = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 const account = '11111111-2222-4333-8444-555555555555';
 const bytes = (start: number, length = 32) => Uint8Array.from({ length }, (_, i) => (start + i) & 255);
 
@@ -52,7 +54,7 @@ describe('the published profile table (chat-profiles-v1.json)', () => {
     expect(tableEstimate(table, { model: 'haiku', effort: 'low', length: 'brief' })).toBe('Usually 1–2 credits · up to 2');
     expect(tableEstimate(table, { model: 'opus', effort: 'high', length: 'detailed' })).toBe('Usually 24–63 credits · up to 114');
     expect(estimateText({ low: 1, high: 1, max: 1 })).toBe('About 1 credit · up to 1');
-    expect(profileSummary({ model: 'opus', effort: 'medium', length: 'detailed' }, table)).toBe('Opus · Medium · Detailed');
+    expect(profileSummary({ model: 'opus', effort: 'medium', length: 'detailed' }, table)).toBe('Opus · Detailed');
     expect(table.note).toContain('Web searches');
   });
   it('refuses another version, a missing default or an oversized table; skips what it does not know', () => {
@@ -87,12 +89,12 @@ describe('choices, labels and requests', () => {
   it('round-trips profile identifiers and names the answering model', () => {
     for (const model of ['haiku', 'sonnet', 'opus'] as const) for (const effort of ['low', 'medium', 'high'] as const)
       for (const length of ['brief', 'standard', 'detailed'] as const) expect(parseProfileID(profileID({ model, effort, length }))).toEqual({ model, effort, length });
-    for (const id of ['diagram_fix', 'sonnet-low', 'sonnet-low-standard-x', 'fable-low-brief', '', undefined]) expect(parseProfileID(id)).toBeNull();
-    expect(answeredBy('claude-sonnet-5-5', 'sonnet-low-standard')).toBe('Sonnet · Low · Standard');
-    expect(answeredBy('claude-sonnet-5', 'sonnet-medium-brief')).toBe('Sonnet · Medium · Brief · by Claude Sonnet 5');
-    expect(answeredBy('claude-opus-4-8', 'opus-high-detailed')).toBe('Opus · High · Detailed · by Claude Opus 4.8');
+    for (const id of ['diagram_fix', 'sonnet-low', 'sonnet-low-standard-x', 'fable-low-brief', 'sonnet-auto-standard', '', undefined]) expect(parseProfileID(id)).toBeNull();
+    expect(answeredBy('claude-sonnet-5-5', 'sonnet-low-standard')).toBe('Sonnet · Standard');
+    expect(answeredBy('claude-sonnet-5', 'sonnet-medium-brief')).toBe('Sonnet · Brief · by Claude Sonnet 5');
+    expect(answeredBy('claude-opus-4-8', 'opus-high-detailed')).toBe('Opus · Detailed · by Claude Opus 4.8');
     expect(answeredBy('claude-opus-5-5', undefined)).toBe('Claude Opus 5.5');
-    expect(answeredBy(undefined, 'haiku-low-brief')).toBe('Haiku · Low · Brief');
+    expect(answeredBy(undefined, 'haiku-low-brief')).toBe('Haiku · Brief');
     expect(answeredBy(undefined, undefined)).toBeNull();
     expect(answeredBy('claude-sonnet-5-5', 'diagram_fix')).toBe('Claude Sonnet 5.5');
     expect(modelName('claude-haiku-4-5-20251001')).toBe('Claude Haiku 4.5');
@@ -152,5 +154,88 @@ describe('a topic title is a new conversation revision', () => {
     expect(state.conversationSummaries()[0]).toMatchObject({ title: 'My notes', titleSource: 'renamed' });
     expect(state.titledConversation(conversation, '  ', RENAMED_TITLE)).toBeNull();
     expect(state.titledConversation(id(99), 'x', RENAMED_TITLE)).toBeNull();
+  });
+});
+
+// Chat redesign from build 57 (CHAT.md, 2026-10-16): the reader picks the model and length; effort is automatic where
+// the server's table offers `auto` (servers from 2026-10-16), and requests keep the stored effort where it doesn't.
+describe('automatic effort and DeepSeek in the published table', () => {
+  const plain = decodeProfileTable(published)!, auto = decodeProfileTable(publishedAuto)!;
+  const sonnet: ProfileChoice = { model: 'sonnet', effort: 'low', length: 'standard' };
+  const turns = [{ role: 'user' as const, text: 'Why?' }];
+  it('decodes a table without auto exactly as before', () => {
+    expect(hasAutoEffort(plain)).toBe(false); expect(plain.autoDefault).toBeNull(); expect(plain.estimates.size).toBe(27);
+    expect(listedModels(plain)).toEqual(['haiku', 'sonnet', 'opus']);
+    expect(requestProfile(plain, sonnet)).toEqual(sonnet);
+    expect(requestProfile(plain, { model: 'opus', effort: 'high', length: 'detailed' })).toEqual({ model: 'opus', effort: 'high', length: 'detailed' });
+    expect(requestProfile(plain, { model: 'deepseek', effort: 'low', length: 'standard' })).toBeNull();
+    expect(typicalEstimate(plain, 'sonnet', 'standard')).toEqual({ low: 4, high: 24, max: 37 }); // the low-effort estimate
+  });
+  it('decodes the additive auto profiles, default_auto and DeepSeek within chat-profiles-v1', () => {
+    expect(auto.version).toBe('chat-profiles-v1'); expect(auto.defaultChoice).toEqual(STANDARD_PROFILE);
+    expect(hasAutoEffort(auto)).toBe(true); expect(auto.autoDefault).toEqual({ model: 'sonnet', effort: 'auto', length: 'standard' });
+    expect(auto.estimates.size).toBe(48);
+    expect(listedModels(auto)).toEqual(['haiku', 'sonnet', 'opus', 'deepseek']);
+    expect(auto.models.deepseek).toMatchObject({ label: 'DeepSeek', apiModel: 'deepseek-flash' });
+    expect(modelProvider(auto, 'deepseek')).toBe('DeepSeek'); expect(modelProvider(auto, 'opus')).toBe('Anthropic');
+    expect(auto.efforts.auto?.label).toBe('Automatic');
+    expect(typicalEstimate(auto, 'sonnet', 'standard')).toEqual({ low: 4, high: 24, max: 41 }); // the automatic estimate
+    expect(tableEstimate(auto, { model: 'deepseek', effort: 'auto', length: 'standard' })).toBe('Usually 1–3 credits · up to 5');
+    expect(auto.models.deepseek?.detail).toBe('Low cost; processed by DeepSeek'); // the server's words
+    // A table that ties DeepSeek to a consent this browser doesn't show leaves DeepSeek out entirely.
+    const otherConsent = decodeProfileTable({ ...publishedAuto, models: publishedAuto.models.map((m: { id: string }) => m.id === 'deepseek' ? { ...m, consent_version: 'cloud-ai-v9' } : m) })!;
+    expect(listedModels(otherConsent)).toEqual(['haiku', 'sonnet', 'opus']); expect(available(otherConsent, { model: 'deepseek', effort: 'low', length: 'brief' })).toBe(false);
+    // A default_auto it doesn't offer, or one with a concrete effort, is ignored; the table still decodes.
+    expect(decodeProfileTable({ ...publishedAuto, default_auto: { model: 'opus', effort: 'auto', length: 'brief', x: 1 } })!.autoDefault).toEqual({ model: 'opus', effort: 'auto', length: 'brief' });
+    expect(decodeProfileTable({ ...publishedAuto, default_auto: { model: 'sonnet', effort: 'low', length: 'standard' } })!.autoDefault).toBeNull();
+    expect(decodeProfileTable({ ...publishedAuto, profiles: publishedAuto.profiles.filter((p: { id: string }) => p.id !== 'sonnet-auto-standard') })!.autoDefault).toBeNull();
+    // Version and default rules are unchanged.
+    expect(decodeProfileTable({ ...publishedAuto, version: 'chat-profiles-v2' })).toBeNull();
+    expect(decodeProfileTable({ ...publishedAuto, default: { model: 'sonnet', effort: 'auto', length: 'standard' } })).toBeNull();
+  });
+  it('requests effort auto where offered for the model and length, else the stored effort', () => {
+    expect(requestProfile(auto, sonnet)).toEqual({ model: 'sonnet', effort: 'auto', length: 'standard' });
+    expect(requestProfile(auto, { model: 'opus', effort: 'high', length: 'detailed' })).toEqual({ model: 'opus', effort: 'auto', length: 'detailed' });
+    const noHaikuAuto = decodeProfileTable({ ...publishedAuto, profiles: publishedAuto.profiles.filter((p: { id: string }) => p.id !== 'haiku-auto-brief') })!;
+    expect(requestProfile(noHaikuAuto, { model: 'haiku', effort: 'medium', length: 'brief' })).toEqual({ model: 'haiku', effort: 'medium', length: 'brief' });
+    const deepseekAutoOnly = decodeProfileTable({ ...publishedAuto, profiles: publishedAuto.profiles.filter((p: { model: string; effort: string }) => p.model !== 'deepseek' || p.effort === 'auto') })!;
+    expect(available(deepseekAutoOnly, { model: 'deepseek', effort: 'low', length: 'brief' })).toBe(true);
+    expect(offersModelLength(deepseekAutoOnly, 'deepseek', 'brief')).toBe(true);
+    expect(available(null, sonnet)).toBe(false);
+  });
+  it('sends effort "auto" in the body (always, even for Sonnet · Standard) and the stored effort otherwise', () => {
+    const autoBody = requestBody(makeRequest('op', 'd', turns, null, null, { profile: sonnet, autoEffort: true, topicTitle: true }));
+    expect(autoBody.profile).toEqual({ model: 'sonnet', effort: 'auto', length: 'standard' });
+    const deepseek = requestBody(makeRequest('op', 'd', turns, null, null, { profile: { model: 'deepseek', effort: 'low', length: 'brief' }, autoEffort: true }));
+    expect(deepseek.profile).toEqual({ model: 'deepseek', effort: 'auto', length: 'brief' });
+    // Without auto: today's request, the standard profile unsent and others with their effort.
+    expect(requestBody(makeRequest('op', 'd', turns, null, null, { profile: sonnet })).profile).toBeUndefined();
+    expect(requestBody(makeRequest('op', 'd', turns, null, null, { profile: { model: 'opus', effort: 'high', length: 'brief' } })).profile).toEqual({ model: 'opus', effort: 'high', length: 'brief' });
+    // A diagram repair never carries a profile, automatic or not.
+    expect(requestBody(makeRequest('op', null, turns, 'diagram', 'diagram_fix', { profile: sonnet, autoEffort: true }))).not.toHaveProperty('profile');
+  });
+  it('changes the model or length keeping an offered effort', () => {
+    expect(withChoice(plain, { model: 'opus', effort: 'high', length: 'brief' }, { model: 'haiku' })).toEqual({ model: 'haiku', effort: 'high', length: 'brief' });
+    const deepseekAutoOnly = decodeProfileTable({ ...publishedAuto, profiles: publishedAuto.profiles.filter((p: { model: string; effort: string }) => p.model !== 'deepseek' || p.effort === 'auto') })!;
+    expect(withChoice(deepseekAutoOnly, { model: 'sonnet', effort: 'medium', length: 'standard' }, { model: 'deepseek' })).toEqual({ model: 'deepseek', effort: 'medium', length: 'standard' });
+    const sonnetLowOnly = decodeProfileTable({ ...published, profiles: published.profiles.filter((p: { model: string; effort: string }) => p.model !== 'sonnet' || p.effort === 'low') })!;
+    expect(withChoice(sonnetLowOnly, { model: 'opus', effort: 'high', length: 'brief' }, { model: 'sonnet' })).toEqual({ model: 'sonnet', effort: 'low', length: 'brief' });
+  });
+  it('summarizes a choice as model · length everywhere, and the placeholder by chat', () => {
+    expect(profileSummary(sonnet, auto)).toBe('Sonnet · Standard'); expect(profileSummary({ model: 'deepseek', length: 'brief' }, auto)).toBe('DeepSeek · Brief');
+    expect(profileSummary({ model: 'deepseek', length: 'brief' })).toBe('DeepSeek · Brief');
+    expect(sameChoice(sonnet, { ...sonnet, effort: 'high' })).toBe(true); expect(sameChoice(sonnet, { ...sonnet, length: 'brief' })).toBe(false);
+    expect(answeredBy('deepseek-flash', 'deepseek-medium-standard', auto)).toBe('DeepSeek · Standard');
+    expect(answeredBy('claude-sonnet-5-5', 'sonnet-medium-detailed', auto)).toBe('Sonnet · Detailed');
+    expect(composerPlaceholder('paper', false)).toBe('Ask anything about the paper');
+    expect(composerPlaceholder('general', false)).toBe('Ask anything');
+    expect(composerPlaceholder('paper', true)).toBe('Your answer');
+  });
+  it('previews a conversation by its passage or newest answer, never its paper', () => {
+    expect(conversationPreview({ anchor: { quote: '  softmax(QKᵀ/√d)\n over keys ' }, latestAnswer: 'An answer' })).toBe('“softmax(QKᵀ/√d) over keys”');
+    expect(conversationPreview({ latestAnswer: '**The objective** compares preferences [¶2].\n\nMore' })).toBe('The objective compares preferences.');
+    expect(conversationPreview({ latestAnswer: '\\[L = x\\]\n\n| a | b |\n|---|---|\n\nThe loss \\(\\beta\\) term.' })).toBe('The loss \\beta term.');
+    expect(conversationPreview({ latestAnswer: 'x'.repeat(260) })).toHaveLength(201);
+    expect(conversationPreview({})).toBe('');
   });
 });

@@ -155,7 +155,7 @@ test('superseded evidence navigation preserves the transcript and cannot leave a
   }); });
   await signIn(page); await listen(page);
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button').click();
-  await page.getByRole('button', { name: 'New general chat', exact: true }).click();
+  await page.getByTestId('history-menu').click(); await page.getByRole('menuitem', { name: 'New general chat', exact: true }).click(); // All chats › ≡ (build 57)
   await expect(message(page)).toBeFocused();
   await page.evaluate(() => {
     const timer = window.setTimeout.bind(window);

@@ -2,6 +2,25 @@
 
 Updated 2026-10-15 PDT. Earlier deployment checkpoints below are retained as history.
 
+## Browser: chat redesign and builds 57–58 reports — 2026-10-16 (local fixtures; not deployed)
+
+- **Chat** ([CHAT](architecture/CHAT.md#browser-2026-10-16-local-fixtures-not-deployed)): ⋯ menu with Answer options
+  (Model incl. DeepSeek when listed, Length, Use for new chats, About AI chat options) and Study mode; `effort: "auto"`
+  where the table offers it, the stored effort otherwise; consent `cloud-ai-v4` worded as on the apps; Settings-style
+  **AI chat options** (per-model detail and provider, credit table, ⓘ explanations); one-pill composer and the new
+  placeholders; three seeded starters with icons above it and an accent glow; All chats with search and ≡, All first,
+  Last read, the paper only in its column.
+- **Account menu**: who and sync state; About with Privacy &amp; data, Report this screen and My reports for everyone;
+  operator tools in a grey Admin group. **Privacy &amp; data** (new): notes, AI answers (Anthropic or DeepSeek), Papers
+  and arXiv (device-only, pacing, terms link, acknowledgement; a PDF opens from arXiv in a new tab), Reports.
+- **Feed / ML search Add**: the Library's spinner from Add until the paper is prepared here (percent under it once
+  known; a click shows the Library), then ✓ In library. **Library**: a paper being added reserves two title lines (and
+  the authors line when shown under the title), so the row never grows when its details arrive.
+- Not in the browser: Your assets › Diagrams (there is no diagrams list here), AI credits / Subscription plan groups
+  and text-size settings (the browser has no settings page with them).
+- Evidence: vitest 433/433; Playwright desktop and phone for the changed journeys (chat-redesign, chat-controls,
+  study, owner-58, support-reports, parity, paper-search, layout, library*, chat, podcast-workspace and others).
+
 ## Automatic effort and DeepSeek in chat (server) — 2026-10-16, ~03:30 UTC
 
 - Build 57 feedback ("the effort level should be chosen intelligently"; "deep seek should be an option. We need one

@@ -34,15 +34,16 @@ test('Study this paper: one question at a time, the knowledge map grows with eac
  await expect(frame.locator('[data-reader-block]')).not.toHaveCount(0,{timeout:20000});
  if(!await page.getByTestId('chat-pane').isVisible())await page.getByTestId('ask').click();
  const conversation=page.getByTestId('chat-pane').getByRole('region',{name:'Conversation'});
- // The offer sits in the empty paper chat; starting sends the opening turn as the reader's message.
- await page.getByTestId('study-start').click();
+ // Study mode is in the chat's ⋯ menu; starting sends the opening turn as the reader's message.
+ await page.getByTestId('chat-menu').click();
+ await page.getByTestId('study-start').click(); // ⋯ › Study mode (chat redesign, build 57)
  await page.getByRole('button',{name:'Allow and get answer'}).click();
  await expect(conversation).toContainText('what does attention compute?');
  await expect(page.getByTestId('chat-user')).toContainText('Start studying this paper.');
  const panel=page.getByTestId('study-panel');
  await expect(panel.getByTestId('study-summary')).toContainText('1 concept');
  await expect(panel.getByTestId('study-now')).toContainText('Attention');
- await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveAttribute('placeholder','Your answer…');
+ await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveAttribute('placeholder','Your answer');
  // The map is drawn by the sandboxed diagram frame (no "couldn't draw"), and no follow-up chips compete with the tutor's question.
  await expect(panel.getByTestId('study-graph').locator('iframe')).toBeVisible();
  await expect(panel.getByRole('alert')).toHaveCount(0);
@@ -77,8 +78,14 @@ test('Study this paper: one question at a time, the knowledge map grows with eac
  await page.waitForTimeout(1500);
  await page.screenshot({path:`../../.artifacts/study-${test.info().project.name}.png`});
  // Ending the study keeps the conversation and drops the map; the composer is an ordinary paper chat again.
+ // While studying, the ⋯ menu offers End study mode instead of Study mode.
+ await page.getByTestId('chat-menu').click();
+ await expect(page.getByRole('menuitem',{name:'End study mode'})).toBeVisible();
+ await expect(page.getByTestId('study-start')).toHaveCount(0);
+ await page.keyboard.press('Escape');
+ await expect(page.getByRole('menu')).toHaveCount(0);
  await panel.getByTestId('study-end').click();
  await expect(page.getByTestId('study-panel')).toHaveCount(0);
- await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveAttribute('placeholder','Ask about this paper…');
+ await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveAttribute('placeholder','Ask anything about the paper');
  await expect(page.getByTestId('chat-assistant')).toHaveCount(2);
 });

@@ -44,7 +44,7 @@ function traces(page: Page) {
  * per-browser setting that deletion leaves alone. */
 async function storeAccountKeys(page: Page) {
   await page.evaluate(account => {
-    localStorage.setItem(`gradstep.fixture.${account}.cloud-ai-consent`, JSON.stringify('cloud-ai-v3'));
+    localStorage.setItem(`gradstep.fixture.${account}.cloud-ai-consent`, JSON.stringify('cloud-ai-v4'));
     localStorage.setItem(`gradstep.fixture.feed-offer.${account}`, '1');
     localStorage.setItem('gradstep.library.tag', JSON.stringify('thesis'));
     localStorage.setItem('gradstep.theme', JSON.stringify('system'));
