@@ -131,7 +131,8 @@ final class FigureViewJourneyTests: XCTestCase {
 
         // Show in the paper: the part's paragraph, the sheet gone.
         #if targetEnvironment(macCatalyst)
-        for _ in 0..<3 where !second.isHittable { page.scroll(byDeltaX: 0, deltaY: 300) }
+        // Clear of the sheet's top row too: content scrolls behind the bar, and a click there lands on the bar.
+        for _ in 0..<4 where !(second.isHittable && second.frame.minY > page.frame.minY + 60) { page.scroll(byDeltaX: 0, deltaY: 150) }
         #else
         for _ in 0..<3 where !second.isHittable { app.swipeDown() }
         #endif
