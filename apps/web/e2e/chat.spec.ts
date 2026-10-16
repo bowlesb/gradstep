@@ -80,7 +80,17 @@ test('Stop, navigation while streaming and insufficient credits', async ({ page,
   await login(page); await send(page, 'A slow answer', true); await expect(page.getByTestId('chat-streaming')).toContainText('objective');
   await page.getByRole('button', { name: 'General', exact: true }).click(); await expect(page.getByTestId('chat-streaming')).toHaveCount(0);
   await page.getByRole('button', { name: 'Paper', exact: true }).click(); await page.getByRole('button', { name: 'Stop', exact: true }).click();
-  await expect(page.getByTestId('chat-assistant')).toContainText('Answer interrupted'); expect((await evidence(request)).requests).toHaveLength(1);
+  // The reader's Stop is recorded for the request's operation before the stream closes, and the kept part says what it
+  // cost (2026-10-16, CHAT.md "When an answer stops early"); every request says it records a Stop.
+  await expect(page.getByTestId('chat-interrupted')).toHaveText('Stopped · charged for the part written');
+  const stopped = await evidence(request); expect(stopped.requests).toHaveLength(1);
+  expect(stopped.requests[0].capabilities).toContain('stop_signal'); expect(stopped.stops).toEqual([stopped.requests[0].operation_id]);
+  // The provider cuts the next answer short: the part written stays, and costs nothing.
+  await request.post(`${API}/__chat-fixture`, { data: { mode: 'midstream' } }); await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await send(page, 'An answer the provider cuts short');
+  await expect(page.getByTestId('chat-interrupted')).toHaveText('Interrupted · not charged');
+  await expect(page.getByRole('alert')).toBeVisible(); expect((await evidence(request)).stops).toHaveLength(1);
+  await page.screenshot({ path: '../../.artifacts/web-chat/interrupted-not-charged.png' });
   await request.post(`${API}/__chat-fixture`, { data: { mode: 'insufficient_credits' } }); await page.getByRole('button', { name: 'New chat', exact: true }).click(); await send(page, 'Need credits');
   await expect(page.getByRole('alert')).toContainText('Not enough credits'); await expect(page.getByTestId('chat-user')).toContainText('Need credits');
   await page.screenshot({ path: '../../.artifacts/web-chat/credit-error.png' });
@@ -118,7 +128,7 @@ test('dark streaming updates at a steady cadence, retry never duplicates a faile
   await expect(page.getByTestId('chat-streaming')).toContainText('objective');
   const first = await page.getByTestId('chat-streaming').textContent();
   await expect(page.getByTestId('chat-streaming')).not.toHaveText(first!);
-  await page.getByRole('button', { name: 'Stop', exact: true }).click(); await expect(page.getByTestId('chat-assistant')).toContainText('Answer interrupted');
+  await page.getByRole('button', { name: 'Stop', exact: true }).click(); await expect(page.getByTestId('chat-interrupted')).toHaveText('Stopped · charged for the part written');
   await expect.poll(async () => (await evidence(request)).events.length).toBe(3);
   expect((await evidence(request)).requests).toHaveLength(1);
   await page.screenshot({ path: '../../.artifacts/web-chat/dark-partial.png' });
@@ -137,7 +147,7 @@ test('continuous short chunks render before the stream ends', async ({ page, req
   // With a resetting debounce, none of these short deltas would render before done.
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
-  await expect(page.getByTestId('chat-assistant')).toContainText('Answer interrupted');
+  await expect(page.getByTestId('chat-interrupted')).toHaveText('Stopped · charged for the part written');
 });
 
 test('opaque diagram blocks embedded media, source navigation and remote CSS', async ({ page, request }, info) => {

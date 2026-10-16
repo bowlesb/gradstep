@@ -606,7 +606,14 @@ into a connection that then failed is charged as finished.
   `tests/database/contained_overruns.sql`; live on staging 2026-10-16: `node scripts/fault-drill.mjs --mode=throttle`,
   `--mode=midstream`, `--mode=stop` and `--mode=overrun` ([RESILIENCE.md](RESILIENCE.md#fault-drills)).
 
-### For the clients (not built yet)
+### For the clients
+
+Status: **iPhone, iPad, Mac** built in `f99a86d` (after build 60); **browser** built 2026-10-16
+(`chat.ts` `stop_signal`, `charged`/`reason`, `interruptionNote`; `chat-session.ts` records the Stop then cancels;
+unit tests in `tests/chat.test.ts` and `tests/chat-session.test.ts`; journey `e2e/chat.spec.ts` "Stop, navigation while
+streaming…" with the fixture's `midstream` mode and `v1_chat_stop`), deployed from main by the owner. The notes are
+kept for the session only; an answer reopened later keeps "Answer interrupted" (browser) / "Response interrupted"
+(apps).
 
 Builds 57–60 keep working unchanged: they ignore the new fields, already show "No credits were used" for an error with
 `credits: 0` (native) or "No credits used" (browser), and a Stop from them is charged as before (`left`).
@@ -619,8 +626,8 @@ Builds 57–60 keep working unchanged: they ignore the new fields, already show 
   `charged` came before anything was held: nothing was charged.
 - Copy under a kept, interrupted answer that was not charged: **"Interrupted · not charged"**; for a refusal, the
   existing refusal message followed by "Not charged." After the reader's own Stop: **"Stopped · charged for the part
-  written"**. A `done` with `charged: false` (a `max_tokens` answer) is interrupted too. The equation view shows "Not
-  charged" instead of "0 credits".
+  written"** (or **"Stopped · not charged"** when the server said 0 credits). A `done` with `charged: false` (a
+  `max_tokens` answer) is interrupted too. The equation view shows no credit counts at all (owner, build 59).
 
 ### Open items
 

@@ -1,4 +1,4 @@
-// A converted paper in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
+// A paper prepared on this device in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
 // contents tree in the left rail with the current section, citation jumps with Back, find in the
 // paper, the figure viewer, text size and a saved place. Selection actions and passage-linked chat use the same verified index.
 import { type ReactNode, type MutableRefObject, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,6 +11,8 @@ import { prepareArxivReader, ArxivReaderError } from '../lib/arxiv-reader';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
 import { bridgeAnchor, citationAnchor, citedMarker, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
 import { citedBlock } from '../lib/paper-context';
+import { contentsEquations, contentsFigures, type ContentsEquation } from '../lib/paper-contents';
+import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
@@ -302,6 +304,11 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     setActive(id);
     if (workspace && !workspace.left.inline) workspace.show('left', false);
   };
+  // Contents › Equations: the equation centred and highlighted in the paper, with Back (reader-bridge.js).
+  const showEquation = (id: string) => {
+    command('showEquation', id, reduced());
+    if (workspace && !workspace.left.inline) workspace.show('left', false);
+  };
   // A paragraph the equation view names ("From the paper ¶12"): the reader lands on it with Back offered, as a chat citation does.
   const goToCited = (marker: number) => {
     const block = bundle ? citedBlock(bundle.index, marker)?.id : undefined;
@@ -338,7 +345,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       {reading?.on && <div className="reading-hotzone" onMouseEnter={() => showBar()} onMouseLeave={hideBarSoon} aria-hidden="true" />}
       <header className="paper-toolbar" ref={toolbar} onMouseEnter={reading?.on ? () => showBar() : undefined} onMouseLeave={reading?.on ? hideBarSoon : undefined}
         onFocus={reading?.on ? () => showBar() : undefined} onBlur={reading?.on ? hideBarSoon : undefined}>
-        <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={onContents} disabled={!headings.length} data-testid="contents"
+        <button className={`icon-button${contentsShown ? ' on' : ''}`} onClick={onContents} disabled={!bridgeReady} data-testid="contents"
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         {reading?.on && <span className="reading-status" aria-live="off" data-testid="reading-status">
@@ -422,7 +429,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           {referenceNotice.kind !== 'working' && <button className="icon-button" aria-label="Dismiss reference message" onClick={() => setReferenceNotice(null)}><Icon name="close" size={14} /></button>}
         </div>}
       </div>
-      {contentsSlot && headings.length > 0 && createPortal(<Contents headings={headings} active={active} onJump={jump} />, contentsSlot)}
+      {contentsSlot && bundle && bridgeReady && createPortal(<Contents headings={headings} active={active} bundle={bundle} onJump={jump}
+        onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation} />, contentsSlot)}
       {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}
         onAdd={() => void addReference(reference.text)} onDiscuss={discuss ? () => discuss(reference.text, reference.blockID) : undefined} />}
       {bundle && figureReference && <FigureReferenceDetail bundle={bundle} reference={figureReference} theme={theme} fontSize={font}
@@ -433,26 +441,76 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })}
-          onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); }} />
+          onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
     </div>
   );
 }
 
-/** The paper's contents as a tree (the bridge's outline depths), the current section marked. */
-function Contents({ headings, active, onJump }: { headings: Heading[]; active: string | null; onJump: (id: string) => void }) {
-  const list = useRef<HTMLOListElement>(null);
-  useEffect(() => { list.current?.querySelector('[aria-current="location"]')?.scrollIntoView({ block: 'nearest' }); }, [active]);
+type ContentsTab = 'contents' | 'figures' | 'tables' | 'equations';
+const CONTENTS_TABS: readonly [ContentsTab, string][] = [['contents', 'Contents'], ['figures', 'Figures'], ['tables', 'Tables'], ['equations', 'Equations']];
+
+/** The paper's contents (a tree with the current section marked) beside its Figures, Tables and Equations (owner,
+ * build 59: "four tabs… The default selected when you enter should be contents… minimalistic but nicely designed…
+ * consistent styling in the rows and be clickable into the paper"), as the app's PaperContentsSheet. A figure or table
+ * row opens that figure with its whole caption; an equation row goes to it in the paper with Back. */
+function Contents({ headings, active, bundle, onJump, onFigure, onTiles, onEquation }: {
+  headings: Heading[]; active: string | null; bundle: VerifiedBundle; onJump: (id: string) => void;
+  onFigure: (id: string) => void; onTiles: () => void; onEquation: (id: string) => void;
+}) {
+  const [tab, setTab] = useState<ContentsTab>('contents');
+  const list = useRef<HTMLOListElement>(null), tabs = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (tab === 'contents') list.current?.querySelector('[aria-current="location"]')?.scrollIntoView({ block: 'nearest' }); }, [active, tab]);
+  const figures = useMemo(() => contentsFigures(bundle.index), [bundle]);
+  // The equations' printed numbers come from reading the paper's page: only once its tab is opened.
+  const [equations, setEquations] = useState<ContentsEquation[] | null>(null);
+  useEffect(() => {
+    if (tab !== 'equations' || equations) return;
+    const numbers = equationNumbers(bundle);
+    setEquations(contentsEquations(bundle.index, id => numbers.get(id) ?? null));
+  }, [tab, equations, bundle]);
+  // Arrow keys move between the tabs (the ARIA tabs pattern); the chosen tab takes focus.
+  const step = (event: React.KeyboardEvent, index: number) => {
+    const to = event.key === 'ArrowRight' ? index + 1 : event.key === 'ArrowLeft' ? index - 1 : event.key === 'Home' ? 0 : event.key === 'End' ? CONTENTS_TABS.length - 1 : null;
+    if (to === null) return;
+    event.preventDefault();
+    const next = (to + CONTENTS_TABS.length) % CONTENTS_TABS.length;
+    setTab(CONTENTS_TABS[next][0]);
+    tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+  };
+  const rows = tab === 'figures' || tab === 'tables' ? figures.filter(f => f.table === (tab === 'tables')) : [];
   return (
-    <nav className="contents-tree" aria-label="Contents">
-      <ol ref={list}>
-        {headings.map(h => (
-          <li key={h.id}>
-            <button className={`toc-item depth-${h.depth ?? 0}`} aria-current={h.id === active ? 'location' : undefined} onClick={() => onJump(h.id)} title={h.title}>{h.title}</button>
-          </li>
-        ))}
-      </ol>
-    </nav>
+    <div className="contents-panel">
+      <div className="contents-tabbar">
+        <div className="contents-tabs" role="tablist" aria-label="Show" ref={tabs}>
+          {CONTENTS_TABS.map(([id, title], index) => <button key={id} role="tab" id={`contents-tab-${id}`} aria-selected={tab === id} aria-controls="contents-tabpanel"
+            tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} onKeyDown={e => step(e, index)} data-testid={`contents-tab-${id}`}>{title}</button>)}
+        </div>
+      </div>
+      <div className="contents-tabpanel" id="contents-tabpanel" role="tabpanel" aria-labelledby={`contents-tab-${tab}`}>
+        {tab === 'contents' ? (headings.length ? <nav className="contents-tree" aria-label="Contents">
+          <ol ref={list}>
+            {headings.map(h => (
+              <li key={h.id}>
+                <button className={`toc-item depth-${h.depth ?? 0}`} aria-current={h.id === active ? 'location' : undefined} onClick={() => onJump(h.id)} title={h.title}>{h.title}</button>
+              </li>
+            ))}
+          </ol>
+        </nav> : <p className="contents-empty">No sections</p>)
+        : tab === 'equations' ? (!equations ? <p className="contents-empty" role="status">Preparing…</p> : equations.length ? <ul className="contents-rows" aria-label="Equations">
+          {equations.map((e, i) => <li key={e.id}><button className="contents-row" onClick={() => onEquation(e.id)} data-testid={`contents-equation-${i}`}>
+            <span className="contents-row-title">{e.label}</span>{e.text && <span className="contents-row-math">{e.text}</span>}</button></li>)}
+        </ul> : <p className="contents-empty">No equations</p>)
+        : rows.length ? <ul className="contents-rows" aria-label={tab === 'tables' ? 'Tables' : 'Figures'}>
+          {/* Owner, build 59: "a link to the same squares based view". */}
+          {tab === 'figures' && <li><button className="contents-tiles" onClick={onTiles} data-testid="contents-figure-tiles"><Icon name="grid" size={14} />View as tiles</button></li>}
+          {/* "Figure 1 — Subplots of …", the caption cut at two lines; the row opens the figure with its whole caption. */}
+          {rows.map((f, i) => <li key={f.id}><button className="contents-row" onClick={() => onFigure(f.id)} data-testid={`contents-${tab === 'tables' ? 'table' : 'figure'}-${i}`}>
+            <span className="contents-row-caption"><strong>{f.number ?? (tab === 'tables' ? 'Table' : 'Figure')}</strong>{f.caption && <span className="contents-row-detail"> — {f.caption}</span>}</span>
+          </button></li>)}
+        </ul> : <p className="contents-empty">{tab === 'tables' ? 'No tables' : 'No figures'}</p>}
+      </div>
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SSEParser, chatTitle, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText } from '../src/lib/chat';
+import { SSEParser, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText } from '../src/lib/chat';
 import { renderMarkdown } from '../src/lib/markdown';
 import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, makeDiagram, type PrivateEvent } from '../src/lib/events';
 
@@ -77,10 +77,12 @@ describe('chat requests and streams', () => {
     expect(requestBody(bounded)).toMatchObject({ consent_version: 'cloud-ai-v4', mode: 'general' });
     expect(requestBody(bounded)).not.toHaveProperty('document_id');
     expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], 'a passage', 'ingest'))).toMatchObject({ mode: 'paper', document_id: D,
-      selection: { quote: 'a passage' }, action: 'ingest', capabilities: ['web_import', 'visual_answers'] });
-    // Visual answers (2026-10-15): always a list, so an empty one says the reader turned them off.
-    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null)).capabilities).toEqual(['visual_answers']);
-    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null, null, { visualAnswers: false })).capabilities).toEqual([]);
+      selection: { quote: 'a passage' }, action: 'ingest', capabilities: ['web_import', 'visual_answers', 'stop_signal'] });
+    // Visual answers (2026-10-15): always a list, so one without visual_answers says the reader turned them off.
+    // stop_signal (2026-10-16) on every request: this browser records the reader's Stop (CHAT.md "When an answer stops early").
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null)).capabilities).toEqual(['visual_answers', 'stop_signal']);
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], null, null, { visualAnswers: false })).capabilities).toEqual(['stop_signal']);
+    expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], 'x', 'diagram_fix')).capabilities).toEqual(['visual_answers', 'stop_signal']);
     expect(() => makeRequest('op', null, [{ role: 'assistant', text: 'x' }], null)).toThrow();
   });
   it('parses deltas across chunk boundaries, ignores pings and unknown events, and refuses malformed known ones', () => {
@@ -173,5 +175,28 @@ describe('visual answers', () => {
     expect(decodeDiagram('{"format":"svg-v9","source":"x","title":"T"}')).toBeNull();
     expect(makeDiagram('x', 'y'.repeat(16_001), undefined, 'mermaid-v1')).toBeNull();
     expect(makeDiagram('x', 'y'.repeat(16_001), undefined, 'html-v1')).not.toBeNull();
+  });
+});
+
+describe('early endings (2026-10-16, CHAT.md "When an answer stops early")', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  it('reads charged and its reason on done and error, and drops anything else', () => {
+    expect(new SSEParser().consume(enc('event: error\ndata: {"code":"provider_unavailable","credits":0,"charged":false,"reason":"provider","retry_after":5}\n\n')))
+      .toEqual([{ type: 'error', code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider' }]);
+    expect(new SSEParser().consume(enc('event: done\ndata: {"stop_reason":"max_tokens","credits":0,"charged":false,"reason":"limit"}\n\n')))
+      .toEqual([{ type: 'done', stopReason: 'max_tokens', credits: 0, charged: false, reason: 'limit' }]);
+    expect(new SSEParser().consume(enc('event: done\ndata: {"stop_reason":"end_turn","credits":4,"charged":true,"reason":"provider"}\n\n')))
+      .toEqual([{ type: 'done', stopReason: 'end_turn', credits: 4, charged: true }]);
+    expect(new SSEParser().consume(enc('event: error\ndata: {"code":"refused","charged":"no","reason":"<b>"}\n\n'))).toEqual([{ type: 'error', code: 'refused' }]);
+  });
+  it('says under an interrupted answer what it cost', () => {
+    expect(interruptionNote(false, { credits: 0, charged: false })).toBe('Interrupted · not charged');
+    expect(interruptionNote(false, { credits: 0 })).toBe('Interrupted · not charged');
+    expect(interruptionNote(false, { credits: 2, charged: false })).toBe('Interrupted · not charged');
+    expect(interruptionNote(true, null)).toBe('Stopped · charged for the part written');
+    expect(interruptionNote(true, { credits: 0 })).toBe('Stopped · not charged');
+    // An older server (no `charged`), or an end that said nothing: the existing wording.
+    expect(interruptionNote(false, null)).toBeNull();
+    expect(interruptionNote(false, { credits: 3 })).toBeNull();
   });
 });

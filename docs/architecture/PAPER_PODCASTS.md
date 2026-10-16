@@ -1816,3 +1816,42 @@ Status (2026-10-16): built and tested locally on branch `worktree-agent-ace81b81
 order: migration 076, then the `podcast` function and the pipeline worker together, then the browser and a TestFlight
 build. Copies uploaded before the migration (the old one-per-digest paths) are swept like unused uploads: by the
 first sweep once they are a day old and no unfinished job uses them.
+
+### Legacy arXiv items (2026-10-16, migration 081)
+
+An arXiv paper that joined the library before the HTML-first reader is a library item (`kind: item`, with a server
+`document_id`), not a source membership. Its server text was deleted with the other paper copies on 2026-10-16
+(DATA_HANDLING_AND_COSTS.md "Server paper copies: retired"), so `podcast_item_pin` finds nothing and Listen said
+"Open this paper first…" even when the paper was open on the device. Migration
+`202610160081_podcast_legacy_device_sources.sql` lets such an item make its episode from the text prepared on the
+device, the way chat does since migration 080:
+
+- **Pin.** `podcast_device_pin` accepts the item's own id as the device source's membership id only when the item is in
+  the account's library (not removed) and its catalog record is that exact arXiv `source_id` and `revision`; anything
+  else pins nothing (`source_unavailable`). Any other id (a source membership) behaves exactly as before.
+- **Lookup.** `v1_podcast_paper(item id)` lists the item's document episodes as before plus the account's own device
+  episodes, running job and lengths named by that item.
+- **Identity.** A device episode named by a library item belongs to the item's document: `podcast_episode_public`
+  and the catalog's `mine` list give the item's `document_id` (how both clients identify a legacy paper); a source
+  membership's episode keeps its membership id. The worker's claim still names the membership id internally.
+
+What a client sends for Listen on a legacy arXiv item (the same calls as for a source membership, with the library
+item's id and the item's own source):
+
+1. Build the text exactly as chat does for that item: the paper context (`PAPER_CONTEXT_FORMAT` v2) from the verified
+   bundle prepared from the item's official arXiv HTML, with the reference `{membership id: the library item id,
+   source: 'arxiv', source_id: the item's arXiv id, revision: the item's revision}` (native `LocalPaperChatContext`,
+   browser `localChatContext`).
+2. `POST podcast?action=source` with `{format: 'paper-context-v2', text}` → `{source: {text_sha256, bytes, format}}`.
+3. `GET podcast?action=paper&item_id=<library item id>` for the paper's episodes and running job.
+4. `POST podcast?action=quote` with `{item_id: <library item id>, request_id, profile?, writer?, device_source:
+   {source: 'arxiv', source_id, revision, manifest_sha256: <the bundle's manifest SHA-256>, text_sha256: <from step 2>,
+   title?, authors?}}`; then `start`, `status` and `cancel` as for any quote. A `source_unavailable` from a quote with a
+   remembered digest means the copy was deleted (076): send the text again and quote once more.
+
+Status (2026-10-16): migration 081 applied to staging and verified in the ledger (`migrate-supabase.py staging`:
+"Applied and verified", then "Verified" on a rerun); no function changed (the `podcast` function already passes the
+device source through). Tests: `tests/database/podcast_legacy_device_sources.sql` (retirement phase of
+`scripts/test-database.py`; it fails without 081), full database suite passing. Not yet run live (no paid smoke).
+Clients: the browser sends the device text for a legacy item from its next release; native builds up to 60 still
+send no device source for a legacy item and keep "Open this paper first…" until updated.

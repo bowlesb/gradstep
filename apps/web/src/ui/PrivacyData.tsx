@@ -18,7 +18,7 @@ export function PrivacyData({ open, onClose }: { open: boolean; onClose: () => v
       </section>
       <section className="info-section" data-testid="privacy-arxiv"><h3>Papers and arXiv</h3>
         <p>Papers open from the official web version or PDF that arXiv publishes. Your device downloads them directly from arXiv when you open a paper, and prepares them for reading on the device, for you alone. A PDF you open comes straight from arXiv in a new tab.</p>
-        <p>Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.</p>
+        <p>Your device also asks arXiv when you search for papers. Gradstep’s servers never contact arXiv and keep no copies of papers; the Feed’s list of new papers comes from DataCite, which publishes arXiv’s records.</p>
         <p>Requests to arXiv are spaced out, name Gradstep, and stop for a day if arXiv asks this device to slow down, as arXiv’s API Terms of Use require. Each paper stays under its authors’ license, with a link back to arXiv.</p>
         <p><a href={ARXIV_TERMS} target="_blank" rel="noopener noreferrer">arXiv API Terms of Use</a></p>
         <p className="muted">{ARXIV_ACKNOWLEDGEMENT}</p>

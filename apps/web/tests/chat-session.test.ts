@@ -77,6 +77,43 @@ describe('account-owned chat transactions', () => {
     expect(chat.branch(c)?.messages.at(-1)?.payload).toMatchObject({ text: 'A partial answer', status: 'interrupted' });
     expect(c.phase).toBe('idle');
   });
+  it('Stop records the reader\'s Stop for the request\'s operation before the stream is cancelled, and says it was charged for the part written', async () => {
+    const { history, owner } = await setup(); const order: string[] = [], stops: string[] = [];
+    const chat = new ChatSession(account, history, owner.signal, { readConsent: () => true,
+      recordStop: async (_a, operation) => { stops.push(operation); order.push('recorded'); },
+      stream: async function* (_a, request, signal) {
+        server.requests.push({ request });
+        yield { type: 'delta', text: 'A partial answer' };
+        await new Promise<void>((_, reject) => signal.addEventListener('abort', () => { order.push('cancelled'); reject(signal.reason); }, { once: true }));
+      } });
+    const c = chat.current(null); chat.edit(c, 'Question'); const sending = chat.send(c);
+    await vi.waitFor(() => expect(c.liveText).toBe('A partial answer'));
+    chat.stop(c); chat.stop(c); await sending;
+    expect(stops).toEqual([server.requests[0].request.operationID]); expect(order).toEqual(['recorded', 'cancelled']);
+    const answer = chat.branch(c)!.messages.at(-1)!.payload;
+    expect(answer).toMatchObject({ status: 'interrupted' }); expect(chat.interruptionNote(answer.entityID)).toBe('Stopped · charged for the part written');
+  });
+  it('a Stop that cannot be recorded still stops at once; a provider failure that cost nothing says so', async () => {
+    const { history, owner } = await setup();
+    const chat = new ChatSession(account, history, owner.signal, { readConsent: () => true, recordStop: async () => { throw new Error('offline'); },
+      stream: async function* (_a, _r, signal) {
+        yield { type: 'delta', text: 'Half' };
+        await new Promise<void>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      } });
+    const c = chat.current(null); chat.edit(c, 'Question'); const sending = chat.send(c);
+    await vi.waitFor(() => expect(c.liveText).toBe('Half'));
+    const started = Date.now(); chat.stop(c); await sending; expect(Date.now() - started).toBeLessThan(1_000);
+    expect(chat.interruptionNote(chat.branch(c)!.messages.at(-1)!.payload.entityID)).toBe('Stopped · charged for the part written');
+    server.rows = [];
+    const failed = await setup([{ type: 'delta', text: 'Partial' }, { type: 'error', code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider' }]), f = failed.chat.current(null);
+    failed.chat.edit(f, 'Q'); await failed.chat.send(f);
+    expect(failed.chat.interruptionNote(failed.chat.branch(f)!.messages.at(-1)!.payload.entityID)).toBe('Interrupted · not charged');
+    server.rows = [];
+    // An older server that says nothing of cost keeps "Answer interrupted" (no note).
+    const old = await setup([{ type: 'delta', text: 'Partial' }]), o = old.chat.current(null);
+    old.chat.edit(o, 'Q'); await old.chat.send(o);
+    expect(old.chat.interruptionNote(old.chat.branch(o)!.messages.at(-1)!.payload.entityID)).toBeNull();
+  });
   it('EOF preserves partials; refusal discards text; a successful diagram is stored encrypted alongside its answer', async () => {
     const { chat } = await setup([{ type: 'delta', text: 'Partial' }]), c = chat.current(null); chat.edit(c, 'Q'); await chat.send(c);
     expect(chat.branch(c)?.messages.at(-1)?.payload.status).toBe('interrupted'); expect(c.issue).toBe('transport');

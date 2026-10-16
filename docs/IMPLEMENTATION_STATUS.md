@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; server paper copies deleted; reader revision 15 entry 2026-10-16 UTC). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
 ## Mac File menu fixed; reader revision 16 (an image arXiv doesn't serve never refuses) — 2026-10-16, ~07:45 UTC
 
@@ -16,6 +16,35 @@ Updated 2026-10-16 UTC (Mac Close/New fixed, reader revision 16; server paper co
   preparation. Devices re-prepare papers compiled by revision 15 when opened. Evidence: `npm test`; native
   ArxivHTMLReaderTests + ArxivCompilerIdentityTests on Mac Catalyst (5/5); `reader-device-compile.mjs` on 2610.19820,
   2610.16784, 2610.20570 ok (3/3, 13/13, 1/1 images). Not yet in a build or deployed.
+
+## Browser: build 59 parity, early endings, Listen on legacy arXiv items — 2026-10-16 (built; not deployed)
+
+The browser now matches the apps' build-59 changes (native commits `9903f50`, `5e4c1d2`, `f99a86d`, `e9b2a1b`):
+
+- **Equation view** ([EQUATION_VIEW](architecture/EQUATION_VIEW.md)): opens with the equation and, side by side,
+  **Explain** and **Ask in chat**; nothing is requested on opening (Explain asks the chat's consent first), More
+  background only after the explanation, no credit counts.
+- **Contents** in the reader's side panel: Contents · Figures · Tables · Equations (Contents first, quiet segmented
+  tabs). Figures/Tables rows "Figure 1 — caption" (two lines) open the figure viewer with the whole caption and Show in
+  paper; Figures starts with View as tiles (the gallery); Equations rows "Equation (n)" with the LaTeX as text go to the
+  equation with Back (`showEquation` in the frame shim calls the bridge's `__scienceReaderShowEquation`). As in the
+  apps, only figures and tables with images are listed (an HTML table is not in the bundle's figure index).
+- **AI chat options**: "Default options for new chats" (Model, Length, Visual answers); its ⓘ opens About AI chat
+  options (models, who processes them, credits per question); Answer options' link opens About directly. Every ⓘ
+  bubble darkens the rest of the page (black at 40 %) and flips above its ⓘ when it would run off its dialog.
+- **Early endings** ([CHAT](architecture/CHAT.md#when-an-answer-stops-early--2026-10-16)): `stop_signal` on every
+  request; Stop records `v1_chat_stop` (at most 3 s) before cancelling; "Interrupted · not charged", "Stopped · charged
+  for the part written", "Stopped · not charged" under a kept answer.
+- **Listen on a legacy arXiv item**: the text prepared in the tab goes as a device source named by the library item
+  (migration 081, applied to staging); nothing is sent when the paper can't be prepared, and Listen says to open it.
+- **Wording**: Privacy & data says the servers keep no copies of papers; account deletion, Add by link, import
+  failures and a PDF-only legacy row no longer speak of papers converted on the server.
+- **Tests**: `npm test` passes (browser units with new `paper-contents`, chat early-ending and shim tests). Journeys,
+  desktop and phone: equation-view (with the new Contents journeys), chat, chat-controls, chat-redesign, owner-58,
+  server-copies-retired (with Listen on a legacy item), podcast-workspace, reader, layout, arxiv-html: all pass
+  (skips by their own conditions). The compiler-freshness failure in `.claude/worktrees` checkouts noted below is a
+  missing `supabase/functions/node_modules` (Deno's vendored packages, which esbuild resolves first in the main
+  checkout); with it present the check passes.
 
 ## Server paper copies deleted on staging — 2026-10-16, 06:36 UTC
 

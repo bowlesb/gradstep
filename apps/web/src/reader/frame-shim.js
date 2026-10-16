@@ -29,6 +29,8 @@
     lineWidth: mode => window.__scienceReaderSetLineWidth?.(String(mode)),
     // The third argument is used only after a verified `figureref` message from a supporting bridge.
     showFigure: (id, reduced, fromReference) => window.__scienceReaderShowFigure?.(String(id), !!reduced, fromReference === true),
+    // Contents › Equations: the equation centred and highlighted, with Back (an older bridge without it does nothing).
+    showEquation: (id, reduced) => window.__scienceReaderShowEquation?.(String(id), !!reduced),
     find: (query, direction) => find(String(query ?? ''), direction),
     findClear: () => clearFind(),
     theme: value => setScheme(value),

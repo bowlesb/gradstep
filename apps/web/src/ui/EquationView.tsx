@@ -1,6 +1,8 @@
 // The equation view (docs/architecture/EQUATION_VIEW.md): the tapped equation large (a size control and an optional
-// sideways scroll), what it says, each symbol described with where that comes from, optional background, and Ask in
-// chat. Loaded only when opened (it brings the math typesetter with it).
+// sideways scroll), then Explain and Ask in chat side by side. Nothing is asked of the AI on opening (owner, build 59:
+// "The AI explanation should only come if you ask for it"): Explain asks for what it says and each symbol described with
+// where that comes from, after which More background is offered. No credit counts are shown here (owner, build 59).
+// Loaded only when opened (it brings the math typesetter with it).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VerifiedBundle } from '../lib/bundle';
 import { failureText } from '../lib/chat';
@@ -10,6 +12,7 @@ import { symbolMath } from '../lib/equation-math';
 import { equationDocument } from '../reader/equation-frame';
 import Answer from './Answer';
 import { Dialog } from './common';
+import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 
 /** What the reader's host offers the view: the chat's consent and its requests (ChatSession.equation). */
@@ -58,8 +61,10 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   };
   const step = (delta: number) => { const i = SCALES.indexOf(view.scale) + delta; if (i >= 0 && i < SCALES.length) change({ ...view, scale: SCALES[i] }); };
 
-  // The two requests: symbols when the view opens (its purpose), background only on its button.
+  // The two requests, each only on its button: Explain (what it says and the symbols), then More background.
   const [consented, setConsented] = useState(() => !!host?.consented());
+  // Explain was pressed before the chat's consent: the consent shows, and Allow asks.
+  const [asking, setAsking] = useState(false);
   const [symbols, setSymbols] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation') ?? null);
   const [background, setBackground] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation_background') ?? null);
   const requests = useRef(new Map<EquationAction, AbortController>());
@@ -71,11 +76,16 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
     const set = action === 'equation' ? setSymbols : setBackground;
     void host.run({ equationID, latex, number }, action, result => { if (!controller.signal.aborted) set(result); }, controller.signal).catch(() => {});
   }, [host, latex, equationID, number]);
-  useEffect(() => { if (consented && !symbols) run('equation'); }, [consented]); // eslint-disable-line react-hooks/exhaustive-deps
-  const allow = () => { if (host?.accept()) setConsented(true); };
+  const loading: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
+  const explain = () => {
+    if (!host || symbols) return;
+    if (!consented && !host.consented()) { setAsking(true); return; }
+    setConsented(true); setAsking(false); setSymbols(loading); run('equation');
+  };
+  const allow = () => { if (host?.accept()) { setConsented(true); setAsking(false); setSymbols(loading); run('equation'); } };
 
   // More background brings its section to the top of the panel as its first words arrive, so the answer reads in view
-  // rather than below the fold behind the pinned footer (landing-page capture, 2026-10-15: only the first paragraph showed).
+  // rather than below the fold (landing-page capture, 2026-10-15: only the first paragraph showed).
   const backgroundSection = useRef<HTMLElement>(null), shownBackground = useRef(false);
   useEffect(() => {
     if (!background?.text || shownBackground.current) return;
@@ -89,7 +99,6 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
     const a = target.closest('a[href]'); if (!a) return;
     e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
   };
-  const credits = [symbols?.credits != null ? `Symbols: ${symbols.credits} credits` : null, background?.credits != null ? `Background: ${background.credits} credits` : null].filter(Boolean).join(' · ');
 
   return <Dialog open onClose={onClose} title={title} className="equation-dialog">
     <div className="equation-view" data-testid="equation-view">
@@ -107,10 +116,16 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
         <label className="equation-toggle"><input type="checkbox" checked={view.scroll} onChange={e => change({ ...view, scroll: e.target.checked })} data-testid="equation-scroll" />Scroll sideways</label>
       </div>
 
-      {!host ? <p className="fine">Symbol descriptions need a signed-in chat.</p> : !consented ? <section className="equation-consent" data-testid="equation-consent">
-        <p>Describing the symbols uses cloud AI: the equation and the paper’s text go to Anthropic, as with chat. Anthropic may retain requests under its API terms. Answers use credits.</p>
-        <div className="dialog-actions"><button className="primary" onClick={allow}>Allow and describe</button></div>
-      </section> : <>
+      {/* Owner, build 59: the explanation on request, and Ask in chat in view from the start. */}
+      {(onAsk || (host && !symbols && !asking)) && <div className="equation-actions">
+        {host && !symbols && !asking && <button className="primary" onClick={explain} data-testid="equation-explain"
+          title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" />Explain</button>}
+        {onAsk && <button className="secondary" onClick={onAsk} data-testid="equation-ask" title="Opens the paper’s chat with this equation selected"><Icon name="chat" />Ask in chat</button>}
+      </div>}
+      {!host ? <p className="fine">Explanations need a signed-in chat.</p> : asking && !consented ? <section className="equation-consent" data-testid="equation-consent">
+        <p>Explaining the equation uses cloud AI: the equation and the paper’s text go to Anthropic, as with chat. Anthropic may retain requests under its API terms. Answers use credits.</p>
+        <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>
+      </section> : !symbols ? null : <>
         <section className="equation-section" aria-labelledby="equation-what">
           <h3 id="equation-what">What it says</h3>
           {symbols?.symbols?.summary ? <p data-testid="equation-summary">{symbols.symbols.summary}</p>
@@ -130,22 +145,18 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
             : symbols?.phase === 'done' ? <p className="fine">No symbols were listed for this equation.</p>
             : <ul className="equation-symbols loading" aria-hidden="true">{[0, 1, 2].map(i => <li key={i}><span className="equation-symbol" /><div><p /></div></li>)}</ul>}
         </section>
-        <section ref={backgroundSection} className="equation-section equation-background-section" aria-labelledby="equation-background">
+        {symbols.phase === 'done' && <section ref={backgroundSection} className="equation-section equation-background-section" aria-labelledby="equation-background">
           <h3 id="equation-background">Background</h3>
           {!background ? <button className="secondary" onClick={() => { shownBackground.current = false; run('equation_background'); }} data-testid="equation-more">More background</button>
             : background.phase === 'failed' && !background.text ? <div className="equation-issue" role="alert"><p>{failureText(background.issue ?? 'provider_unavailable')}</p>
               <button className="secondary small" onClick={() => run('equation_background')}>Try again</button></div>
             : <div className="equation-background" onClick={answerClick} data-testid="equation-background">
                 {background.text ? <Answer text={background.text} streaming={background.phase === 'loading'} /> : <p className="fine" role="status">Writing background…</p>}</div>}
-        </section>
+        </section>}
       </>}
       {link && <div className="equation-link" role="group" aria-label="Open source"><p className="source-address">{link}</p>
         <button className="secondary small" onClick={() => setLink(null)}>Cancel</button>
         <a className="primary small" href={link} target="_blank" rel="noopener noreferrer" onClick={() => setLink(null)}>Open link</a></div>}
-      <footer className="equation-foot">
-        {onAsk && <button className="primary" onClick={onAsk} data-testid="equation-ask">Ask in chat</button>}
-        {credits && <span className="fine" data-testid="equation-credits">{credits}</span>}
-      </footer>
     </div>
   </Dialog>;
 }

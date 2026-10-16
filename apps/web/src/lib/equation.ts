@@ -34,11 +34,23 @@ export function parseEquationSymbols(value: unknown): EquationSymbols | null {
   return summary || symbols.length ? { format: EQUATION_FORMAT, summary, symbols } : null;
 }
 
-/** The equation's number as the paper prints it ("(7)"), from its own tag in the bundle; null for an untagged one. */
-export function equationNumber(bundle: VerifiedBundle, equationID: string): string | null {
-  const element = equationElement(bundle, equationID);
+/** An equation element's printed tag as its number ("(7)"); null for none or an unusable one. */
+function printedNumber(element: Element | null | undefined): string | null {
   const tag = element?.querySelector('.reader-tag')?.textContent?.trim() ?? '';
   return /^\(?[\w.\-–′'* ]{1,12}\)?$/.test(tag) && tag ? (tag.startsWith('(') ? tag : `(${tag})`) : null;
+}
+/** The equation's number as the paper prints it ("(7)"), from its own tag in the bundle; null for an untagged one. */
+export function equationNumber(bundle: VerifiedBundle, equationID: string): string | null {
+  return printedNumber(equationElement(bundle, equationID));
+}
+/** Every equation's printed number at once (Contents › Equations), from one reading of the bundle's page. */
+export function equationNumbers(bundle: VerifiedBundle): Map<string, string> {
+  const numbers = new Map<string, string>();
+  for (const element of bundlePage(bundle)?.querySelectorAll('[data-reader-equation]') ?? []) {
+    const id = element.getAttribute('data-reader-equation'), number = printedNumber(element);
+    if (id && number && !numbers.has(id)) numbers.set(id, number);
+  }
+  return numbers;
 }
 /** The one user turn the server sees ("Equation (7)"): only the action's instructions follow the cached paper. */
 export const equationTurn = (number: string | null) => number ? `Equation ${number}` : 'Equation';
@@ -53,6 +65,10 @@ export function equationLatex(bundle: VerifiedBundle, equationID: string): strin
 const parsed = new WeakMap<VerifiedBundle, Document>();
 /** The equation's element in the bundle's own page (`data-reader-equation`), parsed once per bundle. */
 export function equationElement(bundle: VerifiedBundle, equationID: string): Element | null {
+  const doc = bundlePage(bundle);
+  return doc ? [...doc.querySelectorAll('[data-reader-equation]')].find(e => e.getAttribute('data-reader-equation') === equationID) ?? null : null;
+}
+function bundlePage(bundle: VerifiedBundle): Document | null {
   let doc = parsed.get(bundle);
   if (!doc) {
     const bytes = bundle.contents.get(bundle.manifest.entrypoint);
@@ -60,7 +76,7 @@ export function equationElement(bundle: VerifiedBundle, equationID: string): Ele
     doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'text/html');
     parsed.set(bundle, doc);
   }
-  return [...doc.querySelectorAll('[data-reader-equation]')].find(e => e.getAttribute('data-reader-equation') === equationID) ?? null;
+  return doc;
 }
 
 /** Results are kept for the session per paper revision, equation, action and model (never in plaintext storage). */

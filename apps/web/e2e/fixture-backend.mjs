@@ -33,7 +33,7 @@ const oauthCodes = new Map(); // one-use PKCE authorization codes
 const state = new Map();
 const deletedAccounts = new Set(); // account-delete: their email no longer signs in, until /__reset
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: 'auto' });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatStops: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: 'auto' });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -207,6 +207,12 @@ const rpcs = {
     return null;
   },
   v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
+  // The reader's Stop (migration 079): its own chat operation only; recorded before the app cancels the stream.
+  v1_chat_stop: (_id, a, body) => {
+    if (typeof body.p_operation_id !== 'string' || !a.chatRequests.some(r => r.operation_id === body.p_operation_id)) throw pg('operation_unavailable');
+    a.chatStops.push(body.p_operation_id);
+    return { recorded: true, settled: false };
+  },
   // The device-search switch (migration 072), as staging answers it: off unless a journey turns it on (__device-search).
   v1_reader_capabilities: (id, a) => ({ account_id: id, device_search: { enabled: !!a.deviceSearch, format: 'device-search-v1' } }),
   // Operator roles for the account menu's Operations dashboard link (ADMIN_HEALTH.md): fixture readers have none.
@@ -318,7 +324,8 @@ createServer(async (request, response) => {
   if (!url.pathname.startsWith('/__') && injectedFault(url, request, response)) return;
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
-    if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
+    // midstream: the provider fails after the first text; nothing is charged (2026-10-16, CHAT.md "When an answer stops early").
+    if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -334,7 +341,7 @@ createServer(async (request, response) => {
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__search-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { server: a.serverSearches ?? [] }); }
-  if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
+  if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests, stops: a.chatStops }); }
   if (url.pathname === '/__large-library' && request.method === 'POST') {
     const body = await read(request);
     if (!Number.isInteger(body?.count) || body.count < 3 || body.count > 4000 || !seedLargeLibrary(body.count)) return send(response, 400, {});
@@ -553,7 +560,12 @@ createServer(async (request, response) => {
     let index = 0;
     const tick = () => {
       if (response.destroyed) return;
-      if (index < chunks.length) { event('delta', { text: chunks[index++] }); if (mode === 'eof' && index === 2) return response.end(); return setTimeout(tick, mode === 'slow' ? 500 : 15); }
+      if (index < chunks.length) {
+        event('delta', { text: chunks[index++] });
+        if (mode === 'eof' && index === 2) return response.end();
+        if (mode === 'midstream' && index === 2) { event('error', { code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 5 }); return response.end(); }
+        return setTimeout(tick, mode === 'slow' ? 500 : 15);
+      }
       if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
 click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });

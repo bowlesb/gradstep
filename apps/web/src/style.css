@@ -182,7 +182,28 @@ html.resizing iframe { pointer-events: none; }
 .rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .rail-note { padding: 10px 18px; }
-.contents-slot:has(.contents-tree) > .rail-note { display: none; }
+.contents-slot:has(.contents-panel) > .rail-note { display: none; }
+/* Contents · Figures · Tables · Equations (owner, build 59: "minimalistic… just one other gray color, or maybe two…
+   consistent styling in the rows"): a quiet segmented control, then rows that share one padding, hover and type scale. */
+.contents-tabbar { position: sticky; top: 0; z-index: 1; padding: 8px 8px 4px; background: var(--surface-2); }
+.contents-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--row-hover); }
+/* Each tab its own width plus an equal share of the rest, so "Equations" fits a default-width side panel. */
+.contents-tabs > button { flex: 1 1 auto; min-width: 0; min-height: 26px; padding: 2px 3px; border: 0; border-radius: 6px; font-size: 12px; font-weight: 500;
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.contents-tabs > button:hover { color: var(--text); }
+.contents-tabs > button[aria-selected="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
+.contents-empty { margin: 0; padding: 14px 14px; color: var(--muted); font-size: 12.5px; }
+.contents-rows { list-style: none; margin: 0; padding: 4px 0 24px; }
+.contents-row { display: flex; flex-direction: column; gap: 1px; width: 100%; min-height: 0; text-align: left; border-radius: 0; padding: 6px 12px;
+  border-left: 2px solid transparent; font-size: 12.5px; line-height: 1.4; color: var(--text); }
+.contents-row:hover { background: var(--accent-muted); }
+.contents-row-caption, .contents-row-math { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.contents-row-caption strong, .contents-row-title { font-weight: 600; color: var(--text); }
+.contents-row-detail, .contents-row-math { color: var(--muted); }
+.contents-row-math { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-style: italic; font-size: 13px; }
+.contents-tiles { display: inline-flex; align-items: center; gap: 6px; min-height: 0; margin: 2px 0 4px; padding: 5px 14px; font-size: 12.5px; font-weight: 500;
+  color: var(--accent); border-radius: 0; }
+.contents-tiles:hover { text-decoration: underline; }
 
 .contents-tree ol { list-style: none; margin: 0; padding: 6px 0 24px; }
 .toc-item { display: block; width: 100%; min-height: 0; text-align: left; border-radius: 0; padding: 4px 12px; font-size: 12.5px; line-height: 1.4; color: var(--muted);
@@ -567,6 +588,13 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .info-tip-button { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 50%; color: var(--muted); }
 .info-tip-button:hover, .info-tip-button[aria-expanded="true"] { color: var(--text); background: var(--row-hover); }
 .info-tip-text { display: none; }
+/* Under an open ⓘ bubble the rest of the screen darkens (owner, build 59), as the app's InfoBubbleDim (black at 40%). */
+.info-scrim { position: fixed; inset: 0; z-index: 49; background: rgba(0, 0, 0, .4); cursor: default; animation: info-scrim-in .2s ease-out; }
+@keyframes info-scrim-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .info-scrim { animation: none; } }
+.chat-options-heading { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.chat-options-heading h2 { margin: 0; }
+.chat-options-heading .link { display: inline-flex; align-items: center; gap: 2px; min-height: 0; flex-basis: 100%; padding: 0; }
 .info-tip-text.open { display: block; position: absolute; left: -6px; top: calc(100% + 4px); z-index: 50; width: max-content; max-width: min(300px, 78vw); padding: 10px 12px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--pop); font-size: 12.5px; line-height: 1.45; white-space: normal; }
 /* Operator tools (owner, build 58): one grey Admin group, shown only to owner and support. */
@@ -697,7 +725,7 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .figure-parts-overview .figure-part-outline span{font-size:10px;padding:2px 4px}
 /* The equation view (EQUATION_VIEW.md): a panel on the right, the whole width on a phone. */
 .dialog.equation-dialog { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(100vw, 560px); max-width: 100vw; border-radius: 14px 0 0 14px; border-right: 0; }
-.equation-dialog .dialog-body { height: 100%; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; scroll-padding-bottom: 120px; }
+.equation-dialog .dialog-body { height: 100%; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; scroll-padding-bottom: 24px; }
 .equation-view { display: flex; flex-direction: column; gap: 14px; min-width: 0; flex: none; }
 /* The section scrolled to stays clear of the panel's top edge; the footer never covers the end of the answer. */
 .equation-background-section { scroll-margin-top: 8px; padding-bottom: 8px; }
@@ -726,7 +754,9 @@ label.check-row input { width: 16px; height: 16px; flex: none; margin: 0; }
 .equation-background { min-width: 0; }
 .equation-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
 .equation-link .source-address { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; font-size: 12.5px; }
-.equation-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; bottom: -20px; background: var(--surface); padding: 10px 0 0; border-top: 1px solid var(--line); }
+/* Explain and Ask in chat side by side under the equation (owner, build 59). */
+.equation-actions { display: flex; gap: 10px; }
+.equation-actions > button { flex: 1 1 0; min-width: 0; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 @media (max-width: 640px) { .dialog.equation-dialog { width: 100vw; border-radius: 0; border: 0; } .equation-symbols li { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 /* Back after a jump names where it returns ("Back to 3 Method"); "Back" alone when the paper column is narrow. The X
    dismisses the offer without going back (PaperView). */

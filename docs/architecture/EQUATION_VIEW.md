@@ -20,16 +20,20 @@ equation.
    bundle holds), in the reader's colours. A size control (A− / A+, 100 % to 400 % of the reader's text size, starting
    at 160 %) and a **Scroll sideways** toggle: off, the equation is scaled down to fit the width when it is wider; on,
    it keeps the chosen size and scrolls horizontally. The equation number, when it has one, stays beside it.
-2. **What it says**: the one- or two-sentence summary.
+   Right under it, side by side: **Explain** (prominent, a sparkle) and **Ask in chat** (owner, build 59: "The AI
+   explanation should only come if you ask for it… When you enter in there, you should also see the Ask in chat option
+   as well"). Nothing is asked of the AI on opening; Explain goes once the explanation is there (or kept from before).
+   No credit counts are shown anywhere in the view ("Don't display the number of credits in the response please").
+2. **What it says** (after Explain): the one- or two-sentence summary.
 3. **Symbols**: one row per symbol, in order of appearance: the symbol (plain Unicode text as the model wrote it,
    e.g. `π_θ(y|x)`), its meaning, and where that comes from — **From the paper ¶N** (a link: closes the view and
    scrolls the reader to that paragraph, with Back to return), or **General meaning** (the paper does not define it;
    worded as usual usage). While the request runs the rows show a quiet loading state; a failure shows the reason and
    Try again.
-4. **More background** (a button; optional, never automatic): streams a short explainer under it (what problem the
+4. **More background** (a button, offered once the explanation is there; optional, never automatic): streams a short explainer under it (what problem the
    equation solves, the intuition per term, prerequisite concepts, a small example), rendered like a chat answer with
    its `[¶N]` citations working.
-5. **Ask in chat**: closes the view and opens the paper's chat with this equation as the selected passage and the
+5. **Ask in chat** (beside Explain from the start): closes the view and opens the paper's chat with this equation as the selected passage and the
    composer focused, so the reader types their own question (no answer is sent automatically). Explain in Chat stays in
    the tap menu as before.
 
@@ -71,9 +75,9 @@ Results are kept on the device per paper revision (manifest), equation id, actio
 length: a different length writes a different background), in the app's cache (not synced, not in chat history):
 reopening an equation shows them without a new request. Apple apps: sealed with the account's local key in
 `<environment>/<account>/equation-answers` (complete file protection, excluded from backup, at most 400;
-`EquationResultStore`). The symbols request starts when
-the view opens (the view's purpose; a few credits with the paper cached); background only on its button. Nothing is
-sent without chat consent: the view asks for it as chat does.
+`EquationResultStore`). Since build 59 (apps) and the browser of 2026-10-16, the symbols request starts only on
+Explain and background only on its button; until 2026-10-16 the symbols were asked as the view opened. Nothing is
+sent without chat consent: Explain asks for it first, as chat does.
 
 ## Proof
 
