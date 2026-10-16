@@ -49,19 +49,24 @@ enum ChatFigureFinder {
         }
         var result: [ChatFigureImage] = []
         for figure in figures {
-            // A figure of several panels goes as one image, its panels stacked (2610.19525's Figure 1, (a) and (b)).
-            let paths = Array(figure.assetPaths.prefix(maximumPanels))
-            guard let path = paths.first,
-                  let prepared = paths.count > 1
-                      ? composite(paths.compactMap { bundle.data(for: $0).flatMap(image) }).flatMap(prepare)
-                      : bundle.data(for: path).flatMap(prepare),
-                  let paragraph = bundle.index.blocks.firstIndex(where: { $0.id == figure.blockID }).map({ $0 + 1 }),
-                  let image = ChatFigureImage(id: "F\(result.count + 1)", paragraph: paragraph, caption: figure.caption, mediaType: "image/jpeg",
-                                              data: prepared.data.base64EncodedString(), width: prepared.width, height: prepared.height,
-                                              blockID: figure.blockID, assetPath: path, assetPaths: paths) else { continue }
+            guard let image = image(for: figure, bundle: bundle, id: "F\(result.count + 1)") else { continue }
             result.append(image)
         }
         return result
+    }
+
+    /// One figure's image as a question (or the figure view) sends it. A figure of several panels goes as one image, its
+    /// panels stacked (2610.19525's Figure 1, (a) and (b)).
+    static func image(for figure: ReaderBundleIndex.Figure, bundle: VerifiedReaderBundle, id: String = "F1") -> ChatFigureImage? {
+        let paths = Array(figure.assetPaths.prefix(maximumPanels))
+        guard let path = paths.first,
+              let prepared = paths.count > 1
+                  ? composite(paths.compactMap { bundle.data(for: $0).flatMap(image) }).flatMap(prepare)
+                  : bundle.data(for: path).flatMap(prepare),
+              let paragraph = bundle.index.blocks.firstIndex(where: { $0.id == figure.blockID }).map({ $0 + 1 }) else { return nil }
+        return ChatFigureImage(id: id, paragraph: paragraph, caption: figure.caption, mediaType: "image/jpeg",
+                               data: prepared.data.base64EncodedString(), width: prepared.width, height: prepared.height,
+                               blockID: figure.blockID, assetPath: path, assetPaths: paths)
     }
 
     static let maximumPanels = 4

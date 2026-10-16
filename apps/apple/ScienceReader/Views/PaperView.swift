@@ -172,6 +172,8 @@ struct PaperView: View {
     @State private var reference: ReaderReference?
     /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
     @State private var figureReference: ReaderFigureReference?
+    /// The figure reference's sheet: half height, the full height for a walkthrough.
+    @State private var figureReferenceDetent: PresentationDetent = .medium
     @State private var figureReferenceToShow: String?
     /// The equation view (docs/architecture/EQUATION_VIEW.md) and what it asked for as it closed (a paragraph, the chat).
     @State private var equation: EquationViewRequest?
@@ -446,22 +448,26 @@ struct PaperView: View {
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
             }
-            .sheet(isPresented: $showContents) {
+            .sheet(isPresented: $showContents, onDismiss: applyFigureOutcome) {
                 PaperContentsSheet(headings: model.headings, bundle: model.selectedPaper?.readerBundle, baseFontSize: model.paperFontSize) { target, id in
                     if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
                     showContents = false
                 }
+                .environment(\.figureViewHost, figureHost { showContents = false })
                 .macSheetKeys()
             }
             .sheet(isPresented: $showFigures, onDismiss: {
                 // After the gallery has gone, so the jump and its highlight are seen.
                 if let id = figureToShow, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .figure) }
                 figureToShow = nil
+                applyFigureOutcome()
             }) {
                 if let bundle = model.selectedPaper?.readerBundle {
                     FigureGalleryView(bundle: bundle, baseFontSize: model.paperFontSize) { id in
                         figureToShow = id; showFigures = false
-                    }.macSheetKeys()
+                    }
+                    .environment(\.figureViewHost, figureHost { showFigures = false })
+                    .macSheetKeys()
                 }
             }
             // A figure reference ("Fig. 1"): the figure, table or algorithm with its caption, half height so the paper
@@ -471,10 +477,15 @@ struct PaperView: View {
                     model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .referencedFigure)
                 }
                 figureReferenceToShow = nil
+                applyFigureOutcome()
             }) { value in
                 NavigationStack {
                     Group {
-                        if let bundle = model.selectedPaper?.readerBundle { FigureWebView(bundle: bundle, figureID: value.targetID, baseFontSize: model.paperFontSize) }
+                        if let bundle = model.selectedPaper?.readerBundle {
+                            // A figure or a table gets Explain and Ask in chat (an algorithm's code block, neither).
+                            FigureWebView(bundle: bundle, figureID: value.targetID, baseFontSize: model.paperFontSize)
+                                .figurePageActions(figureID: value.targetID)
+                        }
                         else { Color.clear }
                     }
                     .navigationTitle(value.label).navigationBarTitleDisplayMode(.inline)
@@ -487,7 +498,10 @@ struct PaperView: View {
                         }
                     }
                 }
-                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                .presentationDetents([.medium, .large], selection: $figureReferenceDetent).presentationDragIndicator(.visible)
+                .onAppear { figureReferenceDetent = .medium }
+                .environment(\.expandSheet) { figureReferenceDetent = .large }
+                .environment(\.figureViewHost, figureHost { figureReference = nil })
                 .macSheetKeys()
             }
             // The equation view: large, sized and scrolled as the reader likes, each symbol described. A symbol's
@@ -499,7 +513,7 @@ struct PaperView: View {
                 EquationView(model: model, request: request) { outcome in equationFollowUp = outcome; equation = nil }
                     .macSheetKeys()
             }
-            .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
+            .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } }), onDismiss: applyFigureOutcome) {
                 NavigationStack {
                     Group {
                         if let figure, let bundle = model.selectedPaper?.readerBundle, let scope = model.readerDocumentScope {
@@ -508,18 +522,41 @@ struct PaperView: View {
                                 if model.readerDocumentScope == scope, self.figure == figure { OfflineResourceProbe.shared.finish(.figure) }
                                 #endif
                             })
+                            .figurePageActions(figureID: figure)
                         }
                         else { Color.clear }
                     }
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { figure = nil } } }
-                }.macSheetKeys()
+                }
+                .environment(\.figureViewHost, figureHost { figure = nil })
+                .macSheetKeys()
             }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
             selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; figureToShow = nil
             citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil; figureReferenceToShow = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
+        }
+    }
+
+    // MARK: - Figure view
+
+    /// The open paper's figure pages: what they choose is kept on the model while their sheet closes.
+    private func figureHost(close: @escaping @MainActor () -> Void) -> FigureViewHost? {
+        guard let paperID = model.selectedPaper?.id else { return nil }
+        let model = model
+        return FigureViewHost(model: model, paperID: paperID) { outcome in model.pendingFigureOutcome = outcome; close() }
+    }
+
+    /// What a figure page chose, once its sheet has gone (so the jump, the chat or the sign-in is seen).
+    private func applyFigureOutcome() {
+        guard let outcome = model.takeFigureOutcome() else { return }
+        switch outcome {
+        case .figure(_, let id): if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .figure) }
+        case .paragraph(let paperID, let marker): model.goToCitedBlock(marker, paperID: paperID)
+        case .askInChat(let context, let part): model.askAboutFigure(context, part: part)
+        case .signIn: model.openSignIn()
         }
     }
 

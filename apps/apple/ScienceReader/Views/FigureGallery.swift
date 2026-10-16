@@ -165,6 +165,8 @@ struct GalleryFigureDetail: View {
     var body: some View {
         FigureWebView(bundle: bundle, figureID: current, baseFontSize: baseFontSize)
             .id(current)
+            // Explain and Ask in chat under the figure (FIGURE_VIEW.md).
+            .figurePageActions(figureID: current)
             .navigationTitle(figures.indices.contains(index) ? figures[index].number ?? "Figure \(index + 1)" : "Figure")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

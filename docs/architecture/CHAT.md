@@ -130,7 +130,9 @@ When arXiv has no match, OpenAlex is searched (cited title, year ±1). Among str
 arXiv copy wins (imported through arXiv), then one with an open-access PDF not on arXiv, then any. An open-access
 match is added with `v2_begin_web_import` (source `openalex:W…`) **only if the request carries
 `capabilities: ["web_import"]`** (body field; unknown capability values are ignored, malformed ones rejected; part
-of the request digest when present). The app sends it on Ingest requests from builds that show web papers. Older
+of the request digest when present). Other capabilities: `visual_answers`, `figure_requests`, `stop_signal` (below)
+and `figure_view` (2026-10-16: the apps send it on every paper chat request, never Add paper or a repair, so the figure
+view's walkthrough shares the chat's cached tools; [FIGURE_VIEW.md](FIGURE_VIEW.md)). The app sends `web_import` on Ingest requests from builds that show web papers. Older
 builds get "needs the latest Science Reader version"; a match without an open copy gets "isn't openly available".
 The presence check reads `v3_library_page` (all sources). The paper worker then reads the work from
 `api.openalex.org` itself (metadata and up to three open-access PDF locations, never arXiv-hosted) and converts a

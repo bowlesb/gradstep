@@ -23,9 +23,13 @@ public enum ChatRequestError: Error, Equatable {
 /// `equation` and `equationBackground` (2026-10-15): the equation view's symbols and its optional background, on the
 /// paper numbered on this device with the chat's own profile, so they share the chat's cached paper
 /// (docs/architecture/EQUATION_VIEW.md). They are no conversation: no title, no follow-ups.
+/// `figure` and `figureSimpler` (2026-10-16): the figure view's walkthrough of one figure and one of its parts again,
+/// more simply, on the same terms (docs/architecture/FIGURE_VIEW.md); each carries exactly that figure's image.
 public enum ChatAction: String, Equatable, Sendable {
     case ingest, related, relevance, diagramFix = "diagram_fix", study, equation, equationBackground = "equation_background"
+    case figure, figureSimpler = "figure_simpler"
     public var isEquation: Bool { self == .equation || self == .equationBackground }
+    public var isFigure: Bool { self == .figure || self == .figureSimpler }
 }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
@@ -131,9 +135,10 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil && localContext == nil ? "general" : "paper", document_id: documentID?.wire, local_context: localContext,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
-            capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers, figureRequests: localContext != nil), profile: profile == .standard ? nil : profile,
-            topic_title: topicTitle && action?.isEquation != true ? true : nil,
-            follow_ups: action == .diagramFix || action == .ingest || action == .study || action?.isEquation == true ? nil : true,
+            capabilities: Self.capabilities(action: action, visualAnswers: visualAnswers, figureRequests: localContext != nil,
+                                            paper: documentID != nil || localContext != nil), profile: profile == .standard ? nil : profile,
+            topic_title: topicTitle && action?.isEquation != true && action?.isFigure != true ? true : nil,
+            follow_ups: action == .diagramFix || action == .ingest || action == .study || action?.isEquation == true || action?.isFigure == true ? nil : true,
             study: action == .study ? study ?? .empty : nil,
             figures: figures.isEmpty ? nil : figures.map { Figure(id: $0.id, paragraph: $0.paragraph, caption: $0.caption, media_type: $0.mediaType,
                                                                  data: $0.data, width: $0.width, height: $0.height) }))
@@ -145,9 +150,12 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     /// (`figure_request`, 2026-10-15), so the server may offer `look_at_figure`.
     /// `stop_signal` (2026-10-16): this app records the reader's Stop (`v1_chat_stop`), so an answer that ends any other
     /// way early costs the reader nothing (CHAT.md, "When an answer stops early").
-    public static func capabilities(action: ChatAction?, visualAnswers: Bool, figureRequests: Bool = false) -> [String] {
+    /// `figure_view` (2026-10-16): this app has the figure view, so every paper chat carries the walkthrough's tool and a
+    /// walkthrough reads the chat's cached paper (FIGURE_VIEW.md, "Server — as built"); never Add paper or a repair.
+    public static func capabilities(action: ChatAction?, visualAnswers: Bool, figureRequests: Bool = false, paper: Bool = false) -> [String] {
         (action == .ingest ? ["web_import"] : []) + (visualAnswers ? ["visual_answers"] : [])
             + (visualAnswers && figureRequests && action != .ingest && action != .diagramFix ? ["figure_requests"] : [])
+            + (paper && action != .ingest && action != .diagramFix ? ["figure_view"] : [])
             + ["stop_signal"]
     }
 
@@ -187,6 +195,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case study(StudyMap)
     /// The equation view's symbols (action `equation`, servers from 2026-10-15), sent once before `done`.
     case equation(EquationSymbols)
+    /// The figure view's walkthrough (action `figure`, servers from 2026-10-16), sent once before `done`.
+    case figure(FigureWalkthrough)
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     /// `credits`: what the failed answer cost (0 when the provider never started it; servers from 2026-10-14).
@@ -358,6 +368,10 @@ public struct ChatSSEParser: Sendable {
             // Informational: symbols that are not usable are dropped (the view then says it couldn't describe them).
             guard let symbols = EquationSymbols.validated(payload) else { return nil }
             return .equation(symbols)
+        case "figure":
+            // Informational: a walkthrough that is not usable is dropped (the view then says it couldn't explain it).
+            guard let walkthrough = FigureWalkthrough.validated(payload) else { return nil }
+            return .figure(walkthrough)
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }

@@ -22,6 +22,8 @@ struct PaperContentsSheet: View {
     @State private var tab: Tab = .contents
     @State private var path = NavigationPath()
     @State private var equations: [Equation]? = nil
+    /// Half height to start; a figure's walkthrough takes the full height (FIGURE_VIEW.md).
+    @State private var detent: PresentationDetent = .medium
     @ScaledMetric(relativeTo: .body) private var indent = 18.0
 
     private var figures: [GalleryFigure] { bundle.map { GalleryFigure.all(in: $0.index) } ?? [] }
@@ -55,7 +57,8 @@ struct PaperContentsSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .environment(\.expandSheet) { detent = .large }
+        .presentationDetents([.medium, .large], selection: $detent)
     }
 
     @ViewBuilder private var list: some View {

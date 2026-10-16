@@ -25,9 +25,9 @@ struct ChatVisualTests {
         let on = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: turns, selection: nil)
         let off = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil, transcript: turns, selection: nil, visualAnswers: false)
         let onBody = String(decoding: try on.encoded(), as: UTF8.self), offBody = String(decoding: try off.encoded(), as: UTF8.self)
-        #expect(onBody.contains("\"capabilities\":[\"visual_answers\"]"))
-        #expect(offBody.contains("\"capabilities\":[]"), "an empty list tells the server the reader turned visuals off")
-        #expect(ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true) == ["web_import", "visual_answers"])
+        #expect(onBody.contains("\"capabilities\":[\"visual_answers\",\"stop_signal\"]"))
+        #expect(offBody.contains("\"capabilities\":[\"stop_signal\"]"), "a list without visual_answers tells the server the reader turned visuals off")
+        #expect(ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true) == ["web_import", "visual_answers", "stop_signal"])
     }
 
     @Test func theVisualPageHasNoScriptsAndNoNetwork() {

@@ -16,7 +16,7 @@ import Testing
         let body = try object(request.encoded())
         // Visual answers are on by default, so the capability list is always sent (an empty list says off).
         #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection", "follow_ups", "capabilities"])
-        #expect(body["capabilities"] as? [String] == ["visual_answers", "stop_signal"])
+        #expect(body["capabilities"] as? [String] == ["visual_answers", "figure_view", "stop_signal"])
         #expect(body["operation_id"] as? String == operation.wire)
         #expect(body["document_id"] as? String == document.wire)
         // v3 (2026-10-15) names figures (CHAT.md "Figures in chat").
@@ -38,7 +38,7 @@ import Testing
         let unselected = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript, selection: " ", action: .ingest)
         #expect(unselected.action == nil)
         #expect(try object(unselected.encoded())["action"] == nil)
-        #expect(try object(unselected.encoded())["capabilities"] as? [String] == ["visual_answers", "stop_signal"], "no Add paper without a selection")
+        #expect(try object(unselected.encoded())["capabilities"] as? [String] == ["visual_answers", "figure_view", "stop_signal"], "no Add paper without a selection")
     }
 
     @Test func generalRequestOmitsDocumentAndSelection() throws {
