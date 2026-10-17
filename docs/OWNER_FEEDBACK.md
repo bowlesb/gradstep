@@ -9,7 +9,41 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
-## TestFlight builds 63–64, 2026-10-17 UTC (Oct 16 PDT): three preparations failed — unresolved
+## TestFlight build 64, 2026-10-17 ~04:25 UTC: `Code: invalid` — cause reproduced, fix verified locally
+
+New screenshot `AHX5KiKf7h8mFPm8-E953es` (04:01:46 UTC, build 64) shows VLA-Δ, 2610.21306v1, with
+**Code: invalid**. The actual native Library flow reproduces that error with Swift optimization enabled (`-O`),
+while the same paper passes with optimization disabled (`-Onone`). Local stage-specific diagnostic codes narrow it
+to the final image-collection guard, `asset_input_missing`; no diagnostic build was sent to the owner.
+
+**Cause:** inside the concurrent image task's `do/catch`, Swift 6.3 compiles
+`return (index, try await acquire(...))` so every successful image returns index zero (`swiftlang-6.3.0.123.5`). Downloads overwrite the
+first slot, leaving the others empty. The per-image catch introduced in `c603266` exposes this failure. A standalone
+program without network or WebKit reproduces it: with 1/4/10/36 inputs, `-O` fills only 1/1/1/1 slots; `-Onone`
+fills them all. Awaiting into a local variable before returning `(index, bytes)` fills all slots under `-O` too.
+
+**Why it escaped:** the existing authored native fixtures each had one unique image, and real-paper Simulator
+checks used debug optimization. Neither could detect this release-only collection failure. The earlier memory
+hypothesis did not explain it. The new authored regression uses ten distinct image URLs with out-of-order
+completion and one deliberately missing image: it fails on the old expression and passes with the fix. The
+three original reported papers also pass native cached replay with `-O` after the fix. The explicit native tier
+now uses `-O` and whole-module compilation.
+
+**Final verification:** all four reported papers download, install in the encrypted store and reopen through the
+native Library flow with `-O` and whole-module compilation: VLA-Δ in 8.71 s, MetaShare/ManiFusion/Rubric Judgments
+started together in 21.74 s. The native reader suite passes five tests (one unrelated live-DPO opt-in skipped),
+including the ten-image regression and cached replay of the three original papers. `npm test` passes. This is
+Simulator verification with the release compiler settings, not a physical-phone acceptance claim. Build 65 is
+being packaged from this verified fix; release status is recorded in IMPLEMENTATION_STATUS.md.
+
+The host now names each validation stage instead of using the same `invalid` code for unrelated guards.
+Renderer revision remains 16: acquisition changes, generated bundles do not. Evidence:
+`.artifacts/feedback/20261017-invalid/` (`library-optimized-vla.log`, `library-optimized-located-vla.log`,
+`cached-optimized-trace.log`, `collector-{before,after}.swift`, `multi-image-regression-{before,after}.log`,
+`release-optimized-reader.log`, `release-optimized-library-three.log`, `fast.log`).
+No physical phone access or paid AI calls. The history below records the earlier incomplete investigation.
+
+## TestFlight builds 63–64, 2026-10-17 ~04:00 UTC: earlier investigation, unresolved at that checkpoint
 
 The owner installed build 64 and reports the same failure. Shipping that build during this investigation created
 the expectation that the reading feedback had been addressed; no root cause or reader fix had been established.

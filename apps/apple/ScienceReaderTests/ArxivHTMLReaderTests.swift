@@ -76,6 +76,40 @@ import Testing
         #expect(bundle.index.blocks.last?.text.contains("Retained legend text") == true)
         #expect(bundle.index.figures.last?.assetPaths.count == 2)
     }
+    /// Build 64: with -O, `(index, try await acquire(...))` inside do/catch returned zero for each successful download.
+    /// The old fixtures fetched only one unique URL, so they never exercised another slot. Keep several downloads
+    /// in flight, complete them out of order, and include one deliberately missing image. Run this suite with -O.
+    @Test func concurrentImagesKeepTheirSlotsAndOnlyTheMissingFigureIsOmitted() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let image = try Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-mathpix/figure-exif.jpg"))
+        let source = try ArxivReaderSource(sourceID: "2601.01234", revision: 2)
+        let figures = (0..<10).map { index in
+            "<figure id=\"F\(index + 1)\"><img src=\"2601.01234v2/asset-\(index).jpg\"><figcaption>Figure \(index + 1): Item \(index).</figcaption></figure>"
+        }.joined()
+        let html = Data("<html><body><article class=\"ltx_document\"><h1>Concurrent image fixture</h1><p>Ten separate figure downloads.</p>\(figures)</article></body></html>".utf8)
+        let evidence = ArxivAssetFetchEvidence()
+        let reader = ArxivHTMLReader { url, ref, maximum in
+            #expect(ref == source)
+            if url == source.htmlURL { return html }
+            #expect(source.admitsAsset(url.absoluteString))
+            let index = try #require(Int(url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "asset-", with: "")))
+            await evidence.started(index)
+            // The first of each batch completes last; assertions concern identities and bounds, not elapsed time.
+            try await Task.sleep(for: .milliseconds(index % 4 == 0 ? 40 : 5))
+            await evidence.finished()
+            if index == 5 { throw ArxivHTMLError.assetMissing }
+            #expect(image.count <= maximum)
+            return image
+        }
+        let bundle = try await reader.prepare(source)
+        #expect(bundle.arxivSource == source)
+        #expect(bundle.index.figures.map(\.caption) == (1...10).filter { $0 != 6 }.map { "Figure \($0): Item \($0 - 1)." })
+        #expect(bundle.index.blocks.contains { $0.text.contains("couldn’t be shown here; the PDF has it") })
+        #expect(await evidence.requests.sorted() == Array(0..<10), "each image is requested exactly once")
+        #expect(await evidence.peak <= ArxivAcquisitionPolicy.assetConcurrency)
+        #expect(await evidence.peak > 1, "exercise concurrent completion")
+    }
     /// Revision 16: an image arXiv didn't serve is its figure's note and the paper opens; arXiv being busy still stops it.
     @Test func anImageArxivDidntServeIsItsFiguresLossNotThePapers() async throws {
         let full = try await compileFixture("source.html")
@@ -103,6 +137,14 @@ import Testing
         #expect(bundle.arxivSource == source)
         return bundle
     }
+}
+
+private actor ArxivAssetFetchEvidence {
+    private(set) var requests: [Int] = []
+    private(set) var peak = 0
+    private var active = 0
+    func started(_ index: Int) { requests.append(index); active += 1; peak = max(peak, active) }
+    func finished() { active -= 1 }
 }
 
 @MainActor @Suite struct ArxivCompilerIdentityTests {

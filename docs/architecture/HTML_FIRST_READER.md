@@ -473,6 +473,25 @@ those are tried again rather than stored with notes. Native: `ArxivHTMLError.ass
 `retrieveArxiv`, caught in `fetchArxivAssets`. Tests: the backend case above, `apps/web/tests/arxiv-reader.test.ts`,
 `ArxivHTMLReaderTests.anImageArxivDidntServeIsItsFiguresLossNotThePapers`.
 
+**Native optimized acquisition failure (2026-10-17 UTC; build 64 feedback).** The new per-image `do/catch`
+in commit `c603266` exposed a Swift 6.3 optimizer failure: returning `(index, try await acquire(...))` inside
+that catchable task returned index **zero for every successful download** under `-O`. Downloads succeeded,
+but overwrote `inputs[0]`; the other slots stayed empty and the final guard reported `invalid`. The same code
+worked under `-Onone`. This was reproduced with VLA-Δ 2610.21306v1 through native Library acquisition and with
+Rubric Judgments 2610.21214v1 from cached official sources; a standalone Swift program reproduces it without
+WebKit, networking or app state. A deliberately missing download keeps its correct index through the catch.
+
+The native host now awaits into a local `bytes` first, then returns `(index, bytes)`. The standalone `-O` case
+fills all 1/4/10/36 expected slots after this change (before: 1/1/1/1). The authored native regression downloads
+ten distinct URLs concurrently, completes out of order and omits one: it fails with the old expression and passes
+with the fix, retaining the nine correct captions and the missing-figure note. Earlier authored fixtures used
+one unique image, so they could not expose this bug; earlier real-paper native checks used `-Onone`. The explicit
+native tier now uses `-O` and whole-module compilation, as the distributed build does. Native guard codes name
+their stage (`asset_input_missing`, response/type/resource codes) instead of all reporting `invalid`; no paper
+content is included. This changes acquisition, not the deterministic renderer: revision 16 and its bundle identity
+remain correct. Before/after evidence: `.artifacts/feedback/20261017-invalid/`; release status in
+[implementation status](../IMPLEMENTATION_STATUS.md).
+
 The index lists the paper's captioned tables (revision 16, 2026-10-16; browser parity report: Contents › Tables listed
 only tables arXiv published as images, which are figures, so most papers said "No tables"). `reader-index-v1` gains an
 optional `tables: [{id, caption}]`, in page order: `id` is a `table` block, `caption` its caption text read as figure

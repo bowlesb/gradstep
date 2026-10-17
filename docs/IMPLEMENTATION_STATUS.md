@@ -1,6 +1,24 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (owner confirms build 64 still cannot prepare the reported papers; root cause unresolved). Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 64 `invalid` reproduced and fixed; all four reported papers pass with release optimization; build 65 being packaged). Earlier checkpoints below are historical.
+
+## Build 64 `invalid`: root cause and native fix — 2026-10-17 ~04:25 UTC (Oct 16 PDT)
+
+The latest screenshot identifies VLA-Δ 2610.21306v1 and `Code: invalid`. The native Library flow reproduces it
+with `-O`, while the same flow passes under `-Onone`. Swift 6.3 loses the image index in
+`return (index, try await acquire(...))` inside the task's `do/catch`: successful downloads all return zero,
+overwrite the first slot and leave the rest empty. The final guard rejects that incomplete input array.
+This also reproduces in a standalone Swift program with no network/WebKit. The fix awaits the bytes before
+constructing the tuple; before/after optimized regression evidence is retained.
+
+The authored ten-image regression and cached native replay of Rubric Judgments, ManiFusion and MetaShare pass
+with `-O` after the fix. Existing one-image fixtures and debug real-paper replays had missed the bug. The native
+test tier now uses `-O` and whole-module compilation; guard diagnostics name their stages. No renderer revision
+bump is needed. Full Library verification with `-O` and whole-module compilation succeeds for all four reported
+papers: VLA-Δ downloads/installs/reopens in 8.71 s; the original three, started together, in 21.74 s. The native
+reader suite is five passes / one unrelated live-DPO skip. `npm test` passes. Build 65 is being packaged; no
+physical-phone acceptance is claimed. Physical phone access remains paused; this investigation incurs no AI cost.
+[Feedback and evidence](OWNER_FEEDBACK.md).
 
 ## Build 64 still fails on the phone — 2026-10-17 ~04:00 UTC (Oct 16 PDT)
 

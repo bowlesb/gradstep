@@ -193,7 +193,7 @@ private actor ArxivHTMLAcquisition {
 
     func fetch(_ url: URL, source: ArxivReaderSource, maximum: Int) async throws -> Data {
         let document = url == source.htmlURL
-        guard document || source.admitsAsset(url.absoluteString) else { throw ArxivHTMLError.invalid }
+        guard document || source.admitsAsset(url.absoluteString) else { throw ArxivHTMLError.stopped("request_url_invalid") }
         // Reserve a slot before suspending, including concurrent paper opens.
         let now = Date()
         if refusal.until(now: now) != nil { throw ArxivHTMLError.refused }
@@ -216,7 +216,8 @@ private actor ArxivHTMLAcquisition {
         request.setValue(ArxivAcquisitionPolicy.userAgent, forHTTPHeaderField: "User-Agent")
         let (stream, response) = try await session.bytes(for: request)
         defer { stream.task.cancel() }
-        guard let http = response as? HTTPURLResponse, http.url == url else { throw ArxivHTMLError.invalid }
+        guard let http = response as? HTTPURLResponse else { throw ArxivHTMLError.stopped("response_not_http") }
+        guard http.url == url else { throw ArxivHTMLError.stopped(document ? "html_response_url" : "asset_response_url") }
         if [404, 410].contains(http.statusCode), document { throw ArxivHTMLError.unavailable }
         if http.statusCode == 403 { refusal.record(now: Date()); throw ArxivHTMLError.refused }
         if http.statusCode == 429 || http.statusCode == 503 {
@@ -232,7 +233,7 @@ private actor ArxivHTMLAcquisition {
         let missing = { (error: ArxivHTMLError) in document ? error : ArxivHTMLError.assetMissing }
         guard http.statusCode == 200 else { throw http.statusCode < 500 ? missing(.retrieval) : ArxivHTMLError.retrieval }
         let types = document ? ["text/html", "application/xhtml+xml"] : ["image/png", "image/jpeg", "image/svg+xml"]
-        guard types.contains(http.mimeType?.lowercased() ?? "") else { throw missing(.invalid) }
+        guard types.contains(http.mimeType?.lowercased() ?? "") else { throw missing(.stopped("html_content_type")) }
         let tooLarge = maximum >= ArxivAcquisitionPolicy.assetBytes ? missing(.tooLarge) : ArxivHTMLError.tooLarge
         guard http.expectedContentLength <= maximum else { throw tooLarge }
         var data = Data(); data.reserveCapacity(min(maximum, max(0, Int(http.expectedContentLength))))
@@ -241,7 +242,7 @@ private actor ArxivHTMLAcquisition {
             data.append(byte)
             if data.count % 65_536 == 0 { try Task.checkCancellation() }
         }
-        guard !data.isEmpty else { throw missing(.invalid) }
+        guard !data.isEmpty else { throw missing(.stopped("html_empty")) }
         return data
     }
 }
@@ -352,7 +353,7 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
     /// the others.
     private func fetchAssets(_ urls: [String], source: ArxivReaderSource, used: Int, progress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> [[String: Any]] {
         let assets = try urls.map { reference -> URL in
-            guard source.admitsAsset(reference), let url = URL(string: reference) else { throw ArxivHTMLError.invalid }
+            guard source.admitsAsset(reference), let url = URL(string: reference) else { throw ArxivHTMLError.stopped("asset_url_invalid") }
             return url
         }
         var inputs = [[String: Any]?](repeating: nil, count: assets.count)
@@ -365,7 +366,12 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
                 let index = next, bound = min(ArxivAcquisitionPolicy.assetBytes, ArxivAcquisitionPolicy.totalBytes - total)
                 next += 1
                 group.addTask {
-                    do { return (index, try await acquire(assets[index], source, bound)) }
+                    do {
+                        // Swift 6.3 -O loses index when the await is inside this returned tuple's do/catch.
+                        // Finish the suspension before constructing it; the optimized multi-image test covers this.
+                        let bytes = try await acquire(assets[index], source, bound)
+                        return (index, bytes)
+                    }
                     catch ArxivHTMLError.assetMissing { return (index, nil) }
                 }
             }
@@ -385,14 +391,14 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
             }
         }
         return try inputs.map { input in
-            guard let input else { throw ArxivHTMLError.invalid }
+            guard let input else { throw ArxivHTMLError.stopped("asset_input_missing") }
             return input
         }
     }
 
     private func load() async throws {
-        guard let path = Bundle.main.url(forResource: "arxiv-reader", withExtension: "js"),
-              let script = try? String(contentsOf: path, encoding: .utf8) else { throw ArxivHTMLError.invalid }
+        guard let path = Bundle.main.url(forResource: "arxiv-reader", withExtension: "js") else { throw ArxivHTMLError.stopped("compiler_resource_missing") }
+        guard let script = try? String(contentsOf: path, encoding: .utf8) else { throw ArxivHTMLError.stopped("compiler_resource_unreadable") }
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -405,7 +411,7 @@ final class ArxivHTMLReader: NSObject, WKNavigationDelegate {
         }
     }
     private func call(_ body: String, arguments: [String: Any]) async throws -> String {
-        guard let web else { throw ArxivHTMLError.invalid }
+        guard let web else { throw ArxivHTMLError.stopped("compiler_not_loaded") }
         return try await operation {
             web.callAsyncJavaScript(body, arguments: arguments, in: nil, in: .defaultClient) { [weak self] result in
                 switch result {

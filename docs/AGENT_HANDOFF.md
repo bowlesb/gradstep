@@ -1,6 +1,18 @@
 # Agent handoff
 
-**Current work, 2026-10-17 ~04:00 UTC (Oct 16 PDT):** The owner installed **64 and reports the same failure** for
+**Current work, 2026-10-17 ~04:25 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
+2610.21306v1 with **Code: invalid**. **Cause now reproduced:** Swift 6.3 `-O` loses `index` when returning
+`(index, try await acquire(...))` from a task inside `do/catch`; successful downloads all overwrite slot zero.
+The final guard finds empty slots. Debug passes. Standalone no-network reproduction confirms it. The native
+host now awaits bytes before constructing the tuple; new ten-image regression fails before and passes after.
+Cached native replay of Rubric/ManiFusion/MetaShare passes with `-O` too. Complete native Library verification
+with `-O` and whole-module compilation passes for all four papers: VLA-Δ 8.71 s; the original three together
+21.74 s, including encrypted installation and reopening. Native reader suite five passes / one live-DPO skip;
+`npm test` passes. Build 65 is being packaged from the verified fix. No physical phone access or
+paid AI. Keep the Flash rollout hidden while finishing this reader repair. Full cause/evidence in
+[owner feedback](OWNER_FEEDBACK.md) and `.artifacts/feedback/20261017-invalid/`.
+
+**Earlier investigation, ~04:00 UTC, superseded above:** The owner installed **64 and reports the same failure** for
 MetaShare, ManiFusion and Rubric Judgments. They are rightly upset that a new build was shipped before the root
 cause was established. Prioritize this investigation. No reader fix or root cause has been established. Do not
 ship another proposed fix based on a passing Simulator replay or speculative memory/timeout explanation.

@@ -24,7 +24,7 @@ Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/we
 | Slow, on-device PDF route | `node scripts/device-route-eval.mjs --fixtures <dir> --conformance <bundle_conformance.py>` | The experimental on-device model (docs/architecture/DEVICE_PDF_ROUTE.md) on this Mac: builds `DevicePDFRouteTool` (the app's text layer, Core ML models and converter), converts each fixture PDF and runs the desktop's `bundle_conformance.py` on the trace; one row per paper and `.artifacts/device-route/summary.json`. Needs `node scripts/device-models.mjs` (the models, checked against `apps/apple/device-models.lock.json`) and the desktop's fixture set copied locally (read-only). Run after a change to the text layer, the host, the converter or the models. In the Simulator: `TEST_RUNNER_DEVICE_PDF_FIXTURE=<paper.pdf>` with `ScienceReaderTests/DeviceModelRouteTests`, and the journey `DeviceModelJourneyTests`. |
 | Slow, reader journeys | `npm run test:slow` | Production-CSP browser compiler, complete HTML reader/chat admission, local PDF worker and membership/reselection cases. Local fixture backend only. |
 | Slow, real corpus | `npm run test:slow:corpus` | Offline replay of eight exact arXiv revisions through Chromium, Firefox and WebKit; independent bundle verification, math/images/fragments, device-only PDF intake/reload. |
-| Slow, native | `npm run test:slow:native` | iPad Simulator WKWebView compiler, PDF admission, locked/over-limit PDF rejection, real-PDF PDFKit rendering and encrypted store reopen. Never selects a physical device. |
+| Slow, native | `npm run test:slow:native` | iPad Simulator with release optimization (`-O`, whole-module): WKWebView compiler, concurrent multi-image acquisition, PDF admission, locked/over-limit PDF rejection, real-PDF PDFKit rendering and encrypted store reopen. Never selects a physical device. |
 | Pre-build UX review | `node scripts/ux-review.mjs` | Browser sign-in, library, reader and every chat state on the fixture backend, desktop and phone, light and dark; contact sheet at `.artifacts/ux/web/index.html`. Native screens: `scripts/visual-check.mjs`. Process and findings: [UX_REVIEW.md](UX_REVIEW.md). |
 | Paid, explicit: live study | `node scripts/chat-live-smoke.mjs --study` | The same disposable account and numbered DPO context, tutored: the opening turn, a partly right answer and a "don't know"; prints each turn's reply and the knowledge map after it (concept states, focus, next step, journey). About three Sonnet answers and three Haiku map updates (about $0.30). Rerun after `chat-study.ts` or tutor-prompt changes. |
 | Paid, explicit: model check | `node scripts/chat-live-smoke.mjs --profile=deepseek-auto-standard --eval` | The recorded check a chat model passes before it is offered (CHAT.md "Recorded check of DeepSeek"): four DPO questions in new conversations with that profile (`auto` effort allowed); every math segment typeset with the browser's temml, `[¶N]` citations resolvable, a visual or diagram, Figure 1 attached and read from the image with parts, streaming; then each quote and provider attempt from the database. Writes `.artifacts/chat-eval/<time>-<profile>.json`. About $0.04 on DeepSeek, $0.30 on Sonnet. Rerun for a new model or a prompt/tool change that could affect it. |
@@ -37,6 +37,15 @@ corpus: `tests/corpus/<name>.json` with its `<name>-lock.json` (fetch with the s
 `owner-20261014` is the owner's nine October papers from the 2026-10-14 report, kept as an audit set, not evidence
 for the pinned corpus). Selection flags are recorded in the run report; a selected run is not
 evidence for the whole suite. Native flags may override the default iPad Simulator destination.
+
+For native paper-acquisition regressions, also pass `SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule`
+to direct `xcodebuild test` commands (the native tier already does). Build 64's `invalid` failure reproduced only
+with optimization: a successful async image result lost its index in a returned tuple inside `do/catch`, so
+multi-image papers failed while the old one-image fixtures passed. The new
+`ArxivHTMLReaderTests.concurrentImagesKeepTheirSlotsAndOnlyTheMissingFigureIsOmitted` is a no-network regression
+for that exact failure; it was verified failing before the fix and passing after. The fixture host still uses
+Debug-only account fixtures, but the Swift optimization and compilation mode match TestFlight. A debug-only
+pass is insufficient evidence for a reported failure in a distributed build.
 
 The existing full browser `npm run e2e --prefix apps/web`, standalone podcast E2E, Swift Core, complete Xcode,
 database (`test:database`), operations and hosted checks are also **slow / explicit**. They keep their existing

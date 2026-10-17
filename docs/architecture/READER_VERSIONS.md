@@ -15,6 +15,13 @@ as `arxiv_math_coverage`, or the device's own `web_process_ended`, `timeout`, `l
 `package_invalid`, `source_mismatch`, `compiler_threw`, or a network one: `arxiv_busy`, `retrieval`, `arxiv_refused`).
 The same code is behind the ⓘ on the "Read this paper as its PDF" screen and in the session log.
 
+After the build-64 `invalid` report, native host guards name their stage: `request_url_invalid`, `response_not_http`,
+`html_response_url`, `asset_response_url`, `html_content_type`, `html_empty`, `asset_url_invalid`,
+`asset_input_missing`, `compiler_resource_missing`, `compiler_resource_unreadable`, `compiler_not_loaded`.
+The reproduced failure was `asset_input_missing`: Swift's optimized task returned index zero for successful image
+downloads. Awaiting the bytes before constructing the result tuple fixes it. This is a native acquisition fix,
+so the compiler revision stays 16; already prepared papers need no update. See [the cause and regression](HTML_FIRST_READER.md).
+
 The browser reader's ⋯ has the same item (`apps/web/src/ui/ReaderVersion.tsx`), reading this list and
 `arxiv-reader-build.json` directly. It prepares a paper afresh each time it opens, so its copy is normally its own
 version; Update this paper is offered for an older copy (a legacy server copy) and keeps it on screen until the new one

@@ -33,6 +33,7 @@ const commands={
  corpus:[['real paper corpus','npm',['run','e2e','--','--config','reader-corpus.playwright.config.ts',...extra],root+'apps/web']],
  native:[['iPad integration','xcodebuild',['test','-project','apps/apple/ScienceReader.xcodeproj','-scheme','ScienceReader',
   '-destination','platform=iOS Simulator,name=iPad Pro 13-inch (M5)','-derivedDataPath','.artifacts/reader-integration-build',
+  'SWIFT_OPTIMIZATION_LEVEL=-O','SWIFT_COMPILATION_MODE=wholemodule',
   '-only-testing:ScienceReaderTests/ArxivHTMLReaderTests','-only-testing:ScienceReaderTests/PDFUploadTests',...extra],root]],
 };
 if(!commands[tier])throw Error('Choose fast, slow, corpus, native, or status');
