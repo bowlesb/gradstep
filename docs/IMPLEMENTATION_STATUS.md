@@ -1,8 +1,8 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed locally; import acceptance gate added; chat and post-deletion login causes confirmed). TestFlight 65 remains the available build. Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed; import acceptance gate added; TestFlight 66 available for iOS and Mac, browser deployed). Chat activation and a fresh post-deletion invitation still await owner information. Earlier checkpoints below are historical.
 
-## Build 65 follow-up — 2026-10-17 UTC (browser deployed; native verified for build 66)
+## Build 65 follow-up — 2026-10-17 UTC (browser deployed; TestFlight 66 available)
 
 - **DocPilot:** two sequential failures reproduced: unsupported SVG text badges inside MathML, then algorithm
   misclassification as a figure. Renderer revision 17 handles that finite badge shape as text and excludes math
@@ -15,7 +15,10 @@ Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed l
   reopen and actual row/spinner geometry. Release optimization is mandatory. Both upload scripts reject missing,
   skipped, failed or stale evidence. Final gate: **7 passed, zero failed/skipped**, release optimization,
   `.artifacts/import-acceptance/2026-10-17T05-17-25-813Z.xcresult`; upload gate readback matches current source.
-  Both rows measure 84 pt; the spinner is 20 pt and centered. No new archive has been uploaded.
+  Both rows measure 84 pt; the spinner is 20 pt and centered. Source **a539550** is archived for build 66 on iOS and
+  Mac; both contain the tested revision-17 compiler byte for byte and pass the upload gate again. Uploads succeeded
+  at **05:37:59 UTC** (iOS) and **05:41:59 UTC** (Mac). Both are **VALID / IN_BETA_TESTING**, confirmed
+  **05:45:52 UTC** (iOS first confirmed 05:42:42 UTC).
 - **Library/Answer options:** reserve consistent row space, center/enlarge the spinner; remove the native Answer
   options title/Done row and implement the owner's default wording/button state. Browser affected journeys pass
   (12, with four desktop-only scenarios intentionally skipped on phone). The empty-chat glow is removed on both
@@ -35,7 +38,9 @@ Evidence: `.artifacts/feedback/import-reliability-20261017/`, `.artifacts/import
 [feedback details](OWNER_FEEDBACK.md), [test gate](TESTING.md). No physical-phone access.
 Browser Pages **91c7d07f** is live at https://app.gradstep.ai; all three entry scripts/styles served with their
 expected types after the phased deployment. It includes revision 17, the flat chat background, default-button
-wording/state and re-invitation copy. Flash remains hidden. Native release status will be recorded separately.
+wording/state and re-invitation copy. Flash remains hidden. Native release evidence:
+`build66-status.json`, `archive-identities.json`, `upload-66.log`, `upload-mac-66.log` in the feedback artifact
+directory. This is internal TestFlight availability, not physical-phone acceptance or a public release.
 
 ## Build 64 `invalid`: root cause and native fix — 2026-10-17 ~04:25 UTC (Oct 16 PDT)
 

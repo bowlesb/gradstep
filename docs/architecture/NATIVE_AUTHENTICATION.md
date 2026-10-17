@@ -14,7 +14,7 @@ when used), creating a new UUID. Do not infer that address from TestFlight feedb
 restore old content/keys/credits, or enable public signups. Provider/address confirmation is pending.
 Native and browser copy now explains this before deletion and in the not-invited error. The old error's suggestion
 to use Apple was misleading: signup restrictions apply there too. Browser copy is deployed in Pages `91c7d07f`;
-the native copy is not yet in TestFlight.
+the native copy is in TestFlight 66 (iOS and Mac VALID / IN_BETA_TESTING). This does not itself create a new invitation.
 
 ## Current foundation and gaps
 

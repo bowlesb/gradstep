@@ -69,7 +69,7 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
-### Math text badges and algorithm classification (revision 17, 2026-10-17; browser deployed, native pending)
+### Math text badges and algorithm classification (revision 17, 2026-10-17; browser deployed, TestFlight 66)
 
 Build 65 feedback for DocPilot `2610.21327v1` reproduces `arxiv_math_element`: Algorithm 1's action set
 contains four SVG text badges inside MathML `mtext`. The adapter recognises a bounded LaTeXML foreignObject text

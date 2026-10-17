@@ -75,7 +75,8 @@ The Library row-height check renders the actual Library view.
 Both TestFlight upload scripts require a successful report for the current import code, fixtures and Xcode version,
 before archiving and again before uploading.
 Zero selected tests, skipped cases, missing corpus bytes, a failed run, or source changes during a run all fail the
-gate. Unchanged import code reuses its evidence; unrelated changes do not require this slow suite. Results and
+gate. Matching covered files reuse their evidence; changes outside those files do not require this slow suite.
+The shared `RootView.swift` is covered because it contains the Library view. Results and
 screenshots live under `.artifacts/import-acceptance/`. This does not certify a physical phone or an untested OS.
 
 The public papers' source responses are cached only on this development device, under `.artifacts/import-corpus/`.

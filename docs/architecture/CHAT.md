@@ -7,7 +7,7 @@ default pending confirmation of OpenRouter's account logging/data-use switches. 
 owner's Sonnet request failed for the Anthropic account balance, not for lack of OpenRouter funds. Do not treat
 funding OpenRouter as activating its route. The dated model research below is historical.
 
-Build 65 feedback (2026-10-17 UTC; browser deployed in `91c7d07f`, native release pending): the native Answer options sheet has no title or
+Build 65 feedback (2026-10-17 UTC; browser `91c7d07f`, TestFlight 66): the native Answer options sheet has no title or
 Done row; its drag handle and accessibility escape dismiss it (Mac retains an X). “New chats currently start with
 ‹model · length›” always states the saved default. The owner's label “Reset default settings” replaces “Use for new
 chats”; it saves the visible choices as the new default, is disabled while they match, and becomes accented when

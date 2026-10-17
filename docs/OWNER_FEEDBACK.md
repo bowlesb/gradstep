@@ -12,8 +12,9 @@ It retained those fixes and added clearer reader download-limit, interrupted-dow
 ## TestFlight build 65, 2026-10-17: import reliability, chat and account deletion
 
 Feedback images and hosted readbacks are retained privately in `.artifacts/feedback/import-reliability-20261017/`.
-Browser changes are deployed as Pages **91c7d07f**, with entry assets verified. Native changes remain local;
-build 65 does not contain them.
+Browser changes are deployed as Pages **91c7d07f**, with entry assets verified. Native changes are included in
+TestFlight **66**, source **a539550**: iOS and Mac are **VALID / IN_BETA_TESTING**, confirmed 05:45:52 UTC.
+The AI activation and re-invitation dependencies below remain open; they are not repaired by this client build.
 
 | Report | Established cause / response | Verification or remaining dependency |
 |---|---|---|
