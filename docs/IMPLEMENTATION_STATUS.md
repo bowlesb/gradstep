@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
+Updated 2026-10-17 UTC (build-63 paper failures investigated; Flash verified on hidden staging; browser/provider privacy copy updated). Earlier checkpoints below are historical.
 
 ## Latest build-63 feedback and hidden Flash rollout — 2026-10-17 ~03:25 UTC (Oct 16 PDT)
 
@@ -24,9 +24,28 @@ Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browse
   `.artifacts/feedback/20261017-current/`.
 - **Activation still pending:** ordinary app traffic keeps Sonnet. Computer Use denied Chrome access, so the
   OpenRouter account's input/output logging and data-use switches could not be inspected; owner confirmation is
-  pending. Privacy copy now names Google/OpenRouter and removes retired server PDF processing. Updated clients
-  are being prepared; build 63 and browser Pages `836089d4` remain the last verified releases at this checkpoint.
+  pending. Privacy copy now names Google/OpenRouter and removes retired server PDF processing.
+  Client/deployment evidence follows below.
   [Route, accounting and activation](architecture/GEMINI_FLASH_CHAT.md); [feedback](OWNER_FEEDBACK.md).
+
+## Client release 64 and browser deployment — 2026-10-17 ~03:39 UTC (Oct 16 PDT)
+
+Source **428a608**, following the Flash integration **345d35b**. TestFlight 64 for iPhone/iPad uploaded at
+03:32 UTC; Mac uploaded at 03:35 UTC. **Both are VALID / IN_BETA_TESTING**, confirmed at **03:39 UTC**.
+This is an internal beta, not public release.
+The build includes Flash/consent v5 support, accurate provider copy and background preparation codes in an active
+local session recording. It does **not** claim a fix for the three papers in the latest phone report.
+
+Browser Pages **d3b06988** is live at https://app.gradstep.ai (three entry assets verified), admin Pages
+**04ecd963** at https://admin.gradstep.ai (two entry assets verified), and the existing privacy page is updated
+in site Pages **ace695d9** at https://gradstep.ai/privacy/ (provider and device-only paper wording read back).
+The separate website redesign remains a draft. The admin's local development environment file was preserved and
+restored after the deploy, which used only the approved staging configuration.
+
+Flash is still **hidden** in the published profile table; neither this release nor the new credit changes that.
+Old consent is rejected before a hold/provider call (hosted fixture: zero operations and attempts). No additional
+paid checks are planned. Read [Gemini activation](architecture/GEMINI_FLASH_CHAT.md) before enabling the default.
+Evidence: `.artifacts/flash-rollout-20261017/`, `.artifacts/export-64.log`, `.artifacts/export-mac-64.log`.
 
 ## Model finalist extension — 2026-10-16, ~23:15 UTC, responses complete; review partial
 

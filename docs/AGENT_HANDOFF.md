@@ -1,6 +1,6 @@
 # Agent handoff
 
-**Current work, 2026-10-17 ~03:25 UTC (Oct 16 PDT):** Prioritize the latest build-63 feedback: MetaShare,
+**Current work, 2026-10-17 ~03:39 UTC (Oct 16 PDT):** Prioritize the latest build-63 feedback: MetaShare,
 ManiFusion and Rubric Judgments fail to prepare on the phone. All three exact revisions pass the full local compiler
 and native Simulator replay. Owner was asked asynchronously for the failure screen's ⓘ code; **not fixed**.
 Physical-phone access remains paused. See [feedback](OWNER_FEEDBACK.md) and `.artifacts/feedback/20261017-current/`.
@@ -14,8 +14,9 @@ Titles/suggestions still fail against Anthropic's empty balance, without failing
 
 **Not the default yet.** Chrome access was denied by Computer Use. An asynchronous question asks the owner to
 confirm OpenRouter **Private Input & Output Logging** and **OpenRouter Use of Inputs/Outputs** are off. Keep hidden
-until checked; routing already denies training endpoints and response caching. Native/browser release work is
-being prepared; build 63/Pages `836089d4` remain the last verified releases at this checkpoint. Then enable
+until checked; routing already denies training endpoints and response caching. Browser Pages `d3b06988`, admin `04ecd963` and privacy site `ace695d9` are deployed and verified. TestFlight 64
+iPhone/iPad and Mac are both VALID / IN_BETA_TESTING, confirmed at 03:39 UTC.
+Source `428a608` (plus the preceding `345d35b` integration); see `.artifacts/flash-rollout-20261017/`. Then enable
 `chat_gemini: "on"`, deploy chat and read back the published recommendation. [Contract and exact evidence](architecture/GEMINI_FLASH_CHAT.md).
 
 The research balances and deployment states below are historical checkpoints, superseded by the current entry.

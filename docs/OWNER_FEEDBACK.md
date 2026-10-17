@@ -5,8 +5,8 @@ saved under `.artifacts/feedback/`, which is not committed). Each item gets a pl
 fixes it. “In build 19/20” below means the reviewed change is included in both internal iOS/Mac TestFlight builds,
 confirmed VALID / IN_BETA_TESTING on 2026-10-08 UTC; it does not claim the owner has installed or accepted it.
 Sources `b4b7ad7` / `bd2e0f2`; release evidence `.artifacts/takeover-20261008/build-{19,20}-processing.json`.
-Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for iOS and Mac. It retains every
-fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
+At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_BETA_TESTING for iOS and Mac.
+It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
 ## TestFlight build 63, 2026-10-17 03:01 UTC (Oct 16 PDT): three preparations failed

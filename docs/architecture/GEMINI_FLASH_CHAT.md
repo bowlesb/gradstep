@@ -1,7 +1,9 @@
 # Gemini Flash chat
 
-Status 2026-10-17 ~03:25 UTC (Oct 16 PDT): migration 085 and chat are deployed to staging with Flash **hidden**.
+Status 2026-10-17 ~03:39 UTC (Oct 16 PDT): migration 085 and chat are deployed to staging with Flash **hidden**.
 The focused live checks pass after fixing the equation-symbol output budget; **Flash is not the app default yet**.
+TestFlight 64 is VALID / IN_BETA_TESTING on iOS and Mac; browser `d3b06988`, admin `04ecd963` and privacy site
+`ace695d9` are deployed and verified.
 The existing $100/month budget stands. Public release and physical-phone testing remain paused.
 
 ## Route and request
@@ -117,7 +119,9 @@ were not inspected; keep this limitation explicit and use only public paper/synt
 - The figure boxes and extraction were checked against the actual image. Paragraph references resolve. These are
   functional checks, not a claim of perfect answers: the first chat answer over-attributed degeneration to the lack
   of a reference model; its follow-up corrected the distinction from dynamic weighting.
-- Four disposable accounts were deleted. Local evidence: `.artifacts/flash-rollout-20261017/` (logs, durable $1
+- Four paid-check accounts and two unfunded gate fixtures were deleted. The hosted profile table omits Flash;
+  a Flash request under consent v4 returns `consent_required` before any operation or provider attempt is created
+  (`gates.json`). Local evidence: `.artifacts/flash-rollout-20261017/` (logs, durable $1
   budget ledger, generation metadata and exact costs); figure images/JSON under `.artifacts/figure-view/`.
   Browser equation, figure and HTML journeys pass on desktop and phone (6/6), with consent v5.
   No further paid test or watcher is running. The comparison harness no longer has its key variable.
@@ -127,5 +131,5 @@ profile table omits it, so ordinary clients keep the earlier default. Computer U
 account's **Private Input & Output Logging** and **OpenRouter Use of Inputs/Outputs** settings are unverified.
 The owner has been asked to confirm both are off. Request routing already denies training endpoints and response
 caching; no zero-retention claim is made. Once the account settings are checked, set `chat_gemini: "on"`, deploy
-`chat`, and verify the published recommendation. Native/browser clients must include consent v5 first. Build 63
+`chat`, and verify the published recommendation. TestFlight 64 and the current browser include consent v5 and Flash support. Build 63
 cannot choose Flash. Hiding/off is rollback; already admitted attempts still settle.
