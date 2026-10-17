@@ -49,12 +49,13 @@ for (const scheme of ['light', 'dark'] as const) test(`choose model and length; 
   // Model and Length, nothing else (owner, build 57: "literally nothing else is needed on this UI").
   await expect(dialog.getByRole('radiogroup')).toHaveCount(2);
   await expect(dialog.getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus', 'DeepSeek', 'Brief', 'Standard', 'Detailed']);
-  await expect(dialog).not.toContainText('credits'); await expect(dialog).not.toContainText('Effort'); await expect(dialog).not.toContainText('Reset');
+  await expect(dialog).not.toContainText('credits'); await expect(dialog).not.toContainText('Effort');
+  await expect(dialog.getByRole('button', { name: 'Reset default settings', exact: true })).toBeDisabled();
   await expect(dialog.getByRole('radio', { name: 'Sonnet', exact: true })).toBeFocused();
-  await expect(dialog.getByTestId('default-note')).toHaveText('New chats start with these.');
+  await expect(dialog.getByTestId('default-note')).toContainText('New chats currently start with');
   await dialog.getByRole('radio', { name: 'Opus', exact: true }).click();
   await expect(dialog).toContainText('Most capable; costs the most');
-  await expect(dialog.getByTestId('use-for-new-chats')).toBeVisible(); // differs from the default now
+  await expect(dialog.getByTestId('use-for-new-chats')).toBeEnabled(); // differs from the default now
   // Arrow keys move within a group.
   await dialog.getByRole('radio', { name: 'Standard', exact: true }).focus(); await page.keyboard.press('ArrowRight');
   await expect(dialog.getByRole('radio', { name: 'Detailed', exact: true })).toHaveAttribute('aria-checked', 'true');
@@ -133,7 +134,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   let options = await answerOptions(page);
   await options.getByRole('radio', { name: 'Brief', exact: true }).click();
   await options.getByTestId('use-for-new-chats').click();
-  await expect(options.getByTestId('default-note')).toHaveText('New chats start with these.');
+  await expect(options.getByTestId('default-note')).toContainText('New chats currently start with');
   // The link opens About AI chat options; back from it, the defaults show the same choice.
   await options.getByTestId('about-chat-options').click();
   await expect(options).toBeHidden();

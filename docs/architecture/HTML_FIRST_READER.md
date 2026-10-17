@@ -69,6 +69,19 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
+### Math text badges and algorithm classification (revision 17, 2026-10-17; browser deployed, native pending)
+
+Build 65 feedback for DocPilot `2610.21327v1` reproduces `arxiv_math_element`: Algorithm 1's action set
+contains four SVG text badges inside MathML `mtext`. The adapter recognises a bounded LaTeXML foreignObject text
+label surrounded only by one or two closed, axis-aligned rounded rectangles. It retains Navigate, Extract,
+Focus and Solve as MathML text. No SVG, foreignObject, source CSS or event attributes enter the output. Other
+vector math remains an explicit failure; arbitrary drawings must not be reduced to their labels.
+
+The full device-compiler replay then exposed `figure_structure`: the algorithm was classified as an image figure
+because the image scan counted these SVGs inside math. Figure classification now excludes graphics owned by math,
+keeping this algorithm as a text listing. Separate regressions cover both failures, label retention and rejection
+of non-decorative paths. The full real-paper compile preserves all 13 images; native acceptance is a separate gate.
+
 ### Figure compatibility extension (2026-10-13, implemented; browser deployed)
 
 The reported `2610.10478v1` groups multiple numbered image/caption pairs in a single LaTeXML figure. Split

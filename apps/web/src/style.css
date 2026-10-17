@@ -527,9 +527,8 @@ progress.mini { height: 3px; margin-top: 4px; }
 .composer-status .composer-balance { flex: none; white-space: nowrap; text-align: right; }
 .draft-hint { font-size: 10px; margin: 6px 0 0; }
 
-/* The empty chat (Gemini's layout, owner build 57): a greeting and three starter questions directly above the
-   composer, with a soft accent glow rising behind the lower part of the pane. */
-.chat-pane-empty { background: radial-gradient(ellipse 150% 72% at 50% 112%, var(--chat-glow), transparent 70%), var(--surface-2); }
+/* Empty chat keeps its starter questions above the composer on the ordinary flat background (build 65 feedback). */
+.chat-pane-empty { background: var(--surface-2); }
 .chat-pane-empty .chat-composer { background: transparent; }
 .chat-pane-empty .chat-transcript { display: flex; flex-direction: column; }
 .chat-transcript .chat-empty { flex: 1; min-height: 150px; justify-content: flex-end; align-items: stretch; gap: 4px; padding: 12px 2px 2px; text-align: left; color: var(--muted); }

@@ -1,9 +1,19 @@
 # Paid AI chat
 
 2026-10-16 owner decision after the comparison: **Gemini 3.8 Flash is selected as the next default**. The
-[OpenRouter → Google integration](GEMINI_FLASH_CHAT.md) is built and verified locally, with consent v5,
-old-client compatibility and server accounting. It remains disabled; Sonnet is the deployed default. Activation
-awaits funded app credentials and the focused staging checks. The dated model research below is historical.
+[OpenRouter → Google integration](GEMINI_FLASH_CHAT.md) is deployed hidden and verified by focused staging checks,
+with consent v5, old-client compatibility and server accounting. The app key is funded; Sonnet remains the published
+default pending confirmation of OpenRouter's account logging/data-use switches. On 2026-10-17 at 04:43 UTC, the
+owner's Sonnet request failed for the Anthropic account balance, not for lack of OpenRouter funds. Do not treat
+funding OpenRouter as activating its route. The dated model research below is historical.
+
+Build 65 feedback (2026-10-17 UTC; browser deployed in `91c7d07f`, native release pending): the native Answer options sheet has no title or
+Done row; its drag handle and accessibility escape dismiss it (Mac retains an X). “New chats currently start with
+‹model · length›” always states the saved default. The owner's label “Reset default settings” replaces “Use for new
+chats”; it saves the visible choices as the new default, is disabled while they match, and becomes accented when
+they differ. Browser uses the same wording and enabled state. Model/length selection and provider consent are
+unchanged. Its existing desktop dialog header/X remain.
+The same feedback batch removes the empty-chat accent glow on both clients; starter positions and actions stay the same.
 
 2026-10-13 direction: preserve all paper/general-chat interactions while adding a versioned local-context route
 for [HTML-first papers](HTML_FIRST_READER.md#paper-chat-and-other-derived-work). Its bounded text/TeX snapshot comes

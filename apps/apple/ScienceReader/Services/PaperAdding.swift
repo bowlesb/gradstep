@@ -239,8 +239,8 @@ extension ReaderModel {
     private func saveArxivPDF(sourceID: String, revision: Int, link: URL, key: UUID, saved: (@MainActor () -> Void)? = nil) {
         guard beginLocalPaperDownload(key) else { return }
         let scope = readerSessionID
+        let fetcher = sourcePDFFetcher
         Task { [weak self] in
-            let fetcher = DevicePDFFetcher()
             do {
                 let pdf = try await fetcher.fetch([link], progress: { _ in })
                 defer { try? FileManager.default.removeItem(at: pdf.file) }

@@ -13,10 +13,47 @@ const math = '<math alttext="x^2" display="inline"><semantics><msup><mi>x</mi><m
 const source = readFileSync(new URL('../fixtures/reader-arxiv/source.html', import.meta.url), 'utf8');
 const raw = new Uint8Array(readFileSync(new URL('../fixtures/reader-mathpix/figure-exif.jpg', import.meta.url)));
 const admitted = admitReaderImage(raw);
+// Authored reduction of DocPilot alg1.m8: an SVG rounded-box label inside an mtext token.
+const badge = '<svg viewBox="0 0 20 10"><g><path d="M 0 2 L 0 8 C 0 9 1 10 2 10 L 18 10 C 19 10 20 9 20 8 L 20 2 C 20 1 19 0 18 0 L 2 0 C 1 0 0 1 0 2 Z"/>'
+ + '<foreignObject><span class="ltx_foreignobject_content"><span>Navigate</span></span></foreignObject></g></svg>';
 function build(text = source) {
  return composeArxivReader({source:utf8(text),sourceID:'2601.01234',revision:2,
   images:new Map([[url+'/figure.jpg',{...admitted,inputSHA256:sha256Hex(raw)}]])});
 }
+
+test('TikZ text badges inside math retain every label without source SVG or CSS',()=>{
+ const labels=['Navigate','Extract','Focus','Solve'];
+ const formula='<math alttext="a in actions"><mrow><mi>a</mi><mo>∈</mo><mo>{</mo>'
+  +labels.map(label=>'<mtext>'+badge.replace('Navigate',label)+'</mtext>').join('<mo>,</mo>')+'<mo>}</mo></mrow></math>';
+ const bundle=build(source.replace(math,formula));
+ const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ for(const label of labels)assert.ok(html.includes(`<mtext>${label}</mtext>`));
+ assert.ok(!/<svg|foreignobject|foreignObject|<path|viewBox/.test(html));
+ assert.equal(checked.index.equations[0].latex,'a in actions');
+});
+
+test('arbitrary vector math is not silently reduced to its text label',()=>{
+ const bad=[badge.replace(/d="[^"]+"/,'d="M 0 0 L 20 0 L 10 10 Z"'),
+  badge.replace('</g>','<path d="M 1 1 L 5 5"/></g>'),
+  badge.replace('</g>','<text>extra meaning</text></g>'),
+  badge.replace('</g>','<script>bad()</script></g>'),
+  badge.replace('Navigate','<img src="https://example.test/x"/>'),
+  badge.replace('Navigate','<script src="https://example.test/x"></script>Navigate'),
+  badge.replace('<svg ','<svg onload="bad()" ')];
+ for(const svg of bad)assert.throws(()=>build(source.replace(math,`<math alttext="unknown"><mtext>${svg}</mtext></math>`)),/arxiv_math_element/);
+});
+
+test('an algorithm with SVG math badges remains a text listing, not an empty image figure',()=>{
+ const listing='<figure id="algorithm"><figcaption>Algorithm 1: Select an action</figcaption><p>Choose '
+  +`<math alttext="action"><mtext>${badge}</mtext></math>`+' then return the answer.</p></figure>';
+ const bundle=build(source.replace('<p id="p1">',listing+'<p id="p1">'));
+ const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);
+ assert.equal(checked.index.figures.length,1,'only the actual image is a figure');
+ const html=new TextDecoder().decode(bundle.members.get('index.html'));
+ assert.match(html,/<mtext>Navigate<\/mtext>/);
+ assert.ok(checked.index.blocks.some(b=>b.text.includes('Algorithm 1')&&b.text.includes('return the answer')));
+});
 
 test('arXiv HTML produces the existing verified reader contract without PDF/OCR identities',()=>{
  const bundle=build(); const checked=validateReaderBundle(bundle.manifestBytes,bundle.members,bundle.manifestSHA256);

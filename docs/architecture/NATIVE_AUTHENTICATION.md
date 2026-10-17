@@ -2,6 +2,20 @@
 
 Status, 2026-10-04: **native implementation, independent source reviews and five Simulator UI journeys pass; real provider acceptance remains unverified.** The customer password form is replaced with native Apple, Google in the system authentication browser, and an email code. The existing account sheet, Settings entry point, reader navigation and private-key recovery remain. The signed Simulator native suite has 211 cases: 208 pass and three expected live/device checks skip, including 36 passing new backend/coordinator/model cases. The unsigned Internal iOS build also passes. This implements the selected policy in [Decisions](../DECISIONS.md) and [Privacy and sync](PRIVACY_AND_SYNC.md#account-sign-in-and-identity-linking). Dedicated account configuration is tracked separately in the [deployment manifest](DEPLOYMENT_MANIFEST.md#native-authentication-readiness--2026-10-04), within the user's existing deployment authorization and budget boundaries.
 
+## Private-beta return after account deletion
+
+2026-10-17 UTC: the owner deleted their account and OAuth then said they were not invited. Hosted evidence shows
+the account closed at 04:48:45 UTC and its Auth user removed. Apple and Google remain enabled, but
+`disable_signup` is true. Beta admission currently pre-creates a confirmed Auth login; it is not a separate durable
+email allowlist. Deleting that login therefore removes the admission that a returning OAuth flow needs.
+
+The recovery is a fresh beta invitation for the owner's exact provider address (including Apple's relay address
+when used), creating a new UUID. Do not infer that address from TestFlight feedback, resurrect the deleted UUID,
+restore old content/keys/credits, or enable public signups. Provider/address confirmation is pending.
+Native and browser copy now explains this before deletion and in the not-invited error. The old error's suggestion
+to use Apple was misleading: signup restrictions apply there too. Browser copy is deployed in Pages `91c7d07f`;
+the native copy is not yet in TestFlight.
+
 ## Current foundation and gaps
 
 [BackendClient](../../apps/apple/ScienceReader/Services/BackendClient.swift) already owns authentication generations, Keychain sessions, Google PKCE and Apple nonces. [OAuthFlow](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OAuthFlow.swift) validates the callback destination, bounds its code and rejects token fragments. Existing [OAuth safety tests](../../apps/apple/ScienceReaderTests/OAuthSafetyTests.swift) cover deterministic exchanges, duplicate callbacks, cancellation before UI delivery and late results after sign-out. These are local protocol tests, not Apple/Google sign-in evidence.

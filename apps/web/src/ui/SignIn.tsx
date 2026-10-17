@@ -5,7 +5,7 @@ import { Brand } from './common';
 
 const issueText: Record<string, string> = {
   invalid_email: 'Enter a valid email address.',
-  no_account: 'There’s no Gradstep account for this address. Gradstep is invite-only during the beta.',
+  no_account: 'This beta is by invitation. Use your invited sign-in address. If you deleted your account, you need a new invitation.',
   rate_limited: 'Too many attempts. Wait a minute, then try again.',
   invalid_code: 'That code didn’t work. Check it, or send a new one.',
   connection: 'Couldn’t reach Gradstep. Check your connection and try again.',

@@ -4,11 +4,13 @@ import { el, elements, isMathToken, MATH_ELEMENTS, mathAttributeIsSafe, normaliz
 import { LIMITS } from '../profile.ts';
 import { boundedText, check } from '../util.ts';
 import { bind, children, type ArxivContext, type Child } from './context.ts';
+import { mathBadgeText } from './math-badge.ts';
 
 /** LaTeXML's presentation MathML in the reader's vocabulary: annotations and links dropped, attributes allow-listed. */
 export function mathNode(n: DomNode): Child[] {
   if (n.type === 'text') return n.data.trim() || isMathToken(n.parent?.name ?? '') ? [n.data] : [];
   if (n.name === 'annotation' || n.name === 'annotation-xml') return [];
+  if (n.name === 'svg') return [mathBadgeText(n)];
   if (n.name === 'a' || n.name === 'span') return children(n).flatMap(mathNode);
   if (n.name === 'semantics') {
     const presentation = children(n).filter(c => c.type === 'tag' && !['annotation', 'annotation-xml'].includes(c.name));

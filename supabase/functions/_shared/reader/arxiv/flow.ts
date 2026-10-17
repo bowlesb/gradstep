@@ -40,8 +40,11 @@ export function flow(cx: ArxivContext, n: DomNode): OutNode[] {
   if (/^h[1-6]$/.test(n.name)) output = [block(cx, n, n.name, 'heading', id => children(n).flatMap(c => inline(cx, c, id)).map(c => typeof c !== 'string' && c.name === 'br' ? ' ' : c))];
   else if (n.name === 'figure') {
     const insideSVG = (c: DomNode) => { for (let a = c.parent; a; a = a.parent) if (a.name === 'svg') return true; return false; };
+    const insideMath = (c: DomNode) => { for (let a = c.parent; a; a = a.parent) if (a.name === 'math') return true; return false; };
     const tables = elements(n, c => c.name === 'table' && !insideSVG(c));
-    const images = elements(n, c => ['img','object','svg'].includes(c.name));
+    // An algorithm can contain MathML text badges drawn with SVG. Those belong to its equations; they must
+    // not turn the entire listing into an image figure with no actual image (DocPilot Algorithm 1).
+    const images = elements(n, c => ['img','object','svg'].includes(c.name) && !insideMath(c));
     const captions = children(n).filter(c => c.name === 'figcaption');
     if (captions.length > 1 && !tables.length && !elements(n, c => c !== n && c.name === 'figure').length) {
       // LaTeXML can put several complete numbered figures in one container.

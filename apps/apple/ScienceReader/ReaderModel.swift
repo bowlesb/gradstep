@@ -199,6 +199,8 @@ final class ReaderModel {
     /// The server library still owns metadata and account membership; these
     /// records are intentionally local-only.
     private(set) var localPaperRecords: [LocalPaperRecord] = []
+    /// Source-PDF transport; integration tests replace its HTTP session, preserving admission and encrypted storage.
+    @ObservationIgnored var sourcePDFFetcher: any DevicePDFFetching = DevicePDFFetcher()
     private(set) var localReaderRecords: [LocalReaderRecord] = []
     @ObservationIgnored private var localReaderTask: Task<Void, Never>?
     private var localReaderOpeningID: UUID?

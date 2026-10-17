@@ -141,13 +141,13 @@ struct LibraryPaperTable<Top: View>: View {
         let items = model.libraryRows.map { LibraryTableItem(entry: $0, facts: model.libraryFacts(for: $0)) }
         let enabled = model.libraryColumns[LibraryColumnSettings.WidthClass.current]
         PaperTable(rows: items, titleColumn: LibraryTableColumn.title, columns: LibraryTableColumn.columns(enabled),
-                   sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], horizontalScroll: true,
+                   sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], horizontalScroll: true, rowAlignment: .center,
                    identifier: "library.table",
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
                        PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry), deviceCopy: item.facts.deviceCopy,
                                        download: item.facts.deviceCopy == .cloud ? item.facts.paper.map { paper in { model.prepareOnDevice(paper) } } : nil,
-                                       isNew: model.isNew(item.facts.paper), reservesSpace: item.facts.paper == nil && (item.facts.status.isActive || item.facts.step != nil || item.facts.importProgress != nil))
+                                       isNew: model.isNew(item.facts.paper), reservesSpace: true)
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
@@ -267,24 +267,21 @@ struct LibraryProgressCell: View {
         if let progress = facts.importProgress {
             // An import under way: "Reading 62%", a slim bar, "40 s left" (pipeline progress, 2026-10-07).
             ImportProgressView(progress: progress, style: .compact, explain: explain)
-                // Its first line sits on the row's first baseline, like the other cells.
-                .alignmentGuide(.firstTextBaseline) { $0[.top] + 13 }
         // Waiting in the queue isn't work yet: no spinner (below, with its time).
         } else if let step = facts.step, step != .queued {
-            VStack(alignment: .leading, spacing: 2) {
-                Label { Text(step.tableTitle) } icon: {
-                    // Centred on the text rather than sitting on its baseline.
-                    ProgressView().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            HStack(alignment: .center, spacing: 6) {
+                ImportActivitySpinner()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(step.tableTitle).lineLimit(1)
+                    if let timing = facts.stepTiming, timing.step == step { StepTimeText(timing: timing) }
                 }
-                .labelStyle(LibraryStatusLabelStyle())
-                .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                if let timing = facts.stepTiming, timing.step == step { StepTimeText(timing: timing) }
             }
+            .font(.footnote).foregroundStyle(.secondary)
         } else {
             switch facts.status {
             case .active(let text):
                 Label { Text(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) } icon: {
-                    ProgressView().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                    ImportActivitySpinner()
                 }
                 .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
             case .problem(let text):
@@ -392,10 +389,10 @@ private struct StepTimeText: View {
     }
 }
 
-/// Icon and text on the first baseline, tightly spaced.
+/// Keep status icons centered beside their text.
 struct LibraryStatusLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) { configuration.icon.accessibilityHidden(true); configuration.title }
+        HStack(alignment: .center, spacing: 6) { configuration.icon.accessibilityHidden(true); configuration.title }
     }
 }
 

@@ -44,6 +44,18 @@ final class ChatControlsTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: focused, object: field)], timeout: 3), .completed, "The message box takes the focus")
     }
 
+    private func dismissAnswerOptions(_ app: XCUIApplication) {
+        let picker = app.segmentedControls["chat.profile.model"]
+        // About expands the sheet. The first pull returns it to its half-height detent; the next dismisses it.
+        for _ in 0..<2 where picker.exists {
+            let grabber = app.buttons["Sheet Grabber"]
+            XCTAssertTrue(grabber.waitForExistence(timeout: 3))
+            grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+            if picker.waitForNonExistence(timeout: 1) { return }
+        }
+    }
+
     private func answerOptions(_ app: XCUIApplication) {
         let menu = app.buttons["Chat options"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10)); menu.tap()
@@ -90,11 +102,18 @@ final class ChatControlsTests: XCTestCase {
             XCTAssertFalse(app.segmentedControls["chat.profile.effort"].exists, "Effort is chosen per question")
             XCTAssertFalse(app.staticTexts["chat.profile.estimate"].exists, "The estimate lives in About AI chat options")
             XCTAssertTrue(app.staticTexts["chat.profile.isDefault"].exists, "A new chat starts with the defaults")
+            XCTAssertTrue(app.staticTexts["chat.profile.isDefault"].label.contains("New chats currently start with"))
+            XCTAssertEqual(app.buttons["chat.profile.makeDefault"].label, "Reset default settings")
+            XCTAssertFalse(app.buttons["chat.profile.makeDefault"].isEnabled)
+            XCTAssertFalse(app.buttons["chat.profile.done"].exists)
             save("\(device())-\(appearance)-answer-options")
             model.buttons["DeepSeek"].tap()
             app.segmentedControls["chat.profile.length"].buttons["Detailed"].tap()
             XCTAssertEqual(app.staticTexts["chat.profile.model.detail"].label, "Low cost; processed by DeepSeek")
-            XCTAssertTrue(app.buttons["chat.profile.makeDefault"].exists, "A chat that differs from the defaults can become them")
+            XCTAssertTrue(app.buttons["chat.profile.makeDefault"].isEnabled, "A chat that differs from the defaults can become them")
+            app.buttons["chat.profile.makeDefault"].tap()
+            XCTAssertFalse(app.buttons["chat.profile.makeDefault"].isEnabled)
+            XCTAssertTrue(app.staticTexts["chat.profile.isDefault"].label.contains("DeepSeek · Detailed"))
             app.buttons["chat.profile.about"].tap()
             XCTAssertTrue(app.navigationBars["About AI chat options"].waitForExistence(timeout: 5))
             let row = app.descendants(matching: .any).matching(identifier: "settings.aiChat.sonnet.standard").firstMatch
@@ -103,7 +122,7 @@ final class ChatControlsTests: XCTestCase {
             XCTAssertTrue(row.label.contains("Usually 4–24 credits · up to 41"), row.label)
             save("\(device())-\(appearance)-about-ai-chat-options")
             app.navigationBars["About AI chat options"].buttons.firstMatch.tap()
-            app.buttons["chat.profile.done"].tap()
+            dismissAnswerOptions(app)
             XCTAssertTrue(model.waitForNonExistence(timeout: 5))
 
             focus(composer)
@@ -165,7 +184,7 @@ final class ChatControlsTests: XCTestCase {
         answerOptions(app)
         XCTAssertTrue(app.buttons["chat.profile.retry"].waitForExistence(timeout: 10))
         save("\(device())-light-controls-unavailable")
-        app.buttons["chat.profile.done"].tap()
+        dismissAnswerOptions(app)
         XCTAssertTrue(app.buttons["chat.profile.retry"].waitForNonExistence(timeout: 5))
         let composer = any("chat.composer", app)
         composer.tap(); composer.typeText("Why scale the attention logits?")

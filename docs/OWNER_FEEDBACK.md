@@ -9,6 +9,31 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight build 65, 2026-10-17: import reliability, chat and account deletion
+
+Feedback images and hosted readbacks are retained privately in `.artifacts/feedback/import-reliability-20261017/`.
+Browser changes are deployed as Pages **91c7d07f**, with entry assets verified. Native changes remain local;
+build 65 does not contain them.
+
+| Report | Established cause / response | Verification or remaining dependency |
+|---|---|---|
+| DocPilot, 2610.21327v1 (`AEC_-Omz-Cm7Y4YRyPxPThQ`) | Algorithm 1 embeds four text badges as SVG inside MathML. The math sanitizer rejects them; after that is fixed, flow classification mistakes the algorithm's SVG badges for figure images. Revision 17 extracts only the narrowly recognized badge text and excludes math descendants from figure classification. Unknown vector math still fails visibly. | Before: `arxiv_math_element`, then `figure_structure`. After: full device compilation and native encrypted install/reopen pass. |
+| More Methods, 2610.19789v1 (`AN2N3cvxIscr9bi_DcpZkrM`) | arXiv serves HTML 404; its PDF is available. | Exact responses replay through native Library → Open PDF → encrypted save → PDFKit render → offline reopen. Automatic PDF opening is proposed, awaiting owner direction. |
+| Library row height/spinner (`AHkxGOXC-_W1r5wZt9HSQ7M`) | A short ready title reserves 64 pt; an adding row reserves 84 pt. The spinner is 14 pt near the row's top. All Library rows now reserve the same title/author space; both initial Adding and subsequent preparation states share the larger indicator. | Actual UIKit red/green geometry: both rows 84 pt, spinner 20 pt at the 42 pt center. Screenshot reviewed. |
+| Answer options (`AHymjh1Amb38m-iP1-czaOQ`, `AGGyBXTh4pfGJ98J6z24kXU`) | Remove the native title/Done row; retain the drag handle and accessibility escape. Say “New chats currently start with …”. “Reset default settings” is visible but disabled until the current choices differ; its existing action saves the current choices for new chats. | Browser affected journeys pass (12); native Settings defaults and final two sheet journeys pass; Mac close journey passes. Light/dark screenshots reviewed. Mac retains an X to close its sheet. |
+| Gradient behind chat (`ANxeYmqyzosdFHDcDwiM1no`) | Remove the accent glow behind empty-chat starters in the apps and browser. Keep their position and the ordinary flat chat background. | Included in the light/dark chat screenshot review. |
+| AI chat broken again (`AN1GwE_5DdVwAA1UdFecQg8`) | At 04:43 UTC the selected Sonnet request and four auxiliary Haiku attempts were refused as `provider_billing`. OpenRouter has $10.205283699 remaining, but Flash is still hidden. | No new paid calls. Activation awaits confirmation that OpenRouter input/output logging and data-use opt-ins are off; the ordinary app default is still Sonnet. |
+| OAuth says not invited after deletion (conversation) | Auth login deletion completed at 04:48:45 UTC. Private-beta signups are disabled and no independent invitation survives Auth deletion. | Exact OAuth provider/address requested for a fresh invitation. No guessed address, old-account resurrection or public signup. Deletion/error copy now explains the restriction. |
+
+The new explicit import acceptance gate covers all six reported papers, real local PDFs, failed/missing sources,
+cancellation, explicit retry, no automatic retry loop, encrypted storage and reopen without network. It uses `-O`
+and whole-module compilation; upload scripts reject absent, skipped, failed or stale evidence. This fixes the earlier
+verification gap without making the routine fast tier call arXiv or providers. Physical-phone access remains paused.
+Final import gate is **7 passed, zero failed/skipped** (`.artifacts/import-acceptance/2026-10-17T05-17-25-813Z.xcresult`).
+Native UI evidence: `chat-controls-iphone.xcresult` (Settings pass; initial dismissal assertion failure),
+`chat-controls-iphone-passed.xcresult` (two passes, including light/dark), and `chat-controls-mac.xcresult` (one pass)
+in the feedback artifact directory. Fast tier: 650 backend / 469 browser passes. No paid AI calls.
+
 ## TestFlight build 64, 2026-10-17: `Code: invalid` — cause reproduced, fixed in build 65
 
 New screenshot `AHX5KiKf7h8mFPm8-E953es` (04:01:46 UTC, build 64) shows VLA-Δ, 2610.21306v1, with

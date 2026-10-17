@@ -5,7 +5,7 @@
 // (the chat function holds and charges).
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { EFFORTS, effortOption, hasAutoEffort, LENGTHS, lengthOption, listedModels, MODEL_STRENGTHS, modelOption, modelProvider, offersModelLength,
-  sameChoice, typicalEstimate, withChoice, type Estimate, type LengthChoice, type ModelChoice, type ProfileChoice, type ProfileTable } from '../lib/chat-profiles';
+  profileSummary, sameChoice, typicalEstimate, withChoice, type Estimate, type LengthChoice, type ModelChoice, type ProfileChoice, type ProfileTable } from '../lib/chat-profiles';
 import { Dialog, InfoTip } from './common';
 import { Icon } from './icons';
 
@@ -69,8 +69,9 @@ export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoic
       <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />
       {!table && <p className="fine">Answer options couldn’t be loaded. Answers use Sonnet · Standard. <RetryOptions onRetry={onRetry} /></p>}
       <div className="answer-options-actions">
-        {sameChoice(choice, defaultChoice) ? <span className="fine" data-testid="default-note">New chats start with these.</span>
-          : <button type="button" className="secondary small" disabled={!table} onClick={() => onMakeDefault(choice)} data-testid="use-for-new-chats">Use for new chats</button>}
+        <span className="fine" data-testid="default-note">New chats currently start with {profileSummary(defaultChoice, table)}.</span>
+        <button type="button" className="secondary small" disabled={!table || sameChoice(choice, defaultChoice)} onClick={() => onMakeDefault(choice)}
+          title="Uses the selected model and length for new chats" data-testid="use-for-new-chats">Reset default settings</button>
         <button type="button" className="link small" onClick={onAbout} data-testid="about-chat-options">About AI chat options</button>
       </div>
     </div>

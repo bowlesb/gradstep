@@ -60,6 +60,30 @@ final phase with migration 058 and later.
 
 ## Corpus setup and boundaries
 
+### Import acceptance before TestFlight (2026-10-17)
+
+`npm run test:imports` is an explicit, unpaid iPhone Simulator gate with `-O` and whole-module compilation.
+It runs the actual Library model, native URLSession response handling, WKWebView compiler, independent bundle
+validation, encrypted installation, and reopen from a fresh store. Only the account backend and HTTP responses
+are fixtures. Unmatched source requests fail offline. Cases cover repeated taps, out-of-order assets and a missing
+image, failed open without sync retry loops, explicit retry, cancellation, and absent HTML followed by PDF
+download/presentation and encrypted offline reopen. A real local PDF goes through the Files import controller,
+becomes a Library item and reopens; a damaged PDF is rejected without creating an item. It also replays all six reported papers in
+`tests/corpus/import-regressions.json`, including DocPilot's algorithm/math badges and More Methods' absent HTML.
+The Library row-height check renders the actual Library view.
+
+Both TestFlight upload scripts require a successful report for the current import code, fixtures and Xcode version,
+before archiving and again before uploading.
+Zero selected tests, skipped cases, missing corpus bytes, a failed run, or source changes during a run all fail the
+gate. Unchanged import code reuses its evidence; unrelated changes do not require this slow suite. Results and
+screenshots live under `.artifacts/import-acceptance/`. This does not certify a physical phone or an untested OS.
+
+The public papers' source responses are cached only on this development device, under `.artifacts/import-corpus/`.
+To populate a missing cache, run `node scripts/fetch-import-regressions.mjs --on-this-device`. Every response has a
+pinned byte count and SHA-256; changed source needs review rather than silently replacing a regression. No server
+acquires or processes PDFs, and no model call is involved. The exact response body of a historical 404 may change;
+retain the recorded cache rather than treating a newly downloaded error page as equivalent evidence.
+
 On the user's local development computer, run **once**:
 
 ```sh

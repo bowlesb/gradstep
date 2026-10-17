@@ -76,23 +76,30 @@ struct ImportProgressView: View {
     }
 
     private func compact(_ shown: ImportProgressPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        Group {
             if let fraction = shown.fraction {
-                ViewThatFits(in: .horizontal) {
-                    Text(shown.percent.map { "\(shown.compactTitle) \($0)%" } ?? shown.compactTitle).monospacedDigit()
-                    Text(shown.compactTitle)
+                VStack(alignment: .leading, spacing: 3) {
+                    ViewThatFits(in: .horizontal) {
+                        Text(shown.percent.map { "\(shown.compactTitle) \($0)%" } ?? shown.compactTitle).monospacedDigit()
+                        Text(shown.compactTitle)
+                    }
+                    .lineLimit(1)
+                    ImportProgressBar(fraction: fraction)
+                    if let time = shown.compactTimeText {
+                        Text(time).font(.caption).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                .lineLimit(1)
-                ImportProgressBar(fraction: fraction)
             } else {
-                HStack(spacing: 4) {
-                    ProgressView().controlSize(.mini)
-                    Text(shown.compactTitle).lineLimit(shown.compactTitleOverride == nil ? 1 : 2)
-                        .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .center, spacing: 6) {
+                    ImportActivitySpinner()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(shown.compactTitle).lineLimit(shown.compactTitleOverride == nil ? 1 : 2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let time = shown.compactTimeText {
+                            Text(time).font(.caption).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
-            }
-            if let time = shown.compactTimeText {
-                Text(time).font(.caption).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.footnote).foregroundStyle(.secondary)
@@ -100,6 +107,11 @@ struct ImportProgressView: View {
         .accessibilityLabel(shown.accessibilityLabel)
         .accessibilityIdentifier("importProgress")
     }
+}
+
+/// Table imports use the regular spinner, centered beside the complete status/timing stack.
+struct ImportActivitySpinner: View {
+    var body: some View { ProgressView().controlSize(.regular).frame(width: 24, height: 24).accessibilityHidden(true) }
 }
 
 /// A slim bar for work under way. Neutral, because it reports rather than invites a tap (DESIGN: accent for

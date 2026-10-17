@@ -1,6 +1,41 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 64 `invalid` reproduced and fixed; all four reported papers pass with release optimization; TestFlight 65 available for iOS and Mac). Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed locally; import acceptance gate added; chat and post-deletion login causes confirmed). TestFlight 65 remains the available build. Earlier checkpoints below are historical.
+
+## Build 65 follow-up — 2026-10-17 UTC (browser deployed; native verified for build 66)
+
+- **DocPilot:** two sequential failures reproduced: unsupported SVG text badges inside MathML, then algorithm
+  misclassification as a figure. Renderer revision 17 handles that finite badge shape as text and excludes math
+  graphics from figure classification. Full device compilation and native encrypted install/reopen succeed.
+- **More Methods:** the exact official HTML revision returns 404; the PDF is available. Native offline replay
+  verifies the existing Open PDF path, device download, encrypted storage, PDFKit rendering and reopen. Automatic
+  PDF opening is a proposed interaction change awaiting the owner.
+- **Import release gate:** seven native acceptance methods include all six reported papers, real local PDFs and
+  damaged input, cancellation, explicit retry, no sync retry loop, repeated taps, out-of-order images, offline
+  reopen and actual row/spinner geometry. Release optimization is mandatory. Both upload scripts reject missing,
+  skipped, failed or stale evidence. Final gate: **7 passed, zero failed/skipped**, release optimization,
+  `.artifacts/import-acceptance/2026-10-17T05-17-25-813Z.xcresult`; upload gate readback matches current source.
+  Both rows measure 84 pt; the spinner is 20 pt and centered. No new archive has been uploaded.
+- **Library/Answer options:** reserve consistent row space, center/enlarge the spinner; remove the native Answer
+  options title/Done row and implement the owner's default wording/button state. Browser affected journeys pass
+  (12, with four desktop-only scenarios intentionally skipped on phone). The empty-chat glow is removed on both
+  clients; four light/dark browser journeys pass after that change. Native Settings defaults passes, followed by
+  the corrected light/dark Answer options and missing-profile-table journeys (2/2); Mac starters/options/Close
+  passes (1/1). The first dismissal assertion missed the sheet's intermediate half-height detent after About;
+  the test now uses the actual grabber and both pulls. Screenshots reviewed. `npm test` passes 650 backend and
+  469 browser cases.
+- **Chat:** at 04:43 UTC Sonnet plus auxiliary Haiku calls were rejected for the Anthropic account balance.
+  OpenRouter still has $10.205283699, but the Flash route remains hidden pending account privacy-switch confirmation.
+  No new paid call was made. Existing successful deployed-Flash evidence is retained; no working-chat claim.
+- **Deleted account:** Auth deletion completed at 04:48:45 UTC; disabled public signup prevents OAuth recreating
+  the login. A fresh beta invitation awaits the exact provider/address. Deletion/error copy now explains that
+  restriction; no old account, content, keys or credits restored.
+
+Evidence: `.artifacts/feedback/import-reliability-20261017/`, `.artifacts/import-acceptance/`;
+[feedback details](OWNER_FEEDBACK.md), [test gate](TESTING.md). No physical-phone access.
+Browser Pages **91c7d07f** is live at https://app.gradstep.ai; all three entry scripts/styles served with their
+expected types after the phased deployment. It includes revision 17, the flat chat background, default-button
+wording/state and re-invitation copy. Flash remains hidden. Native release status will be recorded separately.
 
 ## Build 64 `invalid`: root cause and native fix — 2026-10-17 ~04:25 UTC (Oct 16 PDT)
 

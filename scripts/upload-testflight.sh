@@ -7,6 +7,7 @@
 # and "Gradstep Share App Store" for the Share extension com.sciencereader.ios.share (App Group only).
 set -eu
 cd "$(dirname "$0")/.."
+node scripts/test-imports.mjs gate
 . ./.env.appstore
 KEY="$(pwd)/$ASC_KEY_PATH"
 BUILD="${BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
@@ -19,6 +20,8 @@ AUTH="-authenticationKeyPath $KEY -authenticationKeyID $ASC_KEY_ID -authenticati
 (cd apps/apple && xcodebuild archive -project ScienceReader.xcodeproj -scheme ScienceReader -configuration Internal \
   -destination 'generic/platform=iOS' -archivePath "../../$ARCHIVE" -derivedDataPath ../../.artifacts/dd-archive \
   CURRENT_PROJECT_VERSION="$BUILD" -allowProvisioningUpdates $AUTH) > ".artifacts/archive-$BUILD.log" 2>&1
+# Refuse an upload if import code changed while the archive was being built.
+node scripts/test-imports.mjs gate
 cat > .artifacts/ExportOptions.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

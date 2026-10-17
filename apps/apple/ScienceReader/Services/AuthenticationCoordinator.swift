@@ -23,7 +23,7 @@ final class AuthenticationCoordinator {
         var message: String {
             switch self {
             case .configuration: "This sign-in method isn’t available yet. Try another."
-            case .noAccount: "There’s no account for this email yet. The beta is by invitation: use the email you were invited with, or Sign in with Apple."
+            case .noAccount: "This beta is by invitation. Use your invited sign-in address. If you deleted your account, you need a new invitation."
             case .presentation: "Couldn’t open sign-in. Please try again."
             case .invalidEmail: "Enter a valid email address."
             case .invalidCode: "That code wasn’t accepted. Check it or request a new one."

@@ -1,6 +1,22 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-17 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Import acceptance after build 65 feedback (owner direction, 2026-10-17 UTC)
+
+Adding papers and PDFs must be a release gate, including the actual reported failures. `npm run test:imports`
+exercises the native Library, device downloads, encrypted installation and offline reopen with release optimization.
+It includes pinned responses for all six reported papers, local Files PDFs, missing HTML, cancellation, retry and
+the Library's adding-row geometry. Upload scripts require a successful, unskipped run matching the current import
+source and Xcode version. This is explicit Simulator acceptance, not physical-phone or hosted-account acceptance.
+See [Testing](TESTING.md). Automatically opening a PDF when HTML is absent would change navigation; that proposal
+awaits the owner's response. The existing explicit Open PDF flow remains.
+
+Deleting a private-beta account also removes its pre-created Auth login. With signups disabled, returning through
+OAuth requires a new invitation for the exact provider address. It creates a new account, not a restoration of
+deleted data or credit. The owner reported this on 2026-10-17; deletion and hosted signup settings are verified,
+but re-invitation awaits the owner's provider/address. Do not open public signup to solve it. See
+[authentication](architecture/NATIVE_AUTHENTICATION.md#private-beta-return-after-account-deletion).
 
 ## Gemini Flash selected for chat (owner decision, 2026-10-16; hidden staging verified)
 

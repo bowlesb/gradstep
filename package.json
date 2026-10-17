@@ -6,6 +6,7 @@
   "scripts": {
     "test": "npm run test:fast",
     "test:fast": "node scripts/test-tiers.mjs fast",
+    "test:imports": "node scripts/test-imports.mjs run",
     "test:backend": "node --test tests/backend/*.test.ts",
     "test:slow": "node scripts/test-tiers.mjs slow",
     "test:slow:fetch": "node scripts/fetch-reader-corpus.mjs --on-this-device",

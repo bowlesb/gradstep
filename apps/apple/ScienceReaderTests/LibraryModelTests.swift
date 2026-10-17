@@ -1,11 +1,47 @@
 import CryptoKit
 import Foundation
 import Observation
+import PDFKit
 import ScienceReaderCore
 import SQLite3
 import SwiftUI
 import XCTest
 @testable import ScienceReader
+
+/// Catch every request, including unexpected hosts. No fallback to a live network, provider or paper server.
+private final class ImportAcceptanceProtocol: URLProtocol, @unchecked Sendable {
+    struct Reply: Sendable {
+        var status = 200
+        var type: String
+        var body: Data
+        var delay: TimeInterval = 0
+    }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var replies: [String: Reply] = [:]
+    nonisolated(unsafe) private static var captured: [String] = []
+    static var requests: [String] { lock.withLock { captured } }
+    static func put(_ url: String, _ reply: Reply) { lock.withLock { replies[url] = reply } }
+    static func reset() { lock.withLock { replies = [:]; captured = [] } }
+    static func denyAll() { lock.withLock { replies = [:] } }
+    private let state = NSLock()
+    private var stopped = false
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let reply = Self.lock.withLock { Self.captured.append(request.url!.absoluteString); return Self.replies[request.url!.absoluteString] }
+        guard let reply else { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)); return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + reply.delay) { [self] in
+            state.withLock {
+                guard !stopped else { return }
+                let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil,
+                    headerFields: ["Content-Type": reply.type, "Content-Length": String(reply.body.count)])!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: reply.body); client?.urlProtocolDidFinishLoading(self)
+            }
+        }
+    }
+    override func stopLoading() { state.withLock { stopped = true } }
+}
 
 private final class LibraryModelServer: @unchecked Sendable {
     enum CommandStep { case loseAcknowledgement, hold(XCTestExpectation) }
@@ -28,8 +64,11 @@ private final class LibraryModelServer: @unchecked Sendable {
     private var heldChanges: (StubProtocol, Data)?
     private var privateEvents: [[String: Any]] = []
     private var privateCalls: [String] = []
+    private var endpoints: [String] = []
+    func requestedEndpoints() -> [String] { lock.withLock { endpoints } }
     /// The catalog's topic tags on the item entry (migration 030); none by default (no `tags` key).
     var catalogTags: [String] = []
+    var metadataTitle = "A paper about equation handling"
 
     /// The baseline import failed to download (retryable), with its paper's details known.
     private let pendingFailed: Bool
@@ -84,6 +123,7 @@ private final class LibraryModelServer: @unchecked Sendable {
     func releaseAll() { releaseCommand(); releaseChanges() }
     func handle(_ request: StubProtocol) {
         lock.withLock {
+            endpoints.append(request.request.url!.path)
             switch request.request.url!.lastPathComponent {
             case "v1_reader_capabilities":
                 if var advertised = epoch {
@@ -268,7 +308,7 @@ private final class LibraryModelServer: @unchecked Sendable {
         }
     }
     private var metadata: [String: Any] {
-        ["title": "A paper about equation handling", "authors": ["Ada Researcher"], "abstract": "A bounded test of library transitions.",
+        ["title": metadataTitle, "authors": ["Ada Researcher"], "abstract": "A bounded test of library transitions.",
          "published_at": "2024-04-03", "updated_at": "2024-05-02", "categories": ["cs.LG", "stat.ML"], "venue": NSNull()]
     }
     func item(state: Int = 1, visible: Bool = true, available: Bool = true) -> [String: Any] {
@@ -487,6 +527,260 @@ final class LibraryModelTests: XCTestCase {
             XCTAssertFalse(model.selectedPaper?.readerBundle?.index.blocks.isEmpty ?? true)
         }
         print("Live reported-paper Library flow: \(papers.count) papers in \(Date().timeIntervalSince(started)) seconds")
+    }
+
+    // Offline acceptance: only HTTP replies and account metadata are fixtures. The shipped native downloader,
+    // WebKit compiler, validators, account-owned encrypted stores and ReaderModel state transitions all run.
+    private func importNetwork() throws {
+        ImportAcceptanceProtocol.reset()
+        ArxivHTMLReader.fixtureProtocolClasses = [ImportAcceptanceProtocol.self]
+        let suite = "import-acceptance-\(UUID().uuidString)"
+        ArxivHTMLReader.refusalSuite = suite
+        addTeardownBlock { @MainActor in
+            ArxivHTMLReader.fixtureProtocolClasses = nil; ArxivHTMLReader.refusalSuite = nil
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+            ImportAcceptanceProtocol.reset()
+        }
+    }
+    private var importRoot: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+    }
+    private func importReplies(htmlStatus: Int = 200, delay: TimeInterval = 0) throws {
+        let html = try Data(contentsOf: importRoot.appendingPathComponent("tests/fixtures/reader-arxiv/import-acceptance.html"))
+        let png = try Data(contentsOf: importRoot.appendingPathComponent("tests/fixtures/reader/assets/attention.png"))
+        ImportAcceptanceProtocol.put("https://arxiv.org/html/2601.01234v2", .init(status: htmlStatus, type: "text/html", body: html, delay: delay))
+        for i in 0..<10 {
+            ImportAcceptanceProtocol.put("https://arxiv.org/html/2601.01234v2/asset-\(i).png",
+                .init(status: i == 5 ? 404 : 200, type: "image/png", body: png, delay: i % 4 == 0 ? 0.04 : 0))
+        }
+    }
+    private func importPaper(_ server: LibraryModelServer, model: ReaderModel, sourceID: String = "2601.01234", revision: Int = 2) async throws -> Paper {
+        await model.start()
+        var row = server.pending(state: 3, sourceOnly: true)
+        row["id"] = UUID().wire; row["created_seq"] = 3
+        row["metadata_id"] = UUID().wire; row["version_id"] = UUID().wire
+        row["source_id"] = sourceID; row["source_revision"] = revision
+        row["source_url"] = "https://arxiv.org/abs/\(sourceID)v\(revision)"
+        server.deliver(server.changes([row], through: 3))
+        await model.refreshLibrary()
+        return try XCTUnwrap(model.papers.first { $0.sourceID == sourceID })
+    }
+    private func importSettled(_ model: ReaderModel, paper: Paper) async throws {
+        let observation = LibraryModelObservation("Native import reaches a terminal state") { !model.isPreparingOnDevice(paper) }
+        observation.observe(); await fulfillment(of: [observation.ready], timeout: 60); observation.stop()
+        XCTAssertFalse(model.isPreparingOnDevice(paper))
+    }
+    private func importOpened(_ model: ReaderModel) async throws {
+        let observation = LibraryModelObservation("Native reader opens the verified bundle") {
+            model.selectedPaper?.readerBundle != nil || model.readerOpenIssue != nil
+        }
+        observation.observe(); await fulfillment(of: [observation.ready], timeout: 60); observation.stop()
+        XCTAssertNil(model.readerOpenIssue)
+        XCTAssertNotNil(model.selectedPaper?.readerBundle)
+    }
+
+    func testOfflineImportDownloadsValidatesEncryptsAndReopensWithNoNetwork() async throws {
+        try importNetwork(); try importReplies()
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        let paper = try await importPaper(server, model: model)
+        model.prepareOnDevice(paper); model.prepareOnDevice(paper) // A repeated tap is one operation.
+        try await importSettled(model, paper: paper)
+        XCTAssertNil(model.devicePreparationIssues[paper.id]); XCTAssertEqual(model.deviceCopy(for: paper), .reader)
+        let requested = ImportAcceptanceProtocol.requests
+        XCTAssertEqual(requested.count, 11); XCTAssertEqual(Set(requested).count, 11)
+        ImportAcceptanceProtocol.denyAll()
+        model.select(paper); try await importOpened(model)
+        let bundle = try XCTUnwrap(model.selectedPaper?.readerBundle)
+        XCTAssertEqual(bundle.index.figures.count, 9)
+        XCTAssertEqual(bundle.index.equations.count, 1)
+        // A new store instance must recover the same verified bundle from encrypted bytes, not compiler memory.
+        let reopened = try fixture.freshReaderStore()
+        let records = await reopened.records(); XCTAssertEqual(records.count, 1)
+        let recovered = try await reopened.read(try XCTUnwrap(records.first).identity)
+        XCTAssertEqual(recovered.manifestSHA256, bundle.manifestSHA256)
+        XCTAssertEqual(ImportAcceptanceProtocol.requests, requested, "reopening must work with all source requests denied")
+        XCTAssertFalse(server.requestedEndpoints().contains { $0.contains("upload") || $0.contains("paper-assets") })
+    }
+
+    func testOfflineImportFailureDoesNotLoopAndExplicitRetrySucceeds() async throws {
+        try importNetwork(); try importReplies(htmlStatus: 500)
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        let paper = try await importPaper(server, model: model)
+        model.select(paper)
+        try await observe("failed source open is visible") { model.readerOpenIssue != nil }
+        XCTAssertEqual(model.readerOpenCode, "retrieval"); XCTAssertEqual(model.deviceCopy(for: paper), .cloud)
+        let failed = ImportAcceptanceProtocol.requests
+        await model.refreshLibrary(); await model.refreshLibrary()
+        XCTAssertEqual(ImportAcceptanceProtocol.requests, failed, "sync cannot retry a failed selected paper")
+        try importReplies()
+        model.prepareOnDevice(paper); try await importSettled(model, paper: paper)
+        XCTAssertNil(model.devicePreparationIssues[paper.id]); XCTAssertEqual(model.deviceCopy(for: paper), .reader)
+        model.select(paper); try await importOpened(model)
+    }
+
+    func testOfflineImportCancellationDoesNotPublishAndCanBeRetried() async throws {
+        try importNetwork(); try importReplies(delay: 1)
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        let paper = try await importPaper(server, model: model)
+        model.prepareOnDevice(paper)
+        try await renderReady("HTML request started") { !ImportAcceptanceProtocol.requests.isEmpty }
+        model.cancelDevicePreparation(paper); try await importSettled(model, paper: paper)
+        XCTAssertEqual(model.deviceCopy(for: paper), .cloud)
+        let cancelledRecords = await (try fixture.freshReaderStore()).records()
+        XCTAssertTrue(cancelledRecords.isEmpty)
+        try importReplies()
+        model.prepareOnDevice(paper); try await importSettled(model, paper: paper)
+        XCTAssertNil(model.devicePreparationIssues[paper.id]); XCTAssertEqual(model.deviceCopy(for: paper), .reader)
+    }
+
+    func testOfflineImportAbsentHTMLDownloadsAndReopensPDFWithoutUpload() async throws {
+        try importNetwork(); try importReplies(htmlStatus: 404)
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        let paper = try await importPaper(server, model: model)
+        let pdf = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage(); ("Offline PDF acceptance" as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: nil)
+        }
+        ImportAcceptanceProtocol.put("https://arxiv.org/pdf/2601.01234v2", .init(type: "application/pdf", body: pdf))
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ImportAcceptanceProtocol.self]
+        model.sourcePDFFetcher = DevicePDFFetcher(resolve: { _ in ["93.184.216.34"] }, configuration: configuration)
+        model.select(paper)
+        try await observe("Absent HTML offers the device PDF") { model.readerOpenIssue != nil }
+        XCTAssertEqual(model.readerOpenCode, "no_html")
+        model.openPDF(paper); model.openPDF(paper)
+        try await observe("PDF is downloaded, encrypted and presented") { model.localPaperPresentation != nil || model.error != nil }
+        XCTAssertNil(model.error); XCTAssertEqual(model.localPaperPresentation?.data, pdf)
+        let records = await model.loadLocalPaperRecords(); XCTAssertEqual(records.count, 1)
+        let reopened = try fixture.freshPaperStore()
+        let recovered = try await reopened.read(try XCTUnwrap(records.first).identity)
+        XCTAssertEqual(recovered, pdf)
+        let requests = ImportAcceptanceProtocol.requests
+        XCTAssertEqual(requests.filter { $0.contains("/pdf/") }.count, 1)
+        ImportAcceptanceProtocol.denyAll(); model.localPaperPresentation = nil
+        model.openPDF(paper)
+        try await observe("PDF reopens offline") { model.localPaperPresentation != nil }
+        XCTAssertEqual(model.localPaperPresentation?.data, pdf)
+        XCTAssertEqual(ImportAcceptanceProtocol.requests, requests)
+        XCTAssertFalse(server.requestedEndpoints().contains { $0.contains("upload") || $0.contains("paper-assets") })
+    }
+
+    func testOfflineReportedPaperRegressionsThroughNativeLibrary() async throws {
+        struct Response: Decodable { let url: String; let status: Int; let type: String; let sha256: String; let bytes: Int }
+        struct Case: Decodable { let source_id: String; let revision: Int; let kind: String; let responses: [Response] }
+        struct Corpus: Decodable { let cases: [Case] }
+        let corpus = try JSONDecoder().decode(Corpus.self, from: Data(contentsOf: importRoot.appendingPathComponent("tests/corpus/import-regressions.json")))
+        XCTAssertEqual(corpus.cases.count, 6, "every reported regression is required, never skipped for a missing cache")
+        try importNetwork()
+        for entry in corpus.cases {
+            ImportAcceptanceProtocol.reset()
+            var pdf: Data?
+            for input in entry.responses {
+                let bytes = try Data(contentsOf: importRoot.appendingPathComponent(".artifacts/import-corpus/\(input.sha256)"))
+                XCTAssertEqual(bytes.count, input.bytes)
+                XCTAssertEqual(SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), input.sha256)
+                ImportAcceptanceProtocol.put(input.url, .init(status: input.status, type: input.type, body: bytes))
+                if input.type == "application/pdf" { pdf = bytes }
+            }
+            let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+            let paper = try await importPaper(server, model: model, sourceID: entry.source_id, revision: entry.revision)
+            if entry.kind == "reader" {
+                model.prepareOnDevice(paper); try await importSettled(model, paper: paper)
+                XCTAssertNil(model.devicePreparationIssues[paper.id], entry.source_id)
+                XCTAssertEqual(model.deviceCopy(for: paper), .reader, entry.source_id)
+                ImportAcceptanceProtocol.denyAll(); let requests = ImportAcceptanceProtocol.requests
+                model.select(paper); try await importOpened(model)
+                let bundle = try XCTUnwrap(model.selectedPaper?.readerBundle)
+                XCTAssertGreaterThan(bundle.index.equations.count, 0, entry.source_id)
+                XCTAssertGreaterThan(bundle.index.figures.count, 0, entry.source_id)
+                let fresh = try fixture.freshReaderStore(), records = await fresh.records()
+                let reopened = try await fresh.read(try XCTUnwrap(records.first).identity)
+                XCTAssertEqual(reopened.manifestSHA256, bundle.manifestSHA256)
+                XCTAssertEqual(ImportAcceptanceProtocol.requests, requests)
+            } else {
+                let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ImportAcceptanceProtocol.self]
+                model.sourcePDFFetcher = DevicePDFFetcher(resolve: { _ in ["93.184.216.34"] }, configuration: configuration)
+                model.select(paper)
+                try await observe("Real absent-HTML paper offers PDF") { model.readerOpenIssue != nil }
+                XCTAssertEqual(model.readerOpenCode, "no_html")
+                model.openPDF(paper)
+                try await observe("Real PDF opens locally") { model.localPaperPresentation != nil || model.error != nil }
+                XCTAssertNil(model.error)
+                let bytes = try XCTUnwrap(model.localPaperPresentation?.data)
+                XCTAssertEqual(bytes, pdf)
+                let document = try XCTUnwrap(PDFDocument(data: bytes)), page = try XCTUnwrap(document.page(at: 0))
+                XCTAssertGreaterThan(document.pageCount, 0)
+                XCTAssertNotNil(page.thumbnail(of: CGSize(width: 320, height: 480), for: .mediaBox).pngData())
+                ImportAcceptanceProtocol.denyAll(); let requests = ImportAcceptanceProtocol.requests
+                model.localPaperPresentation = nil; model.openPDF(paper)
+                try await observe("Real PDF reopens offline") { model.localPaperPresentation != nil }
+                XCTAssertEqual(ImportAcceptanceProtocol.requests, requests)
+            }
+            XCTAssertFalse(server.requestedEndpoints().contains { $0.contains("upload") || $0.contains("paper-assets") })
+            print("Offline native import accepted: \(entry.source_id)v\(entry.revision) (\(entry.kind))")
+            await fixture.close()
+        }
+    }
+
+    func testLocalPDFFileAddsARealLibraryItemAndRejectsDamagedInput() async throws {
+        try importNetwork()
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        await model.start()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("import-file-\(UUID().wire)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pdf = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 320, height: 480)).pdfData { context in
+            context.beginPage(); ("A PDF chosen from Files" as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: nil)
+        }
+        let file = directory.appendingPathComponent("local-paper.pdf"); try pdf.write(to: file)
+        _ = try await model.uploads.add(file: file, target: .newPaper)
+        let paper = try XCTUnwrap(model.papers.first(where: \.isLocalPDF))
+        XCTAssertEqual(model.papers.filter(\.isLocalPDF).count, 1)
+        model.openPDF(paper)
+        try await observe("Chosen PDF opens from the actual Library membership") { model.localPaperPresentation != nil }
+        XCTAssertEqual(model.localPaperPresentation?.data, pdf)
+        let fresh = try fixture.freshPaperStore(), records = await fresh.records()
+        XCTAssertEqual(records.count, 1)
+        let recovered = try await fresh.read(try XCTUnwrap(records.first).identity)
+        XCTAssertEqual(recovered, pdf)
+        let damaged = directory.appendingPathComponent("broken.pdf"); try Data("%PDF-1.7\ntruncated".utf8).write(to: damaged)
+        do { _ = try await model.uploads.add(file: damaged, target: .newPaper); XCTFail("damaged input must not publish a membership") }
+        catch { XCTAssertEqual(error as? PDFFileProblem, .unreadable) }
+        XCTAssertEqual(model.papers.filter(\.isLocalPDF).count, 1)
+        XCTAssertEqual(ImportAcceptanceProtocol.requests.count, 0)
+        XCTAssertFalse(server.requestedEndpoints().contains { $0.contains("upload") || $0.contains("paper-assets") })
+    }
+
+    func testImportTableRowsReserveTheSameHeightBeforeMetadataAndWhileAdding() async throws {
+        let server = LibraryModelServer(activated: true)
+        server.metadataTitle = "Short title"
+        let fixture = try fixture(server), model = fixture.model
+        await model.start(); model.libraryLayout = .table
+        let window = try window(for: model)
+        func rowCells(_ view: UIView) -> [UICollectionViewCell] {
+            if let list = view as? UICollectionView { return list.visibleCells }
+            return view.subviews.flatMap(rowCells)
+        }
+        try await capture(window, name: "Library row heights while adding")
+        // This fixture has exactly two papers. Their 44-point tap areas plus vertical insets are taller than
+        // the filter-chip cell; SwiftUI's private section numbering differs across OS versions.
+        XCTAssertEqual(model.libraryRows.count, 2)
+        let cells = Array(rowCells(window).sorted { $0.bounds.height > $1.bounds.height }.prefix(2))
+        XCTAssertGreaterThanOrEqual(cells.count, 2)
+        let heights = cells.map { $0.bounds.height }
+        print("Library ready/adding row heights: \(heights)")
+        XCTAssertLessThanOrEqual((heights.max() ?? 0) - (heights.min() ?? 0), 1, "adding must not change the reserved title/author row height")
+        func spinners(_ view: UIView) -> [UIActivityIndicatorView] {
+            if let spinner = view as? UIActivityIndicatorView { return [spinner] }
+            return view.subviews.flatMap(spinners)
+        }
+        let spinning = cells.flatMap { cell in spinners(cell).map { (cell, $0) } }
+        XCTAssertFalse(spinning.isEmpty, "the Adding row must actually render a spinner")
+        for (cell, spinner) in spinning {
+            let frame = spinner.convert(spinner.bounds, to: cell)
+            print("Adding spinner height \(frame.height), centre \(frame.midY), row centre \(cell.bounds.midY)")
+            XCTAssertGreaterThanOrEqual(frame.height, 18)
+            XCTAssertEqual(frame.midY, cell.bounds.midY, accuracy: 3, "centre the spinner in the whole row")
+        }
     }
 
     private func capture(_ window: UIWindow, name: String) async throws {
@@ -1015,6 +1309,14 @@ final class LibraryModelTests: XCTestCase {
             let step = sqlite3_step(statement)
             guard step == SQLITE_ROW else { throw FixtureError.sqlite(step) }
             return Int(sqlite3_column_int(statement, 0))
+        }
+        func freshReaderStore() throws -> DeviceReaderStore {
+            try DeviceReaderStore(directory: root.appendingPathComponent(account.wire).appendingPathComponent("device-readers"),
+                                 accountID: account, localKey: XCTUnwrap(server.device).localStoreKey)
+        }
+        func freshPaperStore() throws -> DevicePaperStore {
+            try DevicePaperStore(directory: root.appendingPathComponent(account.wire).appendingPathComponent("device-papers"),
+                                accountID: account, localKey: XCTUnwrap(server.device).localStoreKey)
         }
         private func retireModel() async {
             if let model = ownedModel {

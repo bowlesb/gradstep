@@ -34,9 +34,7 @@ struct ChatTranscript: View {
                 .id(scope)
             if messages.isEmpty {
                 if showsStarters {
-                    // Gemini's empty chat (owner, build 57): a soft glow rising behind the lower part, the starters
-                    // just above the message box.
-                    StarterGlow().allowsHitTesting(false).accessibilityHidden(true)
+                    // Keep the starters above the message box, on the ordinary flat chat background (build 65 feedback).
                     ChatStarterList(starters: starters) { model.useFollowUp($0) }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, insets.bottom + 4)
@@ -123,20 +121,6 @@ private struct ChatStarterList: View {
         case "compare": "arrow.left.arrow.right"
         case "map": "map"
         default: "sparkle"
-        }
-    }
-}
-
-/// The soft accent glow behind the lower part of an empty chat (Gemini's), stronger in the dark.
-private struct StarterGlow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var body: some View {
-        if !reduceTransparency {
-            // An ellipse centred on the bottom edge, fading out about half way up.
-            EllipticalGradient(colors: [Color.accentColor.opacity(colorScheme == .dark ? 0.28 : 0.12), Color.accentColor.opacity(0)],
-                               center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.62)
-                .ignoresSafeArea()
         }
     }
 }

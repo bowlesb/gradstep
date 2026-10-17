@@ -279,9 +279,10 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// Every chosen column shows, scrolling sideways when they don't fit (`TableArrangement`); otherwise only those
     /// that fit show.
     var horizontalScroll = false
+    var rowAlignment: VerticalAlignment = .firstTextBaseline
 
     init(rows: [Row], titleColumn: PaperTableColumn<Key>, columns: [PaperTableColumn<Key>], sort: Binding<PaperTableSort<Key>>,
-         extraSortTitles: [Key: String] = [:], horizontalScroll: Bool = false,
+         extraSortTitles: [Key: String] = [:], horizontalScroll: Bool = false, rowAlignment: VerticalAlignment = .firstTextBaseline,
          identifier: String, pinnedHeader: Bool = true, rowIdentifier: @escaping (Row) -> String,
          title: @escaping (Row) -> PaperTableTitle, @ViewBuilder cell: @escaping (Row, String) -> Cell,
          cellIsControl: @escaping (Row, String) -> Bool = { _, _ in false },
@@ -290,6 +291,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
          @ViewBuilder detail: @escaping (Row, Set<String>) -> Detail, @ViewBuilder top: @escaping () -> Top) {
         self.rows = rows; self.titleColumn = titleColumn; self.columns = columns; self._sort = sort
         self.extraSortTitles = extraSortTitles; self.horizontalScroll = horizontalScroll
+        self.rowAlignment = rowAlignment
         self.identifier = identifier; self.pinnedHeader = pinnedHeader; self.rowIdentifier = rowIdentifier
         self.title = title; self.cell = cell; self.cellIsControl = cellIsControl; self.spoken = spoken
         self.primaryAction = primaryAction
@@ -493,9 +495,9 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
         let firstControl = visible.firstIndex { $0.isControl || cellIsControl(row, $0.id) } ?? visible.endIndex
         let values = Array(visible[..<firstControl])
         let controls = Array(visible[firstControl...])
-        return HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+        return HStack(alignment: rowAlignment, spacing: PaperTableLayout.spacing) {
             tappable(row) {
-                HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+                HStack(alignment: rowAlignment, spacing: PaperTableLayout.spacing) {
                     PaperTableTitleCell(title: title(row)).frame(maxWidth: .infinity, alignment: .leading)
                     ForEach(values) { column in
                         cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
@@ -512,12 +514,12 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// A row while the columns scroll: the title (the row's element for VoiceOver), the scrolling columns (values tap
     /// like the row; a control such as Retry is its own element), then the pinned columns.
     private func scrollingRow(_ row: Row, _ arrangement: TableArrangement) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+        HStack(alignment: rowAlignment, spacing: PaperTableLayout.spacing) {
             tappable(row) {
                 PaperTableTitleCell(title: title(row)).frame(width: arrangement.titleWidth ?? 0, alignment: .leading).contentShape(Rectangle())
             }
             TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
-                HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+                HStack(alignment: rowAlignment, spacing: PaperTableLayout.spacing) {
                     ForEach(columns(arrangement.columns)) { column in
                         scrollingCell(row, column, width: arrangement.columnWidth(column.width * scale))
                     }

@@ -12,6 +12,7 @@
 # Without them the script still archives (proving the build signs), then stops and says what is missing.
 set -eu
 cd "$(dirname "$0")/.."
+node scripts/test-imports.mjs gate
 . ./.env.appstore
 KEY="$(pwd)/$ASC_KEY_PATH"
 BUILD="${BUILD_NUMBER:?set BUILD_NUMBER (it must be higher than every earlier upload, iOS or Mac)}"
@@ -28,6 +29,7 @@ mkdir -p .artifacts
   -derivedDataPath ../../.artifacts/dd-archive-mac CURRENT_PROJECT_VERSION="$BUILD" -allowProvisioningUpdates $AUTH) \
   > ".artifacts/archive-mac-$BUILD.log" 2>&1
 echo "Archived $ARCHIVE"
+node scripts/test-imports.mjs gate
 
 missing=""
 security find-identity -v | grep -q "3rd Party Mac Developer Installer" ||

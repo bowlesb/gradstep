@@ -1,0 +1,615 @@
+{
+  "format": 1,
+  "captured_at": "2026-10-17T04:57:51.344Z",
+  "cases": [
+    {
+      "source_id": "2610.21306",
+      "revision": 1,
+      "kind": "reader",
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.21306v1",
+          "status": 200,
+          "type": "text/html",
+          "sha256": "6b51d9e970789c8f82284389f14121b58270f755c343b75026367a4b7c806419",
+          "bytes": 450511
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/1-introduction.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "d52be626666c20995621b5d5c65f1b7496004f923304a866138459b601c56561",
+          "bytes": 425039
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/2-method.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "e52d446493be24ff9cc0cc0e8495a4df8a00e557710362b1a6131628ec8dd9e9",
+          "bytes": 299822
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/3-Slot.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "a0a3bcf2f97b605e1992d07d9f81d19c4e010125dece50d28e8d2b7ed9717242",
+          "bytes": 767693
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/4-Libero-Plus.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "8927930443e3a8d3dbaf6e9366167c503206edad152cf31a585bb910f10e71da",
+          "bytes": 49034
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/5-Real-Robot_Evaluation.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "8793bdb543e0e1c9ba88e47efc499e94f18577e9cbfc569d7786eea32b5a6592",
+          "bytes": 1207706
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/6-tsne.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "474f168cb0f9e3f02b16c8c625f5962b0ed1186b1c531a81b710fdf4d9187b46",
+          "bytes": 105112
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/7-Heat-map.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "961a5a2d9ff9fd39dff16d536036dc0b54845e007720cf264ad053d4d12e0cdc",
+          "bytes": 137493
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/Slot-1.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "ff5e1d82e1f645edf2f99426ae8f649962812422ecc3752d2efe9b55abf05471",
+          "bytes": 857101
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/Slot-2.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "e8795f8655f6fc11728866e0238a769349c488fa6840a94c5fb5cc485c2719cc",
+          "bytes": 737189
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21306v1/dataset.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "84e78e8c1f6a86824a371b7b80644b96bc00cec0bc0eebed19b2876eb8e64469",
+          "bytes": 558214
+        }
+      ]
+    },
+    {
+      "source_id": "2610.21214",
+      "revision": 1,
+      "kind": "reader",
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.21214v1",
+          "status": 200,
+          "type": "text/html",
+          "sha256": "16396417fb66fc5e655b8c5a539d90b2ec455671ce23d691d273589aca03621a",
+          "bytes": 630775
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/RM-Bench.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "4ebd8fcda7ec23b3c78e3fc8bce2ce92a699a031d5b4435331121c8ebeb5d3e2",
+          "bytes": 56411
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/ResearchQA.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "3eb30886a288af8235c78ab3909ef5b9aa9ed71e790237f2b1d988d47aad3ef8",
+          "bytes": 56432
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/RewardBench.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "a3760ec639bac4bcb482c4139537d98d65b547918bdc57cca9cc2d3e24997aa6",
+          "bytes": 56329
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/RewardBench2.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "c1857a6a461b15ba4404489991c37bea7ab3812e10708bcfc15b023561f5cb1b",
+          "bytes": 57065
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/RubricBench.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "590d5d7670a9f9739638d74ef5170a17228cc033093e41307fdb6c5632c9facd",
+          "bytes": 55515
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/case_study.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "032cf2988eee5508082c7e5238f7eae941406b6b613ec1b3e30a22fbcdc88eaa",
+          "bytes": 92257
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/x1.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "8b52c2c65f5b9c1ac00d81019d5dc1896775a72a8a1878886999c58db5312d0b",
+          "bytes": 59042
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/x2.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "5791ffa3296be4b5a55eb388de6de844ea94d1008dd331f9e0a6f686da2c9def",
+          "bytes": 57181
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/x3.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "534642c3e4d44b8e6347afa8aedb54150dedc60e28cccef67b484819ed5834cb",
+          "bytes": 54871
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/x4.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "54fb169403dec62c3abebcd88d1a26fc02bd0d64e0b0c748cad37249fd4a3514",
+          "bytes": 59005
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21214v1/x5.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "d45bef4c3bfbc2ad50beea4ccfd7a822c23e54bb8e2c664c2d3802c06eb49695",
+          "bytes": 58246
+        }
+      ]
+    },
+    {
+      "source_id": "2610.21433",
+      "revision": 1,
+      "kind": "reader",
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.21433v1",
+          "status": 200,
+          "type": "text/html",
+          "sha256": "eb4c507a6c0e94c9bb35540b7936f581852e8a5b88978304b1b686d84bb06a49",
+          "bytes": 715888
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/Practical_limit.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "b3f49f8a5ea5c152455dd83fca55ae0c8fb7522463d32eb9d3e2fdab4b12ff3a",
+          "bytes": 47323
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba1-11.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "226d284d8f4e5813861b95358e7559e41e66403d0a52860f145ec29e12c16444",
+          "bytes": 400910
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba1-28.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "c8cfbc8221a65dfacabf95730ac4fc5a1bc100ab97944fe89c07e9347ece27c0",
+          "bytes": 436618
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba1-56.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "7f006dd0d814b3039e1396ade68f0fcb454640a8f20e16ea31a88898c7dd34ca",
+          "bytes": 420425
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba1-6.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "3fda1fd1cf3f8b76dbbfbc896b8e7d434c3948b90293b2d68a3234c2825bb998",
+          "bytes": 390304
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba2-10.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "0cd42b0e318520329717045c0b4703d5cd69eda43eda0e595937fb2c2a21801a",
+          "bytes": 420438
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba2-100.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "4f8aabae615c482860333b38555838beef79c867a7d412197a8ce3915221fe75",
+          "bytes": 436545
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba2-20.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "0bf67eeae68f417707631ade173b35f5f381c3edca181985c577f5aa4abc6fcb",
+          "bytes": 399932
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/celeba2-50.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "b125e5818f8629fbb22026b9bf00785e09ec6a5fe27dde4137c9d3a469bb2400",
+          "bytes": 425520
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar1-11.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "e81f6505c06ce2e25df32b8e8ff6eb42ce1a34d8b2b5e6cdf914a8d6a22ad31e",
+          "bytes": 327764
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar1-27.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "b590e7103af0e56845d389fed292af98002d0503577bf9dc2a6a91c116e3510e",
+          "bytes": 341892
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar1-5.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "b69e785d0816bbe4f31874a8b8c290e0a74b7e91e7461fc2a1fa53a48d06e3ad",
+          "bytes": 302197
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar1-54.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "4f308cf05612d2e36e78b8c123a3c59c1dacd73b3cb0e39a27884b5b14f99c57",
+          "bytes": 394947
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar2-10.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "a621ed7ff9d1430f6c96d12d349b8540376427749f21cd86a4b9345b157ce827",
+          "bytes": 329409
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar2-100.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "70070cc91a6705c790c42d469defd3456e8c53a0e5bb93b4977297848bdf36fa",
+          "bytes": 379920
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar2-20.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "d46a216a5c11c616a90cc46c0d73d830206b258e9ee3fe0130a5a1128caa1595",
+          "bytes": 345861
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/cifar2-50.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "07dda7fe21f4664b9b24d41aeb0752ea622a411dc368ffa3d7bb1fe5de7168b7",
+          "bytes": 359212
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/conceptimage.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "abf71e1247529d988072ccee70194e078597bb0cd086b9c14e083d0db37a4779",
+          "bytes": 183255
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_celeba_ddim_10.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "7d244304600741e0ee00079ce013e72eb5463dc6094a2495d86a5db3c54406e3",
+          "bytes": 123816
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_celeba_ddim_100.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "d8040986d057cf8ad495d18f6769c79e76ff95397f7910f877b8ca7aef1a3533",
+          "bytes": 130232
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_celeba_ddim_20.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "d5de12db67911f9b5fb692f4d097f8bbea603f6263bd0075ae1c73f64e14ae22",
+          "bytes": 127763
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_celeba_ddim_50.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "baa40d1be7f03ec5cbdb0ea57aff94d734d3ce47e11fcd8f7b68876ad3ad9d8c",
+          "bytes": 123554
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_cifar_ddim_10.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "87f7aeb2892f9f934397e0d224dfa35f72717773719eeca70ce2be0f2d603201",
+          "bytes": 32915
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_cifar_ddim_100.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "885358bf4853ed7a9d3f95a81428ddc754d967efa0f75fc910040cec3c2dd433",
+          "bytes": 32664
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_cifar_ddim_20.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "92e5ce4cd1f318dfd7c8f9d69f257a5aaec39e529871d02f36f65ce347a63e1d",
+          "bytes": 32999
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/hybrid_cifar_ddim_50.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "1c15a7963202d417a5426d0166edec3dc33adaa7fc0fa9857bc44fb9856fd9bd",
+          "bytes": 32780
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/interpolation.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "c3dc5a082bd2abd7735056c88f3468ab1a2d0ba32d5c34649eb9a8f7a7df4efb",
+          "bytes": 982431
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/justification.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "9617a7375cecb5c928c11b29789c25bbd2757a9e74dd1ee41dbc574ccdc36461",
+          "bytes": 278685
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/ldm_ae1.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "976a501fcddbf6d9dbb0f74d3b740b0f93eac96a2d3078d0f51a74da6cdf4b2e",
+          "bytes": 446110
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/ldm_ae2.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "f5eea1c20c4c1e175950125755c6a5225f2c31998851030e9f23764852778a00",
+          "bytes": 430386
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/ldm_ae4.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "b82b37d00f00aeca94bd160fe1b65b121e97540c6eb2a6fe63b4b0a46f6d5dc6",
+          "bytes": 418747
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/ldm_fbunet2.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "8a5d304a65c28852611714403bb91923bbaf004c18147e7256692ff6013ad680",
+          "bytes": 440802
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/ldm_fbunet4.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "393c0bcfdd94f039efbd02b0840d1ad6fb2d615f660e416207ab0717b8a58709",
+          "bytes": 5587971
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/lipschitz_constants.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "33ea60b3df7e63f2035aabd4871b12c3dee7ef2ed4f6c385572135d901cc0732",
+          "bytes": 200430
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/total_analysis.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "9f133e2090e078b2351f1841f312f721b0e65292a4d66c1555304663edb09b2a",
+          "bytes": 381784
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21433v1/tsne.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "76ffa3528eb599ddc6da8e7b4d43c04e9a42b518fea54ad03149fcb9e1bc3cae",
+          "bytes": 539705
+        }
+      ]
+    },
+    {
+      "source_id": "2610.21887",
+      "revision": 1,
+      "kind": "reader",
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.21887v1",
+          "status": 200,
+          "type": "text/html",
+          "sha256": "ada3b974cc7065573f621a4afe71cb33579a694d267412900273849d0c8930fb",
+          "bytes": 757811
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21887v1/arch.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "1b83cfca8083d11bd64ddf241539a67d8616f97e6310473d8d72559df6c91596",
+          "bytes": 290866
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21887v1/main_comparison_dual_axis.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "dd91feee38caf02599709651534b96f9e05f842f8b1ce56da9c9f738368e5e1b",
+          "bytes": 285392
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21887v1/polyglot_comparison_metashare.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "e5972675c9a5640e5493f32dbb7f7e16c6ebf748306f7024dea510994144ba3f",
+          "bytes": 203349
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21887v1/teaser_metashare.drawio.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "31f56b7e9f4df73c75669fb28cb0721d7bd722b1891b9c647b28d5362b4037cc",
+          "bytes": 60428
+        }
+      ]
+    },
+    {
+      "source_id": "2610.21327",
+      "revision": 1,
+      "kind": "reader",
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.21327v1",
+          "status": 200,
+          "type": "text/html",
+          "sha256": "b8a50e3145257618faa9043aa90bb3f1d56b990f1574f914adb55f68e5a3e357",
+          "bytes": 472633
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/case_computation.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "28fd8d740b2b2c90418abff3eddbd64662a8ed49b441e1a53d9f01afe8f0cba9",
+          "bytes": 529024
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/case_crossdoc.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "c07272398795e474a58cae22ea67fa4b6c0148dc4bc7511462ad55ec7d4bc8bd",
+          "bytes": 552552
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/case_extract.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "4e5cfad1799e9669155c75c53054b9e315909d6e25dc6995a56174ee2f56db71",
+          "bytes": 518973
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/case_summary.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "e73f283a85363e539bdd363946bc21ca00d01f3891b2bf6762d2eccf2c2f82b3",
+          "bytes": 614075
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/curriculum_training2.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "22077ff4f1798047396c9c09001326998254fedb4ff223d864b0a7e2b46df8c9",
+          "bytes": 416659
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/element_localization2.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "11cdfef53fb9778a2e082b3b718b0f6f1329a1cf61bed8ceb72c0ecbf1d62c1f",
+          "bytes": 32087
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/navigation_cumulative_recall.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "822ddd48f02defb42f23a4faace16a98f493cced20862b1dfc65b58ef9d568e2",
+          "bytes": 96344
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/overview3.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "234e8178003afee3d33ba04f6ff2ef4c9ca2bdfc5344e20426aabe4d0ad64b55",
+          "bytes": 1039418
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/performance_overview.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "f938d6b8ac89f6061cefac92e443d49d35a8119d13412f55f2cfaa3ef856b835",
+          "bytes": 629676
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/teaser3.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "a105d810a96981c1dc9abd7b2119e1253e2c249a3930547644530160736bed87",
+          "bytes": 1181230
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/token_distribution.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "0f8b2211eed18c25473b0fd599c346ef0bcaec2452fc0874a82b612ab74e820f",
+          "bytes": 148760
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/tool_ablation.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "fd6b7729f2ba7fffa2865924fe8ad0bafcede13ea50c494b0bf839e49e5ed593",
+          "bytes": 67101
+        },
+        {
+          "url": "https://arxiv.org/html/2610.21327v1/tool_call2.svg",
+          "status": 200,
+          "type": "image/svg+xml",
+          "sha256": "8ff28bacd9c0850c8b9535b1636794c1dee9e8749ff4a3f551e2551b84d768ac",
+          "bytes": 55040
+        }
+      ]
+    },
+    {
+      "source_id": "2610.19789",
+      "revision": 1,
+      "kind": "pdf",
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.19789v1",
+          "status": 404,
+          "type": "text/html",
+          "sha256": "4ef39f28ba3744904dfeb202e5bf9f198ce54a638bf78f05d73f00d18b0a75cc",
+          "bytes": 7884
+        },
+        {
+          "url": "https://arxiv.org/pdf/2610.19789v1",
+          "status": 200,
+          "type": "application/pdf",
+          "sha256": "2038e0601b8cab431720f40b3542991236e8a47f25d5a213d6c3716c1e445b80",
+          "bytes": 859641
+        }
+      ]
+    }
+  ]
+}

@@ -82,21 +82,28 @@ struct AnswerOptionsSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     ChatChoiceControls(model: model, mode: .chat)
                     defaults
-                    NavigationLink { AIChatOptionsView(model: model) } label: {
+                    NavigationLink { AIChatOptionsView(model: model).toolbar(.visible, for: .navigationBar) } label: {
                         Label("About AI chat options", systemImage: "info.circle").font(.subheadline.weight(.semibold))
                     }.accessibilityIdentifier("chat.profile.about")
                 }
                 .padding(20)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .navigationTitle("Answer options").navigationBarTitleDisplayMode(.inline)
+            #if targetEnvironment(macCatalyst)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("chat.profile.done") }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("chat.profile.done")
+                }
             }
+            #else
+            .toolbar(.hidden, for: .navigationBar)
+            #endif
         }
         .task { model.refreshChatProfiles(force: model.chatProfileTableFailed) }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .accessibilityAction(.escape) { dismiss() }
     }
 
     /// Owner, build 57: "an option to set the current options as the default for chats".
@@ -104,15 +111,16 @@ struct AnswerOptionsSheet: View {
         let choice = model.chatProfile, table = model.chatProfileTable
         VStack(alignment: .leading, spacing: 6) {
             Divider()
-            if ChatProfileText.summary(choice) == ChatProfileText.summary(model.chatDefaultProfile) {
-                Text("New chats start with these.").font(.footnote).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("chat.profile.isDefault")
-            } else {
-                Text("New chats start with \(ChatProfileText.summary(model.chatDefaultProfile, table: table)).")
-                    .font(.footnote).foregroundStyle(.secondary)
-                Button("Use for new chats") { model.chatDefaultProfile = choice }
-                    .font(.footnote.weight(.semibold)).accessibilityIdentifier("chat.profile.makeDefault")
-            }
+            let unchanged = ChatProfileText.summary(choice) == ChatProfileText.summary(model.chatDefaultProfile)
+            Text("New chats currently start with \(ChatProfileText.summary(model.chatDefaultProfile, table: table)).")
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier(unchanged ? "chat.profile.isDefault" : "chat.profile.defaultNote")
+            Button("Reset default settings") { model.chatDefaultProfile = choice }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(unchanged || table == nil ? Color.secondary : Color.accentColor)
+                .disabled(unchanged || table == nil)
+                .accessibilityHint("Uses the selected model and length for new chats")
+                .accessibilityIdentifier("chat.profile.makeDefault")
         }
     }
 }
