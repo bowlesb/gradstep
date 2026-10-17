@@ -9,6 +9,19 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Login still blocked, 2026-10-17 08:26 UTC — beta access repaired
+
+Owner: “my oath provider? what? … I am not even able to login at all.” The application’s sign-in options are Apple,
+Google and email code; asking the owner to diagnose a provider was unnecessary. Hosted logs show repeated HTTP 422
+`signup_disabled` today. The original account's hosted deletion/refresh audit events establish the exact address.
+A fresh confirmed beta login for that address was created and read back as open at **08:30:31 UTC**. No new build,
+password, email, credits, restored data or public-signup change. Actual owner sign-in remains to be observed.
+
+The extended unpaid hosted test reproduces deletion and old-session rejection, re-admits the same synthetic address
+as a fresh UUID, and verifies the app's email-code exchange plus account RPC (both HTTP 200), then deletes the
+fixture. Evidence: `.artifacts/feedback/login-access-20261017/` and
+`.artifacts/auth-lifecycle/2026-10-17T08-31-42-852Z.json`. Flash activation is a separate pending account-settings check.
+
 ## TestFlight build 66, 2026-10-17 06:05–06:10 UTC — session failure and FDE-Gym (browser / TestFlight 67 released)
 
 All seven screenshots are retained privately under `.artifacts/feedback/followup-20261017/`.
@@ -21,7 +34,7 @@ All seven screenshots are retained privately under `.artifacts/feedback/followup
 No provider call corresponds to the six cloud-failure reports. The eight earlier Flash checks were synthetic,
 succeeded through the deployed adapter and cost $0.108185933; they did not activate Flash for ordinary readers.
 The selected Flash default is still hidden pending confirmation of the two OpenRouter account privacy switches.
-A fresh beta invitation still needs the owner's exact OAuth provider/address. No new paid AI call was made.
+A fresh beta invitation was still pending at this release checkpoint; it was completed at 08:30 UTC as recorded above. No new paid AI call was made.
 The expanded release gate requires 13 checks, including the seven-paper replay and session retirement.
 Its first run blocked release: all 12 unit/import methods passed, but the startup explanation could disappear.
 The explanation now stays beside Sign in and in Settings; the screen journey explicitly requires it.
@@ -36,7 +49,8 @@ Source `1d5f7aa`; browser `103582dd` deployed and verified. TestFlight 67 iOS an
 Feedback images and hosted readbacks are retained privately in `.artifacts/feedback/import-reliability-20261017/`.
 Browser changes are deployed as Pages **91c7d07f**, with entry assets verified. Native changes are included in
 TestFlight **66**, source **a539550**: iOS and Mac are **VALID / IN_BETA_TESTING**, confirmed 05:45:52 UTC.
-The AI activation and re-invitation dependencies below remain open; they are not repaired by this client build.
+The AI activation and re-invitation dependencies below were open at this client-release checkpoint; the 08:30 UTC
+operator repair above supplies fresh beta access.
 
 | Report | Established cause / response | Verification or remaining dependency |
 |---|---|---|
@@ -46,7 +60,7 @@ The AI activation and re-invitation dependencies below remain open; they are not
 | Answer options (`AHymjh1Amb38m-iP1-czaOQ`, `AGGyBXTh4pfGJ98J6z24kXU`) | Remove the native title/Done row; retain the drag handle and accessibility escape. Say “New chats currently start with …”. “Reset default settings” is visible but disabled until the current choices differ; its existing action saves the current choices for new chats. | Browser affected journeys pass (12); native Settings defaults and final two sheet journeys pass; Mac close journey passes. Light/dark screenshots reviewed. Mac retains an X to close its sheet. |
 | Gradient behind chat (`ANxeYmqyzosdFHDcDwiM1no`) | Remove the accent glow behind empty-chat starters in the apps and browser. Keep their position and the ordinary flat chat background. | Included in the light/dark chat screenshot review. |
 | AI chat broken again (`AN1GwE_5DdVwAA1UdFecQg8`) | At 04:43 UTC the selected Sonnet request and four auxiliary Haiku attempts were refused as `provider_billing`. OpenRouter has $10.205283699 remaining, but Flash is still hidden. | No new paid calls. Activation awaits confirmation that OpenRouter input/output logging and data-use opt-ins are off; the ordinary app default is still Sonnet. |
-| OAuth says not invited after deletion (conversation) | Auth login deletion completed at 04:48:45 UTC. Private-beta signups are disabled and no independent invitation survives Auth deletion. | Exact OAuth provider/address requested for a fresh invitation. No guessed address, old-account resurrection or public signup. Deletion/error copy now explains the restriction. |
+| OAuth says not invited after deletion (conversation) | Auth login deletion completed at 04:48:45 UTC. Private-beta signups are disabled and no independent invitation survives Auth deletion. | Fresh confirmed beta login created at 08:30 UTC using the original UUID's Auth audit address. Hosted re-admission/email-code test passes. No guessed address, old-account resurrection or public signup. |
 
 The new explicit import acceptance gate covers all six reported papers, real local PDFs, failed/missing sources,
 cancellation, explicit retry, no automatic retry loop, encrypted storage and reopen without network. It uses `-O`

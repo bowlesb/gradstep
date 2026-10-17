@@ -9,12 +9,31 @@ the account closed at 04:48:45 UTC and its Auth user removed. Apple and Google r
 `disable_signup` is true. Beta admission currently pre-creates a confirmed Auth login; it is not a separate durable
 email allowlist. Deleting that login therefore removes the admission that a returning OAuth flow needs.
 
-The recovery is a fresh beta invitation for the owner's exact provider address (including Apple's relay address
-when used), creating a new UUID. Do not infer that address from TestFlight feedback, resurrect the deleted UUID,
-restore old content/keys/credits, or enable public signups. Provider/address confirmation is pending.
+The recovery is a fresh beta admission for the account's verified address (including Apple's relay address when
+used), creating a new UUID. Do not infer that address from TestFlight feedback, resurrect the deleted UUID,
+restore old content/keys/credits, or enable public signups.
 Native and browser copy now explains this before deletion and in the not-invited error. The old error's suggestion
 to use Apple was misleading: signup restrictions apply there too. Browser copy is deployed in Pages `91c7d07f`;
 the native copy is in TestFlight 66 (iOS and Mac VALID / IN_BETA_TESTING). This does not itself create a new invitation.
+
+### Actual access repair, 2026-10-17 08:30 UTC
+
+The owner's new attempts at 08:16–08:23 UTC failed with HTTP 422 `signup_disabled` on both `/otp` and
+`/token` with `grant_type=id_token`. Asking the owner for an “OAuth provider” did not address the lockout.
+The hosted Auth audit stream (not the empty Postgres audit table) retains the original UUID's deletion event and
+successful refreshes with the same exact address. That is direct account evidence, not a TestFlight-email guess.
+
+Using the existing beta-admission mechanism, Auth Admin `createUser({email,email_confirm:true})` created a fresh
+login for that recorded address at **08:30:31 UTC**. Readback confirms the email is verified, the new account is open,
+and the old deleted UUID remains separate. No password, email message, credit grant, owner-role assignment, restored
+content or public-signup change. No actual owner sign-in is claimed before a new user sign-in occurs.
+Private operator evidence: `.artifacts/feedback/login-access-20261017/access-repair.json`; email is hashed there.
+
+`scripts/smoke-session-revocation.mjs` now continues past deletion: re-admit the same synthetic address, generate
+a code without sending mail, exchange it using the app's `/verify` email-code format, and call `v1_key_state` with
+the resulting token. Both return **HTTP 200** on the fresh UUID; both disposable accounts are deleted. The owner's
+account is never impersonated by this test. Evidence: `.artifacts/auth-lifecycle/2026-10-17T08-31-42-852Z.json`.
+This proves hosted admission/code exchange, not SMTP delivery, interactive Apple/Google sign-in or phone acceptance.
 
 ## Remote session rejection (build 66 feedback, 2026-10-17; browser / TestFlight 67 released)
 
@@ -39,8 +58,8 @@ when its owning account session changes. The expanded release gate then caught a
 (12 passed, one failed); the explanation now stays beside Sign in and in Settings instead of relying on an alert.
 The screen journey requires that message before proceeding. The final gate passes all 13 checks, none skipped,
 under release optimization; final message/sign-in screenshots reviewed (`2026-10-17T06-38-58-152Z.xcresult`).
-Evidence: `.artifacts/feedback/followup-20261017/`. No actual owner login
-was recreated; exact provider/address remains pending. No physical-phone access or paid AI calls.
+Evidence: `.artifacts/feedback/followup-20261017/`. At that client-release checkpoint no owner login had been
+recreated; the subsequent access repair above completes that operator step. No physical-phone access or paid AI calls.
 Browser `103582dd` is deployed; TestFlight 67 iOS and Mac are VALID / IN_BETA_TESTING (06:57:42 UTC).
 
 ## Current foundation and gaps

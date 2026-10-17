@@ -80,6 +80,9 @@ authentication code and these tests are included in the gate fingerprint. A loca
 that cloud actions still work after account deletion. The separate unpaid `node scripts/smoke-session-revocation.mjs`
 creates two hosted synthetic sessions, deletes their account through the deployed function, verifies the other
 session's refresh/RPC rejection and the login's removal. It sends no mail and makes no paper/provider requests.
+It then re-admits the exact same synthetic address as a fresh UUID, generates an unsent code, performs the app's
+email-code exchange and an account RPC, and deletes that fresh fixture. Evidence is timestamped under
+`.artifacts/auth-lifecycle/`. This acceptance covers re-admission; it does not test SMTP delivery or impersonate a reader.
 
 Both TestFlight upload scripts require a successful report for the current import code, fixtures and Xcode version,
 before archiving and again before uploading.

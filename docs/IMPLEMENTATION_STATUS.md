@@ -1,6 +1,18 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). Chat activation and a fresh post-deletion invitation still await owner information. Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; actual owner sign-in is not yet verified. Chat activation still awaits the OpenRouter account-settings check. Earlier checkpoints below are historical.
+
+## Post-deletion login access repaired — 2026-10-17 08:30 UTC
+
+The original account's Auth deletion/refresh audit events establish its exact verified address. A fresh confirmed
+login now exists for that address, with a new open account UUID. No provider-identification question was needed,
+and no app rebuild was required. Original deleted data/credits remain deleted; no password, message, new credit
+grant or public-signup change. Today's actual failed attempts were HTTP 422 `signup_disabled`.
+
+The hosted deletion check now includes re-admission and a successful email-code exchange/account RPC on the new
+synthetic UUID (HTTP 200/200); both fixture accounts are removed. No email or AI call. Actual owner sign-in still
+requires the reader's ordinary authentication; it has not been performed by the agent. Evidence:
+`.artifacts/feedback/login-access-20261017/` and `.artifacts/auth-lifecycle/2026-10-17T08-31-42-852Z.json`.
 
 ## Build 66 follow-up — 2026-10-17 UTC (browser and TestFlight 67 iOS/Mac available)
 

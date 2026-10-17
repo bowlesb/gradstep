@@ -19,8 +19,11 @@ The release gate now includes those account boundaries and the seventh reported 
 
 Deleting a private-beta account also removes its pre-created Auth login. With signups disabled, returning through
 OAuth requires a new invitation for the exact provider address. It creates a new account, not a restoration of
-deleted data or credit. The owner reported this on 2026-10-17; deletion and hosted signup settings are verified,
-but re-invitation awaits the owner's provider/address. Do not open public signup to solve it. See
+deleted data or credit. The owner reported this on 2026-10-17. At 08:30 UTC beta access was re-created for the exact
+address established by the original account's hosted Auth deletion audit and prior successful refresh events.
+Asking the owner to identify an OAuth provider was unnecessary: the existing admission API uses the verified address.
+Do not infer identity from TestFlight contact information or open public signup to solve it. Hosted acceptance now
+covers deletion, rejected old sessions, fresh admission and a successful email-code exchange/account RPC. See
 [authentication](architecture/NATIVE_AUTHENTICATION.md#private-beta-return-after-account-deletion).
 
 ## Gemini Flash selected for chat (owner decision, 2026-10-16; hidden staging verified)

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Opt-in staging auth lifecycle check. No papers, mail, AI calls or credits.
+// Opt-in staging deletion, rejection and fresh beta admission. No papers, mail, AI calls or credits.
 import assert from 'node:assert/strict';
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {randomBytes, randomUUID} from 'node:crypto';
@@ -40,6 +40,30 @@ try {
   assert.equal(rpc.body.message, 'authentication_required');
   const user = await admin.auth.admin.getUserById(account);
   assert.ok(user.error); evidence.checks.push({action: 'deleted login absent', absent: true});
+  const priorAccount = account;
+  const absent = await admin.rpc('worker_admin_find_login', {p_email: email});
+  assert.equal(absent.error, null); assert.equal(absent.data, null);
+  // The normal beta-admission API: same verified address, new UUID, no password or old-account restoration.
+  const admitted = await admin.auth.admin.createUser({email, email_confirm: true});
+  assert.equal(admitted.error, null); account = admitted.data.user.id; deleted = false;
+  assert.notEqual(account, priorAccount);
+  const login = await admin.rpc('worker_admin_find_login', {p_email: email});
+  assert.equal(login.error, null); assert.equal(login.data.account_id, account); assert.equal(login.data.closed, false);
+  // Generate a synthetic code without sending email. Exercise the same /verify email-code exchange as the app;
+  // never generate a code or impersonate the real owner account in this test.
+  const code = await admin.auth.admin.generateLink({type: 'magiclink', email});
+  assert.equal(code.error, null); assert.equal(code.data.user.id, account);
+  assert.match(code.data.properties.email_otp, /^\d{6}$/);
+  const signedIn = await request('auth/v1/verify', {email, token: code.data.properties.email_otp, type: 'email'});
+  assert.equal(signedIn.status, 200); assert.equal(signedIn.body.user.id, account);
+  const keys = await request('rest/v1/rpc/v1_key_state', {p_device_id: randomUUID()}, signedIn.body.access_token);
+  assert.equal(keys.status, 200);
+  evidence.checks.push({action: 'fresh admission after deletion accepts an email code and account RPC',
+    signInStatus: signedIn.status, accountStatus: keys.status, newAccount: true, mailSent: false});
+  const finalDeletion = await request('functions/v1/account-delete', {confirm: 'delete my account'}, signedIn.body.access_token);
+  assert.equal(finalDeletion.status, 200); assert.equal(finalDeletion.body.complete, true); deleted = true;
+  assert.ok((await admin.auth.admin.getUserById(account)).error);
+  evidence.checks.push({action: 'fresh synthetic account removed', absent: true});
 } finally {
   if (account && !deleted) {
     // Only this synthetic UUID; the production worker completes its normal deletion lifecycle.
@@ -49,7 +73,7 @@ try {
     assert.equal(finished.error, null, 'fixture account cleanup could not finish');
     assert.equal((await admin.auth.admin.deleteUser(account)).error, null);
   }
-  const folder = '.artifacts/feedback/followup-20261017'; mkdirSync(folder, {recursive: true});
-  writeFileSync(`${folder}/hosted-session-revocation.json`, JSON.stringify(evidence, null, 2) + '\n', {mode: 0o600});
+  const folder = '.artifacts/auth-lifecycle'; mkdirSync(folder, {recursive: true});
+  writeFileSync(`${folder}/${evidence.at.replace(/[:.]/g, '-')}.json`, JSON.stringify(evidence, null, 2) + '\n', {mode: 0o600});
 }
 console.log(JSON.stringify(evidence));
