@@ -58,6 +58,14 @@ database (`test:database`), operations and hosted checks are also **slow / expli
 commands and prerequisites. There is deliberately no default command that launches all infrastructure checks.
 Hosted or metered checks retain their existing authorization and budget rules; these new suites never call providers.
 
+Live chat acceptance requires a successful terminal event and text or a validated usable tool result. HTTP 200
+with an SSE error, missing `done`, or an empty result fails `chat-live-smoke.mjs`. Its `--no-auxiliaries` flag isolates
+the chosen model from title/follow-up calls when diagnosing a provider; that isolation is not evidence that those
+extras work. The scheduled `chat.smoke` reads the published profile recommendation and consent, then requires the
+answer to name that model. A hidden-route check does not establish that ordinary clients can select it. After a
+provider-policy or endpoint change, rerun the affected hosted actions and reconcile actual costs/unknown holds;
+earlier green checks for another endpoint do not establish current availability.
+
 The database suite (`npm run test:database`) expects a disposable PostgreSQL 18 server on `127.0.0.1:55431` (binaries
 at `SCIENCE_READER_PG_BIN`). Create the cluster with `initdb -A trust -E UTF8 --locale=C` (a `--no-locale` cluster is
 SQL_ASCII and migration 032's collation fails) and start it with a short socket directory, e.g. `-k /tmp/srpg` (a long

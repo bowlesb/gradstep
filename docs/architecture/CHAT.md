@@ -1,13 +1,17 @@
 # Paid AI chat
 
-Native Local AI prototype (2026-10-17, unreleased): the composer offers Cloud AI or an explicitly downloaded local MLX model. Local requests use bounded device context, never the cloud transport or credits; model choice is captured with each turn. Structured Study and cloud search tools are not supported locally. See [LOCAL_AI.md](LOCAL_AI.md) for the tested limits and accuracy failures.
+Native Local AI prototype (2026-10-17, TestFlight 68 on iOS and Mac): the composer offers Cloud AI or an explicitly downloaded local MLX model. Local requests use bounded device context, never the cloud transport or credits; model choice is captured with each turn. Structured Study and cloud search tools are not supported locally. See [LOCAL_AI.md](LOCAL_AI.md) for the tested limits and accuracy failures.
 
 2026-10-16 owner decision after the comparison: **Gemini 3.8 Flash is selected as the next default**. The
 [OpenRouter → Google integration](GEMINI_FLASH_CHAT.md) is deployed hidden and verified by focused staging checks,
 with consent v5, old-client compatibility and server accounting. The app key is funded; Sonnet remains the published
 default pending confirmation of OpenRouter's account logging/data-use switches. On 2026-10-17 at 04:43 UTC, the
-owner's Sonnet request failed for the Anthropic account balance, not for lack of OpenRouter funds. Do not treat
-funding OpenRouter as activating its route. The dated model research below is historical.
+owner's Sonnet request failed for the Anthropic account balance, again at 14:32 UTC, not for lack of OpenRouter funds.
+A fresh Flash probe also failed because AI Studio cannot satisfy the account's ZDR policy. Migration 086 and the
+adapter now pin Google Vertex US with explicit ZDR; seven deployed-route generations pass. Activation still awaits
+the separate account logging/data-use check. Build 68 and the browser distinguish model-balance failure as
+`model_unavailable`, preserve the question and offer a different model instead of retrying the unfunded one.
+Do not treat funding OpenRouter or a hidden-route check as activation. The dated model research below is historical.
 
 Build 65 feedback (2026-10-17 UTC; browser `91c7d07f`, TestFlight 66): the native Answer options sheet has no title or
 Done row; its drag handle and accessibility escape dismiss it (Mac retains an X). “New chats currently start with

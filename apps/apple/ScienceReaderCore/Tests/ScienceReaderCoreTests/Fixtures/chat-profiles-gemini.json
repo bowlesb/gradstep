@@ -729,9 +729,9 @@
       "api_model": "gemini-3.8-flash",
       "max_output_tokens": 5000,
       "credits": {
-        "low": 2,
-        "high": 8,
-        "max": 11
+        "low": 3,
+        "high": 9,
+        "max": 12
       }
     },
     {
@@ -744,7 +744,7 @@
       "credits": {
         "low": 3,
         "high": 9,
-        "max": 15
+        "max": 16
       }
     },
     {
@@ -756,8 +756,8 @@
       "max_output_tokens": 14000,
       "credits": {
         "low": 4,
-        "high": 10,
-        "max": 18
+        "high": 11,
+        "max": 19
       }
     },
     {
@@ -768,9 +768,9 @@
       "api_model": "gemini-3.8-flash",
       "max_output_tokens": 5000,
       "credits": {
-        "low": 2,
-        "high": 8,
-        "max": 11
+        "low": 3,
+        "high": 9,
+        "max": 12
       }
     },
     {
@@ -783,7 +783,7 @@
       "credits": {
         "low": 3,
         "high": 9,
-        "max": 15
+        "max": 16
       }
     },
     {
@@ -795,8 +795,8 @@
       "max_output_tokens": 14000,
       "credits": {
         "low": 4,
-        "high": 10,
-        "max": 18
+        "high": 11,
+        "max": 19
       }
     }
   ],

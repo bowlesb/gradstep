@@ -56,7 +56,11 @@ covers deletion, rejected old sessions, fresh admission and a successful email-c
 After reviewing the measured comparison, the owner said **“lets move ahead with Flash”**: Gemini 3.8 Flash at
 the tested medium effort is the selected default for updated clients. This supersedes the research-only hold below;
 the deployed default is still Sonnet. Migration 085 and the hidden Flash route now pass the focused live checks;
-client rollout and confirmation of the OpenRouter account privacy settings precede activation.
+client support is shipped (builds 64–68), while confirmation of the OpenRouter account logging/data-use settings
+still precedes activation. On October 17 the pinned AI Studio endpoint was reproduced as incompatible with the
+account's zero-data-retention policy (HTTP 404). Migration 086 fixes the pin to Google Vertex US with explicit ZDR
+enforcement; seven live checks pass. The 10% higher endpoint rates fit the unchanged budget and are recorded in
+both quotes and immutable new-attempt snapshots. No automatic failover or weakening of privacy settings.
 OpenRouter through Google's pinned endpoint is the working connection choice while the owner's optional preference
 between OpenRouter and direct Google is pending. No automatic provider switching, budget increase, or further broad
 bake-off is implied. Existing explicit model choices remain respected. Implementation contract:

@@ -1,8 +1,34 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (local AI prototype implemented and measured, unreleased; build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. Chat activation still awaits the OpenRouter account-settings check. Earlier checkpoints below are historical.
+Updated 2026-10-17 15:08 UTC (local AI prototype available in TestFlight 68 on iOS and Mac; cloud failures reproduced and corrected Vertex US route verified; browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. Flash is still hidden pending the OpenRouter logging/data-use account-settings check. Earlier checkpoints below are historical.
 
-## Local AI prototype — 2026-10-17 (implemented; not in TestFlight)
+## TestFlight 68: local AI prototype and cloud-service diagnosis — 2026-10-17
+
+- iOS and Mac are **VALID / IN_BETA_TESTING**, confirmed 15:08:42 UTC, native source `12d5552`. Tap Cloud AI
+  above the chat composer to choose Local AI; figure/equation AI Explainer offers the same choice. Download and
+  remove models explicitly. The smaller vision option is Qwen3.5 2B; larger models are offered only with sufficient
+  app memory. No downloaded weights are bundled. This is an experiment, with the measured limitations below.
+- Both signed archives contain the pinned model catalog and MLX Metal resource. The required source-matching
+  import/session gate passed **13/13, zero skips** under release optimization before upload. Prior local inference,
+  integrity, routing, saved-answer and UI evidence remains applicable. No physical phone was accessed.
+- Cloud root causes: the owner's 14:32 UTC Sonnet request was rejected for the **Anthropic balance**, while the
+  funded Flash option was still hidden. A fresh Flash probe also reproduced HTTP 404: its pinned AI Studio endpoint
+  cannot satisfy the account's **zero-data-retention policy**. Migration 086 and chat now pin Google Vertex US,
+  require ZDR explicitly, and retain no fallback/data collection/response cache. New route token rates are 10%
+  higher; quotas and the $100/month budget are unchanged. Historical pricing snapshots stay intact.
+- Seven deployed-route generations pass: paper answer; figure walkthrough, simpler explanation and extracted crop;
+  OpenVLA reference add; equation symbols and background. Actual provider spend **$0.063910955**; one cancelled
+  Anthropic title retains **$0.000138** unknown liability. No private reader content was used. Flash remains hidden
+  until the account's private input/output logging and OpenRouter data-use opt-ins are confirmed off.
+- Build 68 and browser Pages **f747c676** show an actionable nonretryable message for a model balance failure,
+  preserving the question and suggesting another model. Backend rejection logs use closed categories only.
+  Live smoke scripts now fail on streamed errors/empty results; the scheduled chat check follows the published
+  recommendation rather than the compatibility default. No successful ordinary-reader Flash activation is claimed.
+- Full database suite (including 086), fast tier, focused adapter/chat and Core profile/error checks pass.
+  Evidence: `.artifacts/release-68/`, `.artifacts/import-acceptance/2026-10-17T14-46-54-922Z.xcresult`;
+  [route diagnosis](architecture/GEMINI_FLASH_CHAT.md), [cost accounting](architecture/OPERATIONS_AND_BILLING.md#testflight-68-cloud-route-repair--2026-10-17-1503-utc).
+
+## Local AI prototype — 2026-10-17 (measured; included in TestFlight 68)
 
 - Native chat, equation and figure explainers offer Cloud AI / Local AI; local models download explicitly, verify
   pinned file hashes, can be cancelled/removed, and run with a bounded prompt/image budget. Existing reader
@@ -15,8 +41,9 @@ Updated 2026-10-17 UTC (local AI prototype implemented and measured, unreleased;
 - `npm test` passes; Core 340 + 23 tests and four model-store integrity tests pass. The first integrated native
   acceptance passes 35 chat/lifecycle tests and eight affected UI journeys (including local saved-answer reopen).
   iOS Release and Mac Catalyst builds pass. Final memory-guard/local-PDF acceptance is recorded in
-  [Local AI](architecture/LOCAL_AI.md). No physical-phone testing, TestFlight upload or cloud-default change.
-- [Measured answers and limits](reviews/LOCAL_AI_20261017.md). Provider spend: $0. TestFlight remains build 67.
+  [Local AI](architecture/LOCAL_AI.md). Release acceptance is recorded above; no physical-phone testing or
+  cloud-default change is claimed.
+- [Measured answers and limits](reviews/LOCAL_AI_20261017.md). Local-prototype provider spend: $0.
 
 ## Fresh owner test account: 100,000 credits — 2026-10-17 08:39 UTC
 

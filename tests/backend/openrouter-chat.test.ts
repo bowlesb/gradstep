@@ -35,9 +35,10 @@ async function run(events: unknown[], done = true) {
 test('Flash translation pins Google, caps prices, preserves the cache prefix and puts action text after it', () => {
   const body = openRouterChatParams(params) as any;
   assert.equal(body.model, GEMINI_OPENROUTER_MODEL);
-  assert.deepEqual(body.provider.only, ['google-ai-studio']); assert.equal(body.provider.allow_fallbacks, false);
+  assert.deepEqual(body.provider.only, ['google-vertex/us']); assert.equal(body.provider.allow_fallbacks, false);
   assert.equal(body.provider.data_collection, 'deny'); assert.equal(body.provider.require_parameters, true);
-  assert.deepEqual(body.provider.max_price, { prompt: 0.75, completion: 3.75 }); assert.deepEqual(body.reasoning, { effort: 'medium' });
+  assert.equal(body.provider.zdr, true);
+  assert.deepEqual(body.provider.max_price, { prompt: 0.825, completion: 4.125 }); assert.deepEqual(body.reasoning, { effort: 'medium' });
   assert.equal(body.messages[0].content[0].cache_control.ttl, '5m');
   assert.match(body.messages[0].content[0].text, /Paper text/); assert.doesNotMatch(body.messages[0].content[0].text, /explain the figure/);
   assert.equal(body.messages[1].content[0].text, 'explain the figure');
@@ -108,6 +109,7 @@ test('initial or missing usage, transport failures and truncated streams retain 
 
 test('provider rejection diagnostics expose only a closed category, never echoed request content', async () => {
   for (const [status, message, reason] of [
+    [404, 'No endpoints found matching your data policy (Zero data retention). private question', 'privacy_zdr'],
     [404, 'No endpoints found matching your data policy. private question', 'privacy_policy'],
     [404, 'No endpoints found for this model. private question', 'route_unavailable'],
     [400, 'Invalid parameter: private question', 'request_parameters'],
@@ -173,7 +175,7 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
   assert.ok(!events.some(e => e.event === 'error'), JSON.stringify(events));
   const quote = calls.find(c => c.name === 'worker_reserve_chat')!.p.p_quote;
   assert.equal(quote.profile, 'gemini-medium-standard'); assert.equal(quote.model, GEMINI_MODEL);
-  assert.equal(quote.tariff, 'openrouter-google-flash-20261016');
+  assert.equal(quote.tariff, 'openrouter-google-flash-vertex-us-20261017');
   assert.equal(calls.find(c => c.name === 'worker_provider_attempt_finish')!.p.p_actual_microusd, 1000);
   assert.ok(events.some(e => e.event === 'done' && e.data.model === GEMINI_MODEL && e.data.credits === 1));
 });

@@ -7,6 +7,7 @@
 //
 //   node scripts/chat-live-smoke.mjs [--questions=1|2] [--index=.artifacts/bundles/<id>/reader.json]
 //   node scripts/chat-live-smoke.mjs --profile=sonnet-auto-standard            (automatic effort: done names the pick)
+//   node scripts/chat-live-smoke.mjs --profile=gemini-auto-standard --no-auxiliaries (isolate the main provider; no title/follow-up calls)
 //   node scripts/chat-live-smoke.mjs --profile=deepseek-auto-standard --eval   (the recorded DeepSeek check, under $0.10)
 //   node scripts/chat-live-smoke.mjs --figure-view=1 --warm                     (the figure view on DPO's Figure 1)
 //   node scripts/chat-live-smoke.mjs --paper=2610.16784v1 --index=<bundle>/reader.json --figure-view=4 --table-view=1
@@ -369,6 +370,7 @@ try {
       ...(STUDY ? { action: 'study', study: studyMap } : equationAction ? { action: equationAction, selection: { quote: equationLatex } }
         : INGEST ? { action: 'ingest', selection: { quote: INGEST } } : ACTION ? { action: ACTION, selection: { quote: SELECTION ?? 'x' }, follow_ups: true } : { follow_ups: true }) };
     if (INGEST) delete body.topic_title;
+    if (process.argv.includes('--no-auxiliaries')) { delete body.topic_title; delete body.follow_ups; }
     if (CAPS) body.capabilities = CAPS;
     if (equationAction) { delete body.topic_title; body.messages = [{ role: 'user', text: question }]; }
     if (figures.length) log(`attached ${figures.map(f => `${f.id} ¶${f.paragraph} ${f.width}×${f.height} ${Math.round(f.data.length * 3 / 4 / 1024)} KB`).join(', ')}`);

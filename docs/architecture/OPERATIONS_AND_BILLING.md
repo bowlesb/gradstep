@@ -424,3 +424,30 @@ run locally through MLX. **Provider spend $0; no new fixed service commitment, r
 Inference checks also completed with network access denied. Model files occupy the testing Mac's storage;
 they are not uploaded or included in the app binary. The existing $100/month operating ceiling remains unchanged.
 See [the measured comparison](../reviews/LOCAL_AI_20261017.md).
+
+## TestFlight 68 cloud route repair — 2026-10-17 15:03 UTC
+
+The current account's ZDR policy rejects the previous Google AI Studio pin. Migration 086 and the chat adapter
+now pin **Google Vertex US** with explicit ZDR and no fallback, retaining the same named processors and consent.
+Verified endpoint rates are **$0.825/M input, $4.125/M output, $0.0825/M cache reads**, plus $0.50/M token-hour
+storage: 10% above the previous global route's token rates. Quotes, request caps and new-attempt frozen snapshots
+were updated together. Existing attempts keep their original snapshots; the 2027-01-01 tariff expiry remains.
+
+Seven public-fixture generations through the deployed service cost **$0.063910955** by exact OpenRouter metadata,
+**$0.063915** in whole-micro-USD server accounting. They cover paper chat, three figure actions, reference add and
+two equation actions. Rejected main-model probes cost zero. One cancelled Anthropic auxiliary title has no final
+bill and retains **$0.000138** liability; it is not assumed free. Its operation is settled and no attempt remains
+admitted; the local guard reconciled the original full hold to that verified outstanding ceiling without clearing
+the unknown attempt. All fixture accounts were deleted.
+
+The durable **$1 rollout cap** includes the previous $0.108191 plus $0.063915 new rounded actuals and $0.000138 held:
+**$0.172106 actual / $0.000138 reserved**. At 15:02 UTC OpenRouter reports **$20 funded, $9.858627256 used,
+$10.141372744 remaining**. The existing key's $20 lifetime limit remains. Staging's October provider budget is
+**$40 allocated, $29.057404 spent, $0.000138 reserved**, with work enabled. The account total includes research
+outside staging's ledger; these two totals must not be added as separate charges.
+
+No purchase, recurring commitment, automatic top-up or increase to the **$100/month** operating ceiling.
+Additional repair-test forecast is **$0**; a single small published-default smoke remains after activation,
+admitted within the existing $1 allocation and server limits. App usage after activation uses normal server holds.
+Flash remains hidden pending the account logging/data-use check. Evidence: `.artifacts/release-68/provider-evidence.json`
+and `.artifacts/flash-rollout-20261017/spend-ledger.json`. No invoice-level fee/tax reconciliation is claimed.

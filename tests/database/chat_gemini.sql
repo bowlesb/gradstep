@@ -19,7 +19,7 @@ insert into auth.users(id) values('85000000-0000-0000-0000-00000000000a');
 \set D2 '85000000-0000-0000-0002-000000000002'
 \set H1 '85000000-0000-0000-0002-000000000003'
 \set X '85000000-0000-0000-0002-000000000009'
-\set Q '{"profile_version":"chat-profiles-v1","profile":"gemini-medium-standard","model":"gemini-3.8-flash","effort":"medium","length":"standard","tariff":"openrouter-google-flash-20261016","max_output_tokens":10000,"input_estimate_tokens":120000,"max_searches":0,"title_model":"claude-haiku-5-5","title_max_tokens":40,"title_ceiling_microusd":3000,"follow_ups_model":"claude-haiku-5-5","follow_ups_max_tokens":160,"follow_ups_ceiling_microusd":9000}'
+\set Q '{"profile_version":"chat-profiles-v1","profile":"gemini-medium-standard","model":"gemini-3.8-flash","effort":"medium","length":"standard","tariff":"openrouter-google-flash-vertex-us-20261017","max_output_tokens":10000,"input_estimate_tokens":120000,"max_searches":0,"title_model":"claude-haiku-5-5","title_max_tokens":40,"title_ceiling_microusd":3000,"follow_ups_model":"claude-haiku-5-5","follow_ups_max_tokens":160,"follow_ups_ceiling_microusd":9000}'
 select coalesce((select spent_microusd from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),0) as initial_spent \gset
 
 set role service_role;
@@ -48,8 +48,8 @@ select test.assert((select actual_units->>'cache_storage_tokens'='3000' and actu
 select test.assert(not app_private.valid_provider_units('{"cache_storage_tokens":-1}')
  and not app_private.valid_provider_units('{"cache_storage_tokens":"3000"}')
  and not app_private.valid_provider_units('{"prompt_content":1}'),'unit bounds and allowlist still enforced');
-select test.assert((select pricing_snapshot->>'inference_provider'='google-ai-studio' and pricing_snapshot->>'cost_source'='openrouter_final_usage'
- and pricing_snapshot->>'tariff'='openrouter-google-flash-20261016' from app_private.provider_attempts where id=:'D1'),'frozen route and price evidence');
+select test.assert((select pricing_snapshot->>'inference_provider'='google-vertex/us' and pricing_snapshot->>'zdr'='true' and pricing_snapshot->>'cost_source'='openrouter_final_usage'
+ and pricing_snapshot->>'tariff'='openrouter-google-flash-vertex-us-20261017' from app_private.provider_attempts where id=:'D1'),'frozen route and price evidence');
 select test.assert((select count(*)=2 and sum(estimated_microusd)=1367 from app_private.provider_usage_events where operation_id=:'O'),'exactly one cost per attempt, no duplicate summary or retry');
 select test.assert((select spent_microusd=:'initial_spent'::bigint+1367 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),'platform pays actual reported cost');
 -- A lost final bill remains reserved after the failed answer releases customer credits.

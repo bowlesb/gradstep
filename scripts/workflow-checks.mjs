@@ -872,9 +872,18 @@ check('admin.spending-gate', { title: 'Spending evidence requires the caller’s
 
 check('chat.smoke', { title: 'General chat streams an answer and settles', suites: SCHEDULED, timeout: 120, costUSD: 0.005 }, async ({ signal }) => {
   const acct = await account('chat', 200);
-  const r = await chat(acct, { mode: 'general', messages: [{ role: 'user', text: 'Reply with the single word OK.' }] }, { signal });
+  // Follow the published recommendation as an updated app does. The compatibility default deliberately stays
+  // Sonnet; checking only that old route would miss whether the chosen Flash default works for readers.
+  const table = await acct.fn('chat', { method: 'GET', signal });
+  if (table.status !== 200 || table.json?.version !== 'chat-profiles-v1') return fail('published chat profiles unavailable');
+  const profile = table.json.default_recommended ?? table.json.default_auto ?? table.json.default;
+  if (!profile || !table.json.models?.some(m => m.id === profile.model)) return fail('published default is not an offered model');
+  const consent_version = profile.model === 'gemini' ? 'cloud-ai-v5' : profile.model === 'deepseek' ? 'cloud-ai-v4' : CONSENT;
+  const r = await chat(acct, { mode: 'general', consent_version, profile,
+    messages: [{ role: 'user', text: 'Reply with the single word OK.' }] }, { signal });
   if (r.error || !r.done) return fail(`${chatSummary(r)} after ${(r.ms / 1000).toFixed(1)} s`);
   if (!r.answer.trim()) return fail('done without any text');
+  if (!r.done.profile?.startsWith(`${profile.model}-`)) return fail('answer did not use the published recommended model');
   return pass(`${chatSummary(r)} in ${(r.ms / 1000).toFixed(1)} s`, { credits: r.done.credits, total_s: r.ms / 1000 });
 });
 

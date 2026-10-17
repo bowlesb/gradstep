@@ -372,7 +372,7 @@ export interface ProviderOutcome {
   /** The HTTP status of a provider error response (429, 529…), and its Retry-After: what a retry or the reader waits. */
   httpStatus?: number | null;
   /** Fixed diagnostic category only; never the provider's raw error text or submitted content. */
-  rejectionReason?: 'privacy_policy' | 'route_unavailable' | 'authentication' | 'balance' | 'request_parameters' | 'unknown';
+  rejectionReason?: 'privacy_zdr' | 'privacy_policy' | 'route_unavailable' | 'authentication' | 'balance' | 'request_parameters' | 'unknown';
   retryAfterMs?: number | null;
   /** Provider transport request ID for support/reconciliation; never content. */
   requestID?: string | null;

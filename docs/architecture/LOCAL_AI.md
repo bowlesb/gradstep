@@ -1,6 +1,6 @@
 # Local AI prototype
 
-Status: native prototype implemented, 2026-10-17; final acceptance is recorded below. Not in TestFlight.
+Status: native prototype included in TestFlight 68 on iOS and Mac, 2026-10-17. Final acceptance is below.
 The [measured comparison](../reviews/LOCAL_AI_20261017.md) retains failures: no model passed all scientific checks.
 
 Owner request: offer Cloud AI (credits) or Local AI (an explicit model download) for chat, equations and figures.
@@ -94,5 +94,8 @@ for the tested configuration; phone acceptance remains separate.
 - All four local models produced real answers on Mac. Network-denied Qwen4B/Gemma/2B/0.6B checks completed.
   No phone inference, thermals, battery or jetsam acceptance. The qualitative failures are retained in the review.
 
-All logs, result bundles and raw model outputs are under `.artifacts/local-ai/`. The app remains on TestFlight 67;
-this prototype has not been uploaded, and the release import/session gate has not been rerun for an upload.
+All inference logs, result bundles and raw model outputs are under `.artifacts/local-ai/`. The prototype is in
+TestFlight 68 on iOS and Mac, both VALID / IN_BETA_TESTING as of 2026-10-17 15:08 UTC. Release source `12d5552`;
+the source-matching import/session gate passed 13/13 with no skips before upload. Both signed archives contain
+the pinned model catalog and MLX Metal resource, with no downloaded weights. Release evidence is under
+`.artifacts/release-68/`. This is internal beta availability; physical-phone inference remains unverified.

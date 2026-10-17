@@ -27,6 +27,7 @@ async function rejectionReason(response: Response): Promise<NonNullable<Provider
     }
     const error = object(object(JSON.parse(text)).error);
     const message = string(error.message);
+    if (/zero.?data.?retention|\bzdr\b/i.test(message)) return 'privacy_zdr';
     if (/data policy|privacy|zero.?data.?retention|logging|training/i.test(message)) return 'privacy_policy';
     if (/no endpoints|no available provider|model.+not found|unavailable model/i.test(message)) return 'route_unavailable';
     if (response.status === 401 || /api key|authentication|unauthorized/i.test(message)) return 'authentication';
@@ -88,7 +89,7 @@ export function openRouterChatParams(params: Params): ObjectValue {
     max_tokens: params.max_tokens, stream: true, stream_options: { include_usage: true },
     reasoning: { effort: 'medium' }, // The selected, measured configuration; length remains the reader's choice.
     provider: { only: [GEMINI_ENDPOINT], order: [GEMINI_ENDPOINT], allow_fallbacks: false, require_parameters: true,
-      data_collection: 'deny', max_price: { prompt: GEMINI_RATES.input, completion: GEMINI_RATES.output } } };
+      data_collection: 'deny', zdr: true, max_price: { prompt: GEMINI_RATES.input, completion: GEMINI_RATES.output } } };
 }
 
 /** Final cost and token counters must both exist. Thinking is already included in completion_tokens. */

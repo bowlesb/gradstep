@@ -9,6 +9,25 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Local AI build and cloud still broken — 2026-10-17 (TestFlight 68 available)
+
+- Owner requested a build of the local chat/equation/figure prototype. TestFlight 68 is VALID / IN_BETA_TESTING on
+  iOS and Mac as of 15:08 UTC. Model downloads are explicit; no phone acceptance is claimed. The release import/
+  session gate passes 13/13 with no skips; archive contents and prior real Mac MLX inference are verified.
+- Screenshot `ALgpsts9zZmv6PsboQse3BY`, 08:49 UTC, shows OpenVLA reference-add failing with the generic AI-service
+  message. The corresponding 08:48 request and another at 14:32 are Anthropic `provider_billing` rejections. The
+  100,000 app credits do not fund the upstream account; Flash remained hidden despite OpenRouter funding.
+- Fresh Flash diagnosis reproduces a second cause: HTTP 404 for the account's ZDR policy against AI Studio.
+  The fixed, explicitly ZDR-restricted Google Vertex US route passes seven deployed live generations, including
+  the same OpenVLA add path, figure/detail and equation actions. Activation still requires the account logging/
+  data-use check; this item is **not closed as working for ordinary readers**. Build 68/browser now distinguish
+  model-balance failures, preserve the question and avoid an ineffective same-model retry.
+- Additional screenshots at 08:44–08:48 are recorded for follow-up: chat microphone/settings inspiration
+  (`APvKLlmyyygSM6UlVANkQ-Y`), remove “draft saved” (`AHZ7kJjPRjyb0R38c9Ph43k`), and left-align New Chat
+  (`AKs7SR4wVXNI88s6V0BwZ7s`). These are not implemented or claimed fixed in this release.
+
+Evidence: `.artifacts/release-68/` and [current cloud diagnosis](architecture/GEMINI_FLASH_CHAT.md).
+
 ## Login still blocked, 2026-10-17 08:26 UTC — beta access repaired
 
 Owner: “my oath provider? what? … I am not even able to login at all.” The application’s sign-in options are Apple,

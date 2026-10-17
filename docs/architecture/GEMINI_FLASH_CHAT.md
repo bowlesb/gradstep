@@ -1,6 +1,11 @@
 # Gemini Flash chat
 
-## Build 68 follow-up, 2026-10-17 (in progress)
+Current status, 2026-10-17 15:08 UTC: migration 086 and the fixed Google Vertex US route are deployed **hidden**.
+Seven new public-fixture generations pass (paper chat, figure/walkthrough/detail, reference add, equation symbols
+and background). Flash activation still requires the account logging/data-use check. The native rollout is already
+available in TestFlight 68 on iOS and Mac (VALID / IN_BETA_TESTING). Earlier checkpoints below are historical.
+
+## Build 68 follow-up, 2026-10-17
 
 The owner's 14:32 UTC request is a confirmed Anthropic `provider_billing` rejection. The fresh account's allowance
 does not fund upstream inference. At 14:42 UTC OpenRouter still has $10.205283699 available, but Flash is hidden.
@@ -14,6 +19,33 @@ retains the billing cause. OpenRouter rejection diagnostics inspect at most 8 Ki
 status plus a closed category, never the provider's raw body, prompt or credentials. The paid smoke must fail on
 an SSE error, missing `done`, or an empty answer without a usable tool result; HTTP 200 alone is not a pass.
 
+At 14:53 UTC the isolated main-provider request confirms HTTP 404 specifically for **zero data retention**.
+The account-filtered model list still offers Flash, but the pinned AI Studio route cannot satisfy that policy.
+The [OpenRouter ZDR endpoint inventory](https://openrouter.ai/api/v1/endpoints/zdr), read 14:50 UTC, lists
+`google-vertex/us` for this exact model. The [policy documentation](https://openrouter.ai/docs/guides/features/zdr)
+also states that Google's ZDR setting removes AI Studio endpoints. Do not weaken the account setting to recover.
+
+Reviewed route change: pin `google-vertex/us`, explicitly require `zdr: true`, retain data-collection denial,
+fallback denial, response-cache denial and consent v5. Google/OpenRouter remain the named processors. The endpoint
+inventory quotes $0.825/M input, $4.125/M output and $0.0825/M cache read (10% above the previous route), with the
+same $0.50/M token-hour storage. Update both request caps and operation quotes; migration 086 replaces only the
+new-attempt pricing snapshot (route, tariff and rates). Existing attempts and their frozen evidence are unchanged;
+admission, locking, settlement and replay rules are unchanged. No budget increase, new key or automatic failover.
+Focused live acceptance must prove this route before publishing it. The separate OpenRouter logging/data-use
+account check still applies.
+
+The corrected route passes the seven checks above. OpenVLA (2406.09246) is queued through the actual reference-add
+path; the figure boxes/crop were visually reviewed; the equation returns 15 validated symbols. Generation metadata
+names Google and the expected Flash revision. Exact provider cost: **$0.063910955**, rounded ledger cost $0.063915.
+One cancelled Anthropic title during the failed diagnostic retains **$0.000138** unknown liability; it was not
+declared free. The other rejected diagnostic calls cost zero. Public fixtures were deleted, with no reader charge
+for failures. Evidence: `.artifacts/release-68/` (provider audit, logs, database/fast/Core checks, archive checks).
+The $1 rollout cap remains, including the original $0.108191 and the retained liability. No further bake-off.
+
+The routine `chat.smoke` now follows the published recommendation and its named consent, checking the returned
+profile. This avoids testing only the compatibility Sonnet default after a new default is activated. The actual
+published default still omits Flash until activation; this check has not been claimed green on the hidden rollout.
+
 Status 2026-10-17 ~03:39 UTC (Oct 16 PDT): migration 085 and chat are deployed to staging with Flash **hidden**.
 The focused live checks pass after fixing the equation-symbol output budget; **Flash is not the app default yet**.
 TestFlight 64 is VALID / IN_BETA_TESTING on iOS and Mac; browser `d3b06988`, admin `04ecd963` and privacy site
@@ -22,7 +54,7 @@ The existing $100/month budget stands. Public release and physical-phone testing
 
 ## Route and request
 
-Working choice: OpenRouter Standard, model `google/gemini-3.8-flash`, endpoint `google-ai-studio`, with fallback
+Working choice: OpenRouter Standard, model `google/gemini-3.8-flash`, endpoint `google-vertex/us`, with fallback
 disabled and required-parameter enforcement. The owner may instead choose direct Google; that needs a dedicated
 paid Google credential. OpenRouter is an additional processor and billed vendor, Google the inference provider.
 Use a dedicated Science Reader staging service key. On 2026-10-17 the owner funded another $10 and asked to use it
@@ -75,8 +107,10 @@ existing validator; no other validation or limit changes. Final `usage.cost` inc
 platform fee; [minimum fee](https://openrouter.ai/blog/tutorials/any-coding-agent/) **$0.80**. $25 credit therefore
 costs $26.375 before rounding/tax. Inference uses provider list prices. Top-up fees are platform overhead, recorded
 separately from inference and not added again to `usage.cost`. No top-up has been made by this integration.
-[Google prices](https://ai.google.dev/gemini-api/docs/pricing): through 2026-12-31, Flash input/output/cache-read
-are $0.75/$3.75/$0.075 per million tokens; explicit storage $0.50/M token-hours. These double on 2027-01-01.
+[Google prices](https://ai.google.dev/gemini-api/docs/pricing): the earlier global card through 2026-12-31 is
+$0.75/$3.75/$0.075 per million input/output/cache-read tokens. The current US Vertex endpoint is 10% higher:
+$0.825/$4.125/$0.0825; explicit storage remains $0.50/M token-hours. The card expires on 2027-01-01 and fails closed
+pending review; it never silently adopts the scheduled increase.
 
 Pinning prevents silent provider switching but sacrifices alternate-provider failover. OpenRouter adds a network
 hop and availability dependency. Content logging and data-use opt-ins must be checked on the service account;
