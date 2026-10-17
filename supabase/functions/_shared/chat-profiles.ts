@@ -11,8 +11,10 @@
 // ids and read the first 64 profiles, so the 27 profiles they know stay first and unchanged.
 import { CHAT_EFFORT, CHAT_MAX_TOKENS, CHAT_MODEL, creditsFor, MICROUSD_PER_CREDIT, RATE_VERSION, ratesFor, TARIFF } from './anthropic.ts';
 
+import { GEMINI_MODEL } from './gemini-pricing.ts';
+
 export const PROFILE_VERSION = 'chat-profiles-v1';
-export type ModelChoice = 'haiku' | 'sonnet' | 'opus' | 'deepseek';
+export type ModelChoice = 'haiku' | 'sonnet' | 'opus' | 'deepseek' | 'gemini';
 export type EffortChoice = 'low' | 'medium' | 'high';
 /** What a request may name: an effort, or `auto` (the server picks one for each question, `autoEffort`). */
 export type EffortRequest = EffortChoice | 'auto';
@@ -21,10 +23,11 @@ export type LengthChoice = 'brief' | 'standard' | 'detailed';
 export interface Choice { model: ModelChoice; effort: EffortChoice; length: LengthChoice }
 /** A request's choice as sent: its effort may still be `auto`. */
 export interface RequestedChoice { model: ModelChoice; effort: EffortRequest; length: LengthChoice }
-export type ChatProvider = 'anthropic' | 'deepseek';
+export type ChatProvider = 'anthropic' | 'deepseek' | 'openrouter';
 
 /** The consent version that names DeepSeek as the processor when the reader chooses it (chat.ts CONSENT_VERSIONS). */
 export const DEEPSEEK_CONSENT_VERSION = 'cloud-ai-v4';
+export const GEMINI_CONSENT_VERSION = 'cloud-ai-v5';
 
 interface ModelEntry { id: ModelChoice; label: string; detail: string; apiModel: string; fallbacks: boolean; provider: ChatProvider }
 interface EffortEntry { id: EffortChoice; label: string; detail: string; thinkingTokens: number }
@@ -36,10 +39,11 @@ interface LengthEntry { id: LengthChoice; label: string; detail: string; answerT
 // 1M context; its Anthropic-compatible endpoint accepted adaptive thinking, `output_config.effort` and a one-hour
 // `cache_control` block in a live probe (CHAT.md "DeepSeek in chat"); no fallback models. Prices: anthropic.ts.
 export const MODELS: readonly ModelEntry[] = Object.freeze([
-  { id: 'haiku', label: 'Haiku', detail: 'Fastest and cheapest', apiModel: 'claude-haiku-5-5', fallbacks: false, provider: 'anthropic' },
+  { id: 'haiku', label: 'Haiku', detail: 'Quick, economical explanations', apiModel: 'claude-haiku-5-5', fallbacks: false, provider: 'anthropic' },
   { id: 'sonnet', label: 'Sonnet', detail: 'Strong answers at a moderate cost', apiModel: CHAT_MODEL, fallbacks: true, provider: 'anthropic' },
   { id: 'opus', label: 'Opus', detail: 'Most capable; costs the most', apiModel: 'claude-opus-5-5', fallbacks: true, provider: 'anthropic' },
   { id: 'deepseek', label: 'DeepSeek', detail: 'Low cost; processed by DeepSeek', apiModel: 'deepseek-flash', fallbacks: false, provider: 'deepseek' },
+  { id: 'gemini', label: 'Gemini Flash', detail: 'Recommended for paper questions; lower cost', apiModel: GEMINI_MODEL, fallbacks: false, provider: 'openrouter' },
 ]);
 // Effort maps one to one onto the API's `output_config.effort`, with adaptive thinking on every model. The thinking
 // allowance is added to the length's answer allowance: max_tokens covers thinking and the answer together.
@@ -83,7 +87,7 @@ const length = (id: LengthChoice) => LENGTHS.find(entry => entry.id === id)!;
 
 /** The provider that serves an API model (an Anthropic model unless it is one of DeepSeek's). */
 export function providerForModel(apiModel: string): ChatProvider {
-  return apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
+  return apiModel === GEMINI_MODEL ? 'openrouter' : apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
 }
 
 export function isDefaultChoice(choice: RequestedChoice): boolean {
@@ -172,7 +176,7 @@ export function autoEffort(lengthID: LengthChoice, signals: EffortSignals): Effo
 /** A request's choice with `auto` resolved (null stays null: the default profile). */
 export function resolveChoice(requested: RequestedChoice | null, signals: EffortSignals): Choice | null {
   if (!requested) return null;
-  const chosen = requested.effort === 'auto' ? autoEffort(requested.length, signals) : requested.effort;
+  const chosen = requested.model === 'gemini' ? 'medium' : requested.effort === 'auto' ? autoEffort(requested.length, signals) : requested.effort;
   return { model: requested.model, effort: chosen, length: requested.length };
 }
 
@@ -201,23 +205,25 @@ export function estimateCredits(profile: ChatProfile): ProfileEstimate {
 export interface PublishOptions {
   /** DeepSeek is offered (CHAT_DEEPSEEK=on with a key); off or `hidden` (accepted for checks, not shown) leaves it out. */
   deepseek: boolean;
+  /** Off/hidden until consent, accounting and the deployed adapter are verified. */
+  gemini?: boolean;
 }
 
 /** `GET functions/v1/chat`: the table clients display. Versioned; clients send only `{model, effort, length}`.
  * Additive since 2026-10-16: the 27 Claude profiles first and unchanged (old builds read only the first 64 and skip
  * what they do not know), then DeepSeek's nine, then the `auto` profiles; `efforts` lists `auto` last; models carry
- * their `provider` (and DeepSeek its `consent_version`); `default_auto` is what new clients start with. */
+ * their `provider` and required consent. Flash's profiles are appended; updated clients prefer `default_recommended`. */
 export function publishedProfiles(options: PublishOptions = { deepseek: false }) {
-  const models = MODELS.filter(m => m.provider !== 'deepseek' || options.deepseek);
-  const explicit = (list: readonly ModelEntry[]) => list.flatMap(m => EFFORTS.flatMap(e => LENGTHS.map(l => {
+  const models = MODELS.filter(m => (m.provider !== 'deepseek' || options.deepseek) && (m.provider !== 'openrouter' || options.gemini));
+  const explicit = (list: readonly ModelEntry[]) => list.flatMap(m => EFFORTS.filter(e => m.id !== 'gemini' || e.id === 'medium').flatMap(e => LENGTHS.map(l => {
     const profile = resolveProfile({ model: m.id, effort: e.id, length: l.id });
     return { id: profile.id, model: m.id, effort: e.id as EffortRequest, length: l.id, api_model: profile.apiModel,
       max_output_tokens: profile.maxTokens, credits: estimateCredits(profile) };
   })));
   // An `auto` profile: the estimate of the effort usually picked for its length, the maximum of the highest it can pick.
   const auto = models.flatMap(m => LENGTHS.map(l => {
-    const usual = resolveProfile({ model: m.id, effort: AUTO_EFFORTS[l.id].usual, length: l.id });
-    const highest = resolveProfile({ model: m.id, effort: AUTO_EFFORTS[l.id].highest, length: l.id });
+    const usual = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].usual, length: l.id });
+    const highest = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].highest, length: l.id });
     const typical = estimateCredits(usual), most = estimateCredits(highest);
     return { id: `${m.id}-auto-${l.id}`, model: m.id, effort: AUTO_EFFORT.id as EffortRequest, length: l.id, api_model: highest.apiModel,
       max_output_tokens: highest.maxTokens, credits: { low: typical.low, high: typical.high, max: most.max } };
@@ -226,11 +232,12 @@ export function publishedProfiles(options: PublishOptions = { deepseek: false })
     version: PROFILE_VERSION, rate_version: RATE_VERSION, tariff: TARIFF, microusd_per_credit: MICROUSD_PER_CREDIT,
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
+    ...(options.gemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
     models: models.map(m => ({ id: m.id, label: m.label, detail: m.detail, api_model: m.apiModel, provider: m.provider,
-      ...(m.provider === 'deepseek' ? { consent_version: DEEPSEEK_CONSENT_VERSION } : {}) })),
+      ...(m.provider === 'deepseek' ? { consent_version: DEEPSEEK_CONSENT_VERSION } : m.provider === 'openrouter' ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
     efforts: [...EFFORTS.map(e => ({ id: e.id as EffortRequest, label: e.label, detail: e.detail })), { ...AUTO_EFFORT }],
     lengths: LENGTHS.map(l => ({ id: l.id, label: l.label, detail: l.detail })),
-    profiles: [...explicit(models.filter(m => m.provider === 'anthropic')), ...explicit(models.filter(m => m.provider === 'deepseek')), ...auto],
+    profiles: [...explicit(models.filter(m => m.provider === 'anthropic')), ...explicit(models.filter(m => m.provider === 'deepseek')), ...auto.filter(p => p.model !== 'gemini'), ...explicit(models.filter(m => m.provider === 'openrouter')), ...auto.filter(p => p.model === 'gemini')],
     estimate_note: 'For a question about a typical 25-page paper. Web searches add about 2 credits each.',
   };
 }

@@ -1,6 +1,15 @@
 # Agent handoff
 
-**Current takeover checkpoint, 2026-10-16:** Codex recovered the active Claude session after its weekly quota
+**Current work, 2026-10-17 ~00:14 UTC (Oct 16 PDT):** Owner selected **Gemini 3.8 Flash** as the next chat default.
+The OpenRouter → Google integration, pending migration 085, consent v5 and compatible native/browser default
+selection are built and locally verified. Read [Gemini Flash chat](architecture/GEMINI_FLASH_CHAT.md) for exact
+evidence and the activation sequence. **Nothing in this integration has been deployed; Sonnet remains the deployed
+default.** `infra/staging.json` keeps `chat_gemini: "off"`. OpenRouter still has about $0.31 remaining; dedicated
+`OPENROUTER_CHAT_API_KEY` is absent. Funding/app key requested; optional OpenRouter-versus-direct-Google preference
+also pending (OpenRouter is the stated working choice). No new inference spend or paid watcher. Complete the live
+checks and client rollout when credentials/funding arrive; don't restart the broad model comparison.
+
+**Release checkpoint, 2026-10-16:** Codex recovered the active Claude session after its weekly quota
 ran out. The build-62 feedback branches are merged and verified on main (`505d661` client source). Browser
 Pages **`836089d4`** is live and its assets verified. **TestFlight 63 iOS and Mac are VALID / IN_BETA_TESTING**,
 confirmed at **20:05 UTC**. See the

@@ -425,12 +425,20 @@ final class ReaderModel {
     /// Answer options (the chat's ⋯ menu, chat redesign 2026-10-16): shown over the chat.
     var showAnswerOptions = false
     /// Settings › AI chat options: what a new chat starts with (this device only).
-    var chatDefaultProfile: ChatProfileChoice = ReaderModel.storedChatDefault() {
-        didSet { UserDefaults.standard.set(chatDefaultProfile.id, forKey: Self.chatDefaultKey) }
+    private var savedChatDefaultProfile: ChatProfileChoice? = ReaderModel.storedChatDefault()
+    var chatDefaultProfile: ChatProfileChoice {
+        get {
+            if let savedChatDefaultProfile { return savedChatDefaultProfile }
+            return chatProfileTable?.defaultChoice ?? .standard
+        }
+        set {
+            savedChatDefaultProfile = newValue
+            UserDefaults.standard.set(newValue.id, forKey: Self.chatDefaultKey)
+        }
     }
     private static let chatDefaultKey = "chat.defaultProfile"
-    private static func storedChatDefault() -> ChatProfileChoice {
-        UserDefaults.standard.string(forKey: chatDefaultKey).flatMap(ChatProfileChoice.init(id:)) ?? .standard
+    private static func storedChatDefault() -> ChatProfileChoice? {
+        UserDefaults.standard.string(forKey: chatDefaultKey).flatMap(ChatProfileChoice.init(id:))
     }
     /// A choice made in a chat's control and not yet used, per composer; once an answer carries it, the conversation's
     /// newest answer remembers it (encrypted, on every device).

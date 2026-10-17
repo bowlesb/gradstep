@@ -225,3 +225,33 @@ test('a saved question retains its settings through lost acknowledgement and rel
   expect(actual.requests[0].profile).toEqual({ model: 'opus', effort: 'auto', length: 'detailed' });
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('A later draft must survive');
 });
+
+
+test('Flash is the new default after named consent; explicit Sonnet is preserved', async ({ page, request }, info) => {
+  test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
+  await request.post(`${API}/__chat-fixture`, { data: { labels: true, profiles: 'gemini' } });
+  await login(page);
+  let options = await answerOptions(page, 'Gemini Flash · Standard');
+  await expect(options.getByRole('radio', { name: 'Gemini Flash', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.screenshot({ path: `${SHOTS}/${info.project.name}-gemini-options.png` });
+  await options.getByRole('button', { name: 'Close', exact: true }).click();
+  await send(page, 'Explain the method.');
+  const consent = page.getByRole('dialog', { name: 'Cloud AI answers' });
+  await expect(consent).toContainText('Google through OpenRouter');
+  await expect(consent).toContainText('Anthropic still writes');
+  expect((await evidence(request)).requests).toHaveLength(0);
+  await page.screenshot({ path: `${SHOTS}/${info.project.name}-gemini-consent.png` });
+  await consent.getByRole('button', { name: 'Allow and get answer' }).click();
+  await expect.poll(async () => (await evidence(request)).requests.length).toBe(1);
+  const first = (await evidence(request)).requests[0];
+  expect(first.consent_version).toBe('cloud-ai-v5');
+  expect(first.profile).toEqual({ model: 'gemini', effort: 'auto', length: 'standard' });
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
+  await expect(page.locator('[data-testid="answer-by"]').last()).toContainText('Gemini Flash');
+  options = await answerOptions(page);
+  await options.getByRole('radio', { name: 'Sonnet', exact: true }).click();
+  await options.getByRole('button', { name: 'Close', exact: true }).click();
+  await send(page, 'What are its limitations?');
+  await expect.poll(async () => (await evidence(request)).requests.length).toBe(2);
+  expect((await evidence(request)).requests[1].profile.model).toBe('sonnet');
+});

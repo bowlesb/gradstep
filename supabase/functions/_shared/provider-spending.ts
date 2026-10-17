@@ -70,8 +70,8 @@ function unavailable(): ProviderOutcome {
 
 /** Each model round, including pause_turn continuations, has its own grant. Anthropic-shaped requests only: Claude
  * models are admitted as provider `anthropic`, `deepseek-*` (DeepSeek's Anthropic-compatible API, chat since
- * 2026-10-16) as `deepseek` (migration 078 admits `deepseek-flash` on the chat route), with one ordinal sequence per
- * operation across both so every attempt keeps a distinct identity. */
+ * 2026-10-16) as `deepseek`, and Gemini via OpenRouter as `openrouter` (migration 085). One ordinal sequence per
+ * operation across providers keeps every attempt's identity distinct. */
 export function admittedAnthropic(deps: SpendingDependencies,
   generate: (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) {
   let ordinal = 0;
@@ -97,13 +97,15 @@ export function admittedAnthropic(deps: SpendingDependencies,
       await finish(deps, attempt.id, 'unknown', null, null, {}, 'transport_unknown');
       return { ...unavailable(), exact: false, cause: 'server' };
     }
-    const units = outcome.attempts.reduce((sum, item) => ({
+    const units: Units = outcome.attempts.reduce((sum, item) => ({
       input_tokens: sum.input_tokens + item.usage.input,
       cache_write_5m_tokens: sum.cache_write_5m_tokens + item.usage.cacheWrite5m,
       cache_write_1h_tokens: sum.cache_write_1h_tokens + item.usage.cacheWrite1h,
       cache_read_tokens: sum.cache_read_tokens + item.usage.cacheRead,
       output_tokens: sum.output_tokens + item.usage.output,
     }), { input_tokens: 0, cache_write_5m_tokens: 0, cache_write_1h_tokens: 0, cache_read_tokens: 0, output_tokens: 0 });
+    const storage = outcome.attempts.reduce((sum, item) => sum + (item.cacheStorageTokens ?? 0), 0);
+    if (storage) units.cache_storage_tokens = storage;
     const cost = Math.ceil(priceAttempts(outcome.attempts) + (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD);
     const state: State = !outcome.exact ? 'unknown' : outcome.attempts.length ? 'succeeded' : 'rejected';
     const recorded = await finish(deps, attempt.id, state, outcome.requestID ?? outcome.messageID, state === 'unknown' ? null : cost,

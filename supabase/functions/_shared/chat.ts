@@ -7,7 +7,7 @@ import {
   webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF, DEEPSEEK_TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
-import { DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, providerForModel, resolveChoice, resolveProfile,
+import { GEMINI_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, providerForModel, resolveChoice, resolveProfile,
   type ChatProfile, type RequestedChoice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
@@ -18,6 +18,7 @@ import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figu
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
 import { FIGURE_DETAIL_INSTRUCTIONS, FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureDetail, figureDetailMaxTokens,
   figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes, isFigureAction, type FigureDetail, type FigureWalkthrough } from './chat-figure-view.ts';
+import { GEMINI_TARIFF } from './gemini-pricing.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** The consent text the reader accepted. v2 names Tavily as a search provider;
@@ -25,15 +26,15 @@ import type Anthropic from '@anthropic-ai/sdk';
 export const CONSENT_VERSION = 'cloud-ai-v2';
 /** v3 (2026-10-15) also names the figure a question is about: only v3 (and later) requests may carry figure images. */
 export const FIGURE_CONSENT_VERSION = 'cloud-ai-v3';
-/** v4 (2026-10-16) is v3 plus DeepSeek, named as the processor when the reader chooses it: only v4 may choose DeepSeek. */
+/** v4 (2026-10-16) is v3 plus DeepSeek, named as the processor when the reader chooses it: v4 or later is required. */
 export { DEEPSEEK_CONSENT_VERSION };
-export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION];
+export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, GEMINI_CONSENT_VERSION];
 /** v2 and later name Tavily; v1 (builds up to TestFlight 11) names only Anthropic's search. */
-const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION;
-/** v3 and v4 name the figure a question is about. */
-export const namesFigures = (version: string) => version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION;
-/** Only v4 names DeepSeek. */
-export const namesDeepSeek = (version: string) => version === DEEPSEEK_CONSENT_VERSION;
+const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION;
+/** v3 and later name the figure a question is about. */
+export const namesFigures = (version: string) => version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION;
+/** v4 and later name DeepSeek. */
+export const namesDeepSeek = (version: string) => version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION;
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_TURNS = 60;
 export const MAX_MESSAGE_BYTES = 200_000;
@@ -220,7 +221,8 @@ export function validateChatRequest(input: unknown): ChatRequest {
   try { choice = parseChoice(body.profile); } catch { invalid(); }
   // The default profile, named or not, is the same request (and the same digest). `auto` is its own request.
   if (choice && isDefaultChoice(choice)) choice = null;
-  // DeepSeek processes the request only when the reader's consent names it (v4).
+  // Each provider processes the request only when the reader's consent names it.
+  if (choice?.model === 'gemini' && consentVersion !== GEMINI_CONSENT_VERSION) throw new ChatFailure('consent_required');
   if (choice?.model === 'deepseek' && !namesDeepSeek(consentVersion)) throw new ChatFailure('consent_required');
   if (body.topic_title !== undefined && body.topic_title !== null && typeof body.topic_title !== 'boolean') invalid();
   const topicTitle = body.topic_title === true;
@@ -531,6 +533,7 @@ export interface ChatDependencies {
   generate: ((params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) | null;
   /** DeepSeek may answer (CHAT_DEEPSEEK on or hidden, with a key). Off, a DeepSeek choice is `invalid_request`. */
   deepseek?: boolean;
+  gemini?: boolean;
   sha256Hex(bytes: Uint8Array): Promise<string>;
   log(entry: LogEntry): void;
   now?: () => number;
@@ -613,6 +616,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
+  if (profile.provider === 'openrouter' && deps.gemini !== true) throw new ChatFailure('invalid_request');
   if (profile.provider === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
   const tavily = await tavilyReady === true;
   // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
@@ -1006,11 +1010,10 @@ export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rat
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
   maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null): Record<string, string | number | null> {
-  // The tariff of the answering model's prices: DeepSeek's peak list prices for a DeepSeek answer (its title and
-  // suggestions stay on Claude Haiku, held at Anthropic's card), Anthropic's otherwise.
+  // The answering model's tariff; companion titles and suggestions stay on Claude Haiku at Anthropic's card.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
-    tariff: providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
+    tariff: profile.provider === 'openrouter' ? GEMINI_TARIFF : providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
@@ -1252,14 +1255,15 @@ async function recordSearchUsage(deps: ChatDependencies, operationID: string, st
 /** The operation's usage summary under the answering provider. Each admitted attempt already wrote its own usage row
  * (`attempt:<id>`, under its own provider: a DeepSeek answer's Haiku title is an Anthropic row), so the database keeps
  * this summary only for operations without attempts (migration 034; DeepSeek since migration 078). */
-async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number, provider: 'anthropic' | 'deepseek' = 'anthropic') {
+async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number, provider: 'anthropic' | 'deepseek' | 'openrouter' = 'anthropic') {
   if (!outcome.attempts.length) return;
   const units = {
     estimated: !outcome.exact, stop_reason: outcome.stopReason, refusal_category: outcome.refusalCategory, failure: outcome.failure,
     web_searches: outcome.webSearches ?? 0,
     attempts: outcome.attempts.map(attempt => ({ model: attempt.model, estimated: attempt.estimated, input_tokens: attempt.usage.input,
       cache_write_5m_tokens: attempt.usage.cacheWrite5m, cache_write_1h_tokens: attempt.usage.cacheWrite1h,
-      cache_read_tokens: attempt.usage.cacheRead, output_tokens: attempt.usage.output })),
+      cache_read_tokens: attempt.usage.cacheRead, output_tokens: attempt.usage.output,
+      ...(attempt.cacheStorageTokens ? { cache_storage_tokens: attempt.cacheStorageTokens } : {}) })),
   };
   try {
     await deps.rpc('worker_record_provider_usage', {

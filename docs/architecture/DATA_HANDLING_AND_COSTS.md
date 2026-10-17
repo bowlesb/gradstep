@@ -1,5 +1,10 @@
 # Data handling and cost explanation
 
+2026-10-16 selected chat update, **local implementation only**: Gemini Flash through OpenRouter and Google,
+with consent `cloud-ai-v5` naming both processors. Anthropic still produces titles and follow-up suggestions;
+existing Claude and DeepSeek choices remain available. This introduces no server PDF processing or plaintext
+history storage. [Route, accounting and rollout status](GEMINI_FLASH_CHAT.md). Sonnet remains the deployed default.
+
 2026-10-13 verified staging direction: every PDF is downloaded/processed only on the device,
 initial structured preparation uses arXiv HTML without an OCR charge, and a future local model has no Mathpix
 fallback. Explicit paper chat still sends necessary text to cloud AI under the existing consent and metering.

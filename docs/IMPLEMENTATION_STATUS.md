@@ -2,6 +2,25 @@
 
 Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
+## Gemini Flash selected; integration verified locally — 2026-10-17 ~00:14 UTC (Oct 16 PDT)
+
+Owner: “lets move ahead with Flash.” Gemini 3.8 Flash at the tested medium effort is implemented through OpenRouter,
+pinned to Google with no provider fallback. The backend preserves cacheable paper context, tools/figures/reasoning
+signatures, actual reported cost, durable attempt admission and unknown liabilities. Pending migration 085 admits
+only that route/model and deduplicates its spend; the tariff expires before Google's January price increase.
+Updated Apple/browser clients understand Flash and consent v5; a recommended-default field leaves builds 57–63
+compatible, and explicit saved choices remain respected. Admin names OpenRouter separately from direct Google voices.
+
+Verification: `npm test` (645 backend, 469 browser units), Deno, browser/admin builds; fresh local DB migration and
+four affected accounting suites; 26 Core tests; ten iPhone 17 Pro Simulator profile/visual/figure tests; desktop/phone
+Flash consent/send journeys 2/2 with screenshots reviewed. Physical phone remains paused. No new paid inference.
+
+**Not deployed; Sonnet still serves the default.** `chat_gemini` is off. OpenRouter has $10 funded, $9.686530368 used,
+about $0.31 remaining, and no dedicated `OPENROUTER_CHAT_API_KEY` locally. Funding/key requested asynchronously.
+Next: funded key/privacy settings, migration 085 and hidden staging adapter, bounded live chat/figure/equation
+checks with ledger readback, then browser/TestFlight rollout. [Design and evidence](architecture/GEMINI_FLASH_CHAT.md).
+The prior comparison's ungraded questions do not imply another broad research run after the owner's selection.
+
 ## Model finalist extension — 2026-10-16, ~23:15 UTC, responses complete; review partial
 
 Haiku medium, Gemini Flash medium and Luna high now each have 27 attempted questions. The 45 new requests all

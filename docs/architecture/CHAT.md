@@ -1,5 +1,10 @@
 # Paid AI chat
 
+2026-10-16 owner decision after the comparison: **Gemini 3.8 Flash is selected as the next default**. The
+[OpenRouter → Google integration](GEMINI_FLASH_CHAT.md) is built and verified locally, with consent v5,
+old-client compatibility and server accounting. It remains disabled; Sonnet is the deployed default. Activation
+awaits funded app credentials and the focused staging checks. The dated model research below is historical.
+
 2026-10-13 direction: preserve all paper/general-chat interactions while adding a versioned local-context route
 for [HTML-first papers](HTML_FIRST_READER.md#paper-chat-and-other-derived-work). Its bounded text/TeX snapshot comes
 from the device's verified bundle; no PDF, server MMD object or fabricated document identity is required. Account

@@ -12,7 +12,7 @@
 // arXiv, so every `arxiv` row is an attempt the egress guard refused (outcome `rejected`, which never moves a breaker),
 // or one it let through in report mode. The hosted check `egress.no-arxiv` and the Health tab require none.
 
-export const PROVIDERS = ['anthropic', 'deepseek', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface', 'arxiv'] as const;
+export const PROVIDERS = ['anthropic', 'deepseek', 'openrouter', 'google', 'tavily', 'crossref', 'datacite', 'openalex', 'huggingface', 'arxiv'] as const;
 export type ProviderName = typeof PROVIDERS[number];
 export type HealthOutcome = 'ok' | 'throttled' | 'overloaded' | 'server_error' | 'timeout' | 'transport' | 'rejected' | 'breaker_open';
 /** `midstream` and `slow` (2026-10-16, migration 079) are streamed answers in the Messages API format (Anthropic and
@@ -32,7 +32,7 @@ export type FaultSource = (account: string) => Promise<ActiveFault[]>;
 /** Hosts we call, by provider, and arXiv (counted, never called). A host not listed passes through untouched (our own
  * database, storage). */
 const HOSTS: [string, ProviderName][] = [
-  ['api.anthropic.com', 'anthropic'], ['api.deepseek.com', 'deepseek'], ['aiplatform.googleapis.com', 'google'],
+  ['openrouter.ai', 'openrouter'], ['api.anthropic.com', 'anthropic'], ['api.deepseek.com', 'deepseek'], ['aiplatform.googleapis.com', 'google'],
   ['api.tavily.com', 'tavily'], ['api.crossref.org', 'crossref'], ['api.datacite.org', 'datacite'],
   ['api.openalex.org', 'openalex'], ['huggingface.co', 'huggingface'], ['arxiv.org', 'arxiv'], // egress-ok: parse
 ];

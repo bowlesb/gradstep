@@ -6,7 +6,7 @@ import Foundation
 /// the server's estimates. Contract: docs/architecture/CHAT.md#models-effort-and-length.
 public struct ChatProfileChoice: Codable, Equatable, Hashable, Sendable {
     /// `deepseek` (chat redesign 2026-10-16): DeepSeek V4.1 Flash, offered only when the server's table lists it.
-    public enum Model: String, Codable, CaseIterable, Sendable { case haiku, sonnet, opus, deepseek }
+    public enum Model: String, Codable, CaseIterable, Sendable { case haiku, sonnet, opus, deepseek, gemini }
     /// `auto` (chat redesign 2026-10-16): the server picks low, medium or high for each question. The reader no longer
     /// chooses effort; older builds' explicit efforts stay valid.
     public enum Effort: String, Codable, CaseIterable, Sendable { case low, medium, high, auto }
@@ -35,17 +35,18 @@ public struct ChatProfileChoice: Codable, Equatable, Hashable, Sendable {
 
 public extension ChatProfileChoice.Model {
     /// Built-in names, used until (or when) the server's table is unavailable.
-    var label: String { switch self { case .haiku: "Haiku"; case .sonnet: "Sonnet"; case .opus: "Opus"; case .deepseek: "DeepSeek" } }
+    var label: String { switch self { case .haiku: "Haiku"; case .sonnet: "Sonnet"; case .opus: "Opus"; case .deepseek: "DeepSeek"; case .gemini: "Gemini Flash" } }
     var detail: String {
         switch self {
-        case .haiku: "Fastest and cheapest"
+        case .haiku: "Quick, economical explanations"
         case .sonnet: "Strong answers at a moderate cost"
         case .opus: "Most capable; costs the most"
         case .deepseek: "Low cost; processed by DeepSeek"
+        case .gemini: "Recommended for paper questions; lower cost"
         }
     }
     /// Who processes a question asked with this model (Settings › AI chat options).
-    var processor: String { self == .deepseek ? "DeepSeek" : "Anthropic" }
+    var processor: String { self == .gemini ? "Google through OpenRouter" : self == .deepseek ? "DeepSeek" : "Anthropic" }
 }
 public extension ChatProfileChoice.Effort {
     var label: String { switch self { case .low: "Low"; case .medium: "Medium"; case .high: "High"; case .auto: "Automatic" } }
@@ -99,11 +100,12 @@ public struct ChatProfileTable: Equatable, Sendable {
     public static func decode(_ data: Data) -> ChatProfileTable? {
         guard data.count <= 64 * 1024 else { return nil }
         struct Wire: Decodable {
-            struct Named: Decodable { let id: String; let label: String; let detail: String? }
+            struct Named: Decodable { let id: String; let label: String; let detail: String?; let consent_version: String?; let provider: String? }
             struct Profile: Decodable { let model: String; let effort: String; let length: String; let credits: Estimate }
             struct Choice: Decodable { let model: String; let effort: String; let length: String }
             let version: String
             let `default`: Choice
+            let default_recommended: Choice?
             let models: [Named]?
             let efforts: [Named]?
             let lengths: [Named]?
@@ -126,16 +128,24 @@ public struct ChatProfileTable: Equatable, Sendable {
             }
             return result
         }
+        let geminiUsable = wire.models?.contains { $0.id == "gemini" && $0.consent_version == "cloud-ai-v5" && $0.provider == "openrouter" } == true
         var estimates: [ChatProfileChoice: Estimate] = [:]
         for profile in wire.profiles.prefix(64) {
             guard let m = ChatProfileChoice.Model(rawValue: profile.model), let e = ChatProfileChoice.Effort(rawValue: profile.effort),
                   let l = ChatProfileChoice.Length(rawValue: profile.length), profile.credits.low >= 0,
                   profile.credits.low <= profile.credits.high, profile.credits.high <= profile.credits.max, profile.credits.max < 1_000_000 else { continue }
+            guard m != .gemini || geminiUsable else { continue }
             estimates[ChatProfileChoice(model: m, effort: e, length: l)] = profile.credits
         }
-        let defaultChoice = ChatProfileChoice(model: model, effort: effort, length: length)
+        var defaultChoice = ChatProfileChoice(model: model, effort: effort, length: length)
         guard estimates[defaultChoice] != nil else { return nil }
-        return ChatProfileTable(version: wire.version, defaultChoice: defaultChoice, models: options(wire.models, ChatProfileChoice.Model.self),
+        if let recommended = wire.default_recommended, let m = ChatProfileChoice.Model(rawValue: recommended.model),
+           let e = ChatProfileChoice.Effort(rawValue: recommended.effort), let l = ChatProfileChoice.Length(rawValue: recommended.length) {
+            let choice = ChatProfileChoice(model: m, effort: e, length: l)
+            if estimates[choice] != nil { defaultChoice = choice }
+        }
+        let models = options(wire.models, ChatProfileChoice.Model.self).filter { $0.key != .gemini || geminiUsable }
+        return ChatProfileTable(version: wire.version, defaultChoice: defaultChoice, models: models,
             efforts: options(wire.efforts, ChatProfileChoice.Effort.self), lengths: options(wire.lengths, ChatProfileChoice.Length.self),
             estimates: estimates, note: wire.estimate_note.flatMap { text($0, 200) })
     }
@@ -164,7 +174,7 @@ public struct ChatProfileTable: Equatable, Sendable {
     }
     /// The estimate shown for a model and length: the automatic effort's when offered, else low effort's.
     public func estimate(model: ChatProfileChoice.Model, length: ChatProfileChoice.Length) -> Estimate? {
-        estimates[ChatProfileChoice(model: model, effort: .auto, length: length)] ?? estimates[ChatProfileChoice(model: model, effort: .low, length: length)]
+        estimates[ChatProfileChoice(model: model, effort: .auto, length: length)] ?? estimates[ChatProfileChoice(model: model, effort: .low, length: length)] ?? estimates[ChatProfileChoice(model: model, effort: .medium, length: length)]
     }
 
     /// "Usually 4–24 credits · up to 37", "About 1 credit · up to 2"; nil when the server doesn't offer the choice.
@@ -202,12 +212,13 @@ public enum ChatProfileText {
 
     /// The API model each choice asks for (chat-profiles-v1).
     public static func apiModel(for model: ChatProfileChoice.Model) -> String {
-        switch model { case .haiku: "claude-haiku-5-5"; case .sonnet: "claude-sonnet-5-5"; case .opus: "claude-opus-5-5"; case .deepseek: "deepseek-flash" }
+        switch model { case .haiku: "claude-haiku-5-5"; case .sonnet: "claude-sonnet-5-5"; case .opus: "claude-opus-5-5"; case .deepseek: "deepseek-flash"; case .gemini: "gemini-3.8-flash" }
     }
 
     /// "claude-sonnet-5" → "Claude Sonnet 5"; anything unexpected is shown bounded, as sent.
     public static func modelName(_ id: String) -> String {
         let trimmed = String(id.prefix(64))
+        if trimmed == "gemini-3.8-flash" { return "Gemini 3.8 Flash" }
         if trimmed.hasPrefix("deepseek-") { return trimmed == "deepseek-flash" ? "DeepSeek V4.1 Flash" : "DeepSeek" }
         guard trimmed.hasPrefix("claude-") else { return trimmed }
         let words = trimmed.dropFirst("claude-".count).split(separator: "-").map(String.init)

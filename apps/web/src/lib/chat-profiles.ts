@@ -6,7 +6,7 @@
 // `effort: "auto"` and the server picks the effort per question.
 import { functionGet } from './backend';
 
-export type ModelChoice = 'haiku' | 'sonnet' | 'opus' | 'deepseek';
+export type ModelChoice = 'haiku' | 'sonnet' | 'opus' | 'deepseek' | 'gemini';
 export type EffortChoice = 'low' | 'medium' | 'high';
 export type LengthChoice = 'brief' | 'standard' | 'detailed';
 /** A stored choice (a chat's, this browser's default, a saved question's): always a concrete effort, so journals and
@@ -16,7 +16,7 @@ export interface ProfileChoice { model: ModelChoice; effort: EffortChoice; lengt
 export type RequestEffort = EffortChoice | 'auto';
 export interface RequestProfile { model: ModelChoice; effort: RequestEffort; length: LengthChoice }
 
-export const MODELS: readonly ModelChoice[] = ['haiku', 'sonnet', 'opus', 'deepseek'];
+export const MODELS: readonly ModelChoice[] = ['haiku', 'sonnet', 'opus', 'deepseek', 'gemini'];
 export const EFFORTS: readonly EffortChoice[] = ['low', 'medium', 'high'];
 const REQUEST_EFFORTS: readonly RequestEffort[] = [...EFFORTS, 'auto'];
 export const LENGTHS: readonly LengthChoice[] = ['brief', 'standard', 'detailed'];
@@ -42,10 +42,11 @@ const isRequestProfile = (v: unknown): v is RequestProfile => !!v && typeof v ==
 
 export interface Option { label: string; detail: string; apiModel?: string; provider?: string }
 const BUILT_IN: { models: Record<ModelChoice, Option>; efforts: Record<RequestEffort, Option>; lengths: Record<LengthChoice, Option> } = {
-  models: { haiku: { label: 'Haiku', detail: 'Fastest and cheapest', apiModel: 'claude-haiku-5-5' },
+  models: { haiku: { label: 'Haiku', detail: 'Quick, economical explanations', apiModel: 'claude-haiku-5-5' },
     sonnet: { label: 'Sonnet', detail: 'Strong answers at a moderate cost', apiModel: 'claude-sonnet-5-5' },
     opus: { label: 'Opus', detail: 'Most capable; costs the most', apiModel: 'claude-opus-5-5' },
-    deepseek: { label: 'DeepSeek', detail: 'Low cost; processed by DeepSeek', apiModel: 'deepseek-flash' } },
+    deepseek: { label: 'DeepSeek', detail: 'Low cost; processed by DeepSeek', apiModel: 'deepseek-flash' },
+    gemini: { label: 'Gemini Flash', detail: 'Recommended for paper questions; lower cost', apiModel: 'gemini-3.8-flash' } },
   efforts: { low: { label: 'Low', detail: 'Thinks only when needed; quickest' }, medium: { label: 'Medium', detail: 'Thinks through harder questions' },
     high: { label: 'High', detail: 'Thinks carefully; slowest' }, auto: { label: 'Automatic', detail: 'Chosen for each question' } },
   lengths: { brief: { label: 'Brief', detail: 'A few sentences' }, standard: { label: 'Standard', detail: 'Focused answers' },
@@ -56,6 +57,7 @@ export const MODEL_STRENGTHS: Record<ModelChoice, string> = {
   haiku: 'Quick definitions, lookups and short explanations.',
   sonnet: 'Most questions about a paper: the method, the results, a derivation.',
   opus: 'The hardest questions: long derivations, careful critique, comparing approaches.',
+  gemini: 'Our default for paper questions, equations and figures, selected in a comparison on real papers.',
   deepseek: 'An alternative to Claude that reads the text and its figures; it usually costs between Haiku and Sonnet.',
 };
 
@@ -74,7 +76,7 @@ const MAX_TABLE_BYTES = 64 * 1024;
 /** The consent that names DeepSeek (chat.ts DEEPSEEK_CONSENT_VERSION; kept here to avoid an import cycle). */
 const DEEPSEEK_CONSENT = 'cloud-ai-v4';
 /** The table's provider ids, as readers see them. */
-const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic', deepseek: 'DeepSeek' };
+const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic', deepseek: 'DeepSeek', openrouter: 'Google through OpenRouter' };
 
 function text(value: unknown, limit: number): string | null {
   if (typeof value !== 'string') return null;
@@ -109,20 +111,24 @@ export function decodeProfileTable(raw: unknown): ProfileTable | null {
   // ties it to another version offers nothing this browser can ask for, so DeepSeek is left out.
   const deepseek = Array.isArray(v.models) ? (v.models as Record<string, unknown>[]).find(m => m?.id === 'deepseek') : undefined;
   const deepseekUsable = !deepseek || deepseek.consent_version === undefined || deepseek.consent_version === DEEPSEEK_CONSENT;
+  const gemini = Array.isArray(v.models) ? (v.models as Record<string, unknown>[]).find(m => m?.id === 'gemini') : undefined;
+  const geminiUsable = gemini?.consent_version === 'cloud-ai-v5' && gemini.provider === 'openrouter';
   const estimates = new Map<string, Estimate>();
   for (const p of (v.profiles as Record<string, unknown>[]).slice(0, 128)) {
     const choice = p && typeof p === 'object' ? { model: p.model, effort: p.effort, length: p.length } : null;
     const c = p?.credits as Record<string, unknown> | undefined;
-    if (!isRequestProfile(choice) || !c || !counted(c.low) || !counted(c.high) || !counted(c.max) || (choice.model === 'deepseek' && !deepseekUsable)) continue;
+    if (!isRequestProfile(choice) || !c || !counted(c.low) || !counted(c.high) || !counted(c.max) || (choice.model === 'deepseek' && !deepseekUsable) || (choice.model === 'gemini' && !geminiUsable)) continue;
     const e = { low: c.low as number, high: c.high as number, max: c.max as number };
     if (e.low > e.high || e.high > e.max || e.max >= 1_000_000) continue;
     estimates.set(profileID(choice), e);
   }
-  const d = v.default as ProfileChoice, defaultChoice = { model: d.model, effort: d.effort, length: d.length };
-  if (!estimates.has(profileID(defaultChoice))) return null;
+  const d = v.default as ProfileChoice, legacyDefault = { model: d.model, effort: d.effort, length: d.length };
+  if (!estimates.has(profileID(legacyDefault))) return null;
+  const recommended = v.default_recommended;
+  const defaultChoice = isProfileChoice(recommended) && estimates.has(profileID(recommended)) ? { ...recommended } : legacyDefault;
   const a = v.default_auto;
-  const autoDefault = isRequestProfile(a) && a.effort === 'auto' && estimates.has(profileID(a)) ? { model: a.model, effort: a.effort, length: a.length } : null;
-  return { version: SUPPORTED_VERSION, defaultChoice, models: options(v.models, deepseekUsable ? MODELS : MODELS.filter(m => m !== 'deepseek')), efforts: options(v.efforts, REQUEST_EFFORTS),
+  const autoDefault = defaultChoice === legacyDefault && isRequestProfile(a) && a.effort === 'auto' && estimates.has(profileID(a)) ? { model: a.model, effort: a.effort, length: a.length } : null;
+  return { version: SUPPORTED_VERSION, defaultChoice, models: options(v.models, MODELS.filter(m => (m !== 'deepseek' || deepseekUsable) && (m !== 'gemini' || geminiUsable))), efforts: options(v.efforts, REQUEST_EFFORTS),
     lengths: options(v.lengths, LENGTHS), estimates, note: text(v.estimate_note, 200), autoDefault };
 }
 
@@ -140,7 +146,7 @@ export function requestProfile(t: ProfileTable | null, c: ProfileChoice): Reques
 /** A choice this table can answer (with automatic or the stored effort). */
 export const available = (t: ProfileTable | null, c: ProfileChoice) => requestProfile(t, c) !== null;
 /** The models to show: Haiku, Sonnet and Opus always; DeepSeek only when the server's table lists it. */
-export const listedModels = (t: ProfileTable | null): ModelChoice[] => MODELS.filter(m => m !== 'deepseek' || !!t?.models.deepseek);
+export const listedModels = (t: ProfileTable | null): ModelChoice[] => MODELS.filter(m => (m !== 'deepseek' || !!t?.models.deepseek) && (m !== 'gemini' || !!t?.models.gemini));
 /** Whether a model and length can be answered at all (automatically or at some effort). */
 export const offersModelLength = (t: ProfileTable | null, model: ModelChoice, length: LengthChoice) =>
   offersAuto(t, model, length) || EFFORTS.some(effort => offers(t, { model, effort, length }));
@@ -154,7 +160,7 @@ export const modelOption = (t: ProfileTable | null, m: ModelChoice): Option => (
 export const effortOption = (t: ProfileTable | null, e: RequestEffort) => t?.efforts[e] ?? BUILT_IN.efforts[e];
 export const lengthOption = (t: ProfileTable | null, l: LengthChoice) => t?.lengths[l] ?? BUILT_IN.lengths[l];
 /** Who processes a request with this model: Anthropic for Claude, DeepSeek for DeepSeek (or what the table says). */
-export const modelProvider = (t: ProfileTable | null, m: ModelChoice) => modelOption(t, m).provider ?? (m === 'deepseek' ? 'DeepSeek' : 'Anthropic');
+export const modelProvider = (t: ProfileTable | null, m: ModelChoice) => modelOption(t, m).provider ?? (m === 'gemini' ? 'Google through OpenRouter' : m === 'deepseek' ? 'DeepSeek' : 'Anthropic');
 
 const credits = (n: number) => n === 1 ? '1 credit' : `${n} credits`;
 /** "Usually 4–24 credits · up to 37", "About 1 credit · up to 2". */
@@ -167,7 +173,7 @@ export function tableEstimate(t: ProfileTable | null, c: ProfileChoice | Request
 }
 /** The credit table's cell for a model and length: the automatic profile's estimate where published, else low effort's. */
 export function typicalEstimate(t: ProfileTable | null, model: ModelChoice, length: LengthChoice): Estimate | null {
-  return t?.estimates.get(`${model}-auto-${length}`) ?? t?.estimates.get(`${model}-low-${length}`) ?? null;
+  return t?.estimates.get(`${model}-auto-${length}`) ?? t?.estimates.get(`${model}-low-${length}`) ?? t?.estimates.get(`${model}-medium-${length}`) ?? null;
 }
 /** The choice as the reader sees it, everywhere: "Sonnet · Standard" (owner, build 57: effort is chosen automatically). */
 export function profileSummary(c: { model: ModelChoice; length: LengthChoice }, t: ProfileTable | null = null): string {

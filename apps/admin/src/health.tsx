@@ -15,7 +15,7 @@ const usd = (micro: number, digits = 2) => new Intl.NumberFormat('en-US', { styl
 // Sub-cent amounts (an overrun on one small request) in micro-USD, so they never read as $0.000.
 const precise = (micro: number) => micro < 10_000 ? `${micro.toLocaleString()} micro-USD` : usd(micro, micro >= 1_000_000 ? 2 : 4);
 const dollarsShort = (micro: number) => micro >= 100_000_000 ? usd(micro, 0) : micro >= 1_000_000 ? usd(micro, 2) : usd(micro, micro ? 3 : 0);
-const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic (chat, podcast review)', deepseek: 'DeepSeek (podcast scripts)', google: 'Google (podcast voices)',
+const PROVIDERS: Record<string, string> = { anthropic: 'Anthropic (chat, podcast review)', deepseek: 'DeepSeek (chat, podcast scripts)', openrouter: 'OpenRouter (Google chat)', google: 'Google (podcast voices)',
   tavily: 'Tavily (web search)', mathpix: 'Mathpix (retired OCR)', ingest: 'Paper lookups' };
 const providerTone = (p: string) => ['anthropic', 'deepseek', 'google', 'tavily'].includes(p) ? `p-${p}` : 'p-other';
 const CODES: Record<string, string> = { metadata_unavailable: 'Couldn’t find the paper', script_evidence_rejected: 'Script failed its evidence check',

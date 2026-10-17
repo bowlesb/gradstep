@@ -1491,7 +1491,7 @@ struct PrivacyView: View {
                 Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.")
             } header: { Text("Your notes and conversations") }
             Section {
-                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Anthropic, or to DeepSeek when you choose it in Answer options. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
+                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Google through OpenRouter, Anthropic, or DeepSeek according to your model in Answer options. Anthropic still writes the chat’s title and suggested questions. The model may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
             } header: { Text("AI answers") }
             // Owner, build 57: "We need more in here about terms of service and how we use arXiv articles and how we abide
             // by arXiv's terms" (docs/architecture/ARXIV_DEVICE_ONLY.md).

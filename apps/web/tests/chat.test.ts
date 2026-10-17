@@ -74,7 +74,7 @@ describe('chat requests and streams', () => {
     const bounded = makeRequest('op', null, big, null);
     expect(bounded.turns.length).toBeLessThanOrEqual(60);
     expect(bounded.turns[0].role).toBe('user');
-    expect(requestBody(bounded)).toMatchObject({ consent_version: 'cloud-ai-v4', mode: 'general' });
+    expect(requestBody(bounded)).toMatchObject({ consent_version: 'cloud-ai-v5', mode: 'general' });
     expect(requestBody(bounded)).not.toHaveProperty('document_id');
     expect(requestBody(makeRequest('op', D, [{ role: 'user', text: 'q' }], 'a passage', 'ingest'))).toMatchObject({ mode: 'paper', document_id: D,
       selection: { quote: 'a passage' }, action: 'ingest', capabilities: ['web_import', 'visual_answers', 'stop_signal'] });

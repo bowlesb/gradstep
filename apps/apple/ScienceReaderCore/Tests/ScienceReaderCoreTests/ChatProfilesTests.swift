@@ -8,6 +8,23 @@ import Testing
         try Data(contentsOf: try #require(Bundle.module.url(forResource: name, withExtension: "json")))
     }
 
+    @Test func flashDefaultRequiresItsNamedConsentAndPreservesExplicitChoices() throws {
+        var json = try #require(try JSONSerialization.jsonObject(with: try fixture("chat-profiles-gemini")) as? [String: Any])
+        let table = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
+        #expect(table.defaultChoice.id == "gemini-medium-standard")
+        #expect(table.requested(table.defaultChoice).id == "gemini-auto-standard")
+        #expect(table.requested(.standard).id == "sonnet-auto-standard", "explicit Sonnet remains Sonnet")
+        #expect(table.offeredModels.contains(.gemini))
+        #expect(ChatProfileChoice.Model.gemini.processor == "Google through OpenRouter")
+        var models = try #require(json["models"] as? [[String: Any]])
+        let index = try #require(models.firstIndex { ($0["id"] as? String) == "gemini" })
+        models[index]["consent_version"] = "cloud-ai-v6"
+        json["models"] = models
+        let unsupported = try #require(ChatProfileTable.decode(try JSONSerialization.data(withJSONObject: json)))
+        #expect(unsupported.defaultChoice == .standard)
+        #expect(!unsupported.offeredModels.contains(.gemini))
+    }
+
     @Test func thePublishedTableDecodesWithItsEstimates() throws {
         let table = try #require(ChatProfileTable.decode(try fixture("chat-profiles-v1")))
         #expect(table.version == "chat-profiles-v1")
@@ -16,7 +33,7 @@ import Testing
         #expect(table.estimateText(.standard) == "Usually 4–24 credits · up to 37")
         #expect(table.estimateText(ChatProfileChoice(model: .haiku, effort: .low, length: .brief)) == "Usually 1–2 credits · up to 2")
         #expect(table.estimateText(ChatProfileChoice(model: .opus, effort: .high, length: .detailed)) == "Usually 24–63 credits · up to 114")
-        #expect(table.label(.opus) == "Opus" && table.detail(.haiku) == "Fastest and cheapest")
+        #expect(table.label(.opus) == "Opus" && table.detail(.haiku) == "Quick, economical explanations")
         #expect(table.label(.medium) == "Medium" && table.label(.detailed) == "Detailed")
         #expect(table.note?.contains("Web searches") == true)
         #expect(ChatProfileText.estimate(.init(low: 1, high: 1, max: 1)) == "About 1 credit · up to 1")

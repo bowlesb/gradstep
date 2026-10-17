@@ -15,3 +15,10 @@ if (process.argv.includes('--write-fixture')) writeFileSync(fixture, encoded);
 test('the checked-in chat profile fixture is exactly the published table', () => {
   assert.equal(readFileSync(fixture, 'utf8'), encoded, 'chat-profiles-v1.json differs from publishedProfiles(); review and regenerate');
 });
+
+const geminiFixture = new URL('../../apps/apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-gemini.json', import.meta.url);
+const geminiEncoded = JSON.stringify(publishedProfiles({ deepseek: true, gemini: true }), null, 2) + '\n';
+if (process.argv.includes('--write-fixture')) writeFileSync(geminiFixture, geminiEncoded);
+test('the Flash rollout fixture is the exact enabled table', () => {
+  assert.equal(readFileSync(geminiFixture, 'utf8'), geminiEncoded);
+});

@@ -709,6 +709,32 @@ final class ChatGenerationTests: XCTestCase {
         return (model, transport)
     }
 
+    func testFlashDefaultIsSentForANewChatAndExplicitSonnetStillWins() async throws {
+        let key = "chat.defaultProfile", saved = UserDefaults.standard.object(forKey: "chat.defaultProfile")
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { if let saved { UserDefaults.standard.set(saved, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
+        let transport = ScriptedChatTransport()
+        let flash = ChatProfileChoice(model: .gemini, effort: .medium, length: .standard)
+        transport.profiles = ChatProfileTable(version: ChatProfileTable.supportedVersion, defaultChoice: flash,
+            estimates: ScriptedChatTransport.table.estimates)
+        let (model, _) = try await makeModel(consented: true, transport: transport)
+        model.refreshChatProfiles()
+        try await waitUntil("Flash table loaded") { model.chatProfileTable != nil }
+        XCTAssertEqual(model.chatDefaultProfile, flash)
+        XCTAssertEqual(model.chatProfile, flash)
+        model.chatInput = "What is the contribution?"
+        await model.sendMessage()
+        try await waitUntil("Flash request") { transport.requests.count == 1 }
+        XCTAssertEqual(transport.requests[0].profile.id, "gemini-auto-standard")
+        transport.send(.delta("The contribution."), .done(stopReason: "end_turn", credits: 1,
+            model: "gemini-3.8-flash", profile: "gemini-medium-standard"))
+        try await waitUntil("Flash sealed") { !model.isAnswering }
+        model.chatDefaultProfile = .standard
+        model.newChat(general: true)
+        XCTAssertEqual(model.chatProfile, .standard)
+        XCTAssertEqual(model.chatDefaultProfile, .standard, "an explicit preference overrides the recommended default")
+    }
+
     func testAChosenProfileIsSentSavedWithTheAnswerAndKeptForTheChat() async throws {
         let (model, transport) = try await makeProfiledModel()
         XCTAssertEqual(model.chatProfile, .standard, "A new chat starts with Settings › Chat defaults")

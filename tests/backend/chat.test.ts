@@ -989,7 +989,8 @@ test('consent v2 is accepted alongside v1 and keeps its own request digest', () 
   // v3 (2026-10-15) names figures and v4 (2026-10-16) DeepSeek; an unknown version is still refused.
   assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })).consentVersion, 'cloud-ai-v3');
   assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v4' })).consentVersion, 'cloud-ai-v4');
-  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v5' })), { code: 'invalid_request' });
+  assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v5' })).consentVersion, 'cloud-ai-v5');
+  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v6' })), { code: 'invalid_request' });
 });
 
 test('Tavily searches run between rounds as search results (not citable: no cache-breaking switch) and are priced for the reader but not as provider spend', async () => {

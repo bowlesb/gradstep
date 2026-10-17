@@ -78,7 +78,7 @@ describe('figure requests', () => {
       const request = makeRequest('op-2', null, [{ role: 'user', text: turn }], quote, action, { topicTitle: true, visualAnswers: true });
       request.localContext = local; request.figures = [image];
       const body = requestBody(request);
-      expect(body).toMatchObject({ mode: 'paper', action, consent_version: 'cloud-ai-v4', selection: { quote }, messages: [{ role: 'user', text: turn }], local_context: local,
+      expect(body).toMatchObject({ mode: 'paper', action, consent_version: 'cloud-ai-v5', selection: { quote }, messages: [{ role: 'user', text: turn }], local_context: local,
         figures: [{ id: 'F1', paragraph: 3, caption: 'Figure 1: Two pipelines.', media_type: 'image/jpeg', data: 'AAAA', width: 1000, height: 200 }] });
       expect(body.capabilities).toEqual(requestBody(chat).capabilities);
       for (const key of ['topic_title', 'follow_ups', 'document_id', 'study']) expect(body).not.toHaveProperty(key);

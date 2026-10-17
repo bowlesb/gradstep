@@ -2,7 +2,17 @@
 
 Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Default chat model evaluation (owner direction, 2026-10-16; finalist answers complete, review pending)
+## Gemini Flash selected for chat (owner decision, 2026-10-16; integration verified locally)
+
+After reviewing the measured comparison, the owner said **“lets move ahead with Flash”**: Gemini 3.8 Flash at
+the tested medium effort is the selected default for updated clients. This supersedes the research-only hold below;
+the deployed default is still Sonnet until integration, consent, accounting and focused live checks are verified.
+OpenRouter through Google's pinned endpoint is the working connection choice while the owner's optional preference
+between OpenRouter and direct Google is pending. No automatic provider switching, budget increase, or further broad
+bake-off is implied. Existing explicit model choices remain respected. Implementation contract:
+[Gemini Flash chat](architecture/GEMINI_FLASH_CHAT.md).
+
+### Evaluation evidence before the decision
 
 The owner prioritizes **intelligence per dollar**, including Chinese providers; integration and maintenance cost
 must not exclude a contender. The recovered conversation explicitly approves OpenRouter access and **up to $25
@@ -16,10 +26,10 @@ adds the same 15 questions for Haiku medium, Gemini Flash medium and Luna high: 
 two and 24/27 for Luna, whose table-image tool requests sometimes leave no answer. Independent review covers only
 four new questions; source checks also identify smaller unsupported claims and disputed completeness penalties.
 Recorded spend is **$9.6865303832**, with **no unresolved holds**, within the existing $10 funding. The original
-five interrupted calls were reconciled against exact generation metadata. Gemini Flash is a provisional candidate;
+five interrupted calls were reconciled against exact generation metadata. Gemini Flash led the provisional comparison;
 Haiku's high first-screen average did not prevent a confirmed algebra error. Further grading, repeated critical
-cases, higher-end Chinese comparisons and deployed-adapter/figure-explainer validation remain pending. Keep Sonnet as the default
-until those quality and integration questions are answered. Do not infer inferiority for untested Chinese flagships.
+cases and higher-end Chinese comparisons were not completed before the owner's selection. Deployed-adapter and
+figure-explainer validation are rollout checks. Do not infer inferiority for untested Chinese flagships.
 
 ## Server paper copies deleted (owner decided 2026-10-16)
 

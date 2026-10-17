@@ -107,11 +107,13 @@ function decodeAsBuild57(body: string) {
 
 const build57 = readFileSync(new URL('../fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8');
 
-test('builds 57/58 decode the grown table exactly as they decoded the table they shipped with', () => {
+test('builds 57/58 retain their choices and prices when the table grows', () => {
   const before = decodeAsBuild57(build57);
   assert.ok(before && Object.keys(before.estimates).length === 27 && before.default === 'sonnet-low-standard');
-  for (const deepseek of [true, false]) {
-    const table = publishedProfiles({ deepseek }), body = JSON.stringify(table);
+  // Display descriptions are server-controlled; the inaccurate superlative is corrected for every build.
+  before.models.haiku.detail = 'Quick, economical explanations';
+  for (const deepseek of [true, false]) for (const gemini of [true, false]) {
+    const table = publishedProfiles({ deepseek, gemini }), body = JSON.stringify(table);
     assert.ok(Buffer.byteLength(body) < 32 * 1024, `the table stays well under the 64 KiB decoders' limit (${Buffer.byteLength(body)} bytes)`);
     assert.deepEqual(decodeAsBuild57(body), before, `deepseek ${deepseek}`);
     // The version and the default are the ones those builds require; the 27 profiles they know come first, unchanged.

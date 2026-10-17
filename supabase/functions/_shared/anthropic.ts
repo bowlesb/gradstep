@@ -3,6 +3,7 @@
 // with a fake fetch. Never log prompts, answers, or the API key here.
 import { IMAGE_HOLD_TOKENS } from './chat-figures.ts';
 import Anthropic from '@anthropic-ai/sdk';
+import { GEMINI_MODEL, GEMINI_RATES } from './gemini-pricing.ts';
 
 export const CHAT_MODEL = 'claude-sonnet-5-5';
 export const CHAT_MAX_TOKENS = 8000;
@@ -52,6 +53,7 @@ const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({
   'claude-sonnet-5-5': SONNET, 'claude-sonnet-5': SONNET_5, 'claude-opus-5-5': OPUS_5_5, 'claude-opus-5': OPUS_5,
   'claude-opus-4-8': OPUS_5, 'claude-haiku-5-5': HAIKU, 'claude-haiku-4-5': HAIKU_4_5,
   'deepseek-v4-pro': DEEPSEEK_V4_PRO, 'deepseek-flash': DEEPSEEK_FLASH,
+  [GEMINI_MODEL]: GEMINI_RATES,
 });
 
 /** `promptTokens` (the whole prompt: uncached, cache-write and cache-read tokens) chooses Haiku 5.5's tier. */
@@ -64,7 +66,13 @@ export function ratesFor(model: string | null | undefined, promptTokens = 0): { 
 
 export interface TokenUsage { input: number; cacheWrite5m: number; cacheWrite1h: number; cacheRead: number; output: number }
 /** One billed sampling attempt (the requested model or a fallback hop). */
-export interface ProviderAttempt { model: string | null; usage: TokenUsage; estimated: boolean }
+export interface ProviderAttempt {
+  model: string | null; usage: TokenUsage; estimated: boolean;
+  /** Exact billed inference cost from OpenRouter final usage (cache storage included; credit-purchase fees excluded). */
+  billedMicrousd?: number;
+  /** Google cache storage creation overlaps input/read tokens; keep it out of the disjoint token counts above. */
+  cacheStorageTokens?: number;
+}
 
 export function emptyUsage(): TokenUsage { return { input: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 }; }
 
@@ -72,6 +80,10 @@ export function emptyUsage(): TokenUsage { return { input: 0, cacheWrite5m: 0, c
 export function priceAttempts(attempts: readonly ProviderAttempt[]): number {
   let total = 0;
   for (const attempt of attempts) {
+    if (!attempt.estimated && typeof attempt.billedMicrousd === 'number' && Number.isFinite(attempt.billedMicrousd) && attempt.billedMicrousd >= 0) {
+      total += attempt.billedMicrousd;
+      continue;
+    }
     const u = attempt.usage;
     const { rates } = ratesFor(attempt.model, u.input + u.cacheWrite5m + u.cacheWrite1h + u.cacheRead);
     total += u.input * rates.input + u.cacheWrite5m * rates.cacheWrite5m + u.cacheWrite1h * rates.cacheWrite1h
@@ -101,6 +113,7 @@ export function holdRule(model: string, promptTokens: number): { rates: TokenRat
     case 'claude-opus-5-5': return { rates: OPUS_5, attempts: 2 };
     case 'claude-haiku-5-5': return { rates: ratesFor(model, promptTokens).rates, attempts: 1 };
     case 'deepseek-flash': return { rates: DEEPSEEK_FLASH, attempts: DEEPSEEK_HOLD_ATTEMPTS };
+    case GEMINI_MODEL: return { rates: GEMINI_RATES, attempts: 1 };
     default: return { rates: UNKNOWN_MODEL_RATES, attempts: FALLBACK_HOLD_FACTOR };
   }
 }
@@ -128,7 +141,8 @@ export function hourCachedCharacters(params: Anthropic.Beta.Messages.MessageCrea
 
 /** The hold for one admitted request, from its own model, prompt and output allowance. */
 export function holdForParams(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): { inputTokens: number; microusd: number; credits: number } {
-  return holdFor(promptCharacters(params), params.max_tokens, params.model, hourCachedCharacters(params));
+  // One byte per token already bounds user content; this extra allowance covers the translated tool template.
+  return holdFor(promptCharacters(params) + (params.model === GEMINI_MODEL ? 3 * 1024 : 0), params.max_tokens, params.model, hourCachedCharacters(params));
 }
 
 type Usage = Anthropic.Beta.Messages.BetaUsage;

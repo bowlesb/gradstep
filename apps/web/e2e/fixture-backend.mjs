@@ -19,6 +19,7 @@ const CODE = '123456';
 // by tests/backend/chat-profiles-fixture.test.ts). `profiles: 'v1'` serves the one builds 57/58 shipped with (no additions).
 const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../../../tests/fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8'));
 const CHAT_PROFILES_AUTO = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+const CHAT_PROFILES_GEMINI = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-gemini.json', import.meta.url), 'utf8'));
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -334,7 +335,7 @@ createServer(async (request, response) => {
     if (typeof p?.labels === 'boolean') a.chatLabels = p.labels;
     // profiles: false answers GET functions/v1/chat with 405, as a server before profiles does; 'v1' serves the table without
     // automatic effort or DeepSeek (as staging before the 2026-10-16 deploy); true or 'auto' the table with them.
-    if (p?.profiles === false || p?.profiles === 'v1') a.chatProfiles = p.profiles; else if (p?.profiles === true || p?.profiles === 'auto') a.chatProfiles = 'auto';
+    if (p?.profiles === false || p?.profiles === 'v1') a.chatProfiles = p.profiles; else if (p?.profiles === 'gemini') a.chatProfiles = 'gemini'; else if (p?.profiles === true || p?.profiles === 'auto') a.chatProfiles = 'auto';
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__device-search' && request.method === 'POST') {
@@ -492,23 +493,24 @@ createServer(async (request, response) => {
     }
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'GET') {
-    return a.chatProfiles ? send(response, 200, a.chatProfiles === 'v1' ? CHAT_PROFILES : CHAT_PROFILES_AUTO) : send(response, 405, { code: 'method_unavailable' });
+    return a.chatProfiles ? send(response, 200, a.chatProfiles === 'v1' ? CHAT_PROFILES : a.chatProfiles === 'gemini' ? CHAT_PROFILES_GEMINI : CHAT_PROFILES_AUTO) : send(response, 405, { code: 'method_unavailable' });
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
-    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
     // Figures (chat-figures.ts): only under v3 or v4, only in a paper chat, at most three bounded JPEG/PNG images.
-    if (body.figures !== undefined && (!['cloud-ai-v3', 'cloud-ai-v4'].includes(body.consent_version) || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
+    if (body.figures !== undefined && (!['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version) || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
       || body.figures.some(f => !/^F[1-3]$/.test(f.id) || !Number.isSafeInteger(f.paragraph) || !['image/jpeg', 'image/png'].includes(f.media_type) || typeof f.data !== 'string' || f.data.length < 16))) {
       return send(response, 400, { code: 'invalid_figures' });
     }
     // As chat.ts validates: a profile is exactly {model, effort, length} with known values (`auto` and `deepseek` only
     // where the served table offers them); topic_title is a boolean.
-    const p = body.profile, auto = a.chatProfiles === 'auto';
-    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus', ...(auto ? ['deepseek'] : [])].includes(p.model)
+    const p = body.profile, auto = a.chatProfiles === 'auto' || a.chatProfiles === 'gemini';
+    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus', ...(auto ? ['deepseek'] : []), ...(a.chatProfiles === 'gemini' ? ['gemini'] : [])].includes(p.model)
       || !['low', 'medium', 'high', ...(auto ? ['auto'] : [])].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
     // DeepSeek answers only under the consent that names it (cloud-ai-v4).
-    if (p?.model === 'deepseek' && body.consent_version !== 'cloud-ai-v4') return send(response, 403, { code: 'consent_required' });
+    if (p?.model === 'deepseek' && !['cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version)) return send(response, 403, { code: 'consent_required' });
+    if (p?.model === 'gemini' && body.consent_version !== 'cloud-ai-v5') return send(response, 403, { code: 'consent_required' });
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
@@ -525,7 +527,7 @@ createServer(async (request, response) => {
     // says it has the view (`figure_view`, whose chats carry the walkthrough tool).
     const figureView = body.action === 'figure' || body.action === 'figure_simpler' || body.action === 'figure_detail';
     if (figureView && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.selection?.quote || body.messages.length !== 1
-      || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures?.length !== 1 || !['cloud-ai-v3', 'cloud-ai-v4'].includes(body.consent_version)
+      || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures?.length !== 1 || !['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version)
       || !(body.capabilities ?? []).includes('figure_view'))) return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
@@ -620,9 +622,9 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
       if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
       if (body.follow_ups === true) event('followups', { questions: ['How is β chosen?', 'What does the KL term do?'] });
       // Automatic effort resolves before the answer, and the answer records what was picked (CHAT.md, 2026-10-16).
-      const effort = body.profile?.effort === 'auto' ? (body.profile.length === 'detailed' ? 'medium' : 'low') : body.profile?.effort;
+      const effort = body.profile?.model === 'gemini' ? 'medium' : body.profile?.effort === 'auto' ? (body.profile.length === 'detailed' ? 'medium' : 'low') : body.profile?.effort;
       const profile = body.profile ? `${body.profile.model}-${effort}-${body.profile.length}` : 'sonnet-low-standard';
-      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', deepseek: 'deepseek-flash' }[body.profile?.model ?? 'sonnet'];
+      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', deepseek: 'deepseek-flash', gemini: 'gemini-3.8-flash' }[body.profile?.model ?? 'sonnet'];
       event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile, ...(body.profile?.effort === 'auto' ? { effort } : {}) } : {}) }); response.end();
     };
     setTimeout(tick, 200); return;

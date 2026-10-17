@@ -353,3 +353,21 @@ quality checks. The four new Argon grading calls reported zero cached tokens, so
 not be forecast as a discounted cache read. Source evidence, reconciliation receipts and raw answers are kept
 in the new immutable comparison archive; no invoice-level reconciliation or direct-provider price equivalence
 is claimed.
+
+## Gemini Flash integration — 2026-10-17 ~00:08 UTC (Oct 16 PDT)
+
+The owner selected Gemini Flash for chat. Local implementation and verification incurred **$0 additional model
+inference**, **$0 new fixed commitments**, **$0 new reservations** and no credit purchase. OpenRouter's account/key
+now reports **$9.686530368 used from $10 funded**, reconciling to the experiment ledger's $9.6865303832 within
+rounding; about **$0.31** remains. No paid process is running. The $100/month operating budget is unchanged.
+
+[OpenRouter Standard](https://openrouter.ai/pricing) passes through model token prices and charges **5.5% on credit
+purchases**, with a [minimum $0.80 fee](https://openrouter.ai/blog/tutorials/any-coding-agent/). $25 credit would cost
+about **$26.38 before tax**. This is a quoted future purchase, not a receipt; the fee/tax on the prior $10 purchase
+has not been invoice-reconciled. Credit-purchase fees belong in overhead, separate from metered `usage.cost`, and
+must not be counted twice. No higher plan, automatic top-up or budget increase is enabled.
+
+Flash's current Google list rates double on 2027-01-01; the new tariff gate and provider price caps prevent an
+unreviewed increase. Near-term additional usage forecast remains **$0 pending funded service credentials**; then
+declare a bounded allocation for the focused live checks before enabling app traffic. Customer usage must remain
+inside existing server-side reservations and monthly controls. [Integration and rollout](GEMINI_FLASH_CHAT.md).

@@ -5,7 +5,7 @@ import { moment, percent } from './charts';
 // Reliability's hour-by-hour provider table (docs/architecture/RESILIENCE.md): every outside provider's calls per hour
 // by outcome — what the Health tab's "Provider errors" chart and its Attention rules summarise.
 
-export const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Anthropic', deepseek: 'DeepSeek', google: 'Google voices', tavily: 'Tavily',
+export const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Anthropic', deepseek: 'DeepSeek', openrouter: 'OpenRouter (Google chat)', google: 'Google voices', tavily: 'Tavily',
   crossref: 'Crossref', datacite: 'DataCite', openalex: 'OpenAlex', huggingface: 'Hugging Face', arxiv: 'arXiv (never: refused)' };
 export const providerName = (provider: string) => PROVIDER_NAMES[provider] ?? provider;
 

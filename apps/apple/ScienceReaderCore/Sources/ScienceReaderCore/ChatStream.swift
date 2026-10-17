@@ -35,7 +35,7 @@ public enum ChatAction: String, Equatable, Sendable {
 
 public struct ChatGenerationRequest: Equatable, Sendable {
     /// v3 (2026-10-15) also names the figure a question is about (ChatConsentView); readers who accepted v2 are asked once more.
-    public static let consentVersion = "cloud-ai-v4"
+    public static let consentVersion = "cloud-ai-v5"
     public static let maximumTurns = 60
     public static let maximumMessageBytes = 200_000
     public static let maximumSelectionScalars = 4_000

@@ -107,7 +107,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
 
   return <div className="figure-explain" ref={panel}>
     {!host ? null : asking && !consented ? <section className="equation-consent" data-testid="figure-consent">
-      <p>Explaining the figure uses cloud AI: the figure’s image and the paper’s text go to Anthropic, or DeepSeek when you choose it, as with chat. They may retain requests under their API terms. Answers use credits.</p>
+      <p>Explaining the figure uses cloud AI: the figure’s image and the paper’s text go to Google through OpenRouter, Anthropic, or DeepSeek according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>
     </section> : !result ? null : <div className="figure-walkthrough" data-testid="figure-walkthrough" onClick={answerClick} onKeyDown={citeKey}>
       <section className="equation-section" aria-labelledby="figure-what">
