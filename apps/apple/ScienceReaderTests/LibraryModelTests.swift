@@ -427,6 +427,68 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.offlineStatus(for: try XCTUnwrap(model.selectedPaper)), .available)
     }
 
+    /// Opt-in investigation of the build 63/64 Library failures. Unlike the cached compiler replay, this exercises
+    /// URLSession acquisition, concurrent Library preparations, encrypted installation, and opening the saved copies.
+    /// Only the account backend is a fixture; official arXiv content is fetched directly by the Simulator.
+    func testReportedPapersDownloadInstallAndOpenThroughTheLibrary() async throws {
+        guard let path = ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_LIBRARY_CASES"] else {
+            throw XCTSkip("Opt-in live reported-paper Library investigation on the Simulator only.")
+        }
+        struct ReportedPaper: Decodable {
+            let source_id: String
+            let source_revision: Int
+            let title: String
+            let authors: [String]
+        }
+        let cases = try JSONDecoder().decode([ReportedPaper].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        XCTAssertTrue((1...3).contains(cases.count))
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        await model.start()
+        let rows = cases.map { paper -> [String: Any] in
+            var row = server.pending(state: 3, sourceOnly: true)
+            row["id"] = UUID().wire; row["created_seq"] = 3
+            row["source_id"] = paper.source_id; row["source_revision"] = paper.source_revision
+            row["source_url"] = "https://arxiv.org/abs/\(paper.source_id)v\(paper.source_revision)"
+            row["metadata_id"] = UUID().wire; row["version_id"] = UUID().wire
+            var metadata = row["metadata"] as? [String: Any] ?? [:]
+            metadata["title"] = paper.title; metadata["authors"] = paper.authors
+            row["metadata"] = metadata
+            return row
+        }
+        server.deliver(server.changes(rows, through: 3))
+        await model.refreshLibrary()
+        let papers = model.papers.filter { paper in cases.contains { $0.source_id == paper.sourceID } }
+        XCTAssertEqual(papers.count, cases.count)
+        let started = Date()
+        for paper in papers {
+            model.prepareOnDevice(paper)
+            XCTAssertTrue(model.isPreparingOnDevice(paper), "\(paper.sourceID ?? "unknown"): preparation started")
+        }
+        let preparation = LibraryModelObservation("Reported papers finish preparing in the Library") {
+            papers.allSatisfy { !model.isPreparingOnDevice($0) }
+        }
+        preparation.observe()
+        await fulfillment(of: [preparation.ready], timeout: 240)
+        preparation.stop()
+        for paper in papers {
+            let issue = model.devicePreparationIssues[paper.id]
+            print("Live Library preparation \(paper.sourceID ?? "unknown"): \(issue ?? "installed")")
+            XCTAssertNil(issue)
+            XCTAssertEqual(model.deviceCopy(for: paper), .reader)
+            model.select(paper)
+            let opened = LibraryModelObservation("Prepared paper opens from the encrypted store") {
+                model.selectedPaper?.readerBundle != nil || model.readerOpenIssue != nil
+            }
+            opened.observe()
+            await fulfillment(of: [opened.ready], timeout: 120)
+            opened.stop()
+            print("Live Library open \(paper.sourceID ?? "unknown"): \(model.readerOpenCode ?? "opened")")
+            XCTAssertNil(model.readerOpenIssue)
+            XCTAssertFalse(model.selectedPaper?.readerBundle?.index.blocks.isEmpty ?? true)
+        }
+        print("Live reported-paper Library flow: \(papers.count) papers in \(Date().timeIntervalSince(started)) seconds")
+    }
+
     private func capture(_ window: UIWindow, name: String) async throws {
         try await renderReady("Rendered rows for \(name)") {
             let host = window.rootViewController?.presentedViewController ?? window.rootViewController

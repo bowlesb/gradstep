@@ -1,9 +1,17 @@
 # Agent handoff
 
-**Current work, 2026-10-17 ~03:39 UTC (Oct 16 PDT):** Prioritize the latest build-63 feedback: MetaShare,
-ManiFusion and Rubric Judgments fail to prepare on the phone. All three exact revisions pass the full local compiler
-and native Simulator replay. Owner was asked asynchronously for the failure screen's ⓘ code; **not fixed**.
-Physical-phone access remains paused. See [feedback](OWNER_FEEDBACK.md) and `.artifacts/feedback/20261017-current/`.
+**Current work, 2026-10-17 ~04:00 UTC (Oct 16 PDT):** The owner installed **64 and reports the same failure** for
+MetaShare, ManiFusion and Rubric Judgments. They are rightly upset that a new build was shipped before the root
+cause was established. Prioritize this investigation. No reader fix or root cause has been established. Do not
+ship another proposed fix based on a passing Simulator replay or speculative memory/timeout explanation.
+The follow-up `LibraryModelTests.testReportedPapersDownloadInstallAndOpenThroughTheLibrary` covers real URLSession
+downloads started together, encrypted installation and reopening: all three pass in 22.6 seconds. Uploaded build
+64 and the Simulator carry identical compiler bytes. Test log: `library-live-investigation.log` in the feedback
+artifact directory. This still does not reproduce the phone's environment/state. The existing ⓘ code is requested
+asynchronously and unanswered. No newer ASC screenshot or in-app report was available. Build 64's new logging is
+only active in a manually started local test session, not automatic remote diagnostics. No product change/release
+in this follow-up; physical-phone access remains paused. See [feedback](OWNER_FEEDBACK.md) and
+`.artifacts/feedback/20261017-current/`.
 
 The owner funded another $10 for the selected **Gemini Flash** rollout. Migration 085 and `chat` are now deployed
 **hidden**, with the former research key reassigned to `OPENROUTER_CHAT_API_KEY` only and its $20 lifetime limit

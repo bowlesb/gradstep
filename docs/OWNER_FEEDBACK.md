@@ -9,7 +9,13 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
-## TestFlight build 63, 2026-10-17 03:01 UTC (Oct 16 PDT): three preparations failed
+## TestFlight builds 63–64, 2026-10-17 UTC (Oct 16 PDT): three preparations failed — unresolved
+
+The owner installed build 64 and reports the same failure. Shipping that build during this investigation created
+the expectation that the reading feedback had been addressed; no root cause or reader fix had been established.
+Do not present the Simulator passes or diagnostic logging as a fix, or ship another proposed reader fix without
+evidence tying it to the failure. Build 64's additional background error logging is **only active during a locally
+started test-session recording**; it does not automatically deliver the phone's failure code to the developer.
 
 Owner: “All of theee can’t be read ?” Screenshot `AOdhYANzVPZB-0xNEpmOwaM` shows Library preparation failures
 for MetaShare (2610.21887v1), ManiFusion (2610.21433v1) and Rubric Judgments (2610.21214v1). App Store Connect
@@ -25,6 +31,16 @@ memory, timeout or validation as the cause. Background Library preparation now r
 active local test-session recording, matching the foreground open path (previously discarded there); no paper
 text or identifier is logged. This diagnostic change does not fix the reported failure. Physical-phone access
 remains paused; no paid model call is needed for this investigation. Status: investigating, not fixed.
+
+Follow-up, ~04:00 UTC: the new opt-in `LibraryModelTests.testReportedPapersDownloadInstallAndOpenThroughTheLibrary`
+also succeeds for all three with real native URLSession downloads started together, encrypted installation, and
+opening each saved copy (22.6 seconds; one test, zero failures). It uses a fixture account backend on the iPhone
+17 Pro Simulator; it does not reproduce the phone's OS, network, memory or prior account state. The compiler bytes
+in the uploaded build-64 archive match those in this Simulator build (SHA-256
+`5b9d9c5f6b8042a4c14d94953bb107e5cbb0a76ebefb44634711bad18337a9af`). Evidence:
+`.artifacts/feedback/20261017-current/library-live-investigation.log`. No newer screenshot submission or in-app
+owner support report was available when checked. The failure screen's existing ⓘ code remains needed; requested
+again without asking the owner to install another build. No product change or release in this investigation.
 
 ## TestFlight builds 57–58, 2026-10-16: two papers refused over one figure each, and the table gradient
 

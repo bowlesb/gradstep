@@ -1,6 +1,16 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build-63 paper failures investigated; Flash verified on hidden staging; browser/provider privacy copy updated). Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (owner confirms build 64 still cannot prepare the reported papers; root cause unresolved). Earlier checkpoints below are historical.
+
+## Build 64 still fails on the phone — 2026-10-17 ~04:00 UTC (Oct 16 PDT)
+
+The owner reports the same reading failure after installing build 64. There was no established root cause or
+reader fix in that release; its diagnostic addition only records during an explicitly started local test session.
+The follow-up Simulator check now covers the omitted native network/Library/storage flow: all three reported
+papers download concurrently, install, and open in 22.6 seconds (one test, zero failures). The uploaded archive's
+compiler bytes match the tested app. This narrows the investigation, **not** the phone failure's status: unresolved.
+No further app build or product change has been shipped. Existing ⓘ failure code requested; physical-phone access
+remains paused. Evidence and release expectations: [owner feedback](OWNER_FEEDBACK.md).
 
 ## Latest build-63 feedback and hidden Flash rollout — 2026-10-17 ~03:25 UTC (Oct 16 PDT)
 
