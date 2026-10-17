@@ -7,7 +7,7 @@ import {
   webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF, DEEPSEEK_TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
-import { GEMINI_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, providerForModel, resolveChoice, resolveProfile,
+import { EFFORTS, GEMINI_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, providerForModel, resolveChoice, resolveProfile,
   type ChatProfile, type RequestedChoice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
@@ -15,7 +15,7 @@ import { EMPTY_STUDY_MAP, STUDY_HOLD_PARAMS, STUDY_INSTRUCTIONS, STUDY_MAX_TOKEN
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { visualRequest } from './chat-visual.ts';
 import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figurePartsFallbackText, figurePartsRequest, LOOK_AT_FIGURE_TOOL, SHOW_FIGURE_PARTS_TOOL, type FigureImage } from './chat-figures.ts';
-import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
+import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationFallbackText, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
 import { FIGURE_DETAIL_INSTRUCTIONS, FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureDetail, figureDetailMaxTokens,
   figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes, isFigureAction, type FigureDetail, type FigureWalkthrough } from './chat-figure-view.ts';
 import { GEMINI_TARIFF } from './gemini-pricing.ts';
@@ -635,8 +635,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // One part extracted (owner, build 62): the same tool with one section and its box, checked and held back the same way.
   const detailOnly = request.action === 'figure_detail';
   const heldBack = symbolsOnly || walkthroughOnly || detailOnly;
+  // Flash counts reasoning against max_tokens: the live DPO symbol request used the old 2,000-token
+  // allowance before completing its JSON. Keep the answer allowance plus the profile's reasoning room.
+  const symbolTokens = EQUATION_MAX_TOKENS + (profile.model === 'gemini' ? EFFORTS.find(e => e.id === profile.effort)!.thinkingTokens : 0);
   // The resolved profile (above); a repair always uses the default model with its own small allowance.
-  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? EQUATION_MAX_TOKENS : walkthroughOnly ? figureMaxTokens(profile.effort)
+  const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : symbolsOnly ? symbolTokens : walkthroughOnly ? figureMaxTokens(profile.effort)
     : detailOnly ? figureDetailMaxTokens(profile.effort) : profile.maxTokens;
   const instructions = chatInstructionParts(request.mode, request.action, searchOffered,
     { citations: request.localContext?.format === 'reader-local-context-v2', visuals: request.visuals, ...(request.study ? { studyMap: request.study } : {}) });
@@ -801,6 +804,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     }
   }
 
+  const described = symbolsOnly ? equationSymbols(heldText, paragraphCount(paper?.text ?? '')) : null;
+  const symbolWords = symbolsOnly && !described ? equationFallbackText(heldText) : '';
   // The figure view's walkthrough, checked; without one, the words in its call (else the model's own) are the description.
   const walkthroughCall = offersWalkthrough ? answer.toolCalls?.find(c => c.name === FIGURE_WALKTHROUGH_TOOL.name) : undefined;
   const paragraphs = walkthroughCall ? paragraphCount(paper?.text ?? '') : 0;
@@ -815,7 +820,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // How the answer ended decides whether the reader pays (owner decision 2026-10-16, CHAT.md "When an answer stops
   // early"): work that finished, or the part the reader chose to stop. Anything else that ended it costs them nothing.
   // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
-  const showsWork = walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
+  const showsWork = symbolsOnly ? !!described || !!symbolWords : walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
     : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
   const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
@@ -924,10 +929,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // The equation view's symbols: checked JSON, relayed once (format equation-symbols-v1). Without usable JSON the
     // model's words are the description, so the reader still sees something for what was paid.
     if (symbolsOnly && !signal.aborted) {
-      const described = equationSymbols(heldText, paragraphCount(paper?.text ?? ''));
       deps.log({ event: described ? 'chat_equation' : 'chat_equation_invalid_output', operation_id: request.operationID, symbols: described?.symbols.length ?? 0 });
       if (described) emit({ event: 'equation', data: described });
-      else if (heldText.trim()) emit({ event: 'delta', data: { text: heldText.trim().slice(0, 8_000) } });
+      else if (symbolWords) emit({ event: 'delta', data: { text: symbolWords } });
     }
     // The figure view's walkthrough: checked, relayed once (format figure-walkthrough-v1). Without a usable one the
     // model's words are the description, so the reader still sees what was paid for (counts only in the log).

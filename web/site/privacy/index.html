@@ -14,17 +14,21 @@
 <main>
   <header class="brand"><a href="/" style="display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none"><img class="mark" src="/brand/icon.svg" alt="" width="28" height="28">Gradstep</a></header>
   <h1>Privacy</h1>
-  <p class="muted">Private beta · last updated 6 October 2026</p>
-  <p>Gradstep is an iPhone and iPad app for reading machine-learning papers. This page explains what data the app and its servers handle during the private beta, who processes it, and the choices you have.</p>
+  <p class="muted">Private beta · last updated 16 October 2026</p>
+  <p>Gradstep is an app for reading machine-learning papers on iPhone, iPad, Mac and in a browser. This page explains what data the app and its servers handle during the private beta, who processes it, and the choices you have.</p>
 
   <h2>Your notes and conversations</h2>
   <p>Your saved conversations and notes are encrypted on your devices with keys that stay on your devices. Our servers store them only in encrypted form and cannot read them. A new device is approved from a device you are already signed in on, or with your recovery code. If you lose every device and your recovery code, we cannot recover that content.</p>
 
   <h2>AI answers</h2>
-  <p>When you ask a question, the app sends your question, any passage you selected, earlier messages in that conversation and, for questions about a paper, the paper's text to Anthropic, whose Claude models write the answer. When a question needs the web, the searches Claude writes go to Tavily or, as a backup, Anthropic's search provider; search services see only the searches. Our servers pass this through without storing it. These providers process it under their own terms and may keep it for a limited time. You agree to this the first time you ask a question, and the answer is saved, encrypted, on your device.</p>
+  <p>When you ask a question, the app sends your question, any passage you selected, earlier messages in that conversation and, for paper questions, the paper's text and relevant figure or table images to the model selected in Answer options. Claude requests go to Anthropic; DeepSeek requests go to DeepSeek; Gemini Flash requests pass through OpenRouter to Google. Anthropic also writes conversation titles and suggested questions. Equation and figure explanations use your selected chat model.</p>
+  <p>When a question needs the web, the searches the model writes go to Tavily or, for Claude, Anthropic's search provider as a backup; search services see the searches, which can include words from your question or paper. Our servers pass chat requests through without saving the text. The named providers process requests under their own terms and may retain them; we do not promise zero retention. The app asks for consent before cloud AI use and again when the consent changes to name a new processor. Saved conversations are encrypted on your device.</p>
 
   <h2>Papers</h2>
-  <p>When you add a paper, our servers fetch it (from arXiv or an open-access source) and convert it with Mathpix so equations and figures display properly. Papers whose license allows sharing may be converted once and reused for other readers. Other papers, and anything you upload, are converted privately for your account. Your library lists which papers you have added, which ones you archived and the tags you give them; our servers keep this so it syncs between your devices, and it is not end-to-end encrypted like your conversations. To suggest topic tags, a paper's title and abstract (public information about the paper, nothing about you) are sent to Anthropic.</p>
+  <p>Your device downloads the exact official arXiv HTML revision and prepares it for reading locally. PDFs are downloaded and processed only on your device. Gradstep's servers never contact arXiv and keep no PDF, HTML or reader-bundle copies. The shared Feed uses public metadata from DataCite. Your library membership, archive state and topic tags are service-visible metadata used for synchronization. To suggest catalog tags, a paper's public title and abstract are sent to Anthropic.</p>
+
+  <h2>Podcasts</h2>
+  <p>If you request a private episode, your device sends the paper's text to make it. The quote names the providers: Anthropic or DeepSeek writes the script, and Google generates the speech. Source text is temporarily stored for that job and scheduled for deletion when no unfinished job needs it; cleanup retries if deletion fails. The episode's audio and script are stored so you can play them. These episode files are private to your account but do not use your conversation encryption keys. Shared episodes are available to other readers.</p>
 
   <h2>Your account</h2>
   <p>You sign in with Apple, Google or an email code. We keep your email address and the identifiers from these sign-in services to run your account. Sign-in codes are sent by email through Resend.</p>
@@ -43,10 +47,10 @@
   </ul>
 
   <h2>Where data is processed</h2>
-  <p>Our database and file storage run on Supabase in the United States (US West). Paper processing runs on Google Cloud in the United States (US West). This website is served by Cloudflare. The providers named above process data as described in each section.</p>
+  <p>Our database and file storage run on Supabase in the United States (US West). Background services, including episode generation, run on Google Cloud in the United States (US West). This website is served by Cloudflare. AI and search providers process requests under their own terms; those requests are not restricted to our servers' region.</p>
 
   <h2>Deleting your account</h2>
-  <p>You can delete your account in the app (Settings → Account). We then delete your library, encrypted history, private papers, reports and sign-in details. Records needed for accounting, such as credit and usage totals, are kept without your account identity. Shared paper conversions that other readers use remain. Deleted data leaves our backups as they expire.</p>
+  <p>You can delete your account in the app (Settings → Account). We then delete your library, encrypted history, private episodes, reports and sign-in details. Records needed for accounting, such as credit and usage totals, are kept without your account identity. Shared catalog records and public episodes can remain. Deleted data leaves our backups as they expire.</p>
 
   <h2>Contact</h2>
   <p>Questions about privacy: <a href="mailto:privacy@gradstep.ai">privacy@gradstep.ai</a>.</p>

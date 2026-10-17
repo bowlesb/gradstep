@@ -6,6 +6,12 @@ storage/backup exclusions, separate synced membership, version-bound anchors and
 Cloud chat still discloses necessary plaintext for an explicit request and is not claimed to run on device.
 Historical server PDF/Mathpix retention descriptions below do not override this new boundary. Migration 058 and the metadata-only worker enforce the staging cutover; historical retained copies are not deleted. See IMPLEMENTATION_STATUS.md for client releases and measured privacy evidence.
 
+2026-10-17 rollout update: server paper copies were deleted under migration 080 (2026-10-16); the retention rows
+below are historical. Gemini Flash uses Google through OpenRouter under consent v5. Request routing disallows
+training endpoints and response caching; account logging/data-use settings are not yet verified, so Flash remains
+hidden. Titles/suggestions still go to Anthropic. Current route and evidence: [Gemini Flash](GEMINI_FLASH_CHAT.md).
+The existing website privacy page and staged redesign now name these processors and device-only paper handling.
+
 Status: device-held keys approved; iPhone/iPad first, with the browser reader authorized afterward. Implementation and verification remain in progress. This is not a shipped privacy guarantee.
 
 ## Recommendation and alternatives

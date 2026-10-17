@@ -371,3 +371,25 @@ Flash's current Google list rates double on 2027-01-01; the new tariff gate and 
 unreviewed increase. Near-term additional usage forecast remains **$0 pending funded service credentials**; then
 declare a bounded allocation for the focused live checks before enabling app traffic. Customer usage must remain
 inside existing server-side reservations and monthly controls. [Integration and rollout](GEMINI_FLASH_CHAT.md).
+
+## Flash rollout funding and measured checks — 2026-10-17 ~03:23 UTC (Oct 16 PDT)
+
+The owner added another **$10** and asked to use it properly. OpenRouter confirms **$20 total funded**. The
+existing Science Reader comparison key was reassigned solely to the app (`OPENROUTER_CHAT_API_KEY`); its research
+variable was removed and its **$20 lifetime limit is unchanged**. No agent purchase, automatic top-up, subscription,
+new fixed commitment or change to the **$100/month** operating budget.
+
+Declared check allocation: **at most $1**, enforced before each request by a durable local hold based on the
+server's operation quote plus margin. Server admission and monthly controls also remained active. Eight public-DPO
+requests cost **$0.108185933** according to exact OpenRouter generation metadata, **$0.108191** in whole-micro-USD
+server accounting. Included: two chat turns $0.033957; three figure actions $0.033491; equation background $0.011766;
+one truncated symbol attempt $0.011894 (zero reader credits, platform absorbed); corrected symbols $0.017083.
+All eight routed to Google AI Studio. Three Anthropic title/suggestion refusals cost zero; their empty balance
+still prevents these extras. All disposable accounts were deleted. **Outstanding reservations: $0.**
+
+Account/key usage **$9.794716301** = prior research $9.686530368 + this rollout $0.108185933, leaving
+**$10.205283699**. Evidence `.artifacts/flash-rollout-20261017/provider-evidence.json` and `spend-ledger.json`.
+No invoice receipt for top-up fees/tax was inspected; do not treat the nominal credit amount as the complete invoice.
+No further paid testing is forecast for this rollout; app use after activation is metered within the existing
+server budget. These short cached DPO checks do not predict a month of cold, long-paper use. Flash remains hidden
+pending account privacy-setting confirmation and client release; no unattended inference is running.

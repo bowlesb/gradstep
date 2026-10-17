@@ -9,6 +9,23 @@ Build **21** (`c10e54c`) now supersedes both and is VALID / IN_BETA_TESTING for 
 fix below and adds clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight build 63, 2026-10-17 03:01 UTC (Oct 16 PDT): three preparations failed
+
+Owner: “All of theee can’t be read ?” Screenshot `AOdhYANzVPZB-0xNEpmOwaM` shows Library preparation failures
+for MetaShare (2610.21887v1), ManiFusion (2610.21433v1) and Rubric Judgments (2610.21214v1). App Store Connect
+confirms build 63; no new crash submissions. Evidence: `.artifacts/feedback/20261017-current/` (private local files).
+
+All three exact official HTML revisions are available. Local full device-compiler replay succeeds with all 4,
+36 and 11 source images respectively; bundles are 1.0, 15.1 and 1.1 MiB. The source sweep has no failures; Rubric
+Judgments has a separate existing `\\boxed` text warning. This does **not** explain or resolve the phone failure.
+Native iPhone 17 Pro Simulator replay also opens all three through WebKit and independent Swift admission in
+1.2–4.2 seconds each (674/354/214 blocks; 343/597/498 equations for MetaShare/ManiFusion/Rubric Judgments).
+Next: obtain the failure screen’s ⓘ code, requested from the owner. The screenshot alone does not identify
+memory, timeout or validation as the cause. Background Library preparation now records its failure code in an
+active local test-session recording, matching the foreground open path (previously discarded there); no paper
+text or identifier is logged. This diagnostic change does not fix the reported failure. Physical-phone access
+remains paused; no paid model call is needed for this investigation. Status: investigating, not fixed.
+
 ## TestFlight builds 57–58, 2026-10-16: two papers refused over one figure each, and the table gradient
 
 | # | Owner said | Where | Cause / plan | Status |

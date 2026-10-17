@@ -2,24 +2,31 @@
 
 Updated 2026-10-16 UTC (browser build-62 parity; figure view in the apps; browser figure view; Tables list real tables; browser AI credits, plan and Diagrams; figure view server; Mac Close/New fixed, reader revision 16; browser build-59 parity and Listen on legacy items; server paper copies deleted). Earlier deployment checkpoints below are retained as history.
 
-## Gemini Flash selected; integration verified locally — 2026-10-17 ~00:14 UTC (Oct 16 PDT)
+## Latest build-63 feedback and hidden Flash rollout — 2026-10-17 ~03:25 UTC (Oct 16 PDT)
 
-Owner: “lets move ahead with Flash.” Gemini 3.8 Flash at the tested medium effort is implemented through OpenRouter,
-pinned to Google with no provider fallback. The backend preserves cacheable paper context, tools/figures/reasoning
-signatures, actual reported cost, durable attempt admission and unknown liabilities. Pending migration 085 admits
-only that route/model and deduplicates its spend; the tariff expires before Google's January price increase.
-Updated Apple/browser clients understand Flash and consent v5; a recommended-default field leaves builds 57–63
-compatible, and explicit saved choices remain respected. Admin names OpenRouter separately from direct Google voices.
-
-Verification: `npm test` (645 backend, 469 browser units), Deno, browser/admin builds; fresh local DB migration and
-four affected accounting suites; 26 Core tests; ten iPhone 17 Pro Simulator profile/visual/figure tests; desktop/phone
-Flash consent/send journeys 2/2 with screenshots reviewed. Physical phone remains paused. No new paid inference.
-
-**Not deployed; Sonnet still serves the default.** `chat_gemini` is off. OpenRouter has $10 funded, $9.686530368 used,
-about $0.31 remaining, and no dedicated `OPENROUTER_CHAT_API_KEY` locally. Funding/key requested asynchronously.
-Next: funded key/privacy settings, migration 085 and hidden staging adapter, bounded live chat/figure/equation
-checks with ledger readback, then browser/TestFlight rollout. [Design and evidence](architecture/GEMINI_FLASH_CHAT.md).
-The prior comparison's ungraded questions do not imply another broad research run after the owner's selection.
+- **New feedback:** “All of theee can’t be read ?” (App Store Connect `AOdhYANzVPZB-0xNEpmOwaM`, build 63):
+  MetaShare 2610.21887v1, ManiFusion 2610.21433v1 and Rubric Judgments 2610.21214v1 fail preparation on the phone.
+  Exact official HTML, full image compilation and native iPhone 17 Pro Simulator replay all succeed. Native counts:
+  674/354/214 blocks; 343/597/498 equations; 1.2–4.2 seconds. **Phone failure remains unresolved**; the owner was
+  asked for the failure screen's ⓘ code. No physical phone was queried. New opt-in cached-paper replay test and
+  local session-recording failure code for background Library preparation; no claim of a reader fix.
+- **Flash staging:** migration 085 and chat are deployed with `chat_gemini: "hidden"`, persisted in infra. OpenRouter
+  routes to Google AI Studio only. Two chat turns, three figure actions and both equation actions are verified.
+  The first symbol request hit its old 2,000-token limit: fixed to include medium reasoning (6,000 total), then
+  repeated successfully with 11 symbols. Malformed JSON is no longer displayed or charged as an explanation.
+- **Cost:** eight generations, **$0.108185933** actual ($0.108191 rounded server ledger), **no outstanding holds**;
+  the account has **$10.205283699 left from $20 funded**. $1 test allocation was not exceeded. The existing key was
+  reassigned solely to app use; the comparison harness's key variable was removed and its $20 lifetime limit kept.
+  Three Anthropic auxiliary title/suggestion calls still refuse for billing, at zero cost; Flash answers complete.
+- **Verification:** final fast tier 647 backend / 469 browser units; chat+adapter regressions 142/142; Deno checks
+  the entry point; native test target builds, cached native reader suite 4 pass / 1 live-network skip. The prior
+  affected DB, Core, profile and figure UI evidence is reused for unchanged behavior. Browser equation, figure and HTML journeys pass on desktop and phone (6/6), with consent v5. Evidence `.artifacts/flash-rollout-20261017/` and
+  `.artifacts/feedback/20261017-current/`.
+- **Activation still pending:** ordinary app traffic keeps Sonnet. Computer Use denied Chrome access, so the
+  OpenRouter account's input/output logging and data-use switches could not be inspected; owner confirmation is
+  pending. Privacy copy now names Google/OpenRouter and removes retired server PDF processing. Updated clients
+  are being prepared; build 63 and browser Pages `836089d4` remain the last verified releases at this checkpoint.
+  [Route, accounting and activation](architecture/GEMINI_FLASH_CHAT.md); [feedback](OWNER_FEEDBACK.md).
 
 ## Model finalist extension — 2026-10-16, ~23:15 UTC, responses complete; review partial
 

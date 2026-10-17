@@ -1,13 +1,24 @@
 # Agent handoff
 
-**Current work, 2026-10-17 ~00:14 UTC (Oct 16 PDT):** Owner selected **Gemini 3.8 Flash** as the next chat default.
-The OpenRouter → Google integration, pending migration 085, consent v5 and compatible native/browser default
-selection are built and locally verified. Read [Gemini Flash chat](architecture/GEMINI_FLASH_CHAT.md) for exact
-evidence and the activation sequence. **Nothing in this integration has been deployed; Sonnet remains the deployed
-default.** `infra/staging.json` keeps `chat_gemini: "off"`. OpenRouter still has about $0.31 remaining; dedicated
-`OPENROUTER_CHAT_API_KEY` is absent. Funding/app key requested; optional OpenRouter-versus-direct-Google preference
-also pending (OpenRouter is the stated working choice). No new inference spend or paid watcher. Complete the live
-checks and client rollout when credentials/funding arrive; don't restart the broad model comparison.
+**Current work, 2026-10-17 ~03:25 UTC (Oct 16 PDT):** Prioritize the latest build-63 feedback: MetaShare,
+ManiFusion and Rubric Judgments fail to prepare on the phone. All three exact revisions pass the full local compiler
+and native Simulator replay. Owner was asked asynchronously for the failure screen's ⓘ code; **not fixed**.
+Physical-phone access remains paused. See [feedback](OWNER_FEEDBACK.md) and `.artifacts/feedback/20261017-current/`.
+
+The owner funded another $10 for the selected **Gemini Flash** rollout. Migration 085 and `chat` are now deployed
+**hidden**, with the former research key reassigned to `OPENROUTER_CHAT_API_KEY` only and its $20 lifetime limit
+unchanged. Focused live checks cost **$0.108185933**, leave **$10.205283699**, and have **zero unknown holds**.
+Do not restart broad research or paid watchers. The symbol-explanation check found and fixed a 2,000-token cap
+that left no room for Flash reasoning: 6,000 now, 11 symbols delivered; malformed JSON is neither shown nor charged.
+Titles/suggestions still fail against Anthropic's empty balance, without failing Flash answers.
+
+**Not the default yet.** Chrome access was denied by Computer Use. An asynchronous question asks the owner to
+confirm OpenRouter **Private Input & Output Logging** and **OpenRouter Use of Inputs/Outputs** are off. Keep hidden
+until checked; routing already denies training endpoints and response caching. Native/browser release work is
+being prepared; build 63/Pages `836089d4` remain the last verified releases at this checkpoint. Then enable
+`chat_gemini: "on"`, deploy chat and read back the published recommendation. [Contract and exact evidence](architecture/GEMINI_FLASH_CHAT.md).
+
+The research balances and deployment states below are historical checkpoints, superseded by the current entry.
 
 **Release checkpoint, 2026-10-16:** Codex recovered the active Claude session after its weekly quota
 ran out. The build-62 feedback branches are merged and verified on main (`505d661` client source). Browser

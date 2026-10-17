@@ -95,7 +95,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer.getByRole('heading',{name:'What it shows'})).toBeInViewport();
  let sent=await chats();
  expect(sent).toHaveLength(1);
- expect(sent[0]).toMatchObject({action:'figure',mode:'paper',consent_version:'cloud-ai-v4',selection:{quote:'Figure 1: A test figure.'},messages:[{role:'user',text:'Figure 1'}],
+ expect(sent[0]).toMatchObject({action:'figure',mode:'paper',consent_version:'cloud-ai-v5',selection:{quote:'Figure 1: A test figure.'},messages:[{role:'user',text:'Figure 1'}],
   local_context:{format:'reader-local-context-v2',membership_id:member}});
  expect(sent[0].capabilities).toContain('figure_view');expect(sent[0].figures).toHaveLength(1);
  expect(sent[0].figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg'});

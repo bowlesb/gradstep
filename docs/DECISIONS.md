@@ -2,11 +2,12 @@
 
 Last updated: 2026-10-16. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Gemini Flash selected for chat (owner decision, 2026-10-16; integration verified locally)
+## Gemini Flash selected for chat (owner decision, 2026-10-16; hidden staging verified)
 
 After reviewing the measured comparison, the owner said **“lets move ahead with Flash”**: Gemini 3.8 Flash at
 the tested medium effort is the selected default for updated clients. This supersedes the research-only hold below;
-the deployed default is still Sonnet until integration, consent, accounting and focused live checks are verified.
+the deployed default is still Sonnet. Migration 085 and the hidden Flash route now pass the focused live checks;
+client rollout and confirmation of the OpenRouter account privacy settings precede activation.
 OpenRouter through Google's pinned endpoint is the working connection choice while the owner's optional preference
 between OpenRouter and direct Google is pending. No automatic provider switching, budget increase, or further broad
 bake-off is implied. Existing explicit model choices remain respected. Implementation contract:

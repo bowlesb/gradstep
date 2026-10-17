@@ -2640,6 +2640,8 @@ final class ReaderModel {
             } catch {
                 guard self.sessionID == scope else { return }
                 if case ArxivHTMLError.unavailable = error, !automatic { self.reportSourceMetadataWithoutHTML(paper, source: source) }
+                let code = (error as? ArxivHTMLError)?.code ?? String(describing: type(of: error))
+                SessionTimeline.shared.record("reader", ["phase": "prepare-failed", "code": code])
                 self.devicePreparationIssues[paper.id] = Self.preparationReason(error)
             }
         }

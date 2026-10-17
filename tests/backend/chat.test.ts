@@ -2163,6 +2163,46 @@ test('the equation view reads the chat cache: same tools, shared instructions an
   assert.match(JSON.stringify((background.system as unknown[])[2]), /background to understand it/);
 });
 
+test('Flash symbols reserve reasoning as well as the JSON answer, without changing the cached prefix', async () => {
+  const sent: Anthropic.Beta.Messages.MessageCreateParams[] = [];
+  const h = equationHarness({ generate: async (params, stream) => {
+    sent.push(params);
+    stream.onText('{"summary":"The DPO loss.","symbols":[{"symbol":"β","meaning":"Controls departure from the reference.","source":"paper","paragraph":2}]}');
+    return completeOutcome({ model: 'gemini-3.8-flash', attempts: [{ model: 'gemini-3.8-flash', estimated: false,
+      billedMicrousd: 12_000, usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 34_000, output: 3_000 } }] });
+  } });
+  h.deps.gemini = true;
+  const profile = { model: 'gemini', effort: 'medium', length: 'standard' };
+  for (const action of ['equation', 'equation_background'])
+    await runChat(h.deps, equationBody({ action, profile, consent_version: 'cloud-ai-v5' }), h.emit, new AbortController().signal);
+  assert.equal(sent[0].max_tokens, 6_000, '2,000 answer tokens plus 4,000 for medium reasoning');
+  assert.deepEqual(sent[0].thinking, sent[1].thinking);
+  assert.deepEqual(sent[0].tools, sent[1].tools);
+  assert.deepEqual((sent[0].system as unknown[]).slice(0, 2), (sent[1].system as unknown[]).slice(0, 2));
+  const reservation = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
+  assert.equal((reservation.p_quote as Record<string, unknown>).max_output_tokens, sent[0].max_tokens);
+  assert.ok(Number(reservation.p_microusd) >= 12_000);
+  assert.equal(h.events[0].event, 'equation');
+  assert.equal(settledWith(h).p_actual_microusd, 12_000);
+  assert.equal(settledWith(h).p_ending, 'completed');
+});
+
+test('broken equation JSON is never displayed or charged, even when the provider says it finished', async () => {
+  for (const [text, stopReason] of [
+    ['{"summary":"The DPO', 'max_tokens'],
+    ['```json\n{"summary":"The DPO', 'end_turn'],
+    ['Here is the result: {"summary":"The DPO', 'end_turn'],
+  ] as const) {
+    const h = equationHarness({ generate: async (_params, stream) => { stream.onText(text); return completeOutcome({ stopReason }); } });
+    await runChat(h.deps, equationBody(), h.emit, new AbortController().signal);
+    assert.deepEqual(h.events.map(e => e.event), ['done']);
+    const settle = settledWith(h);
+    assert.equal(settle.p_actual_credits, 0);
+    assert.equal(settle.p_ending, stopReason === 'max_tokens' ? 'limit' : 'provider');
+    assert.equal(settle.p_absorbed_microusd, settle.p_actual_microusd);
+  }
+});
+
 test('symbols are held back, checked and relayed once; a made-up paragraph becomes general; no JSON falls back to the words', async () => {
   const json = '```json\n{"summary":"The DPO loss.","symbols":[{"symbol":"β","latex":"\\\\beta","meaning":"Temperature.","source":"paper","paragraph":2},'
     + '{"symbol":"σ","meaning":"Logistic function.","source":"general"},{"symbol":"x","meaning":"Margin.","source":"paper","paragraph":99},{"symbol":"","meaning":"dropped"}]}\n```';

@@ -42,8 +42,8 @@ const FIGURE = Number(process.argv.find(a => a.startsWith('--figure='))?.slice(9
 /** `--look`: no figure attached, the device says it can answer a figure request (`figure_requests`); when the model asks for
  * one (`figure_request`), the question goes again with that figure, as the apps do (2026-10-15). */
 const LOOK = process.argv.includes('--look');
-/** `--equation`: the equation view's two requests on DPO's loss (EQUATION_VIEW.md): symbols, then background. */
-const EQUATION = process.argv.includes('--equation');
+/** `--equation`: symbols, then background on DPO's loss; `--equation=symbols` reruns only the structured request. */
+const EQUATION = process.argv.includes('--equation') || process.argv.includes('--equation=symbols');
 /** `--figure-view=N`, `--table-view=N`, `--warm`, `--paper=<id>v<rev>`: the figure view (see the header). */
 const FIGURE_VIEW = Number(process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? 0);
 const TABLE_VIEW = Number(process.argv.find(a => a.startsWith('--table-view='))?.slice(13) ?? 0);
@@ -411,6 +411,9 @@ try {
     log(`citations: [${cites.join(', ')}] (${cites.filter(n => n >= 1 && n <= index.blocks.length).length} resolvable of ${cites.length})`);
     log(`follow-ups (${followUps.length}): ${JSON.stringify(followUps)}`);
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
+    if (equationAction && (failure || done?.stop_reason !== 'end_turn'
+      || (equationAction === 'equation' ? !events.includes('equation') : !answer.trim())))
+      throw new Error(`${equationAction} did not deliver a complete explanation`);
     if (EVAL) {
       // Every math segment as the browser typesets it (temml, errors thrown), and no dollar delimiters.
       const segments = [...answer.matchAll(/\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g)].map(m => ({ tex: m[1] ?? m[2], display: m[2] !== undefined }));
@@ -449,7 +452,9 @@ try {
     if (!loss) throw new Error('no DPO loss equation in the bundle');
     equationLatex = loss.latex.replace(/\\(begin|end)\{equation\*?\}/g, '').trim();
     log(`equation ${loss.id} ¶${index.blocks.findIndex(b => b.id === loss.block_id) + 1}: ${equationLatex.slice(0, 120)}…`);
-    for (const action of ['equation', 'equation_background']) { equationAction = action; turns.length = 0; await ask('Equation (7)'); }
+    for (const action of process.argv.includes('--equation=symbols') ? ['equation'] : ['equation', 'equation_background']) {
+      equationAction = action; turns.length = 0; await ask('Equation (7)');
+    }
   } else if (EVAL) {
     for (const item of EVAL_QUESTIONS) { turns.length = 0; log(`=== ${item.key} ===`); await ask(item.question, item.figure ?? 0); results.at(-1).key = item.key; }
   } else if (STUDY) {
@@ -458,7 +463,7 @@ try {
     await ask('I’m not sure what beta does. Is it a learning rate?');
   } else {
     await ask(QUESTION ?? 'Why does the DPO objective need a reference model, and which equation defines the loss?');
-    if (QUESTIONS >= 2 && followUps.length) await ask(followUps[0]);
+    if (QUESTIONS >= 2) await ask(followUps[0] ?? 'What is the main limitation of that answer? Explain using the paper.');
   }
   const after = await rpc('v1_credit_balance', {}, token);
   log(`balance after: ${after.available} available, ${after.held ?? 0} held (spent ${balance.available - after.available} credits)`);

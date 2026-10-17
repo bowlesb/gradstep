@@ -74,8 +74,16 @@ data: {"format":"equation-symbols-v1","summary":"…","symbols":[{"symbol":"β",
 ```
 
 then `done` (credits). A paragraph number outside the paper turns the symbol into `general`. When the model wrote no
-usable JSON the words come as one `delta` instead: show them as the description. `equation_background` streams
+usable JSON, genuine prose comes as one `delta` instead: show it as the description. Broken or truncated JSON is
+not displayed or charged as an explanation. `equation_background` streams
 `delta`s like any answer, then `done`. No tool result is relayed for either.
+
+Flash rollout, 2026-10-17: the live DPO symbols request exhausted the old 2,000-token output cap during reasoning
+and returned incomplete JSON. The customer was charged zero; the provider cost was $0.011894. Flash now adds the
+profile's 4,000-token medium reasoning allowance to the 2,000 answer tokens, in both the request and durable quote.
+The repeated symbols-only request completed with 11 symbols and 3,762 output/reasoning tokens, $0.017083 recorded
+cost, four credits. Its 34,391-token paper prefix was cached. Regression checks cover the quote, shared prefix,
+and no display/charge for malformed JSON even if the provider says `end_turn`. Other models' caps are unchanged.
 
 ## On the device
 

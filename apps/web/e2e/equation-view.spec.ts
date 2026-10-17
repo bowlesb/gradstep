@@ -58,6 +58,7 @@ test('a tapped equation’s AI Explainer opens it large and asks at once; backgr
  await expect(view.frameLocator('[data-testid=equation-frame]').locator('math')).toBeVisible();
  // AI Explainer asks at once: the chat's own consent first, nothing sent before it.
  await expect(view.getByTestId('equation-consent')).toBeVisible();
+ await expect(view.getByTestId('equation-consent')).toContainText('Google through OpenRouter');
  await page.waitForTimeout(500);expect(await chats()).toHaveLength(0);
  // Not now: the view stays, its top row offering Explain in Chat and AI Explainer beside the X; no Done.
  await view.getByRole('button',{name:'Not now'}).click();
@@ -110,7 +111,7 @@ test('a tapped equation’s AI Explainer opens it large and asks at once; backgr
  const sent=await chats();
  expect(sent.map(r=>r.action)).toEqual(['equation','equation_background']);
  for(const r of sent){
-  expect(r).toMatchObject({mode:'paper',consent_version:'cloud-ai-v4',selection:{quote:'x^2'},messages:[{role:'user',text:'Equation (1)'}],
+  expect(r).toMatchObject({mode:'paper',consent_version:'cloud-ai-v5',selection:{quote:'x^2'},messages:[{role:'user',text:'Equation (1)'}],
    local_context:{format:'reader-local-context-v2',membership_id:member}});
   for(const key of ['topic_title','follow_ups','figures','document_id'])expect(r).not.toHaveProperty(key);
  }

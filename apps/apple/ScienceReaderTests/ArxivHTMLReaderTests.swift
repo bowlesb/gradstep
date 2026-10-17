@@ -4,6 +4,54 @@ import Testing
 @testable import ScienceReader
 
 @MainActor @Suite struct ArxivHTMLReaderTests {
+    /// Opt-in replay of owner-reported papers through the exact native WebKit and bundle-admission path.
+    /// Uses only cached official HTML/assets; a missing cache is an error, never a network request.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SCIENCE_READER_HTML_CASES"] != nil))
+    func reportedPapersPrepareFromCachedOfficialSources() async throws {
+        struct Paper: Decodable {
+            let source_id: String
+            let source_revision: Int
+            let title: String
+            let authors: [String]
+        }
+        let path = try #require(ProcessInfo.processInfo.environment["SCIENCE_READER_HTML_CASES"])
+        let papers = try JSONDecoder().decode([Paper].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        #expect(!papers.isEmpty && papers.count <= 10)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".artifacts/reader-sweep")
+        for paper in papers {
+            let source = try ArxivReaderSource(sourceID: paper.source_id, revision: paper.source_revision)
+            let key = "\(source.sourceID)v\(source.revision)"
+            let reader = ArxivHTMLReader { url, ref, maximum in
+                #expect(ref == source)
+                let path: URL
+                if url == source.htmlURL {
+                    path = root.appendingPathComponent("sources/\(key).html")
+                } else {
+                    #expect(source.admitsAsset(url.absoluteString))
+                    // Same encodeURIComponent filename as scripts/reader-device-compile.mjs.
+                    let name = try #require(url.absoluteString.split(separator: "/").last)
+                    let encoded = try #require(String(name).addingPercentEncoding(withAllowedCharacters:
+                        CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")))
+                    path = root.appendingPathComponent("assets/\(key)/\(encoded)")
+                }
+                let data = try Data(contentsOf: path)
+                #expect(data.count <= maximum)
+                return data
+            }
+            let start = Date()
+            do {
+                let bundle = try await reader.prepare(source, authors: paper.authors, title: paper.title)
+                #expect(bundle.arxivSource == source)
+                #expect(!bundle.index.blocks.isEmpty && !bundle.index.figures.isEmpty && !bundle.index.equations.isEmpty)
+                print("Cached native paper \(key): \(bundle.index.blocks.count) blocks, \(bundle.index.figures.count) figures, \(bundle.index.equations.count) equations, \(Date().timeIntervalSince(start)) s")
+            } catch {
+                print("Cached native paper \(key) failed: \((error as? ArxivHTMLError)?.code ?? String(describing: type(of: error)))")
+                throw error
+            }
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_HTML"] == "1"))
     func liveOfficialHTMLCompletesOnTheNativeAcquisitionPath() async throws {
         let start = Date()

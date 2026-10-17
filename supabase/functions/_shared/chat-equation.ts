@@ -56,6 +56,13 @@ export function equationSymbols(text: string, paragraphs: number): EquationSymbo
   return { format: EQUATION_FORMAT, summary, symbols };
 }
 
+/** Prose is a useful fallback; broken structured output is neither an explanation nor delivered work. */
+export function equationFallbackText(text: string): string {
+  const words = text.trim();
+  if (/^(?:```(?:json)?\s*)?\{/.test(words) || /"(?:summary|symbols)"\s*:/.test(words)) return '';
+  return words.slice(0, 8_000);
+}
+
 /** The paper's numbered blocks ([¶N] markers in reader-local-context-v2), so a cited paragraph can be checked. */
 export function paragraphCount(paperText: string): number {
   let highest = 0;
