@@ -9,7 +9,7 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
-## TestFlight build 64, 2026-10-17 ~04:25 UTC: `Code: invalid` — cause reproduced, fix verified locally
+## TestFlight build 64, 2026-10-17: `Code: invalid` — cause reproduced, fixed in build 65
 
 New screenshot `AHX5KiKf7h8mFPm8-E953es` (04:01:46 UTC, build 64) shows VLA-Δ, 2610.21306v1, with
 **Code: invalid**. The actual native Library flow reproduces that error with Swift optimization enabled (`-O`),
@@ -34,7 +34,9 @@ native Library flow with `-O` and whole-module compilation: VLA-Δ in 8.71 s, Me
 started together in 21.74 s. The native reader suite passes five tests (one unrelated live-DPO opt-in skipped),
 including the ten-image regression and cached replay of the three original papers. `npm test` passes. This is
 Simulator verification with the release compiler settings, not a physical-phone acceptance claim. Build 65 is
-being packaged from this verified fix; release status is recorded in IMPLEMENTATION_STATUS.md.
+uploaded from this verified fix (`940e574`): iOS 04:30:19 UTC, Mac 04:33:15 UTC. Both are **VALID / IN_BETA_TESTING**
+as of **04:35:57 UTC** (iOS first confirmed 04:33:41 UTC).
+Release status is recorded in IMPLEMENTATION_STATUS.md.
 
 The host now names each validation stage instead of using the same `invalid` code for unrelated guards.
 Renderer revision remains 16: acquisition changes, generated bundles do not. Evidence:

@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 64 `invalid` reproduced and fixed; all four reported papers pass with release optimization; build 65 being packaged). Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 64 `invalid` reproduced and fixed; all four reported papers pass with release optimization; TestFlight 65 available for iOS and Mac). Earlier checkpoints below are historical.
 
 ## Build 64 `invalid`: root cause and native fix — 2026-10-17 ~04:25 UTC (Oct 16 PDT)
 
@@ -16,8 +16,12 @@ with `-O` after the fix. Existing one-image fixtures and debug real-paper replay
 test tier now uses `-O` and whole-module compilation; guard diagnostics name their stages. No renderer revision
 bump is needed. Full Library verification with `-O` and whole-module compilation succeeds for all four reported
 papers: VLA-Δ downloads/installs/reopens in 8.71 s; the original three, started together, in 21.74 s. The native
-reader suite is five passes / one unrelated live-DPO skip. `npm test` passes. Build 65 is being packaged; no
-physical-phone acceptance is claimed. Physical phone access remains paused; this investigation incurs no AI cost.
+reader suite is five passes / one unrelated live-DPO skip. `npm test` passes. Source **940e574**.
+TestFlight **65** uploaded successfully for iPhone/iPad at **04:30:19 UTC**, and Mac at **04:33:15 UTC**;
+Both are **VALID / IN_BETA_TESTING**, confirmed **04:35:57 UTC** (iOS first confirmed 04:33:41 UTC).
+No physical-phone acceptance is claimed. Physical phone access remains paused;
+this investigation incurs no AI cost. Upload evidence: `.artifacts/export-65.log`, `.artifacts/export-mac-65.log`;
+processing evidence: `.artifacts/feedback/20261017-invalid/build65-status.json`.
 [Feedback and evidence](OWNER_FEEDBACK.md).
 
 ## Build 64 still fails on the phone — 2026-10-17 ~04:00 UTC (Oct 16 PDT)

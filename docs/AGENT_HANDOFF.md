@@ -1,6 +1,6 @@
 # Agent handoff
 
-**Current work, 2026-10-17 ~04:25 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
+**Current checkpoint, 2026-10-17 ~04:36 UTC (Oct 16 PDT):** The owner's new build-64 screenshot shows VLA-Δ
 2610.21306v1 with **Code: invalid**. **Cause now reproduced:** Swift 6.3 `-O` loses `index` when returning
 `(index, try await acquire(...))` from a task inside `do/catch`; successful downloads all overwrite slot zero.
 The final guard finds empty slots. Debug passes. Standalone no-network reproduction confirms it. The native
@@ -8,8 +8,10 @@ host now awaits bytes before constructing the tuple; new ten-image regression fa
 Cached native replay of Rubric/ManiFusion/MetaShare passes with `-O` too. Complete native Library verification
 with `-O` and whole-module compilation passes for all four papers: VLA-Δ 8.71 s; the original three together
 21.74 s, including encrypted installation and reopening. Native reader suite five passes / one live-DPO skip;
-`npm test` passes. Build 65 is being packaged from the verified fix. No physical phone access or
-paid AI. Keep the Flash rollout hidden while finishing this reader repair. Full cause/evidence in
+`npm test` passes. Build 65 from **940e574** uploaded for iOS at 04:30:19 UTC and Mac at 04:33:15 UTC;
+**Both are VALID / IN_BETA_TESTING as of 04:35:57 UTC.** No physical phone access or
+paid AI. Reader repair is shipped with the reproduced before/after evidence; owner acceptance is still open.
+Flash remains hidden pending the existing account-privacy confirmation. Full cause/evidence in
 [owner feedback](OWNER_FEEDBACK.md) and `.artifacts/feedback/20261017-invalid/`.
 
 **Earlier investigation, ~04:00 UTC, superseded above:** The owner installed **64 and reports the same failure** for
