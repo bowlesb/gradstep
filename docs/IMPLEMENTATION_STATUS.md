@@ -1,8 +1,8 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed; import acceptance gate added; TestFlight 66 available for iOS and Mac, browser deployed). Chat activation and a fresh post-deletion invitation still await owner information. Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). Chat activation and a fresh post-deletion invitation still await owner information. Earlier checkpoints below are historical.
 
-## Build 66 follow-up — 2026-10-17 UTC (verified, release pending)
+## Build 66 follow-up — 2026-10-17 UTC (browser and TestFlight 67 iOS/Mac available)
 
 - Reproduced remote deletion with two real staging sessions, without mail, papers or AI. The second session's
   refresh fails with `refresh_token_not_found`; its unexpired JWT receives SQL `28000` / `authentication_required`.
@@ -23,6 +23,16 @@ Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed; 
   the final session-ended and sign-in screenshots were reviewed.
   No physical device accessed; no new paid AI call. Flash activation and a fresh beta
   invitation still require the already-requested owner information.
+
+Release source **1d5f7aa**. Browser Pages **103582dd** is live at https://app.gradstep.ai: all three entry assets
+serve their expected types, and the live revision-18 compiler matches the tested bytes exactly. iOS uploaded at
+**06:49:49 UTC** and is **VALID / IN_BETA_TESTING**, first confirmed **06:53:31 UTC**. Mac uploaded at
+**06:55:03 UTC**; both platforms are **VALID / IN_BETA_TESTING**, confirmed **06:57:42 UTC**.
+Both archives contain the same tested compiler (build identity
+`95ce288282650346bae024054dea84a8a4f02be01b47b9b493c4e97985d88b3f`) and pass the source-matching release gate
+before upload. Release evidence: `browser-release.json`, `archive-identities.json`, `build67-status.json` and
+upload logs under `.artifacts/feedback/followup-20261017/`. This is internal beta availability, not physical-phone
+acceptance or restored owner sign-in.
 
 ## Build 65 follow-up — 2026-10-17 UTC (browser deployed; TestFlight 66 available)
 

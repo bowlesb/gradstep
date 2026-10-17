@@ -37,7 +37,7 @@ revision bump always adds its line.
 
 | Version | Date | What changed |
 |---|---|---|
-| 18 | 2026-10-17 | Font setup text no longer appears on custom title pages, including FDE-Gym. Built; not yet released. |
+| 18 | 2026-10-17 | Font setup text no longer appears on custom title pages, including FDE-Gym. Browser deployed; TestFlight 67 on iOS and Mac. |
 | 17 | 2026-10-17 | Text badges inside equations retain their labels; their algorithms remain text listings. Browser deployed; TestFlight 66 on iOS and Mac. |
 | 16 | 2026-10-16 | Contents › Tables lists the paper's tables; an image arXiv doesn't serve leaves a note in its figure instead of stopping the paper. |
 | 15 | 2026-10-15 | A figure the device can't prepare says so in place instead of stopping the paper; very large drawings are drawn smaller. |

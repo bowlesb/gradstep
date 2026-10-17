@@ -69,7 +69,7 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
-### Leaked font options (revision 18, 2026-10-17; built, not yet released)
+### Leaked font options (revision 18, 2026-10-17; browser / TestFlight 67 iOS and Mac released)
 
 Build 66 feedback for FDE-Gym `2610.22350v1` shows fontspec options before its title page. The exact official HTML
 contains those options as plain text, followed by the title, project links, contributors and affiliations in the

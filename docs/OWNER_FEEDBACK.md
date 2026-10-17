@@ -9,7 +9,7 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
-## TestFlight build 66, 2026-10-17 06:05–06:10 UTC — session failure and FDE-Gym (built, release pending)
+## TestFlight build 66, 2026-10-17 06:05–06:10 UTC — session failure and FDE-Gym (browser / TestFlight 67 released)
 
 All seven screenshots are retained privately under `.artifacts/feedback/followup-20261017/`.
 
@@ -28,6 +28,8 @@ The explanation now stays beside Sign in and in Settings; the screen journey exp
 Final release-optimization gate: **13 passed, zero failed/skipped** at 06:43 UTC, including the seven real papers
 and the persistent-message/sign-in/restart flow. Final screenshots reviewed. Evidence:
 `.artifacts/import-acceptance/2026-10-17T06-38-58-152Z.xcresult`.
+Source `1d5f7aa`; browser `103582dd` deployed and verified. TestFlight 67 iOS and Mac are VALID / IN_BETA_TESTING
+(06:57:42 UTC). Both signed archives match the tested revision-18 compiler. No newer feedback was present at that check.
 
 ## TestFlight build 65, 2026-10-17: import reliability, chat and account deletion
 

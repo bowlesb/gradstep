@@ -16,7 +16,7 @@ Native and browser copy now explains this before deletion and in the not-invited
 to use Apple was misleading: signup restrictions apply there too. Browser copy is deployed in Pages `91c7d07f`;
 the native copy is in TestFlight 66 (iOS and Mac VALID / IN_BETA_TESTING). This does not itself create a new invitation.
 
-## Remote session rejection (build 66 feedback, 2026-10-17; verified, release pending)
+## Remote session rejection (build 66 feedback, 2026-10-17; browser / TestFlight 67 released)
 
 The reported phone kept cached account identity after remote deletion. Hosted reproduction with two synthetic
 sessions confirms HTTP 400 `refresh_token_not_found` on refresh, and HTTP 403 / SQL `28000` /
@@ -41,6 +41,7 @@ The screen journey requires that message before proceeding. The final gate passe
 under release optimization; final message/sign-in screenshots reviewed (`2026-10-17T06-38-58-152Z.xcresult`).
 Evidence: `.artifacts/feedback/followup-20261017/`. No actual owner login
 was recreated; exact provider/address remains pending. No physical-phone access or paid AI calls.
+Browser `103582dd` is deployed; TestFlight 67 iOS and Mac are VALID / IN_BETA_TESTING (06:57:42 UTC).
 
 ## Current foundation and gaps
 
