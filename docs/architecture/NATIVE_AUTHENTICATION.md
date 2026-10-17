@@ -26,7 +26,9 @@ successful refreshes with the same exact address. That is direct account evidenc
 Using the existing beta-admission mechanism, Auth Admin `createUser({email,email_confirm:true})` created a fresh
 login for that recorded address at **08:30:31 UTC**. Readback confirms the email is verified, the new account is open,
 and the old deleted UUID remains separate. No password, email message, credit grant, owner-role assignment, restored
-content or public-signup change. No actual owner sign-in is claimed before a new user sign-in occurs.
+content or public-signup change. Auth subsequently records a successful owner sign-in at **08:34:48 UTC** on
+the fresh account. The agent did not authenticate as that account. The later explicitly requested test-credit
+grant is a separate audited action ([billing](OPERATIONS_AND_BILLING.md#fresh-owner-test-account--2026-10-17)).
 Private operator evidence: `.artifacts/feedback/login-access-20261017/access-repair.json`; email is hashed there.
 
 `scripts/smoke-session-revocation.mjs` now continues past deletion: re-admit the same synthetic address, generate

@@ -1,6 +1,13 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; actual owner sign-in is not yet verified. Chat activation still awaits the OpenRouter account-settings check. Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. Chat activation still awaits the OpenRouter account-settings check. Earlier checkpoints below are historical.
+
+## Fresh owner test account: 100,000 credits — 2026-10-17 08:39 UTC
+
+One explicitly requested, nonexpiring adjustment through `worker_grant_credits`, with one immutable admin audit
+record. Readback: 100,000 available, zero reserved, one grant and one audit entry. Existing subscription/purchase
+behavior and provider budget are unchanged: $40 allocated, $28.993489 spent, zero reserved before and after.
+Evidence: `.artifacts/credits/owner-100k-20261017/verified.json`; [billing](architecture/OPERATIONS_AND_BILLING.md#fresh-owner-test-account--2026-10-17).
 
 ## Post-deletion login access repaired — 2026-10-17 08:30 UTC
 
@@ -10,8 +17,8 @@ and no app rebuild was required. Original deleted data/credits remain deleted; n
 grant or public-signup change. Today's actual failed attempts were HTTP 422 `signup_disabled`.
 
 The hosted deletion check now includes re-admission and a successful email-code exchange/account RPC on the new
-synthetic UUID (HTTP 200/200); both fixture accounts are removed. No email or AI call. Actual owner sign-in still
-requires the reader's ordinary authentication; it has not been performed by the agent. Evidence:
+synthetic UUID (HTTP 200/200); both fixture accounts are removed. No email or AI call. Auth subsequently records
+the owner's own successful sign-in at 08:34:48 UTC; the agent did not authenticate as the owner. Evidence:
 `.artifacts/feedback/login-access-20261017/` and `.artifacts/auth-lifecycle/2026-10-17T08-31-42-852Z.json`.
 
 ## Build 66 follow-up — 2026-10-17 UTC (browser and TestFlight 67 iOS/Mac available)

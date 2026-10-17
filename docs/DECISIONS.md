@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-17 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Owner test-account allowance (2026-10-17, verified)
+
+The owner explicitly requested 100,000 starting credits for the fresh test account. One nonexpiring, audited
+server-ledger adjustment was applied at 08:39 UTC; readback confirms 100,000 available and zero reserved.
+This is a one-account testing allowance, not a subscription, purchase, automatic returning-account entitlement,
+or provider-budget increase. The normal dashboard adjustment cap and all spending admission remain unchanged.
+See [billing evidence](architecture/OPERATIONS_AND_BILLING.md#fresh-owner-test-account--2026-10-17).
+
 ## Import acceptance after build 65 feedback (owner direction, 2026-10-17 UTC)
 
 Adding papers and PDFs must be a release gate, including the actual reported failures. `npm run test:imports`

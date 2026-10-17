@@ -1,5 +1,18 @@
 # Infrastructure, spending, and recovery
 
+## Fresh owner test account — 2026-10-17
+
+At the owner's explicit request, the fresh account received one **100,000-credit**, nonexpiring testing adjustment
+at **08:39:14 UTC** through the existing `worker_grant_credits` ledger function. The same transaction writes the
+actor, target, reason and explicit operator authorization to `admin_audit_events`. Idempotency key:
+`owner-test-100k:4fbedc02-84dd-4d72-98bb-d66623342d04`. Readback at 08:40 UTC confirms one grant, one audit entry,
+100,000 available, zero reserved and no expiry. Private evidence: `.artifacts/credits/owner-100k-20261017/`.
+
+This does not restore deleted credits or change a subscription, production entitlement, the dashboard's ordinary
+2,000-credit adjustment cap, or recurring allowances. The platform provider allocation is identical before and
+after: **$40**, **$28.993489 spent**, **$0 reserved**, work enabled. The overall $100/month operating ceiling remains.
+This is an allowance for testing, not additional provider funding; all ordinary server spending admission applies.
+
 > **Historical audit, 2026-10-07:** The independent [credits, identity and cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) found unreserved Tavily lookup paths, hidden SDK retries, uncertain Mathpix liability and storage/delivery gaps in that deployment. The audit itself deployed no fixes. Subsequent staging migrations 034–039 and provider/worker controls are deployed; use [Spending controls](SPENDING_CONTROLS.md) and [asset accounting](ASSET_SPENDING.md) for the current safeguards and remaining boundaries. The provider ledger is not a complete infrastructure invoice cap. Statements below about disabled acquisition gates and the 5 MiB/50-page pilot describe the superseded 011 design.
 
 Status: implementation underway; see [current implementation evidence](../IMPLEMENTATION_STATUS.md) for staging and client milestones. Applied migrations are immutable. The 011 acquisition checkpoint below is historical; it does not describe the currently running paid pipeline. Production and independent backup operations remain unfinished.
