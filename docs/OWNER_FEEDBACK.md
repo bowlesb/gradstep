@@ -9,6 +9,26 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## TestFlight build 66, 2026-10-17 06:05–06:10 UTC — session failure and FDE-Gym (built, release pending)
+
+All seven screenshots are retained privately under `.artifacts/feedback/followup-20261017/`.
+
+| Feedback | Finding and fix | Evidence |
+|---|---|---|
+| Figure explainer (`AJuyKkNNTiFeAV5MuZ2QlqI`), chat (`ACVQHdRz8bI5W8FDZlRTYSg`), Feed (`AEYSbX5tCmVlpQe5bpyIBZo`), local papers despite sign-in error (`ABg02E4ni_mpLk_1RHT_4Us`), deletion error (`AA65AIWSKfwR6apOpDiZXsc`), reference add (`ACqjeCBOh_0IA889ZdKG9Vk`) | The native client retained an invalid cached Auth session after remote deletion. Its refresh error became generic “Sign-in couldn’t be completed”; local papers remained visible while every cloud action failed. Definitive refresh/RPC/chat rejection now retires that backend/model session and returns to normal sign-in. Network outages preserve offline access; encrypted local files/keys are retained. The stale deletion sheet closes when its account session changes. Browser RPC/stream rejection now also retires its visible session. | Hosted two-session deletion reproduces 400 `refresh_token_not_found` and 403 / SQL `28000` / `authentication_required`. Native regression fails three assertions on old code, then passes. 44 focused native checks, including actual sign-in/restart UI, pass with `-O`; browser units and desktop/phone journeys pass. This reproduces the observed failure path; it does not inspect the physical phone or restore the owner's deleted login. |
+| FDE-Gym (`AAd00453-BHJNB4hJmBIBRo`) | Official HTML `2610.22350v1` emits font setup options as plain text at the start of a custom title paragraph. Revision 18 removes only that recognized prefix; title/project links/contributions/affiliations remain. | Two authored regressions; full device compile keeps all seven images and 63 equation entries. Before/after reviewed. Exact source/asset responses and forbidden-text assertions join the native import gate. Existing working copies need Reader version details → Update this paper. |
+
+No provider call corresponds to the six cloud-failure reports. The eight earlier Flash checks were synthetic,
+succeeded through the deployed adapter and cost $0.108185933; they did not activate Flash for ordinary readers.
+The selected Flash default is still hidden pending confirmation of the two OpenRouter account privacy switches.
+A fresh beta invitation still needs the owner's exact OAuth provider/address. No new paid AI call was made.
+The expanded release gate requires 13 checks, including the seven-paper replay and session retirement.
+Its first run blocked release: all 12 unit/import methods passed, but the startup explanation could disappear.
+The explanation now stays beside Sign in and in Settings; the screen journey explicitly requires it.
+Final release-optimization gate: **13 passed, zero failed/skipped** at 06:43 UTC, including the seven real papers
+and the persistent-message/sign-in/restart flow. Final screenshots reviewed. Evidence:
+`.artifacts/import-acceptance/2026-10-17T06-38-58-152Z.xcresult`.
+
 ## TestFlight build 65, 2026-10-17: import reliability, chat and account deletion
 
 Feedback images and hosted readbacks are retained privately in `.artifacts/feedback/import-reliability-20261017/`.

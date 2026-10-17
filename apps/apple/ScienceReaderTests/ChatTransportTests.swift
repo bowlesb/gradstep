@@ -100,7 +100,6 @@ final class ChatTransportTests: XCTestCase {
     func testHTTPFailuresBecomeStableCodes() async throws {
         let cases: [(Int, Data, String)] = [
             (402, Data(#"{"code":"insufficient_credits"}"#.utf8), "insufficient_credits"),
-            (401, Data(#"{"code":"authentication_required"}"#.utf8), "authentication_required"),
             (503, Data("<html>gateway</html>".utf8), "service_unavailable"),
         ]
         for (status, data, code) in cases {
@@ -110,6 +109,21 @@ final class ChatTransportTests: XCTestCase {
                 _ = try await client.chatStream(try request(), accountID: account)
                 XCTFail("Expected \(code)")
             } catch ChatTransportError.rejected(let received) { XCTAssertEqual(received, code) }
+            ChatHTTPProtocol.remove(host)
+        }
+    }
+
+    func testRejectedChatSessionClearsAuthorityBeforeTheReaderCanTryAnotherCloudAction() async throws {
+        for status in [401, 403] {
+            host = "chat-\(UUID().wire).invalid"
+            let client = try client(.init(status: status, contentType: "application/json",
+                chunks: [Data(#"{"code":"authentication_required"}"#.utf8)]))
+            do { _ = try await client.chatStream(try request(), accountID: account); XCTFail("Revoked session accepted") }
+            catch AuthenticationError.sessionExpired { }
+            let user = await client.currentUser(); XCTAssertNil(user)
+            do { _ = try await client.chatStream(try request(), accountID: account); XCTFail("Revoked session retried") }
+            catch BackendError.signInRequired { }
+            XCTAssertEqual(ChatHTTPProtocol.recorded(host).count, 1)
             ChatHTTPProtocol.remove(host)
         }
     }

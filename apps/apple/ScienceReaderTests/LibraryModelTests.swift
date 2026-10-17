@@ -666,10 +666,10 @@ final class LibraryModelTests: XCTestCase {
 
     func testOfflineReportedPaperRegressionsThroughNativeLibrary() async throws {
         struct Response: Decodable { let url: String; let status: Int; let type: String; let sha256: String; let bytes: Int }
-        struct Case: Decodable { let source_id: String; let revision: Int; let kind: String; let responses: [Response] }
+        struct Case: Decodable { let source_id: String; let revision: Int; let kind: String; let responses: [Response]; let absent_text: [String]? }
         struct Corpus: Decodable { let cases: [Case] }
         let corpus = try JSONDecoder().decode(Corpus.self, from: Data(contentsOf: importRoot.appendingPathComponent("tests/corpus/import-regressions.json")))
-        XCTAssertEqual(corpus.cases.count, 6, "every reported regression is required, never skipped for a missing cache")
+        XCTAssertEqual(corpus.cases.count, 7, "every reported regression is required, never skipped for a missing cache")
         try importNetwork()
         for entry in corpus.cases {
             ImportAcceptanceProtocol.reset()
@@ -690,6 +690,8 @@ final class LibraryModelTests: XCTestCase {
                 ImportAcceptanceProtocol.denyAll(); let requests = ImportAcceptanceProtocol.requests
                 model.select(paper); try await importOpened(model)
                 let bundle = try XCTUnwrap(model.selectedPaper?.readerBundle)
+                let text = bundle.index.blocks.map(\.text).joined(separator: "\n")
+                for forbidden in entry.absent_text ?? [] { XCTAssertFalse(text.contains(forbidden), "\(entry.source_id): leaked \(forbidden)") }
                 XCTAssertGreaterThan(bundle.index.equations.count, 0, entry.source_id)
                 XCTAssertGreaterThan(bundle.index.figures.count, 0, entry.source_id)
                 let fresh = try fixture.freshReaderStore(), records = await fresh.records()

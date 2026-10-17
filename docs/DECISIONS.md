@@ -12,6 +12,11 @@ source and Xcode version. This is explicit Simulator acceptance, not physical-ph
 See [Testing](TESTING.md). Automatically opening a PDF when HTML is absent would change navigation; that proposal
 awaits the owner's response. The existing explicit Open PDF flow remains.
 
+Build 66 feedback also requires definitive remote session rejection to retire cached sign-in across every cloud
+action. Offline reading remains available during transient outages; a rejected session clears presentation and
+credentials but preserves encrypted local files and keys. Hosted two-session deletion reproduces the rejection.
+The release gate now includes those account boundaries and the seventh reported paper, FDE-Gym.
+
 Deleting a private-beta account also removes its pre-created Auth login. With signups disabled, returning through
 OAuth requires a new invitation for the exact provider address. It creates a new account, not a restoration of
 deleted data or credit. The owner reported this on 2026-10-17; deletion and hosted signup settings are verified,

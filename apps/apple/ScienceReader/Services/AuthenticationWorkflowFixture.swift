@@ -35,6 +35,11 @@ enum AuthenticationWorkflowFixture {
                 try KeychainVault.delete(name)
             }
         }
+        if arguments.contains("--authentication-deleted-session") {
+            try KeychainVault.write(ReaderCrypto.encode(AuthSession(access_token: "authentication-fixture-access",
+                refresh_token: "authentication-fixture-refresh", expires_at: 0,
+                user: .init(id: accountID, email: "fixture@example.invalid"))), name: environment + ".auth-session")
+        }
         AuthenticationWorkflowProtocol.reset()
         let settings = URLSessionConfiguration.ephemeral
         // This private protocol admits every URLSession request so unexpected
@@ -126,6 +131,10 @@ private final class AuthenticationWorkflowProtocol: URLProtocol, @unchecked Send
                 case "refresh_token":
                     guard object["refresh_token"] as? String == "authentication-fixture-refresh" else {
                         throw AuthenticationWorkflowFixture.Failure.invalidRequest
+                    }
+                    if ProcessInfo.processInfo.arguments.contains("--authentication-deleted-session") {
+                        try respond(["error_code": "refresh_token_not_found"], status: 400)
+                        return
                     }
                 default: throw AuthenticationWorkflowFixture.Failure.invalidRequest
                 }

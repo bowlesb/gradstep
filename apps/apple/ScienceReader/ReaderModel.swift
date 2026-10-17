@@ -564,6 +564,8 @@ final class ReaderModel {
     /// RootView mirrors the scene phase here. Scheduled sync runs only while a signed-in account is on screen.
     var sceneActive = false { didSet { if sceneActive != oldValue { updateSyncSchedule() } } }
     var error: String?
+    /// Persistent beside Sign in; unlike a startup alert it survives view/navigation presentation changes.
+    private(set) var sessionEndedIssue: String?
     var showSignIn = false
     private(set) var authentication: AuthenticationCoordinator?
     private(set) var signInPresentationID: UUID?
@@ -1513,6 +1515,16 @@ final class ReaderModel {
 
     private func signedIn(_ user: AuthSession.User, client: BackendClient, scope: UUID) async throws {
         guard sessionID == scope, accountID == user.id, let configuration else { throw BackendError.signInRequired }
+        await client.observeSessionInvalidation { [weak self, weak client] event in
+            guard let self, let client, self.accountID == event.accountID else { return }
+            let observedScope = self.sessionID
+            guard await client.isCurrentInvalidation(event), self.sessionID == observedScope,
+                  self.accountID == event.accountID else { return }
+            self.clearAccountView()
+            // Ordinary sign-out semantics: stop all old-account work, retain its encrypted files and keys.
+            self.sessionEndedIssue = (event.credentialStorageFailed ? AuthenticationError.credentialStorage : AuthenticationError.sessionExpired).errorDescription
+        }
+        guard sessionID == scope, accountID == user.id else { throw CancellationError() }
         support?.cancel()
         let feedback = try SupportService(accountID: user.id, environment: configuration.environment, backend: client)
         support = feedback
@@ -1816,7 +1828,7 @@ final class ReaderModel {
         generalChat = true
         email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
-        showReportsAfterComposer = false; error = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
+        showReportsAfterComposer = false; error = nil; sessionEndedIssue = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
     }
 

@@ -31,7 +31,7 @@ enum AuthenticationError: Error, Equatable, Sendable, LocalizedError {
     /// noAccount: sign-up is closed (invitation-only beta) and no account uses this identity.
     case configuration, noAccount, invalidEmail, invalidCode
     case rateLimited(retryAfterSeconds: Int?)
-    case connection, invalidResponse, credentialStorage, rejected
+    case connection, invalidResponse, credentialStorage, rejected, sessionExpired
 
     var errorDescription: String? {
         switch self {
@@ -44,8 +44,16 @@ enum AuthenticationError: Error, Equatable, Sendable, LocalizedError {
         case .invalidResponse: "Sign-in returned an invalid response. Please try again."
         case .credentialStorage: "Sign-in details couldn’t be updated securely. Please try again."
         case .rejected: "Sign-in couldn’t be completed. Please try again."
+        case .sessionExpired: "Your session has ended. Sign in again to use your account."
         }
     }
+}
+
+/// A definitive rejection of one cached session, never an offline/network failure.
+struct AuthenticationInvalidation: Equatable, Sendable {
+    let id: UUID
+    let accountID: UUID
+    let credentialStorageFailed: Bool
 }
 
 enum AuthenticationConfiguration {

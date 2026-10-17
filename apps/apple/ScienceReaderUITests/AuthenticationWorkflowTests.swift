@@ -11,6 +11,28 @@ final class AuthenticationWorkflowTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testDeletedSessionAtLaunchReturnsToSignInAndStaysSignedOutAfterRestart() {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--authentication-fixture", "--reset-authentication-fixture", "--authentication-deleted-session"]
+        app.launch()
+        let notice = app.staticTexts["library.sessionEnded"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 10))
+        XCTAssertEqual(notice.label, "Your session has ended. Sign in again to use your account.")
+        capture("Remote session ended")
+        XCTAssertFalse(app.alerts["Gradstep"].exists)
+        XCTAssertFalse(app.buttons[sampleID].exists, "The stale account presentation was cleared")
+        openFromSettings(app)
+        XCTAssertFalse(app.buttons["account.signOut"].exists)
+        capture("Sign in is available after remote deletion")
+        app.terminate()
+        app.launchArguments = ["--authentication-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["library.sessionEnded"].exists, "The rejected session was removed from Keychain")
+        openFromSettings(app)
+    }
+
     private func launch(_ scenario: [String] = [], accessibility: Bool = false) -> XCUIApplication {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()

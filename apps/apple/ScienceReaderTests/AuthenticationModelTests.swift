@@ -11,15 +11,21 @@ private final class AuthenticationModelServer: @unchecked Sendable {
     private var holdKeys = false
     private var failKeys = false
     private var freshAccount = false
+    private var remoteAccountDeleted = false
     private var requests: [String] = []
 
     func configure(holdKeys: Bool = false, failKeys: Bool = false, freshAccount: Bool = false) {
         lock.withLock { self.holdKeys = holdKeys; self.failKeys = failKeys; self.freshAccount = freshAccount }
     }
+    func deleteRemotely() { lock.withLock { remoteAccountDeleted = true } }
     func handle(_ request: StubProtocol) {
         lock.withLock {
             let path = request.request.url!.path
             requests.append(path)
+            if remoteAccountDeleted && !path.hasPrefix("/auth/") {
+                request.respond(Data(#"{"code":"28000","message":"authentication_required"}"#.utf8), status: 403)
+                return
+            }
             switch path {
             case "/auth/v1/token", "/auth/v1/verify":
                 request.respond(try! ReaderCrypto.encode(AuthSession(access_token: "fixture-access", refresh_token: "fixture-refresh",
@@ -101,6 +107,32 @@ private final class AuthenticationModelFixture {
 
 @MainActor
 final class AuthenticationModelTests: XCTestCase {
+    func testRemoteDeletionRetiresVisibleAccountAndPreservesLocalFilesAndKeys() async throws {
+        let fixture = try fixture(), model = fixture.model
+        await model.authenticate(email: "fixture", password: "fixture", create: false)
+        XCTAssertTrue(model.isSignedIn)
+        model.openSample()
+        let scope = model.readerSessionID
+        let keyBytes = try XCTUnwrap(KeychainVault.read(fixture.deviceKeyName))
+        let folder = fixture.directory.appendingPathComponent(fixture.server.account.wire)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let retained = folder.appendingPathComponent("encrypted-data-retention-fixture")
+        try Data([1, 2, 3]).write(to: retained)
+        fixture.server.deleteRemotely()
+        do { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse(), accountID: fixture.server.account); XCTFail("Deleted account accepted") }
+        catch AuthenticationError.sessionExpired { }
+        XCTAssertFalse(model.isSignedIn)
+        XCTAssertNotEqual(model.readerSessionID, scope)
+        XCTAssertTrue(model.papers.isEmpty); XCTAssertNil(model.selectedPaper)
+        XCTAssertFalse(model.showRecovery); XCTAssertNil(model.accountPreparationIssue)
+        XCTAssertEqual(model.sessionEndedIssue, AuthenticationError.sessionExpired.errorDescription)
+        XCTAssertNil(model.error, "Startup session loss uses a persistent Sign in explanation, not a transient alert")
+        await model.waitForLocalRetirement()
+        XCTAssertEqual(try KeychainVault.read(fixture.deviceKeyName), keyBytes)
+        XCTAssertEqual(try Data(contentsOf: retained), Data([1, 2, 3]))
+        model.openSignIn(); XCTAssertTrue(model.showSignIn, "A stale account must not trap the Sign in action")
+    }
+
     private func fixture(server: AuthenticationModelServer = .init()) throws -> AuthenticationModelFixture {
         let fixture = try AuthenticationModelFixture(server: server)
         addTeardownBlock { await fixture.close() }

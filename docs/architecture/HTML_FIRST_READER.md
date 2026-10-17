@@ -69,6 +69,17 @@ done when written), the deployed pipeline still asked arXiv's Atom API and OAI-P
 
 ## HTML-to-bundle adapter
 
+### Leaked font options (revision 18, 2026-10-17; built, not yet released)
+
+Build 66 feedback for FDE-Gym `2610.22350v1` shows fontspec options before its title page. The exact official HTML
+contains those options as plain text, followed by the title, project links, contributors and affiliations in the
+same paragraph. The adapter removes only a complete leading sequence of recognized font options in the first
+custom title paragraph, before any heading/section. Unknown fields, incomplete groups and body examples remain.
+It preserves the paragraph's content and records the discarded setup commands in the existing closing note.
+Two authored regressions pass; the full device compile preserves all seven images and 63 equation entries.
+Pinned source/asset responses join the native import gate. Existing working copies retain their version until
+the reader chooses **Reader version details → Update this paper**, as requested by the owner.
+
 ### Math text badges and algorithm classification (revision 17, 2026-10-17; browser deployed, TestFlight 66)
 
 Build 65 feedback for DocPilot `2610.21327v1` reproduces `arxiv_math_element`: Algorithm 1's action set

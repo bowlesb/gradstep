@@ -35,7 +35,7 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * serve (not found, not an image, too large on its own) is that figure's note, not the paper's refusal, and the index
  * lists the paper's captioned tables (`tables`) for Contents › Tables), so a device re-prepares papers it
  * compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 17;
+export const ARXIV_RENDERER_REVISION = 18;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {

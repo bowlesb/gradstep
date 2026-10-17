@@ -28,6 +28,26 @@ beforeEach(() => { vi.resetModules(); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('authentication lifetimes', () => {
+  it.each([['refresh_token_not_found',400,true],['refresh_token_already_used',400,true],
+    ['refresh_token_not_found',503,false],['refresh_token_not_found',429,false],['unexpected_failure',400,false]] as const)
+  ('refresh %s / %s retires only definitive session rejection', async (code,status,ended) => {
+    const {auth,values}=await setup(savedSession(first,0));
+    vi.stubGlobal('fetch',vi.fn(async()=>json({error_code:code},status)));
+    await expect(auth.token()).rejects.toBeDefined();
+    expect(auth.session()===null).toBe(ended);
+    expect(values.has('gradstep.test.session')).toBe(!ended);
+  });
+
+  it.each([['rpc',403],['chat',401],['chat',403]] as const)('an unexpired token rejected by %s / %s ends the visible session',async(route,status)=>{
+    const {auth,rpc,functionStream,values}=await setup();
+    const old=auth.snapshot();
+    vi.stubGlobal('fetch',vi.fn(async()=>json(route==='rpc'?{code:'28000',message:'authentication_required'}:{code:'authentication_required'},status)));
+    const request=route==='rpc'?rpc('v1_key_state'):(async()=>{for await(const _ of functionStream('chat',{}, {account:first,signal:new AbortController().signal,maximum:1000})){} })();
+    await expect(request).rejects.toMatchObject({code:'sign_in_required'});
+    expect(auth.session()).toBeNull();expect(old.signal.aborted).toBe(true);
+    expect(values.has('gradstep.test.session')).toBe(false);
+  });
+
   it.each([first, second].flatMap(id => [200, 400].map(status => ({ id, status }))))('a stale refresh ($status) cannot replace the subsequent login ($id)', async ({ id, status }) => {
     const { auth } = await setup(savedSession(first, 0));
     const reply = Promise.withResolvers<Response>();

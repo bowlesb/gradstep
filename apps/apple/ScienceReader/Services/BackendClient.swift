@@ -147,6 +147,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     private var session: AuthSession?
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
     private var authGeneration: UInt64 = 0
+    private var sessionInvalidation: AuthenticationInvalidation?
+    private var sessionInvalidationHandler: (@MainActor @Sendable (AuthenticationInvalidation) async -> Void)?
     private let network: URLSession
     /// Ordinary requests (RPCs and small function calls): bounded in total, not only between bytes, so no spinner waits
     /// forever (RESILIENCE.md fix 11). Streams and downloads use `network`, bounded more loosely.
@@ -217,6 +219,26 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     }
 
     func currentUser() -> AuthSession.User? { session?.user }
+
+    func observeSessionInvalidation(_ handler: @escaping @MainActor @Sendable (AuthenticationInvalidation) async -> Void) {
+        sessionInvalidationHandler = handler
+    }
+
+    func isCurrentInvalidation(_ event: AuthenticationInvalidation) -> Bool {
+        session == nil && sessionInvalidation == event
+    }
+
+    private func expireSession(generation: UInt64, accountID: UUID) async throws -> Never {
+        guard generation == authGeneration, session?.user.id == accountID else { throw CancellationError() }
+        _ = invalidateAuthenticationMemory()
+        var failed = false
+        do { try credentials.delete("\(config.environment).auth-session"); credentialCleanupAttempt = nil }
+        catch { failed = true; credentialCleanupAttempt = UUID() }
+        let event = AuthenticationInvalidation(id: UUID(), accountID: accountID, credentialStorageFailed: failed)
+        sessionInvalidation = event
+        await sessionInvalidationHandler?(event)
+        throw failed ? AuthenticationError.credentialStorage : AuthenticationError.sessionExpired
+    }
 
     deinit { authNetwork.invalidateAndCancel() }
 
@@ -519,7 +541,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         guard let http = response as? HTTPURLResponse else { task.cancel(); throw BackendError.transport }
         guard (200..<300).contains(http.statusCode) else {
             defer { task.cancel() }
-            if http.statusCode == 401 { throw ChatTransportError.rejected("authentication_required") }
+            if http.statusCode == 401 { try await expireSession(generation: generation, accountID: expected) }
             var data = Data()
             for try await byte in bytes {
                 guard data.count < 4_096 else { break }
@@ -527,6 +549,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             }
             struct Failure: Decodable { let code: String }
             let code = (try? JSONDecoder().decode(Failure.self, from: data))?.code
+            if http.statusCode == 403, code == "authentication_required" || code == "account_unavailable" {
+                try await expireSession(generation: generation, accountID: expected)
+            }
             throw ChatTransportError.rejected(code.flatMap { $0.utf8.count <= 64 ? $0 : nil } ?? "service_unavailable")
         }
         guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
@@ -785,6 +810,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         signInRequest?.task.cancel(); signInRequest = nil
         logoutTask?.task.cancel(); logoutTask = nil
         session = nil; signInAttempt = nil
+        sessionInvalidation = nil
         return attemptID
     }
 
@@ -826,6 +852,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             // A late error belongs to the same authentication generation as a
             // late success; it must not reset or alter the next account session.
             guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+            if error as? AuthenticationError == .sessionExpired {
+                try await expireSession(generation: generation, accountID: expected)
+            }
             throw error
         }
     }
@@ -848,6 +877,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         do { next = try await task.value }
         catch {
             guard generation == authGeneration, session?.user.id == current.user.id else { throw CancellationError() }
+            if error as? AuthenticationError == .sessionExpired {
+                try await expireSession(generation: generation, accountID: current.user.id)
+            }
             throw error
         }
         try Task.checkCancellation()
@@ -1016,6 +1048,11 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             return .rateLimited(retryAfterSeconds: retry)
         }
         if codes.contains("signup_disabled") { return .noAccount }
+        if case .token(.refreshToken) = route, [400, 401, 403].contains(response.statusCode),
+           codes.contains(where: { ["refresh_token_not_found", "refresh_token_already_used", "session_not_found",
+                                   "session_expired", "user_not_found", "user_banned"].contains($0) }) {
+            return .sessionExpired
+        }
         if codes.contains(where: { ["provider_disabled", "email_provider_disabled", "otp_disabled"].contains($0) }) { return .configuration }
         if codes.contains("email_address_invalid") { return .invalidEmail }
         if case .emailVerify = route, codes.contains(where: { ["otp_expired", "invalid_credentials"].contains($0) }) { return .invalidCode }
@@ -1055,6 +1092,14 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         guard (200..<300).contains(response.statusCode) else {
             struct Failure: Decodable { let code: String?; let message: String?; let error_code: String?; let retry_after: Double? }
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
+            // Closed account's unexpired JWT: PostgREST preserves SQLSTATE 28000. Match both status and code;
+            // ordinary 403s and server failures are not evidence that the whole session has ended.
+            if response.statusCode == 403,
+               (failure?.code == "28000" && failure?.message == "authentication_required"
+                || failure?.code == "account_unavailable" || failure?.code == "authentication_required") {
+                throw AuthenticationError.sessionExpired
+            }
+            if response.statusCode == 401 { throw AuthenticationError.sessionExpired }
             let throttled = response.statusCode == 429
                 ? BackendError.throttled(retryAfter: RetryBackoff.retryAfter(header: response.value(forHTTPHeaderField: "Retry-After"), body: failure?.retry_after))
                 : nil

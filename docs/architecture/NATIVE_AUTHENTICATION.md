@@ -16,6 +16,32 @@ Native and browser copy now explains this before deletion and in the not-invited
 to use Apple was misleading: signup restrictions apply there too. Browser copy is deployed in Pages `91c7d07f`;
 the native copy is in TestFlight 66 (iOS and Mac VALID / IN_BETA_TESTING). This does not itself create a new invitation.
 
+## Remote session rejection (build 66 feedback, 2026-10-17; verified, release pending)
+
+The reported phone kept cached account identity after remote deletion. Hosted reproduction with two synthetic
+sessions confirms HTTP 400 `refresh_token_not_found` on refresh, and HTTP 403 / SQL `28000` /
+`authentication_required` for an otherwise unexpired token. The old client classified the refresh as generic
+sign-in rejection, retained its Keychain session and repeatedly failed cloud actions while showing local papers.
+
+Definitive session rejection must retire backend authority and the matching model session, clear visible account
+state, and offer normal sign-in again. Retain encrypted account files and keys: a rejected session alone does not
+prove deletion and does not authorize erasure. A timeout, 429, 5xx, malformed reply or ordinary permission failure
+must preserve offline access. Notify the model once across concurrent requests; late responses may not end a
+new sign-in. Test both expired refresh and unexpired-token rejection, restart, transient recovery, and local-data
+retention. `scripts/smoke-session-revocation.mjs` exercises hosted deletion without mail, papers, credits or AI.
+
+Verification: the old native code fails all three assertions of the deleted-session regression. The fix passes
+44 focused native checks under `-O`, including the actual sign-in/restart screen journey. The browser already
+retired rejected refreshes; its unexpired-token RPC/stream path now also retires the matching session, while
+unknown/transient refresh failures preserve identity. Browser unit checks plus desktop/phone remote-rejection
+journeys pass and verify encrypted records remain. Captured screenshots reviewed. The deletion sheet also closes
+when its owning account session changes. The expanded release gate then caught a disappearing startup alert
+(12 passed, one failed); the explanation now stays beside Sign in and in Settings instead of relying on an alert.
+The screen journey requires that message before proceeding. The final gate passes all 13 checks, none skipped,
+under release optimization; final message/sign-in screenshots reviewed (`2026-10-17T06-38-58-152Z.xcresult`).
+Evidence: `.artifacts/feedback/followup-20261017/`. No actual owner login
+was recreated; exact provider/address remains pending. No physical-phone access or paid AI calls.
+
 ## Current foundation and gaps
 
 [BackendClient](../../apps/apple/ScienceReader/Services/BackendClient.swift) already owns authentication generations, Keychain sessions, Google PKCE and Apple nonces. [OAuthFlow](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OAuthFlow.swift) validates the callback destination, bounds its code and rejects token fragments. Existing [OAuth safety tests](../../apps/apple/ScienceReaderTests/OAuthSafetyTests.swift) cover deterministic exchanges, duplicate callbacks, cancellation before UI delivery and late results after sign-out. These are local protocol tests, not Apple/Google sign-in evidence.

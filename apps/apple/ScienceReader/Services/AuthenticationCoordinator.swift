@@ -401,7 +401,7 @@ final class AuthenticationCoordinator {
             case .connection: .connection
             case .invalidResponse: .invalidResponse
             case .credentialStorage: .credentialStorage
-            case .rejected: .rejected
+            case .rejected, .sessionExpired: .rejected
             }
         }
         if error is OAuthFlowError { return .invalidResponse }

@@ -108,6 +108,14 @@ function requestDeadline(parents: (AbortSignal | null | undefined)[], millisecon
 }
 
 const parse = (body: Uint8Array): unknown => { try { return JSON.parse(new TextDecoder().decode(body)); } catch { return null; } };
+const revokedRefreshCodes = new Set(['refresh_token_not_found','refresh_token_already_used','session_not_found',
+  'session_expired','user_not_found','user_banned']);
+function rejectedSession(status: number, value: unknown): boolean {
+  if (status === 401) return true;
+  const v = value as {code?: unknown; message?: unknown} | null;
+  return status === 403 && (v?.code === 'authentication_required' || v?.code === 'account_unavailable'
+    || v?.code === '28000' && v?.message === 'authentication_required');
+}
 
 // ---------- Authentication (email one-time code and browser OAuth) ----------
 
@@ -327,7 +335,10 @@ export const auth = {
       if (!active || active.user.id !== account || active.lifetime !== session.lifetime) throw new BackendError('cancelled');
       // A browser without Web Locks can overlap another tab's refresh; never retire its newer token.
       if (active.refreshToken !== latest.refreshToken && active.expiresAt > Date.now() / 1000 + 60) return active;
-      if (reply.status === 400 || reply.status === 401 || reply.status === 403) { publish(null); throw new BackendError('sign_in_required', 401); }
+      const failure = parse(reply.body) as {code?: unknown; error_code?: unknown} | null;
+      if ([400,401,403].includes(reply.status) && [failure?.code,failure?.error_code].some(c=>typeof c === 'string' && revokedRefreshCodes.has(c))) {
+        publish(null); throw new BackendError('sign_in_required', 401);
+      }
       if (reply.status < 200 || reply.status >= 300) throw new BackendError('connection', reply.status);
       return decodeSession(reply.body, latest.lifetime);
     };
@@ -396,7 +407,9 @@ async function authorized(path: string, init: { method?: string; body?: BodyInit
   const reply = await send(path, { ...init, token, sessionSignal });
   if (before !== generation) throw new BackendError('cancelled');
   init.signal?.throwIfAborted();
-  if (reply.status === 401) throw new BackendError('sign_in_required', 401);
+  if ([401, 403].includes(reply.status) && rejectedSession(reply.status, parse(reply.body))) {
+    publish(null); throw new BackendError('sign_in_required', 401);
+  }
   if (reply.status < 200 || reply.status >= 300) {
     const v = parse(reply.body) as { code?: unknown; message?: unknown; retry_after?: unknown } | null;
     const candidates = [v?.message, v?.code].filter((c): c is string => typeof c === 'string');
@@ -444,9 +457,11 @@ export async function* functionStream(path: string, body: unknown, options: { ac
         referrerPolicy: 'no-referrer', signal: controller.signal, headers: { apikey: config.anonKey, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
     } catch (error) { if (options.signal.aborted || sessionSignal.aborted) throw error; throw new BackendError('connection'); }
     if (before !== generation) throw new BackendError('cancelled');
-    if (response.status === 401) { await response.body?.cancel(); throw new BackendError('sign_in_required', 401); }
+    if (response.status === 401) { await response.body?.cancel(); if (before !== generation) throw new BackendError('cancelled'); publish(null); throw new BackendError('sign_in_required', 401); }
     if (response.status !== 200) {
       const v = parse(await bounded(response, 65_536).catch(() => new Uint8Array(0))) as { code?: unknown } | null;
+      if (before !== generation) throw new BackendError('cancelled');
+      if (rejectedSession(response.status, v)) { publish(null); throw new BackendError('sign_in_required', 401); }
       throw new BackendError(typeof v?.code === 'string' && /^[a-z_]{1,64}$/.test(v.code) ? v.code : 'request_failed', response.status);
     }
     if (!(response.headers.get('content-type') ?? '').startsWith('text/event-stream') || !response.body) { await response.body?.cancel(); throw new BackendError('invalid_response'); }

@@ -610,6 +610,75 @@
           "bytes": 859641
         }
       ]
+    },
+    {
+      "source_id": "2610.22350",
+      "revision": 1,
+      "kind": "reader",
+      "absent_text": [
+        "Path=fonts/",
+        "UprightFont=",
+        "BoldItalicFont="
+      ],
+      "responses": [
+        {
+          "url": "https://arxiv.org/html/2610.22350v1",
+          "status": 200,
+          "type": "text/html",
+          "sha256": "9b2ae796d90caff5c681d4ad4c1f0a03c8986aed636955146507e2a180c535ce",
+          "bytes": 225308
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig2.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "be2fd900407cf09a6fcf89b8eae674566ef831f398dde8eaaea75a213b9351fd",
+          "bytes": 379121
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig3.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "c2049dd911ffb5635a7ceec2c5665b0fb77bc3f5b78d35c41dbb47d79a6f810d",
+          "bytes": 381382
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig4.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "b5f01b6be5b5de2ab2b1cb1621f4855f0f075c83bdae8adb3b613935457ec0e9",
+          "bytes": 584647
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig5.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "1a4d3c7d754cfaa83805b36785400a8cb00f828d421ac909dff3665ab6938438",
+          "bytes": 458367
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig6.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "d30f14f9c8a7e1da80cdc7f661e8e7ef3667f7e8237ea639d1bc0e4443ac2012",
+          "bytes": 207854
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig7.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "6febc9eb55be9d8eb10548daad1f795a3d9d1a399e6b1f03f87d8fe653a7b760",
+          "bytes": 196333
+        },
+        {
+          "url": "https://arxiv.org/html/2610.22350v1/fig8.png",
+          "status": 200,
+          "type": "image/png",
+          "sha256": "0e132ecb048a4aaa2f73f95a4d632ab732fd3f4fd16a7dbbaa087f94fd78fd53",
+          "bytes": 720382
+        }
+      ]
     }
-  ]
+  ],
+  "updated_at": "2026-10-17T06:28:09.868Z"
 }

@@ -2,6 +2,28 @@
 
 Updated 2026-10-17 UTC (build 65 feedback: DocPilot cause reproduced and fixed; import acceptance gate added; TestFlight 66 available for iOS and Mac, browser deployed). Chat activation and a fresh post-deletion invitation still await owner information. Earlier checkpoints below are historical.
 
+## Build 66 follow-up — 2026-10-17 UTC (verified, release pending)
+
+- Reproduced remote deletion with two real staging sessions, without mail, papers or AI. The second session's
+  refresh fails with `refresh_token_not_found`; its unexpired JWT receives SQL `28000` / `authentication_required`.
+  The native client had retained that rejected session and visible cached account. Backend/model retirement now
+  clears credentials and presentation across cloud actions while retaining encrypted files/keys. Transient failure
+  preserves offline access. Browser RPC/stream rejection receives the same retirement behavior.
+- Red native regression: three failures on build-66 code. Green: 44 focused native checks under release optimization,
+  including concurrency, late response/account boundaries, transient recovery, Keychain failure, local retention and
+  the actual sign-in/restart screen. Two desktop/phone browser journeys pass; screenshots reviewed. Fast tier:
+  **652 backend / 477 browser** passes. Local evidence: `.artifacts/feedback/followup-20261017/`.
+- FDE-Gym's official HTML leaks font configuration into its opening paragraph. Renderer revision 18 removes the
+  finite recognized prefix, preserving seven images and 63 equation entries. The seventh reported paper joins the
+  offline native corpus. Existing readable copies update only on the reader's explicit version-details action.
+- The upload gate now includes 13 required import/session checks and fingerprints the authentication implementation
+  too. Its first run blocked release because the startup explanation disappeared (12 passed, one failed). The
+  explanation now stays beside Sign in and in Settings; the final screen journey requires it. Final gate:
+  **13 passed, zero failed/skipped**, `.artifacts/import-acceptance/2026-10-17T06-38-58-152Z.xcresult`;
+  the final session-ended and sign-in screenshots were reviewed.
+  No physical device accessed; no new paid AI call. Flash activation and a fresh beta
+  invitation still require the already-requested owner information.
+
 ## Build 65 follow-up — 2026-10-17 UTC (browser deployed; TestFlight 66 available)
 
 - **DocPilot:** two sequential failures reproduced: unsupported SVG text badges inside MathML, then algorithm

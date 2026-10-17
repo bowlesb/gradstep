@@ -406,6 +406,11 @@ struct LibraryView: View {
                 if signIn {
                     StatusBannerLink(tone: .info, systemImage: "lock.icloud", message: "Sign in to sync") { model.openSignIn() }
                         .accessibilityIdentifier("library.signIn")
+                    if let issue = model.sessionEndedIssue {
+                        Text(issue).font(.footnote).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("library.sessionEnded")
+                    }
                 }
                 if let issue {
                     StatusBanner(tone: .problem, systemImage: "exclamationmark.arrow.triangle.2.circlepath", message: issue) {
@@ -1326,7 +1331,10 @@ struct SettingsView: View {
                             .accessibilityIdentifier("account.signIn")
                     }
                 } footer: {
-                    if !model.isSignedIn { Text("Sign in to sync your library and chats between your devices.") }
+                    if !model.isSignedIn {
+                        Text(model.sessionEndedIssue ?? "Sign in to sync your library and chats between your devices.")
+                            .accessibilityIdentifier("account.signInExplanation")
+                    }
                 }
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
@@ -1441,6 +1449,7 @@ struct SettingsView: View {
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
                 .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model).macSheetKeys() }
+                .onChange(of: model.readerSessionID) { _, _ in showDeleteAccount = false }
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance(); await model.refreshStoreSummary() } }
                 .task { await model.refreshKeptExplanations() }
                 // Its own task: a slow balance or store answer never holds the operator row back.

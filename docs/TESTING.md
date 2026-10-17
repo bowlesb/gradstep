@@ -68,9 +68,18 @@ validation, encrypted installation, and reopen from a fresh store. Only the acco
 are fixtures. Unmatched source requests fail offline. Cases cover repeated taps, out-of-order assets and a missing
 image, failed open without sync retry loops, explicit retry, cancellation, and absent HTML followed by PDF
 download/presentation and encrypted offline reopen. A real local PDF goes through the Files import controller,
-becomes a Library item and reopens; a damaged PDF is rejected without creating an item. It also replays all six reported papers in
-`tests/corpus/import-regressions.json`, including DocPilot's algorithm/math badges and More Methods' absent HTML.
+becomes a Library item and reopens; a damaged PDF is rejected without creating an item. It also replays all seven reported papers in
+`tests/corpus/import-regressions.json`, including DocPilot's algorithm/math badges, More Methods' absent HTML and
+FDE-Gym's leaked font preamble (including assertions that the unwanted text is absent).
 The Library row-height check renders the actual Library view.
+
+Build 66 feedback adds six session-boundary checks to the seven import methods (13 required, none skipped):
+deleted-session refresh, exact rejection of an unexpired token, transient offline identity retention, model retirement
+without erasing encrypted files, rejected chat admission, and the native sign-in/restart screen journey. Backend
+authentication code and these tests are included in the gate fingerprint. A local import pass alone cannot certify
+that cloud actions still work after account deletion. The separate unpaid `node scripts/smoke-session-revocation.mjs`
+creates two hosted synthetic sessions, deletes their account through the deployed function, verifies the other
+session's refresh/RPC rejection and the login's removal. It sends no mail and makes no paper/provider requests.
 
 Both TestFlight upload scripts require a successful report for the current import code, fixtures and Xcode version,
 before archiving and again before uploading.

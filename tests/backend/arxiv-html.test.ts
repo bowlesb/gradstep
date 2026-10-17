@@ -13,6 +13,29 @@ const math = '<math alttext="x^2" display="inline"><semantics><msup><mi>x</mi><m
 const source = readFileSync(new URL('../fixtures/reader-arxiv/source.html', import.meta.url), 'utf8');
 const raw = new Uint8Array(readFileSync(new URL('../fixtures/reader-mathpix/figure-exif.jpg', import.meta.url)));
 const admitted = admitReaderImage(raw);
+
+const fontOptions = '[Path=fonts/, Extension=.otf, UprightFont=*-regular, BoldFont=*-bold, ItalicFont=*-italic, BoldItalicFont=*-bolditalic]\n'
+ + '[Path=fonts/]\n[Extension=.ttf, UprightFont=*, BoldFont=*-Bold, ItalicFont=*-Oblique, BoldItalicFont=*-BoldOblique, Scale=0.8]';
+function fontTitlePage(options = fontOptions) {
+ return source.replace('<h1>Authored HTML fixture</h1><div class="ltx_authors">A. Author</div>',
+  `<div class="ltx_para"><p class="ltx_p">${options}<span class="ltx_inline-block"><span class="ltx_ERROR">\\marcellus</span>`
+  + '<span class="ltx_p">Authored HTML fixture</span><span class="ltx_p"><a href="https://example.org/project">Project</a></span>'
+  + '<span class="ltx_p">A. Author</span></span></p></div>');
+}
+test('custom title pages omit leaked font options but keep their title, project and authors', () => {
+ const result = convertArxivHTML(fontTitlePage(), url, () => ({...admitted,path:`assets/${'0'.repeat(64)}.png`}), {title:'Authored HTML fixture', authors:['A. Author']});
+ assert.doesNotMatch(result.html, /Path=fonts|UprightFont|BoldItalicFont|Extension=/);
+ assert.match(result.html, /Authored HTML fixture/); assert.match(result.html, /A\. Author/);
+ assert.match(result.html, /href="https:\/\/example\.org\/project"/);
+ assert.equal(result.index.equations.length, 2);
+});
+test('font-like content in body paragraphs or an unknown title-page option is retained', () => {
+ const body = convertArxivHTML(source.replace('<p id="p1">', `<p>${fontOptions}</p><p id="p1">`), url, () => ({...admitted,path:`assets/${'0'.repeat(64)}.png`}));
+ assert.match(body.html, /UprightFont/);
+ const unknown = convertArxivHTML(fontTitlePage(fontOptions.replace('Scale=0.8','MeasuredAccuracy=0.8')), url, () => ({...admitted,path:`assets/${'0'.repeat(64)}.png`}),
+  {title:'Authored HTML fixture', authors:['A. Author']});
+ assert.match(unknown.html, /MeasuredAccuracy=0.8/);
+});
 // Authored reduction of DocPilot alg1.m8: an SVG rounded-box label inside an mtext token.
 const badge = '<svg viewBox="0 0 20 10"><g><path d="M 0 2 L 0 8 C 0 9 1 10 2 10 L 18 10 C 19 10 20 9 20 8 L 20 2 C 20 1 19 0 18 0 L 2 0 C 1 0 0 1 0 2 Z"/>'
  + '<foreignObject><span class="ltx_foreignobject_content"><span>Navigate</span></span></foreignObject></g></svg>';

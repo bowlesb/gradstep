@@ -151,6 +151,91 @@ private struct AuthenticationFixture {
 
 @MainActor
 final class AuthenticationBackendTests: XCTestCase {
+    func testDeletedRemoteSessionRetiresCachedCredentialsInsteadOfRetryingForever() async throws {
+        let account = UUID()
+        let fixture = try AuthenticationFixture([.ok(Data(#"{"error_code":"refresh_token_not_found"}"#.utf8), status: 400)],
+            stored: AuthenticationFixture.session(account: account, expiresAt: 0))
+        defer { fixture.close() }
+        do { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()); XCTFail("Deleted session accepted") }
+        catch { }
+        let user = await fixture.client.currentUser()
+        XCTAssertNil(user, "A definitively rejected refresh must end cached sign-in")
+        XCTAssertNil(fixture.credentials.saved(), "A restart must not restore the rejected session")
+        do { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()); XCTFail("Deleted session retried") }
+        catch { }
+        XCTAssertEqual(fixture.server.requests().count, 1, "No cloud RPC or repeated refresh after definitive revocation")
+    }
+
+    func testRefreshTransientFailuresKeepOfflineIdentityAndCanRecover() async throws {
+        let failures: [AuthenticationTestServer.Step] = [
+            .fail(.timedOut), .ok(Data(#"{"error_code":"refresh_token_not_found"}"#.utf8), status: 503),
+            .ok(Data(#"{"error_code":"refresh_token_not_found"}"#.utf8), status: 429),
+            .ok(Data(#"{"error_code":"unexpected_failure"}"#.utf8), status: 400), .ok(Data("broken".utf8))
+        ]
+        for failure in failures {
+            let account = UUID(), original = try AuthenticationFixture.session(account: account, expiresAt: 0)
+            let fixture = try AuthenticationFixture([failure, .ok(AuthenticationFixture.session(account: account)), .ok()], stored: original)
+            defer { fixture.close() }
+            do { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()); XCTFail("Failure accepted") }
+            catch { }
+            let user = await fixture.client.currentUser()
+            XCTAssertEqual(user?.id, account); XCTAssertEqual(fixture.credentials.saved(), original)
+            let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse())
+            XCTAssertEqual(fixture.server.requests().count, 3)
+        }
+    }
+
+    func testClosedAccountWithUnexpiredTokenInvalidatesOnlyForExactAuthRejection() async throws {
+        for (status, body, endsSession) in [
+            (403, #"{"code":"28000","message":"authentication_required"}"#, true),
+            (403, #"{"code":"account_unavailable"}"#, true),
+            (403, #"{"code":"owner_mfa_required"}"#, false),
+            (503, #"{"code":"28000","message":"authentication_required"}"#, false)
+        ] {
+            let account = UUID(), fixture = try AuthenticationFixture([.ok(Data(body.utf8), status: status)],
+                stored: AuthenticationFixture.session(account: account))
+            defer { fixture.close() }
+            do { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()); XCTFail("Rejected request accepted") }
+            catch { }
+            let user = await fixture.client.currentUser()
+            XCTAssertEqual(user == nil, endsSession); XCTAssertEqual(fixture.credentials.saved() == nil, endsSession)
+        }
+    }
+
+    func testConcurrentRevokedRefreshNotifiesOnceAndCannotAffectANewLogin() async throws {
+        let account = UUID(), nextAccount = UUID()
+        let fixture = try AuthenticationFixture([.hold, .ok(AuthenticationFixture.session(account: nextAccount))],
+            stored: AuthenticationFixture.session(account: account, expiresAt: 0))
+        defer { fixture.close() }
+        var events: [AuthenticationInvalidation] = []
+        await fixture.client.observeSessionInvalidation { events.append($0) }
+        let first = Task { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()) }
+        await fulfillment(of: [fixture.server.arrived], timeout: 5)
+        let second = Task { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()) }
+        fixture.server.release(.init(data: Data(#"{"error_code":"refresh_token_not_found"}"#.utf8), status: 400))
+        for task in [first, second] { do { try await task.value; XCTFail("Revoked refresh accepted") } catch { } }
+        XCTAssertEqual(fixture.server.requests().count, 1); XCTAssertEqual(events.count, 1)
+        let event = try XCTUnwrap(events.first)
+        XCTAssertEqual(event.accountID, account)
+        let wasCurrent = await fixture.client.isCurrentInvalidation(event); XCTAssertTrue(wasCurrent)
+        _ = try await fixture.client.signIn(email: "fixture", password: "fixture")
+        let stillCurrent = await fixture.client.isCurrentInvalidation(event); XCTAssertFalse(stillCurrent)
+        let user = await fixture.client.currentUser(); XCTAssertEqual(user?.id, nextAccount)
+    }
+
+    func testRevocationClearsMemoryEvenWhenCredentialCleanupFails() async throws {
+        let fixture = try AuthenticationFixture([.ok(Data(#"{"error_code":"refresh_token_not_found"}"#.utf8), status: 400)],
+            stored: AuthenticationFixture.session(expiresAt: 0))
+        defer { fixture.close() }
+        fixture.credentials.failures(delete: true)
+        await error(.credentialStorage) { let _: EmptyResponse = try await fixture.client.rpc("v1_key_state", params: EmptyResponse()) }
+        let user = await fixture.client.currentUser(); XCTAssertNil(user)
+        await error(.credentialStorage) { _ = try await fixture.client.beginGoogleSignIn() }
+        fixture.credentials.failures(delete: false)
+        _ = try await fixture.client.beginGoogleSignIn()
+        XCTAssertNil(fixture.credentials.saved())
+    }
+
     func testReaderMemberPreservesBoundedQuotaErrorsEvenForATinyMember() async throws {
         let account = UUID(), token = String(repeating: "a", count: 64), memberID = UUID()
         let cases = [("reader_transfer_limit", 429), ("reader_upgrade_required", 426),

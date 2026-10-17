@@ -51,6 +51,27 @@ async function storeAccountKeys(page: Page) {
   }, ACCOUNT);
 }
 
+test('remote account rejection returns to sign-in without erasing encrypted local work', async ({page}, info) => {
+  await signIn(page);
+  await storeAccountKeys(page);
+  const before = await traces(page);
+  expect(before.signedIn).toBe(true); expect(before.records.length).toBeGreaterThan(0);
+  let denied = 0;
+  await page.route('**/rest/v1/rpc/**', async route => {
+    denied++;
+    await route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({code:'28000',message:'authentication_required'})});
+  });
+  await page.reload();
+  await expect(page.getByTestId('email')).toBeVisible();
+  await expect(page.getByRole('link',{name:'Library',exact:true})).toHaveCount(0);
+  expect(denied).toBeGreaterThan(0);
+  const after=await traces(page);
+  expect(after.signedIn).toBe(false);
+  expect(after.records.sort()).toEqual(before.records.sort());
+  expect(after.local.sort()).toEqual(before.local.sort());
+  await page.screenshot({path:`${shots}${info.project.name}-remote-session-ended.png`});
+});
+
 async function openDelete(page: Page) {
   await page.getByTestId('account-menu').click();
   await expect(page.getByRole('menuitem', { name: 'Delete account…' })).toBeVisible();

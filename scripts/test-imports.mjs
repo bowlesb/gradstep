@@ -8,7 +8,7 @@ const root=fileURLToPath(new URL('../',import.meta.url)); process.chdir(root);
 const mode=process.argv[2]??'run';
 if(!['run','gate'].includes(mode)||process.argv.length>3)throw Error('Usage: node scripts/test-imports.mjs run|gate');
 const folder='.artifacts/import-acceptance',reportPath=folder+'/latest.json'; mkdirSync(folder,{recursive:true});
-const cases=[
+const cases=[...[
  'testOfflineImportDownloadsValidatesEncryptsAndReopensWithNoNetwork',
  'testOfflineImportFailureDoesNotLoopAndExplicitRetrySucceeds',
  'testOfflineImportCancellationDoesNotPublishAndCanBeRetried',
@@ -16,11 +16,20 @@ const cases=[
  'testOfflineReportedPaperRegressionsThroughNativeLibrary',
  'testImportTableRowsReserveTheSameHeightBeforeMetadataAndWhileAdding',
  'testLocalPDFFileAddsARealLibraryItemAndRejectsDamagedInput',
+].map(c=>'ScienceReaderTests/LibraryModelTests/'+c),
+ 'ScienceReaderTests/AuthenticationBackendTests/testDeletedRemoteSessionRetiresCachedCredentialsInsteadOfRetryingForever',
+ 'ScienceReaderTests/AuthenticationBackendTests/testRefreshTransientFailuresKeepOfflineIdentityAndCanRecover',
+ 'ScienceReaderTests/AuthenticationBackendTests/testClosedAccountWithUnexpiredTokenInvalidatesOnlyForExactAuthRejection',
+ 'ScienceReaderTests/AuthenticationModelTests/testRemoteDeletionRetiresVisibleAccountAndPreservesLocalFilesAndKeys',
+ 'ScienceReaderTests/ChatTransportTests/testRejectedChatSessionClearsAuthorityBeforeTheReaderCanTryAnotherCloudAction',
+ 'ScienceReaderUITests/AuthenticationWorkflowTests/testDeletedSessionAtLaunchReturnsToSignInAndStaysSignedOutAfterRestart',
 ];
 function fingerprint(){
  const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{encoding:'utf8'}).split('\0')
   .filter(p=>p&&(/^(supabase\/functions\/_shared\/reader\/|tests\/fixtures\/reader|apps\/apple\/ScienceReaderCore\/Sources\/|apps\/apple\/ScienceReader\/Resources\/arxiv-|apps\/apple\/ScienceReader\/Services\/(Arxiv|DevicePDF|PaperAdding|PDFUpload|Library|SourceMetadata)|apps\/apple\/ScienceReader\/Views\/(Library|Import|PaperTable)|apps\/apple\/ScienceReaderTests\/LibraryModelTests.swift)/.test(p)
-   ||['apps/apple/ScienceReader/ReaderModel.swift','apps/apple/ScienceReader/Views/RootView.swift','apps/apple/project.yml','scripts/test-imports.mjs','scripts/build-arxiv-compiler.mjs','tests/corpus/import-regressions.json','package-lock.json'].includes(p)))
+   ||['apps/apple/ScienceReader/ReaderModel.swift','apps/apple/ScienceReader/Views/RootView.swift','apps/apple/project.yml','scripts/test-imports.mjs','scripts/build-arxiv-compiler.mjs','tests/corpus/import-regressions.json','package-lock.json'].includes(p)
+   ||/^apps\/apple\/ScienceReader\/Services\/(BackendClient|AuthenticationBackend|AuthenticationCoordinator|AuthenticationWorkflowFixture)\.swift$/.test(p)
+   ||/^apps\/apple\/ScienceReader(?:UI)?Tests\/(AuthenticationBackendTests|AuthenticationModelTests|AuthenticationWorkflowTests|ChatTransportTests)\.swift$/.test(p)))
   .filter(p=>existsSync(p)&&statSync(p).isFile()).sort();
  const hash=createHash('sha256');
  hash.update(execFileSync('xcodebuild',['-version']));
@@ -47,7 +56,7 @@ const args=['test','-project','apps/apple/ScienceReader.xcodeproj','-scheme','Sc
  '-destination','platform=iOS Simulator,name=iPhone 17 Pro','-derivedDataPath','.artifacts/reader-integration-build',
  '-parallel-testing-enabled','NO','-resultBundlePath',resultBundle,
  'SWIFT_OPTIMIZATION_LEVEL=-O','SWIFT_COMPILATION_MODE=wholemodule',
- ...cases.map(c=>'-only-testing:ScienceReaderTests/LibraryModelTests/'+c)];
+ ...cases.map(c=>'-only-testing:'+c)];
 console.log(`Import acceptance: release optimization, no provider calls; ${log}`);
 const output=createWriteStream(log);
 const exitCode=await new Promise(resolve=>{

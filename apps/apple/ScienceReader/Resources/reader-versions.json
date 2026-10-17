@@ -1,6 +1,7 @@
 {
  "renderer_id": "gradstep-arxiv-html-mathml-v2",
  "versions": [
+  {"revision": 18, "date": "2026-10-17", "build_sha256": "95ce288282650346bae024054dea84a8a4f02be01b47b9b493c4e97985d88b3f", "note": "Font setup text no longer appears on custom title pages, including FDE-Gym."},
   {"revision": 17, "date": "2026-10-17", "build_sha256": "4fd74d09e421126822f4887d233c90805c284402d047b57a64dc83e041150ab3", "note": "Text badges inside equations keep their labels, including DocPilot’s four agent actions."},
   {"revision": 16, "date": "2026-10-16", "build_sha256": "9d7263668a36a544d08ee215c77c6dffab6810f9411f74137fb9ecf4d711a8cf", "note": "Contents › Tables lists the paper's tables; an image arXiv doesn't serve leaves a note in its figure instead of stopping the paper."},
   {"revision": 15, "date": "2026-10-15", "build_sha256": "3eefe897dc8e20764a38a9c9760d07a0cbc2f7552d0d760a28ebf9067b4f49e7", "note": "A figure the device can't prepare says so in place instead of stopping the paper; very large drawings are drawn smaller."},

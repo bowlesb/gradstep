@@ -393,3 +393,13 @@ No invoice receipt for top-up fees/tax was inspected; do not treat the nominal c
 No further paid testing is forecast for this rollout; app use after activation is metered within the existing
 server budget. These short cached DPO checks do not predict a month of cold, long-paper use. Flash remains hidden
 pending account privacy-setting confirmation and client release; no unattended inference is running.
+
+
+## Build 66 feedback repair, 2026-10-17 UTC
+
+Session-revocation reproduction used one disposable staging account with two sessions and the deployed deletion
+function. It created no paper, credit grant, email or provider call. Native/browser regressions and seven-paper
+replay are offline; FDE-Gym HTML/assets were fetched only on the developer's Mac. Additional AI spend: **$0**.
+The earlier eight Flash rollout generations remain $0.108185933, with $10.205283699 remaining on the funded
+OpenRouter key at the last provider readback. Flash is still hidden pending the account logging/data-use check;
+no further comparison, top-up, subscription or budget increase was made. The $100/month ceiling is unchanged.

@@ -15,6 +15,7 @@ export function article(source: string): { root: DomNode; dropped: number } {
   const root = parseHTML(source);
   const papers = elements(root, n => n.name === 'article' && has(n, 'ltx_document'));
   check(papers.length === 1, 'arxiv_article');
+  const fontCommands = omitFontPreamble(papers[0]);
   const ids = new Set<string>(), errors: DomNode[] = [];
   walk(papers[0], n => {
     if (n.attribs?.id) { check(!ids.has(n.attribs.id), 'arxiv_duplicate_id'); ids.add(n.attribs.id); }
@@ -30,7 +31,32 @@ export function article(source: string): { root: DomNode; dropped: number } {
   for (const svg of elements(papers[0], c => c.name === 'svg' && !nearest(c, 'svg') && typeof c.attribs?.id !== 'string')) {
     unnamed += 1; svg.attribs = { ...(svg.attribs ?? {}), id: `srpic${unnamed}` };
   }
-  return { root: papers[0], dropped: errors.length };
+  return { root: papers[0], dropped: errors.length + fontCommands };
+}
+
+/** FDE-Gym's custom title page starts with fontspec options emitted as ordinary text. Only the first paragraph,
+ * before any heading/section, with a custom inline title block qualifies. Remove a complete prefix of known font
+ * options, never a whole paragraph: title, links, author contributions and affiliations follow in the same node.
+ * Body examples, unknown keys and incomplete groups stay verbatim. No source path is fetched. */
+function omitFontPreamble(root: DomNode): number {
+  const first = elements(root, n => n.name === 'p' || n.name === 'section' || /^h[1-6]$/.test(n.name))[0];
+  if (!first || first.name !== 'p' || !has(first, 'ltx_p')
+      || !elements(first, n => n.name === 'span' && has(n, 'ltx_inline-block')).length) return 0;
+  const text = first.children[0];
+  if (!text || text.type !== 'text') return 0;
+  const prefix = /^(?:\s*\[[^\[\]]{1,512}\]){1,8}\s*/.exec(text.data)?.[0];
+  if (!prefix || text.data.slice(prefix.length).trimStart().startsWith('[')) return 0;
+  const groups = [...prefix.matchAll(/\[([^\]]+)\]/g)], keys = new Set<string>();
+  for (const group of groups) for (const field of group[1].split(',')) {
+    const match = /^\s*(Path|Extension|UprightFont|BoldFont|ItalicFont|BoldItalicFont|Scale)\s*=\s*([A-Za-z0-9_.*\/-]{1,128})\s*$/.exec(field);
+    if (!match) return 0;
+    if (match[1] === 'Extension' && !['.otf', '.ttf'].includes(match[2])) return 0;
+    if (match[1] === 'Scale' && !/^\d+(?:\.\d+)?$/.test(match[2])) return 0;
+    keys.add(match[1]);
+  }
+  if (!keys.has('UprightFont') || !keys.has('Extension')) return 0;
+  text.data = text.data.slice(prefix.length);
+  return groups.length;
 }
 
 /** A graphic that is not one of the paper's own assets (arXiv's page chrome inside the article, an empty `src`:
