@@ -688,6 +688,17 @@ test('a provider error mid-stream settles once, charges nothing (Gradstep absorb
     p_actual_microusd: 1_500, p_action: 'answer', p_ending: 'provider', p_absorbed_microusd: 1_500 });
 });
 
+test('provider billing refusal settles without charge and offers model choice instead of a futile retry', async () => {
+  const h = harness({ generate: async () => ({ status: 'failed', failure: 'provider_billing', messageID: null,
+    model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null, attempts: [], exact: true }) });
+  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'model_unavailable', credits: 0, charged: false, reason: 'provider' } }]);
+  const settlements = h.calls.filter(c => c.name === 'worker_settle_chat');
+  assert.equal(settlements.length, 1);
+  assert.equal(settlements[0].params.p_actual_credits, 0);
+  assert.equal(settlements[0].params.p_actual_microusd, 0);
+});
+
 test('a thrown provider failure is settled as uncertain input, never left reserved', async () => {
   const h = harness({ generate: async () => { throw new Error('boom'); } });
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);

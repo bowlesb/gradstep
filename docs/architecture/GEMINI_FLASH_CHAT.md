@@ -1,5 +1,19 @@
 # Gemini Flash chat
 
+## Build 68 follow-up, 2026-10-17 (in progress)
+
+The owner's 14:32 UTC request is a confirmed Anthropic `provider_billing` rejection. The fresh account's allowance
+does not fund upstream inference. At 14:42 UTC OpenRouter still has $10.205283699 available, but Flash is hidden.
+Computer Use again denied Chrome access; the account logging/data-use check has been requested with exact setting
+names. A new public DPO smoke also received an OpenRouter rejection at 14:43 UTC, with zero cost and no remaining
+hold. Diagnose this before activation; earlier successful smokes are not evidence for the current configuration.
+
+Provider balance refusals now emit `model_unavailable` after normal zero-credit settlement. Updated clients direct
+the reader to another model in Answer options, without offering an ineffective same-model retry. Operator health
+retains the billing cause. OpenRouter rejection diagnostics inspect at most 8 KiB in memory and record only HTTP
+status plus a closed category, never the provider's raw body, prompt or credentials. The paid smoke must fail on
+an SSE error, missing `done`, or an empty answer without a usable tool result; HTTP 200 alone is not a pass.
+
 Status 2026-10-17 ~03:39 UTC (Oct 16 PDT): migration 085 and chat are deployed to staging with Flash **hidden**.
 The focused live checks pass after fixing the equation-symbol output budget; **Flash is not the app default yet**.
 TestFlight 64 is VALID / IN_BETA_TESTING on iOS and Mac; browser `d3b06988`, admin `04ecd963` and privacy site

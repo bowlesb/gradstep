@@ -355,6 +355,7 @@ export function failureText(code: string): string {
     case 'local_reader_unavailable': return 'Open this paper to prepare its HTML reader on this device, then retry your question.';
     case 'document_unavailable': return 'This paper isn’t ready for questions yet. Try again after it finishes processing.';
     case 'provider_unavailable': return 'The AI service couldn’t finish this answer. Try again.';
+    case 'model_unavailable': return 'This cloud model is unavailable. Choose another model in Answer options. Your question is saved.';
     case 'refused': return 'This request can’t be answered. Try rephrasing your question.';
     case 'invalid_request': return 'This conversation couldn’t be sent. Try starting a new chat.';
     case 'operation_replayed': return 'This answer was already requested. Try again to request a new one.';
@@ -364,7 +365,7 @@ export function failureText(code: string): string {
     default: return 'The answer couldn’t be completed. Try again.';
   }
 }
-export const retryable = (code: string) => !['invalid_request', 'refused', 'storage_retired'].includes(code);
+export const retryable = (code: string) => !['invalid_request', 'refused', 'model_unavailable', 'storage_retired'].includes(code);
 
 /** Bounded by the encrypted event limit (UTF-8 bytes) on a code point boundary. */
 export function boundedText(text: string, maximum = 200_000): string {

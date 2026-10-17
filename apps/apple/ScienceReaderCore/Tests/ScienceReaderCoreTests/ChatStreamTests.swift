@@ -175,6 +175,8 @@ import Testing
         #expect(ChatFailureText.message(for: "something_new") == "The answer couldn’t be completed. Try again.")
         #expect(!ChatFailureText.isRetryable("refused"))
         #expect(ChatFailureText.isRetryable("provider_unavailable"))
+        #expect(!ChatFailureText.isRetryable("model_unavailable"))
+        #expect(ChatFailureText.message(for: "model_unavailable").contains("Choose another model"))
     }
 
     @Test func figureRequestsAreParsedAndOfferedOnlyWithTheLocalPaper() throws {

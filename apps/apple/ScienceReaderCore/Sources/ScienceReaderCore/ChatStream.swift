@@ -436,6 +436,7 @@ public enum ChatFailureText {
         case "rate_limited": "Too many requests right now. Try again in a moment."
         case "document_unavailable": "This paper isn’t ready for questions yet. Try again after it finishes processing."
         case "provider_unavailable": "The AI service couldn’t finish this answer. Try again."
+        case "model_unavailable": "This cloud model is unavailable. Choose another model in Answer options. Your question is saved."
         case "refused": "This request can’t be answered. Try rephrasing your question."
         case "invalid_request": "This conversation couldn’t be sent. Try starting a new chat."
         case "operation_replayed": "This answer was already requested. Try again to request a new one."
@@ -460,7 +461,7 @@ public enum ChatFailureText {
 
     /// Whether retrying the same question can reasonably succeed.
     public static func isRetryable(_ code: String) -> Bool {
-        !["invalid_request", "refused", "local_image_unsupported", "local_action_unsupported", "local_unavailable", "local_context_large", "local_memory"].contains(code)
+        !["invalid_request", "refused", "model_unavailable", "local_image_unsupported", "local_action_unsupported", "local_unavailable", "local_context_large", "local_memory"].contains(code)
     }
 }
 

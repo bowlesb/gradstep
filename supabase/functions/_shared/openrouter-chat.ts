@@ -12,6 +12,31 @@ const count = (v: unknown): number | null => Number.isSafeInteger(v) && (v as nu
 const string = (v: unknown): string => typeof v === 'string' ? v : '';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
+/** Error bodies can echo prompts. Inspect a bounded body in memory, returning only our own closed category. */
+async function rejectionReason(response: Response): Promise<NonNullable<ProviderOutcome['rejectionReason']>> {
+  const reader = response.body?.getReader();
+  let text = '', size = 0;
+  const decoder = new TextDecoder();
+  try {
+    if (reader) for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 8192) return 'unknown';
+      text += decoder.decode(value, { stream: true });
+    }
+    const error = object(object(JSON.parse(text)).error);
+    const message = string(error.message);
+    if (/data policy|privacy|zero.?data.?retention|logging|training/i.test(message)) return 'privacy_policy';
+    if (/no endpoints|no available provider|model.+not found|unavailable model/i.test(message)) return 'route_unavailable';
+    if (response.status === 401 || /api key|authentication|unauthorized/i.test(message)) return 'authentication';
+    if (response.status === 402) return 'balance';
+    if ([400, 413, 422].includes(response.status)) return 'request_parameters';
+  } catch { /* A malformed error body is not copied into logs. */ }
+  finally { await reader?.cancel().catch(() => {}); }
+  return 'unknown';
+}
+
 function part(value: unknown): ObjectValue {
   const b = object(value);
   if (b.type === 'text') return { type: 'text', text: string(b.text) };
@@ -103,11 +128,12 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     } catch { return failed(false, stream.signal.aborted ? 'aborted' : 'provider_error'); }
     id = response.headers.get('x-generation-id');
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
+      const reason = await rejectionReason(response);
       const exact = [400, 401, 402, 403, 404, 413, 422, 429].includes(response.status);
       const delay = Number(response.headers.get('retry-after'));
       return { ...failed(exact, response.status === 402 ? 'provider_billing' : response.status >= 500 || response.status === 429 ? 'provider_error' : 'provider_rejected'),
-        httpStatus: response.status, retryAfterMs: Number.isFinite(delay) && delay > 0 ? Math.min(delay * 1000, 60_000) : null };
+        httpStatus: response.status, rejectionReason: reason,
+        retryAfterMs: Number.isFinite(delay) && delay > 0 ? Math.min(delay * 1000, 60_000) : null };
     }
     if (!response.body) return failed();
     let text = '', finish = '', done = false, buffer = '', bytes = 0;

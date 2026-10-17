@@ -106,6 +106,22 @@ test('initial or missing usage, transport failures and truncated streams retain 
   assert.equal(failed.failure, 'aborted'); assert.equal(failed.exact, false); assert.doesNotMatch(JSON.stringify(failed), /secret/);
 });
 
+test('provider rejection diagnostics expose only a closed category, never echoed request content', async () => {
+  for (const [status, message, reason] of [
+    [404, 'No endpoints found matching your data policy. private question', 'privacy_policy'],
+    [404, 'No endpoints found for this model. private question', 'route_unavailable'],
+    [400, 'Invalid parameter: private question', 'request_parameters'],
+    [401, 'Invalid API key: secret', 'authentication'],
+    [400, 'x'.repeat(9000), 'unknown'],
+  ] as const) {
+    const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response(JSON.stringify({ error: { message } }), { status }) });
+    const outcome = await generate(params, { signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
+    assert.equal(outcome.rejectionReason, reason); assert.equal(outcome.httpStatus, status);
+    assert.doesNotMatch(JSON.stringify(outcome), /private question|secret|xxxx/);
+    assert.equal(outcome.exact, true); assert.deepEqual(outcome.attempts, []);
+  }
+});
+
 test('pre-inference refusals cost zero, 5xx is uncertain, and expired rates make no request', async () => {
   for (const status of [402, 429, 503]) {
     const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response('', { status, headers: { 'retry-after': '2' } }) });

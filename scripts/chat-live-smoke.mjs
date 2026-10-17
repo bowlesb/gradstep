@@ -411,6 +411,9 @@ try {
     log(`citations: [${cites.join(', ')}] (${cites.filter(n => n >= 1 && n <= index.blocks.length).length} resolvable of ${cites.length})`);
     log(`follow-ups (${followUps.length}): ${JSON.stringify(followUps)}`);
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
+    if (failure || !done) throw new Error(`Chat did not complete: ${failure?.code ?? 'missing_done'}`);
+    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'figure_detail', 'ingest'].includes(e)))
+      throw new Error('Chat completed without an answer or a usable tool result');
     if (equationAction && (failure || done?.stop_reason !== 'end_turn'
       || (equationAction === 'equation' ? !events.includes('equation') : !answer.trim())))
       throw new Error(`${equationAction} did not deliver a complete explanation`);

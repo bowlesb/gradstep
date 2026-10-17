@@ -1,12 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SSEParser, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText } from '../src/lib/chat';
+import { SSEParser, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText, failureText, retryable } from '../src/lib/chat';
 import { renderMarkdown } from '../src/lib/markdown';
 import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, makeDiagram, type PrivateEvent } from '../src/lib/events';
 
 const fixture = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/envelopes-v1.json', import.meta.url), 'utf8'));
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const C = id(900), D = id(901);
+it('an unavailable cloud model asks for another choice without offering the same retry', () => {
+  expect(failureText('model_unavailable')).toContain('Choose another model');
+  expect(retryable('model_unavailable')).toBe(false);
+  expect(retryable('provider_unavailable')).toBe(true);
+});
 const message = (n: number, parents: number[], role: 'user' | 'assistant', text: string, extra: Partial<PrivateEvent> = {}): PrivateEvent =>
   ({ kind: 'message', entityID: id(n), parents: parents.map(id), conversationID: C, documentID: D, text, role, status: 'complete', ...extra });
 

@@ -22,8 +22,10 @@ acceptance: [Local AI](architecture/LOCAL_AI.md). Physical iPhone testing remain
 The native prototype now offers explicit Cloud/Local choices and verified, removable model downloads. The local
 comparison favors Qwen3.5 4B for explanation quality, but both it and Gemma fail numeric-figure checks. Measured Mac
 process footprint is about 6.7 GB for both larger models and 3.85 GB for Qwen2B; no phone readiness is inferred.
-The prototype remains experimental and unreleased; phone acceptance is still outstanding under the owner’s
-existing pause. These results do not change the cloud default. Evidence and limitations: [local comparison](reviews/LOCAL_AI_20261017.md).
+The owner subsequently requested a build to try the prototype (2026-10-17). Prepare an internal TestFlight release
+with the experimental label and memory admission checks; this authorizes distribution, not physical-phone testing.
+Phone acceptance remains outstanding under the existing pause. These results do not change the cloud default.
+Evidence and limitations: [local comparison](reviews/LOCAL_AI_20261017.md).
 
 ## Import acceptance after build 65 feedback (owner direction, 2026-10-17 UTC)
 

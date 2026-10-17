@@ -44,7 +44,7 @@ export const GENERATION_DEADLINE_MS = 130_000;
 
 /** `consent_required` (2026-10-16): the request chose a model its consent version does not name (DeepSeek before v4). */
 export type ChatErrorCode = 'insufficient_credits' | 'platform_budget_exhausted' | 'rate_limited' | 'document_unavailable'
-  | 'provider_unavailable' | 'refused' | 'invalid_request' | 'operation_replayed' | 'service_unavailable' | 'consent_required';
+  | 'provider_unavailable' | 'model_unavailable' | 'refused' | 'invalid_request' | 'operation_replayed' | 'service_unavailable' | 'consent_required';
 
 export class ChatFailure extends Error {
   readonly code: ChatErrorCode;
@@ -853,6 +853,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   await recordUsage(deps, request.operationID, outcome, actual, providerForModel(params.model));
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
+  if (outcome.rejectionReason) deps.log({ event: 'chat_provider_rejected', operation_id: request.operationID,
+    provider: profile.provider, status: outcome.httpStatus ?? null, reason: outcome.rejectionReason });
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending, charged, credits,
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
@@ -971,9 +973,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}), ...billing } });
     return;
   }
-  // Our server failing says so (`service_unavailable`); the provider failing and our own limits keep `provider_unavailable`
-  // (what every build shows as "couldn't finish this answer"). How long to wait: the provider's own Retry-After (or our
-  // breaker's cool-off), else a short default.
+  // An unfunded provider cannot recover by retrying the same request. Keep the operator's billing detail private,
+  // but let the reader choose another model instead of repeatedly suggesting a retry. Settlement above is unchanged.
+  if (ending === 'provider' && outcome.failure === 'provider_billing') {
+    emit({ event: 'error', data: { code: 'model_unavailable', credits, ...billing } });
+    return;
+  }
   const code: ChatErrorCode = ending === 'server' ? 'service_unavailable' : 'provider_unavailable';
   const retryAfter = ending === 'provider' && outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS[code]!;
   emit({ event: 'error', data: { code, credits, ...billing, retry_after: retryAfter } });
