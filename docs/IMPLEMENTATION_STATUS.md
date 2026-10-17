@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-17 23:29 UTC (build-68 Equations hang reproduced and repaired; Claude chat and auxiliaries now use the funded OpenRouter route, with live verification; browser deployed; native build 69 release verification underway). Flash remains the recommendation. The owner's beta login and requested 100,000-credit test grant are verified. The owner explicitly waived the OpenRouter logging/data-use account-settings verification hold. Earlier checkpoints below are historical.
+Updated 2026-10-17 23:46 UTC (build-68 Equations hang repaired; Claude chat and auxiliaries now use the funded OpenRouter route, with live verification; browser deployed; TestFlight 69 available on iOS and Mac). Flash remains the recommendation. The owner's beta login and requested 100,000-credit test grant are verified. The owner explicitly waived the OpenRouter logging/data-use account-settings verification hold. Earlier checkpoints below are historical.
 
 ## Build 68 feedback: Equations hang and unfunded Claude route — 2026-10-17
 
@@ -23,7 +23,7 @@ Updated 2026-10-17 23:29 UTC (build-68 Equations hang reproduced and repaired; C
 - The native chooser now names and selects the cloud model, waits for the published table, and offers **Change AI**
   on the failed explainer itself. Saved answers name the model that wrote them. Billing failure copy explains the
   provider's insufficient balance and that the reader's AI credits were not charged. Browser Pages **f1494d2a** is
-  deployed with corrected routing disclosures and billing-error copy. Native build 69 is being prepared.
+  deployed with corrected routing disclosures and billing-error copy. Native build 69 is available on iOS and Mac.
 - Fast tier, Deno check, full database suite, 21 focused Core tests and the exact-paper Simulator journey pass.
   Required import/session gate: **13 passed, zero skips**, matching current source at 23:27:41 UTC;
   `.artifacts/import-acceptance/2026-10-17T23-23-03-206Z.xcresult`. Cloud recovery UI acceptance also passes:
@@ -32,6 +32,12 @@ Updated 2026-10-17 23:29 UTC (build-68 Equations hang reproduced and repaired; C
   No physical phone was accessed. Evidence: `.artifacts/equations-feedback-20261017/`;
   [equations](architecture/EQUATION_VIEW.md), [routing](architecture/GEMINI_FLASH_CHAT.md),
   [costs](architecture/OPERATIONS_AND_BILLING.md).
+
+Release source **f72c51c**. iOS is **VALID / IN_BETA_TESTING**, first confirmed 23:40:01 UTC; both iOS and Mac
+are **VALID / IN_BETA_TESTING**, confirmed **23:46:40 UTC**. Both signed archives pass
+the source-matching import gate and contain the tested revision-18 compiler, pinned Local AI catalog and MLX Metal
+resource, without downloaded LLM weights. Archive identity/signature checks, TestFlight states and release notes
+are recorded in `.artifacts/equations-feedback-20261017/`.
 
 ## Flash activation — 2026-10-17 19:54–19:55 UTC (deployed and verified)
 

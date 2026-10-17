@@ -13,7 +13,10 @@ refresh its provider table before use and keep a change-model action available a
 must say the provider account ran out of funds and distinguish it from the reader's own credits.
 The actual reported-paper Simulator journey now passes (iPhone 17 Pro, iOS 26.4, release optimization): load the
 list, switch tabs, select a row and reopen Contents. Core's long-Unicode-tail regression preserves all 105 complete
-MathML fragments and rejects a recurrence of the slow scan. Native build 69 is pending final release checks.
+MathML fragments and rejects a recurrence of the slow scan. Native build 69 is available in TestFlight on iOS
+and Mac (both VALID / IN_BETA_TESTING, 23:46:40 UTC). The source-matching import/session gate passes 13/13 with zero skips.
+The cloud failure/recovery journey also passes: cause displayed, model changed in place, successful structured
+answer naming the serving model. Evidence: `.artifacts/equations-feedback-20261017/`.
 The chooser names and selects the cloud model, waits for the published table and keeps Local AI available. Failed
 equation/figure requests offer Change AI in place. Saved cloud answers display the model that wrote them when known,
 not a newly selected default. Claude chat/explainer routing is documented in [the funded route](GEMINI_FLASH_CHAT.md).

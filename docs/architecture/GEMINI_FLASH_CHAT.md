@@ -37,7 +37,8 @@ cap before inference (search headroom made its hold too large). No Opus quality 
 
 The wire answer keeps the familiar Claude model ID for older clients; quotes and attempts retain the distinct
 OpenRouter API ID and tariff. Direct Anthropic rates stay intact for separate catalog/podcast work. Native chooser
-and failure recovery changes are being prepared for build 69; browser `f1494d2a` is live. Evidence:
+and failure recovery changes are available in TestFlight 69 on iOS and Mac (both VALID / IN_BETA_TESTING); browser
+`f1494d2a` is live. Evidence:
 `.artifacts/equations-feedback-20261017/` (`provider-evidence.json`, live logs, database, adapter and fast checks).
 
 Historical activation checkpoint — Current status, 2026-10-17 19:55 UTC: **Flash is enabled and published as the recommendation**. `infra/staging.json`

@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-17 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Build 68 equation hang and cloud model failure (2026-10-17; repaired, release verification underway)
+## Build 68 equation hang and cloud model failure (2026-10-17; repaired, TestFlight 69 on iOS and Mac)
 
 The owner reports an indefinitely loading Equations tab and a default explainer that fails without explaining why,
 and asks why Claude still bypasses the funded OpenRouter account. The actual feedback paper (1805.03662v2, 105
@@ -12,7 +12,8 @@ Move Claude **chat-route** models and their title/suggestion/study helpers to th
 Flash remains recommended, explicit saved choices remain respected, and separate catalog/podcast routes retain
 their current adapters. Named v5 consent, a fixed reviewed ZDR-eligible endpoint, immutable provider pricing and
 server spending admission remain mandatory. No operating-budget increase or new model comparison. Migration 087
-and the funded route are deployed and verified; native delivery is being prepared as build 69.
+and the funded route are deployed and verified; native build 69 is available on iOS and Mac, with both platforms
+confirmed VALID / IN_BETA_TESTING at 23:46:40 UTC.
 Details: [equations](architecture/EQUATION_VIEW.md), [routing](architecture/GEMINI_FLASH_CHAT.md).
 
 ## Owner test-account allowance (2026-10-17, verified)
