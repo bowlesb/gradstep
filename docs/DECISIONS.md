@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-17 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Build 68 equation hang and cloud model failure (2026-10-17; repaired, release verification underway)
+
+The owner reports an indefinitely loading Equations tab and a default explainer that fails without explaining why,
+and asks why Claude still bypasses the funded OpenRouter account. The actual feedback paper (1805.03662v2, 105
+formulas) reproduces a local markup-scanning performance defect. Fix the scan and verify that exact Contents
+screen. Name/select the cloud model in the existing AI chooser and offer recovery on the failed explainer itself.
+Move Claude **chat-route** models and their title/suggestion/study helpers to the authorized OpenRouter connection;
+Flash remains recommended, explicit saved choices remain respected, and separate catalog/podcast routes retain
+their current adapters. Named v5 consent, a fixed reviewed ZDR-eligible endpoint, immutable provider pricing and
+server spending admission remain mandatory. No operating-budget increase or new model comparison. Migration 087
+and the funded route are deployed and verified; native delivery is being prepared as build 69.
+Details: [equations](architecture/EQUATION_VIEW.md), [routing](architecture/GEMINI_FLASH_CHAT.md).
+
 ## Owner test-account allowance (2026-10-17, verified)
 
 The owner explicitly requested 100,000 starting credits for the fresh test account. One nonexpiring, audited

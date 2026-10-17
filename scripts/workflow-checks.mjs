@@ -32,7 +32,7 @@ const CAPS_USD = { deploy: 0.05, daily: 0.5, weekly: 1.0 };
 // Never let a run take the platform budget below this: testers would lose paid features.
 const BUDGET_RESERVE_USD = 0.5;
 const PAPER = '2310.06825'; // Mistral 7B: CC BY, shared and converted (no OCR), 9 pages (cheap context).
-const CONSENT = 'cloud-ai-v2';
+const CONSENT = 'cloud-ai-v5'; // Current client consent includes the funded OpenRouter Claude route.
 const DELETE_CONFIRMATION = 'delete my account';
 
 // ── Arguments and secrets ────────────────────────────────────────────────────
@@ -878,7 +878,7 @@ check('chat.smoke', { title: 'General chat streams an answer and settles', suite
   if (table.status !== 200 || table.json?.version !== 'chat-profiles-v1') return fail('published chat profiles unavailable');
   const profile = table.json.default_recommended ?? table.json.default_auto ?? table.json.default;
   if (!profile || !table.json.models?.some(m => m.id === profile.model)) return fail('published default is not an offered model');
-  const consent_version = profile.model === 'gemini' ? 'cloud-ai-v5' : profile.model === 'deepseek' ? 'cloud-ai-v4' : CONSENT;
+  const consent_version = CONSENT;
   const r = await chat(acct, { mode: 'general', consent_version, profile,
     messages: [{ role: 'user', text: 'Reply with the single word OK.' }] }, { signal });
   if (r.error || !r.done) return fail(`${chatSummary(r)} after ${(r.ms / 1000).toFixed(1)} s`);

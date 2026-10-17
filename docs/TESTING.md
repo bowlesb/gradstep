@@ -10,6 +10,21 @@ Owner direction, 2026-10-13: run fast checks routinely; run slow checks once for
 related changes or a reported problem. A slow run is not a prerequisite for an unrelated edit. Save failures and
 turn a discovered bug into a small fast regression where possible.
 
+## Build 68 Equations regression
+
+`swift test --package-path apps/apple/ScienceReaderCore --filter 'EquationViewTests|ChatStreamTests'` covers complete
+MathML extraction with 105 equations and a long Unicode tail, bounded runtime, reordered/missing IDs and explanatory
+billing-error copy. The opt-in Simulator journey
+`PaperToolsTests/testReportedQuantumPaperEquationsFinishAndCanReopen` uses the exact reported 1805.03662v2 bundle,
+whose manifest identity is pinned in the test-only `OfflineReaderFixture`. Prepare it locally with
+`node scripts/reader-sweep.mjs --ids=1805.03662v2`, then
+`node scripts/reader-device-compile.mjs --ids=1805.03662v2 --out=.artifacts/equations-feedback-20261017/bundles`.
+Missing/mismatched fixtures fail rather than skip. The test does no network or AI work. It checks the list, tab
+revisit, jump to the equation and reopen; extraction timing is measured separately from XCTest accessibility work.
+`LocalAIJourneyTests/testCloudFailureExplainsBillingAndLetsTheReaderChangeModelHere` injects the actual billing
+failure category, checks the cause/zero-reader-charge copy and changes the model in place to obtain a structured
+answer. Structured cloud answers use `equation.summary`; local prose uses `equation.description`.
+
 ## Commands
 
 Install root and browser dependencies with `npm ci` and `npm ci --prefix apps/web` (Node 24+).

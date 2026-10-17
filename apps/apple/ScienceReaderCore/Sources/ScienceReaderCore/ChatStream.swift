@@ -436,7 +436,7 @@ public enum ChatFailureText {
         case "rate_limited": "Too many requests right now. Try again in a moment."
         case "document_unavailable": "This paper isn’t ready for questions yet. Try again after it finishes processing."
         case "provider_unavailable": "The AI service couldn’t finish this answer. Try again."
-        case "model_unavailable": "This cloud model is unavailable. Choose another model in Answer options. Your question is saved."
+        case "model_unavailable": "The AI provider refused this request because Gradstep’s provider account has insufficient funds. Your AI credits were not charged. Choose another AI model or try again after the service is funded."
         case "refused": "This request can’t be answered. Try rephrasing your question."
         case "invalid_request": "This conversation couldn’t be sent. Try starting a new chat."
         case "operation_replayed": "This answer was already requested. Try again to request a new one."

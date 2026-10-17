@@ -1,3 +1,4 @@
+import { isRouterClaude, routerClaudeRates } from './openrouter-claude-pricing.ts';
 // Anthropic provider boundary for paid chat. Deno and Node compatible: no
 // runtime globals beyond fetch/AbortSignal, so tests can drive the real SDK
 // with a fake fetch. Never log prompts, answers, or the API key here.
@@ -58,6 +59,7 @@ const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({
 
 /** `promptTokens` (the whole prompt: uncached, cache-write and cache-read tokens) chooses Haiku 5.5's tier. */
 export function ratesFor(model: string | null | undefined, promptTokens = 0): { rates: TokenRates; known: boolean } {
+  if (typeof model === 'string' && isRouterClaude(model)) return { rates: routerClaudeRates(model, promptTokens), known: true };
   const canonical = typeof model === 'string' ? model.replace(/-\d{8}$/, '') : '';
   const rates = Object.hasOwn(KNOWN_RATES, canonical) ? KNOWN_RATES[canonical] : undefined;
   if (rates === HAIKU && promptTokens > HAIKU_LONG_PROMPT_TOKENS) return { rates: HAIKU_LONG, known: true };
@@ -108,6 +110,7 @@ export const FALLBACK_HOLD_FACTOR = 3;
  * Any other model: the unknown rate card, three attempts.
  */
 export function holdRule(model: string, promptTokens: number): { rates: TokenRates; attempts: number } {
+  if (isRouterClaude(model)) return { rates: routerClaudeRates(model, promptTokens), attempts: 1 };
   switch (model) {
     case CHAT_MODEL: return { rates: SONNET, attempts: FALLBACK_HOLD_FACTOR };
     case 'claude-opus-5-5': return { rates: OPUS_5, attempts: 2 };
@@ -142,7 +145,7 @@ export function hourCachedCharacters(params: Anthropic.Beta.Messages.MessageCrea
 /** The hold for one admitted request, from its own model, prompt and output allowance. */
 export function holdForParams(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): { inputTokens: number; microusd: number; credits: number } {
   // One byte per token already bounds user content; this extra allowance covers the translated tool template.
-  return holdFor(promptCharacters(params) + (params.model === GEMINI_MODEL ? 3 * 1024 : 0), params.max_tokens, params.model, hourCachedCharacters(params));
+  return holdFor(promptCharacters(params) + ((params.model === GEMINI_MODEL || isRouterClaude(params.model)) ? 3 * 1024 : 0), params.max_tokens, params.model, hourCachedCharacters(params));
 }
 
 type Usage = Anthropic.Beta.Messages.BetaUsage;

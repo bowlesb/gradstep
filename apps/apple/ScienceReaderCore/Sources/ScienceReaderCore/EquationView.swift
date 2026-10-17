@@ -67,15 +67,32 @@ public enum EquationMarkup {
         element(in: html, id: equationID, marker: "data-reader-equation")
     }
 
+    /// Index order is page order. Continue after each equation instead of searching the paper from its beginning
+    /// for every row. The fallback also supports an older index whose entries are out of order.
+    public static func elements(in html: String, equationIDs: [String]) -> [String: String] {
+        var cursor = html.startIndex, result: [String: String] = [:]
+        for id in equationIDs {
+            if Task.isCancelled { break }
+            let found = elementRange(in: html, id: id, marker: "data-reader-equation", from: cursor)
+                ?? (cursor == html.startIndex ? nil : elementRange(in: html, id: id, marker: "data-reader-equation", from: html.startIndex))
+            if let found { result[id] = String(html[found]); cursor = found.upperBound }
+        }
+        return result
+    }
+
     /// A block of the page by its id (a table's `div.reader-table`), complete with its closing tag; nil when the page
     /// has no block of that id. The figure view sends a table as the image of this markup.
     public static func block(in html: String, blockID: String) -> String? { element(in: html, id: blockID, marker: "data-reader-block") }
 
     /// The element whose opening tag carries `id` and `marker="id"`, balanced by its tag name.
     static func element(in html: String, id equationID: String, marker: String) -> String? {
+        elementRange(in: html, id: equationID, marker: marker, from: html.startIndex).map { String(html[$0]) }
+    }
+
+    private static func elementRange(in html: String, id equationID: String, marker: String, from start: String.Index) -> Range<String.Index>? {
         guard !equationID.isEmpty, equationID.utf8.count <= 128,
               equationID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.:".contains($0)) }),
-              let attribute = html.range(of: " id=\"\(equationID)\"") else { return nil }
+              let attribute = html.range(of: " id=\"\(equationID)\"", range: start..<html.endIndex) else { return nil }
         // The tag the attribute belongs to.
         guard let open = html[..<attribute.lowerBound].lastIndex(of: "<") else { return nil }
         let nameEnd = html[html.index(after: open)...].firstIndex { !($0.isLetter || $0.isNumber) } ?? html.endIndex
@@ -93,10 +110,12 @@ public enum EquationMarkup {
                 guard let close = rest.firstIndex(of: ">") else { return nil }
                 index = html.index(after: close)
                 if depth == 0 {
-                    let markup = String(html[open..<index])
-                    return markup.utf8.count <= maximumBytes ? markup : nil
+                    let range = open..<index
+                    return html[range].utf8.count <= maximumBytes ? range : nil
                 }
-            } else if rest.lowercased().hasPrefix(name), Self.ends(rest.dropFirst(name.count)) {
+            // Compare only the tag name. Lowercasing `rest` copies the entire remaining paper for every
+            // MathML tag; Contents repeats that for each equation (1805.03662v2 appeared to hang).
+            } else if rest.prefix(name.count).lowercased() == name, Self.ends(rest.dropFirst(name.count)) {
                 guard let close = rest.firstIndex(of: ">") else { return nil }
                 if html[html.index(before: close)] != "/" { depth += 1 }
                 index = html.index(after: close)

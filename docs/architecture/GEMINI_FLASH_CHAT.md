@@ -1,6 +1,46 @@
 # Gemini Flash chat
 
-Current status, 2026-10-17 19:55 UTC: **Flash is enabled and published as the recommendation**. `infra/staging.json`
+## Build 68 follow-up: Claude on the funded router (2026-10-17; deployed and live-verified)
+
+Owner reports an unhelpful provider failure in AI Explainer and asks why Claude still uses direct Anthropic while
+Flash uses OpenRouter. The original Claude adapter remained in place; titles, suggestions and study-map updates
+also name Haiku directly. Move these **chat-route** requests to the existing funded OpenRouter service, with a
+static Google Vertex US pin (eligible for the account's ZDR setting), no alternate endpoints/models, named consent
+v5, and the existing server admission. Flash remains the recommendation. DeepSeek's working direct route and the
+separate catalog/podcast routes are unchanged by this repair.
+
+Preserve the client choices `haiku`/`sonnet`/`opus`; route their server API model IDs to
+`anthropic/claude-{haiku,sonnet,opus}-5.5` only when the new deployment switch is enabled. Freeze OpenRouter as the
+billed vendor, the endpoint/model/tariff and rates in each new attempt. Historical attempts remain unchanged. Prices
+verified from the endpoint inventory: Haiku US input/output $0.11/$0.55 per million (5x above 100k prompt tokens),
+Sonnet $2.20/$11, Opus $4.40/$22; cache writes 1.25x for 5m, 2x for 1h; cache reads Haiku 0.1x and Sonnet/Opus 0.05x.
+Cap request prices at the reviewed tier; preserve TTL, tool continuations and effort. Final OpenRouter usage cost is
+authoritative; unknown final usage keeps its liability. Reject old consent before any operation, including when a
+DeepSeek answer requests a Claude auxiliary. Additive migration 087 admits only these exact new chat model IDs.
+
+Activation requires offline adapter/quote/consent/database regressions and bounded deployed checks of Claude answer,
+tools and auxiliaries, and the unchanged Flash route. Keep all costs within the existing $1 rollout allocation;
+no budget increase or further bake-off. Google Vertex's inventory explicitly rejects `tool_choice` function/required.
+Forced auxiliaries (suggestions and study updates) therefore use that tool's JSON schema as a structured response;
+the adapter validates/parses the completed object and relays the existing tool contract without streaming JSON to
+the reader. Auto tool calling for chat and figures stays unchanged. A live named-tool refusal reproduced HTTP 404;
+the structured replacement succeeds on the same pinned endpoint. The owner's earlier override of the manual account-settings check persists.
+
+Verified at 23:19 UTC: migration 087 and `CHAT_CLAUDE_OPENROUTER=on` are deployed. The authenticated model table
+names OpenRouter for Haiku/Sonnet/Opus and retains Flash as the recommendation. The owner's 22:39 and 22:45 UTC
+Sonnet failures are confirmed `provider_billing`, zero cost; the following Flash requests succeeded. Live repair
+checks now cover Haiku equation symbols, figure walkthrough/simpler/detail, three study exchanges and their maps,
+Sonnet chat with title and suggestions, and unchanged Flash chat. Provider generation receipts match the ledger;
+all 17 successful hosted generations used the pinned Google endpoint. The earlier forced-tool 404 was exact zero.
+Opus admission/rates/adapter are covered offline; its proposed live request was stopped by the unchanged $1 repair
+cap before inference (search headroom made its hold too large). No Opus quality claim follows.
+
+The wire answer keeps the familiar Claude model ID for older clients; quotes and attempts retain the distinct
+OpenRouter API ID and tariff. Direct Anthropic rates stay intact for separate catalog/podcast work. Native chooser
+and failure recovery changes are being prepared for build 69; browser `f1494d2a` is live. Evidence:
+`.artifacts/equations-feedback-20261017/` (`provider-evidence.json`, live logs, database, adapter and fast checks).
+
+Historical activation checkpoint — Current status, 2026-10-17 19:55 UTC: **Flash is enabled and published as the recommendation**. `infra/staging.json`
 persists `chat_gemini: "on"`; chat was deployed and the authenticated profile GET confirms Gemini is offered and
 `default_recommended` is `gemini-medium-standard`. The scheduled `chat.smoke` reads that table, selects its
 recommendation and completes a real answer in **4.506 seconds**, with the expected returned model profile. Actual

@@ -146,7 +146,7 @@ struct AIChatOptionsView: View {
                             .accessibilityIdentifier("settings.aiChat.\(option.rawValue).\(length.rawValue)")
                     }
                 } header: { Text(table?.label(option) ?? option.label) } footer: {
-                    Text("\(table?.detail(option) ?? option.detail). Questions go to \(option.processor) to be answered.")
+                    Text(table?.detail(option) ?? option.detail)
                 }
             }
             if let note = table?.note {

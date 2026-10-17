@@ -21,7 +21,7 @@ struct ChatFixtureTransport: ChatTransport {
         case figureParts = "figure_parts", equation, figureWalkthrough = "figure_walkthrough"
         /// Faults (docs/architecture/RESILIENCE.md): the server is rate limiting (`rate_limited` before any text), the
         /// AI provider is overloaded (`provider_unavailable` before any text), or the stream goes silent (no events at all).
-        case throttled, overloaded, stall
+        case throttled, overloaded, stall, providerBilling = "provider_billing"
     }
     let mode: Mode
 
@@ -96,6 +96,10 @@ struct ChatFixtureTransport: ChatTransport {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    if mode == .providerBilling && request.profile.model == .sonnet {
+                        continuation.yield(.failure(code: "model_unavailable", credits: 0))
+                        continuation.finish(); return
+                    }
                     if request.action == .study {
                         // Study (2026-10-14): a calibrating question first, then a judgement, a taught passage and one
                         // bold question; the map grows as the live server's would.
@@ -182,7 +186,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation, .figureWalkthrough:
+                    case .providerBilling, .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research, .figureParts, .equation, .figureWalkthrough:
                         try await Task.sleep(for: .milliseconds(300))
                         // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
                         let cited = request.localContext != nil

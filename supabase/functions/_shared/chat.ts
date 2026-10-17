@@ -1,3 +1,4 @@
+import { clientClaudeModel, isRouterClaude, routedClaudeModel, ROUTER_CLAUDE_TARIFF } from './openrouter-claude-pricing.ts';
 // Paid chat orchestration: validation, context, hold -> provider -> settle.
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
@@ -534,6 +535,7 @@ export interface ChatDependencies {
   /** DeepSeek may answer (CHAT_DEEPSEEK on or hidden, with a key). Off, a DeepSeek choice is `invalid_request`. */
   deepseek?: boolean;
   gemini?: boolean;
+  claudeOpenRouter?: boolean;
   sha256Hex(bytes: Uint8Array): Promise<string>;
   log(entry: LogEntry): void;
   now?: () => number;
@@ -604,7 +606,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The reader's model, effort and length, `auto` resolved from the length and this question before anything is held
   // (chat-profiles.ts autoEffort); the quote, the request and the answer all carry the resolved profile.
   const choice = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
-  const profile = resolveProfile(choice);
+  const profile = resolveProfile(choice, deps.claudeOpenRouter);
+  const routeAux = (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming) => deps.claudeOpenRouter
+    ? { ...params, model: routedClaudeModel(params.model) } : params;
+  if (deps.claudeOpenRouter && (profile.provider === 'openrouter' || request.topicTitle || request.followUps || request.study)
+      && request.consentVersion !== GEMINI_CONSENT_VERSION) { await admitted(); throw new ChatFailure('consent_required'); }
   // Ingest, Why it matters (the paper only), Study (the paper only) and diagram repairs never search.
   const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
@@ -616,7 +622,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
-  if (profile.provider === 'openrouter' && deps.gemini !== true) throw new ChatFailure('invalid_request');
+  if (profile.model === 'gemini' && deps.gemini !== true) throw new ChatFailure('invalid_request');
   if (profile.provider === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
   const tavily = await tavilyReady === true;
   // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
@@ -702,14 +708,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
   }
   // The topic title is a second, small request in the same operation: its whole ceiling is held too.
-  const titleParams = request.topicTitle ? titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null }) : null;
-  const titleHold = titleParams ? holdFor(promptCharacters(titleParams), titleParams.max_tokens, titleParams.model) : null;
+  const titleParams = request.topicTitle ? routeAux(titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null })) : null;
+  const titleHold = titleParams ? holdForParams(titleParams) : null;
   if (titleHold) hold.microusd += titleHold.microusd;
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
-  const followUpHold = request.followUps && !repair && request.action !== 'ingest' ? holdForParams(FOLLOW_UP_HOLD_PARAMS) : null;
+  const followUpHold = request.followUps && !repair && request.action !== 'ingest' ? holdForParams(routeAux(FOLLOW_UP_HOLD_PARAMS)) : null;
   if (followUpHold) hold.microusd += followUpHold.microusd;
   // Study: the knowledge-map request after the answer is held at its largest (a full map, both excerpts at their limits).
-  const studyHold = study ? holdForParams(STUDY_HOLD_PARAMS) : null;
+  const studyHold = study ? holdForParams(routeAux(STUDY_HOLD_PARAMS)) : null;
   if (studyHold) hold.microusd += studyHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
@@ -725,7 +731,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     reservation = await deps.rpc('worker_reserve_chat', {
       p_account_id: deps.accountID, p_id: request.operationID, p_request_sha256: `\\x${digest}`,
       p_rate_version: RATE_VERSION, p_credits: hold.credits, p_microusd: hold.microusd,
-      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair, studyHold?.microusd ?? null),
+      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair, studyHold?.microusd ?? null, deps.claudeOpenRouter),
     }) as typeof reservation;
   } catch (error) {
     const code = RESERVE_ERRORS[reason(error)];
@@ -787,7 +793,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // An answer that asked for a figure is not the answer: the device asks again with it, and that one gets suggestions.
   const asksForFigure = offersLook && !request.figures.length && !isEquationAction(request.action) && !!outcome.toolCalls?.some(c => c.name === 'look_at_figure');
   if (followUpHold && finished && wroteText && !asksForFigure && !signal.aborted) {
-    const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead });
+    const params = routeAux(followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead }));
     suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now);
     if (suggested.outcome.attempts.length) {
       outcome = { ...outcome, attempts: [...outcome.attempts, ...suggested.outcome.attempts], exact: outcome.exact && suggested.outcome.exact };
@@ -797,7 +803,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // the tutor's reply; never the paper). The reader's first message starts the study and is no answer.
   let studied: StudyResult | null = null;
   if (studyHold && request.study && finished && wroteText && !signal.aborted) {
-    const params = studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead });
+    const params = routeAux(studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead }));
     studied = await updateStudyMap(deps.generate, params, studyHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.studyTimeoutMs ?? STUDY_TIMEOUT_MS)]), now);
     if (studied.outcome.attempts.length) {
       outcome = { ...outcome, attempts: [...outcome.attempts, ...studied.outcome.attempts], exact: outcome.exact && studied.outcome.exact };
@@ -1018,22 +1024,23 @@ export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rat
 
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
 export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
-  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null): Record<string, string | number | null> {
-  // The answering model's tariff; companion titles and suggestions stay on Claude Haiku at Anthropic's card.
+  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null, claudeOpenRouter = false): Record<string, string | number | null> {
+  // The answer and auxiliaries retain their exact billed API identities; the route switch selects their card.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
-    tariff: profile.provider === 'openrouter' ? GEMINI_TARIFF : providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
+    tariff: isRouterClaude(params.model) ? ROUTER_CLAUDE_TARIFF : profile.provider === 'openrouter' ? GEMINI_TARIFF : providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
-    title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
+    title_model: titleMicrousd === null ? null : (claudeOpenRouter ? routedClaudeModel(TITLE_MODEL) : TITLE_MODEL), title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
-    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }),
-    ...(studyMicrousd === null ? {} : { study_model: STUDY_MODEL, study_max_tokens: STUDY_MAX_TOKENS, study_ceiling_microusd: studyMicrousd }) };
+    ...(followUpMicrousd === null ? {} : { follow_ups_model: (claudeOpenRouter ? routedClaudeModel(FOLLOW_UP_MODEL) : FOLLOW_UP_MODEL), follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }),
+    ...(studyMicrousd === null ? {} : { study_model: (claudeOpenRouter ? routedClaudeModel(STUDY_MODEL) : STUDY_MODEL), study_max_tokens: STUDY_MAX_TOKENS, study_ceiling_microusd: studyMicrousd }) };
 }
 
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
 function answeringModel(outcome: ProviderOutcome): string | null {
-  const model = outcome.model ?? outcome.attempts.at(-1)?.model ?? null;
-  return model && /^[a-z0-9][a-z0-9.-]{0,63}$/.test(model) ? model : null;
+  const served = outcome.model ?? outcome.attempts.at(-1)?.model ?? null;
+  const model = served ? clientClaudeModel(served) : null; // Stable client identity; attempts and quotes retain the billed route.
+  return model && /^[a-z0-9][a-z0-9./-]{0,63}$/.test(model) ? model : null;
 }
 
 /** How much of the answer the follow-up request may read (chat-follow-ups.ts bounds it again). */

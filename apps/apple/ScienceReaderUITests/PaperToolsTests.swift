@@ -42,6 +42,34 @@ final class PaperToolsTests: XCTestCase {
         }, "The conversation title stays readable between the toolbar controls", file: file, line: line)
     }
 
+    /// Build 68's actual Hanging report: 105 display equations, not the one-equation sample.
+    func testReportedQuantumPaperEquationsFinishAndCanReopen() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let folder = root.appendingPathComponent(".artifacts/equations-feedback-20261017/bundles/1805.03662v2")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("manifest.json").path), "Fetch the pinned device corpus first; no skip")
+        let app = XCUIApplication()
+        app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--reported-equations-fixture", "--visual-open-paper"]
+        app.launchEnvironment["REPORTED_EQUATIONS_BUNDLE"] = folder.path
+        app.launch()
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 20))
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        app.contentsTab("Equations").tap()
+        let started = Date()
+        let first = app.buttons["contents.equation.0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5), "The reported paper must finish loading its equation list")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+        capture(app, "Reported 105-equation paper: Contents loaded")
+        app.contentsTab("Contents").tap(); app.contentsTab("Equations").tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        first.tap()
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.contentsTabs.exists, "Selecting a row returns to that equation in the paper")
+        capture(app, "Reported paper: first equation in the reader")
+        app.buttons["Table of contents"].tap(); app.contentsTab("Equations").tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+    }
+
     // MARK: - Find in paper (gap 7)
 
     /// "Find in paper" shows WebKit's find bar; a match scrolls into view and is highlighted without becoming a

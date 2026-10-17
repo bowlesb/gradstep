@@ -14,7 +14,7 @@ export function PrivacyData({ open, onClose }: { open: boolean; onClose: () => v
         <p>Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.</p>
       </section>
       <section className="info-section"><h3>AI answers</h3>
-        <p>AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Google through OpenRouter, Anthropic, or DeepSeek according to your model in Answer options. Anthropic still writes the chat’s title and suggested questions. The model may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.</p>
+        <p>AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about to Google Vertex through OpenRouter, or DeepSeek according to your model in Answer options. Claude through OpenRouter writes the chat’s title and suggested questions. The model may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.</p>
       </section>
       <section className="info-section" data-testid="privacy-arxiv"><h3>Papers and arXiv</h3>
         <p>Papers open from the official web version or PDF that arXiv publishes. Your device downloads them directly from arXiv when you open a paper, and prepares them for reading on the device, for you alone. A PDF you open comes straight from arXiv in a new tab.</p>

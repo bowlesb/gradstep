@@ -1,6 +1,22 @@
 # The equation view (2026-10-15)
 
-Native Local AI prototype (2026-10-17, unreleased): AI Explainer first offers Cloud AI / Local AI. Local sends the exact selected LaTeX and bounded numbered excerpts to MLX, with ordinary formatted prose in the existing explanation view. Local answers have separate model/revision cache keys; saved assets restore that choice. See [LOCAL_AI.md](LOCAL_AI.md).
+Native Local AI prototype (2026-10-17, TestFlight 68): AI Explainer first offers Cloud AI / Local AI. Local sends the exact selected LaTeX and bounded numbered excerpts to MLX, with ordinary formatted prose in the existing explanation view. Local answers have separate model/revision cache keys; saved assets restore that choice. See [LOCAL_AI.md](LOCAL_AI.md).
+
+Build 68 feedback, 2026-10-17: screenshot `AG-KC-bgu7HdtwNQhuQ1LBk` identifies 1805.03662v2, 105 display equations.
+The markup scanner lowercased the entire remaining HTML at every opening tag, then repeated that for every equation.
+Optimized standalone DPO replay took 23.90 seconds for only 32 equations; the reported paper exceeded a 90-second
+timeout. The repaired bulk pass extracts all 105 fragments from the same 730,131-byte page in 0.0417 seconds. Compare only the current tag name and
+advance through equation IDs in page order; cancellation must stop abandoned tab work. Retain complete MathML,
+formula images, numbers and existing navigation. Before release, verify the reported paper in the actual Contents
+sheet, not only a one-equation fixture. The cloud choice must also name/select the actual model in the explainer,
+refresh its provider table before use and keep a change-model action available after failure. Billing failure copy
+must say the provider account ran out of funds and distinguish it from the reader's own credits.
+The actual reported-paper Simulator journey now passes (iPhone 17 Pro, iOS 26.4, release optimization): load the
+list, switch tabs, select a row and reopen Contents. Core's long-Unicode-tail regression preserves all 105 complete
+MathML fragments and rejects a recurrence of the slow scan. Native build 69 is pending final release checks.
+The chooser names and selects the cloud model, waits for the published table and keeps Local AI available. Failed
+equation/figure requests offer Change AI in place. Saved cloud answers display the model that wrote them when known,
+not a newly selected default. Claude chat/explainer routing is documented in [the funded route](GEMINI_FLASH_CHAT.md).
 
 Release update, 2026-10-16: the build-62 top row, heading menu, equation tiles and saved-explanation lists are in
 TestFlight 63 and browser Pages `836089d4`. Platform processing and verification evidence are recorded in

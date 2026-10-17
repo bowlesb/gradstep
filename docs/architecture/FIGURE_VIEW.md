@@ -1,6 +1,12 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
-Native Local AI prototype (2026-10-17, unreleased): AI Explainer first offers Cloud AI / Local AI. A vision-capable local model receives this figure bitmap, caption and bounded nearby/relevant paragraphs. The initial local result is prose; structured parts/crop proposals are not implemented. The comparison found numeric-reading errors despite tighter crops. See [LOCAL_AI.md](LOCAL_AI.md).
+Native Local AI prototype (2026-10-17, TestFlight 68): AI Explainer first offers Cloud AI / Local AI. A vision-capable local model receives this figure bitmap, caption and bounded nearby/relevant paragraphs. The initial local result is prose; structured parts/crop proposals are not implemented. The comparison found numeric-reading errors despite tighter crops. See [LOCAL_AI.md](LOCAL_AI.md).
+
+Current provider verification, 2026-10-17: the deployed OpenRouter route passes the live DPO Figure 1 walkthrough,
+simpler explanation and extracted subfigure on both the earlier Flash check and today's Haiku repair check.
+Earlier balance-blocked checkpoints below are historical. The build 69 chooser names/selects its cloud model and
+keeps Change AI available after a failure; billing failures distinguish the provider's funds from reader credits.
+See [route and accounting evidence](GEMINI_FLASH_CHAT.md) and `.artifacts/equations-feedback-20261017/live-figure.log`.
 
 Release update, 2026-10-16: the client work below, including the build-62 top row and subfigure extraction UI,
 is in TestFlight 63 and browser Pages `836089d4`. The subfigure extraction's paid live check remains pending after

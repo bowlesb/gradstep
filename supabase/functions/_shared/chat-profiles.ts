@@ -1,3 +1,4 @@
+import { isRouterClaude, routedClaudeModel } from './openrouter-claude-pricing.ts';
 // Chat answer profiles (docs/architecture/CHAT.md#models-effort-and-length): the server-versioned table of the
 // model, effort and length a reader may choose in a chat, what each choice sends to the provider and how its credits
 // are estimated. The server accepts only these combinations and freezes the chosen profile in the reservation's
@@ -87,17 +88,17 @@ const length = (id: LengthChoice) => LENGTHS.find(entry => entry.id === id)!;
 
 /** The provider that serves an API model (an Anthropic model unless it is one of DeepSeek's). */
 export function providerForModel(apiModel: string): ChatProvider {
-  return apiModel === GEMINI_MODEL ? 'openrouter' : apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
+  return (apiModel === GEMINI_MODEL || isRouterClaude(apiModel)) ? 'openrouter' : apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
 }
 
 export function isDefaultChoice(choice: RequestedChoice): boolean {
   return choice.model === DEFAULT_CHOICE.model && choice.effort === DEFAULT_CHOICE.effort && choice.length === DEFAULT_CHOICE.length;
 }
 
-export function resolveProfile(choice: Choice | null): ChatProfile {
+export function resolveProfile(choice: Choice | null, claudeOpenRouter = false): ChatProfile {
   const c = choice ?? DEFAULT_CHOICE, m = model(c.model), e = effort(c.effort), l = length(c.length);
-  return { model: c.model, effort: c.effort, length: c.length, id: `${c.model}-${c.effort}-${c.length}`, apiModel: m.apiModel,
-    maxTokens: l.answerTokens + e.thinkingTokens, fallbacks: m.fallbacks, provider: m.provider, lengthInstructions: l.instructions };
+  return { model: c.model, effort: c.effort, length: c.length, id: `${c.model}-${c.effort}-${c.length}`, apiModel: claudeOpenRouter ? routedClaudeModel(m.apiModel) : m.apiModel,
+    maxTokens: l.answerTokens + e.thinkingTokens, fallbacks: claudeOpenRouter && m.provider === 'anthropic' ? false : m.fallbacks, provider: claudeOpenRouter && m.provider === 'anthropic' ? 'openrouter' : m.provider, lengthInstructions: l.instructions };
 }
 
 /** A request's `profile` field: exactly `{model, effort, length}` with known values (effort may be `auto`); null when
@@ -207,6 +208,7 @@ export interface PublishOptions {
   deepseek: boolean;
   /** Off/hidden until consent, accounting and the deployed adapter are verified. */
   gemini?: boolean;
+  claudeOpenRouter?: boolean;
 }
 
 /** `GET functions/v1/chat`: the table clients display. Versioned; clients send only `{model, effort, length}`.
@@ -216,14 +218,14 @@ export interface PublishOptions {
 export function publishedProfiles(options: PublishOptions = { deepseek: false }) {
   const models = MODELS.filter(m => (m.provider !== 'deepseek' || options.deepseek) && (m.provider !== 'openrouter' || options.gemini));
   const explicit = (list: readonly ModelEntry[]) => list.flatMap(m => EFFORTS.filter(e => m.id !== 'gemini' || e.id === 'medium').flatMap(e => LENGTHS.map(l => {
-    const profile = resolveProfile({ model: m.id, effort: e.id, length: l.id });
+    const profile = resolveProfile({ model: m.id, effort: e.id, length: l.id }, options.claudeOpenRouter);
     return { id: profile.id, model: m.id, effort: e.id as EffortRequest, length: l.id, api_model: profile.apiModel,
       max_output_tokens: profile.maxTokens, credits: estimateCredits(profile) };
   })));
   // An `auto` profile: the estimate of the effort usually picked for its length, the maximum of the highest it can pick.
   const auto = models.flatMap(m => LENGTHS.map(l => {
-    const usual = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].usual, length: l.id });
-    const highest = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].highest, length: l.id });
+    const usual = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].usual, length: l.id }, options.claudeOpenRouter);
+    const highest = resolveProfile({ model: m.id, effort: m.id === 'gemini' ? 'medium' : AUTO_EFFORTS[l.id].highest, length: l.id }, options.claudeOpenRouter);
     const typical = estimateCredits(usual), most = estimateCredits(highest);
     return { id: `${m.id}-auto-${l.id}`, model: m.id, effort: AUTO_EFFORT.id as EffortRequest, length: l.id, api_model: highest.apiModel,
       max_output_tokens: highest.maxTokens, credits: { low: typical.low, high: typical.high, max: most.max } };
@@ -233,8 +235,8 @@ export function publishedProfiles(options: PublishOptions = { deepseek: false })
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
     ...(options.gemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
-    models: models.map(m => ({ id: m.id, label: m.label, detail: m.detail, api_model: m.apiModel, provider: m.provider,
-      ...(m.provider === 'deepseek' ? { consent_version: DEEPSEEK_CONSENT_VERSION } : m.provider === 'openrouter' ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
+    models: models.map(m => ({ id: m.id, label: m.label, detail: options.claudeOpenRouter && m.provider === 'anthropic' ? `${m.detail} · OpenRouter → Google Vertex` : m.detail, api_model: options.claudeOpenRouter ? routedClaudeModel(m.apiModel) : m.apiModel, provider: options.claudeOpenRouter && m.provider === 'anthropic' ? 'openrouter' : m.provider,
+      ...(m.provider === 'deepseek' ? { consent_version: DEEPSEEK_CONSENT_VERSION } : (m.provider === 'openrouter' || options.claudeOpenRouter) ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
     efforts: [...EFFORTS.map(e => ({ id: e.id as EffortRequest, label: e.label, detail: e.detail })), { ...AUTO_EFFORT }],
     lengths: LENGTHS.map(l => ({ id: l.id, label: l.label, detail: l.detail })),
     profiles: [...explicit(models.filter(m => m.provider === 'anthropic')), ...explicit(models.filter(m => m.provider === 'deepseek')), ...auto.filter(p => p.model !== 'gemini'), ...explicit(models.filter(m => m.provider === 'openrouter')), ...auto.filter(p => p.model === 'gemini')],

@@ -13,23 +13,31 @@ enum OfflineReaderFixture {
     // CC BY 4.0) with the Edge renderer, never a digest discovered in a download.
     static let mathpixManifestSHA256 = "cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71"
 
+    // Opt-in regression corpus, fetched on this Mac. Never compiled into a shipping app.
+    static var reportedEquations: Bool { ProcessInfo.processInfo.arguments.contains("--reported-equations-fixture") }
+    static let reportedManifestSHA256 = "828898ebb96e0d0f13b5c83a6076db9f7a8dd2dc0b81e4fbe15074fbfbf97bbf"
+
     enum Variant {
         case authored, mathpix
 
         var directoryName: String {
-            self == .authored ? "offline-reader-fixture" : "offline-mathpix-reader-fixture"
+            OfflineReaderFixture.reportedEquations ? "offline-reported-equations-fixture" : self == .authored ? "offline-reader-fixture" : "offline-mathpix-reader-fixture"
         }
         var deployment: String { "https://" + directoryName + ".invalid" }
         var manifestSHA256: String {
-            self == .authored ? ReaderBundleLoader.sampleManifestSHA256 : OfflineReaderFixture.mathpixManifestSHA256
+            OfflineReaderFixture.reportedEquations ? OfflineReaderFixture.reportedManifestSHA256 : self == .authored ? ReaderBundleLoader.sampleManifestSHA256 : OfflineReaderFixture.mathpixManifestSHA256
         }
-        var sourceID: String { self == .authored ? "2404.00001" : "2305.18290" }
+        var sourceID: String { OfflineReaderFixture.reportedEquations ? "1805.03662" : self == .authored ? "2404.00001" : "2305.18290" }
         var title: String {
-            self == .authored ? "Offline reading fixture" : "Direct Preference Optimization (Mathpix MathML fixture)"
+            OfflineReaderFixture.reportedEquations ? "Encoding Electronic Spectra in Quantum Circuits with Linear T Complexity" : self == .authored ? "Offline reading fixture" : "Direct Preference Optimization (Mathpix MathML fixture)"
         }
     }
 
     static func reader(variant: Variant) throws -> VerifiedReaderBundle {
+        if reportedEquations {
+            guard let path = ProcessInfo.processInfo.environment["REPORTED_EQUATIONS_BUNDLE"] else { throw ReaderBundleError.invalidResource }
+            return try ReaderBundleLoader.load(directory: URL(fileURLWithPath: path), expectedSHA256: reportedManifestSHA256)
+        }
         if variant == .authored { return try ReaderBundleLoader.sample() }
         guard let resources = Bundle.main.resourceURL else { throw ReaderBundleError.invalidResource }
         let reader = try ReaderBundleLoader.load(directory: resources.appendingPathComponent("ReaderSamples/" + variant.manifestSHA256),

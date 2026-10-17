@@ -66,7 +66,7 @@ private struct FigurePageActions: ViewModifier {
             }
             .sheet(isPresented: $choosingAI) {
                 if let host {
-                    AIChoiceView(local: host.model.localAI, needsVision: true) { id in
+                    AIChoiceView(model: host.model, needsVision: true) { id in
                         host.model.localAIModelID = id; expandSheet?(); explaining = true
                     }
                 }
@@ -121,7 +121,7 @@ struct FigureExplainView: View {
         }
         .onDisappear { session?.stop() }
         .sheet(isPresented: $choosingAI) {
-            AIChoiceView(local: model.localAI, needsVision: true) { id in
+            AIChoiceView(model: model, needsVision: true) { id in
                 model.localAIModelID = id; session?.stop()
                 let opened = FigureExplainSession(context: context, model: model); session = opened
                 Task { await opened.start() }
@@ -134,12 +134,18 @@ struct FigureExplainView: View {
         }
     }
 
+    private func cloudLabel(_ session: FigureExplainSession) -> String {
+        if let served = session.walkthrough.answeredModel { return "Cloud AI · \(ChatProfileText.modelName(served))" }
+        if session.walkthrough.state == .done { return "Cloud AI" }
+        return "Cloud AI · \(model.chatProfileTable?.label(model.equationProfile.model) ?? model.equationProfile.model.label)"
+    }
+
     private func content(_ session: FigureExplainSession) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 heading
                 figureCard(session)
-                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Figure and selected excerpts" } ?? "Cloud AI")
+                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Figure and selected excerpts" } ?? cloudLabel(session))
                     .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("figureView.aiSource")
                 walkthrough(session)
             }
@@ -317,6 +323,7 @@ struct FigureExplainView: View {
                 Text(part.notCharged ? message + " Not charged." : message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("figureView.failure")
                 if retryable { Button("Try again", action: retry).accessibilityIdentifier("figureView.retry") }
+                Button("Change AI") { choosingAI = true }.accessibilityIdentifier("figureView.changeAI")
             }
         case .needsSignIn:
             VStack(alignment: .leading, spacing: 8) {

@@ -62,6 +62,22 @@ import Testing
         #expect(EquationMarkup.number(in: nested) == "(2)")
     }
 
+    @Test func manyEquationsBeforeALongUnicodeTailDoNotRescanAndCopyThatTailForEveryMathTag() {
+        let ids = (0..<105).map { "e-\($0)" }
+        let fragments = ids.map { id in
+            "<span id=\"\(id)\" data-reader-equation=\"\(id)\"><math><mrow>"
+                + String(repeating: "<mi>θ</mi><mo>+</mo><mi>β</mi>", count: 15)
+                + "</mrow></math><span class=\"reader-tag\">(\(id.dropFirst(2)))</span></span>"
+        }
+        let html = fragments.joined() + String(repeating: "<p>αβγδ — a long appendix.</p>", count: 30_000)
+        let started = ContinuousClock.now
+        let found = EquationMarkup.elements(in: html, equationIDs: ids)
+        #expect(found.count == 105)
+        #expect(ids.enumerated().allSatisfy { found[$0.element] == fragments[$0.offset] })
+        #expect(started.duration(to: .now) < .seconds(3), "The reported 105-equation paper must not spend minutes copying its suffix")
+        #expect(EquationMarkup.elements(in: html, equationIDs: [ids[4], ids[0], "missing"])[ids[0]] == fragments[0])
+    }
+
     @Test func theRequestIsTheChatsOwnWithTheEquationActionAndNoConversationExtras() throws {
         let bundle = try bundle()
         let context = try LocalPaperChatContext(reference: try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2), bundle: bundle)

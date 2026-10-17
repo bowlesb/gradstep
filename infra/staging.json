@@ -78,6 +78,7 @@
   "chat_web_search": true,
   "chat_deepseek": "on",
   "chat_gemini": "on",
+  "chat_claude_openrouter": "on",
   "app_store": {
     "bundle_id": "com.sciencereader.ios",
     "environments": [

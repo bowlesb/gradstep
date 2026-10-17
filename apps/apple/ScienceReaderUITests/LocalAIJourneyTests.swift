@@ -12,6 +12,29 @@ import XCTest
         let local = app.buttons["ai.chooseLocal"]
         XCTAssertTrue(local.waitForExistence(timeout: 5)); local.tap()
     }
+    func testCloudFailureExplainsBillingAndLetsTheReaderChangeModelHere() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--chat-fixture-mode=provider_billing", "--reset-draft-fixture", "--study-fixture", "-chat.defaultProfile", "sonnet-low-standard"]
+        app.launch(); app.show("paper")
+        let equation = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
+        XCTAssertTrue(equation.waitForExistence(timeout: 15)); equation.tap()
+        app.revealEditMenuItem("AI Explainer").tap()
+        let cloud = app.buttons["ai.chooseCloud"]
+        XCTAssertTrue(cloud.waitForExistence(timeout: 5))
+        XCTAssertTrue(cloud.label.contains("Sonnet"), cloud.label)
+        cloud.tap()
+        let change = app.buttons["equation.changeAI"]
+        XCTAssertTrue(change.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "provider account has insufficient funds")).firstMatch.exists)
+        let capture = XCTAttachment(screenshot: app.screenshot()); capture.name = "Provider balance failure with inline recovery"; capture.lifetime = .keepAlways; add(capture)
+        change.tap()
+        let picker = app.buttons["ai.cloudModel"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5)); picker.tap(); app.buttons["Haiku"].tap()
+        XCTAssertTrue(cloud.label.contains("Haiku"), cloud.label); cloud.tap()
+        XCTAssertTrue(app.staticTexts["equation.summary"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["equation.aiSource"].label.contains("Haiku"))
+    }
+
     func testLocalFigureChoiceReadsInTheExistingExplainerWithoutCloudConsent() {
         let app = launch()
         app.buttons["Table of contents"].tap()

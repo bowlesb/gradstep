@@ -56,6 +56,7 @@ enum EquationViewOutcome {
         var text = ""
         var symbols: EquationSymbols?
         var credits: Int?
+        var answeredModel: String?
     }
 
     private(set) var symbols = Part()
@@ -77,7 +78,7 @@ enum EquationViewOutcome {
         guard let model else { return }
         for action in [ChatAction.equation, .equationBackground] {
             if let kept = model.equationAnswer(key(action, profile: model.equationProfile)) {
-                set(action, Part(state: .done, text: kept.text, symbols: kept.symbols, credits: kept.credits))
+                set(action, Part(state: .done, text: kept.text, symbols: kept.symbols, credits: kept.credits, answeredModel: kept.model))
             }
         }
     }
@@ -101,7 +102,7 @@ enum EquationViewOutcome {
     func declineConsent() {
         guard let action = awaitingConsent else { return }
         awaitingConsent = nil
-        set(action, Part(state: .failed("Descriptions use Claude, the chat’s AI. Try again to choose.", retryable: true)))
+        set(action, Part(state: .failed("Cloud explanations need your consent. Try again to choose.", retryable: true)))
     }
 
     func stop() { for task in tasks.values { task.cancel() }; tasks = [:] }
@@ -111,6 +112,7 @@ enum EquationViewOutcome {
         guard model.isSignedIn else { set(action, Part(state: .needsSignIn)); return }
         guard localModelID != nil || context.localContext != nil else { set(action, Part(state: .unavailable)); return }
         guard localModelID != nil || model.hasCloudConsent else { awaitingConsent = action; set(action, Part(state: .needsConsent)); return }
+        guard localModelID != nil || model.chatProfileTable != nil else { set(action, Part(state: .failed("Cloud models haven’t loaded. Choose AI to try again or use Local AI.", retryable: false))); return }
         let profile = model.equationProfile
         let request: ChatGenerationRequest
         do {
@@ -146,7 +148,7 @@ enum EquationViewOutcome {
                     // Background streams as it is written; the symbols' words (no usable symbols) come whole.
                     if action == .equationBackground || localModelID != nil { set(action, part) }
                 case .equation(let described): part.symbols = described
-                case .done(_, let credits, let answered, _): part.credits = credits; part.state = .done; model = answered
+                case .done(_, let credits, let answered, _): part.credits = credits; part.state = .done; model = answered; part.answeredModel = answered
                 case .failure(let code, let credits): part.credits = credits; part.state = Self.failure(code)
                 default: break
                 }
@@ -237,7 +239,7 @@ struct EquationView: View {
         }
         .onDisappear { session?.stop() }
         .sheet(isPresented: $choosingAI) {
-            AIChoiceView(local: model.localAI, needsVision: false) { id in
+            AIChoiceView(model: model, needsVision: false) { id in
                 model.localAIModelID = id
                 guard let context = session?.context else { return }
                 session?.stop()
@@ -262,7 +264,7 @@ struct EquationView: View {
                     if other.id != session.context.equationID { equationID = other.id }
                 }
                 display(session.context)
-                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Selected excerpts" } ?? "Cloud AI")
+                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Selected excerpts" } ?? cloudLabel(session))
                     .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("equation.aiSource")
                 symbols(session)
                 if session.symbols.state == .done { backgroundSection(session) }
@@ -272,6 +274,12 @@ struct EquationView: View {
             .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("equation.view")
+    }
+
+    private func cloudLabel(_ session: EquationSession) -> String {
+        if let served = session.symbols.answeredModel { return "Cloud AI · \(ChatProfileText.modelName(served))" }
+        if session.symbols.state == .done { return "Cloud AI" } // A legacy saved answer may not name its model.
+        return "Cloud AI · \(model.chatProfileTable?.label(model.equationProfile.model) ?? model.equationProfile.model.label)"
     }
 
     // MARK: The equation
@@ -411,6 +419,7 @@ struct EquationView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if retryable { Button("Try again") { session.retry(action) }.accessibilityIdentifier("equation.retry") }
+                Button("Change AI") { choosingAI = true }.accessibilityIdentifier("equation.changeAI")
             }
         case .needsSignIn:
             VStack(alignment: .leading, spacing: 8) {

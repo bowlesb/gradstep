@@ -1,6 +1,37 @@
 # Implementation status
 
-Updated 2026-10-17 19:55 UTC (Flash through OpenRouter enabled and verified as the published recommendation; local AI prototype available in TestFlight 68 on iOS and Mac; browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. The owner explicitly waived the OpenRouter logging/data-use account-settings verification hold. Earlier checkpoints below are historical.
+Updated 2026-10-17 23:29 UTC (build-68 Equations hang reproduced and repaired; Claude chat and auxiliaries now use the funded OpenRouter route, with live verification; browser deployed; native build 69 release verification underway). Flash remains the recommendation. The owner's beta login and requested 100,000-credit test grant are verified. The owner explicitly waived the OpenRouter logging/data-use account-settings verification hold. Earlier checkpoints below are historical.
+
+## Build 68 feedback: Equations hang and unfunded Claude route — 2026-10-17
+
+- The actual feedback paper, **1805.03662v2**, has 105 display equations. The native markup scanner repeatedly
+  lowercased the remaining HTML for every tag, for every equation. The old optimized replay exceeded 90 seconds;
+  the repaired bulk scan extracts all 105 complete fragments in **0.0417 seconds**. The actual-paper Simulator
+  journey passes: open Equations, switch tabs, select a formula and reopen Contents. The regression also covers
+  long Unicode tails, missing IDs and out-of-order IDs. No paper re-import or reader-version update is required.
+- The owner's 22:39 and 22:45 UTC Sonnet failures were direct-Anthropic **provider_billing** rejections with zero
+  cost; the next Flash requests on funded OpenRouter succeeded. Migration **087** and
+  `CHAT_CLAUDE_OPENROUTER=on` now route Claude chat/explainers, titles, suggestions and study maps through the
+  pinned OpenRouter → Google Vertex US endpoint. Flash remains recommended; saved choices remain respected.
+  Separate catalog/podcast adapters are unchanged. New attempts freeze the distinct route/rates; historical bills,
+  named consent, server spending admission and the existing budget remain intact.
+- Live checks cover Haiku equation symbols, figure walkthrough/simpler/detail, three study exchanges and maps,
+  Sonnet chat/title/suggestions and unchanged Flash chat: **17 successful hosted generations**, reconciled to
+  provider receipts. A forced-tool HTTP 404 was reproduced and fixed using the same tool's structured-response
+  schema; ordinary chat/figure tools are unchanged. Opus is covered offline; its live request was stopped before
+  inference by the existing $1 cap. No Opus quality claim. Repair spend **$0.05471376** including diagnostics.
+- The native chooser now names and selects the cloud model, waits for the published table, and offers **Change AI**
+  on the failed explainer itself. Saved answers name the model that wrote them. Billing failure copy explains the
+  provider's insufficient balance and that the reader's AI credits were not charged. Browser Pages **f1494d2a** is
+  deployed with corrected routing disclosures and billing-error copy. Native build 69 is being prepared.
+- Fast tier, Deno check, full database suite, 21 focused Core tests and the exact-paper Simulator journey pass.
+  Required import/session gate: **13 passed, zero skips**, matching current source at 23:27:41 UTC;
+  `.artifacts/import-acceptance/2026-10-17T23-23-03-206Z.xcresult`. Cloud recovery UI acceptance also passes:
+  provider-balance explanation, inline model selection and a successful structured answer naming Haiku;
+  `cloud-recovery-final.xcresult`, screenshot reviewed.
+  No physical phone was accessed. Evidence: `.artifacts/equations-feedback-20261017/`;
+  [equations](architecture/EQUATION_VIEW.md), [routing](architecture/GEMINI_FLASH_CHAT.md),
+  [costs](architecture/OPERATIONS_AND_BILLING.md).
 
 ## Flash activation — 2026-10-17 19:54–19:55 UTC (deployed and verified)
 

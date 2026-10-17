@@ -425,6 +425,7 @@ final class ReaderModel {
     private(set) var chatProfileTable: ChatProfileTable?
     /// The last fetch failed (the control offers Try again).
     private(set) var chatProfileTableFailed = false
+    private(set) var chatProfilesRefreshing = false
     @ObservationIgnored private var chatProfileFetch: UUID?
     /// Answer options (the chat's ⋯ menu, chat redesign 2026-10-16): shown over the chat.
     var showAnswerOptions = false
@@ -482,10 +483,12 @@ final class ReaderModel {
         guard let transport = chatTransport, let accountID, chatProfileFetch == nil, force || chatProfileTable == nil else { return }
         let fetch = UUID()
         chatProfileFetch = fetch
+        chatProfilesRefreshing = true
         Task { [weak self] in
             let table = try? await transport.chatProfiles(accountID: accountID)
             guard let self, self.chatProfileFetch == fetch else { return }
             self.chatProfileFetch = nil
+            self.chatProfilesRefreshing = false
             if let table { self.chatProfileTable = table }
             self.chatProfileTableFailed = table == nil && self.chatProfileTable == nil
         }

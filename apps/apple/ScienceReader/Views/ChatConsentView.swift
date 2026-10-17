@@ -20,17 +20,17 @@ struct CloudConsentContent: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Answers use the model in Answer options: Gemini Flash by Google through OpenRouter, Claude by Anthropic, or DeepSeek. To answer, Gradstep sends:")
+                    Text("Answers use the model in Answer options: Gemini Flash and Claude through OpenRouter and Google Vertex, or DeepSeek. To answer, Gradstep sends:")
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Your question and any passage you selected", systemImage: "text.bubble")
                         Label("Earlier messages in this conversation", systemImage: "bubble.left.and.bubble.right")
                         Label("For paper chats, the paper’s full text", systemImage: "doc.text")
                         Label("When you ask about a figure or table, its image from the paper", systemImage: "photo")
                         Label("When a question needs it, web searches the model writes go to Tavily, a search service (or Anthropic’s search provider as a backup)", systemImage: "magnifyingglass")
-                        Label("Gemini requests pass through OpenRouter to Google; DeepSeek requests go to DeepSeek. Anthropic still writes the chat’s title and suggested questions", systemImage: "arrow.triangle.branch")
+                        Label("Gemini and Claude requests pass through OpenRouter to Google Vertex; DeepSeek requests go to DeepSeek. Titles and suggested questions use Claude through OpenRouter", systemImage: "arrow.triangle.branch")
                     }
                     .labelStyle(ConsentLabelStyle())
-                    Text("Google through OpenRouter, Anthropic, or DeepSeek processes this according to your model choice and may retain requests under its API terms; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")
+                    Text("Google Vertex through OpenRouter, or DeepSeek processes this according to your model choice and may retain requests under its API terms; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")
                         .foregroundStyle(.secondary)
                     Text("Each answer uses credits from your balance.").foregroundStyle(.secondary)
                 }

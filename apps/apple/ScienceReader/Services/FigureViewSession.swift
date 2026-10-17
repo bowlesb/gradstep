@@ -59,6 +59,7 @@ enum FigureViewOutcome {
         var text = ""
         /// Ended early or with nothing to show, and the reader paid nothing (CHAT.md "When an answer stops early").
         var notCharged = false
+        var answeredModel: String?
     }
 
     private(set) var walkthrough = Part()
@@ -86,7 +87,7 @@ enum FigureViewOutcome {
         guard let model else { return }
         let profile = model.equationProfile
         if let kept = model.figureAnswer(key(.figure, part: nil, profile: profile)) {
-            walkthrough = Part(state: .done, walkthrough: kept.walkthrough, text: kept.text)
+            walkthrough = Part(state: .done, walkthrough: kept.walkthrough, text: kept.text, answeredModel: kept.model)
             for (index, section) in (kept.walkthrough?.sections ?? []).enumerated() {
                 if let more = model.figureAnswer(key(.figureSimpler, part: section.text, profile: profile)) { simpler[index] = Part(state: .done, text: more.text) }
                 if let closer = model.figureAnswer(key(.figureDetail, part: section.text, profile: profile)) {
@@ -169,6 +170,7 @@ enum FigureViewOutcome {
             awaitingConsent = { [weak self] in self?.run(action, part: part) }
             set(Part(state: .needsConsent)); return
         }
+        guard localModelID != nil || model.chatProfileTable != nil else { set(Part(state: .failed("Cloud models haven’t loaded. Choose AI to try again or use Local AI.", retryable: false))); return }
         guard let image = sent else { set(Part(state: .unavailable)); return }
         let profile = model.equationProfile
         let request: ChatGenerationRequest
@@ -219,7 +221,7 @@ enum FigureViewOutcome {
                     if localModelID != nil || (index != nil && action == .figureSimpler) { set(part) }
                 case .figure(let walkthrough): part.walkthrough = walkthrough
                 case .figureDetail(let detail): part.detail = detail
-                case .done(_, let paid, let answered, _): credits = paid; part.state = .done; model = answered
+                case .done(_, let paid, let answered, _): credits = paid; part.state = .done; model = answered; part.answeredModel = answered
                 case .failure(let code, let paid): credits = paid; part.state = Self.failure(code)
                 default: break
                 }

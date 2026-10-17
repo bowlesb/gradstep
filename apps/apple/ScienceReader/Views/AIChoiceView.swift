@@ -1,9 +1,13 @@
 import LocalAI
+import ScienceReaderCore
 import SwiftUI
 
 /// The same explicit choice before chat, equations and figures. Downloading never submits a question.
 struct AIChoiceView: View {
-    @Bindable var local: LocalAIController
+    @Bindable var model: ReaderModel
+    var chat = false
+    private var local: LocalAIController { model.localAI }
+    private var cloudChoice: ChatProfileChoice { chat ? model.chatProfile : model.chatDefaultProfile }
     let needsVision: Bool
     let choose: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -12,11 +16,24 @@ struct AIChoiceView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
+                Section("Cloud AI") {
+                    if let table = model.chatProfileTable {
+                        Picker("Model", selection: Binding(get: { cloudChoice.model }, set: { value in
+                            var choice = cloudChoice; choice.model = value
+                            if chat { model.setChatProfile(choice) } else { model.chatDefaultProfile = choice }
+                        })) {
+                            ForEach(table.offeredModels, id: \.self) { Text(table.label($0)).tag($0) }
+                        }.accessibilityIdentifier("ai.cloudModel")
+                        Text(table.detail(cloudChoice.model)).font(.caption).foregroundStyle(.secondary)
+                    } else if model.chatProfileTableFailed {
+                        Text("Couldn’t load cloud models. Try again or choose Local AI.").font(.caption)
+                        Button("Try again") { model.refreshChatProfiles(force: true) }
+                    } else { ProgressView("Loading cloud models…") }
                     Button { choose(nil); dismiss() } label: {
-                        Label { VStack(alignment: .leading) { Text("Cloud AI"); Text("Requires credits and an internet connection").font(.caption).foregroundStyle(.secondary) } }
+                        Label { VStack(alignment: .leading) { Text("Use \(model.chatProfileTable?.label(cloudChoice.model) ?? "Cloud AI")"); Text("Requires credits and an internet connection").font(.caption).foregroundStyle(.secondary) } }
                             icon: { Image(systemName: "cloud") }
                     }.accessibilityIdentifier("ai.chooseCloud")
+                        .disabled(model.chatProfileTable == nil || model.chatProfilesRefreshing)
                 }
                 Section("Local AI · Experimental") {
                     Text("Runs on this device without AI credits after a model download. Small models can misread plots and equations. Uses selected excerpts, not the entire paper.")
@@ -58,7 +75,7 @@ struct AIChoiceView: View {
             .navigationTitle("Choose AI").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
-        .task { await local.refresh() }
+        .task { model.refreshChatProfiles(force: true); await local.refresh() }
         .frame(minWidth: Platform.isMac ? 480 : nil, minHeight: Platform.isMac ? 500 : nil)
     }
 }
@@ -73,7 +90,7 @@ struct AISelectionButton: View {
         }
         .accessibilityIdentifier("ai.selection")
         .sheet(isPresented: $choosing) {
-            AIChoiceView(local: model.localAI, needsVision: false) { model.localAIModelID = $0 }
+            AIChoiceView(model: model, chat: true, needsVision: false) { model.localAIModelID = $0 }
         }
     }
 }

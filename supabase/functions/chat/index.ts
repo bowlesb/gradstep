@@ -1,3 +1,4 @@
+import { ROUTER_CLAUDE_PRICE_EXPIRES } from '../_shared/openrouter-claude-pricing.ts';
 import { installEgressGuard } from '../_shared/egress.ts';
 import { accountProviderFetch, installProviderHealth } from '../_shared/provider-health.ts';
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
@@ -29,6 +30,8 @@ const deepseekAccepted = !!deepseekKey && (deepseekMode === 'on' || deepseekMode
 const deepseekPublished = !!deepseekKey && deepseekMode === 'on';
 const geminiMode = Deno.env.get('CHAT_GEMINI') ?? 'off', openrouterKey = Deno.env.get('OPENROUTER_CHAT_API_KEY');
 const geminiAccepted = !!openrouterKey && ['on', 'hidden'].includes(geminiMode) && Date.now() < GEMINI_PRICE_EXPIRES;
+const claudeOpenRouter = Deno.env.get('CHAT_CLAUDE_OPENROUTER') === 'on';
+const claudeAvailable = claudeOpenRouter && !!openrouterKey && Date.now() < ROUTER_CLAUDE_PRICE_EXPIRES;
 const geminiPublished = geminiAccepted && geminiMode === 'on';
 const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
 
@@ -45,7 +48,7 @@ Deno.serve(async request => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (request.method !== 'POST' && request.method !== 'GET') throw new PublicError(405, 'method_unavailable');
     ({ accountID, user } = await userClient(request));
-    if (request.method === 'GET') return Response.json(publishedProfiles({ deepseek: deepseekPublished, gemini: geminiPublished }), { headers });
+    if (request.method === 'GET') return Response.json(publishedProfiles({ deepseek: deepseekPublished, gemini: geminiPublished, claudeOpenRouter }), { headers });
     service = serviceClient();
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
@@ -64,7 +67,7 @@ Deno.serve(async request => {
   const client = apiKey ? createAnthropicClient({ apiKey, fetch: providerFetch }) : null;
   // DeepSeek's calls go through the same account fetch: counted under `deepseek` (its own breaker, never Anthropic's).
   const deepseek = deepseekAccepted && deepseekKey ? createDeepSeekChatClient({ apiKey: deepseekKey, fetch: providerFetch }) : null;
-  const gemini = geminiAccepted && openrouterKey ? openRouterChat({ apiKey: openrouterKey, fetch: providerFetch }) : null;
+  const gemini = (geminiAccepted || claudeAvailable) && openrouterKey ? openRouterChat({ apiKey: openrouterKey, fetch: providerFetch }) : null;
   const unavailable = (): Promise<ProviderOutcome> => Promise.resolve({ status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null, attempts: [], exact: true });
   const serve = (anthropic: typeof client) =>
     (params: Parameters<typeof streamChat>[1], options: Parameters<typeof streamChat>[2]): Promise<ProviderOutcome> =>
@@ -98,7 +101,8 @@ Deno.serve(async request => {
     // One more try, inside the same answer, when the provider refused it as busy before starting (fix 7).
     generate: client || gemini || deepseek ? retryOnceWhenBusy(admittedAnthropic(spending, serve(client)), { log }) : null,
     deepseek: deepseek !== null,
-    gemini: gemini !== null,
+    gemini: geminiAccepted,
+    claudeOpenRouter,
     sha256Hex: sha256,
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
     // RPC readiness cannot stand in for an enforceable native-search quote.

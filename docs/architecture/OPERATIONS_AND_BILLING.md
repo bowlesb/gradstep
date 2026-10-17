@@ -467,3 +467,21 @@ the new $0.001296075 leaves **$10.140076669**. The $20 lifetime key cap, $100/mo
 normal app admission all remain. No purchase, automatic top-up or new fixed commitment. App traffic is now enabled
 and metered normally; the account opt-ins remain unverified under the explicit override. Exact generation metadata,
 server snapshots, live default report and published table: `.artifacts/flash-activation-20261017/`.
+
+
+## Build 68 repair verification — 2026-10-17 23:19 UTC
+
+Claude chat/explainer requests now use OpenRouter's Google Vertex US route (migration 087); the direct Anthropic
+account is not funded by adding OpenRouter credits. The owner's two latest Sonnet refusals are `provider_billing`,
+zero charge; subsequent Flash attempts succeeded. New attempts freeze the routed Claude IDs, regional rate card,
+ZDR request requirement and authoritative final usage cost. Historical prices are unchanged.
+
+The targeted repair checks spent **$0.05471376** including the direct public-schema diagnostic; hosted generation
+receipts total **$0.054616507**, rounded server ledger **$0.054624** (see the evidence JSON for exact reconciliation).
+Cumulative actual for the original $1 rollout allocation is **$0.22811676**. Reserved liability is **$0.001541**:
+the prior cancelled title ($0.000138) plus a bounded direct diagnostic whose response recording failed ($0.001403).
+Neither is silently released. OpenRouter's balance read reports $20 purchased and $9.943706307 used; it is not a
+new $20 allowance. The $1 repair cap, $40 staging allocation and $100 monthly operating ceiling are unchanged.
+An Opus live check was refused locally before inference because its search-inclusive ceiling exceeded the
+remaining repair allocation. All temporary hosted test accounts were deleted. Evidence:
+`.artifacts/equations-feedback-20261017/provider-evidence.json`, live logs and the durable rollout spend ledger.

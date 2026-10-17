@@ -179,3 +179,83 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
   assert.equal(calls.find(c => c.name === 'worker_provider_attempt_finish')!.p.p_actual_microusd, 1000);
   assert.ok(events.some(e => e.event === 'done' && e.data.model === GEMINI_MODEL && e.data.credits === 1));
 });
+
+// Build 68: saved Claude defaults and every chat auxiliary must use the same funded connection.
+import { isRouterClaude, routedClaudeModel, routerClaudeRates } from '../../supabase/functions/_shared/openrouter-claude-pricing.ts';
+import { resolveProfile } from '../../supabase/functions/_shared/chat-profiles.ts';
+test('Claude routing preserves its cache TTL, effort, tool schema and exact billed usage', async () => {
+  for (const model of ['haiku', 'sonnet', 'opus'] as const) {
+    const profile = resolveProfile({ model, effort: 'high', length: 'standard' }, true);
+    assert.equal(profile.provider, 'openrouter'); assert.equal(profile.fallbacks, false);
+    assert.equal(providerForModel(profile.apiModel), 'openrouter'); assert.ok(isRouterClaude(profile.apiModel));
+    const request = { ...params, model: profile.apiModel, output_config: { effort: 'high' as const } };
+    const wire = openRouterChatParams(request) as any;
+    assert.equal(wire.model, profile.apiModel); assert.equal(wire.reasoning.effort, 'high');
+    assert.deepEqual(wire.provider.only, ['google-vertex/us']); assert.equal(wire.provider.zdr, true);
+    assert.equal(wire.provider.allow_fallbacks, false);
+    assert.deepEqual(wire.messages[0].content, params.system);
+    assert.equal(wire.messages[0].content.find((b: any) => b.cache_control)?.cache_control.ttl, '1h');
+    const attempt = openRouterAttempt({ ...usage, cost: 0.0002 }, profile.apiModel, true)!;
+    assert.equal(attempt.model, profile.apiModel); assert.equal(attempt.usage.input, 100);
+    assert.equal(attempt.usage.cacheWrite1h, 100); assert.equal(attempt.cacheStorageTokens, undefined);
+    assert.equal(priceAttempts([attempt]), 200); assert.ok(holdForParams(request).microusd > 200);
+    assert.equal(openRouterAttempt({ ...usage, prompt_tokens_details: { cached_tokens: 800, cache_write_tokens: 300 } }, profile.apiModel), null);
+  }
+  assert.equal(routerClaudeRates(routedClaudeModel('claude-haiku-5-5'), 100001).input, 0.55);
+  const table = publishedProfiles({ deepseek: true, gemini: true, claudeOpenRouter: true });
+  assert.equal(table.models.find(m => m.id === 'sonnet')!.provider, 'openrouter');
+  assert.equal(table.models.find(m => m.id === 'sonnet')!.consent_version, 'cloud-ai-v5');
+  assert.equal(table.profiles[26].id, 'opus-high-detailed');
+  assert.equal(table.default_recommended?.model, 'gemini');
+});
+
+test('routed Claude plus title and suggestions all admit and settle as OpenRouter; old consent sends nothing', async () => {
+  for (const consent of ['cloud-ai-v4', 'cloud-ai-v5']) {
+    const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], models: string[] = [];
+    const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
+      return name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
+    const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+    const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', fetch: async (_url, init) => {
+      const sent = JSON.parse(String(init?.body)); models.push(sent.model);
+      assert.ok(isRouterClaude(sent.model));
+      return response([event({ content: sent.response_format ? JSON.stringify({ questions: ['What changes the scale?', 'When are log axes useful?'] }) : 'A complete answer.' }), final()].map(e => ({ ...e, model: sent.model })));
+    } }));
+    await runChat({ accountID, rpc, sha256Hex, generate, claudeOpenRouter: true, loadPaper: async () => null, log: () => {} },
+      { operation_id: operationID, consent_version: consent, mode: 'general', messages: [{ role: 'user', text: 'Hi' }],
+        topic_title: true, follow_ups: true, profile: { model: 'sonnet', effort: 'low', length: 'brief' } }, e => events.push(e), new AbortController().signal);
+    if (consent === 'cloud-ai-v4') {
+      assert.ok(events.some(e => e.event === 'error' && e.data.code === 'consent_required'));
+      assert.equal(models.length, 0); assert.ok(!calls.some(c => c.name === 'worker_reserve_chat')); continue;
+    }
+    assert.ok(!events.some(e => e.event === 'error'), JSON.stringify(events));
+    assert.ok(events.some(e => e.event === 'followups'), JSON.stringify(events));
+    assert.equal(models.length, 3); assert.equal(models.filter(m => m === routedClaudeModel('claude-haiku-5-5')).length, 2);
+    const quote = calls.find(c => c.name === 'worker_reserve_chat')!.p.p_quote;
+    assert.equal(quote.model, routedClaudeModel('claude-sonnet-5-5'));
+    assert.equal(quote.title_model, routedClaudeModel('claude-haiku-5-5'));
+    assert.equal(quote.follow_ups_model, quote.title_model);
+    assert.ok(calls.filter(c => c.name === 'worker_provider_attempt_begin').every(c => c.p.p_provider === 'openrouter'));
+    assert.ok(events.some(e => e.event === 'done' && e.data.model === 'claude-sonnet-5-5'));
+  }
+});
+
+import { followUpRequestParams } from '../../supabase/functions/_shared/chat-follow-ups.ts';
+test('Vertex Claude forced auxiliaries use a structured schema, never an unsupported tool_choice', async () => {
+  const forced = followUpRequestParams({ paperTitle: null, selection: null, question: 'Plot?', answer: 'Axes need units.' });
+  forced.model = routedClaudeModel(forced.model);
+  const wire = openRouterChatParams(forced) as any;
+  assert.equal(wire.tool_choice, undefined); assert.equal(wire.tools, undefined);
+  assert.equal(wire.response_format.json_schema.name, 'suggest_follow_ups');
+  assert.deepEqual(wire.reasoning, { enabled: false });
+  assert.equal(wire.response_format.json_schema.schema.additionalProperties, false);
+  for (const content of ['{"questions":["Why units?","What scale?"]}', 'invalid JSON']) {
+    let streamed = '';
+    const generate = openRouterChat({ apiKey: 'fixture', fetch: async () => response([event({ content }), final()].map(e => ({ ...e, model: forced.model }))) });
+    const result = await generate(forced, { signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { streamed += s; } });
+    assert.equal(streamed, '', 'auxiliary JSON never leaks into the reader answer');
+    assert.equal(result.exact, true); assert.equal(priceAttempts(result.attempts), 1000);
+    assert.equal(result.status, content === 'invalid JSON' ? 'failed' : 'complete');
+    if (result.status === 'complete') assert.deepEqual(result.toolCalls?.[0].input, { questions: ['Why units?', 'What scale?'] });
+  }
+});

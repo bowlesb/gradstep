@@ -45,7 +45,12 @@ struct PaperContentsSheet: View {
                 list
             }
             .toolbar(.hidden, for: .navigationBar)
-            .task(id: tab) { if tab == .equations, equations == nil { equations = await Self.equations(in: bundle) } }
+            .task(id: tab) {
+                if tab == .equations, equations == nil {
+                    let loaded = await Self.equations(in: bundle)
+                    if !Task.isCancelled { equations = loaded }
+                }
+            }
             // A figure's own page: the figure, its whole caption, Show in paper (owner, build 59: "get to the entire title
             // without going all the way back to the paper").
             .navigationDestination(for: String.self) { id in
@@ -144,16 +149,19 @@ struct PaperContentsSheet: View {
         guard let bundle else { return [] }
         let index = bundle.index
         let html = bundle.data(for: bundle.manifest.entrypoint).flatMap { String(data: $0, encoding: .utf8) }
-        return await Task.detached(priority: .userInitiated) {
+        let load = Task.detached(priority: .userInitiated) {
             let sections = Self.sections(of: index)
-            return index.equations.filter(\.display).map { equation in
-                let markup = html.flatMap { EquationMarkup.element(in: $0, equationID: equation.id) }
+            let displayed = index.equations.filter(\.display)
+            let elements = html.map { EquationMarkup.elements(in: $0, equationIDs: displayed.map(\.id)) } ?? [:]
+            return displayed.map { equation in
+                let markup = elements[equation.id]
                 // The printed number from the page, else a \tag{…} in the source.
                 let tag = equation.latex.firstMatch(of: /\\tag\*?\{([^}]{1,12})\}/).map { "(\($0.output.1))" }
                 let number = markup.flatMap(EquationMarkup.number(in:)) ?? tag
                 return Equation(id: equation.id, label: label(number: number, section: sections[equation.blockID]), markup: markup)
             }
-        }.value
+        }
+        return await withTaskCancellationHandler { await load.value } onCancel: { load.cancel() }
     }
 
     /// "Equation (4)"; without a number, "Equation · 3.2 Method" (its section), else "Equation".
