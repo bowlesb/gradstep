@@ -9,7 +9,18 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
-## Local AI build and cloud still broken — 2026-10-17 (TestFlight 68 available)
+## OpenRouter activation override — 2026-10-17 19:54 UTC (deployed, live check passed)
+
+Owner: **“I am over riding the check, please make open router work again.”** The account logging/data-use check
+no longer blocks activation. Flash is enabled in persistent staging configuration and deployed; the actual
+profile table recommends it. One real request selecting that published recommendation completes in 4.506 seconds,
+costing $0.001296075; all fast checks pass. No new app build is needed. Restart build 68 to refresh profiles;
+an existing Sonnet chat or saved default needs Flash selected explicitly. No owner-session impersonation or phone
+test was performed. The privacy switches remain unverified; request safeguards and budgets remain unchanged.
+The server activation gap is closed with this evidence; actual owner-device acceptance is not claimed.
+Evidence: `.artifacts/flash-activation-20261017/`.
+
+## Local AI build and cloud still broken — 2026-10-17 (TestFlight 68 available; 15:08 checkpoint)
 
 - Owner requested a build of the local chat/equation/figure prototype. TestFlight 68 is VALID / IN_BETA_TESTING on
   iOS and Mac as of 15:08 UTC. Model downloads are explicit; no phone acceptance is claimed. The release import/

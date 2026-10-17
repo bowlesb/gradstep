@@ -1,6 +1,23 @@
 # Gemini Flash chat
 
-Current status, 2026-10-17 15:08 UTC: migration 086 and the fixed Google Vertex US route are deployed **hidden**.
+Current status, 2026-10-17 19:55 UTC: **Flash is enabled and published as the recommendation**. `infra/staging.json`
+persists `chat_gemini: "on"`; chat was deployed and the authenticated profile GET confirms Gemini is offered and
+`default_recommended` is `gemini-medium-standard`. The scheduled `chat.smoke` reads that table, selects its
+recommendation and completes a real answer in **4.506 seconds**, with the expected returned model profile. Actual
+provider cost **$0.001296075**, rounded server cost $0.001297; one reader credit, no new unresolved hold. The
+unfunded consent gate still rejects v4 before an operation or provider attempt; both synthetic accounts were deleted.
+Fast checks pass. Evidence: `.artifacts/flash-activation-20261017/` (deployment, table, smoke, generation and budget).
+
+Owner override: **“I am over riding the check, please make open router work again.”** This supersedes the account
+logging/data-use verification hold below. The account opt-ins remain unverified; request-level ZDR, data-collection
+denial, response-cache denial, no fallback, consent v5 and all spending limits remain unchanged. No new app build
+is required: TestFlight 68 and the deployed browser support it. Restart the native app / reload the browser to
+refresh the cached profile table. Existing conversations and saved defaults retain their chosen model; select
+Gemini Flash in Answer options or Settings → AI chat options when one still names Sonnet. No physical-phone
+acceptance or account-wide zero-retention claim follows from this activation. The earlier $0.000138 unknown
+Anthropic title liability remains held.
+
+Historical checkpoint, 2026-10-17 15:08 UTC: migration 086 and the fixed Google Vertex US route were deployed **hidden**.
 Seven new public-fixture generations pass (paper chat, figure/walkthrough/detail, reference add, equation symbols
 and background). Flash activation still requires the account logging/data-use check. The native rollout is already
 available in TestFlight 68 on iOS and Mac (VALID / IN_BETA_TESTING). Earlier checkpoints below are historical.
@@ -113,8 +130,9 @@ $0.825/$4.125/$0.0825; explicit storage remains $0.50/M token-hours. The card ex
 pending review; it never silently adopts the scheduled increase.
 
 Pinning prevents silent provider switching but sacrifices alternate-provider failover. OpenRouter adds a network
-hop and availability dependency. Content logging and data-use opt-ins must be checked on the service account;
-the API route must disallow training endpoints. No zero-retention, location, SLA or measured-latency claim follows
+hop and availability dependency. The owner waived the account logging/data-use check as an activation prerequisite
+on 2026-10-17; those opt-ins remain unverified. The API route must disallow training endpoints. No account-wide
+zero-retention, location, SLA or measured-latency claim follows
 from defaults. [Data collection](https://openrouter.ai/docs/guides/privacy/data-collection),
 [provider policies](https://openrouter.ai/docs/guides/privacy/provider-logging).
 
@@ -174,10 +192,9 @@ were not inspected; keep this limitation explicit and use only public paper/synt
   Browser equation, figure and HTML journeys pass on desktop and phone (6/6), with consent v5.
   No further paid test or watcher is running. The comparison harness no longer has its key variable.
 
-`infra/staging.json` persists `chat_gemini: "hidden"`: explicit synthetic checks can use Flash, but the published
-profile table omits it, so ordinary clients keep the earlier default. Computer Use denied Chrome access; the
-account's **Private Input & Output Logging** and **OpenRouter Use of Inputs/Outputs** settings are unverified.
-The owner has been asked to confirm both are off. Request routing already denies training endpoints and response
-caching; no zero-retention claim is made. Once the account settings are checked, set `chat_gemini: "on"`, deploy
-`chat`, and verify the published recommendation. TestFlight 64 and the current browser include consent v5 and Flash support. Build 63
-cannot choose Flash. Hiding/off is rollback; already admitted attempts still settle.
+At the 03:23 checkpoint `infra/staging.json` persisted `chat_gemini: "hidden"`: synthetic checks could use Flash,
+while the published profile table omitted it. Computer Use denied Chrome access; **Private Input & Output Logging**
+and **OpenRouter Use of Inputs/Outputs** remained unverified. The owner later explicitly waived that activation
+hold; the 19:55 checkpoint above records the enabled route and live acceptance. TestFlight 64 and later plus the
+current browser include consent v5 and Flash support; build 63 cannot choose Flash. Hiding/off is rollback;
+already admitted attempts still settle.

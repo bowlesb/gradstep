@@ -1,6 +1,21 @@
 # Implementation status
 
-Updated 2026-10-17 15:08 UTC (local AI prototype available in TestFlight 68 on iOS and Mac; cloud failures reproduced and corrected Vertex US route verified; browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. Flash is still hidden pending the OpenRouter logging/data-use account-settings check. Earlier checkpoints below are historical.
+Updated 2026-10-17 19:55 UTC (Flash through OpenRouter enabled and verified as the published recommendation; local AI prototype available in TestFlight 68 on iOS and Mac; browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. The owner explicitly waived the OpenRouter logging/data-use account-settings verification hold. Earlier checkpoints below are historical.
+
+## Flash activation — 2026-10-17 19:54–19:55 UTC (deployed and verified)
+
+The owner said **“I am over riding the check, please make open router work again.”** `chat_gemini` is now `on`,
+persisted in infrastructure configuration and deployed. The live authenticated profile table offers Gemini and
+recommends `gemini-medium-standard`; the ordinary default smoke follows that table and completes in **4.506 s**.
+Exact provider cost **$0.001296075**, one reader credit, no new outstanding hold. The existing $1 verification cap,
+$40 staging allocation and $100 monthly ceiling remain. Unfunded old-consent rejection still happens before any
+operation or provider attempt. Both new fixtures were deleted; `npm test` passes.
+
+Build 68 already supports this: restart the app to refresh its model table; old conversations/saved defaults keep
+their explicit choice and can select Flash in Answer options / Settings → AI chat options. Anthropic's unfunded
+title/suggestion extras remain separate. Request-level ZDR and all routing/consent/accounting protections remain;
+the account opt-ins are unverified, not declared off. No new native/browser build or phone access.
+Evidence: `.artifacts/flash-activation-20261017/`; [current route status](architecture/GEMINI_FLASH_CHAT.md).
 
 ## TestFlight 68: local AI prototype and cloud-service diagnosis — 2026-10-17
 

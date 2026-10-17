@@ -51,18 +51,25 @@ Do not infer identity from TestFlight contact information or open public signup 
 covers deletion, rejected old sessions, fresh admission and a successful email-code exchange/account RPC. See
 [authentication](architecture/NATIVE_AUTHENTICATION.md#private-beta-return-after-account-deletion).
 
-## Gemini Flash selected for chat (owner decision, 2026-10-16; hidden staging verified)
+## Gemini Flash selected for chat (owner decision, 2026-10-16; active 2026-10-17 19:54 UTC)
 
 After reviewing the measured comparison, the owner said **“lets move ahead with Flash”**: Gemini 3.8 Flash at
-the tested medium effort is the selected default for updated clients. This supersedes the research-only hold below;
-the deployed default is still Sonnet. Migration 085 and the hidden Flash route now pass the focused live checks;
-client support is shipped (builds 64–68), while confirmation of the OpenRouter account logging/data-use settings
-still precedes activation. On October 17 the pinned AI Studio endpoint was reproduced as incompatible with the
-account's zero-data-retention policy (HTTP 404). Migration 086 fixes the pin to Google Vertex US with explicit ZDR
+the tested medium effort is the published recommendation for updated clients. This supersedes the research-only hold below;
+the compatibility default remains Sonnet for old clients. Migration 085 and the hidden Flash route passed the focused live checks;
+client support is shipped (builds 64–68). The owner explicitly superseded the account-settings verification hold
+on October 17: **“I am over riding the check, please make open router work again.”** Activate the verified route
+and check the published default; do not ask for that confirmation again. The two account opt-ins remain unverified,
+so no claim about their state or end-to-end provider retention follows. Keep request-level ZDR, data-collection
+denial, no fallback, named consent and spending admission unchanged. On October 17 the pinned AI Studio endpoint
+was reproduced as incompatible with the account's zero-data-retention policy (HTTP 404). Migration 086 fixes the
+pin to Google Vertex US with explicit ZDR
 enforcement; seven live checks pass. The 10% higher endpoint rates fit the unchanged budget and are recorded in
 both quotes and immutable new-attempt snapshots. No automatic failover or weakening of privacy settings.
-OpenRouter through Google's pinned endpoint is the working connection choice while the owner's optional preference
-between OpenRouter and direct Google is pending. No automatic provider switching, budget increase, or further broad
+Activation is verified at 19:54 UTC: the live profile table offers Gemini and recommends `gemini-medium-standard`;
+the ordinary published-default smoke completes in 4.5 seconds, actual provider cost $0.001296075. The account
+settings hold is waived, not verified. Existing saved defaults and conversations retain their explicit model choice.
+OpenRouter through Google's pinned endpoint is the authorized connection for this rollout; direct Google would
+be a separate future change. No automatic provider switching, budget increase, or further broad
 bake-off is implied. Existing explicit model choices remain respected. Implementation contract:
 [Gemini Flash chat](architecture/GEMINI_FLASH_CHAT.md).
 

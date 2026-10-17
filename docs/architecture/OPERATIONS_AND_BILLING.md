@@ -451,3 +451,19 @@ Additional repair-test forecast is **$0**; a single small published-default smok
 admitted within the existing $1 allocation and server limits. App usage after activation uses normal server holds.
 Flash remains hidden pending the account logging/data-use check. Evidence: `.artifacts/release-68/provider-evidence.json`
 and `.artifacts/flash-rollout-20261017/spend-ledger.json`. No invoice-level fee/tax reconciliation is claimed.
+
+## Flash activated after owner override — 2026-10-17 19:55 UTC
+
+The owner explicitly waived the account logging/data-use verification hold. Flash is published and one ordinary
+default smoke completes on the recommended model in 4.506 seconds. Exact OpenRouter generation cost is
+**$0.001296075**, whole-micro-USD server accounting **$0.001297**; one reader credit and no new unresolved hold.
+The durable $1 rollout guard admitted a conservative $0.277535 temporary hold before sending, then reconciled it
+to actual cost. Total rollout ledger now **$0.173403 actual / $0.000138 held**; the older unknown Anthropic title
+is retained. The two activation fixtures were deleted. No further paid verification is planned for this change.
+
+At 19:55 UTC staging's month is **$40 allocated, $29.058701 spent, $0.000138 reserved**, work enabled. OpenRouter's
+aggregate still reports $9.858627256 used from $20 funded and lags the latest generation; conservatively deducting
+the new $0.001296075 leaves **$10.140076669**. The $20 lifetime key cap, $100/month operating ceiling, and existing
+normal app admission all remain. No purchase, automatic top-up or new fixed commitment. App traffic is now enabled
+and metered normally; the account opt-ins remain unverified under the explicit override. Exact generation metadata,
+server snapshots, live default report and published table: `.artifacts/flash-activation-20261017/`.
