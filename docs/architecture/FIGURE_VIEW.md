@@ -1,5 +1,7 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+Native Local AI prototype (2026-10-17, unreleased): AI Explainer first offers Cloud AI / Local AI. A vision-capable local model receives this figure bitmap, caption and bounded nearby/relevant paragraphs. The initial local result is prose; structured parts/crop proposals are not implemented. The comparison found numeric-reading errors despite tighter crops. See [LOCAL_AI.md](LOCAL_AI.md).
+
 Release update, 2026-10-16: the client work below, including the build-62 top row and subfigure extraction UI,
 is in TestFlight 63 and browser Pages `836089d4`. The subfigure extraction's paid live check remains pending after
 the earlier Anthropic balance refusal; fixture coverage does not verify provider output. The phase descriptions

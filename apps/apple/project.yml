@@ -10,6 +10,8 @@ configs:
 packages:
   ScienceReaderCore:
     path: ScienceReaderCore
+  LocalAI:
+    path: LocalAI
   SwiftMath:
     url: https://github.com/mgriebling/SwiftMath
     exactVersion: 1.7.3
@@ -78,6 +80,7 @@ targets:
         ScienceReaderEnvironment: $(SCIENCE_READER_ENVIRONMENT)
     dependencies:
       - package: ScienceReaderCore
+      - package: LocalAI
       - package: SwiftMath
       # Share › Gradstep (docs/architecture/PDF_UPLOADS.md) is built but not embedded until the App Group
       # group.com.sciencereader.ios exists in the developer account (Apple's API can't create it). To restore:
@@ -178,6 +181,7 @@ targets:
         buildPhase: resources
     dependencies:
       - package: ScienceReaderCore
+      - package: LocalAI
     info:
       path: Config/ResourceProbe-Info.plist
       properties:

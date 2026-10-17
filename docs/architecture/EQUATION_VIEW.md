@@ -1,5 +1,7 @@
 # The equation view (2026-10-15)
 
+Native Local AI prototype (2026-10-17, unreleased): AI Explainer first offers Cloud AI / Local AI. Local sends the exact selected LaTeX and bounded numbered excerpts to MLX, with ordinary formatted prose in the existing explanation view. Local answers have separate model/revision cache keys; saved assets restore that choice. See [LOCAL_AI.md](LOCAL_AI.md).
+
 Release update, 2026-10-16: the build-62 top row, heading menu, equation tiles and saved-explanation lists are in
 TestFlight 63 and browser Pages `836089d4`. Platform processing and verification evidence are recorded in
 [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md#claude-takeover-and-build-63-release--2026-10-16-2000-utc).

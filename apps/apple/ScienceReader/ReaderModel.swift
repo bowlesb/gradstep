@@ -420,6 +420,8 @@ final class ReaderModel {
 
     /// The chat function's published table; nil until fetched, or when the server offers no choices. Without it,
     /// requests carry no choice and ask for no title, exactly as before profiles.
+    let localAI = LocalAIController()
+    var localAIModelID: String?
     private(set) var chatProfileTable: ChatProfileTable?
     /// The last fetch failed (the control offers Try again).
     private(set) var chatProfileTableFailed = false
@@ -562,7 +564,12 @@ final class ReaderModel {
     var syncStatus = "On this device"
     var syncIssue: String?
     /// RootView mirrors the scene phase here. Scheduled sync runs only while a signed-in account is on screen.
-    var sceneActive = false { didSet { if sceneActive != oldValue { updateSyncSchedule() } } }
+    var sceneActive = false { didSet {
+        if sceneActive != oldValue {
+            updateSyncSchedule()
+            if !sceneActive, !Platform.isMac { localAI.cancelInference() }
+        }
+    } }
     var error: String?
     /// Persistent beside Sign in; unlike a startup alert it survives view/navigation presentation changes.
     private(set) var sessionEndedIssue: String?
@@ -1778,6 +1785,7 @@ final class ReaderModel {
     func waitForLocalRetirement() async { await retirementQueue.wait() }
 
     private func clearAccountView() {
+        localAI.cancelInference()
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
         // The old account's reading activity is saved by its own writer, which retirement drains.
@@ -3314,6 +3322,7 @@ final class ReaderModel {
         let storeScope = workOwnership.storeScope, persistence = localPersistence
         // The answer uses the model, effort and length the chat shows as Send is pressed.
         let chosenProfile = chatProfile
+        let chosenLocalModel = localAIModelID
         let documentID = generalChat ? nil : (chatPaperID ?? selectedPaper?.id)
         var parents = activeBranchID.map { [$0] } ?? []
         if parents.isEmpty, let activeConversation, let root = privateState.revisions(for: activeConversation).first { parents = [root.id] }
@@ -3377,7 +3386,7 @@ final class ReaderModel {
                 requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
                     composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
                     userMessageID: question, selection: selection, action: action, profile: chosenProfile, paperReference: reference,
-                    study: action == .study ? studyMap ?? .empty : nil), state: snapshot.state)
+                    study: action == .study ? studyMap ?? .empty : nil, localModelID: chosenLocalModel), state: snapshot.state)
             }
         } catch {
             if sessionID == scope {
@@ -3464,7 +3473,9 @@ final class ReaderModel {
         // The exact answer (paper, equation, action, model); else the newest kept for the same paper, equation and action
         // under another model or options (the defaults can resolve differently after a relaunch; Your assets lists it).
         let stored = equationResultStore()?.read(key)
-            ?? keptFileName(equations: true, key.manifestSHA256, key.equationID, key.action).flatMap { equationResultStore()?.read(fileName: $0, as: EquationAnswer.self) }
+            ?? (key.localModel == nil ? keptFileName(equations: true, key.manifestSHA256, key.equationID, key.action)
+                .flatMap { equationResultStore()?.read(fileName: $0, as: EquationAnswer.self) }
+                .flatMap { $0.model?.hasPrefix("local/") == true ? nil : $0 } : nil)
         if let stored { equationAnswers[key] = stored }
         return stored
     }
@@ -3477,9 +3488,10 @@ final class ReaderModel {
                 return PaperContentsSheet.label(number: nil, section: PaperContentsSheet.sections(of: context.bundle.index)[context.blockID])
             }
         }
+        answer.subject?.localModelID = key.localModel.flatMap { $0.split(separator: "/").dropFirst().first.map(String.init) }
         equationAnswers[key] = answer
         try? equationResultStore()?.write(answer, for: key)
-        if let subject = answer.subject { keptEquationFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
+        if key.localModel == nil, let subject = answer.subject { keptEquationFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
     }
     private func equationResultStore() -> EquationResultStore? {
         if let equationStore { return equationStore }
@@ -3495,9 +3507,22 @@ final class ReaderModel {
     }
 
     /// One equation request's events on the chat's transport (no conversation is made); nil when signed out.
-    func equationStream(_ request: ChatGenerationRequest) async throws -> AsyncThrowingStream<ChatStreamEvent, Error>? {
-        guard let transport = chatTransport, let accountID else { return nil }
-        return try await transport.chatStream(request, accountID: accountID)
+    func equationStream(_ request: ChatGenerationRequest, localModelID: String? = nil) async throws -> AsyncThrowingStream<ChatStreamEvent, Error>? {
+        guard let transport = localModelID.map({ localAI.transport($0) }) ?? chatTransport, let accountID else { return nil }
+        let scope = sessionID
+        let source = try await transport.chatStream(request, accountID: accountID)
+        return AsyncThrowingStream { continuation in
+            let forward = Task { [weak self] in
+                do {
+                    for try await event in source {
+                        guard let self, self.sessionID == scope, !Task.isCancelled else { break }
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in forward.cancel() }
+        }
     }
 
     /// What the equation view asked for as it closed.
@@ -3564,8 +3589,9 @@ final class ReaderModel {
         if let kept = figureAnswers[key] { return kept }
         // As equationAnswer: the exact answer, else (a walkthrough or detail, not a part) the newest kept for that figure.
         let stored = figureResultStore()?.read(key, as: FigureAnswer.self)
-            ?? (key.part == nil ? keptFileName(equations: false, key.manifestSHA256, key.figureID, key.action)
-                .flatMap { figureResultStore()?.read(fileName: $0, as: FigureAnswer.self) } : nil)
+            ?? (key.part == nil && key.localModel == nil ? keptFileName(equations: false, key.manifestSHA256, key.figureID, key.action)
+                .flatMap { figureResultStore()?.read(fileName: $0, as: FigureAnswer.self) }
+                .flatMap { $0.model?.hasPrefix("local/") == true ? nil : $0 } : nil)
         if let stored { figureAnswers[key] = stored }
         return stored
     }
@@ -3576,9 +3602,10 @@ final class ReaderModel {
                 self.figureContext(paperID: paper.id, figureID: key.figureID)?.label
             }
         }
+        answer.subject?.localModelID = key.localModel.flatMap { $0.split(separator: "/").dropFirst().first.map(String.init) }
         figureAnswers[key] = answer
         try? figureResultStore()?.write(answer, for: key)
-        if key.part == nil, let subject = answer.subject { keptFigureFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
+        if key.part == nil, key.localModel == nil, let subject = answer.subject { keptFigureFiles?[Self.keptKey(subject.manifestSHA256, subject.itemID, key.action)] = key.fileName }
     }
 
     /// A kept answer's file for (paper revision, item, action), whatever model it was asked with: the newest of them,
@@ -3596,7 +3623,7 @@ final class ReaderModel {
     private static func keptIndex(_ entries: [(String, ExplanationSubject?)]) -> [String: String] {
         var index: [String: String] = [:]
         for (fileName, subject) in entries {
-            guard let subject, let action = ChatAction(rawValue: subject.action) else { continue }
+            guard let subject, subject.localModelID == nil, let action = ChatAction(rawValue: subject.action) else { continue }
             let key = keptKey(subject.manifestSHA256, subject.itemID, action)
             if index[key] == nil { index[key] = fileName }
         }
@@ -3636,6 +3663,7 @@ final class ReaderModel {
     var pendingExplanation: ExplanationSubject?
     @discardableResult func openExplanation(_ subject: ExplanationSubject) -> Bool {
         guard let paper = papers.first(where: { $0.id == subject.paperID && !$0.isSample }) else { return false }
+        localAIModelID = subject.localModelID
         pendingExplanation = subject
         select(paper)
         return true
@@ -3723,9 +3751,9 @@ final class ReaderModel {
     /// Requests an answer for a saved question. Without a transport (offline
     /// fixtures) nothing is sent. First use asks for cloud-processing consent.
     private func requestAnswer(for turn: ChatAnswerTurn, state: PrivateState? = nil) {
-        guard let transport = chatTransport, turn.sessionID == sessionID, turn.accountID == accountID,
+        guard let transport = turn.localModelID.map({ localAI.transport($0) }) ?? chatTransport, turn.sessionID == sessionID, turn.accountID == accountID,
               chatGenerations[turn.composerID] == nil else { return }
-        guard chatConsent.hasAccepted(turn.accountID) else {
+        guard turn.localModelID != nil || chatConsent.hasAccepted(turn.accountID) else {
             chatConsentPrompt = ChatConsentPrompt(turn: turn)
             return
         }
@@ -3772,7 +3800,7 @@ final class ReaderModel {
         chatGenerations[composer]?.stopping = true
         // The server hears it was the reader's Stop (charged for the part written) before the stream closes; any other
         // early end costs nothing (2026-10-16). At most 3 s, and a failure doesn't hold the Stop up.
-        guard let transport = chatTransport, let operationID = generation.operationID else { generation.task?.cancel(); return }
+        guard generation.turn.localModelID == nil, let transport = chatTransport, let operationID = generation.operationID else { generation.task?.cancel(); return }
         let accountID = generation.turn.accountID
         Task {
             let recorded = Task { try? await transport.recordStop(operationID: operationID, accountID: accountID) }
@@ -3805,6 +3833,21 @@ final class ReaderModel {
         var figures: [ChatFigureImage] = [], figureManifest: String?
         let choices = requestChoices(for: turn, branch: branch.messages, state: state)
         do {
+            if turn.localModelID != nil {
+                if let selection = turn.selection, selection.unicodeScalars.count > ChatGenerationRequest.maximumSelectionScalars {
+                    throw ChatTransportError.rejected("local_context_large")
+                }
+                let paper = turn.documentID.flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) }
+                let bundle = paper?.readerBundle
+                if turn.documentID != nil, bundle == nil { throw ChatTransportError.rejected("local_reader_unavailable") }
+                if let bundle, let question = transcript.last?.text {
+                    figures = ChatFigureFinder.images(question: question, selection: turn.selection, bundle: bundle)
+                    figureManifest = bundle.manifestSHA256
+                }
+                request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript,
+                    selection: turn.selection, action: turn.action, profile: choices.profile, figures: figures)
+                    .forLocalInference(paperText: bundle.map { PaperChatContext.text($0.index) })
+            } else {
             let localContext: LocalPaperChatContext?
             if let reference = turn.paperReference {
                 guard let bundle = papers.first(where: { $0.sourceMembership == reference })?.readerBundle else {
@@ -3838,6 +3881,10 @@ final class ReaderModel {
                                                      transcript: transcript, selection: turn.selection,
                                                      action: turn.action, profile: choices.profile, topicTitle: choices.topicTitle, localContext: localContext,
                                                      study: turn.study, visualAnswers: visualAnswers, figures: figures)
+            }
+        } catch ChatTransportError.rejected(let code) {
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: code)
+            return
         } catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: turn.paperReference != nil ? "local_reader_unavailable" : "invalid_request")
             return
@@ -3946,7 +3993,7 @@ final class ReaderModel {
         // What a kept, interrupted answer cost (the server charges nothing for an early end that wasn't the reader's Stop).
         if resolved.resolution(text: text).status == .interrupted {
             let stopped: Bool = { if case .cancelled = resolved { return true }; return chatGenerations[generation.turn.composerID]?.stopping == true }()
-            let credits = failedCredits ?? doneCredits
+            let credits = generation.turn.localModelID != nil ? 0 : (failedCredits ?? doneCredits)
             chatInterruptionNotes[generation.assistantID] = stopped
                 ? (credits == 0 ? "Stopped · not charged" : "Stopped · charged for the part written")
                 : (credits == 0 ? "Interrupted · not charged" : nil)
@@ -4045,7 +4092,7 @@ final class ReaderModel {
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {
             guard self.sessionID == scope else { return }
-            await self.refreshCreditBalance()
+            if generation.turn.localModelID == nil { await self.refreshCreditBalance() }
             // Ingest may have queued an import on the server. A refresh already
             // in flight may predate it, so wait for that one and refresh again.
             guard added else { return }

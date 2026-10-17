@@ -183,12 +183,14 @@ public struct FigureResultKey: SealedAnswerKey {
     public let action: ChatAction
     public let part: String?
     public let profile: ChatProfileChoice
-    public init(manifestSHA256: String, figureID: String, action: ChatAction, part: String? = nil, profile: ChatProfileChoice) {
+    public let localModel: String?
+    public init(manifestSHA256: String, figureID: String, action: ChatAction, part: String? = nil, profile: ChatProfileChoice, localModel: String? = nil) {
         self.manifestSHA256 = manifestSHA256; self.figureID = figureID; self.action = action; self.profile = profile
+        self.localModel = localModel
         self.part = part.map { SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() }
     }
     public var fileName: String {
-        let identity = "figure-answer-v1\n\(manifestSHA256)\n\(figureID)\n\(action.rawValue)\n\(part ?? "-")\n\(profile.id)"
+        let identity = "figure-answer-v1\n\(manifestSHA256)\n\(figureID)\n\(action.rawValue)\n\(part ?? "-")\n\(localModel ?? profile.id)"
         return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined() + ".sealed"
     }
 }

@@ -61,12 +61,15 @@ enum EquationViewOutcome {
     private(set) var symbols = Part()
     private(set) var background = Part()
     let context: EquationViewContext
+    let localModelID: String?
     @ObservationIgnored private weak var model: ReaderModel?
     @ObservationIgnored private var tasks: [ChatAction: Task<Void, Never>] = [:]
     @ObservationIgnored private var awaitingConsent: ChatAction?
     var asksConsent: Bool { awaitingConsent != nil && (symbols.state == .needsConsent || background.state == .needsConsent) }
 
-    init(context: EquationViewContext, model: ReaderModel) { self.context = context; self.model = model }
+    init(context: EquationViewContext, model: ReaderModel) {
+        self.context = context; self.model = model; self.localModelID = model.localAIModelID
+    }
 
     /// Shows what this device kept. Nothing is asked of the AI until the reader asks for it (owner, build 59: "The AI
     /// explanation should only come if you ask for it").
@@ -106,14 +109,24 @@ enum EquationViewOutcome {
     private func run(_ action: ChatAction) {
         guard let model else { return }
         guard model.isSignedIn else { set(action, Part(state: .needsSignIn)); return }
-        guard let local = context.localContext else { set(action, Part(state: .unavailable)); return }
-        guard model.hasCloudConsent else { awaitingConsent = action; set(action, Part(state: .needsConsent)); return }
+        guard localModelID != nil || context.localContext != nil else { set(action, Part(state: .unavailable)); return }
+        guard localModelID != nil || model.hasCloudConsent else { awaitingConsent = action; set(action, Part(state: .needsConsent)); return }
         let profile = model.equationProfile
         let request: ChatGenerationRequest
         do {
-            request = try .equation(action, operationID: UUID(), label: context.label, latex: context.latex, profile: profile,
-                                    localContext: local, visualAnswers: model.visualAnswers)
-        } catch { set(action, Part(state: .failed("This equation couldn’t be sent.", retryable: false))); return }
+            if localModelID != nil {
+                guard context.latex.unicodeScalars.count <= ChatGenerationRequest.maximumSelectionScalars else { throw LocalAIContext.Failure.mandatoryInputTooLarge }
+                request = try ChatGenerationRequest.make(operationID: UUID(), documentID: context.paperID,
+                    transcript: [.init(role: .user, text: context.label)], selection: context.latex, action: action, profile: profile)
+                    .forLocalInference(paperText: PaperChatContext.text(context.bundle.index), focus: context.paragraph)
+            } else if let local = context.localContext {
+                request = try .equation(action, operationID: UUID(), label: context.label, latex: context.latex, profile: profile,
+                                        localContext: local, visualAnswers: model.visualAnswers)
+            } else { set(action, Part(state: .unavailable)); return }
+        } catch {
+            let message = localModelID != nil ? ChatFailureText.message(for: "local_context_large") : "This equation couldn’t be sent."
+            set(action, Part(state: .failed(message, retryable: false))); return
+        }
         set(action, Part(state: .loading))
         tasks[action]?.cancel()
         let answerKey = key(action, profile: profile)
@@ -122,15 +135,16 @@ enum EquationViewOutcome {
 
     private func stream(_ action: ChatAction, request: ChatGenerationRequest, key: EquationResultKey) async {
         var part = Part(state: .loading), model: String?
+        let scope = self.model?.readerSessionID
         do {
-            guard let events = try await self.model?.equationStream(request) else { set(action, Part(state: .needsSignIn)); return }
+            guard let events = try await self.model?.equationStream(request, localModelID: localModelID) else { set(action, Part(state: .needsSignIn)); return }
             for try await event in events {
                 guard !Task.isCancelled else { return }
                 switch event {
                 case .delta(let piece):
                     part.text += piece
                     // Background streams as it is written; the symbols' words (no usable symbols) come whole.
-                    if action == .equationBackground { set(action, part) }
+                    if action == .equationBackground || localModelID != nil { set(action, part) }
                 case .equation(let described): part.symbols = described
                 case .done(_, let credits, let answered, _): part.credits = credits; part.state = .done; model = answered
                 case .failure(let code, let credits): part.credits = credits; part.state = Self.failure(code)
@@ -140,7 +154,7 @@ enum EquationViewOutcome {
             }
         } catch ChatTransportError.rejected(let code) { part.state = Self.failure(code) }
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
         if part.state == .done, part.symbols == nil, part.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             part.state = .failed(action == .equation ? "Couldn’t describe this equation. Try again." : "Couldn’t write the background. Try again.", retryable: true)
@@ -148,7 +162,7 @@ enum EquationViewOutcome {
         set(action, part)
         guard part.state == .done, let reader = self.model else { return }
         reader.keepEquationAnswer(EquationAnswer(symbols: part.symbols, text: part.text, credits: part.credits, model: model), for: key)
-        Task { await reader.refreshCreditBalance() }
+        if localModelID == nil { Task { await reader.refreshCreditBalance() } }
     }
 
     private static func failure(_ code: String) -> State {
@@ -159,7 +173,8 @@ enum EquationViewOutcome {
     }
 
     private func key(_ action: ChatAction, profile: ChatProfileChoice) -> EquationResultKey {
-        EquationResultKey(manifestSHA256: context.bundle.manifestSHA256, equationID: context.equationID, action: action, profile: profile)
+        EquationResultKey(manifestSHA256: context.bundle.manifestSHA256, equationID: context.equationID, action: action,
+                          profile: profile, localModel: model?.localAI.identity(localModelID))
     }
     private func part(_ action: ChatAction) -> Part { action == .equation ? symbols : background }
     private func set(_ action: ChatAction, _ part: Part) { if action == .equation { symbols = part } else { background = part } }
@@ -171,6 +186,7 @@ struct EquationView: View {
     let finish: (EquationViewOutcome?) -> Void
     @State private var session: EquationSession?
     @State private var missing = false
+    @State private var choosingAI = false
     /// The equation shown: the request's, or another chosen from the heading (owner, build 62: "a little thing you can
     /// expand to get to… all your equation listings"); one switched to waits for AI Explainer.
     @State private var equationID: String?
@@ -198,8 +214,8 @@ struct EquationView: View {
                     }
                 },
                 explainer: session.flatMap { session in
-                    session.symbols.state == .idle && session.context.localContext != nil
-                        ? ExplainAction(identifier: "equation.explain", hint: "Describes the equation and each of its symbols. Uses credits.") { session.explain() }
+                    session.symbols.state == .idle
+                        ? ExplainAction(identifier: "equation.explain", hint: "Choose Cloud AI or Local AI to describe this equation.") { choosingAI = true }
                         : nil
                 },
                 close: { finish(nil) })
@@ -216,10 +232,19 @@ struct EquationView: View {
             session = opened
             opened.start()
             // AI Explainer from the equation's menu asks at once; an equation switched to from the heading waits.
-            if request.explains, equationID == nil { opened.explain() }
+            if request.explains, equationID == nil, opened.symbols.state == .idle { choosingAI = true }
             if equations.isEmpty { equations = await PaperContentsSheet.equations(in: context.bundle) }
         }
         .onDisappear { session?.stop() }
+        .sheet(isPresented: $choosingAI) {
+            AIChoiceView(local: model.localAI, needsVision: false) { id in
+                model.localAIModelID = id
+                guard let context = session?.context else { return }
+                session?.stop()
+                let opened = EquationSession(context: context, model: model)
+                session = opened; opened.start(); opened.explain()
+            }
+        }
         .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
                 .presentationDetents([.large])
@@ -237,6 +262,8 @@ struct EquationView: View {
                     if other.id != session.context.equationID { equationID = other.id }
                 }
                 display(session.context)
+                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Selected excerpts" } ?? "Cloud AI")
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("equation.aiSource")
                 symbols(session)
                 if session.symbols.state == .done { backgroundSection(session) }
             }
@@ -315,9 +342,9 @@ struct EquationView: View {
                     .padding(.horizontal, 14).padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
                 }
-            } else if part.state == .done, !part.text.isEmpty {
+            } else if !part.text.isEmpty, part.state == .done || session.localModelID != nil {
                 // No usable symbols: the model's words are the description.
-                ChatMessageText(source: part.text, fontSize: bodySize, streaming: false, speaker: "Assistant", identifier: "equation.description",
+                ChatMessageText(source: part.text, fontSize: bodySize, streaming: part.state == .loading, speaker: "Assistant", identifier: "equation.description",
                                 assistant: true, onCite: cite(session))
             }
             status(part, session: session, action: .equation, working: "Describing the symbols…")

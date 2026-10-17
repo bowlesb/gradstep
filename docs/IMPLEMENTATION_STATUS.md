@@ -1,6 +1,22 @@
 # Implementation status
 
-Updated 2026-10-17 UTC (build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. Chat activation still awaits the OpenRouter account-settings check. Earlier checkpoints below are historical.
+Updated 2026-10-17 UTC (local AI prototype implemented and measured, unreleased; build 66 feedback: rejected-session retirement and FDE-Gym title fix verified; expanded import/session gate passes; TestFlight 67 available on iOS and Mac, browser deployed). The owner's beta login was re-created at 08:30 UTC using direct Auth audit evidence; Auth records a successful owner sign-in at 08:34:48 UTC. The requested 100,000-credit test grant is verified. Chat activation still awaits the OpenRouter account-settings check. Earlier checkpoints below are historical.
+
+## Local AI prototype — 2026-10-17 (implemented; not in TestFlight)
+
+- Native chat, equation and figure explainers offer Cloud AI / Local AI; local models download explicitly, verify
+  pinned file hashes, can be cancelled/removed, and run with a bounded prompt/image budget. Existing reader
+  LaTeX, paragraphs, captions and figure images are used. No Mathpix, server PDF handling, provider fallback or
+  credit charge was added. Kept local explanations retain their engine choice and encrypted storage.
+- Actual MLX inference tested on this M1 Max Mac: Qwen3 0.6B, Qwen3.5 2B/4B and Gemma4 E2B. Qwen4B gives stronger
+  explanations in this small comparison, but neither larger model passes the numerical figure checks cleanly.
+  Tight crops help, without making the answers exact. Network-denied inference completes. Total process footprint
+  is much larger than MLX allocation alone; iOS checks conservative memory headroom before download/use and load.
+- `npm test` passes; Core 340 + 23 tests and four model-store integrity tests pass. The first integrated native
+  acceptance passes 35 chat/lifecycle tests and eight affected UI journeys (including local saved-answer reopen).
+  iOS Release and Mac Catalyst builds pass. Final memory-guard/local-PDF acceptance is recorded in
+  [Local AI](architecture/LOCAL_AI.md). No physical-phone testing, TestFlight upload or cloud-default change.
+- [Measured answers and limits](reviews/LOCAL_AI_20261017.md). Provider spend: $0. TestFlight remains build 67.
 
 ## Fresh owner test account: 100,000 credits — 2026-10-17 08:39 UTC
 

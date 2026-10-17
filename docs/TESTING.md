@@ -1,5 +1,11 @@
 # Fast and slow tests
 
+Local AI is an explicit native/Metal tier, never part of routine `npm test`: `swift test --package-path apps/apple/LocalAI --filter ModelStoreTests` checks local model integrity; Core's `LocalAIContextTests` checks
+bounded context and cloud-serialization rejection. `LocalAIJourneyTests` exercises the Cloud/Local choices and
+encrypted explanation reopen using a deterministic inference fixture. Actual MLX quality and memory are measured
+with the opt-in `LocalAIProbe` on Mac, including a network-denied run. Protocol and failed cases are retained in
+[Local AI comparison](reviews/LOCAL_AI_20261017.md). Simulator success is not phone inference acceptance.
+
 Owner direction, 2026-10-13: run fast checks routinely; run slow checks once for a baseline, then selectively for
 related changes or a reported problem. A slow run is not a prerequisite for an unrelated edit. Save failures and
 turn a discovered bug into a small fast regression where possible.

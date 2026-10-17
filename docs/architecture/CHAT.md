@@ -1,5 +1,7 @@
 # Paid AI chat
 
+Native Local AI prototype (2026-10-17, unreleased): the composer offers Cloud AI or an explicitly downloaded local MLX model. Local requests use bounded device context, never the cloud transport or credits; model choice is captured with each turn. Structured Study and cloud search tools are not supported locally. See [LOCAL_AI.md](LOCAL_AI.md) for the tested limits and accuracy failures.
+
 2026-10-16 owner decision after the comparison: **Gemini 3.8 Flash is selected as the next default**. The
 [OpenRouter → Google integration](GEMINI_FLASH_CHAT.md) is deployed hidden and verified by focused staging checks,
 with consent v5, old-client compatibility and server accounting. The app key is funded; Sonnet remains the published

@@ -10,8 +10,10 @@ private final class ScriptedChatTransport: ChatTransport, @unchecked Sendable {
     private var recorded: [ChatGenerationRequest] = []
     private var streams: [AsyncThrowingStream<ChatStreamEvent, Error>.Continuation] = []
     private var terminatedCount = 0
+    private var balanceCalls = 0
     var requests: [ChatGenerationRequest] { lock.withLock { recorded } }
     var terminated: Int { lock.withLock { terminatedCount } }
+    var creditCalls: Int { lock.withLock { balanceCalls } }
 
     func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: ChatStreamEvent.self, throwing: Error.self)
@@ -30,7 +32,10 @@ private final class ScriptedChatTransport: ChatTransport, @unchecked Sendable {
         if let error { continuation.finish(throwing: error) } else { continuation.finish() }
     }
 
-    func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 120, reserved: 0) }
+    func creditBalance(accountID: UUID) async throws -> CreditBalance {
+        lock.withLock { balanceCalls += 1 }
+        return CreditBalance(available: 120, reserved: 0)
+    }
 
     /// The server's profile table; nil behaves like a server from before profiles (GET answers 405).
     var profiles: ChatProfileTable?
@@ -53,6 +58,11 @@ private final class ScriptedChatTransport: ChatTransport, @unchecked Sendable {
     }()
 }
 
+private actor LocalRequestCapture {
+    var request: ChatGenerationRequest?
+    func record(_ value: ChatGenerationRequest) { request = value }
+}
+
 private final class ConsentMemory: AuthenticationCredentialStore, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: Data] = [:]
@@ -62,6 +72,22 @@ private final class ConsentMemory: AuthenticationCredentialStore, @unchecked Sen
 }
 
 final class ChatGenerationOutcomeTests: XCTestCase {
+    func testAccountRetirementCancelsAJobRegisteredAfterTheFence() async {
+        let jobs = LocalAIJobs(), id = UUID(), epoch = jobs.epoch
+        jobs.cancelAll()
+        let task = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        jobs.insert(task, id: id, epoch: epoch)
+        XCTAssertTrue(task.isCancelled)
+        await task.value
+        jobs.remove(id)
+        XCTAssertTrue(jobs.isEmpty)
+    }
+    func testCompletionBeforeRegistrationCannotLeaveAnActiveJob() {
+        let jobs = LocalAIJobs(), id = UUID(), epoch = jobs.epoch
+        jobs.remove(id)
+        jobs.insert(Task {}, id: id, epoch: epoch)
+        XCTAssertTrue(jobs.isEmpty)
+    }
     func testOutcomesKeepOnlyHonestText() {
         XCTAssertEqual(ChatGenerationOutcome.completed(stopReason: "end_turn").resolution(text: "Answer").status, .complete)
         XCTAssertEqual(ChatGenerationOutcome.completed(stopReason: "max_tokens").resolution(text: "Answer").status, .interrupted)
@@ -93,6 +119,77 @@ final class ChatGenerationOutcomeTests: XCTestCase {
 @MainActor
 final class ChatGenerationTests: XCTestCase {
     private let sampleID = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!
+
+    func testLocalAnswerNeedsNoCloudConsentOrCreditsAndIsSealed() async throws {
+        let (model, cloud) = try await makeModel(consented: false)
+        model.generalChat = true; model.localAIModelID = "qwen35-4b"
+        model.localAI.fixtureStream = { request in AsyncThrowingStream { c in
+            c.yield(.delta("Local answer.")); c.yield(.done(stopReason: "end_turn", credits: 0, model: "local/qwen35-4b/fixture")); c.finish()
+        } }
+        let balancesBefore = cloud.creditCalls
+        model.chatInput = "Explain a gradient"
+        await model.sendMessage()
+        try await waitUntil("local answer sealed") { model.chatMessages.last?.payload.role == .assistant && !model.isAnswering }
+        XCTAssertEqual(model.chatMessages.last?.payload.text, "Local answer.")
+        XCTAssertEqual(model.chatMessages.last?.payload.status, .complete)
+        XCTAssertNil(model.chatConsentPrompt)
+        XCTAssertTrue(cloud.requests.isEmpty)
+        XCTAssertEqual(cloud.creditCalls, balancesBefore)
+    }
+
+    func testLocalStopAndLateAnswerCannotFallBackToCloudOrCrossAccount() async throws {
+        let (model, cloud) = try await makeModel(consented: false)
+        model.generalChat = true; model.localAIModelID = "qwen35-4b"
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: ChatStreamEvent.self, throwing: Error.self)
+        model.localAI.fixtureStream = { _ in stream }
+        model.chatInput = "Explain a gradient"
+        await model.sendMessage()
+        try await waitUntil("local generation") { model.isAnswering }
+        continuation.yield(.delta("Partial local text"))
+        try await waitUntil("local text") { model.chatTranscriptMessages.last?.payload.text == "Partial local text" }
+        model.localAIModelID = nil // changing the next request's choice cannot change this request's Stop.
+        model.stopAnswer()
+        try await waitUntil("stop") { !model.isAnswering }
+        XCTAssertTrue(cloud.requests.isEmpty)
+        XCTAssertEqual(model.chatMessages.last?.payload.status, .interrupted)
+        await model.signOut()
+        continuation.yield(.delta("late account text")); continuation.finish()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertFalse(model.chatMessages.contains { $0.payload.text?.contains("late account text") == true })
+    }
+
+    func testLocalPDFChatUsesDeviceBundleAndCannotEncodeCloudRequest() async throws {
+        let (model, cloud) = try await makeModel(consented: false)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let bundle = try DeviceReaderPackage.decode(Data(contentsOf: root.appendingPathComponent("tests/fixtures/reader-arxiv/package.json")))
+        // Route a verified bundle as a local PDF item: no arXiv membership or legacy server context exists.
+        var paper = Paper(id: UUID(), title: "Local PDF", authors: "", year: nil, abstract: "", keywords: [], fileURL: nil, artifactID: nil)
+        paper.isLocalPDF = true; paper = paper.displaying(bundle)
+        model.papers.append(paper); model.selectedPaper = paper; model.chatPaperID = paper.id
+        model.generalChat = false; model.localAIModelID = "qwen35-4b"
+        let capture = LocalRequestCapture()
+        model.localAI.fixtureStream = { request in AsyncThrowingStream { c in Task {
+            await capture.record(request)
+            c.yield(.delta("Local PDF answer")); c.yield(.done(stopReason: "end_turn", credits: 0)); c.finish()
+        } } }
+        model.chatInput = "What does Figure 1 show?"
+        await model.sendMessage()
+        try await waitUntil("local PDF answer sealed") { model.chatMessages.last?.payload.text == "Local PDF answer" && !model.isAnswering }
+        let captured = await capture.request
+        let request = try XCTUnwrap(captured)
+        XCTAssertTrue(request.isLocalInference)
+        XCTAssertEqual(request.onDevicePaperText, PaperChatContext.text(bundle.index))
+        XCTAssertNil(request.localContext)
+        XCTAssertEqual(request.figures.count, 1)
+        XCTAssertThrowsError(try request.encoded())
+        XCTAssertTrue(cloud.requests.isEmpty)
+        model.selectionAction(.define, quote: String(repeating: "x", count: ChatGenerationRequest.maximumSelectionScalars + 1))
+        await model.sendMessage()
+        try await waitUntil("oversized local selection rejected") { model.chatAnswerIssue != nil }
+        XCTAssertEqual(model.chatAnswerIssue?.code, "local_context_large", "Do not collapse the actual local failure into invalid_request")
+        XCTAssertFalse(model.chatAnswerIssue?.retryable ?? true)
+        XCTAssertTrue(cloud.requests.isEmpty)
+    }
 
     private func makeModel(consented: Bool, transport: ScriptedChatTransport = ScriptedChatTransport()) async throws -> (ReaderModel, ScriptedChatTransport) {
         let memory = ConsentMemory()

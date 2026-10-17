@@ -528,6 +528,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(explain.frame.maxY <= item.frame.minY + 1 || explain.frame.maxX <= item.frame.minX + 1, "right after Explain in Chat")
         capture(app, "AI Explainer in a tapped equation's menu")
         item.tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let heading = app.descendants(matching: .any)["equation.heading"].firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 5)); XCTAssertEqual(heading.label, "Equation (1)", "The view names the equation")
         // AI Explainer is the reader's request: the explanation comes at once (owner, build 62), so the row offers

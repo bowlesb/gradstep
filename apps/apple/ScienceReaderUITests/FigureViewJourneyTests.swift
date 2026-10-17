@@ -74,6 +74,7 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Figure page: the top row")
 
         explain.tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let first = app.descendants(matching: .any)["figureView.section.1"]
         XCTAssertTrue(first.waitForExistence(timeout: 8), "The walkthrough's parts")
         // Contents opens at half height on a phone; the walkthrough takes the full height.
@@ -146,6 +147,7 @@ final class FigureViewJourneyTests: XCTestCase {
         // Reopened: the walkthrough and the simpler part kept on the device show at once, no new request.
         openFigureOne(app)
         app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 3), "kept walkthrough")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.simpler"].exists, "kept simpler part")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.2.detail"].exists, "kept extract")
@@ -169,6 +171,7 @@ final class FigureViewJourneyTests: XCTestCase {
         openFigureOne(app)
         capture(app, "Figure page, dark")
         app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 8))
         capture(app, "Figure walkthrough, dark")
         // Back (the sheet bar's system Back) to the figure's page.

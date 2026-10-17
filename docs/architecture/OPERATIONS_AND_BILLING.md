@@ -416,3 +416,11 @@ replay are offline; FDE-Gym HTML/assets were fetched only on the developer's Mac
 The earlier eight Flash rollout generations remain $0.108185933, with $10.205283699 remaining on the funded
 OpenRouter key at the last provider readback. Flash is still hidden pending the account logging/data-use check;
 no further comparison, top-up, subscription or budget increase was made. The $100/month ceiling is unchanged.
+
+## Local AI prototype comparison — 2026-10-17
+
+Qwen3 0.6B, Qwen3.5 2B/4B and Gemma4 E2B were downloaded from their pinned public Hugging Face repositories and
+run locally through MLX. **Provider spend $0; no new fixed service commitment, reservation or budget increase.**
+Inference checks also completed with network access denied. Model files occupy the testing Mac's storage;
+they are not uploaded or included in the app binary. The existing $100/month operating ceiling remains unchanged.
+See [the measured comparison](../reviews/LOCAL_AI_20261017.md).

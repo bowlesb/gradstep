@@ -1,0 +1,95 @@
+{
+  "format": "local-ai-figure-evaluation-v1",
+  "source": "Existing verified arXiv reader bundles; input files remain in local .artifacts, no PDFs sent to a server.",
+  "cases": [
+    {
+      "question": "In the left plot of Figure 3 (Anthropic-HH dialogue), how does DPO compare with Best of 128 at each sampling temperature? The caption makes it sound like DPO is the only method above the 50% line. Is that what the plot actually shows?",
+      "selection": "Figure 3: Left. Win rates computed by GPT-4 for Anthropic-HH one-step dialogue; DPO is the only method that improves over chosen summaries in the Anthropic-HH test set. Right. Win rates for different sampling temperatures over the course of training. DPO's improvement over the dataset labels is fairly stable over the course of training for different sampling temperatures.",
+      "focus": 60,
+      "action": "figure",
+      "id": "dpo-figure",
+      "input_sha256": "7b6d103490b39a6fd850014feecf45ea26e5d1d11fee216fbdec6ed44094a26b",
+      "image_sha256": "33bf16d725b06a78094d9265cc93c1a48380fe4cc6dccffad40ebe8eaff40ec3",
+      "image": ".artifacts/local-ai/cases/dpo-figure.jpg",
+      "input": ".artifacts/local-ai/cases/dpo-figure.json",
+      "expected": [
+        "Best of 128 is above 50% at all three sampled temperatures.",
+        "DPO is below Best of 128 at low temperature, approximately tied at the middle point and slightly higher at 1.0; error bars matter.",
+        "The literal caption claim is not supported; GPT-4 is the evaluator, not the comparison response."
+      ]
+    },
+    {
+      "question": "How much less compute did DPO actually need than PPO in their experiments, e.g. GPU hours or wall-clock training time for the GPT-J summarization models?",
+      "id": "dpo-unanswerable",
+      "input_sha256": "4128168133577f64475ed55c50d77ebc447b73cbddd017923b092de3369fbd9f",
+      "input": ".artifacts/local-ai/cases/dpo-unanswerable.json",
+      "expected": [
+        "The provided excerpts do not report the requested numerical GPU-hour or wall-clock savings.",
+        "Do not turn a qualitative efficiency claim into an invented quantity."
+      ]
+    },
+    {
+      "question": "Can you walk me through equation (4)? What is it computing, and what does each symbol mean?",
+      "selection": "\\[ \\begin{equation*}\n\\overline { \\boldsymbol { A } } = \\exp ( \\Delta \\boldsymbol { A } ) \\quad \\overline { \\boldsymbol { B } } = ( \\Delta \\boldsymbol { A } ) ^ { - 1 } ( \\exp ( \\Delta \\boldsymbol { A } ) - \\boldsymbol { I } ) \\cdot \\Delta \\boldsymbol { B } \\tag{4}\n\\end{equation*} \\]",
+      "focus": 26,
+      "action": "equation",
+      "id": "mamba-equation-selected",
+      "input_sha256": "5c3a2c3f4d90ed2e48801cb22aece99e23d9452ffba145d5c5b0a371a54af7cf",
+      "input": ".artifacts/local-ai/cases/mamba-equation-selected.json",
+      "expected": [
+        "Equation 4 is zero-order-hold discretization: preserve the exact A-bar and B-bar formulas.",
+        "Delta is a discretization timestep, A the continuous state matrix, B the input matrix, I identity, exp a matrix exponential.",
+        "A-bar and B-bar drive the discrete state recurrence; C is not discretized."
+      ]
+    },
+    {
+      "question": "In the inference throughput chart, how many tokens per second does Mamba 1.4B reach at its largest batch size, and how does that compare with the best the Transformer 1.3B manages? Where does the '5\u00d7 higher throughput' claim come from?",
+      "selection": "Figure 8: (Efficiency Benchmarks.) (Left) Training: our efficient scan is 40\u00d7 faster than a standard implementation. (Right) Inference: as a recurrent model, Mamba can achieve 5 \u00d7 higher throughput than Transformers.",
+      "focus": 163,
+      "action": "figure",
+      "id": "mamba-figure",
+      "input_sha256": "5165cea54e506dff4d06e9be2aa1f87bf42c4ac057c11f9e4d87143507b997f1",
+      "image_sha256": "b22b0e37d47ba6c1998f71752997b6ae77c3a0b4f44a76404745f8f6a562fe20",
+      "image": ".artifacts/local-ai/cases/mamba-figure.jpg",
+      "input": ".artifacts/local-ai/cases/mamba-figure.json",
+      "expected": [
+        "Mamba 1.4B: 1814 tokens/s at batch 128.",
+        "Transformer 1.3B: best 364 tokens/s at batch 32; OOM at 64 and 128.",
+        "Best-throughput ratio is about 1814/364 = 4.98, not a same-batch-128 comparison."
+      ]
+    },
+    {
+      "question": "In the inference throughput chart, how many tokens per second does Mamba 1.4B reach at its largest batch size, and how does that compare with the best the Transformer 1.3B manages? Where does the '5\u00d7 higher throughput' claim come from? The attached image is just the right-hand throughput panel.",
+      "selection": "Figure 8: (Efficiency Benchmarks.) (Left) Training: our efficient scan is 40\u00d7 faster than a standard implementation. (Right) Inference: as a recurrent model, Mamba can achieve 5 \u00d7 higher throughput than Transformers.",
+      "focus": 163,
+      "action": "figure",
+      "id": "mamba-panel",
+      "input_sha256": "3a2049cebf47c41c2a2045c20fdcb29e7d021c09d9c54a1fad404afcc283016e",
+      "image_sha256": "76f703aa2c4bdced188d87032ca990284816f5394060ad2990b01e8709668970",
+      "image": ".artifacts/local-ai/cases/mamba-panel.png",
+      "input": ".artifacts/local-ai/cases/mamba-panel.json",
+      "expected": [
+        "Mamba 1.4B: 1814 tokens/s at batch 128.",
+        "Transformer 1.3B: best 364 tokens/s at batch 32; OOM at 64 and 128.",
+        "Best-throughput ratio is about 1814/364 = 4.98, not a same-batch-128 comparison."
+      ]
+    },
+    {
+      "question": "Can you walk me through each part of Figure 3? I'm not sure how the pieces connect.",
+      "selection": "Figure 3: Overview of Prism. (a) PPS combines joint motion, end-effector motion, and gripper engagement into offline precision demand. (b) CPR predicts this demand from mask-pooled VLM prefix features, while PSW reweights the flow-matching loss using offline demand and flow-time visibility derived from action RMS and flow time. Both objectives leave inference unchanged.",
+      "focus": 54,
+      "action": "figure",
+      "id": "prism-diagram",
+      "input_sha256": "a6336649b3455679207ba9f05e89b62a28d8632d73f528b165173da20be9d713",
+      "image_sha256": "56974a928bd5a81ceddebbe1b6dab329250944759abfb1f4551e963fc6d22922",
+      "image": ".artifacts/local-ai/cases/prism-diagram.jpg",
+      "input": ".artifacts/local-ai/cases/prism-diagram.json",
+      "expected": [
+        "PPS uses trajectory motion/gripper signals to estimate offline precision demand.",
+        "CPR predicts demand from masked pooled prefix features and regresses against the offline label.",
+        "PSW combines offline demand and flow-time visibility derived from action RMS/time to weight the flow-matching loss.",
+        "Training changes; inference architecture is unchanged."
+      ]
+    }
+  ]
+}

@@ -218,6 +218,10 @@ public enum ChatProfileText {
     /// "claude-sonnet-5" → "Claude Sonnet 5"; anything unexpected is shown bounded, as sent.
     public static func modelName(_ id: String) -> String {
         let trimmed = String(id.prefix(64))
+        if trimmed.hasPrefix("local/") {
+            let names = ["qwen3-06b": "Qwen3 0.6B", "qwen35-2b": "Qwen3.5 2B", "qwen35-4b": "Qwen3.5 4B", "gemma4-e2b": "Gemma 4 E2B"]
+            return (trimmed.split(separator: "/").dropFirst().first.flatMap { names[String($0)] } ?? "Local AI") + " · on device"
+        }
         if trimmed == "gemini-3.8-flash" { return "Gemini 3.8 Flash" }
         if trimmed.hasPrefix("deepseek-") { return trimmed == "deepseek-flash" ? "DeepSeek V4.1 Flash" : "DeepSeek" }
         guard trimmed.hasPrefix("claude-") else { return trimmed }

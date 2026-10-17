@@ -162,9 +162,11 @@ public struct ExplanationSubject: Codable, Equatable, Sendable {
     /// The chat action that made it (`equation`, `equation_background`, `figure`, `figure_simpler`).
     public let action: String
     public let savedAt: Date
-    public init(paperID: UUID, paperTitle: String, manifestSHA256: String, itemID: String, label: String, action: String, savedAt: Date) {
+    public var localModelID: String?
+    public init(paperID: UUID, paperTitle: String, manifestSHA256: String, itemID: String, label: String, action: String, savedAt: Date, localModelID: String? = nil) {
         self.paperID = paperID; self.paperTitle = paperTitle; self.manifestSHA256 = manifestSHA256; self.itemID = itemID
         self.label = label; self.action = action; self.savedAt = savedAt
+        self.localModelID = localModelID
     }
 }
 
@@ -174,12 +176,14 @@ public struct EquationResultKey: SealedAnswerKey {
     public let equationID: String
     public let action: ChatAction
     public let profile: ChatProfileChoice
-    public init(manifestSHA256: String, equationID: String, action: ChatAction, profile: ChatProfileChoice) {
+    public let localModel: String?
+    public init(manifestSHA256: String, equationID: String, action: ChatAction, profile: ChatProfileChoice, localModel: String? = nil) {
         self.manifestSHA256 = manifestSHA256; self.equationID = equationID; self.action = action; self.profile = profile
+        self.localModel = localModel
     }
     /// A file name that names nothing about the paper (a digest of the identity).
     public var fileName: String {
-        let identity = "equation-answer-v1\n\(manifestSHA256)\n\(equationID)\n\(action.rawValue)\n\(profile.id)"
+        let identity = "equation-answer-v1\n\(manifestSHA256)\n\(equationID)\n\(action.rawValue)\n\(localModel ?? profile.id)"
         return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined() + ".sealed"
     }
 }

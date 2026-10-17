@@ -10,6 +10,21 @@ This is a one-account testing allowance, not a subscription, purchase, automatic
 or provider-budget increase. The normal dashboard adjustment cap and all spending admission remain unchanged.
 See [billing evidence](architecture/OPERATIONS_AND_BILLING.md#fresh-owner-test-account--2026-10-17).
 
+## Optional local AI prototype (owner direction, 2026-10-17; implemented, experimental)
+
+Prototype an explicit Cloud AI / Local AI choice for chat, equation explanations and figures, with an on-demand
+MLX model download. The owner's initial Qwen3 0.6B idea is a text baseline; the scientific-image follow-up adds
+Qwen3.5 4B versus Gemma 4 E2B, with 2B as a smaller candidate. Use selected figure crops, captions, existing LaTeX
+and retrieved paragraphs within a measured token/memory budget. The crop-plus-text recommendation does not change
+the device-only PDF/Mathpix decision. No cloud fallback or default-provider change is implied. Architecture and
+acceptance: [Local AI](architecture/LOCAL_AI.md). Physical iPhone testing remains paused.
+
+The native prototype now offers explicit Cloud/Local choices and verified, removable model downloads. The local
+comparison favors Qwen3.5 4B for explanation quality, but both it and Gemma fail numeric-figure checks. Measured Mac
+process footprint is about 6.7 GB for both larger models and 3.85 GB for Qwen2B; no phone readiness is inferred.
+The prototype remains experimental and unreleased; phone acceptance is still outstanding under the owner’s
+existing pause. These results do not change the cloud default. Evidence and limitations: [local comparison](reviews/LOCAL_AI_20261017.md).
+
 ## Import acceptance after build 65 feedback (owner direction, 2026-10-17 UTC)
 
 Adding papers and PDFs must be a release gate, including the actual reported failures. `npm run test:imports`

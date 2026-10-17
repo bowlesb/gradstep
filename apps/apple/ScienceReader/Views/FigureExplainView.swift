@@ -46,6 +46,7 @@ private struct FigurePageActions: ViewModifier {
     @Environment(\.expandSheet) private var expandSheet
     @State private var context: FigureViewContext?
     @State private var explaining = false
+    @State private var choosingAI = false
 
     func body(content: Content) -> some View {
         content
@@ -56,12 +57,19 @@ private struct FigurePageActions: ViewModifier {
                     }
                 } },
                 // An arXiv paper on this device only: the walkthrough reads the paper numbered here.
-                explainer: host != nil && context?.localContext != nil
-                    ? ExplainAction(identifier: "figureView.explain", hint: "Walks through this figure part by part. Uses credits.") { expandSheet?(); explaining = true }
+                explainer: host != nil && context != nil
+                    ? ExplainAction(identifier: "figureView.explain", hint: "Choose Cloud AI or Local AI to explain this figure.") { choosingAI = true }
                     : nil,
                 close: close)
             .navigationDestination(isPresented: $explaining) {
                 if let host, let context { FigureExplainView(model: host.model, context: context, finish: host.finish, close: host.close) }
+            }
+            .sheet(isPresented: $choosingAI) {
+                if let host {
+                    AIChoiceView(local: host.model.localAI, needsVision: true) { id in
+                        host.model.localAIModelID = id; expandSheet?(); explaining = true
+                    }
+                }
             }
             .task(id: figureID) {
                 explaining = false
@@ -81,6 +89,7 @@ struct FigureExplainView: View {
     @State private var session: FigureExplainSession?
     /// The figure AI Explainer was chosen for is asked for at once; one switched to from the heading is not.
     @State private var requestsOnOpen = true
+    @State private var choosingAI = false
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
 
     init(model: ReaderModel, context: FigureViewContext, finish: @escaping @MainActor (FigureViewOutcome) -> Void,
@@ -97,8 +106,8 @@ struct FigureExplainView: View {
             chat: ExplainAction(identifier: "figureView.walkthrough.askInChat", hint: "Opens the paper’s chat with this figure as the passage; nothing is sent") {
                 finish(.askInChat(context, part: nil))
             },
-            explainer: session.map { $0.walkthrough.state == .idle } == true && context.localContext != nil
-                ? ExplainAction(identifier: "figureView.walkthrough.explain", hint: "Walks through this figure part by part. Uses credits.") { session?.explain() }
+            explainer: session.map { $0.walkthrough.state == .idle } == true
+                ? ExplainAction(identifier: "figureView.walkthrough.explain", hint: "Choose Cloud AI or Local AI to explain this figure.") { choosingAI = true }
                 : nil,
             close: close)
         .background(Color(uiColor: .systemGroupedBackground))
@@ -111,6 +120,13 @@ struct FigureExplainView: View {
             await opened.start(requesting: requesting)
         }
         .onDisappear { session?.stop() }
+        .sheet(isPresented: $choosingAI) {
+            AIChoiceView(local: model.localAI, needsVision: true) { id in
+                model.localAIModelID = id; session?.stop()
+                let opened = FigureExplainSession(context: context, model: model); session = opened
+                Task { await opened.start() }
+            }
+        }
         .sheet(isPresented: Binding(get: { session?.asksConsent ?? false }, set: { if !$0, session?.asksConsent == true { session?.declineConsent() } })) {
             CloudConsentContent(accept: { session?.acceptConsent() }, decline: { session?.declineConsent() })
                 .presentationDetents([.large])
@@ -123,6 +139,8 @@ struct FigureExplainView: View {
             VStack(alignment: .leading, spacing: 18) {
                 heading
                 figureCard(session)
+                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Figure and selected excerpts" } ?? "Cloud AI")
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("figureView.aiSource")
                 walkthrough(session)
             }
             .frame(maxWidth: 720, alignment: .leading)
@@ -180,9 +198,9 @@ struct FigureExplainView: View {
                 ForEach(Array(walkthrough.sections.enumerated()), id: \.offset) { index, section in
                     sectionCard(section, index: index, session: session)
                 }
-            } else if part.state == .done, !part.text.isEmpty {
+            } else if !part.text.isEmpty, part.state == .done || session.localModelID != nil {
                 // No usable walkthrough: the model's words are the description.
-                ChatMessageText(source: part.text, fontSize: bodySize, streaming: false, speaker: "Assistant", identifier: "figureView.description",
+                ChatMessageText(source: part.text, fontSize: bodySize, streaming: part.state == .loading, speaker: "Assistant", identifier: "figureView.description",
                                 assistant: true, onCite: cite)
             }
             status(part, working: "Looking at the figure…", retry: { session.retry() })

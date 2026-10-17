@@ -1045,6 +1045,8 @@ struct ChatView: View {
         // iPhone only: the iPad's keyboard has its own hide key, and a hardware keyboard has none to hide.
         let keyboardUp = composerFocused && UIDevice.current.userInterfaceIdiom == .phone
         let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
+        VStack(alignment: .leading, spacing: 6) {
+        AISelectionButton(model: model).padding(.horizontal, 16)
         HStack(alignment: .bottom, spacing: 0) {
             if keyboardUp {
                 Button { composerFocused = false } label: {
@@ -1066,6 +1068,7 @@ struct ChatView: View {
         }
         .frame(minHeight: 50)
         .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
+        }
     }
 
     private var sendButton: some View {

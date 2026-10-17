@@ -60,6 +60,14 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let visualAnswers: Bool
     /// The figures the question is about (at most three images), sent under consent v3.
     public let figures: [ChatFigureImage]
+    /// Native-only context, including device-PDF bundles. It must never be encoded for a cloud transport.
+    public private(set) var onDevicePaperText: String?
+    public private(set) var onDeviceFocus: Int?
+    public private(set) var isLocalInference = false
+
+    public func forLocalInference(paperText: String?, focus: Int? = nil) -> Self {
+        var copy = self; copy.onDevicePaperText = paperText; copy.onDeviceFocus = focus; copy.isLocalInference = true; return copy
+    }
 
     /// Keeps the newest turns that fit the server bounds. The context always
     /// starts and ends with a user turn; empty turns are skipped.
@@ -109,6 +117,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     }
 
     public func encoded() throws -> Data {
+        guard !isLocalInference else { throw ChatRequestError.emptyContext }
         struct Turn: Encodable { let role: String; let text: String }
         struct Selection: Encodable { let quote: String }
         // Synthesized encoding omits nil optionals (general chat sends no document).
@@ -432,13 +441,26 @@ public enum ChatFailureText {
         case "operation_replayed": "This answer was already requested. Try again to request a new one."
         case "authentication_required": "Sign in again to get answers."
         case "transport": "The connection was interrupted before the answer finished."
+        case "local_model_missing": "Download a model from the Local AI choice before asking. Your question is saved."
+        case "local_model_invalid": "The local model failed verification. Remove its download and download it again."
+        case "local_image_unsupported": "This model reads text only. Choose a vision model to discuss figures."
+        case "local_image_invalid": "This figure could not be prepared for Local AI. Try opening the figure again."
+        case "local_memory": "There is not enough app memory for this model right now. Choose a smaller local model."
+        case "local_timeout": "The local model took too long. Your question is saved. Try a smaller model or a narrower question."
+        case "local_interrupted": "Local inference stopped before it finished. Keep the app open while it answers, or try a smaller model."
+        case "local_context_large": "The question, selection or images exceed the local context limit. Use a shorter question or one figure."
+        case "local_action_unsupported": "This action needs cloud search or tools. Choose Cloud AI to use it."
+        case "local_busy": "Another local answer is running. Stop it or wait for it to finish."
+        case "local_unavailable": "Local inference requires an Apple Silicon device with Metal. It is unavailable in the Simulator."
+        case "local_length": "The local answer reached its length limit. Ask a narrower question to continue."
+        case "local_failed": "The local model could not finish. Try a smaller model or shorter question."
         default: "The answer couldn’t be completed. Try again."
         }
     }
 
     /// Whether retrying the same question can reasonably succeed.
     public static func isRetryable(_ code: String) -> Bool {
-        !["invalid_request", "refused"].contains(code)
+        !["invalid_request", "refused", "local_image_unsupported", "local_action_unsupported", "local_unavailable", "local_context_large", "local_memory"].contains(code)
     }
 }
 

@@ -69,13 +69,16 @@ enum FigureViewOutcome {
     /// The figure as the request sends it (its panels composed, or the table drawn here), which crops are cut from.
     private(set) var image: CGImage?
     let context: FigureViewContext
+    let localModelID: String?
     @ObservationIgnored private weak var model: ReaderModel?
     @ObservationIgnored private var sent: ChatFigureImage?
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var awaitingConsent: (() -> Void)?
     var asksConsent: Bool { awaitingConsent != nil }
 
-    init(context: FigureViewContext, model: ReaderModel) { self.context = context; self.model = model }
+    init(context: FigureViewContext, model: ReaderModel) {
+        self.context = context; self.model = model; self.localModelID = model.localAIModelID
+    }
 
     /// Shows what this device kept; asks for the walkthrough when nothing is kept and `requesting` (AI Explainer was chosen
     /// to get here; a figure switched to from the explainer's heading waits for AI Explainer).
@@ -161,8 +164,8 @@ enum FigureViewOutcome {
         guard let model else { return }
         func set(_ value: Part) { store(value, action: action, index: part?.index) }
         guard model.isSignedIn else { set(Part(state: .needsSignIn)); return }
-        guard let local = context.localContext else { set(Part(state: .unavailable)); return }
-        guard model.hasCloudConsent else {
+        guard localModelID != nil || context.localContext != nil else { set(Part(state: .unavailable)); return }
+        guard localModelID != nil || model.hasCloudConsent else {
             awaitingConsent = { [weak self] in self?.run(action, part: part) }
             set(Part(state: .needsConsent)); return
         }
@@ -174,9 +177,19 @@ enum FigureViewOutcome {
             // A part extracted is named by its label and title with its text, so the model knows which region to crop.
             let quote = part.map { action == .figureDetail
                 ? ([$0.section.label, $0.section.title].filter { !$0.isEmpty }.joined(separator: " ") + "\n" + $0.section.text) : $0.section.text } ?? context.caption
-            request = try .figure(action, operationID: UUID(), label: label, quote: quote, profile: profile,
-                                  localContext: local, visualAnswers: model.visualAnswers, image: image)
-        } catch { set(Part(state: .failed("This figure couldn’t be sent.", retryable: false))); return }
+            if localModelID != nil {
+                guard quote.unicodeScalars.count <= ChatGenerationRequest.maximumSelectionScalars else { throw LocalAIContext.Failure.mandatoryInputTooLarge }
+                request = try ChatGenerationRequest.make(operationID: UUID(), documentID: context.paperID,
+                    transcript: [.init(role: .user, text: label)], selection: quote, action: action, profile: profile, figures: [image])
+                    .forLocalInference(paperText: PaperChatContext.text(context.bundle.index), focus: context.paragraph)
+            } else if let local = context.localContext {
+                request = try .figure(action, operationID: UUID(), label: label, quote: quote, profile: profile,
+                                      localContext: local, visualAnswers: model.visualAnswers, image: image)
+            } else { set(Part(state: .unavailable)); return }
+        } catch {
+            let message = localModelID != nil ? ChatFailureText.message(for: "local_context_large") : "This figure couldn’t be sent."
+            set(Part(state: .failed(message, retryable: false))); return
+        }
         set(Part(state: .loading))
         let id = part.map { "\(action == .figureDetail ? "detail" : "simpler").\($0.index)" } ?? "figure"
         tasks[id]?.cancel()
@@ -193,8 +206,9 @@ enum FigureViewOutcome {
     private func stream(_ request: ChatGenerationRequest, action: ChatAction, part index: Int?, key: FigureResultKey) async {
         func set(_ value: Part) { store(value, action: action, index: index) }
         var part = Part(state: .loading), model: String?, credits: Int?
+        let scope = self.model?.readerSessionID
         do {
-            guard let events = try await self.model?.equationStream(request) else { set(Part(state: .needsSignIn)); return }
+            guard let events = try await self.model?.equationStream(request, localModelID: localModelID) else { set(Part(state: .needsSignIn)); return }
             for try await event in events {
                 guard !Task.isCancelled else { return }
                 switch event {
@@ -202,7 +216,7 @@ enum FigureViewOutcome {
                     part.text += piece
                     // A part more simply streams as it is written; the walkthrough's words (no usable walkthrough) and an
                     // extract's (no usable box) come whole.
-                    if index != nil, action == .figureSimpler { set(part) }
+                    if localModelID != nil || (index != nil && action == .figureSimpler) { set(part) }
                 case .figure(let walkthrough): part.walkthrough = walkthrough
                 case .figureDetail(let detail): part.detail = detail
                 case .done(_, let paid, let answered, _): credits = paid; part.state = .done; model = answered
@@ -213,7 +227,7 @@ enum FigureViewOutcome {
             }
         } catch ChatTransportError.rejected(let code) { part.state = Self.failure(code) }
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
         if part.state == .done, part.walkthrough == nil, part.detail == nil, part.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             part.state = .failed(index == nil ? "Couldn’t explain this figure. Try again." : "Couldn’t explain this part. Try again.", retryable: true)
@@ -223,7 +237,7 @@ enum FigureViewOutcome {
         set(part)
         guard part.state == .done, let reader = self.model else { return }
         reader.keepFigureAnswer(FigureAnswer(walkthrough: part.walkthrough, detail: part.detail, text: part.text, model: model), for: key)
-        Task { await reader.refreshCreditBalance() }
+        if localModelID == nil { Task { await reader.refreshCreditBalance() } }
     }
 
     private static func failure(_ code: String) -> State {
@@ -234,7 +248,8 @@ enum FigureViewOutcome {
     }
 
     private func key(_ action: ChatAction, part: String?, profile: ChatProfileChoice) -> FigureResultKey {
-        FigureResultKey(manifestSHA256: context.bundle.manifestSHA256, figureID: context.figureID, action: action, part: part, profile: profile)
+        FigureResultKey(manifestSHA256: context.bundle.manifestSHA256, figureID: context.figureID, action: action, part: part,
+                        profile: profile, localModel: model?.localAI.identity(localModelID))
     }
 }
 

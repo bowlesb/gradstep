@@ -116,6 +116,8 @@ struct ChatAnswerTurn: Equatable, Sendable {
     var paperReference: SourcePaperReference? = nil
     /// Study: the knowledge map this turn answers against (memory only; a retry sends the same map).
     var study: StudyMap? = nil
+    /// Captured at Send; retry/stop can never switch between local inference and a paid cloud request.
+    var localModelID: String? = nil
 }
 
 /// One in-flight answer. The assistant ID is allocated before streaming so the
@@ -162,7 +164,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
     var credits: Int? = nil
     var message: String {
         switch code {
-        case "local_reader_unavailable": "Open this paper to prepare its HTML reader on this device, then retry your question."
+        case "local_reader_unavailable": "Open this paper and prepare its reader on this device, then retry your question."
         case "consent_declined": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
         case "storage": "The answer couldn’t be saved on this device."
