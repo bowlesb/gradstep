@@ -96,7 +96,7 @@ panel labels**. No crop-quality score can be inferred from this conversion check
 `scripts/subfigure-rtdetr-export.py` uses the same seven already-local FDE-Gym images, RGB bilinear aspect-fit into
 a white 640-square canvas, float32 NCHW pixels divided by 255. It exports raw logits and normalized cx/cy/w/h
 boxes, leaving postprocessing outside the network. Torch 2.8.0 / coremltools 9.0 / Python 3.9.6, four Torch CPU
-threads, M1 Max, Core ML `ALL` compute units. `sandbox-exec` denied all networking during both complete runs.
+threads, M1 Max, Core ML `ALL` compute units. `sandbox-exec` denied all networking during all three complete runs.
 coremltools warns that its latest tested Torch release is 2.7; the numerical comparisons below are therefore
 required evidence rather than relying on nominal compatibility. Static-shape trace warnings are retained.
 
@@ -104,6 +104,7 @@ required evidence rather than relying on nominal compatibility. Static-shape tra
 |---|---:|---:|---:|---|
 | FP32 | 80,440,457 bytes | 4,677 ms | 30.4 ms | 7/7 pass |
 | FP16 | 40,350,214 bytes | 955 ms | 79.3 ms | 0/7 pass |
+| Mixed: FP16 conv/linear/matmul, other operations FP32 | 40,710,295 bytes | 5,110 ms | 29.3 ms | 0/7 pass |
 
 First prediction excludes the separate trace/conversion phases and is not a cold application-launch benchmark.
 These are seven sequential wall-clock calls, not repeated performance distributions. Memory, thermal behavior,
@@ -117,10 +118,13 @@ FP32's worst matched coordinate error is **0.0001710** (0.11 pixels at input res
 error **0.0000811**. One image has reordered queries; its raw positional error remains in the evidence.
 FP16's matched coordinate error reaches **0.9529**, probability error **0.3522**; even restricting attention to
 pairs where either confidence is ≥0.25 leaves coordinate drift up to **0.3031**. The smaller export is rejected.
-The exact operator causing FP16 drift has not been isolated. Choosing FP32 is an evidence-based baseline,
+Keeping geometry, normalization and nonlinear operations in FP32 while converting only conv/linear/matmul also
+fails (maximum matched coordinate error 0.9632, probability error 0.3580). That ablation rules out claiming that
+simply upcasting coordinate decoding fixes this export. The exact source of reduced-precision drift has not been isolated.
+Choosing FP32 is an evidence-based baseline,
 not a claim that every future trained checkpoint will preserve these errors or timings.
 
-Artifacts: `.artifacts/subfigure-prototype/rtdetr-coreml/` and `rtdetr-coreml-fp32/`, each containing complete
+Artifacts: `.artifacts/subfigure-prototype/rtdetr-coreml/`, `rtdetr-coreml-fp32/` and `rtdetr-coreml-mixed/`, each containing complete
 Torch/Core ML predictions, a hashed provenance report, model package and `parity.json`; export logs are retained.
 No paid inference, GPU training, dataset purchase, application download or shipped detector was added.
 

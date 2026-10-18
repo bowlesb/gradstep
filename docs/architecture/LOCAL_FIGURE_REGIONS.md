@@ -104,7 +104,9 @@ first prediction is 4.68 seconds, separately from conversion. These measurements
 or app memory use. The generic COCO checkpoint is a conversion baseline, not a trained scientific detector.
 
 The **FP16** export is 40.35 MB but fails parity on all seven images, including after one-to-one query matching;
-confidence drift reaches 0.352 and credible-box coordinate drift 0.303. Do not silently accept that export merely
+confidence drift reaches 0.352 and credible-box coordinate drift 0.303. A mixed-precision comparison, keeping
+geometry/normalization/nonlinear operations in FP32, also fails; the exact cause remains unresolved.
+Do not silently accept that export merely
 because it compiles or is smaller. Use the full-precision model as the first fine-tuning/export baseline; reduced
 precision needs its own diagnosis and replay after training. Exact scripts, checkpoint provenance, timing and
 permutation-aware comparison are in [the measured review](../reviews/LOCAL_FIGURE_REGIONS_20261018.md).

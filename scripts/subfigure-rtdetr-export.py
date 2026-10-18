@@ -32,7 +32,8 @@ def main():
     parser.add_argument('--weights', required=True)
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--out', required=True)
-    parser.add_argument('--precision', choices=['fp16', 'fp32'], default='fp16')
+    parser.add_argument('--precision', choices=['fp16', 'fp32', 'mixed'], default='fp32',
+                        help='mixed keeps geometry, normalization and nonlinearities in FP32')
     args = parser.parse_args()
     repo, weights, bundle, out = map(pathlib.Path, (args.repo, args.weights, args.bundle, args.out))
     revision = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
@@ -103,11 +104,15 @@ def main():
         traced = torch.jit.trace(model, torch.from_numpy(images[0][4]), strict=True)
     report['trace_seconds'] = time.perf_counter() - started
     started = time.perf_counter()
+    precision = {'fp16': ct.precision.FLOAT16, 'fp32': ct.precision.FLOAT32}.get(args.precision)
+    if args.precision == 'mixed':
+        precision = ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type in ('conv', 'linear', 'matmul'))
+        report['fp16_operations'] = ['conv', 'linear', 'matmul']
     converted = ct.convert(traced, source='pytorch', convert_to='mlprogram',
         inputs=[ct.TensorType(name='images', shape=(1, 3, 640, 640), dtype=np.float32)],
         outputs=[ct.TensorType(name='logits'), ct.TensorType(name='boxes')],
         minimum_deployment_target=ct.target.macOS14,
-        compute_precision=ct.precision.FLOAT16 if args.precision == 'fp16' else ct.precision.FLOAT32,
+        compute_precision=precision,
         compute_units=ct.ComputeUnit.ALL)
     report['conversion_seconds'] = time.perf_counter() - started
     package = out / f'rtdetrv2-s-{args.precision}.mlpackage'
