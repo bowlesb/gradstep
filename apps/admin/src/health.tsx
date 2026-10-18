@@ -201,13 +201,14 @@ function derive(data: HealthData, budget: Budget | null) {
       attention.push({ tone: 'warning', text: `${percent(errors / r.calls)} of ${r.calls.toLocaleString()} calls to ${providerName(r.provider)} failed or were throttled in the last hour.` });
     }
   }
-  // A provider refusing for our own balance stops every answer it serves (staging, 2026-10-16): top it up.
+  // These groups name the logical provider, including historical direct calls. Current model calls bill through
+  // OpenRouter; use the attempt's transport metadata rather than telling an operator to fund the model maker.
   const billing = data.provider_billing;
   if (billing && billing.last_24h > 0) {
     const who = Object.entries(billing.by_provider).sort((a, b) => b[1] - a[1]).map(([p, n]) => `${providerName(p)} (${n.toLocaleString()})`).join(', ');
     attention.push({ tone: 'warning', text: billing.last_hour > 0
-      ? `${who} refused requests for the account's credit balance in the last hour; answers from it fail until it is topped up in the provider's console.`
-      : `${who} refused requests for the account's credit balance in the last 24 hours (last at ${billing.last_at ? new Date(billing.last_at).toLocaleTimeString() : 'unknown'}).` });
+      ? `Billing refusals in the last hour: ${who}. Current model calls use OpenRouter. Inspect the affected attempts in Spending and check the recorded billing provider's credit balance.`
+      : `Billing refusals in the last 24 hours: ${who} (last at ${billing.last_at ? new Date(billing.last_at).toLocaleTimeString() : 'unknown'}). Current model calls use OpenRouter; check the attempts in Spending for their billing provider.` });
   }
   if (data.reliability.reports_open) attention.push({ tone: 'info', text: `${plural(data.reliability.reports_open, 'support report is', 'support reports are')} open.` });
   const errorTotals = new Map<string, number>();

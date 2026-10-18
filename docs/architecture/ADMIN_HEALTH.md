@@ -38,6 +38,11 @@ staging.
 
 ## Who counts
 
+**OpenRouter cutover, 2026-10-18:** the billing-refusal alert's provider groups retain their historical/logical
+model identity; they are not necessarily the service charging the account. The alert now names OpenRouter as
+the current model gateway and directs the operator to Spending's attempt transport/receipt details. It must not
+tell an operator to top up Anthropic directly for a routed Claude request. No old ledger entry is relabeled.
+
 Test accounts are left out of the people and use graphs: an Auth address ending `@example.invalid` (the live smoke
 scripts) or `@example.test` (fixtures). Accounts are counted while open. Spending includes everything, since tests
 cost real money; the page says so.
@@ -73,7 +78,9 @@ Support). The link only opens the site, which checks for itself. Journeys: `Sett
 - **Papers prepared on the device.** The reader is made on the device from arXiv's HTML (or the on-device model); a
   paper that fails to open never reaches the server. TestFlight feedback and support reports carry those; the tab says
   so. A device-side failure count would need an opt-in diagnostic event, a separate decision.
-- **Per-person cost.** Spend per active account is the window's spend over accounts active in 30 days, a straight line
+- **Per-person cost from the Health average.** Use Spending's account UUID filter and individual attempt details
+  for that investigation (OpenRouter transport/receipts added 2026-10-18). Spend per active account on Health is
+  the window's spend over accounts active in 30 days, a straight line
   to 100 and 1,000 accounts. At staging rates (a chat answer about 2.5 ¢ with the paper cached, an episode about 11 ¢),
   1,000 accounts chatting like the fixture cost about $400 a month, four times the $100 provider budget; the server's
   budget limit pauses paid work before that, and the Attention list says so first.
