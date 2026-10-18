@@ -28,10 +28,24 @@ are in `native-feedback-final.xcresult`, and activity defaults in `activity-defa
 `.artifacts/feedback/build70-20261018/`. The resumed Mac figure journey passes, but visual review caught its
 fullscreen being another small sheet. The final journey therefore requires an image viewport spanning at least
 90% of the window width and 75% of its height, plus Escape/⌘W dismissal preserving the explainer. The Mac archive
-is being rebuilt after the full corrected journey passes in `mac-fullwindow-sheet.xcresult` (17:40 UTC).
+was rebuilt after the full corrected journey passed in `mac-fullwindow-sheet.xcresult` (17:40 UTC).
 The screenshot review confirms a visible window-sized image, usable Close and the retained Chat draft; checking
-an accessibility frame alone had missed clipping by the native presentation. A fresh import gate is required for
-the root-view geometry change before Mac upload. Hosted AASA verification now rejects HTML, redirects, or an incorrect
+an accessibility frame alone had missed clipping by the native presentation. The shared wrapper also passes the
+complete iPhone figure journey in `import-corpus-diagnostic.xcresult` (17:49 UTC), with its fullscreen and
+transferred-draft screenshots inspected.
+
+The fresh import gate in `2026-10-18T17-49-34-442Z.xcresult` passes 13/13 with no skips at 17:53:29 UTC. Earlier
+attempts are retained: `2026-10-18T17-39-15-921Z.xcresult` timed out preparing Rubric Judgments, and the corpus
+method in `import-corpus-diagnostic.xcresult` prepared that paper but refused DocPilot. Their exact cause was not
+captured, so no production import fix is claimed from a later pass. The fixture now retains its existing reader
+event timeline, prints source identifiers at case start, reports progress/request count on timeout, and stops
+at the original failure instead of denying responses while preparation is still running. The 60-second timeout,
+seven pinned papers, validators and offline-reopen assertions are unchanged. Three additional bounded corpus
+replays configured to stop on the first failure pass all 21 paper imports/reopens in
+`import-repeat-diagnostics.xcresult` (40.1, 38.8 and 38.3 seconds, completed 17:56 UTC). These establish repeated
+acceptance on this Simulator, not a diagnosed fix for the two earlier intermittent failures.
+
+Hosted AASA verification now rejects HTML, redirects, or an incorrect
 application identity, in addition to checking entry-asset content types.
 
 Local AI is an explicit native/Metal tier, never part of routine `npm test`: `swift test --package-path apps/apple/LocalAI --filter ModelStoreTests` checks local model integrity; Core's `LocalAIContextTests` checks

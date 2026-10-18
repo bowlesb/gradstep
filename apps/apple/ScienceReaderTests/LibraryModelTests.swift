@@ -400,7 +400,7 @@ private final class LibraryPresentationObservation: NSObject {
 
 @MainActor
 final class LibraryModelTests: XCTestCase {
-    private enum FixtureError: Error { case timedOut, sqlite(Int32) }
+    private enum FixtureError: Error { case timedOut, importFailed, sqlite(Int32) }
 
     private func fixture(_ server: LibraryModelServer) throws -> Fixture {
         let fixture = try Fixture(server)
@@ -591,7 +591,14 @@ final class LibraryModelTests: XCTestCase {
     private func importSettled(_ model: ReaderModel, paper: Paper) async throws {
         let observation = LibraryModelObservation("Native import reaches a terminal state") { !model.isPreparingOnDevice(paper) }
         observation.observe(); await fulfillment(of: [observation.ready], timeout: 60); observation.stop()
-        XCTAssertFalse(model.isPreparingOnDevice(paper))
+        guard !model.isPreparingOnDevice(paper) else {
+            // Preserve the actual stalled stage, then stop this case. Continuing would deny the fixture replies
+            // while preparation is still running and turn the original timeout into misleading offline failures.
+            let progress = model.devicePreparations[paper.id].map { String($0) } ?? "none"
+            XCTFail("Import still active: \(paper.sourceID), progress \(progress), \(ImportAcceptanceProtocol.requests.count) source requests")
+            model.cancelDevicePreparation(paper)
+            throw FixtureError.timedOut
+        }
     }
     private func importOpened(_ model: ReaderModel) async throws {
         let observation = LibraryModelObservation("Native reader opens the verified bundle") {
@@ -693,7 +700,24 @@ final class LibraryModelTests: XCTestCase {
         let corpus = try JSONDecoder().decode(Corpus.self, from: Data(contentsOf: importRoot.appendingPathComponent("tests/corpus/import-regressions.json")))
         XCTAssertEqual(corpus.cases.count, 7, "every reported regression is required, never skipped for a missing cache")
         try importNetwork()
+        let trace = FileManager.default.temporaryDirectory.appendingPathComponent("import-acceptance-\(UUID()).jsonl")
+        try SessionTimeline.shared.begin(at: trace, metadata: ["fixture": "reported-paper-imports"])
+        defer {
+            SessionTimeline.shared.end()
+            if let events = try? Data(contentsOf: trace) {
+                let attachment = XCTAttachment(data: events, uniformTypeIdentifier: "public.json")
+                attachment.name = "Reported-paper import timeline"; attachment.lifetime = .keepAlways; add(attachment)
+                for line in String(decoding: events, as: UTF8.self).split(separator: "\n") {
+                    if let data = line.data(using: .utf8),
+                       let event = try? JSONDecoder().decode([String: String].self, from: data), event["kind"] == "reader" {
+                        print("Offline import reader event: \(line)")
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: trace)
+        }
         for entry in corpus.cases {
+            print("Offline native import starting: \(entry.source_id)v\(entry.revision) (\(entry.kind))")
             ImportAcceptanceProtocol.reset()
             var pdf: Data?
             for input in entry.responses {
@@ -707,7 +731,10 @@ final class LibraryModelTests: XCTestCase {
             let paper = try await importPaper(server, model: model, sourceID: entry.source_id, revision: entry.revision)
             if entry.kind == "reader" {
                 model.prepareOnDevice(paper); try await importSettled(model, paper: paper)
-                XCTAssertNil(model.devicePreparationIssues[paper.id], entry.source_id)
+                if let issue = model.devicePreparationIssues[paper.id] {
+                    XCTFail("\(entry.source_id): \(issue); inspect the reported-paper import timeline for its error code")
+                    throw FixtureError.importFailed
+                }
                 XCTAssertEqual(model.deviceCopy(for: paper), .reader, entry.source_id)
                 ImportAcceptanceProtocol.denyAll(); let requests = ImportAcceptanceProtocol.requests
                 model.select(paper); try await importOpened(model)
