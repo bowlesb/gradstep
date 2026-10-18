@@ -1,12 +1,15 @@
 # Local AI prototype
 
 
-## Mac-only replacement — 2026-10-18 (qualification in progress; not released)
+## Mac-only runtime and retirement — TestFlight 73; replacements not yet qualified
 
 The owner's new direction supersedes the phone prototype below. Local answering models and their MLX runtime,
 Metal resources and model catalogue are excluded from iPhone/iPad targets. The iOS stub only preserves historical
 answer/cache identities and refuses explicit old local turns without a cloud fallback. It retires the app-owned
 public weight cache. The separate on-device PDF extraction pipeline remains available.
+Build 73 is available in internal TestFlight on both platforms; the signed iOS archive passes the runtime/resource
+exclusion guard, and the signed Mac archive contains an empty answering-model catalogue. Replacement models below
+remain evaluation inputs, not released choices.
 
 The Mac candidates are pinned in `tests/local-ai/candidates.json`; they are evaluation inputs, not approved app
 choices. Qwen 3.5 9B and Gemma 4 12B each completed 27 scientific cases from five pinned papers with network denied.

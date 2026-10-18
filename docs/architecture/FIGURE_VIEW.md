@@ -1,6 +1,6 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
-## Complete image coverage and card types — 2026-10-18 (backend/browser verified; native release pending)
+## Complete image coverage and card types — 2026-10-18 (TestFlight 73; backend/browser deployed)
 
 Owner feedback ALCJLruWVHFOYNzJoULIvSY asks for every pixel to remain represented in the presentation, usually
 one card per subfigure but allowing grouped panels. Keep the complete image above the walkthrough. Add optional
@@ -29,6 +29,9 @@ Live Flash on FDE-Gym Figure 5 returned two panel cards at x=0/w=.5 and x=.5/w=.
 100%; the plotted axes, labels and titles were inspected. Walkthrough + detail cost $0.029884; this is one example,
 not a corpus-level quality claim. Records: `.artifacts/feedback/build71-20261018/` and
 `.artifacts/figure-view/2026-10-18T20-50-04-799Z-2610.22350v1.json`.
+Native build 73 is VALID / IN_BETA_TESTING on iOS/iPadOS and Mac, confirmed at 21:45:12 UTC. Both release notes
+were read back. The affected native journeys and the current-source 13-case import gate pass; details and
+remaining model/import limitations are in IMPLEMENTATION_STATUS.md.
 
 ## Build 70 feedback repair — 2026-10-18 (TestFlight 71 on iOS/iPadOS and Mac; browser/backend deployed)
 

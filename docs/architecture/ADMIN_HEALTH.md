@@ -42,6 +42,7 @@ staging.
 model identity; they are not necessarily the service charging the account. The alert now names OpenRouter as
 the current model gateway and directs the operator to Spending's attempt transport/receipt details. It must not
 tell an operator to top up Anthropic directly for a routed Claude request. No old ledger entry is relabeled.
+Admin Pages **a0540bb2** is deployed; the production build gates pass and the new wording was verified in live assets.
 
 Test accounts are left out of the people and use graphs: an Auth address ending `@example.invalid` (the live smoke
 scripts) or `@example.test` (fixtures). Accounts are counted while open. Spending includes everything, since tests

@@ -13,11 +13,12 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
-## OpenRouter consolidation — 2026-10-18 (staging deployed; iPhone/iPad TestFlight 72)
+## OpenRouter consolidation — 2026-10-18 (staging deployed; TestFlight 73 iPhone/iPad/Mac)
 
 Migration 089, the chat function and Cloud Run worker revision `gradstep-pipeline-00049-ghn` are deployed.
-Admin Pages `2506e98b` exposes transport and receipt metadata in account-filtered attempt details; browser
-Pages `5a1533bc` carries the current consent/profile contract. Migration 090 corrects a health false positive:
+Admin Pages `2506e98b` introduced transport and receipt metadata in account-filtered attempt details; current Pages
+`a0540bb2` also corrects billing guidance to use the recorded gateway rather than the logical model maker. Browser
+Pages `8d2514ec` retains the current consent/profile contract. Migration 090 corrects a health false positive:
 unclaimed metadata without an interested import is resting work, not a stuck job. Interested/claimed work
 continues to alert. No paper row was reset or retried to hide that alert.
 

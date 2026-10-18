@@ -1,8 +1,12 @@
 # Owner feedback log
 
-## Further screenshot feedback — 2026-10-18, 20:45–20:56 UTC (implemented; native release gate in progress)
+## Further screenshot feedback — 2026-10-18, 20:45–20:56 UTC (TestFlight 73 and browser deployed)
 
 All six screenshots were downloaded and inspected in `.artifacts/feedback/build71-20261018/`.
+Build **73** is **VALID / IN_BETA_TESTING** on iOS/iPadOS and Mac, both verified at **21:45:12 UTC**, with release
+notes read back. Browser Pages **8d2514ec** is deployed. The current-source import gate passes 13/13 without skips;
+seven affected iPhone journeys, three Mac journeys, two native bridge regressions and four targeted browser cases
+pass. Screenshots were inspected. This establishes release/test evidence, not owner acceptance on the physical phone.
 
 | Report | Requested behavior / diagnosed cause | Evidence |
 |---|---|---|
@@ -14,14 +18,14 @@ All six screenshots were downloaded and inspected in `.artifacts/feedback/build7
 | `AJLDiNJ6Dzq4eb06F-CvAhc` | Remove the visible keyword Edit text; keep keyword editing reachable. | Shared bridge updated; accessible editing name/action retained. |
 
 
-## Build 71 feedback — 2026-10-18 (implemented; native release pending)
+## Build 71 feedback — 2026-10-18 (included in TestFlight 72 iOS and 73 iOS/Mac)
 
 Seven new screenshots were inspected individually (`.artifacts/feedback/build71-20261018/`).
 
 | Report | Diagnosis and change | Evidence |
 |---|---|---|
 | `AAIRTUkUM8VCNEXeNJ08xWY` | Equation heading changed while WKWebView retained its initial formula. Reload on markup changes, keyed by bundle identity; ignore obsolete navigation completions. | Actual web-view DOM regression passes after switching equations. |
-| `AJ_z1-3h-S_4KMX3DQeREZ8` | Excess space between equation and model control. Reduced the shared spacing. | Affected native journey passes; release pending. |
+| `AJ_z1-3h-S_4KMX3DQeREZ8` | Excess space between equation and model control. Reduced the shared spacing. | Affected native journey passes; included in build 73. |
 | `AKySCAEqMG8jFIUsZuMgJUk` | Initial choice should be Default and Choose model. Consolidated the initial chooser; expanded controls retain actual model names and reasons. | Native chooser and cloud-failure journeys pass. |
 | `AIm3cFZUGNMzCcnow--e9uU` | Only part of a Figure/Table/Equation reference was clickable. Expand the anchor to the complete named reference. | Real reader DOM link regression passes. |
 | `AGaNyh3RbfCpwDS8YAPMU98` | Use Gradstep Keywords, without the redundant device qualifier. | Reader markup assertion passes. |
@@ -31,8 +35,8 @@ Seven new screenshots were inspected individually (`.artifacts/feedback/build71-
 Native evidence: `feedback-chooser.xcresult` under the intake folder. iPhone/iPad local answering removal and
 Mac model qualification are a separate owner-directed change in this batch. The PDF extraction model is retained.
 No physical iPhone testing was performed. An initial import gate caught a test that inspected rows before its
-background search completed; it now awaits the actual search, retaining all row/spinner assertions. Release still
-requires a passing, source-matching gate. Older intermittent Rubric Judgments/DocPilot failures remain unproven.
+background search completed; it now awaits the actual search, retaining all row/spinner assertions. The release's
+source-matching gate passes 13/13. Older intermittent Rubric Judgments/DocPilot failures remain unproven.
 
 TestFlight screenshot feedback is read from App Store Connect (`betaFeedbackScreenshotSubmissions`; screenshots are
 saved under `.artifacts/feedback/`, which is not committed). Each item gets a plan and is closed with the build that
@@ -689,7 +693,7 @@ Mac and in the Simulator; the reason was hidden behind the default wording. The 
 version details, a killed web compiler is retried once, and preparations run one at a time.
 
 
-## Additional build 71 figure-card instruction — 2026-10-18 20:07 UTC (implementation under verification)
+## Additional build 71 figure-card instruction — 2026-10-18 20:07 UTC (TestFlight 73; browser/backend deployed)
 
 Report **ALCJLruWVHFOYNzJoULIvSY**, 3DCodeVerse-2M Figure 2: every pixel represented when divided into cards;
 allow grouped panels; consistent titles/subtitles and distinct panel/concept/related-work cards. Screenshot
@@ -698,4 +702,5 @@ pixel union of outward-rounded crops, and label an incomplete split explicitly. 
 saved answers and prevent a concept/related-work card from becoming a crop. Related work identifies the supplied
 paper as its source; no other paper is fetched automatically. Server prompt asks for complete grouped/panel
 coverage, with at most the existing 12 sections. No detector is promoted by these presentation changes.
-The initial seven reports shipped in iPhone/iPad TestFlight 72; this eighth report is subsequent work.
+The initial seven reports shipped in iPhone/iPad TestFlight 72; this eighth report and the later six reports
+are included in build 73 on iOS/iPadOS and Mac (VALID / IN_BETA_TESTING at 21:45:12 UTC).

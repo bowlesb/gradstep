@@ -1,17 +1,20 @@
 # Implementation status
 
 
-## Later October 18 feedback — TestFlight 73 on iPhone/iPad; Mac upload in progress
+## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed
 
 iPhone/iPad build **73** is **VALID / IN_BETA_TESTING**, read back after its 21:34:36 UTC upload.
 ASC ID `4fdf3cd5-74a4-4813-b605-0108f1a81fe9`; release notes were written and read back. Its signed archive
 contains production source **1262117** and passes the local-answering-runtime/catalog/resource exclusion guard.
-Subsequent commits change tests, research scripts and documentation, not the archived application source.
-The Mac 73 archive (production source identical, verification commit **1e86de7**) is signed and uploading;
-its archived local-model catalogue is empty. Mac TestFlight availability is not yet confirmed.
+Subsequent native verification commits change tests, research scripts and documentation, not the archived application source.
+Mac **73** (production source identical, verification commit **1e86de7**) is also **VALID / IN_BETA_TESTING**;
+ASC ID `a2a01f17-a94a-49ad-9292-6e51d2067eb5`, uploaded 21:40:46 UTC. Both platforms and their release notes were
+verified at **2026-10-18T21:45:12.181Z**. The archived Mac model catalogue is empty, reflecting the retirement of
+unqualified prototypes. Binary hashes, catalogue checks and the import result are retained in `release-73-provenance.json`
+under `.artifacts/feedback/build71-20261018/`.
 
 Six additional reports at 20:45–20:56 UTC are implemented: full-height Contents; a touch double-tap opens it with
-persisted first-use discovery; genuinely instant section jumps; all reference actions visible together; separate
+persisted first-use discovery; instant section jumps; all reference actions visible together; separate
 Library Device/Authors columns; and no visible keyword Edit label. The missed animation was a second bridge path
 that still explicitly requested smooth scrolling. Native and browser frame timing now verifies the jump without
 Reduce Motion. The existing complete figure-card change and Mac prototype retirement are included in this source.
@@ -22,10 +25,14 @@ four targeted browser desktop/phone cases pass; `npm test` passes. Browser Pages
 asset/AASA verification. App Store feedback readback contains 203 reports and no further unseen reports. The fresh
 optimized import gate passes **13/13, zero failures/skips**, matching production source at **21:22:26 UTC**. Mac
 Library/model-retirement journeys pass; the corrected Contents/equation viewport journey passes at **21:30:19 UTC**.
-Saved screenshots and the Catalyst accessibility hierarchy were reviewed. Mac upload/processing is pending.
+Saved screenshots and the Catalyst accessibility hierarchy were reviewed.
 Mac chat-generation and Library-column units pass **54/54** with a complete result bundle. Disabling coverage collection
 for this focused run allowed result finalization; the earlier completed-test logs with unfinished bundles remain
 retained rather than being represented as valid result bundles.
+
+Admin Pages **a0540bb2** is deployed and its live assets verified. The billing-refusal warning now distinguishes
+logical model-provider groups from the current OpenRouter billing gateway and directs investigations to the
+recorded attempt details in Spending. The account UUID/receipt drill-down from **2506e98b** remains intact.
 
 ## Build 71 feedback and OpenRouter consolidation — 2026-10-18 (TestFlight 72 on iPhone/iPad)
 
@@ -58,7 +65,7 @@ before upload. Device-only PDF extraction remains. Mac replacements are undergoi
 Qwen 9B and Gemma 12B failed critical scientific checks. Neither is promoted merely because it fits or runs.
 Subfigure research/fine-tuning design is updated; no detector or newly trained model is claimed released.
 
-## Later figure-card feedback and Mac retirement — 2026-10-18 (native release verification in progress)
+## Later figure-card feedback and Mac retirement — 2026-10-18 (included in TestFlight 73)
 
 The eighth report (3DCodeVerse-2M Figure 2) adds typed panel/concept/related-work cards and complete-image coverage.
 The backend is deployed; browser Pages **37ef6b86** passes asset/AASA checks. Cards retain their full overview,

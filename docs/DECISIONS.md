@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## OpenRouter exclusively, Mac-only local AI, build 71 feedback (owner, 2026-10-18; implementation in progress)
+## OpenRouter exclusively, Mac-only local AI, build 71 feedback (owner, 2026-10-18; rollout shipped, replacements qualifying)
 
 Six further screenshots (20:45–20:56 UTC) request: all reference actions visible together; Contents opening at full
 height; a touch double-tap in article text opening Contents with a persistent, first-use hint; instant section jumps;
