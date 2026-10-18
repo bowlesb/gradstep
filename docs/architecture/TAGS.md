@@ -1,6 +1,6 @@
 # Topic tags
 
-## Device keywords, build 70 feedback (2026-10-18; iOS/iPadOS 71 and browser deployed; Mac held)
+## Device keywords, build 70 feedback (2026-10-18; iOS/iPadOS/Mac 71 and browser deployed)
 
 The owner prohibits generic AI/Machine learning keywords and asks for more discriminative paper terms.
 Clients derive up to six specific vocabulary topics and named methods/datasets from title/abstract, excluding

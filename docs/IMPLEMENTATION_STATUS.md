@@ -1,11 +1,12 @@
 # Implementation status
 
-## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS; browser deployed; Mac upload held)
+## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS and Mac; browser deployed)
 
 Build **71**, source **c4d15d9**, is **VALID / IN_BETA_TESTING** for iOS/iPadOS, confirmed at
 **2026-10-18T17:04:13.483Z**. Its internal-only upload succeeded and release notes were written and read back.
-ASC build ID: `4fbc78aa-e0f0-4eab-b13a-553cf38687c1`. Browser Pages **13724098** is deployed. Mac remains on
-TestFlight 70 while the final build-71 figure retest is blocked as described below.
+ASC build ID: `4fbc78aa-e0f0-4eab-b13a-553cf38687c1`. Mac build **71**, source **927cbe9**, is also
+**VALID / IN_BETA_TESTING**, with both platforms and their notes verified at **2026-10-18T18:02:37.560Z**. Mac build ID:
+`867811b7-ec6b-41c5-aa4e-dfeab31932e9`; upload succeeded at 17:59:15 UTC. Browser Pages **13724098** is deployed.
 
 Twenty new screenshots after build 70 were downloaded and inspected individually; no new support/crash reports
 were found at intake. Exact IDs and requests are in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). Work includes:
@@ -37,12 +38,12 @@ and conversation ownership, the complete figure journey and the local figure jou
 changes paper and figure defaults independently and verifies the new paper chat's selection. Exact FDE-Gym
 rendering passes both themes with 25 headings/63 equations/seven images, no horizontal overflow and working
 selection. Browser Find/search/link and figure journeys pass, including the final display-margin assertions.
-The final release-optimized import/session gate passes **13/13, zero failures/skips**, matching source at
+The initial iOS release-optimized import/session gate passes **13/13, zero failures/skips**, matching source at
 **16:57:23 UTC** (`.artifacts/import-acceptance/2026-10-18T16-48-10-757Z.xcresult`). Both signed build-71 archives
 pass identity/signature, compiler/catalog/resource and Associated Domains checks. No downloaded LLM weights or
 environment files are bundled. The deployed `chat` and `discover` functions need no new migration; browser Pages
 **13724098** passes entry-asset checks and an exact AASA JSON/app-identity readback at `https://app.gradstep.ai`.
-Release feedback readback at 16:59 UTC still contains 189 screenshots, no next page or new submissions.
+Release feedback readback at 18:03 UTC still contains 189 screenshots, no next page or new submissions.
 
 Mac Library/draft units, the figure Ask-in-Chat journey and four keyboard journeys pass. The full figure retest
 initially encountered a macOS system dialog; the owner's subsequent Continue resumed the ordinary app test,
@@ -50,7 +51,19 @@ which passed without inspecting or controlling that dialog. Visual review then c
 gap: Catalyst displayed the fullscreen figure in a small sheet. The final Mac correction uses a fitted sheet
 sized from its owning reader window. The complete journey passes at 17:40 UTC, including visible-window geometry,
 X/Escape/⌘W, extraction, citation return and Chat transfer; fullscreen and transferred-draft screenshots were
-inspected (`mac-fullwindow-sheet.xcresult`). A fresh import replay and replacement signed archive are in progress.
+inspected (`mac-fullwindow-sheet.xcresult`). The shared wrapper also passes the full iPhone figure journey at
+17:49 UTC, with fullscreen and transferred-draft screenshots inspected. The replacement signed Mac archive,
+source `927cbe9`, passes signatures, both architecture/dSYM UUIDs, entitlements and resource identity checks.
+
+The fresh import/session gate passes **13/13, zero failures/skips** at **17:53:29 UTC**
+(`.artifacts/import-acceptance/2026-10-18T17-49-34-442Z.xcresult`), followed by three bounded corpus repetitions:
+**21/21 reported-paper imports and offline reopens** at 17:56 UTC (`import-repeat-diagnostics.xcresult`).
+Two earlier Simulator runs failed intermittently: Rubric Judgments preparation timed out, then a separate replay
+accepted that paper but refused DocPilot. Their precise causes remain unproven. No speculative production import
+change was made; test diagnostics now preserve the reader timeline and fail at the first error instead of
+producing misleading follow-on offline errors. The original timeout and acceptance criteria are unchanged.
+Passing later runs is not presented as a root-cause fix. Mac 71 was uploaded after the passing checks and is
+available as recorded above. Commit `863cdca` adds only test diagnostics/documentation after the signed app source.
 The earlier signed archive is retained but is not the final Mac candidate. Physical-phone access remains paused, including
 universal-link launch. Artifacts: `.artifacts/feedback/build70-20261018/`.
 

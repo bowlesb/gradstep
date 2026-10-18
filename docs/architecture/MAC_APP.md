@@ -1,6 +1,12 @@
 # Mac app
 
-## Build 71 figure fullscreen correction — 2026-10-18 (verified; archive/upload pending)
+## Build 71 figure fullscreen correction — 2026-10-18 (TestFlight 71 available)
+
+Mac build **71**, source `927cbe9`, is **VALID / IN_BETA_TESTING** at **2026-10-18T18:02:37.560Z**
+(build `867811b7-ec6b-41c5-aa4e-dfeab31932e9`), with release notes read back. The replacement universal archive
+passes signature, arm64/x86_64 dSYM UUID, entitlement and resource checks. The final import/session gate passes
+13/13, followed by 21/21 reported-paper replays; earlier intermittent failures remain documented in
+[Testing](../TESTING.md), without claiming a diagnosed fix.
 
 Visual review caught a gap in the first passing figure journey: SwiftUI's `fullScreenCover` opened a second
 small centered sheet inside the explainer on Catalyst. The old test asserted only that the close button existed.

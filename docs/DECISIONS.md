@@ -34,8 +34,9 @@ consume the same region artifact. No model ships until licensing, conversion, qu
 Mac/simulator evidence never substitutes for the paused physical-iPhone acceptance.
 
 Implementation and the Mac Core ML detector experiment are complete. Browser Pages 13724098 and the chat/search
-backend changes are deployed; the source-matching import gate passes 13/13 without skips. Native release state
-and the blocked final Mac figure retest are recorded in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+backend changes are deployed; the source-matching import gate passes 13/13 without skips. Native release state,
+the verified Mac figure correction and the remaining intermittent import-test limitation are recorded in
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 The measured detector is not included in the app: high-confidence crops still omit interpretation-critical text,
 and its AGPL research weights have not passed the distribution gate. See
 [measured results](reviews/LOCAL_FIGURE_REGIONS_20261018.md).
