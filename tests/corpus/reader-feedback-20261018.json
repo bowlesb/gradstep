@@ -1,0 +1,63 @@
+[
+  {
+    "source_id": "2610.22353",
+    "source_revision": 1,
+    "title": "Rethinking Routing Exploration in Modern Mixture-of-Experts",
+    "authors": []
+  },
+  {
+    "source_id": "2610.16794",
+    "source_revision": 1,
+    "title": "TPPO: Tracking-Value PPO For Language Model Reasoning",
+    "authors": [
+      "Futing Wang",
+      "Chenxi Li",
+      "Jianhao Yan",
+      "Yun Luo",
+      "Zhi Wang",
+      "Yizhuo Li",
+      "Runzhe Zhan",
+      "Yu Cheng",
+      "Tao Lin"
+    ]
+  },
+  {
+    "source_id": "2610.20584",
+    "source_revision": 1,
+    "title": "Player-1: Learning to Play from Synthetic Experience",
+    "authors": [
+      "Mingyu Ouyang",
+      "Yiran Wang",
+      "Siyuan Hu",
+      "Xingyilang Yin",
+      "Huiqiang Sun",
+      "Guangzhi Wang",
+      "Junfu Pu",
+      "Cheng Cheng",
+      "Honghao Chen",
+      "Ying Shan",
+      "Mike Zheng Shou",
+      "Hwee Tou Ng"
+    ]
+  },
+  {
+    "source_id": "2610.20592",
+    "source_revision": 1,
+    "title": "GeoThinker-$F$: Endogenous Predictive World Representations for Fast Spatial Intelligence",
+    "authors": [
+      "Haoyuan Li",
+      "Qihang Cao",
+      "Huanyuan Zhou",
+      "Xin Hu",
+      "Sijia Chen",
+      "Zihan Guo",
+      "Kun Xiang",
+      "Yunshuang Nie",
+      "Tao Tang",
+      "Xinlong Zheng",
+      "Jia-Wang Bian",
+      "Xianming Liu",
+      "Xiaodan Liang"
+    ]
+  }
+]

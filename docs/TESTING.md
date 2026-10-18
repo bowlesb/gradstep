@@ -31,6 +31,13 @@ regression uses full bundle validation, which catches a missing sanitizer class 
 `tests/database/import_metadata.sql` for date/delta delivery, explicit empty keywords, archive-only preservation,
 account isolation and idempotency. Evidence is retained under `.artifacts/feedback/all-20261018/`.
 
+The subsequent 123-paper replay caught indexed affiliation marks being flattened (revision 20 repair). Full
+image compilation in WebKit also caught 2610.20592v1 crossing the encoded bundle limit while Chromium passed
+(revision 21 repair). Keep the four cases in `tests/corpus/reader-feedback-20261018.json`; pass its absolute
+path as `TEST_RUNNER_SCIENCE_READER_HTML_CASES` to `ArxivHTMLReaderTests` with release optimization. The
+existing replay uses cached official bytes only and fails when they are missing. The final native replay passes
+all four, including all seven figures and 347 equations of the large paper, in the existing memory/size bounds.
+
 ## Build 68 Equations regression
 
 `swift test --package-path apps/apple/ScienceReaderCore --filter 'EquationViewTests|ChatStreamTests'` covers complete
