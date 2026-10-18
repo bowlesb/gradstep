@@ -49,14 +49,13 @@ actor PodcastFixtureTransport: PodcastTransport {
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
     }
 
-    /// The server's four lengths and their maximums (migration 052's serving-limit profiles, as staging serves them).
-    // Version-3 maxima (migration 062: the script repair call), as staging quotes since 2026-10-14.
-    static let lengths = [("podcast-short-v1", "Short", 150, 140), ("podcast-5min-v1", "5 min", 300, 150),
-                          ("podcast-10min-v1", "10 min", 600, 300), ("podcast-20min-v1", "20 min", 1200, 520)]
+    /// OpenRouter profiles 6/7 (migration 089), read back from staging on 2026-10-18.
+    static let lengths = [("podcast-short-v1", "Short", 150, 230), ("podcast-5min-v1", "5 min", 300, 240),
+                          ("podcast-10min-v1", "10 min", 600, 380), ("podcast-20min-v1", "20 min", 1200, 590)]
         .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3,
                              estimate: "Estimate — you're charged actual usage, maximum \($0.3) credits",
                              writers: writers(profile: $0.0, deepseek: $0.3)) }
-    private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 150, targetSeconds: 300,
+    private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 240, targetSeconds: 300,
                                                           transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600),
                                                           lengths: lengths)
     private static func length(_ profile: String?) -> PodcastLength? { lengths.first { $0.profile == (profile ?? PodcastLength.defaultProfile) } }
@@ -119,11 +118,11 @@ actor PodcastFixtureTransport: PodcastTransport {
         return PodcastPaperLookup(episode: episode?.summary, episodes: ready.map(\.summary), job: job, capabilities: Self.capabilities)
     }
 
-    /// The writers every fixture length offers (2026-10-14): DeepSeek first (the policy's default), Sonnet at its own maxima.
+    /// The writers every fixture length offers (profiles 6/7, 2026-10-18): DeepSeek first (the policy's default), Sonnet at its own maxima.
     static func writers(profile: String, deepseek: Int) -> [PodcastWriter] {
-        let sonnet = ["podcast-short-v1": 180, "podcast-5min-v1": 200, "podcast-10min-v1": 360, "podcast-20min-v1": 610][profile] ?? deepseek
-        return [PodcastWriter(writer: "deepseek", label: "DeepSeek V4 Pro", maxCredits: deepseek, consentVersion: "podcast-private-v2"),
-                PodcastWriter(writer: "anthropic", label: "Claude Sonnet 5.5", maxCredits: sonnet, consentVersion: "podcast-private-v1")]
+        let sonnet = ["podcast-short-v1": 350, "podcast-5min-v1": 370, "podcast-10min-v1": 540, "podcast-20min-v1": 800][profile] ?? deepseek
+        return [PodcastWriter(writer: "deepseek", label: "DeepSeek V4 Pro", maxCredits: deepseek, consentVersion: "podcast-private-v3"),
+                PodcastWriter(writer: "anthropic", label: "Claude Sonnet 5.5", maxCredits: sonnet, consentVersion: "podcast-private-v3")]
     }
     func uploadSource(_ source: PodcastDeviceSource) async throws -> String { String(repeating: "d", count: 64) }
     func quote(itemID: UUID, requestID: UUID, profile: String?, writer: String?, device: PodcastDeviceDescriptor?) async throws -> PodcastQuoteOutcome {
@@ -138,14 +137,14 @@ actor PodcastFixtureTransport: PodcastTransport {
         let id = UUID(); quotes[id] = (itemID, length)
         return .quote(PodcastQuote(id: id, expiresAt: "2026-10-08T12:15:00Z", maxCredits: chosen.maxCredits,
                                    estimate: "Estimate — you're charged actual usage, maximum \(chosen.maxCredits) credits",
-                                   providers: [chosen.writer == "deepseek" ? "DeepSeek (script)" : "Anthropic (script)", "Google Vertex AI (speech)"],
+                                   providers: [chosen.writer == "deepseek" ? "OpenRouter → DeepInfra (DeepSeek script)" : "OpenRouter → Google Vertex (Claude script)", "OpenRouter → Google (speech)"],
                                    consentVersion: chosen.consentVersion ?? "podcast-private-v1",
                                    targetSeconds: length.targetSeconds, profile: length.profile, label: length.label, options: Self.lengths,
                                    writer: chosen.writer, writerLabel: chosen.label))
     }
 
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
-        guard ["podcast-private-v1", "podcast-private-v2"].contains(consentVersion) else { throw BackendError.rejected("consent_required") }
+        guard ["podcast-private-v1", "podcast-private-v2", "podcast-private-v3"].contains(consentVersion) else { throw BackendError.rejected("consent_required") }
         guard let quote = quotes.removeValue(forKey: quoteID) else { throw BackendError.rejected("quote_expired") }
         jobs[requestID] = (quote.itemID, 0, nil, quote.length); requestOrder.append(requestID)
         return .job(Self.job(requestID, steps: 0, mode: generation, length: quote.length, readyAt: readyAt))

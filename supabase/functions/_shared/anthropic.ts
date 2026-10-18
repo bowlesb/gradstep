@@ -1,3 +1,5 @@
+import { isRouterDeepSeek, routerDeepSeekRates } from "./openrouter-deepseek-pricing.ts";
+import type { OpenRouterAttribution } from "./openrouter-transport.ts";
 import { isRouterClaude, routerClaudeRates } from './openrouter-claude-pricing.ts';
 // Anthropic provider boundary for paid chat. Deno and Node compatible: no
 // runtime globals beyond fetch/AbortSignal, so tests can drive the real SDK
@@ -59,6 +61,7 @@ const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({
 
 /** `promptTokens` (the whole prompt: uncached, cache-write and cache-read tokens) chooses Haiku 5.5's tier. */
 export function ratesFor(model: string | null | undefined, promptTokens = 0): { rates: TokenRates; known: boolean } {
+  if (typeof model === 'string' && isRouterDeepSeek(model)) return { rates: routerDeepSeekRates(model), known: true };
   if (typeof model === 'string' && isRouterClaude(model)) return { rates: routerClaudeRates(model, promptTokens), known: true };
   const canonical = typeof model === 'string' ? model.replace(/-\d{8}$/, '') : '';
   const rates = Object.hasOwn(KNOWN_RATES, canonical) ? KNOWN_RATES[canonical] : undefined;
@@ -110,6 +113,7 @@ export const FALLBACK_HOLD_FACTOR = 3;
  * Any other model: the unknown rate card, three attempts.
  */
 export function holdRule(model: string, promptTokens: number): { rates: TokenRates; attempts: number } {
+  if (isRouterDeepSeek(model)) return { rates: routerDeepSeekRates(model), attempts: 2 };
   if (isRouterClaude(model)) return { rates: routerClaudeRates(model, promptTokens), attempts: 1 };
   switch (model) {
     case CHAT_MODEL: return { rates: SONNET, attempts: FALLBACK_HOLD_FACTOR };
@@ -145,7 +149,7 @@ export function hourCachedCharacters(params: Anthropic.Beta.Messages.MessageCrea
 /** The hold for one admitted request, from its own model, prompt and output allowance. */
 export function holdForParams(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): { inputTokens: number; microusd: number; credits: number } {
   // One byte per token already bounds user content; this extra allowance covers the translated tool template.
-  return holdFor(promptCharacters(params) + ((params.model === GEMINI_MODEL || isRouterClaude(params.model)) ? 3 * 1024 : 0), params.max_tokens, params.model, hourCachedCharacters(params));
+  return holdFor(promptCharacters(params) + ((params.model === GEMINI_MODEL || isRouterClaude(params.model) || isRouterDeepSeek(params.model)) ? 3 * 1024 : 0), params.max_tokens, params.model, hourCachedCharacters(params));
 }
 
 type Usage = Anthropic.Beta.Messages.BetaUsage;
@@ -428,6 +432,9 @@ export function searchingStatus(query: unknown): ChatStatus {
 }
 
 export interface StreamOptions {
+  attribution?: OpenRouterAttribution;
+  /** Closed auxiliary purpose; never derived from question/title text. */
+  purpose?: 'topic_title';
   signal: AbortSignal;
   onText: (text: string) => void;
   /** Progress between pieces of text (Anthropic's server-side search). */

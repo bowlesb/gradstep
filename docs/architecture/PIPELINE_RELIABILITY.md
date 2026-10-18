@@ -432,3 +432,12 @@ such change is read off the log instead of reproduced by hand. Reproduction that
 locally against staging (`deploy-pipeline-worker.py build` then `run`, kicked at `POST /run` with the pipeline
 secret) failed identically, which ruled out Cloud Run's network; the exact request inside the image then timed out
 only in its encoded form.
+
+## Idle metadata in Health — 2026-10-18
+
+The hosted check flagged arXiv 2406.09246 as stuck for 29 hours, with zero claims. Readback showed no attached
+imports and `pipeline_interest=false`: the worker correctly ignores an orphan, but the health snapshot still
+counted it as active work. The observation contract now separates unclaimed metadata with no interested reader
+into `resting_metadata`. Claimed rows and metadata needed by a live import stay in stuck/crash detection. No
+paper, membership, import state or billing record is rewritten. Migration 090 and an isolated regression verify
+the idle case alongside genuinely stalled and claimed cases.

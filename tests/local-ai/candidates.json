@@ -1,0 +1,270 @@
+[
+  {
+    "id": "qwen35-9b",
+    "name": "Qwen 3.5 9B",
+    "repository": "mlx-community/Qwen3.5-9B-4bit",
+    "revision": "8b2b98c00a6b4d291155e4890773ca8f769aee53",
+    "vision": true,
+    "files": [
+      {
+        "name": "chat_template.jinja",
+        "bytes": 7756,
+        "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+      },
+      {
+        "name": "config.json",
+        "bytes": 3331,
+        "sha256": "a96942cb6a8a1d3f1d17514d81a1925d04362a6a3233b389d13012211baaa9f8"
+      },
+      {
+        "name": "model-00001-of-00002.safetensors",
+        "bytes": 5349771222,
+        "sha256": "a68b87558c6ef43f74c2bd63ce7e9092ceddc3101f3def0030774bae5f42aadd"
+      },
+      {
+        "name": "model-00002-of-00002.safetensors",
+        "bytes": 600449850,
+        "sha256": "b0a770bf8469c7f3f18756a0e0283f1c1174344a83e059a4e483f6af4907352d"
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "bytes": 123592,
+        "sha256": "dd023913fb87cfdae27fb11dcf695117c925833796ccac3c64117d6652d8ff1e"
+      },
+      {
+        "name": "preprocessor_config.json",
+        "bytes": 390,
+        "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+      },
+      {
+        "name": "processor_config.json",
+        "bytes": 1300,
+        "sha256": "14932921ca485d458a04dafd8069fbb0a4505622a48208d19ed247115801385b"
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 19989343,
+        "sha256": "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 1139,
+        "sha256": "e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182"
+      },
+      {
+        "name": "video_preprocessor_config.json",
+        "bytes": 385,
+        "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+      },
+      {
+        "name": "vocab.json",
+        "bytes": 6722759,
+        "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+      }
+    ],
+    "thinking": false,
+    "reasoningEffort": "medium",
+    "outputTokens": 4096,
+    "minimumMemoryBytes": 17179869184,
+    "textWorkingSetBytes": 10000000000,
+    "imageWorkingSetBytes": 11000000000,
+    "thinkingTokens": 1024
+  },
+  {
+    "id": "qwen38-27b",
+    "name": "Qwen 3.8 27B",
+    "repository": "mlx-community/Qwen3.8-27B-4bit",
+    "revision": "10c35caafbb80f7dc6a7a432cdd11af10a6d4818",
+    "vision": true,
+    "files": [
+      {
+        "name": "chat_template.jinja",
+        "bytes": 8952,
+        "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+      },
+      {
+        "name": "config.json",
+        "bytes": 4932,
+        "sha256": "14b65a0ee06517060a6bbd979bb1a8ff54e7b304b1a1f01d54344b88b8285e85"
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 202,
+        "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+      },
+      {
+        "name": "model-00001-of-00003.safetensors",
+        "bytes": 5343268662,
+        "sha256": "6cc1508e96fb5d0865dfd5753a79f4ec60651bf3e2a82844a7e8ae9c60528c0d"
+      },
+      {
+        "name": "model-00002-of-00003.safetensors",
+        "bytes": 5354185130,
+        "sha256": "83f2a20ca8058f486a3634a27faf99587f4cd3c156a83dee34fb99e6ac178670"
+      },
+      {
+        "name": "model-00003-of-00003.safetensors",
+        "bytes": 5357087557,
+        "sha256": "31b8c91ef899f79efaaa69e3d2c096f6e2ebeb2ff20e29222abbd9ebc79e560a"
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "bytes": 218281,
+        "sha256": "13b840162b4cb35c66fef7df072f7dbb4717908204364f5e5d9f9655a2758fa8"
+      },
+      {
+        "name": "preprocessor_config.json",
+        "bytes": 390,
+        "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+      },
+      {
+        "name": "processor_config.json",
+        "bytes": 991,
+        "sha256": "222e060084f093738ca7af4c89ef09d844e415876021325fdf7d5c6821b119d4"
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 19989325,
+        "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 1165,
+        "sha256": "792fa3f0cb88b111e54ef3134c873531008c4df471d108da17903426e308aa7b"
+      },
+      {
+        "name": "video_preprocessor_config.json",
+        "bytes": 385,
+        "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+      },
+      {
+        "name": "vocab.json",
+        "bytes": 6722759,
+        "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+      }
+    ],
+    "thinking": false,
+    "reasoningEffort": "medium",
+    "outputTokens": 4096,
+    "minimumMemoryBytes": 34359738368,
+    "textWorkingSetBytes": 21000000000,
+    "imageWorkingSetBytes": 23000000000,
+    "thinkingTokens": 2048
+  },
+  {
+    "id": "gemma4-12b",
+    "name": "Gemma 4 12B",
+    "repository": "mlx-community/gemma-4-12B-it-4bit",
+    "revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+    "vision": true,
+    "files": [
+      {
+        "name": "chat_template.jinja",
+        "bytes": 17466,
+        "sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0"
+      },
+      {
+        "name": "config.json",
+        "bytes": 5415,
+        "sha256": "fbc1c1cb48ed86ec98482b2d41f5a03d3991aba74b7c29a93d430761e6518a38"
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 260,
+        "sha256": "a8349d9bd64cc5841297fcb5002f0fdc4749c473c8f1b10ea337f9ce4ee7014e"
+      },
+      {
+        "name": "model-00001-of-00002.safetensors",
+        "bytes": 5351756584,
+        "sha256": "0d58feed0c98a69c07317b4481aeae5ab2785f12a496ea96ab24c4842808de78"
+      },
+      {
+        "name": "model-00002-of-00002.safetensors",
+        "bytes": 1389282927,
+        "sha256": "5b00a1bcb596ce6e827b4cdea6ecf2a0f35bb01306eb87c1ea4b3bcde36c7755"
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "bytes": 135329,
+        "sha256": "9ac99e7a6cf3e4d40eb8df01644fe9c04036ace94f3389df35db9d9449758516"
+      },
+      {
+        "name": "processor_config.json",
+        "bytes": 868,
+        "sha256": "016a1db9c4f41ea0c61919c46855ea5e7c45c6e4ae4bfbedfb5b6bed79a2fe92"
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 32169626,
+        "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 2719,
+        "sha256": "fc1384a911d2c9860ac07bc3ceafff20bff26695991744b7dbe5e1e4522bfa57"
+      }
+    ],
+    "minimumMemoryBytes": 25769803776,
+    "textWorkingSetBytes": 12000000000,
+    "imageWorkingSetBytes": 21000000000
+  },
+  {
+    "id": "gemma4-26b",
+    "name": "Gemma 4 26B A4B",
+    "repository": "mlx-community/gemma-4-26b-a4b-it-4bit",
+    "revision": "0d77464eeb233a2da68ebf9d7dc4edaac7db956d",
+    "vision": true,
+    "files": [
+      {
+        "name": "chat_template.jinja",
+        "bytes": 17466,
+        "sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0"
+      },
+      {
+        "name": "config.json",
+        "bytes": 12180,
+        "sha256": "419e13a27ec359654c1ce7dd06d1a87149fd07d0c8af9f770494185e62e1b2ba"
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 208,
+        "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+      },
+      {
+        "name": "model-00001-of-00003.safetensors",
+        "bytes": 5320218487,
+        "sha256": "683f420ee09550b8027bf0335c4202e196b37eb520b60a4bcbe8690b9e388c07"
+      },
+      {
+        "name": "model-00002-of-00003.safetensors",
+        "bytes": 5363328422,
+        "sha256": "feab2873c2976fb7ed666f8462549564a29409364388e0c8f6b015729d165e15"
+      },
+      {
+        "name": "model-00003-of-00003.safetensors",
+        "bytes": 4657658867,
+        "sha256": "bc607486deb1de5bc7e459932fda5c776a4f816b368feaa661bab8cfbb47e567"
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "bytes": 176940,
+        "sha256": "bf198c9f5ea6462addca1966e5dd669c407537a876e82cf06db9084c5c850b13"
+      },
+      {
+        "name": "processor_config.json",
+        "bytes": 1316,
+        "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 32169626,
+        "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 2740,
+        "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+      }
+    ]
+  }
+]

@@ -9,9 +9,9 @@ import XCTest
         return app
     }
     private func chooseLocal(_ app: XCUIApplication) {
-        let options = app.buttons["ai.localOptions"]
+        let options = app.buttons["ai.chooseModel"]
         XCTAssertTrue(options.waitForExistence(timeout: 5)); options.tap()
-        let local = app.buttons["ai.chooseLocal.qwen35-4b"]
+        let local = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ai.chooseLocal.")).firstMatch
         XCTAssertTrue(local.waitForExistence(timeout: 5)); local.tap()
     }
     func testCloudFailureExplainsBillingAndLetsTheReaderChangeModelHere() {
@@ -21,7 +21,7 @@ import XCTest
         let equation = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
         XCTAssertTrue(equation.waitForExistence(timeout: 15)); equation.tap()
         app.revealEditMenuItem("AI Explainer").tap()
-        app.buttons["ai.cloudOptions"].tap()
+        app.buttons["ai.chooseModel"].tap()
         let cloud = app.buttons["ai.chooseCloud"]
         XCTAssertTrue(cloud.waitForExistence(timeout: 5))
         XCTAssertTrue(cloud.label.contains("Sonnet"), cloud.label)
@@ -31,7 +31,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "provider account has insufficient funds")).firstMatch.exists)
         let capture = XCTAttachment(screenshot: app.screenshot()); capture.name = "Provider balance failure with inline recovery"; capture.lifetime = .keepAlways; add(capture)
         change.tap()
-        app.buttons["ai.cloudOptions"].tap()
+        app.buttons["ai.chooseModel"].tap()
         let picker = app.buttons["chat.profile.model.haiku"]
         XCTAssertTrue(picker.waitForExistence(timeout: 5)); picker.tap()
         XCTAssertTrue(cloud.label.contains("Haiku"), cloud.label); cloud.tap()
@@ -39,6 +39,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["equation.aiSource"].label.contains("Haiku"))
     }
 
+    #if targetEnvironment(macCatalyst)
     func testLocalFigureChoiceReadsInTheExistingExplainerWithoutCloudConsent() {
         let app = launch()
         app.buttons["Table of contents"].tap()
@@ -46,7 +47,7 @@ import XCTest
         app.contentsTab("Figures").tap()
         app.buttons["contents.figure.0"].tap()
         app.buttons["figureView.explain"].tap()
-        XCTAssertTrue(app.buttons["ai.localOptions"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5))
         chooseLocal(app)
         XCTAssertTrue(app.descendants(matching: .any)["figureView.description"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["figureView.aiSource"].label.contains("(local)"))
@@ -99,6 +100,7 @@ import XCTest
         XCTAssertTrue(follow.waitForExistence(timeout: 8), "the same encrypted conversation reopens")
     }
 
+    #endif
     func testDictationOnlyFillsTheDraftAndModelsLiveInSettings() {
         let app = XCUIApplication(); app.launchArguments = ["--chat-fixture", "--dictation-fixture", "--local-ai-fixture", "--reset-draft-fixture", "--study-fixture"]
         app.launch(); app.show("chat"); app.buttons["chat.dictate"].tap()
@@ -108,18 +110,17 @@ import XCTest
         XCTAssertTrue(app.buttons["chat.composerOptions"].exists)
         app.show("settings")
         let models = app.buttons["settings.localModels"]
+        #if targetEnvironment(macCatalyst)
         for _ in 0..<10 where !(models.exists && models.isHittable) { app.swipeUp() }
         XCTAssertTrue(models.exists); models.tap()
-        let downloadedModel = app.buttons["ai.default.qwen35-4b"]
-        for _ in 0..<10 where !(downloadedModel.exists && downloadedModel.isHittable) { app.swipeUp() }
-        XCTAssertTrue(downloadedModel.exists)
-        let evidence = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Device testing")).firstMatch
-        for _ in 0..<10 where !(evidence.exists && evidence.isHittable) { app.swipeUp() }
-        XCTAssertTrue(evidence.exists)
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format:"label CONTAINS[c] %@", "physical iPhone")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Mac models"].waitForExistence(timeout: 5))
+        #else
+        for _ in 0..<8 { app.swipeUp(); XCTAssertFalse(models.exists) }
+        #endif
         let capture = XCTAttachment(screenshot: app.screenshot()); capture.name = "Local model management and measured compatibility"; capture.lifetime = .keepAlways; add(capture)
     }
 
+    #if targetEnvironment(macCatalyst)
     func testLocalChatChoiceThenSendNeedsNoCloudConsent() {
         let app = launch(); app.show("chat")
         let choice = app.buttons["ai.selection"]
@@ -130,4 +131,20 @@ import XCTest
         let answer = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "This answer was generated on this device")).firstMatch
         XCTAssertTrue(answer.waitForExistence(timeout: 8))
     }
+    #endif
+    #if !targetEnvironment(macCatalyst)
+    func testPhoneAIChooserOffersDefaultOrChooseModelWithoutLocalDownloads() {
+        let app = launch(); app.show("chat")
+        app.buttons["ai.selection"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseDefault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["ai.chooseModel"].exists)
+        XCTAssertFalse(app.buttons["ai.chooseCloud"].exists)
+        app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["ai.manageModels"].exists)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ai.chooseLocal.")).count, 0)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Phone cloud model choices"; shot.lifetime = .keepAlways; add(shot)
+    }
+    #endif
+
 }

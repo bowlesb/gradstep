@@ -52,6 +52,7 @@ def phase(sources, checks):
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--reader-issuer-fence-candidate', action='store_true',
                     help='Also apply the reviewed pending 045 ACL to the disposable full-suite fixture; no hosted changes.')
+parser.add_argument('--openrouter-only', action='store_true', help='Run the affected OpenRouter cutover fixture only.')
 args = parser.parse_args()
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
@@ -60,7 +61,12 @@ if args.reader_issuer_fence_candidate:
     if fence.exists() or not pending.is_file():
         parser.error('Candidate mode requires only the pending 045 file; promoted migrations are tested normally.')
     migrations = sorted([*migrations, pending])
-cutover_migrations = migrations
+all_migrations = migrations
+if args.openrouter_only:
+    phase([*all_migrations, ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql'], [])
+    raise SystemExit(0)
+# Historical provider fixtures run against their own contract, before the OpenRouter-only cutover.
+cutover_migrations = [p for p in migrations if p.name < '202610180089']
 migrations = [p for p in migrations if p.name < '202610130058']
 tests = sorted((ROOT / 'tests/database').glob('test_*.sql'))
 checks = ['concurrency', 'upgrade', 'library_compact_upgrade', 'library_upload_visibility_upgrade', 'library_query_concurrency', 'library_v5_command_concurrency', 'provider_accounting_upgrade', 'provider_accounting_concurrency', 'pipeline_retry_concurrency', 'asset_accounting_concurrency', 'pdf_upload_concurrency', 'sandbox_allowance_concurrency', 'store_purchase_lock_concurrency', 'store_verification_concurrency', 'deployment_readiness', 'store_verifier_concurrency', 'credit_resume_concurrency', 'feed_concurrency', 'podcast_concurrency', 'podcast_worker_journey']
@@ -83,3 +89,5 @@ phase([*[p for p in cutover_migrations if p.name < switch.name], ROOT / 'tests/d
 
 # Retained legacy accounting is verified before the explicit runtime cutover.
 phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql', ROOT / 'tests/database/admin_health.sql', ROOT / 'tests/database/budget_period.sql', ROOT / 'tests/database/chat_study_quotes.sql', ROOT / 'tests/database/podcast_script_repair.sql', ROOT / 'tests/database/podcast_deepseek_profiles.sql', ROOT / 'tests/database/podcast_writer_choice.sql', ROOT / 'tests/database/podcast_device_sources.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql', ROOT / 'tests/database/device_source_metadata.sql', ROOT / 'tests/database/device_search.sql', ROOT / 'tests/database/provider_resilience.sql', ROOT / 'tests/database/podcast_source_deletion.sql', ROOT / 'tests/database/arxiv_egress_off.sql', ROOT / 'tests/database/chat_deepseek.sql', ROOT / 'tests/database/contained_overruns.sql', ROOT / 'tests/database/figure_view_actions.sql', ROOT / 'tests/database/provider_billing_attention.sql', ROOT / 'tests/database/import_metadata.sql', ROOT / 'tests/database/chat_gemini.sql', ROOT / 'tests/database/chat_claude_openrouter.sql'], [])
+
+phase([*all_migrations, ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql'], [])

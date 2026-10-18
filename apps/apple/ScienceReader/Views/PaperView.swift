@@ -246,7 +246,7 @@ struct PaperView: View {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                                          if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
                                          #endif
-                                     }, paperLine: paper.publicationLine, paperTags: LibraryTags.tags(for: paper), paperTagSource: paper.tagsCustomized ? "Your keywords" : "Gradstep · on this device",
+                                     }, paperLine: paper.publicationLine, paperTags: LibraryTags.tags(for: paper), paperTagSource: paper.tagsCustomized ? "Your keywords" : "Gradstep",
                                      onTags: { if model.readerDocumentScope == readerScope { model.editTags(for: paper) } },
                                      citationReturnID: citationReturnID, onCitation: { active, origin in
                                          if model.readerDocumentScope == readerScope { citationBack = active; citationOrigin = active ? origin : "" }

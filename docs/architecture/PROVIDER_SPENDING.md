@@ -13,6 +13,62 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
+## OpenRouter consolidation — 2026-10-18 (staging deployed; native release pending)
+
+Migration 089, the chat function and Cloud Run worker revision `gradstep-pipeline-00049-ghn` are deployed.
+Admin Pages `2506e98b` exposes transport and receipt metadata in account-filtered attempt details; browser
+Pages `5a1533bc` carries the current consent/profile contract. Migration 090 corrects a health false positive:
+unclaimed metadata without an interested import is resting work, not a stuck job. Interested/claimed work
+continues to alert. No paper row was reset or retried to hide that alert.
+
+Live wire checks passed Claude and both DeepSeek structured calls, plus real PCM speech with delayed receipt
+reconciliation ($0.00921739 including the Sonnet schema check). Hosted paper chat passed with citations and auxiliaries. Full podcast
+acceptance remains under investigation: a new reasoning default first exhausted the script output allowance
+($0.054099); explicit reasoning-disabled translation repairs that transport regression. The next Short script
+was rejected by the unchanged quality checker ($0.023931; zero customer charge). It exceeded the word/character
+bounds and a chapter lost supported claims. The five-minute DeepSeek run also failed correction validation ($0.067877). These are quality failures, not
+missing accounting. A Sonnet contract probe identified that Vertex requires reasoning: low effort now preserves
+that requirement inside the original output cap, while DeepSeek/Haiku retain reasoning disabled. The synthetic
+Sonnet schema request passed; its deliberately small output limit is not a successful full episode. Neither
+rejection is recorded as a successful podcast. Evidence:
+`.artifacts/openrouter-unification-20261018/`; final cost/readback and delivery results follow below.
+
+One historical direct-Anthropic attempt from 2026-10-17 remains unknown with $0.000138 reserved. It has no
+provider receipt; elapsed time is not proof of zero cost. Do not release or invent a settlement for that hold.
+
+The owner requires one model gateway and investigation by user. All remote model POSTs will go through one
+OpenRouter transport; search/catalog metadata services are not model inference. Disable direct Anthropic,
+DeepSeek and Vertex model egress in deployed entrypoints. There is no direct-provider fallback.
+
+Keep `provider_attempts` and its append-only events as the financial authority. Its account UUID, operation UUID,
+attempt UUID, UTC admission/completion timestamps, route/model, tariff snapshot, usage, generation ID, actual cost
+and unresolved ceiling already provide the core record. Add a one-shot dispatch RPC and transport metadata to this
+same attempt, rather than another competing cost ledger: dispatched_at, exact transport model, endpoint policy,
+feature and caller. It locks/checks the existing admitted attempt and records the metadata before transport; a
+missing identity, failed acknowledgement or replay sends nothing. Metadata is a closed, bounded schema with no
+prompts, answers, captions, titles, URLs or error bodies. Existing account-deletion de-identification remains in force.
+
+Send OpenRouter `user` as the account UUID, `session_id` as the operation UUID, and an allowlisted `trace` carrying
+attempt/feature/caller/timestamp. Shared catalog classification retains the actual funding account and is marked
+`catalog_tags`, never confused with a reader chat. Research calls use an explicit service identity and durable
+run/attempt journal; they cannot borrow a production key without that audit contract. Do not enable content logging
+or external trace broadcasting. Owner + MFA gets paginated account/date/route filtering, exact costs separately from
+unresolved liability, generation IDs and exportable records in the private admin dashboard.
+
+Chat and podcast text use pinned routes: Claude/Gemini on the existing Google Vertex US route; DeepSeek's revisions (Flash 1017 / Pro 0813) on DeepInfra FP8. The maker is absent from OpenRouter's ZDR endpoint
+inventory, so pinning it would fail; consent v6 explicitly names DeepInfra. Retain actual final OpenRouter cost rather than recreating its bill
+from the list card. Every tool continuation, retry, title, suggestion, tag, script/review/repair and speech chunk
+has its own durable attempt. OpenRouter speech currently ignores `only`/`order` provider pins: request ZDR and no
+data collection, name OpenRouter/Google in podcast consent, and record the returned provider. Do not claim regional
+pinning for speech. Audio's binary response needs its generation receipt fetched before settlement; missing receipt
+keeps the original reservation unresolved. Price/admission bounds and account/platform limits still apply.
+
+Rollout requires migration + adapter tests (no grant/replay/transport loss/missing cost/account isolation), affected
+podcast/database checks, live bounded calls for changed wire contracts, private-admin readback and request provenance.
+Pause/drain old worker work during cutover. No historical charge is rewritten and no new fixed cost is provisioned.
+Official API references checked: [attribution](https://openrouter.ai/docs/guides/features/broadcast/overview),
+[speech](https://openrouter.ai/docs/guides/overview/multimodal/tts).
+
 ## Service RPC contract
 
 `worker_provider_attempt_begin` takes `p_account_id`, `p_operation_id`, `p_attempt_id` (UUIDs),

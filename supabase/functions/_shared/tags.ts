@@ -8,15 +8,18 @@
 //
 // Deno and Node compatible; dependencies are injected so tests drive it with fakes. Never logs
 // titles, abstracts, prompts or the API key.
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
+import { openRouterScriptProvider } from './openrouter-script.ts';
+import { rpcAttribution, type OpenRouterAttribution } from './openrouter-transport.ts';
+import type { ScriptProvider } from './podcast-script.ts';
 import { sha256 } from './http.ts';
 import { TAG_NAMES, TAG_VOCABULARY, TAG_VOCABULARY_VERSION, tagsFromCategories, vocabularyName } from './tag-vocabulary.ts';
 
-export const TAG_MODEL = 'claude-haiku-4-5-20251001';
+export const TAG_MODEL = 'anthropic/claude-haiku-5.5';
 export const TAG_MAX_TOKENS = 256;
 export const MAX_TAGS = 7;
-/** Claude Haiku 4.5: $1 / $5 per million input / output tokens, as micro-USD per token. */
-export const HAIKU_RATES = Object.freeze({ input: 1, output: 5, cacheWrite5m: 1.25, cacheRead: 0.1 });
+/** OpenRouter's pinned Vertex Haiku 5.5 rates, as micro-USD per token. */
+export const HAIKU_RATES = Object.freeze({ input: 0.11, output: 0.55, cacheWrite5m: 0.1375, cacheRead: 0.011 });
 const MAX_TITLE = 400, MAX_ABSTRACT = 4000;
 
 export interface TagInput { title: string; abstract: string | null; categories: string[] }
@@ -102,44 +105,35 @@ export function priceUsage(usage: { input_tokens?: number | null; output_tokens?
 export function estimateMicrousd(request: Anthropic.MessageCreateParamsNonStreaming): number {
   // Byte-level upper bound includes structured-output schema, tool/message
   // envelopes and escaped content. No prose-character/token heuristic.
-  const inputBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength;
+  const inputBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength + 1024;
   return Math.ceil(inputBytes * HAIKU_RATES.input + request.max_tokens * HAIKU_RATES.output);
 }
 
 /** One classification. Never throws: every path says what is known about billing. */
-export async function classifyPaper(client: Anthropic, input: TagInput): Promise<Classification> {
+export async function classifyPaper(client: ScriptProvider, input: TagInput, attribution?: OpenRouterAttribution): Promise<Classification> {
   const request = tagRequest(input);
-  let message: Anthropic.Message;
-  try {
-    message = await client.messages.create(request);
-  } catch (error) {
-    // Explicit pre-processing rejection can release the hold. A 5xx, timeout
-    // or lost connection may follow a billed request and remains unknown.
-    if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)
-      && [400, 401, 403, 404, 413, 422, 429].includes(error.status)) {
-      return { status: 'failed', code: error.status === 429 || error.status >= 500 ? 'provider_unavailable' : 'provider_rejected',
-        messageID: null, model: null, usage: null, microusd: 0 };
-    }
-    return { status: 'failed', code: 'provider_transport', messageID: null, model: null,
+  const result = await client.generate(request, AbortSignal.timeout(30_000), attribution);
+  if (result.state !== 'succeeded') return { status: 'failed', code: result.state === 'rejected' ? 'provider_rejected' : 'provider_transport',
+    messageID: result.requestID, model: null, usage: result.state === 'unknown' ? { input_tokens: 0, output_tokens: 0, estimated: true } : null,
+    microusd: result.state === 'unknown' ? estimateMicrousd(request) : 0 };
+  if (!result.usage || !Number.isFinite(result.billedMicrousd) || result.billedMicrousd! < 0)
+    return { status: 'failed', code: 'provider_usage_unknown', messageID: result.requestID, model: null,
       usage: { input_tokens: 0, output_tokens: 0, estimated: true }, microusd: estimateMicrousd(request) };
-  }
-  const usage: TagUsage = { input_tokens: message.usage?.input_tokens ?? 0, output_tokens: message.usage?.output_tokens ?? 0 };
-  const microusd = priceUsage(message.usage ?? {});
-  const text = message.content.find((block): block is Anthropic.TextBlock => block.type === 'text')?.text ?? '';
-  const tags = message.stop_reason === 'end_turn' ? parseTags(text) : null;
-  if (!tags || !tags.length) {
-    return { status: 'failed', code: message.stop_reason === 'refusal' ? 'provider_refused' : 'invalid_output',
-      messageID: message.id, model: message.model, usage, microusd };
-  }
-  return { status: 'complete', tags, messageID: message.id, model: message.model, usage, microusd };
+  const usage: TagUsage = { input_tokens: result.usage!.input + result.usage!.cacheRead + result.usage!.cacheWrite5m + result.usage!.cacheWrite1h,
+    output_tokens: result.usage!.output };
+  const microusd = Math.ceil(result.billedMicrousd!);
+  const tags = result.stopReason === 'end_turn' ? parseTags(result.text ?? '') : null;
+  if (!tags?.length) return { status: 'failed', code: result.stopReason === 'refusal' ? 'provider_refused' : 'invalid_output',
+    messageID: result.requestID, model: result.model, usage, microusd };
+  return { status: 'complete', tags, messageID: result.requestID!, model: result.model!, usage, microusd };
 }
 
-export function createTagClient(apiKey: string, fetcher?: typeof fetch): Anthropic {
-  // SDK logging off: its error paths could include request details.
-  return new Anthropic({ apiKey, maxRetries: 0, timeout: 30_000, logLevel: 'off', ...(fetcher ? { fetch: fetcher } : {}) });
+export function createTagClient(apiKey: string, fetcher?: typeof fetch): ScriptProvider {
+  return openRouterScriptProvider({ apiKey, fetch: fetcher });
 }
 
 export interface ClaimedVersion {
+  account_id?: string; operation_id?: string; attempt_id?: string;
   version_id: string; claim_id: string; metadata_id: string;
   title: string | null; abstract: string | null; categories: unknown[];
   /** True when a platform-funded hold was reserved for a model call. */
@@ -151,7 +145,7 @@ interface Recorded { revision: number; method: string; changed: boolean; items: 
 export interface TaggingDeps {
   rpc<T>(name: string, params: Record<string, unknown>): Promise<T>;
   /** Null when no model is configured: only fallback tags are recorded. */
-  classify: ((input: TagInput) => Promise<Classification>) | null;
+  classify: ((input: TagInput, attribution: OpenRouterAttribution) => Promise<Classification>) | null;
   uuid(): string;
   now(): number;
   log(event: string, fields?: Record<string, string | number | boolean | null>): void;
@@ -197,7 +191,7 @@ export async function tagCatalog(deps: TaggingDeps, options: { deadline: number;
       if (candidate.model && quote > candidate.hold_microusd) {
         deps.log('tags_quote_exceeds_hold', { version: candidate.version_id, quote_microusd: quote, hold_microusd: candidate.hold_microusd });
       } else if (candidate.model && deps.classify) {
-        try { outcome = await deps.classify(input); }
+        try { outcome = await deps.classify(input, rpcAttribution({ ...deps, accountID: candidate.account_id ?? '', operationID: candidate.operation_id ?? '' }, candidate.attempt_id ?? '', 'catalog_tags', 'catalog')); }
         catch { outcome = { status: 'failed', code: 'classifier_error', messageID: null, model: null,
           usage: { input_tokens: 0, output_tokens: 0, estimated: true }, microusd: candidate.hold_microusd }; }
         if (outcome.status === 'failed' && !outcome.messageID && (outcome.microusd > 0 || outcome.usage?.estimated)) {

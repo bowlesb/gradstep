@@ -32,22 +32,23 @@ test('lost acknowledgment and recreated client reuse every field, ID and origina
 });
 
 test('concurrent identical intents use one ID; acknowledging one intent never erases another pending intent', async () => {
-  const journal = storage(), ids: string[] = [];
-  const sent: Array<() => void> = [];
-  const send = (request: SpendingObservationRequest) => new Promise<SpendingObservationReceipt>(resolve => {
-    ids.push(request.request_id); sent.push(() => resolve({ id: request.request_id, replayed: ids.filter(id => id === request.request_id).length > 1 }));
+  const journal = storage(), ids = new Map<string, string>(), sent = new Map<string, () => void>();
+  const send = (caller: string) => (request: SpendingObservationRequest) => new Promise<SpendingObservationReceipt>(resolve => {
+    ids.set(caller, request.request_id); sent.set(caller, () => resolve({ id: request.request_id,
+      replayed: [...ids.values()].filter(id => id === request.request_id).length > 1 }));
   });
-  const first = recordSpendingOnce('staging', OWNER, draft(), send, journal);
-  const second = recordSpendingOnce('staging', OWNER, draft(), send, journal);
-  const distinct = recordSpendingOnce('staging', OWNER, { ...draft(), amount_microusd: 40_000_000 }, send, journal);
-  while (sent.length < 3) await new Promise(resolve => setImmediate(resolve));
-  assert.equal(ids[0], ids[1]); assert.notEqual(ids[0], ids[2]);
+  const first = recordSpendingOnce('staging', OWNER, draft(), send('first'), journal);
+  const second = recordSpendingOnce('staging', OWNER, draft(), send('second'), journal);
+  const distinct = recordSpendingOnce('staging', OWNER, { ...draft(), amount_microusd: 40_000_000 }, send('distinct'), journal);
+  while (sent.size < 3) await new Promise(resolve => setImmediate(resolve));
+  // SHA-256 runs asynchronously; the distinct draft may finish hashing before either identical draft.
+  assert.equal(ids.get('first'), ids.get('second')); assert.notEqual(ids.get('first'), ids.get('distinct'));
   assert.equal(pendingSpendingEntries('staging', OWNER, journal), 2);
-  sent[0](); await first;
+  sent.get('first')!(); await first;
   assert.equal(pendingSpendingEntries('staging', OWNER, journal), 1);
-  sent[1](); await second;
+  sent.get('second')!(); await second;
   assert.equal(pendingSpendingEntries('staging', OWNER, journal), 1);
-  sent[2](); await distinct;
+  sent.get('distinct')!(); await distinct;
   assert.equal(pendingSpendingEntries('staging', OWNER, journal), 0);
 });
 

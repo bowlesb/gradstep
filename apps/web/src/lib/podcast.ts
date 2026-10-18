@@ -258,7 +258,7 @@ export async function downloadEpisodeAudio(account: string, episode: Episode, si
 export const CONSENT_VERSION = 'podcast-private-v1';
 /** Consent versions the quote may name: v1 (Anthropic writes the script) and v2 (DeepSeek writes it, 2026-10-14). The
  * reader confirms the providers the quote lists, and the start call sends back the version the quote carried. */
-export const CONSENT_VERSIONS = ['podcast-private-v1', 'podcast-private-v2'] as const;
+export const CONSENT_VERSIONS = ['podcast-private-v1', 'podcast-private-v2', 'podcast-private-v3'] as const;
 export const PROVIDER_LABEL = /^[A-Za-z0-9 .()\-]{3,40}$/;
 export const MAX_QUOTE_CREDITS = 2_000;
 export const JOB_STATES = ['queued', 'scripting', 'checking', 'synthesizing', 'verifying', 'publishing', 'ready',

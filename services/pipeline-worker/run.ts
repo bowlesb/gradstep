@@ -31,12 +31,12 @@ function deps(): MetadataDeps {
     log: (event, fields = {}) => log(event, fields) };
 }
 
-/** Claude Haiku chooses catalog tags when the Anthropic key is configured; otherwise only the arXiv-category fallback runs. */
+/** Claude Haiku chooses catalog tags when the OpenRouter key is configured; otherwise only the arXiv-category fallback runs. */
 function taggingDeps(): TaggingDeps {
-  const key = runtimeEnv('ANTHROPIC_API_KEY');
+  const key = runtimeEnv('OPENROUTER_CHAT_API_KEY');
   const client = key ? createTagClient(key) : null;
   return {
-    rpc: rpcAdapter(pipelineService()), classify: client ? input => classifyPaper(client, input) : null,
+    rpc: rpcAdapter(pipelineService()), classify: client ? (input, attribution) => classifyPaper(client, input, attribution) : null,
     uuid: () => randomUUID(), now: () => Date.now(), log: (event, fields = {}) => log(event, fields),
   };
 }

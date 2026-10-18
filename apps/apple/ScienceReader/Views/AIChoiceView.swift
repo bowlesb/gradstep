@@ -1,4 +1,6 @@
+#if targetEnvironment(macCatalyst)
 import LocalAI
+#endif
 import ScienceReaderCore
 import SwiftUI
 
@@ -12,6 +14,7 @@ struct AIChoiceView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectionMade = false
     @State private var initialized = false
+    @State private var expanded = false
     private var useCase: AIUseCase { scenario ?? model.currentAIUseCase }
     private var defaultProfile: ChatProfileChoice { model.profileDefault(for: useCase) }
     private var defaultLocal: String? { model.localDefault(for: useCase) }
@@ -26,58 +29,60 @@ struct AIChoiceView: View {
                         if chat { model.setChatProfile(defaultProfile) } else { model.pendingAIChoice = defaultProfile }
                         select(defaultLocal)
                     } label: {
-                        Label { VStack(alignment: .leading, spacing: 3) {
-                            Text("Use default")
-                            Text(defaultLocal.map { "\(local.name($0)) (local)" } ?? (model.chatProfileTable?.label(defaultProfile.model) ?? defaultProfile.model.label)).font(.caption).foregroundStyle(.secondary)
-                            if let reason = defaultUnavailableReason {
-                                Text(reason).font(.caption).foregroundStyle(.secondary)
-                            }
-                        } } icon: { Image(systemName: "checkmark.circle") }
-                    }
-                    .disabled(!defaultAvailable).accessibilityIdentifier("ai.chooseDefault")
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Default (\(defaultName))")
+                            if let reason = defaultUnavailableReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }.disabled(!defaultAvailable).accessibilityIdentifier("ai.chooseDefault")
                     NavigationLink {
-                        List {
-                            ChatChoiceControls(model: model, mode: chat ? .chat : .choice(useCase))
-                            Button("Use \(model.chatProfileTable?.label(cloudChoice.model) ?? cloudChoice.model.label)") {
-                                if !chat { model.pendingAIChoice = cloudChoice }
-                                select(nil)
-                            }.disabled(model.chatProfileTable == nil || model.chatProfilesRefreshing)
-                                .accessibilityIdentifier("ai.chooseCloud")
-                        }.navigationTitle("Cloud models").navigationBarTitleDisplayMode(.inline)
-                    } label: { Label("Cloud", systemImage: "cloud") }
-                    .accessibilityIdentifier("ai.cloudOptions")
-                    NavigationLink {
-                        List {
-                            let installed = local.models.filter { local.installed.contains($0.id) && (!needsVision || $0.vision) }
-                            if installed.isEmpty {
-                                Text(needsVision ? "Download a model that reads figures in Settings → Local models." : "Download a model in Settings → Local models.")
-                                    .foregroundStyle(.secondary).accessibilityIdentifier("ai.noLocalModels")
-                            }
-                            ForEach(installed) { option in
-                                let available = option.admitsCurrentMemory(hasImage: needsVision)
-                                Button { select(option.id) } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("\(option.name) (local)")
-                                        if !available { Text(option.memoryExplanation).font(.caption).foregroundStyle(.secondary) }
-                                    }
-                                }.disabled(!available).accessibilityIdentifier("ai.chooseLocal.\(option.id)")
-                            }
-                            NavigationLink("Manage downloads in Settings") { LocalAISettingsView(model: model) }
-                                .accessibilityIdentifier("ai.manageModels")
-                        }.navigationTitle("Local models").navigationBarTitleDisplayMode(.inline)
-                    } label: { Label("Local", systemImage: "iphone") }
-                    .accessibilityIdentifier("ai.localOptions")
-                } footer: { Text("Cloud models use AI credits. Downloaded local models work offline without AI credits.") }
+                        modelChoices.onAppear { expanded = true }.onDisappear { expanded = false }
+                    } label: { Label("Choose model", systemImage: "slider.horizontal.3") }
+                    .accessibilityIdentifier("ai.chooseModel")
+                }
             }
-            .navigationTitle("Choose model").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("AI model").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
         .task {
             if !initialized { initialized = true; if !chat { model.pendingAIChoice = nil } }
-            model.refreshChatProfiles(force: true); await local.refresh()
+            model.refreshChatProfiles(); await local.refresh()
         }
         .onDisappear { if !chat, !selectionMade { model.pendingAIChoice = nil; model.pendingLocalAIChoice = nil } }
-        .frame(minWidth: Platform.isMac ? 480 : nil, minHeight: Platform.isMac ? 500 : nil)
+        .presentationDetents(expanded ? [.large] : [.height(220)])
+        .frame(minWidth: Platform.isMac ? 480 : nil, minHeight: Platform.isMac ? (expanded ? 500 : 220) : nil)
+    }
+
+    private var defaultName: String {
+        defaultLocal.map { "\(local.name($0)) (local)" } ?? (model.chatProfileTable?.label(defaultProfile.model) ?? defaultProfile.model.label)
+    }
+
+    private var modelChoices: some View {
+        List {
+            ChatChoiceControls(model: model, mode: chat ? .chat : .choice(useCase))
+            Button("Use \(model.chatProfileTable?.label(cloudChoice.model) ?? cloudChoice.model.label)") {
+                if !chat { model.pendingAIChoice = cloudChoice }
+                select(nil)
+            }.disabled(model.chatProfileTable == nil || model.chatProfilesRefreshing)
+                .accessibilityIdentifier("ai.chooseCloud")
+            #if targetEnvironment(macCatalyst)
+            Section("On this Mac") {
+                let installed = local.models.filter { local.installed.contains($0.id) && (!needsVision || $0.vision) }
+                ForEach(installed) { option in
+                    Button { select(option.id) } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(option.name) (local)")
+                            if !option.admitsCurrentMemory(hasImage: needsVision) {
+                                Text(option.memoryExplanation).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }.disabled(!option.admitsCurrentMemory(hasImage: needsVision))
+                        .accessibilityIdentifier("ai.chooseLocal.\(option.id)")
+                }
+                NavigationLink("Manage Mac model downloads") { LocalAISettingsView(model: model) }
+                    .accessibilityIdentifier("ai.manageModels")
+            }
+            #endif
+        }.navigationTitle("Choose model").navigationBarTitleDisplayMode(.inline)
     }
 
     private func select(_ id: String?) {
@@ -88,6 +93,7 @@ struct AIChoiceView: View {
 
     private var defaultAvailable: Bool { defaultUnavailableReason == nil }
     private var defaultUnavailableReason: String? {
+        #if targetEnvironment(macCatalyst)
         if let id = defaultLocal {
             guard let option = local.models.first(where: { $0.id == id }) else { return "This model is no longer available. Choose another model." }
             if needsVision && !option.vision { return "This default reads text only. Choose a model that reads figures." }
@@ -95,8 +101,9 @@ struct AIChoiceView: View {
             if !option.admitsCurrentMemory(hasImage: needsVision) { return option.memoryExplanation }
             return nil
         }
+        #endif
         if model.chatProfilesRefreshing { return "Loading cloud models…" }
-        return model.chatProfileTable == nil ? "Cloud models couldn’t load. Open Cloud to retry." : nil
+        return model.chatProfileTable == nil ? "Cloud models couldn’t load. Choose a model to retry." : nil
     }
 }
 
@@ -117,6 +124,7 @@ struct AISelectionButton: View {
     }
 }
 
+#if targetEnvironment(macCatalyst)
 /// Public model files are managed here independently of a question or the phone's transient free-memory state.
 struct LocalAISettingsView: View {
     @Bindable var model: ReaderModel
@@ -211,3 +219,5 @@ extension LocalModel {
         }
     }
 }
+
+#endif

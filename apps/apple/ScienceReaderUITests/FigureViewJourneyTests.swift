@@ -74,7 +74,7 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Figure page: the top row")
 
         explain.tap()
-        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let first = app.descendants(matching: .any)["figureView.section.1"]
         XCTAssertTrue(first.waitForExistence(timeout: 8), "The walkthrough's parts")
         // Contents opens at half height on a phone; the walkthrough takes the full height.
@@ -186,6 +186,14 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.2.detail"].exists, "kept extract")
         XCTAssertFalse(app.descendants(matching: .any)["figureView.loading"].exists)
 
+        // The ordinary figure page also reopens its saved explainer directly (owner feedback, build 71).
+        app.buttons["sheet.close"].tap()
+        openFigureOne(app)
+        app.buttons["figureView.explain"].tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 5), "the existing explanation opens directly")
+        XCTAssertFalse(app.buttons["ai.chooseDefault"].exists, "a saved answer needs no model choice")
+        XCTAssertFalse(app.descendants(matching: .any)["figureView.loading"].exists, "no new generation")
+
         // Ask in chat about one part: the paper's chat, the part's text as the passage, nothing sent.
         partMenu(app, 1).tap()
         menuItem(app, "figureView.askAbout", "Ask about this part").tap()
@@ -210,7 +218,7 @@ final class FigureViewJourneyTests: XCTestCase {
         openFigureOne(app)
         capture(app, "Figure page, dark")
         app.buttons["figureView.explain"].tap()
-        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 8))
         capture(app, "Figure walkthrough, dark")
         // Back (the sheet bar's system Back) to the figure's page.

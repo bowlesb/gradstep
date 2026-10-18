@@ -29,3 +29,67 @@ Build a human-reviewed corpus across ML plots, scientific diagrams, microscopy, 
 Test the complete preprocessing/export pipeline, not just the source weights. Pin resize/letterbox rules, orientation, output decoding, NMS and original-image coordinate conversion. Replay fixtures offline on each change. Measure first use separately from steady-state, peak app memory, thermal behavior and cancellation on the intended phone once physical-device testing resumes. Mac speed is not iPhone evidence.
 
 Distribution remains gated on a suitable license and quality. The current figpanel weights and inference tooling carry AGPL terms; they are research inputs only. Next candidates are a permissively licensed/trainable small detector and the Florence-2 plot adapter, with both base and adapter licenses checked. The research does not justify shipping the current detector as an automatic cropper.
+
+## Fine-tuning plan, 2026-10-18 (Mac prototype; not yet trained)
+
+The new owner direction makes local answering models Mac-only. Keep this detector experiment on Mac too; no new
+model is included in the iPhone/iPad app. The localization component remains independent of the answering model,
+so a selected region can feed either OpenRouter chat or Mac-local chat through the same figure conversation.
+
+Use a small detector first, then deterministic text/legend containment. Fine-tuning the answering LLM to emit
+coordinates couples unrelated failure modes and adds a much larger runtime. It remains a comparison baseline,
+not the first deployment design. The existing heatmap failure demonstrates why confidence alone is insufficient.
+
+### Candidates and data rights checked against primary sources
+
+- [Official RT-DETR/RT-DETRv2](https://github.com/lyuwenyu/RT-DETR) is Apache-2.0 and documents custom-data fine-tuning.
+  Start with its R18/S model, not the differently licensed Ultralytics distribution. Its published COCO scores and
+  GPU speeds do not measure scientific panels or Core ML performance. Prove conversion of the precise checkpoint,
+  input geometry and output decoding before investing in a training run.
+- The [Florence-2 plot adapter](https://huggingface.co/amayuelas/plot-visualization-florence-2-lora-32)
+  describes LoRA tuning of [Microsoft Florence-2-base-ft](https://huggingface.co/microsoft/Florence-2-base-ft).
+  Both cards declare MIT. Compare it as a smaller vision-language localization baseline; neither the card nor a
+  nominally small parameter count proves crop quality, Apple runtime support or complete training-data rights.
+- [MedICaT](https://github.com/allenai/medicat) contains 7,507 panel/subcaption annotations on 2,069 compound figures.
+  Its README limits the dataset to non-commercial use and records varying source-article licenses. The repository's
+  Apache license is not blanket permission for its images. Use only for an allowed research evaluation; exclude it
+  from distributed-model training until the applicable rights are resolved.
+- [FigEx2](https://arxiv.org/html/2601.08026v1) combines an 8B captioner and detector. Its authors report detection
+  mAP .291 on MedICaT versus .726 on BioSci-Fig-Cap. This supports a cross-domain evaluation requirement, not a claim
+  that either figure is attainable here. Caption-assisted localization is a later ablation if simpler detection fails.
+
+### Training and comparison recipe
+
+1. Freeze a test set by **paper and near-duplicate figure family**, before annotating training examples. Include the
+   seven FDE-Gym failures as regression cases, plus held-out ML plots, algorithm diagrams, heatmaps, shared legends,
+   nested insets, tables, scanned plots and single-panel negatives. Hold out author/lab/template families where possible.
+2. Label an interpretation-complete panel box, its panel label, and separate required-context boxes for axes, ticks,
+   legends and shared labels. A single broad full-figure box is not a successful answer to a panel request. Record
+   source-image hash, dimensions, transform, source/license, annotator and review status. A crop can need more than
+   one context region; do not force shared legends into a neighboring panel.
+3. Pilot with 300–500 reviewed, rights-cleared real figures plus generated plots whose layout/label boxes are known.
+   These are proposed sample counts, not a completed dataset. Use synthetic plots to vary grids, margins, fonts,
+   scales, colors, line thickness and legends; do not let synthetic templates dominate the held-out test.
+4. RT-DETR pilot: replace the detection head, briefly train the head with the backbone frozen, then unfreeze the
+   final backbone stage at a lower learning rate. Compare full fine-tuning only after that baseline. Start from the
+   upstream AdamW recipe, tune learning rate and early stopping on validation panel recall and critical-label loss.
+   Preserve aspect ratio; avoid flip/mosaic/crop augmentations that remove scientific labels or invent panel semantics.
+5. Florence comparison: freeze the image backbone and test rank-8/16 LoRA on language attention/projection layers,
+   using its documented object-detection coordinate format. Only then test unfreezing the visual projection. Treat
+   malformed coordinates, out-of-image boxes and wrong panel association as failures. Rank/learning rate are
+   experiments, not endorsed settings or measured results.
+6. Compare detector-only, detector plus local OCR containment, and Florence on the **same** untouched images.
+   Rank by panel recall, false crops, correct label association, and retention of interpretation-critical text.
+   Add downstream plot-reading questions with fixed caption/paragraph/LaTeX context. Whole-image fallback is counted
+   separately, never relabeled as a successful extraction.
+7. Export the selected trained checkpoint to Core ML FP16; replay identical images through source and exported
+   models, including orientation and wide/tall composites. Quantize only if those results and downstream answers
+   remain acceptable. Measure cold start, steady latency, peak process memory, cancellation and concurrent-reader
+   behavior on Mac. No paid GPU training or dataset purchase has been started.
+
+Proposed acceptance gate: at least 95% panel recall on the reviewed in-scope set, at least 99% retention of required
+label/legend area on accepted crops, no known critical-label regression, and fewer than 2% incorrect extra crops.
+Report uncertainty and per-domain counts; these thresholds are targets, not current results. A low-confidence or
+containment-failing result stays on the whole figure. Only after this evaluation should detection become automatic
+in the shared figure view. The next useful work is annotation and an exportable small-detector baseline, not more
+unreviewed prompt/coordinate heuristics.

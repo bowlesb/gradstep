@@ -32,7 +32,7 @@ const CAPS_USD = { deploy: 0.05, daily: 0.5, weekly: 1.0 };
 // Never let a run take the platform budget below this: testers would lose paid features.
 const BUDGET_RESERVE_USD = 0.5;
 const PAPER = '2310.06825'; // Mistral 7B: CC BY, shared and converted (no OCR), 9 pages (cheap context).
-const CONSENT = 'cloud-ai-v5'; // Current client consent includes the funded OpenRouter Claude route.
+const CONSENT = 'cloud-ai-v6'; // Current client consent includes the funded OpenRouter Claude route.
 const DELETE_CONFIRMATION = 'delete my account';
 
 // ── Arguments and secrets ────────────────────────────────────────────────────
@@ -152,8 +152,9 @@ const SNAPSHOT_SQL = `with resting as (
  select pp.id from app_private.pipeline_papers pp where pp.owner_id is null and pp.stage='private_split'
   and not exists(select 1 from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
    where pi.paper_id=pp.id and i.desired_present and i.phase in ('accepted','resolving','acquiring'))),
+idle_metadata as (select id from app_private.pipeline_papers where stage='metadata' and claim_id is null and not app_private.pipeline_interest(id)),
 working as (select pp.* from app_private.pipeline_papers pp where pp.stage not in ('done','failed','source_only','needs_credits')
- and pp.id not in (select id from resting)),
+ and pp.id not in (select id from resting) and pp.id not in (select id from idle_metadata)),
 waiting as (select * from working where error_code in ('service_paused','storage_full')),
 moving as (select * from working where id not in (select id from waiting))
 select jsonb_build_object(
@@ -175,7 +176,7 @@ select jsonb_build_object(
    from moving where stage_crashes>=2 or (stage<>'ocr_wait' and stage_claims>=30)),
  'waiting',(select jsonb_build_object('papers',count(*),'oldest_minutes',floor(extract(epoch from (now()-min(stage_entered_at)))/60),
    'causes',coalesce(jsonb_object_agg(error_code,1),'{}')) from waiting),
- 'resting_split',(select count(*) from resting),
+ 'resting_split',(select count(*) from resting),'resting_metadata',(select count(*) from idle_metadata),
  'uncertain_ocr',(select count(*) from app_private.ocr_attempts where state='uncertain'),
  'stale_imports',(select count(*) from app_private.import_requests i where i.desired_present and i.phase in ('accepted','resolving','acquiring')
    and coalesce(i.progress_at,i.created_at)<now()-interval '60 minutes'
@@ -430,8 +431,8 @@ check('config.function-secrets', { title: 'Function secrets exist (names only)',
   // What the deployed functions read (OCR keys live with the Cloud Run worker, not here).
   // DeepSeek in chat (infra chat_deepseek: on, hidden or off) needs its key whenever it is not off.
   const deepseek = infra.chat_deepseek ?? 'off';
-  const required = ['ADMIN_ORIGINS', 'CHAT_WEB_SEARCH', 'ANTHROPIC_API_KEY', 'TAVILY_API_KEY', 'APP_STORE_BUNDLE_ID', 'APP_STORE_ENVIRONMENTS', 'APP_STORE_ONLINE_CHECKS',
-    ...(deepseek !== 'off' ? ['CHAT_DEEPSEEK', 'DEEPSEEK_API_KEY'] : [])];
+  const required = ['ADMIN_ORIGINS', 'CHAT_WEB_SEARCH', 'OPENROUTER_CHAT_API_KEY', 'TAVILY_API_KEY', 'APP_STORE_BUNDLE_ID', 'APP_STORE_ENVIRONMENTS', 'APP_STORE_ONLINE_CHECKS',
+    ...(deepseek !== 'off' ? ['CHAT_DEEPSEEK'] : [])];
   const secrets = await management.get('/secrets');
   const missing = required.filter(name => !secrets.some(s => s.name === name));
   if (missing.length) return fail(`missing function secrets: ${missing.join(', ')}`);
@@ -471,7 +472,7 @@ check('pipeline.stuck', { title: 'No import stuck or crash-looping', suites: ALL
   const crashes = Object.entries(s.crashes_24h ?? {}).map(([stage, n]) => `${stage} ${n}`).join(', ');
   const failures = Object.entries(s.import_failures_24h ?? {}).map(([code, n]) => `${code} ${n}`).join(', ');
   const waiting = s.waiting?.papers ? `; ${s.waiting.papers} paper(s) deliberately waiting (${Object.keys(s.waiting.causes ?? {}).join(', ')}, oldest ${s.waiting.oldest_minutes} min)` : '';
-  const context = `24 h: crashes ${crashes || 'none'}; failed imports ${failures || 'none'}; ${s.resting_split} idle shared private_split rows not counted${waiting}`;
+  const context = `24 h: crashes ${crashes || 'none'}; failed imports ${failures || 'none'}; ${s.resting_split} idle shared private_split rows and ${s.resting_metadata ?? 0} unclaimed metadata rows without interested readers not counted${waiting}`;
   const metrics = { stuck: (s.stuck ?? []).length, crashes_24h: Object.values(s.crashes_24h ?? {}).reduce((a, b) => a + b, 0) };
   if (problems.length) return fail(`${problems.slice(0, 4).join('; ')}${problems.length > 4 ? `; +${problems.length - 4} more` : ''} — ${context}`, metrics);
   // A cluster of one failure cause is usually a systematic bug, not a paywalled paper.

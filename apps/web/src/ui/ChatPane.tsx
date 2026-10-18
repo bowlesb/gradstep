@@ -301,16 +301,16 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       {/* Consent cloud-ai-v5 (CHAT.md, 2026-10-16), worded as on iPhone, iPad and Mac. */}
-      <h2>Cloud AI answers</h2><p>Answers use the model in Answer options: Gemini Flash and Claude through OpenRouter and Google Vertex, or DeepSeek. To answer, Gradstep sends:</p>
+      <h2>Cloud AI answers</h2><p>All cloud answers use OpenRouter. Gemini Flash and Claude run on Google Vertex; DeepSeek runs on DeepInfra. To answer, Gradstep sends:</p>
       <ul className="consent-list" data-testid="consent-list">
         <li>Your question and any passage you selected</li>
         <li>Earlier messages in this conversation</li>
         <li>For paper chats, the paper’s full text</li>
         <li>When you ask about a figure or table, its image from the paper</li>
-        <li>When a question needs it, web searches the model writes go to Tavily, a search service (or Anthropic’s search provider as a backup)</li>
-        <li>Gemini and Claude requests pass through OpenRouter to Google Vertex; DeepSeek requests go to DeepSeek. Titles and suggested questions use Claude through OpenRouter</li>
+        <li>When a question needs it, web searches the model writes go to Tavily, a search service</li>
+        <li>All model requests pass through OpenRouter. Titles and suggested questions use Claude on Google Vertex. A random account ID accompanies requests for cost accounting</li>
       </ul>
-      <p className="muted">Google Vertex through OpenRouter, or DeepSeek processes this according to your model choice and may retain requests under its API terms; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.</p>
+      <p className="muted">OpenRouter and the selected processor handle this under their API terms. Gradstep requests routes with no data collection and zero data retention; search services see only the searches and may keep them under their own terms. Gradstep’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.</p>
       <p className="fine">Each answer uses credits from your balance.</p>
       <p className="fine">This question: {profileSummary(chat.retryProfile(c), table)}</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => void chat.consent(c, false)}>Not now</button><button className="primary" onClick={() => void chat.consent(c, true)}>Allow and get answer</button></div>

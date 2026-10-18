@@ -1,5 +1,35 @@
 # Local AI prototype
 
+
+## Mac-only replacement — 2026-10-18 (qualification in progress; not released)
+
+The owner's new direction supersedes the phone prototype below. Local answering models and their MLX runtime,
+Metal resources and model catalogue are excluded from iPhone/iPad targets. The iOS stub only preserves historical
+answer/cache identities and refuses explicit old local turns without a cloud fallback. It retires the app-owned
+public weight cache. The separate on-device PDF extraction pipeline remains available.
+
+The Mac candidates are pinned in `tests/local-ai/candidates.json`; they are evaluation inputs, not approved app
+choices. Qwen 3.5 9B and Gemma 4 12B each completed 27 scientific cases from five pinned papers with network denied.
+Neither is qualified: DPO gradient errors and unsupported numerical plot claims remain. Gemma's measured image
+process footprint reached 17.2 GB, excluding it from the proposed 16 GB tier. Qwen 3.8 27B and Gemma 4 26B A4B
+are larger candidates; no successful native inference is claimed for them yet. The four old small models will be
+retired from the Mac catalogue before release. Do not substitute model-card scores for this acceptance.
+
+The evaluation found and repaired two application defects: retrieval omitted a specifically requested source
+formula (explicit equation references now prioritize it and its neighbors), and Foundation hash buffers could
+accumulate while verifying large weights (each chunk now has its own autorelease pool). Qwen 9B's repeated direct
+checks after those fixes use about 7.0–7.6 GB process memory; its DPO answer still reverses the loss argument and
+miscomputes the derivative, so the model remains unqualified. Reasoning-enabled trials also failed; bounded
+thinking is experimental and disabled in the current candidate comparison.
+
+Current execution: 6,144 input tokens, one bounded figure, tokenizer-verified selection, independent output cap,
+one generation at a time, and no inference networking. Mac admission checks physical capacity, reclaimable
+headroom, Metal's recommended working-set limit and normal memory pressure immediately before loading. An unknown
+or insufficient reading refuses locally. Trial evidence includes exact executable/model/source hashes, real
+latencies, process and MLX memory and retained failures under `.artifacts/local-ai/mac-eval*-20261018/`.
+
+## Historical phone prototype and acceptance (superseded scope)
+
 Status: the prototype and model-management feedback are included in TestFlight **70** on iOS and Mac, 2026-10-18. Earlier build-68 acceptance remains below. Physical-phone inference remains unverified.
 The [measured comparison](../reviews/LOCAL_AI_20261017.md) retains failures: no model passed all scientific checks.
 

@@ -1,3 +1,4 @@
+import { isRouterDeepSeek, routedDeepSeekModel, ROUTER_CONSENT_VERSION } from "./openrouter-deepseek-pricing.ts";
 import { isRouterClaude, routedClaudeModel } from './openrouter-claude-pricing.ts';
 // Chat answer profiles (docs/architecture/CHAT.md#models-effort-and-length): the server-versioned table of the
 // model, effort and length a reader may choose in a chat, what each choice sends to the provider and how its credits
@@ -88,7 +89,7 @@ const length = (id: LengthChoice) => LENGTHS.find(entry => entry.id === id)!;
 
 /** The provider that serves an API model (an Anthropic model unless it is one of DeepSeek's). */
 export function providerForModel(apiModel: string): ChatProvider {
-  return (apiModel === GEMINI_MODEL || isRouterClaude(apiModel)) ? 'openrouter' : apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
+  return (apiModel === GEMINI_MODEL || isRouterClaude(apiModel) || isRouterDeepSeek(apiModel)) ? 'openrouter' : apiModel.startsWith('deepseek-') ? 'deepseek' : 'anthropic';
 }
 
 export function isDefaultChoice(choice: RequestedChoice): boolean {
@@ -97,8 +98,8 @@ export function isDefaultChoice(choice: RequestedChoice): boolean {
 
 export function resolveProfile(choice: Choice | null, claudeOpenRouter = false): ChatProfile {
   const c = choice ?? DEFAULT_CHOICE, m = model(c.model), e = effort(c.effort), l = length(c.length);
-  return { model: c.model, effort: c.effort, length: c.length, id: `${c.model}-${c.effort}-${c.length}`, apiModel: claudeOpenRouter ? routedClaudeModel(m.apiModel) : m.apiModel,
-    maxTokens: l.answerTokens + e.thinkingTokens, fallbacks: claudeOpenRouter && m.provider === 'anthropic' ? false : m.fallbacks, provider: claudeOpenRouter && m.provider === 'anthropic' ? 'openrouter' : m.provider, lengthInstructions: l.instructions };
+  return { model: c.model, effort: c.effort, length: c.length, id: `${c.model}-${c.effort}-${c.length}`, apiModel: claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel,
+    maxTokens: l.answerTokens + e.thinkingTokens, fallbacks: claudeOpenRouter && m.provider === 'anthropic' ? false : m.fallbacks, provider: claudeOpenRouter ? 'openrouter' : m.provider, lengthInstructions: l.instructions };
 }
 
 /** A request's `profile` field: exactly `{model, effort, length}` with known values (effort may be `auto`); null when
@@ -235,8 +236,8 @@ export function publishedProfiles(options: PublishOptions = { deepseek: false })
     default: { ...DEFAULT_CHOICE },
     default_auto: { ...DEFAULT_AUTO_CHOICE },
     ...(options.gemini ? { default_recommended: { model: 'gemini', effort: 'medium', length: 'standard' } } : {}),
-    models: models.map(m => ({ id: m.id, label: m.label, detail: options.claudeOpenRouter && m.provider === 'anthropic' ? `${m.detail} · OpenRouter → Google Vertex` : m.detail, api_model: options.claudeOpenRouter ? routedClaudeModel(m.apiModel) : m.apiModel, provider: options.claudeOpenRouter && m.provider === 'anthropic' ? 'openrouter' : m.provider,
-      ...(m.provider === 'deepseek' ? { consent_version: DEEPSEEK_CONSENT_VERSION } : (m.provider === 'openrouter' || options.claudeOpenRouter) ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
+    models: models.map(m => ({ id: m.id, label: m.label, detail: options.claudeOpenRouter ? `${m.detail} · OpenRouter → ${m.provider === 'deepseek' ? 'DeepInfra' : 'Google Vertex'}` : m.detail, api_model: options.claudeOpenRouter ? routedDeepSeekModel(routedClaudeModel(m.apiModel)) : m.apiModel, provider: options.claudeOpenRouter ? 'openrouter' : m.provider,
+      ...(m.provider === 'deepseek' ? { consent_version: options.claudeOpenRouter ? ROUTER_CONSENT_VERSION : DEEPSEEK_CONSENT_VERSION } : (m.provider === 'openrouter' || options.claudeOpenRouter) ? { consent_version: GEMINI_CONSENT_VERSION } : {}) })),
     efforts: [...EFFORTS.map(e => ({ id: e.id as EffortRequest, label: e.label, detail: e.detail })), { ...AUTO_EFFORT }],
     lengths: LENGTHS.map(l => ({ id: l.id, label: l.label, detail: l.detail })),
     profiles: [...explicit(models.filter(m => m.provider === 'anthropic')), ...explicit(models.filter(m => m.provider === 'deepseek')), ...auto.filter(p => p.model !== 'gemini'), ...explicit(models.filter(m => m.provider === 'openrouter')), ...auto.filter(p => p.model === 'gemini')],

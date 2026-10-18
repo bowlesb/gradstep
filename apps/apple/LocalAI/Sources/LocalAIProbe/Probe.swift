@@ -5,8 +5,13 @@ import ScienceReaderCore
 // Opt-in, local-only evidence. Never part of routine npm test. No provider credentials or paid calls.
 @main struct Probe {
     static func main() async throws {
-        let args = Array(CommandLine.arguments.dropFirst())
-        guard args.count >= 3, let model = LocalModel.all.first(where: { $0.id == args[0] }) else {
+        var args = Array(CommandLine.arguments.dropFirst())
+        var models = LocalModel.all
+        if let flag = args.firstIndex(of: "--catalog"), args.indices.contains(flag + 1) {
+            models = try JSONDecoder().decode([LocalModel].self, from: Data(contentsOf: URL(fileURLWithPath: args[flag + 1])))
+            args.removeSubrange(flag...flag + 1)
+        }
+        guard args.count >= 3, let model = models.first(where: { $0.id == args[0] }) else {
             print("LocalAIProbe MODEL STORE download | MODEL STORE INPUT.json [IMAGE]"); return
         }
         let store = LocalModelStore(root: URL(fileURLWithPath: args[1], isDirectory: true))

@@ -595,6 +595,23 @@
 
   // In-text citations are found in each block's text as a whole, so one may
   // span inline elements or a line break; each piece of it is wrapped in place.
+  // arXiv often links only the number in “Figure <a>1</a>”. Extend that existing internal
+  // link over the adjacent name without changing text, target, block identity or navigation.
+  const expandNamedReferences = () => {
+    for (const anchor of document.querySelectorAll('a[href^="#"]')) {
+      const before = anchor.previousSibling;
+      if (before?.nodeType !== Node.TEXT_NODE || !/^[\s(]*[A-Z]?\d|^[\s(]*[IVX]+[\s)]*$/.test(anchor.textContent)) continue;
+      const match = /\b((?:Figures?|Figs?\.|Tables?|Tabs?\.|Equations?|Eqs?\.|Algorithms?)\s*\(?\s*)$/i.exec(before.data);
+      if (!match) continue;
+      const prefix = before.splitText(match.index);
+      anchor.prepend(prefix);
+      // If the opening parenthesis moved into the anchor, include its matching close.
+      const after = anchor.nextSibling;
+      if (match[1].includes('(') && after?.nodeType === Node.TEXT_NODE && after.data.startsWith(')')) {
+        anchor.append(document.createTextNode(')')); after.data = after.data.slice(1);
+      }
+    }
+  };
   const SKIPPED = `math,.reader-equation,pre,code,a,h1,h2,h3,h4,h5,h6,.sr-cite,[${CHROME}]`;
   const BREAKS = /^(?:TD|TH|TR|TABLE|THEAD|TBODY|LI|UL|OL|P|DIV|FIGCAPTION|FIGURE|BLOCKQUOTE|IMG)$/;
   const inBibliography = node => {
@@ -1132,8 +1149,8 @@
     row.className = 'sr-paper-tags'; row.setAttribute(CHROME, ''); row.setAttribute('data-sr-paper-tags', '');
     row.setAttribute('role', 'button'); row.tabIndex = 0;
     row.setAttribute('aria-label', names.length ? 'Keywords: ' + names.join(', ') + '. Edit keywords' : 'Add keywords');
-    const label = document.createElement('h2'); label.textContent = 'Keywords'; row.append(label);
-    const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source + ' · Edit'; row.append(origin);
+    const label = document.createElement('h2'); label.textContent = 'Gradstep Keywords'; row.append(label);
+    const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source === 'Gradstep' ? 'Edit' : source + ' · Edit'; row.append(origin);
     // arXiv sometimes wraps the abstract in a one-item list; use the same reading width as the body.
     for (const heading of document.querySelectorAll('h2,h3,p')) {
       if (heading.textContent.trim().toLowerCase() === 'abstract' && heading.nextElementSibling?.matches('ul,ol') && heading.nextElementSibling.children.length === 1) heading.nextElementSibling.setAttribute('data-sr-abstract-list','');
@@ -1190,7 +1207,7 @@
     // A table or an algorithm shown on its own (a figure reference's view) keeps the page's table presentation.
     if (config && !figureIDs.has(config.figure_id)) installLayout();
     if (!config?.figure_id) {
-      installCitationStyle(); collectReferences(); formatContents(); linkCitations(); linkFigureReferences();
+      installCitationStyle(); collectReferences(); formatContents(); expandNamedReferences(); linkCitations(); linkFigureReferences();
       installPaperLine(window.__readerPaperLine);
       installPaperTags(window.__readerPaperTags);
       installAuthors(window.__readerAuthors);

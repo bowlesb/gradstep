@@ -1,5 +1,26 @@
 # Owner feedback log
 
+
+## Build 71 feedback — 2026-10-18 (implemented; native release pending)
+
+Seven new screenshots were inspected individually (`.artifacts/feedback/build71-20261018/`).
+
+| Report | Diagnosis and change | Evidence |
+|---|---|---|
+| `AAIRTUkUM8VCNEXeNJ08xWY` | Equation heading changed while WKWebView retained its initial formula. Reload on markup changes, keyed by bundle identity; ignore obsolete navigation completions. | Actual web-view DOM regression passes after switching equations. |
+| `AJ_z1-3h-S_4KMX3DQeREZ8` | Excess space between equation and model control. Reduced the shared spacing. | Affected native journey passes; release pending. |
+| `AKySCAEqMG8jFIUsZuMgJUk` | Initial choice should be Default and Choose model. Consolidated the initial chooser; expanded controls retain actual model names and reasons. | Native chooser and cloud-failure journeys pass. |
+| `AIm3cFZUGNMzCcnow--e9uU` | Only part of a Figure/Table/Equation reference was clickable. Expand the anchor to the complete named reference. | Real reader DOM link regression passes. |
+| `AGaNyh3RbfCpwDS8YAPMU98` | Use Gradstep Keywords, without the redundant device qualifier. | Reader markup assertion passes. |
+| `AA7qkZeMDULoabnV9nJltRg` | Launch restored a saved tag filter with no results. Tag selection now starts clear; user's tags remain intact. | Launch-state regression passes. |
+| `AALT8OoJugZVuzIPaA4fCiQ` | Reopening a saved figure explainer needlessly requested a model. Read the exact saved answer before presenting the chooser; opening it makes no AI request. | Actual session test and close → figure → AI Explainer → saved parts journey pass. |
+
+Native evidence: `feedback-chooser.xcresult` under the intake folder. iPhone/iPad local answering removal and
+Mac model qualification are a separate owner-directed change in this batch. The PDF extraction model is retained.
+No physical iPhone testing was performed. An initial import gate caught a test that inspected rows before its
+background search completed; it now awaits the actual search, retaining all row/spinner assertions. Release still
+requires a passing, source-matching gate. Older intermittent Rubric Judgments/DocPilot failures remain unproven.
+
 TestFlight screenshot feedback is read from App Store Connect (`betaFeedbackScreenshotSubmissions`; screenshots are
 saved under `.artifacts/feedback/`, which is not committed). Each item gets a plan and is closed with the build that
 fixes it. “In build 19/20” below means the reviewed change is included in both internal iOS/Mac TestFlight builds,

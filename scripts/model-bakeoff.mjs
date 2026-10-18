@@ -25,6 +25,9 @@ const QUESTIONS_DIR = `${ROOT}/tests/model-bakeoff`;
 const arg = (name, fallback = null) => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const list = name => arg(name)?.split(',').map(s => s.trim()).filter(Boolean) ?? null;
 const COMMAND = process.argv[2];
+// Stable service identity, distinct from every reader; one run UUID and one durable attempt per call.
+const RESEARCH_ACTOR = 'bace0ff0-0000-4000-8000-000000000001';
+const RESEARCH_RUN = randomUUID();
 const concurrency = Number(arg('concurrency', COMMAND === 'judge' ? '1' : '2'));
 if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 6) throw new Error('Concurrency must be an integer from 1 to 6');
 const CAP_USD = Number(arg('cap', '18'));
@@ -198,11 +201,12 @@ async function complete(model, messages, tools, maxTokens = 16_000, timeoutMs = 
       ...(model.dataCollection ? { data_collection: model.dataCollection } : {}),
       max_price: { prompt: model.rates.input * 1e6, completion: model.rates.output * 1e6 } } };
   const started = Date.now();
-  const hold = ledger.reserve(requestCeiling(messages, tools, maxTokens, model.rates), { model: model.id, command: COMMAND });
+  const hold = ledger.reserve(requestCeiling(messages, tools, maxTokens, model.rates), { model: model.id, command: COMMAND, account_id: RESEARCH_ACTOR, operation_id: RESEARCH_RUN, feature: 'model_evaluation', endpoint: model.provider });
+  body.user = RESEARCH_ACTOR; body.session_id = RESEARCH_RUN; body.trace = { attempt_id: hold, feature: 'model_evaluation', caller: 'research', sent_at: new Date().toISOString() };
   let response;
   try {
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Title': 'Science Reader model bake-off' },
+      headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Title': 'Gradstep model evaluation', 'X-Session-ID': RESEARCH_RUN },
       body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     return { error: 'Transport failed; full hold retained, no automatic retry', seconds: (Date.now() - started) / 1000 };

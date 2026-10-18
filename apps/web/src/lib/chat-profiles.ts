@@ -102,7 +102,7 @@ export function decodeProfileTable(raw: unknown): ProfileTable | null {
       if (!item || typeof item !== 'object' || !keys.includes(item.id as K)) continue;
       const label = text(item.label, 24);
       if (!label) continue;
-      const apiModel = text(item.api_model, 64), provider = PROVIDERS[String(item.provider)];
+      const apiModel = text(item.api_model, 64), provider = item.provider === 'openrouter' && item.id === 'deepseek' ? 'DeepInfra through OpenRouter' : PROVIDERS[String(item.provider)];
       out[item.id as K] = { label, detail: text(item.detail, 80) ?? '', ...(apiModel ? { apiModel } : {}), ...(provider ? { provider } : {}) };
     }
     return out;
@@ -110,7 +110,7 @@ export function decodeProfileTable(raw: unknown): ProfileTable | null {
   // DeepSeek answers only under the consent that names it (`cloud-ai-v4`, the one this browser shows); a table that
   // ties it to another version offers nothing this browser can ask for, so DeepSeek is left out.
   const deepseek = Array.isArray(v.models) ? (v.models as Record<string, unknown>[]).find(m => m?.id === 'deepseek') : undefined;
-  const deepseekUsable = !deepseek || deepseek.consent_version === undefined || deepseek.consent_version === DEEPSEEK_CONSENT;
+  const deepseekUsable = !deepseek || deepseek.consent_version === undefined || deepseek.consent_version === DEEPSEEK_CONSENT || (deepseek.consent_version === 'cloud-ai-v6' && deepseek.provider === 'openrouter');
   const gemini = Array.isArray(v.models) ? (v.models as Record<string, unknown>[]).find(m => m?.id === 'gemini') : undefined;
   const geminiUsable = gemini?.consent_version === 'cloud-ai-v5' && gemini.provider === 'openrouter';
   const estimates = new Map<string, Estimate>();
@@ -207,7 +207,7 @@ export class ProfileTableLoader {
   table: ProfileTable | null = null;
   private pending: Promise<ProfileTable | null> | null = null;
   constructor(private readonly account: string, private readonly signal: AbortSignal,
-    private readonly fetchTable: (account: string, signal: AbortSignal) => Promise<unknown> = (account, signal) => functionGet('chat', { maximum: MAX_TABLE_BYTES, account, signal })) {}
+    private readonly fetchTable: (account: string, signal: AbortSignal) => Promise<unknown> = (account, signal) => functionGet('chat?consent_version=cloud-ai-v6', { maximum: MAX_TABLE_BYTES, account, signal })) {}
   load(): Promise<ProfileTable | null> {
     if (this.table) return Promise.resolve(this.table);
     this.pending ??= this.fetchTable(this.account, this.signal).then(raw => (this.table = decodeProfileTable(raw)), () => null).finally(() => { this.pending = null; });

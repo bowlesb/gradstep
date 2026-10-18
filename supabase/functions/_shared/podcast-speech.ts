@@ -3,6 +3,7 @@
 // impersonates a dedicated service account for a five-minute token. Logs carry
 // ids and counts only — never transcript text, audio or tokens.
 import type { CheckedScript, CheckedSegment } from './podcast-script.ts';
+import type { OpenRouterAttribution } from './openrouter-transport.ts';
 
 export const SPEECH_MODEL = 'gemini-3.8-flash-tts';
 export const VERTEX_LOCATION = 'global';
@@ -158,13 +159,14 @@ export function fitSpeech<T extends SpokenSegment & { chapter: string }>(segment
 }
 
 export interface SpeechResult {
+  billedMicrousd?: number;
   state: 'succeeded' | 'rejected' | 'unknown';
   requestID: string | null; model: string | null; finishReason: string | null;
   audio: Uint8Array | null; mimeType: string | null;
   usage: { text_input_tokens: number; audio_output_tokens: number } | null;
   failure: string | null;
 }
-export interface SpeechProvider { generate(request: SpeechRequest, signal: AbortSignal): Promise<SpeechResult> }
+export interface SpeechProvider { generate(request: SpeechRequest, signal: AbortSignal, attribution?: OpenRouterAttribution): Promise<SpeechResult> }
 
 /** List-price cost (January 2027 rates, even during the 50% promotional credit): reconciled later from invoices. */
 export function speechCost(usage: { text_input_tokens: number; audio_output_tokens: number }, rates: { text_input: number; audio_output: number }): number {

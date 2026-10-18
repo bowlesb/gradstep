@@ -1,5 +1,32 @@
 # Implementation status
 
+
+## Build 71 feedback and OpenRouter consolidation — 2026-10-18 (native release pending)
+
+Seven screenshot reports are implemented and their affected native regressions pass; exact diagnoses and test
+coverage are in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). The initial import gate exposed an asynchronous test race;
+waiting for the real library search retains the rendering assertions. The fresh optimized import/session gate
+passes **13/13, no skips**, at the timestamp in `.artifacts/import-acceptance/latest.json`. This does not resolve
+or erase the separate, older intermittent Rubric Judgments/DocPilot failures.
+
+Migrations **089 and 090**, the chat function and pipeline worker **00049-ghn** are deployed on staging. All remote
+inference entrypoints use OpenRouter; direct model-host egress is blocked. Every paid dispatch requires the durable
+account/service UUID, operation and unique attempt grant; receipts retain serving provider/model, generation ID,
+timestamps, token counts and actual cost, with uncertain bills held. Admin Pages **2506e98b** and browser Pages
+**5a1533bc** are deployed. Owner access after account recreation was restored only after matching the verified
+email against the original owner audit evidence; normal MFA remains required. No credit/budget increase occurred.
+
+Wire chat/script/speech checks and hosted paper chat pass. Full hosted podcasts exposed reasoning-policy and
+quality failures; completed episodes are not yet claimed for this rollout. Details and exact amounts are in
+[PROVIDER_SPENDING.md](architecture/PROVIDER_SPENDING.md). One preexisting direct-Anthropic $0.000138 uncertainty
+remains held, with no receipt permitting settlement. Migration 090 excludes orphan, unclaimed metadata with no
+interested reader from stuck-job alerts while keeping claimed/interested work covered.
+
+The iPhone/iPad build now excludes local answering MLX code/catalog/resources; an archive guard enforces this
+before upload. Device-only PDF extraction remains. Mac replacements are undergoing actual offline qualification;
+Qwen 9B and Gemma 12B failed critical scientific checks. Neither is promoted merely because it fits or runs.
+Subfigure research/fine-tuning design is updated; no detector or newly trained model is claimed released.
+
 ## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS and Mac; browser deployed)
 
 Build **71**, source **c4d15d9**, is **VALID / IN_BETA_TESTING** for iOS/iPadOS, confirmed at

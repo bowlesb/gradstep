@@ -72,6 +72,7 @@ private final class ConsentMemory: AuthenticationCredentialStore, @unchecked Sen
 }
 
 final class ChatGenerationOutcomeTests: XCTestCase {
+    #if targetEnvironment(macCatalyst)
     func testAccountRetirementCancelsAJobRegisteredAfterTheFence() async {
         let jobs = LocalAIJobs(), id = UUID(), epoch = jobs.epoch
         jobs.cancelAll()
@@ -88,6 +89,7 @@ final class ChatGenerationOutcomeTests: XCTestCase {
         jobs.insert(Task {}, id: id, epoch: epoch)
         XCTAssertTrue(jobs.isEmpty)
     }
+    #endif
     func testOutcomesKeepOnlyHonestText() {
         XCTAssertEqual(ChatGenerationOutcome.completed(stopReason: "end_turn").resolution(text: "Answer").status, .complete)
         XCTAssertEqual(ChatGenerationOutcome.completed(stopReason: "max_tokens").resolution(text: "Answer").status, .interrupted)
@@ -115,11 +117,12 @@ final class ChatGenerationOutcomeTests: XCTestCase {
     }
 }
 
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG && (targetEnvironment(simulator) || targetEnvironment(macCatalyst))
 @MainActor
 final class ChatGenerationTests: XCTestCase {
     private let sampleID = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!
 
+    #if targetEnvironment(macCatalyst)
     func testLocalAnswerNeedsNoCloudConsentOrCreditsAndIsSealed() async throws {
         let (model, cloud) = try await makeModel(consented: false)
         model.generalChat = true; model.localAIModelID = "qwen35-4b"
@@ -190,6 +193,23 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertFalse(model.chatAnswerIssue?.retryable ?? true)
         XCTAssertTrue(cloud.requests.isEmpty)
     }
+
+    #else
+    func testPhoneRetainedLocalTurnCannotInvokeCloudOrSpendCredits() async throws {
+        let (model, cloud) = try await makeModel(consented: false)
+        model.generalChat = true; model.localAIModelID = "qwen35-4b"
+        model.chatInput = "Continue my saved local conversation"
+        let before = cloud.creditCalls
+        await model.sendMessage()
+        try await waitUntil("Mac-only error") { model.chatAnswerIssue != nil }
+        XCTAssertEqual(model.chatAnswerIssue?.code, "local_mac_only")
+        XCTAssertFalse(model.chatAnswerIssue?.retryable ?? true)
+        XCTAssertTrue(cloud.requests.isEmpty)
+        XCTAssertEqual(cloud.creditCalls, before)
+        XCTAssertNil(model.chatConsentPrompt)
+        XCTAssertEqual(model.localAI.identity("qwen35-4b"), "local/qwen35-4b/0e7ffd5c629e", "Old encrypted explanations retain their cache identity")
+    }
+    #endif
 
     private func makeModel(consented: Bool, transport: ScriptedChatTransport = ScriptedChatTransport()) async throws -> (ReaderModel, ScriptedChatTransport) {
         let memory = ConsentMemory()

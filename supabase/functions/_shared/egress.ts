@@ -21,6 +21,17 @@ export function isArxivHost(host: string): boolean {
   return name === 'arxiv.org' || name.endsWith('.arxiv.org'); // egress-ok: parse
 }
 
+/** Paid inference is OpenRouter-only. This also blocks accidental use of retained historical adapters. */
+export function isDirectModelHost(host: string): boolean {
+  const name = host.toLowerCase().replace(/\.+$/, '');
+  return ['api.anthropic.com', 'api.deepseek.com', 'api.openai.com', 'generativelanguage.googleapis.com',
+    'aiplatform.googleapis.com'].includes(name) || name.endsWith('-aiplatform.googleapis.com');
+}
+export class ModelEgressBlocked extends Error {
+  readonly code = 'model_route_requires_openrouter';
+  constructor() { super('model_route_requires_openrouter'); }
+}
+
 /** The host a request would go to, or null for something that is not an absolute http(s) URL. */
 export function requestHost(input: unknown): string | null {
   let href: string;
@@ -67,6 +78,7 @@ export function guardedFetch(inner: Fetch, caller: string, options: { mode?: () 
   const guarded = async (input: Parameters<Fetch>[0], init?: FetchInit): Promise<Response> => {
     const mode = modeOf();
     const host = requestHost(input);
+    if (host && isDirectModelHost(host)) throw new ModelEgressBlocked();
     if (host !== null && isArxivHost(host)) {
       note(host, caller, mode, log);
       if (mode === 'block') throw new EgressBlocked(host);
@@ -84,6 +96,7 @@ export function guardedFetch(inner: Fetch, caller: string, options: { mode?: () 
     let url = typeof input === 'string' || input instanceof URL ? new URL(String(input)) : new URL((input as Request).url);
     let request: FetchInit = { ...init, redirect: 'manual' };
     for (let hop = 0; ; hop++) {
+      if (isDirectModelHost(url.hostname)) throw new ModelEgressBlocked();
       const response = await inner(hop === 0 && input instanceof Request ? input : url.href, hop === 0 && input instanceof Request ? { ...init, redirect: 'manual' } : request);
       if (response.status < 300 || response.status >= 400 || response.status === 304) return response;
       const location = response.headers.get('location');

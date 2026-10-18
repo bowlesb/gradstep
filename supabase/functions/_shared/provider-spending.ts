@@ -1,3 +1,4 @@
+import { rpcAttribution } from "./openrouter-transport.ts";
 // Durable admission around one provider transport request. No prompts, queries,
 // answers or raw errors are stored/logged; only domain-bound digests and counts.
 import type Anthropic from '@anthropic-ai/sdk';
@@ -8,6 +9,7 @@ import { CONSENT_VERSION } from './chat.ts';
 import { providerForModel } from './chat-profiles.ts';
 
 export interface SpendingDependencies {
+  feature?: string;
   accountID: string;
   operationID: string;
   rpc(name: string, params: Record<string, unknown>): Promise<unknown>;
@@ -92,7 +94,8 @@ export function admittedAnthropic(deps: SpendingDependencies,
     // Not sent: our own bound when the round no longer fits the hold, else our server (a pause, capacity, a lost reply).
     if (!granted.granted) return { ...unavailable(), cause: granted.reason === 'operation_ceiling' ? 'limit' : 'server' };
     let outcome: ProviderOutcome;
-    try { outcome = await generate(params, options); }
+    try { outcome = await generate(params, { ...options, attribution: rpcAttribution(deps, attempt.id,
+      options.purpose ?? (params.tool_choice?.type === 'tool' ? params.tool_choice.name : deps.feature ?? 'chat'), 'chat') }); }
     catch {
       await finish(deps, attempt.id, 'unknown', null, null, {}, 'transport_unknown');
       return { ...unavailable(), exact: false, cause: 'server' };

@@ -251,7 +251,7 @@ describe('Flash rollout', () => {
     expect(requestProfile(table, STANDARD_PROFILE)?.model).toBe('sonnet');
     expect(modelProvider(table, 'gemini')).toBe('Google through OpenRouter');
     const body = requestBody(makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: 'Hello' }], null, null, { profile: table.defaultChoice, autoEffort: true }));
-    expect(body.consent_version).toBe('cloud-ai-v5'); expect(body.profile?.model).toBe('gemini');
+    expect(body.consent_version).toBe('cloud-ai-v6'); expect(body.profile?.model).toBe('gemini');
   });
   it('does not offer Flash under an unknown consent contract or a different route', () => {
     for (const change of [{ consent_version: 'cloud-ai-v6' }, { provider: 'mystery' }]) {

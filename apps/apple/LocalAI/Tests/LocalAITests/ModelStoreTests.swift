@@ -51,4 +51,15 @@ import Testing
             #expect(model.files.allSatisfy { $0.bytes > 0 && $0.sha256.count == 64 && !$0.name.contains("/") })
         }
     }
+    @Test func memoryAdmissionRequiresPhysicalCapacityHeadroomMetalBudgetAndNormalPressure() throws {
+        let (_, model, _) = try fixture()
+        let needed = model.requiredHeadroom(hasImage: true)
+        #expect(model.admitsMemory(total: needed * 2, reclaimable: needed, metalLimit: needed, pressure: 1, hasImage: true))
+        #expect(!model.admitsMemory(total: needed - 1, reclaimable: needed, metalLimit: needed, pressure: 1, hasImage: true))
+        #expect(!model.admitsMemory(total: needed * 2, reclaimable: needed - 1, metalLimit: needed, pressure: 1, hasImage: true))
+        #expect(!model.admitsMemory(total: needed * 2, reclaimable: needed, metalLimit: needed - 1, pressure: 1, hasImage: true))
+        for pressure in [0, 2, 4] {
+            #expect(!model.admitsMemory(total: needed * 2, reclaimable: needed, metalLimit: needed, pressure: pressure, hasImage: true))
+        }
+    }
 }

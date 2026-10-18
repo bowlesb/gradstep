@@ -20,7 +20,7 @@ import Testing
         #expect(body["operation_id"] as? String == operation.wire)
         #expect(body["document_id"] as? String == document.wire)
         // v3 (2026-10-15) names figures (CHAT.md "Figures in chat").
-        #expect(body["consent_version"] as? String == "cloud-ai-v5")
+        #expect(body["consent_version"] as? String == "cloud-ai-v6")
         #expect(body["mode"] as? String == "paper")
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages == [["role": "user", "text": "What is \\(d_k\\)?"], ["role": "assistant", "text": "The key width."],

@@ -35,7 +35,7 @@ public enum ChatAction: String, Equatable, Sendable {
 
 public struct ChatGenerationRequest: Equatable, Sendable {
     /// v3 (2026-10-15) also names the figure a question is about (ChatConsentView); readers who accepted v2 are asked once more.
-    public static let consentVersion = "cloud-ai-v5"
+    public static let consentVersion = "cloud-ai-v6"
     public static let maximumTurns = 60
     public static let maximumMessageBytes = 200_000
     public static let maximumSelectionScalars = 4_000
@@ -442,6 +442,7 @@ public enum ChatFailureText {
         case "operation_replayed": "This answer was already requested. Try again to request a new one."
         case "authentication_required": "Sign in again to get answers."
         case "transport": "The connection was interrupted before the answer finished."
+        case "local_mac_only": "Local models are available in Gradstep for Mac. Choose a cloud model to continue here. Your question is saved."
         case "local_model_missing": "Download a model from the Local AI choice before asking. Your question is saved."
         case "local_model_invalid": "The local model failed verification. Remove its download and download it again."
         case "local_image_unsupported": "This model reads text only. Choose a vision model to discuss figures."
@@ -461,7 +462,7 @@ public enum ChatFailureText {
 
     /// Whether retrying the same question can reasonably succeed.
     public static func isRetryable(_ code: String) -> Bool {
-        !["invalid_request", "refused", "model_unavailable", "local_image_unsupported", "local_action_unsupported", "local_unavailable", "local_context_large", "local_memory"].contains(code)
+        !["invalid_request", "refused", "model_unavailable", "local_image_unsupported", "local_action_unsupported", "local_unavailable", "local_context_large", "local_memory", "local_mac_only"].contains(code)
     }
 }
 

@@ -149,7 +149,11 @@ export async function runMetadataPipeline(deps: MetadataDeps, deadline: number):
     const code = error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'metadata_unavailable';
     // Which endpoint refused and how (a status or a network failure name): operators see why a source is unavailable.
     const cause = error instanceof Error && error.cause && typeof error.cause === 'object' ? error.cause as Record<string, unknown> : null;
-    deps.log('metadata_error', { paper: paper.id, code, ...(cause ? { endpoint: cause.endpoint, status: cause.status ?? null, reason: cause.reason ?? null } : {}) });
+    deps.log('metadata_error', { paper: paper.id, code, ...(cause ? {
+      endpoint: typeof cause.endpoint === 'string' && /^[a-z0-9._-]{1,80}$/.test(cause.endpoint) ? cause.endpoint : null,
+      status: typeof cause.status === 'number' && Number.isSafeInteger(cause.status) ? cause.status : null,
+      reason: typeof cause.reason === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(cause.reason) ? cause.reason : null,
+    } : {}) });
     if (paper.stage === 'metadata') {
       const failures = paper.failures + 1;
       const pending = error instanceof NotYetListed;

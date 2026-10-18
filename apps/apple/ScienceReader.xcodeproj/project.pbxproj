@@ -24,7 +24,7 @@
 		06C148F4B85AC3C857E3D9A7 /* FigureExplainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D559F3BAEB8250366D6DB730 /* FigureExplainView.swift */; };
 		086EAA3B2420BFC1EEC6E444 /* WorkflowJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF06459C158D4A571E6BDFA /* WorkflowJourneyTests.swift */; };
 		089080735756416C307BE2EB /* ChatHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4551E5342A018E7288BEA10 /* ChatHistoryView.swift */; };
-		09A87E139F241BE09E1C6F24 /* LocalAI in Frameworks */ = {isa = PBXBuildFile; productRef = 4A093C5F34CFCCF286EA9D5F /* LocalAI */; };
+		09A87E139F241BE09E1C6F24 /* LocalAI in Frameworks */ = {isa = PBXBuildFile; platformFilter = maccatalyst; productRef = 4A093C5F34CFCCF286EA9D5F /* LocalAI */; };
 		0C009A2CE4644F71C6AD84F0 /* BackendFaultProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDFC4A9BA27959CF500F13C1 /* BackendFaultProtocol.swift */; };
 		0C06B86BAFB8E28806680089 /* PodcastFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09E53C9F60337D8BE2F0CF40 /* PodcastFixture.swift */; };
 		0C3F55CAE13273FD9E0B6952 /* KeptExplanationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594020BA22F0A8FC3B37B2E7 /* KeptExplanationsView.swift */; };
@@ -329,7 +329,7 @@
 		E5877B50EC695FE47EC84AE9 /* ArxivHTMLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E00BC6A27627E9494E9A84E /* ArxivHTMLReader.swift */; };
 		E6DE31AA91385D94A8DF1E35 /* AuthenticationBackendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C75FAC2E3329F50F2ABBE87 /* AuthenticationBackendTests.swift */; };
 		E735701DE4581AB61E65A2C6 /* reader-versions.json in Resources */ = {isa = PBXBuildFile; fileRef = 41F97A3775265C9B5D9D1057 /* reader-versions.json */; };
-		E73BAD7C131D0BE996730E20 /* LocalAI in Frameworks */ = {isa = PBXBuildFile; productRef = 994782BBBC41835EAA60B915 /* LocalAI */; };
+		E73BAD7C131D0BE996730E20 /* LocalAI in Frameworks */ = {isa = PBXBuildFile; platformFilter = maccatalyst; productRef = 994782BBBC41835EAA60B915 /* LocalAI */; };
 		E7B7236B22DCCD7A5695ECC7 /* LibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909987028A72FA23FF5EE030 /* LibraryPresentation.swift */; };
 		E8E96C24DDC199A076E788DF /* ChatHistoryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54956F7DE7838B0E820D3145 /* ChatHistoryFixture.swift */; };
 		E922ADCA741286C9EF031C9C /* LiveJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615E3C9E9D39D5691D583C2E /* LiveJourneyTests.swift */; };

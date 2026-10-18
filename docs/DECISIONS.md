@@ -2,6 +2,29 @@
 
 Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## OpenRouter exclusively, Mac-only local AI, build 71 feedback (owner, 2026-10-18; implementation in progress)
+
+All remote model inference must use OpenRouter, including DeepSeek chat, catalog classification, podcast writing,
+review and speech. Remove direct-provider fallback. Preserve device-only PDF acquisition/processing, current
+consent, durable admission, actual-cost reconciliation and the $100/month operating budget. Attribution is mandatory
+before transport: account UUID for user work; a stable service identity for shared catalog/research work; operation,
+attempt, route and timestamps. Keep the existing provider ledger authoritative, with generation IDs, model/endpoint,
+rate snapshot, token/cache/audio counts, exact cost or unresolved liability. Do not log prompts, answers or paper text.
+Design the ledger/API changes in PROVIDER_SPENDING.md before adding migrations; verify every paid call path.
+
+Local answering-model downloads/inference become Mac-exclusive. iPhone and iPad builds must omit MLX and its model
+catalog/resources, not merely hide the controls. Existing encrypted local explanations/history remain readable; an
+old local answer never silently turns into a paid cloud request. Retire the small prototype choices. Evaluate two
+strong Mac options on scientific questions with real native inference, measured memory, cancellation and offline
+checks; a candidate is not accepted merely because it runs or has a good published benchmark. Target 16/32 GB Macs
+pending the owner's optional memory-tier preference. PDF preparation remains on-device and is separate from chat.
+
+Seven new screenshot reports are under `.artifacts/feedback/build71-20261018/`: stale equation pixels after switching;
+excess equation/model spacing; initial Default (abbreviated model) / Choose model actions; full Figure/Table/Equation
+reference phrases as links; “Gradstep Keywords”; a launch restored into an empty Machine learning filter; reopening a saved figure explanation without another model choice. Reproduce
+and verify the affected behavior before another release. Continue subfigure detector/export/fine-tuning research,
+using held-out papers and label/legend containment; no unqualified detector is included in the app.
+
 ## Build 70 feedback: navigation, discovery and figure regions (2026-10-18; implemented, release verification recorded)
 
 The owner explicitly requests: a find occurrence list; direct reference jumps; Back to the exact figure/table

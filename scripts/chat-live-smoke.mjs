@@ -254,7 +254,7 @@ async function figureViews({ local_context, token }) {
   const dir = `${ROOT}/.artifacts/figure-view`; mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const record = { paper: PAPER.key, profile: FIGURE_PROFILE, ran_at: new Date().toISOString(), runs: [] };
-  const base = { consent_version: 'cloud-ai-v5', mode: 'paper', local_context, capabilities: FIGURE_DEVICE, profile: FIGURE_PROFILE };
+  const base = { consent_version: 'cloud-ai-v6', mode: 'paper', local_context, capabilities: FIGURE_DEVICE, profile: FIGURE_PROFILE };
   if (WARM) {
     log('=== warm: one chat question from the same device (writes the paper to the cache) ===');
     const chat = await figureRequest({ ...base, operation_id: randomUUID(), messages: [{ role: 'user', text: 'In two sentences, what is this paper\'s main contribution?' }] }, token);
@@ -363,7 +363,7 @@ try {
     turns.push({ role: 'user', text: question });
     const figures = forced ? figureImages(forced) : (figureNumber || FIGURE) && turns.length === 1 ? figureImages(figureNumber || FIGURE) : [];
     let requested = null;
-    const consent = 'cloud-ai-v5'; // Current native/browser consent, including OpenRouter-routed Claude.
+    const consent = 'cloud-ai-v6'; // Current native/browser consent, including OpenRouter-routed Claude.
     const body = { operation_id: randomUUID(), consent_version: consent, mode: 'paper', local_context, messages: turns,
       topic_title: turns.length === 1, capabilities: LOOK ? ['visual_answers', 'figure_requests'] : ['visual_answers'], ...(figures.length ? { figures } : {}),
       ...(PROFILE ? { profile: PROFILE } : {}),

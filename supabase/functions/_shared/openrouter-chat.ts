@@ -1,3 +1,5 @@
+import { isRouterDeepSeek, routerDeepSeekRates, ROUTER_DEEPSEEK_ENDPOINT } from "./openrouter-deepseek-pricing.ts";
+import { openRouterPost, OpenRouterNotDispatched } from "./openrouter-transport.ts";
 import { isRouterClaude, routerClaudeRates, ROUTER_CLAUDE_ENDPOINT, ROUTER_CLAUDE_PRICE_EXPIRES } from './openrouter-claude-pricing.ts';
 // Gemini Flash on the same pinned OpenRouter -> Google route as the comparison. No SDK retries or alternate routes.
 // Chat orchestration still owns tools, consent, admission and settlement. Content/signatures live only in memory.
@@ -55,13 +57,13 @@ function part(value: unknown): ObjectValue {
 /** Stable system prefix cached for five minutes; action instructions follow it in the user message. Google caches
  * the entire system message, so keeping the dynamic tail in that message would invalidate it on every action. */
 export function openRouterChatParams(params: Params): ObjectValue {
-  const claude = isRouterClaude(params.model);
-  if (params.model !== GEMINI_MODEL && !claude) throw new Error('unsupported_model');
+  const claude = isRouterClaude(params.model), deepseek = isRouterDeepSeek(params.model);
+  if (params.model !== GEMINI_MODEL && !claude && !deepseek) throw new Error('unsupported_model');
   const blocks: Anthropic.Beta.Messages.BetaTextBlockParam[] = typeof params.system === 'string' ? [{ type: 'text', text: params.system }] : params.system ?? [];
   const boundary = blocks.findLastIndex(b => !!b.cache_control);
   const stable = boundary < 0 ? blocks : blocks.slice(0, boundary + 1);
-  const tail = claude || boundary < 0 ? '' : blocks.slice(boundary + 1).map(b => b.text).join('\n\n');
-  const messages: ObjectValue[] = [{ role: 'system', content: claude ? blocks.map(part) : [{ type: 'text', text: stable.map(b => b.text).join('\n\n'),
+  const tail = claude || deepseek || boundary < 0 ? '' : blocks.slice(boundary + 1).map(b => b.text).join('\n\n');
+  const messages: ObjectValue[] = [{ role: 'system', content: deepseek ? blocks.map(b => ({ type: 'text', text: b.text })) : claude ? blocks.map(part) : [{ type: 'text', text: stable.map(b => b.text).join('\n\n'),
     ...(boundary >= 0 ? { cache_control: { type: 'ephemeral', ttl: '5m' } } : {}) }] }];
   for (const [index, m] of params.messages.entries()) {
     const content = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content;
@@ -89,13 +91,15 @@ export function openRouterChatParams(params: Params): ObjectValue {
   // auxiliary is an object with the same schema; validate it below and relay it through our existing tool contract.
   const forced = claude && choice?.type === 'tool' ? tools.find(t => t.function.name === choice.name) : undefined;
   if (claude && choice?.type === 'tool' && !forced) throw new Error('tool_invalid');
-  const rates = claude ? routerClaudeRates(params.model, holdForParams(params).inputTokens) : GEMINI_RATES;
-  const endpoint = claude ? ROUTER_CLAUDE_ENDPOINT : GEMINI_ENDPOINT;
-  return { model: claude ? params.model : GEMINI_OPENROUTER_MODEL, messages, ...(forced ? { response_format: { type: 'json_schema', json_schema: { name: forced.function.name, strict: true, schema: { ...forced.function.parameters, additionalProperties: false } } } } : tools.length ? { tools } : {}),
+  const rates = deepseek ? routerDeepSeekRates(params.model) : claude ? routerClaudeRates(params.model, holdForParams(params).inputTokens) : GEMINI_RATES;
+  const endpoint = deepseek ? ROUTER_DEEPSEEK_ENDPOINT : claude ? ROUTER_CLAUDE_ENDPOINT : GEMINI_ENDPOINT;
+  const structured = params.output_config?.format?.type === 'json_schema' ? params.output_config.format.schema : null;
+  return { model: deepseek || claude ? params.model : GEMINI_OPENROUTER_MODEL, messages, ...(forced ? { response_format: { type: 'json_schema', json_schema: { name: forced.function.name, strict: true, schema: { ...forced.function.parameters, additionalProperties: false } } } } : tools.length ? { tools } : {}),
+    ...(!forced && structured ? { response_format: { type: 'json_schema', json_schema: { name: 'result', strict: true, schema: structured } } } : {}),
     ...(!forced && choice ? { tool_choice: choice.type === 'tool' ? { type: 'function', function: { name: choice.name } }
       : choice.type === 'any' ? 'required' : choice.type } : {}),
     max_tokens: params.max_tokens, stream: true, stream_options: { include_usage: true },
-    reasoning: claude ? params.thinking?.type === 'disabled' ? { enabled: false } : { effort: params.output_config?.effort ?? 'low' } : { effort: 'medium' },
+    reasoning: claude || deepseek ? params.thinking?.type === 'disabled' ? { enabled: false } : { effort: params.output_config?.effort ?? 'low' } : { effort: 'medium' },
     provider: { only: [endpoint], order: [endpoint], allow_fallbacks: false, require_parameters: true,
       data_collection: 'deny', zdr: true, max_price: { prompt: rates.input, completion: rates.output } } };
 }
@@ -113,7 +117,7 @@ export function openRouterAttempt(value: unknown, model = GEMINI_MODEL, hourCach
   // Google's cache creation/storage counter can name the same tokens as cached_tokens. It is not a third,
   // disjoint input category (confirmed by the saved comparison bills); reported cost already includes storage.
   return { model, estimated: false, billedMicrousd: u.cost * 1_000_000,
-    ...(!claude && written ? { cacheStorageTokens: written } : {}),
+    ...(!claude && model === GEMINI_MODEL && written ? { cacheStorageTokens: written } : {}),
     usage: { input: prompt - cached - (claude ? written : 0), cacheRead: cached, cacheWrite5m: claude && !hourCache ? written : 0, cacheWrite1h: claude && hourCache ? written : 0, output } };
 }
 
@@ -131,12 +135,8 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     try { body = openRouterChatParams(params); } catch { return { ...failed(true), cause: 'server' }; }
     let response: Response;
     try {
-      response = await (options.fetch ?? fetch)('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST', signal: stream.signal,
-        headers: { authorization: `Bearer ${options.apiKey}`, 'content-type': 'application/json', 'X-Title': 'Gradstep', 'X-OpenRouter-Cache': 'false' },
-        body: JSON.stringify(body),
-      });
-    } catch { return failed(false, stream.signal.aborted ? 'aborted' : 'provider_error'); }
+      response = await openRouterPost(options, 'chat/completions', body, stream.signal, stream.attribution);
+    } catch (error) { return failed(error instanceof OpenRouterNotDispatched, stream.signal.aborted ? 'aborted' : 'provider_error'); }
     id = response.headers.get('x-generation-id');
     if (!response.ok) {
       const reason = await rejectionReason(response);
@@ -148,7 +148,7 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
     }
     if (!response.body) return failed();
     const forced = isRouterClaude(params.model) && params.tool_choice?.type === 'tool' ? params.tool_choice.name : null;
-    let text = '', finish = '', done = false, buffer = '', bytes = 0;
+    let text = '', finish = '', done = false, buffer = '', bytes = 0, provider = '';
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
     const reasoning = new Map<number, ObjectValue>();
     const reader = response.body.getReader(), decoder = new TextDecoder();
@@ -171,7 +171,8 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
             if (id && id !== event.id) throw new Error('generation_changed');
             id = event.id;
           }
-          if (event.model !== undefined && event.model !== (isRouterClaude(params.model) ? params.model : GEMINI_OPENROUTER_MODEL)) throw new Error('model_changed');
+          if (event.model !== undefined && event.model !== body.model) throw new Error('model_changed');
+          if (typeof event.provider === 'string' && /^[a-zA-Z0-9 ./_-]{1,80}$/.test(event.provider)) provider = event.provider;
           const choice = object(array(event.choices)[0]), delta = object(choice.delta);
           if (typeof delta.content === 'string') { text += delta.content; if (!forced) stream.onText(delta.content); }
           for (const raw of array(delta.tool_calls)) {
@@ -203,6 +204,7 @@ export function openRouterChat(options: { apiKey: string; fetch?: typeof fetch; 
         text = ''; finish = 'tool_calls';
       }
       if (finish === 'tool_calls' && !toolCalls.length) return failed();
+      if (provider && stream.attribution?.receipt) await stream.attribution.receipt({ generation_id: id, provider, model: String(body.model), total_cost_microusd: Math.ceil(attempt.billedMicrousd!) });
       return { status: 'complete', failure: null, messageID: id, requestID: id, model: params.model,
         stopReason: finish === 'stop' ? 'end_turn' : finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'refusal',
         refusalCategory: finish === 'content_filter' ? 'provider' : null, attempts: [attempt], exact: true, toolCalls,

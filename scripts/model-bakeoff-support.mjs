@@ -109,6 +109,6 @@ export class SpendLedger {
     if (!r || r.cost != null) throw new Error('Unknown or already settled hold');
     // An interrupted response or missing cost retains the entire hold across restarts.
     if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) return;
-    r.cost = cost; r.overrun = cost > r.hold; this.save();
+    r.cost = cost; r.finished_at = new Date().toISOString(); r.overrun = cost > r.hold; this.save();
   }
 }

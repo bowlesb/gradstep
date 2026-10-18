@@ -51,11 +51,11 @@ test('library query migration preserves the shared category fallback mapping', (
     (tag.categories ?? []).map(category => [category, tag.name]))));
 });
 
-test('the request: Haiku 4.5, the vocabulary as an enum, title and abstract only', () => {
+test('the request: Haiku 5.5 through OpenRouter, the vocabulary as an enum, title and abstract only', () => {
   const request = tagRequest({ title: '  Attention   Is All You Need ', abstract: 'We propose the Transformer.\n\nIt uses attention.',
     categories: ['cs.CL', 'cs.LG', 'not a category!'] });
-  assert.equal(request.model, 'claude-haiku-4-5-20251001');
-  assert.equal(TAG_MODEL, 'claude-haiku-4-5-20251001');
+  assert.equal(request.model, 'anthropic/claude-haiku-5.5');
+  assert.equal(TAG_MODEL, 'anthropic/claude-haiku-5.5');
   assert.ok(request.max_tokens <= 512);
   assert.equal(request.system, TAG_SYSTEM_PROMPT);
   for (const tag of TAG_VOCABULARY) assert.ok(TAG_SYSTEM_PROMPT.includes(`- ${tag.name}: ${tag.definition}`), tag.name);
@@ -78,10 +78,11 @@ test('answers map to the vocabulary: case, duplicates and unknown names, at most
   assert.equal(parseTags('{"tags":'), null);
   assert.equal(parseTags('{"other":[]}'), null);
   assert.equal(parseTags(JSON.stringify({ tags: TAG_NAMES.slice(0, 10) }))?.length, 7);
-  assert.equal(priceUsage({ input_tokens: 2900, output_tokens: 40 }), 3100, '$1/$5 per million tokens');
-  assert.equal(priceUsage({ input_tokens: 10, output_tokens: 0, cache_read_input_tokens: 10, cache_creation_input_tokens: 4 }), 16);
+  assert.equal(priceUsage({ input_tokens: 2900, output_tokens: 40 }), 341, 'Vertex US route rates');
+  assert.equal(priceUsage({ input_tokens: 10, output_tokens: 0, cache_read_input_tokens: 10, cache_creation_input_tokens: 4 }), 2);
 });
 
+const attribution = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', operationID: 'bbbbbbbb-0000-4000-8000-000000000001', attemptID: 'cccccccc-0000-4000-8000-000000000001', feature: 'catalog_tags', caller: 'catalog', dispatch: async () => true };
 function fakeAnthropic(handler: (body: Record<string, unknown>) => Response | Promise<Response>) {
   const calls: Record<string, unknown>[] = [];
   const client = createTagClient('test-key', (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -90,35 +91,35 @@ function fakeAnthropic(handler: (body: Record<string, unknown>) => Response | Pr
   }) as typeof fetch);
   return { client, calls };
 }
-const message = (text: string, stop = 'end_turn') => new Response(JSON.stringify({ id: 'msg_tags_1', type: 'message', role: 'assistant',
-  model: 'claude-haiku-4-5-20251001', content: [{ type: 'text', text }], stop_reason: stop, stop_sequence: null,
-  usage: { input_tokens: 2900, output_tokens: 40 } }), { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req_1' } });
+const message = (text: string, stop = 'end_turn') => new Response('data: ' + JSON.stringify({ id: 'msg_tags_1', model: TAG_MODEL,
+  choices: [{ delta: { content: text }, finish_reason: stop === 'end_turn' ? 'stop' : 'content_filter' }],
+  usage: { prompt_tokens: 2900, completion_tokens: 40, cost: 0.000341 } }) + '\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
 
 test('a classification is priced from usage; refusals, bad output and errors fall back with what is known about billing', async () => {
   const input = { title: 'Direct Preference Optimization', abstract: 'We fine-tune language models from preferences.', categories: ['cs.LG'] };
   const ok = fakeAnthropic(() => message('{"tags":["Machine learning","Preference optimization","Alignment","Large language models"]}'));
-  const done = await classifyPaper(ok.client, input);
+  const done = await classifyPaper(ok.client, input, attribution);
   assert.deepEqual(done, { status: 'complete', tags: ['Machine learning', 'Preference optimization', 'Alignment', 'Large language models'],
-    messageID: 'msg_tags_1', model: 'claude-haiku-4-5-20251001', usage: { input_tokens: 2900, output_tokens: 40 }, microusd: 3100 });
+    messageID: 'msg_tags_1', model: 'anthropic/claude-haiku-5.5', usage: { input_tokens: 2900, output_tokens: 40 }, microusd: 341 });
   assert.equal(ok.calls.length, 1);
-  assert.equal((ok.calls[0].output_config as { format: { type: string } }).format.type, 'json_schema');
+  assert.equal((ok.calls[0].response_format as { type: string }).type, 'json_schema');
   assert.ok(!JSON.stringify(ok.calls[0]).includes('test-key'));
 
-  const refused = await classifyPaper(fakeAnthropic(() => message('', 'refusal')).client, input);
+  const refused = await classifyPaper(fakeAnthropic(() => message('', 'refusal')).client, input, attribution);
   assert.equal(refused.status, 'failed');
   assert.equal(refused.status === 'failed' && refused.code, 'provider_refused');
   assert.equal(refused.messageID, 'msg_tags_1');
-  assert.equal(refused.microusd, 3100, 'a refused message is still billed');
-  const invalid = await classifyPaper(fakeAnthropic(() => message('{"tags":["Not a tag"]}')).client, input);
+  assert.equal(refused.microusd, 341, 'a refused message is still billed');
+  const invalid = await classifyPaper(fakeAnthropic(() => message('{"tags":["Not a tag"]}')).client, input, attribution);
   assert.equal(invalid.status === 'failed' && invalid.code, 'invalid_output');
 
   const rejected = await classifyPaper(fakeAnthropic(() => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'x' } }),
-    { status: 400, headers: { 'content-type': 'application/json' } })).client, input);
+    { status: 400, headers: { 'content-type': 'application/json' } })).client, input, attribution);
   assert.deepEqual(rejected, { status: 'failed', code: 'provider_rejected', messageID: null, model: null, usage: null, microusd: 0 });
-  const lost = await classifyPaper(fakeAnthropic(() => { throw new TypeError('socket hang up'); }).client, input);
+  const lost = await classifyPaper(fakeAnthropic(() => { throw new TypeError('socket hang up'); }).client, input, attribution);
   assert.equal(lost.status === 'failed' && lost.code, 'provider_transport');
   assert.equal(lost.microusd, estimateMicrousd(tagRequest(input)), 'a lost call is charged its upper bound');
-  assert.ok(lost.microusd > 10_000 && lost.microusd < 40_000, `${lost.microusd} µ$ conservative byte bound fits the revised hold`);
+  assert.ok(lost.microusd > 1_000 && lost.microusd < 5_000, `${lost.microusd} µ$ conservative byte bound fits the revised hold`);
 });
 
 function harness(claims: ClaimedVersion[][], classify: TaggingDeps['classify'], options: { failRecord?: boolean; items?: number } = {}) {
@@ -152,7 +153,7 @@ test('a tagging run: model tags under a hold, the category fallback without one,
   const classify = async (input: unknown): Promise<Classification> => {
     seen.push(input);
     return { status: 'complete', tags: ['Natural language processing', 'Transformers', 'Long context'], messageID: 'msg_1',
-      model: 'claude-haiku-4-5-20251001', usage: { input_tokens: 2900, output_tokens: 40 }, microusd: 3100 };
+      model: 'anthropic/claude-haiku-5.5', usage: { input_tokens: 2900, output_tokens: 40 }, microusd: 341 };
   };
   const { deps, calls, logs } = harness([[claimed('v1', true), claimed('v2', false)]], classify, { items: 2 });
   const result = await tagCatalog(deps, { deadline: 1_000_000 });
@@ -164,8 +165,8 @@ test('a tagging run: model tags under a hold, the category fallback without one,
   const [modelRecord, fallbackRecord] = calls.filter(call => call.name === 'worker_tags_record').map(call => call.params);
   assert.deepEqual({ ...modelRecord, p_input_sha256: undefined }, { p_version_id: 'v1', p_claim_id: 'c-v1', p_metadata_id: 'm-v1',
     p_vocabulary: TAG_VOCABULARY_VERSION, p_input_sha256: undefined, p_model_attempted: true,
-    p_tags: ['Natural language processing', 'Transformers', 'Long context'], p_method: 'model', p_model: 'claude-haiku-4-5-20251001',
-    p_provider_event_id: 'msg_1', p_units: { input_tokens: 2900, output_tokens: 40 }, p_microusd: 3100 });
+    p_tags: ['Natural language processing', 'Transformers', 'Long context'], p_method: 'model', p_model: 'anthropic/claude-haiku-5.5',
+    p_provider_event_id: 'msg_1', p_units: { input_tokens: 2900, output_tokens: 40 }, p_microusd: 341 });
   assert.match(modelRecord.p_input_sha256 as string, /^\\x[0-9a-f]{64}$/);
   assert.deepEqual({ ...fallbackRecord, p_input_sha256: undefined }, { p_version_id: 'v2', p_claim_id: 'c-v2', p_metadata_id: 'm-v2',
     p_vocabulary: TAG_VOCABULARY_VERSION, p_input_sha256: undefined, p_model_attempted: false,
@@ -199,7 +200,7 @@ test('a failed model call records the fallback with its cost; no model means no 
 });
 
 test('a tag input whose byte bound exceeds its admitted hold never calls the model', async () => {
-  const candidate = claimed('v1', true); candidate.hold_microusd = 10_000;
+  const candidate = claimed('v1', true); candidate.hold_microusd = 100;
   let generated = 0;
   const { deps, calls } = harness([[candidate]], async () => { generated++; throw new Error('must not send'); });
   await tagCatalog(deps, { deadline: 1_000_000 });

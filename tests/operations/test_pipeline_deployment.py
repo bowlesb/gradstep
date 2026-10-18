@@ -26,6 +26,13 @@ def service():
 
 
 class PipelineDeploymentTests(unittest.TestCase):
+    def test_old_revision_read_does_not_relax_new_revision_openrouter_requirement(self):
+        old = service()
+        env = old['spec']['template']['spec']['containers'][0]['env']
+        env[:] = [row for row in env if row['name'] != 'OPENROUTER_CHAT_API_KEY']
+        self.assertIsNotNone(DEPLOY.deployment_policy(old, previous_revision=True)['secret_versions'])
+        self.assertIsNone(DEPLOY.deployment_policy(old)['secret_versions'])
+
     def test_created_secret_versions_are_pinned_and_ambiguous_acknowledgement_never_uses_latest(self):
         versions, calls = {}, []
         def gcloud(*args, **kwargs):

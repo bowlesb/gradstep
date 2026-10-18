@@ -114,7 +114,7 @@ enum EquationViewOutcome {
         guard model.isSignedIn else { set(action, Part(state: .needsSignIn)); return }
         guard localModelID != nil || context.localContext != nil else { set(action, Part(state: .unavailable)); return }
         guard localModelID != nil || model.hasCloudConsent else { awaitingConsent = action; set(action, Part(state: .needsConsent)); return }
-        guard localModelID != nil || model.chatProfileTable != nil else { set(action, Part(state: .failed("Cloud models haven’t loaded. Choose AI to try again or use Local AI.", retryable: false))); return }
+        guard localModelID != nil || model.chatProfileTable != nil else { set(action, Part(state: .failed("Cloud models haven’t loaded. Choose model to retry.", retryable: false))); return }
         let profile = model.equationProfile
         let request: ChatGenerationRequest
         do {
@@ -218,7 +218,7 @@ struct EquationView: View {
             .sheetTopRow(
                 explainer: session.flatMap { session in
                     session.symbols.state == .idle
-                        ? ExplainAction(identifier: "equation.explain", hint: "Choose Cloud AI or Local AI to describe this equation.") { choosingAI = true }
+                        ? ExplainAction(identifier: "equation.explain", hint: "Choose a model to describe this equation.") { choosingAI = true }
                         : nil
                 },
                 openChat: ExplainAction(identifier: "equation.openInChat", hint: "Continue this conversation in Chat.") {
@@ -285,9 +285,11 @@ struct EquationView: View {
                                      identifier: "equation.heading") { other in
                     if other.id != session.context.equationID { equationID = other.id }
                 }
-                display(session.context)
-                Text(session.localModelID.map { "\(model.localAI.name($0)) (local)" } ?? cloudLabel(session))
-                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("equation.aiSource")
+                VStack(alignment: .leading, spacing: 8) {
+                    display(session.context)
+                    Text(session.localModelID.map { "\(model.localAI.name($0)) (local)" } ?? cloudLabel(session))
+                        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("equation.aiSource")
+                }
                 symbols(session)
                 if session.symbols.state == .done { backgroundSection(session) }
                 ContextualChatThread(model: model, token: chatToken, onCite: cite(session))
@@ -321,6 +323,8 @@ struct EquationView: View {
                 if let markup = context.markup {
                     EquationWebView(bundle: context.bundle, markup: markup, fontSize: model.paperFontSize * bodySize / 17,
                                     scale: scale, height: $displayHeight)
+                        // The scheme handler is bound to one immutable bundle; equation changes reload below.
+                        .id(context.bundle.manifestSHA256)
                         .frame(height: displayHeight)
                 } else {
                     ScrollView(.horizontal) {
@@ -495,12 +499,13 @@ struct EquationWebView: UIViewRepresentable {
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.navigationDelegate = context.coordinator
         web.accessibilityIdentifier = "equation.display"
-        web.loadHTMLString(Self.page(bundle: bundle, markup: markup), baseURL: URL(string: "reader-bundle://\(bundle.manifestSHA256)/"))
+        context.coordinator.loadSource(web)
         return web
     }
 
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.loadSource(web)
         context.coordinator.layout(web)
     }
 
@@ -554,6 +559,8 @@ struct EquationWebView: UIViewRepresentable {
         var parent: EquationWebView
         private var loaded = false
         private var applied: (size: Double, scale: Double)?
+        private var source: String?
+        private var navigation: WKNavigation?
         init(_ parent: EquationWebView) { self.parent = parent }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -561,7 +568,16 @@ struct EquationWebView: UIViewRepresentable {
             action.navigationType == .other && !loaded ? .allow : .cancel
         }
 
+        func loadSource(_ web: WKWebView) {
+            guard source != parent.markup else { return }
+            source = parent.markup; loaded = false; applied = nil
+            web.stopLoading(); web.scrollView.setContentOffset(.zero, animated: false)
+            navigation = web.loadHTMLString(EquationWebView.page(bundle: parent.bundle, markup: parent.markup),
+                baseURL: URL(string: "reader-bundle://\(parent.bundle.manifestSHA256)/"))
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard navigation === self.navigation else { return }
             loaded = true; applied = nil
             layout(webView)
         }

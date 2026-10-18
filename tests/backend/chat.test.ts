@@ -1001,7 +1001,7 @@ test('consent v2 is accepted alongside v1 and keeps its own request digest', () 
   assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })).consentVersion, 'cloud-ai-v3');
   assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v4' })).consentVersion, 'cloud-ai-v4');
   assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v5' })).consentVersion, 'cloud-ai-v5');
-  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v6' })), { code: 'invalid_request' });
+  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v7' })), { code: 'invalid_request' });
 });
 
 test('Tavily searches run between rounds as search results (not citable: no cache-breaking switch) and are priced for the reader but not as provider spend', async () => {
@@ -1567,7 +1567,7 @@ test('a topic title is written alongside the answer with Haiku 5.5, sent before 
   const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
   const h = harness({ generate: async (params, stream) => {
     sent.push(params);
-    if (params.model === 'claude-haiku-5-5') { stream.onText('"Attention scaling '); stream.onText('explained."\n'); return titleOutcome(); }
+    if (params.model === 'claude-haiku-5-5') { assert.equal(stream.purpose, 'topic_title'); stream.onText('"Attention scaling '); stream.onText('explained."\n'); return titleOutcome(); }
     stream.onText('Scaling keeps logits bounded.'); return completeOutcome();
   } });
   await runChat(h.deps, paperBody({ topic_title: true, selection: { quote: 'divide by sqrt(d_k)' } }), h.emit, new AbortController().signal);

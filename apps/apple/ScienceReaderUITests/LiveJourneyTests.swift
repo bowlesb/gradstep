@@ -139,7 +139,7 @@ final class LiveJourneyTests: XCTestCase {
             XCTAssertTrue(figure.waitForExistence(timeout: 10)); figure.tap()
             let explain = app.buttons["figureView.explain"]
             XCTAssertTrue(explain.waitForExistence(timeout: 10)); explain.tap()
-            XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+            XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
             let consent = app.buttons["chat.consent.accept"]
             if consent.waitForExistence(timeout: 10) { capture(app, "Consent"); consent.tap() }
             let first = app.descendants(matching: .any)["figureView.section.1"]

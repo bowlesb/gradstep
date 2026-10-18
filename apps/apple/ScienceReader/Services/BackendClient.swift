@@ -585,7 +585,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     /// The chat function's published profile table (models, effort, length and credit estimates; `GET functions/v1/chat`).
     /// A server without profiles answers 405, which callers treat as "no choices offered".
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
-        let data = try await authorized(path: "functions/v1/chat", body: nil, method: "GET", accountID: accountID, maximumResponseBytes: 65_536)
+        let data = try await authorized(path: "functions/v1/chat?consent_version=cloud-ai-v6", body: nil, method: "GET", accountID: accountID, maximumResponseBytes: 65_536)
         guard let table = ChatProfileTable.decode(data) else { throw ReaderError.corruptData }
         return table
     }

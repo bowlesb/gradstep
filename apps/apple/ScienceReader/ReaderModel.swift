@@ -301,10 +301,10 @@ final class ReaderModel {
     var libraryFilter = LibraryFilter(rawValue: UserDefaults.standard.string(forKey: "library.filter") ?? "") ?? .all {
         didSet { if libraryFilter != oldValue { UserDefaults.standard.set(libraryFilter.rawValue, forKey: "library.filter"); librarySearchSourceChanged() } }
     }
-    var libraryTagFilter: String? = UserDefaults.standard.string(forKey: "library.tagFilter") {
+    var libraryTagFilter: String? = nil {
         didSet {
             guard libraryTagFilter != oldValue else { return }
-            if let libraryTagFilter { UserDefaults.standard.set(libraryTagFilter, forKey: "library.tagFilter") } else { UserDefaults.standard.removeObject(forKey: "library.tagFilter") }
+            // A launch starts with all tags. An old, empty saved filter must not hide the library.
             librarySearchSourceChanged()
         }
     }
@@ -475,8 +475,8 @@ final class ReaderModel {
     /// The chat function's published table; nil until fetched, or when the server offers no choices. Without it,
     /// requests carry no choice and ask for no title, exactly as before profiles.
     let localAI = LocalAIController()
-    var localAIModelID: String? = UserDefaults.standard.string(forKey: "ai.localDefault")
-    var localAIDefaultModelID: String? = UserDefaults.standard.string(forKey: "ai.localDefault") {
+    var localAIModelID: String? = Platform.isMac ? UserDefaults.standard.string(forKey: "ai.localDefault") : nil
+    var localAIDefaultModelID: String? = Platform.isMac ? UserDefaults.standard.string(forKey: "ai.localDefault") : nil {
         didSet { UserDefaults.standard.set(localAIDefaultModelID, forKey: "ai.localDefault") }
     }
     var currentAIName: String {
@@ -522,6 +522,7 @@ final class ReaderModel {
         UserDefaults.standard.set(scenarioProfiles, forKey: "ai.scenarioProfiles")
     }
     func localDefault(for scenario: AIUseCase) -> String? {
+        guard Platform.isMac else { return nil }
         guard let value = scenarioLocals[scenario.rawValue] else { return localAIDefaultModelID }
         return value == "cloud" ? nil : value
     }

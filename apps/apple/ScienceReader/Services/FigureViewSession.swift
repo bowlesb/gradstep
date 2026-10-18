@@ -82,6 +82,11 @@ enum FigureViewOutcome {
         self.context = context; self.model = model; self.localModelID = model.localAIModelID
     }
 
+    static func hasSavedAnswer(context: FigureViewContext, model: ReaderModel) -> Bool {
+        model.figureAnswer(FigureResultKey(manifestSHA256: context.bundle.manifestSHA256, figureID: context.figureID,
+            action: .figure, profile: model.equationProfile, localModel: model.localAI.identity(model.localAIModelID))) != nil
+    }
+
     /// Shows what this device kept; asks for the walkthrough when nothing is kept and `requesting` (AI Explainer was chosen
     /// to get here; a figure switched to from the explainer's heading waits for AI Explainer).
     func start(requesting: Bool = true) async {
@@ -171,7 +176,7 @@ enum FigureViewOutcome {
             awaitingConsent = { [weak self] in self?.run(action, part: part) }
             set(Part(state: .needsConsent)); return
         }
-        guard localModelID != nil || model.chatProfileTable != nil else { set(Part(state: .failed("Cloud models haven’t loaded. Choose AI to try again or use Local AI.", retryable: false))); return }
+        guard localModelID != nil || model.chatProfileTable != nil else { set(Part(state: .failed("Cloud models haven’t loaded. Choose model to retry.", retryable: false))); return }
         guard let image = sent else { set(Part(state: .unavailable)); return }
         let profile = model.equationProfile
         let request: ChatGenerationRequest

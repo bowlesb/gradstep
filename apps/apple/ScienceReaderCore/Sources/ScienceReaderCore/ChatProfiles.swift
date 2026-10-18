@@ -41,12 +41,12 @@ public extension ChatProfileChoice.Model {
         case .haiku: "Quick, economical explanations"
         case .sonnet: "Strong answers at a moderate cost"
         case .opus: "Most capable; costs the most"
-        case .deepseek: "Low cost; processed by DeepSeek"
+        case .deepseek: "Low cost; OpenRouter to DeepInfra"
         case .gemini: "Recommended for paper questions; lower cost"
         }
     }
     /// Who processes a question asked with this model (Settings › AI chat options).
-    var processor: String { self == .gemini ? "Google through OpenRouter" : self == .deepseek ? "DeepSeek" : "Anthropic" }
+    var processor: String { self == .deepseek ? "DeepInfra through OpenRouter" : "Google Vertex through OpenRouter" }
 }
 public extension ChatProfileChoice.Effort {
     var label: String { switch self { case .low: "Low"; case .medium: "Medium"; case .high: "High"; case .auto: "Automatic" } }

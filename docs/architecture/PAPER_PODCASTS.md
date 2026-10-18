@@ -1858,3 +1858,21 @@ Clients: the browser sends the device text for a legacy item from its next relea
 device; its existing episodes play without it, and making one before it is opened says "Open this paper first…").
 Builds up to 61 send no device source for a legacy item. Native test:
 `PodcastPresentationTests.testALegacyArxivItemSendsTheTextPreparedOnThisDevice`.
+
+## OpenRouter-only cutover (owner, 2026-10-18; implementation in progress)
+
+All script passes and speech move to OpenRouter under the existing per-account admission/settlement ledger.
+Profiles 6 (Sonnet on Vertex US) and 7 (DeepSeek Pro on DeepInfra FP8) are immutable successors to 3 and 5;
+`podcast-private-v3` names OpenRouter and both applicable processors. Old queued jobs must drain or be canceled
+before the worker changes; historical jobs, quotes, bills and consent are never rewritten. The audited policy
+pointer moves only after the replacement routes pass their wire checks.
+
+The script input bound is UTF-8 bytes plus framing, with a 200k-token allowance for paper text and the existing
+review/repair additions. No direct-provider token-count call remains. Very long sources that cannot be bounded
+are refused before buying a draft. Rates are the actual pinned OpenRouter route's rates; settlement uses the final
+OpenRouter cost. Speech uses `/audio/speech` with ZDR and data collection denied. That endpoint ignores provider
+pins: all currently ZDR-eligible endpoints must fit the reviewed prices and 16,384-token serving cap before dispatch.
+The live route rejects MP3. Request signed 16-bit little-endian mono 24 kHz PCM explicitly in provider options,
+then validate/wrap it as WAV. Receipt metadata can appear late: bounded GET polling never buys another generation.
+The actual dated model, provider, matching external user/session IDs and final bill are checked. Missing receipts retain
+liability and never resend a generation. Existing audio, evidence, duration and storage checks remain in force.

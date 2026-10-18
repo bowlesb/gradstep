@@ -60,7 +60,11 @@ private struct FigurePageActions: ViewModifier {
                 } },
                 // An arXiv paper on this device only: the walkthrough reads the paper numbered here.
                 explainer: host != nil && context != nil
-                    ? ExplainAction(identifier: "figureView.explain", hint: "Choose Cloud AI or Local AI to explain this figure.") { choosingAI = true }
+                    ? ExplainAction(identifier: "figureView.explain", hint: "Open the saved explanation, or choose a model for a new one.") {
+                        if let host, let context, FigureExplainSession.hasSavedAnswer(context: context, model: host.model) {
+                            explainOnOpen = false; expandSheet?(); explaining = true
+                        } else { choosingAI = true }
+                    }
                     : nil,
                 close: close)
             .navigationDestination(isPresented: $explaining) {
@@ -113,7 +117,7 @@ struct FigureExplainView: View {
         }
         .sheetTopRow(
             explainer: session.map { $0.walkthrough.state == .idle } == true
-                ? ExplainAction(identifier: "figureView.walkthrough.explain", hint: "Choose Cloud AI or Local AI to explain this figure.") { choosingAI = true }
+                ? ExplainAction(identifier: "figureView.walkthrough.explain", hint: "Choose a model to explain this figure.") { choosingAI = true }
                 : nil,
             openChat: ExplainAction(identifier: "figureView.openInChat", hint: "Continue this conversation in Chat.") {
                 guard let chatToken else { return }

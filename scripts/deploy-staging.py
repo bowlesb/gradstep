@@ -149,16 +149,14 @@ def deploy(args):
     chat_deepseek = args.chat_deepseek or config.get('chat_deepseek', 'off')
     if chat_deepseek not in ('on', 'hidden', 'off'):
         raise SystemExit('infra chat_deepseek must be on, hidden or off')
-    if chat_deepseek != 'off' and not providers.get('DEEPSEEK_API_KEY'):
-        raise SystemExit('chat_deepseek needs DEEPSEEK_API_KEY in .env.providers')
+    if chat_deepseek != 'off' and not providers.get('OPENROUTER_CHAT_API_KEY'):
+        raise SystemExit('chat_deepseek needs OPENROUTER_CHAT_API_KEY in .env.providers')
     chat_gemini = args.chat_gemini or config.get('chat_gemini', 'off')
     if chat_gemini not in ('on', 'hidden', 'off'):
         raise SystemExit('infra chat_gemini must be on, hidden or off')
-    chat_claude_openrouter = config.get('chat_claude_openrouter', 'off')
-    if chat_claude_openrouter not in ('on', 'off'):
-        raise SystemExit('infra chat_claude_openrouter must be on or off')
-    if (chat_gemini != 'off' or chat_claude_openrouter == 'on') and not providers.get('OPENROUTER_CHAT_API_KEY'):
-        raise SystemExit('chat_gemini needs the dedicated OPENROUTER_CHAT_API_KEY in .env.providers')
+    chat_claude_openrouter = 'on'  # Owner: every remote inference uses the attributed OpenRouter transport.
+    if not providers.get('OPENROUTER_CHAT_API_KEY'):
+        raise SystemExit('All model routes require the dedicated OPENROUTER_CHAT_API_KEY in .env.providers')
     function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                         {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
                         {'name': 'CHAT_WEB_SEARCH', 'value': web_search},
@@ -179,8 +177,8 @@ def deploy(args):
                              {'name': 'APP_STORE_ENVIRONMENTS', 'value': ','.join(store['environments'])},
                              {'name': 'APP_STORE_ONLINE_CHECKS', 'value': 'true' if store.get('online_checks', True) else 'false'}]
         if store.get('app_apple_id'): function_secrets.append({'name': 'APP_STORE_APP_APPLE_ID', 'value': str(store['app_apple_id'])})
-    # DEEPSEEK_API_KEY: chat answers when the reader chooses DeepSeek (the podcast worker has its own copy on Cloud Run).
-    for name in ['ANTHROPIC_API_KEY', 'TAVILY_API_KEY'] + (['DEEPSEEK_API_KEY'] if chat_deepseek != 'off' else []) + (['OPENROUTER_CHAT_API_KEY'] if chat_gemini != 'off' or chat_claude_openrouter == 'on' else []):
+    # One dedicated model transport key; Tavily remains a separate search service.
+    for name in ['TAVILY_API_KEY', 'OPENROUTER_CHAT_API_KEY']:
         if providers.get(name): function_secrets.append({'name': name, 'value': providers[name]})
     request(base + '/secrets', mgmt, function_secrets)
     print('Set function secrets:', ', '.join(s['name'] for s in function_secrets), f'(chat web search {web_search}; chat DeepSeek {chat_deepseek}; chat Gemini {chat_gemini})')

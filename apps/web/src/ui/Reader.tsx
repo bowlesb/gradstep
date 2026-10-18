@@ -159,7 +159,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const frameReady = useRef(false);
   const title = item.metadata?.title ?? 'Paper';
   const pdfSource = readingSource(item);
-  const paperLine = publicationLine(item), paperTags = JSON.stringify({names:effectiveTags(item),source:('tags_customized' in item && item.tags_customized) ? 'Your keywords' : 'Gradstep · on this device'});
+  const paperLine = publicationLine(item), paperTags = JSON.stringify({names:effectiveTags(item),source:('tags_customized' in item && item.tags_customized) ? 'Your keywords' : 'Gradstep'});
   const [initialPresentation] = useState(() => ({ paperLine, paperTags, fontSize: font, theme, lineWidth }));
   const appliedPresentation = useRef(initialPresentation);
 

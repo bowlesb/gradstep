@@ -806,6 +806,8 @@ final class LibraryModelTests: XCTestCase {
         server.metadataTitle = "Short title"
         let fixture = try fixture(server), model = fixture.model
         await model.start(); model.libraryLayout = .table
+        // Search runs off the main actor. A rendered filter row does not mean the paper rows have arrived.
+        await model.waitForLibrarySearch()
         let window = try window(for: model)
         func rowCells(_ view: UIView) -> [UICollectionViewCell] {
             if let list = view as? UICollectionView { return list.visibleCells }

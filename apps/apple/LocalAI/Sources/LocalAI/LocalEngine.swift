@@ -20,6 +20,8 @@ public struct LocalInferenceResult: Codable, Sendable {
     public let modelLoadSeconds: Double
     public let contextSeconds: Double
     public let prepareSeconds: Double
+    public let reasoningEnabled: Bool
+    public let outputTokenLimit: Int
 }
 
 /// No URLSession, server dependency or downloader here. The caller supplies an already verified directory.
@@ -34,7 +36,7 @@ public actor LocalEngine {
         #if targetEnvironment(simulator) || !arch(arm64)
         throw LocalAIError.unavailable
         #else
-        // A snapshot admission check, not a promise that iOS cannot reclaim memory later.
+        // Recheck Mac memory pressure and reclaimable headroom immediately before loading.
         guard model.admitsCurrentMemory(hasImage: image != nil) else { throw LocalAIError.memory }
         busy = true
         defer { busy = false; Memory.clearCache() }
@@ -50,7 +52,10 @@ public actor LocalEngine {
         try Task.checkCancellation()
         let loaded = Date()
         let tokenizer = await container.tokenizer
-        let template: [String: any Sendable] = ["enable_thinking": false]
+        let thinking = model.thinking ?? false
+        let outputLimit = min(8192, max(256, model.outputTokens ?? LocalAIContext.maximumOutputTokens))
+        let template: [String: any Sendable] = ["enable_thinking": thinking,
+            "reasoning_effort": model.reasoningEffort ?? "medium", "preserve_thinking": false]
         let prompt: LocalAIContext.Prompt
         do {
             // Reserve image tokens separately; the processor's final count below is authoritative.
@@ -75,26 +80,38 @@ public actor LocalEngine {
         guard count <= LocalAIContext.maximumInputTokens else { throw LocalAIError.contextTooLarge }
         let ready = Date()
         var text = "", first: Double?, info: GenerateCompletionInfo?
-        let stream = try await container.generate(input: prepared, parameters: GenerateParameters(
-            maxTokens: LocalAIContext.maximumOutputTokens, temperature: 0.7, topP: 0.8, topK: 20,
-            repetitionPenalty: 1.05, prefill: .init(stepSize: 256), seed: 42))
+        var visible = ReasoningOutput(thinking: thinking)
+        let parameters = GenerateParameters(
+            maxTokens: outputLimit, temperature: thinking ? 1.0 : 0.7, topP: thinking ? 0.95 : 0.8, topK: 20,
+            repetitionPenalty: 1.0, prefill: .init(stepSize: 256), seed: 42)
+        let stream = try await container.perform(nonSendable: prepared) { context, input in
+            let components = thinking ? try GenerationComponents().applyingThinkingBudget(
+                .init(maximumTokenCount: model.thinkingTokens ?? 1024, minimumAnswerTokenCount: 1024, transitionOverride: .immediate),
+                reasoning: QwenReasoningProtocol.tagged, tokenizer: context.tokenizer) : GenerationComponents()
+            return try MLXLMCommon.generate(input: input, parameters: parameters, context: context, components: components)
+        }
         for await event in stream {
             try Task.checkCancellation()
             switch event {
             case .chunk(let piece):
+                let piece = visible.append(piece)
+                guard !piece.isEmpty else { continue }
                 if first == nil { first = Date().timeIntervalSince(began) }
                 text += piece; onText(piece)
             case .info(let value): info = value
             default: break
             }
         }
+        let remainder = visible.finish()
+        if !remainder.isEmpty { text += remainder; onText(remainder) }
         try Task.checkCancellation()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw LocalAIError.emptyAnswer }
         return LocalInferenceResult(text: text, model: model.identity, inputTokens: count,
             outputTokens: info?.generationTokenCount ?? 0, seconds: Date().timeIntervalSince(began), firstTextSeconds: first,
             peakMemoryBytes: Memory.peakMemory, paragraphs: prompt.paragraphs, omittedParagraphs: prompt.omittedParagraphs,
             stoppedAtLimit: info?.stopReason == .length, modelLoadSeconds: loaded.timeIntervalSince(began),
-            contextSeconds: selected.timeIntervalSince(loaded), prepareSeconds: ready.timeIntervalSince(selected))
+            contextSeconds: selected.timeIntervalSince(loaded), prepareSeconds: ready.timeIntervalSince(selected),
+            reasoningEnabled: thinking, outputTokenLimit: outputLimit)
         #endif
     }
 }

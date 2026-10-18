@@ -7,6 +7,17 @@ import ScienceReaderCore
 
 @MainActor
 final class PaperWebViewTests: XCTestCase {
+    func testNamedNativeReferencesLinkTheWholePhraseWithoutChangingText() async throws {
+        let original = "See Figure 1, Table 2 and Equation (4). Reference 5 is separate."
+        let harness = try Harness(document: "<p id='named'>See Figure <a href='#f'>1</a>, Table <a href='#t'>2</a> and Equation (<a href='#e'>4</a>). Reference <a href='#r'>5</a> is separate.</p><div id='f'></div><div id='t'></div><div id='e'></div><div id='r'></div>")
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let result = try await script(web, "return {text:document.querySelector('#named').textContent, links:[...document.querySelectorAll('#named a')].map(a=>a.textContent)};", [:]) as? [String: Any]
+        XCTAssertEqual(result?["text"] as? String, original)
+        XCTAssertEqual(result?["links"] as? [String], ["Figure 1", "Table 2", "Equation (4)", "5"])
+    }
+
     func testFindMatchesAcrossInlineMarkupWithoutChangingThePaperOrSelection() async throws {
         let harness = try Harness(document: "<h2 id='intro'>Introduction</h2><p>needle <em>across</em> inline</p><div style='height:1200px'></div><h2 id='results'>Results</h2><p>needle across inline again</p>")
         defer { harness.close() }

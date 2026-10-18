@@ -1,3 +1,4 @@
+#if targetEnvironment(macCatalyst)
 import Foundation
 import LocalAI
 import Observation
@@ -163,5 +164,38 @@ private struct LocalFixtureTransport: ChatTransport {
     func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error> { makeStream(request) }
     func creditBalance(accountID: UUID) async throws -> CreditBalance { throw LocalAIError.unsupportedAction }
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable { throw LocalAIError.unsupportedAction }
+}
+#endif
+
+#else
+import Foundation
+import Observation
+import ScienceReaderCore
+
+/// iOS keeps old encrypted local answers readable, but contains no model runtime or downloader.
+/// An explicitly retained local turn is rejected; it must never silently become a paid cloud call.
+@MainActor @Observable final class LocalAIController {
+    init() {
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("LocalAIModels", isDirectory: true)
+        // Retire only the app-owned public weight cache. Chats and explanation stores live elsewhere.
+        Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: root) }
+    }
+    func refresh() async {}
+    func cancelInference() {}
+    func name(_ id: String?) -> String { id == nil ? "Cloud AI" : "Mac model" }
+    func identity(_ id: String?) -> String? {
+        let revisions = ["qwen3-06b": "73e3e38d9813", "qwen35-2b": "674aaa7240b9",
+                         "qwen35-4b": "0e7ffd5c629e", "gemma4-e2b": "238767527555"]
+        return id.flatMap { id in revisions[id].map { "local/\(id)/\($0)" } }
+    }
+    func transport(_ id: String) -> any ChatTransport { MacOnlyLocalTransport() }
+}
+private struct MacOnlyLocalTransport: ChatTransport {
+    func creditBalance(accountID: UUID) async throws -> CreditBalance { throw ChatTransportError.rejected("local_mac_only") }
+    func chatProfiles(accountID: UUID) async throws -> ChatProfileTable { throw ChatTransportError.rejected("local_mac_only") }
+    func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        throw ChatTransportError.rejected("local_mac_only")
+    }
 }
 #endif

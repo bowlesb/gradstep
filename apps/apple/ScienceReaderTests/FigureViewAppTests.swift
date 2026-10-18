@@ -55,4 +55,20 @@ import Testing
         let prepared = try #require(ChatFigureFinder.prepare(image))
         #expect(prepared.width <= ChatFigureFinder.maximumSide && prepared.height <= ChatFigureFinder.maximumSide)
     }
+
+    @Test func reopeningAnExplainedFigureUsesTheSavedAnswerWithoutRequestingAI() async throws {
+        let bundle = try bundle(), figure = try #require(bundle.index.figures.first)
+        let model = ReaderModel(configuration: nil)
+        let context = FigureViewContext(paperID: UUID(), bundle: bundle, figureID: figure.id, label: "Figure 1", caption: figure.caption,
+            paragraph: 6, assetPaths: figure.assetPaths, localContext: nil)
+        #expect(!FigureExplainSession.hasSavedAnswer(context: context, model: model))
+        model.keepFigureAnswer(FigureAnswer(text: "The saved explanation", model: "gemini-flash"), for:
+            FigureResultKey(manifestSHA256: bundle.manifestSHA256, figureID: figure.id, action: .figure, profile: model.equationProfile))
+        #expect(FigureExplainSession.hasSavedAnswer(context: context, model: model))
+        let reopened = FigureExplainSession(context: context, model: model)
+        await reopened.start(requesting: false)
+        #expect(reopened.walkthrough.state == .done)
+        #expect(reopened.walkthrough.text == "The saved explanation")
+        #expect(!reopened.asksConsent)
+    }
 }

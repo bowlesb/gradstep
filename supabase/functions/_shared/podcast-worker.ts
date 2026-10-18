@@ -1,3 +1,4 @@
+import { rpcAttribution } from './openrouter-transport.ts';
 // One bounded podcast job (or, for a staged profile, one stage of it) per worker
 // request (docs/architecture/PAPER_PODCASTS.md). Every paid POST has its own durable
 // grant; an unknown outcome stops the job and keeps the liability; nothing paid is
@@ -312,12 +313,12 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       // Never send a paid call that cannot finish inside this request: that would only create an unknown liability.
       const window = windowFor(staged ? STAGED_SPEECH_RESERVE_MS : 120_000, SPEECH_CALL_MS, spec.speech.window_seconds);
       const admissions = await admitSpeech(deps, fence, requests);
-      const results: SpeechResult[] = await Promise.all(requests.map(request =>
-        deps.speech!.generate(request, AbortSignal.timeout(window)).catch((): SpeechResult => ({ state: 'unknown', requestID: null, model: null,
+      const results: SpeechResult[] = await Promise.all(requests.map((request, i) =>
+        deps.speech!.generate(request, AbortSignal.timeout(window), rpcAttribution({ ...deps, accountID: admissions[i].account_id, operationID: admissions[i].operation_id }, admissions[i].attempt_id, 'podcast_speech', 'podcast')).catch((): SpeechResult => ({ state: 'unknown', requestID: null, model: null,
           finishReason: null, audio: null, mimeType: null, usage: null, failure: 'transport_unknown' }))));
       for (const [i, result] of results.entries()) {
         await finishAttempt(deps, admissions[i], result.state, result.requestID,
-          result.state === 'succeeded' ? speechCost(result.usage!, spec.speech.rates_microusd_per_token) : result.state === 'rejected' ? 0 : null,
+          result.state === 'succeeded' ? Math.ceil(result.billedMicrousd ?? speechCost(result.usage!, spec.speech.rates_microusd_per_token)) : result.state === 'rejected' ? 0 : null,
           result.state === 'succeeded' ? { ...result.usage!, ...(result.audio ? { audio_ms: estimateMs(result.audio) } : {}) } : {}, result.failure);
       }
       if (results.some(r => r.state === 'unknown')) throw new Failure('speech_outcome_unknown', false);
@@ -578,7 +579,7 @@ async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, rou
   if (!fitsInput(bytes, counted, inputCap)) throw new Failure('source_too_large', false);
   const window = windowFor();
   const admission = await admit(deps, fence, route, params);
-  const result: ScriptCallResult = await provider.generate(params, AbortSignal.timeout(window));
+  const result: ScriptCallResult = await provider.generate(params, AbortSignal.timeout(window), rpcAttribution({ ...deps, accountID: admission.account_id, operationID: admission.operation_id }, admission.attempt_id, route, 'podcast'));
   models[route] = result.model;
   const cost = result.state === 'succeeded' ? scriptCost(result) : null;
   await finishAttempt(deps, admission, result.state, result.requestID, result.state === 'rejected' ? 0 : cost?.microusd ?? null, cost?.units ?? {}, result.failure);

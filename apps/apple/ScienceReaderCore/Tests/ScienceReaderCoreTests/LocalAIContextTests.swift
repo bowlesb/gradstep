@@ -34,6 +34,13 @@ import Testing
             }
         }
     }
+    @Test func mathematicalEvidenceTravelsWithItsRetrievedExplanation() throws {
+        let paper = "[¶1] A general introduction.\n\n[¶2] \\[ L=-\\log\\sigma(z) \\]\n\n[¶3] The preference objective gradient weights incorrectly ordered completions.\n\n"
+            + (4...30).map { "[¶\($0)] Preference objective gradient discussion without the actual expression. " + String(repeating: "Commentary. ", count: 20) }.joined(separator: "\n\n")
+        let result = try LocalAIContext.build(.init(question: "Derive the preference objective gradient", paper: paper), budget: 1_700, count: count)
+        #expect(result.paragraphs.contains(2))
+        #expect(result.user.contains(#"L=-\log\sigma(z)"#))
+    }
     @Test func nativeContextCannotBeEncodedAsACloudRequest() throws {
         let request = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(),
             transcript: [.init(role: .user, text: "Explain")], selection: nil)
@@ -43,6 +50,12 @@ import Testing
             transcript: [.init(role: .user, text: "Private general question")], selection: nil)
             .forLocalInference(paperText: nil)
         #expect(throws: ChatRequestError.self) { try general.encoded() }
+    }
+    @Test func equationNamedInQuestionWinsOverRepeatedGradientCommentary() throws {
+        let paper = "[¶32] The policy objective becomes:\n\n[¶33] \\[ L=-\\log\\sigma(z) \\tag{7} \\]\n\n[¶34] This fits an implicit reward.\n\n"
+            + (35...80).map { "[¶\($0)] DPO loss gradient sigma weight Section 4 derivation. " + String(repeating: "Other discussion. ", count: 12) }.joined(separator: "\n\n")
+        let result = try LocalAIContext.build(.init(question: "Derive the DPO loss gradient from Eq. 7", paper: paper), budget: 2_000, count: count)
+        #expect(result.paragraphs.contains(33)); #expect(result.paragraphs.contains(32))
     }
     @Test func rejectedAppendixBlocksDoNotRetokenizeTheWholePrompt() throws {
         let paper = (1...400).map { "[¶\($0)] " + String(repeating: "Long appendix text ", count: 100) }.joined(separator: "\n\n")

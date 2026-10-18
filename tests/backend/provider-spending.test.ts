@@ -39,6 +39,20 @@ const complete = (): ProviderOutcome => ({ status: 'complete', failure: null, me
 const streamOptions = () => ({ signal: signal(), onText: () => {}, inputEstimateTokens: 100 });
 const searchInput = { query: privateText, academic: true };
 
+test('title and answer attribution stay distinct within the same operation', async () => {
+  const h = fixture(), seen: { purpose: string; attempt: string }[] = [];
+  const generate = admittedAnthropic({ ...h.deps, feature: 'figure_detail' }, async (_params, options) => {
+    assert.equal(options.attribution?.accountID, accountID);
+    assert.equal(options.attribution?.operationID, operationID);
+    seen.push({ purpose: options.attribution!.feature, attempt: options.attribution!.attemptID });
+    return complete();
+  });
+  await generate(params(), { ...streamOptions(), purpose: 'topic_title' });
+  await generate(params(), streamOptions());
+  assert.deepEqual(seen.map(x => x.purpose), ['topic_title', 'figure_detail']);
+  assert.notEqual(seen[0].attempt, seen[1].attempt);
+});
+
 test('model request has an exact bound and durable grant before send, with private text absent from records', async () => {
   const h = fixture(); let sent = 0;
   const generate = admittedAnthropic(h.deps, async () => {

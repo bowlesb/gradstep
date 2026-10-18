@@ -3,6 +3,7 @@
 // Sonnet 5.5, then a deterministic evidence checker. Deno and Node compatible. Never
 // log paper text, prompts or scripts; only ids and counts.
 import Anthropic from '@anthropic-ai/sdk';
+import type { OpenRouterAttribution } from './openrouter-transport.ts';
 import { attemptsFromUsage, priceAttempts } from './anthropic.ts';
 import { evidenceNumbers, indexPaper, latexFromPaper, spokenNumbers, verifyQuote, type EvidenceDrop, type EvidenceRepair,
   type PaperIndex } from './podcast-evidence.ts';
@@ -259,7 +260,7 @@ export function repairRequest(paperText: string, title: string | null, script: S
 /** Provable input bound: one token never covers less than one UTF-8 byte of the serialized request. */
 export function requestBytes(params: ScriptParams): number {
   return new TextEncoder().encode(JSON.stringify({ system: params.system, messages: params.messages,
-    format: (params as { output_config?: unknown }).output_config })).byteLength;
+    format: (params as { output_config?: unknown }).output_config })).byteLength + 1024;
 }
 
 /** Fits the profile's input cap either provably (bytes) or by the free token-count estimate with a margin. */
@@ -273,17 +274,18 @@ export interface ScriptCallResult {
   state: 'succeeded' | 'rejected' | 'unknown';
   requestID: string | null; model: string | null; stopReason: string | null; text: string | null;
   usage: ScriptUsage | null; failure: string | null;
+  billedMicrousd?: number;
 }
 export interface ScriptProvider {
   /** Free token-count estimate (null when unavailable); never a paid call. */
   countTokens(params: ScriptParams, signal: AbortSignal): Promise<number | null>;
-  generate(params: ScriptParams, signal: AbortSignal): Promise<ScriptCallResult>;
+  generate(params: ScriptParams, signal: AbortSignal, attribution?: OpenRouterAttribution): Promise<ScriptCallResult>;
 }
 
 /** micro-USD (rounded up once) and numeric units for worker_provider_attempt_finish. */
 export function scriptCost(result: ScriptCallResult): { microusd: number; units: Record<string, number> } {
   const u = result.usage!;
-  const microusd = Math.ceil(priceAttempts([{ model: result.model, estimated: false, usage: u }]));
+  const microusd = Math.ceil(result.billedMicrousd ?? priceAttempts([{ model: result.model, estimated: false, usage: u }]));
   return { microusd, units: { input_tokens: u.input, cache_write_5m_tokens: u.cacheWrite5m, cache_write_1h_tokens: u.cacheWrite1h,
     cache_read_tokens: u.cacheRead, output_tokens: u.output } };
 }

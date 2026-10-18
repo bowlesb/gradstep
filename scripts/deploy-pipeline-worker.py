@@ -23,7 +23,7 @@ SERVICE = 'gradstep-pipeline'
 SPEC = importlib.util.spec_from_file_location('pipeline_readiness', Path(__file__).with_name('pipeline_readiness.py'))
 READINESS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(READINESS)
-# ANTHROPIC_API_KEY: Claude Haiku topic tags (docs/architecture/TAGS.md); the Science Reader key, as for chat.
+# OPENROUTER_CHAT_API_KEY: all inference, attributed to its admitted account/operation/attempt.
 SECRETS = READINESS.SECRET_NAMES
 
 def dotenv(path):
@@ -71,15 +71,8 @@ def gcloud(*args, input=None, capture=False):
 PODCAST_ENV = ('PODCAST_SPEECH_SERVICE_ACCOUNT', 'PODCAST_GCP_PROJECT')
 
 def podcast_env():
-    """Nonsecret speech identity (docs/architecture/PAPER_PODCASTS.md): the dedicated service account the
-    worker impersonates for Vertex AI. Absent until the operator creates it; generated podcast jobs then stay queued."""
-    config = json.loads((ROOT / 'infra/staging.json').read_text()).get('podcast_speech') or {}
-    account, project = config.get('service_account'), config.get('project', 'gradstep')
-    if not account: return {}
-    if not re.fullmatch(r'[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com', account) \
-            or not re.fullmatch(r'[a-z][a-z0-9-]{4,28}[a-z0-9]', project):
-        raise SystemExit('invalid podcast_speech configuration')
-    return {'PODCAST_SPEECH_SERVICE_ACCOUNT': account, 'PODCAST_GCP_PROJECT': project}
+    """Speech uses OpenRouter; the worker has no direct Vertex identity."""
+    return {}
 
 def deployment_args(project, region, image, account, mapping, *, deferred=False, extra_env=None):
     # Request-based billing depends on server.ts awaiting and joining its bounded worker thread.
@@ -95,7 +88,7 @@ def deployment_args(project, region, image, account, mapping, *, deferred=False,
             '--allow-unauthenticated', '--service-account', account, '--set-secrets', mapping,
             '--update-env-vars', env, '--quiet']
 
-def deployment_policy(service):
+def deployment_policy(service, *, previous_revision=False):
     """Allowlisted, nonsecret shape used by deployment verification and spending inspection."""
     annotations = service.get('metadata', {}).get('annotations', {})
     template = service.get('spec', {}).get('template', {})
@@ -107,7 +100,7 @@ def deployment_policy(service):
     return {
         'revision': service.get('status', {}).get('latestReadyRevisionName'),
         'maintenance': switches[0] if len(switches) == 1 and switches[0] in ('true', 'false') else None,
-        'secret_versions': READINESS.pinned_secrets(containers[0], v1=True) if len(containers) == 1 else None,
+        'secret_versions': READINESS.pinned_secrets(containers[0], v1=True, previous_revision=previous_revision) if len(containers) == 1 else None,
         'cpu_throttling': revision.get('run.googleapis.com/cpu-throttling', 'true'),
         'service_min': annotations.get('run.googleapis.com/minScale', '0'),
         'service_max': annotations.get('run.googleapis.com/maxScale'),
@@ -178,7 +171,7 @@ def deploy(project, region, *, deferred=False):
     # An ordinary deployment must never implicitly clear a maintenance barrier.
     # Unknown older revisions also require the reviewed deferred cutover path.
     if not deferred:
-        previous = deployment_policy(describe_service(project, region))
+        previous = deployment_policy(describe_service(project, region), previous_revision=True)
         verify_policy(previous, maintenance=False)
         verify_health(False, previous['revision'])
     egress_scan()

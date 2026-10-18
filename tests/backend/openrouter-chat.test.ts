@@ -9,6 +9,7 @@ import { publishedProfiles, resolveChoice, providerForModel } from '../../supaba
 import { validateChatRequest, runChat, type ChatDependencies, type ChatEvent } from '../../supabase/functions/_shared/chat.ts';
 import { admittedAnthropic } from '../../supabase/functions/_shared/provider-spending.ts';
 
+const attribution = { accountID: 'aaaaaaaa-0000-4000-8000-000000000001', operationID: 'bbbbbbbb-0000-4000-8000-000000000001', attemptID: 'cccccccc-0000-4000-8000-000000000001', feature: 'chat', caller: 'chat', dispatch: async () => true };
 const params = chatRequestParams({ instructions: 'rules', paper: { title: 'Paper', text: '[¶1] Paper text.' },
   actionInstructions: 'explain the figure', turns: [{ role: 'user', text: 'What does this mean?' }],
   tools: [{ name: 'search_web', input_schema: { type: 'object', properties: { query: { type: 'string' } } } }],
@@ -28,7 +29,7 @@ async function run(events: unknown[], done = true) {
     assert.equal(new Headers(options?.headers).get('X-OpenRouter-Cache'), 'false');
     sent = JSON.parse(String(options?.body)); return response(events, done);
   } });
-  const outcome = await generate(params, { signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { text += s; } });
+  const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { text += s; } });
   return { outcome, text, sent: sent! };
 }
 
@@ -58,7 +59,7 @@ test('streamed Unicode and authoritative cache-inclusive cost reach settlement o
   const calls: { name: string; p: Record<string, unknown> }[] = [];
   const admitted = admittedAnthropic({ accountID: 'a', operationID: 'o', sha256Hex: async b => createHash('sha256').update(b).digest('hex'),
     rpc: async (name, p) => { calls.push({ name, p }); return { granted: true }; } }, async () => outcome);
-  await admitted(params, { signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {} });
+  await admitted(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: () => {} });
   assert.equal(calls[0].p.p_provider, 'openrouter'); assert.equal(calls[1].p.p_actual_microusd, 1000);
   assert.equal(calls[1].p.p_provider_request_id, 'gen-test'); assert.equal(calls[1].p.p_state, 'succeeded');
   assert.equal((calls[1].p.p_actual_units as Record<string, number>).cache_storage_tokens, 100);
@@ -103,7 +104,7 @@ test('initial or missing usage, transport failures and truncated streams retain 
   assert.equal(openRouterAttempt({ ...usage, prompt_tokens: 1 }), null);
   const controller = new AbortController();
   const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => { controller.abort(); throw new Error('secret raw error'); } });
-  const failed = await generate(params, { signal: controller.signal, inputEstimateTokens: 1000, onText: () => {} });
+  const failed = await generate(params, { attribution, signal: controller.signal, inputEstimateTokens: 1000, onText: () => {} });
   assert.equal(failed.failure, 'aborted'); assert.equal(failed.exact, false); assert.doesNotMatch(JSON.stringify(failed), /secret/);
 });
 
@@ -117,7 +118,7 @@ test('provider rejection diagnostics expose only a closed category, never echoed
     [400, 'x'.repeat(9000), 'unknown'],
   ] as const) {
     const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response(JSON.stringify({ error: { message } }), { status }) });
-    const outcome = await generate(params, { signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
+    const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
     assert.equal(outcome.rejectionReason, reason); assert.equal(outcome.httpStatus, status);
     assert.doesNotMatch(JSON.stringify(outcome), /private question|secret|xxxx/);
     assert.equal(outcome.exact, true); assert.deepEqual(outcome.attempts, []);
@@ -127,12 +128,12 @@ test('provider rejection diagnostics expose only a closed category, never echoed
 test('pre-inference refusals cost zero, 5xx is uncertain, and expired rates make no request', async () => {
   for (const status of [402, 429, 503]) {
     const generate = openRouterChat({ apiKey: 'test-key', fetch: async () => new Response('', { status, headers: { 'retry-after': '2' } }) });
-    const outcome = await generate(params, { signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
+    const outcome = await generate(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1000, onText: () => {} });
     assert.equal(outcome.failure, status === 402 ? 'provider_billing' : 'provider_error');
     assert.equal(outcome.exact, status !== 503); assert.equal(outcome.retryAfterMs, 2000);
   }
   const expired = openRouterChat({ apiKey: 'test-key', now: () => GEMINI_PRICE_EXPIRES, fetch: async () => { throw new Error('must not send'); } });
-  assert.equal((await expired(params, { signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} })).exact, true);
+  assert.equal((await expired(params, { attribution, signal: new AbortController().signal, inputEstimateTokens: 1, onText: () => {} })).exact, true);
   for (const reason of ['length', 'content_filter', 'unexpected']) {
     const { outcome } = await run([final(reason)]);
     assert.equal(outcome.status, reason === 'unexpected' ? 'failed' : 'complete');
@@ -163,7 +164,7 @@ test('the enabled chat orchestrator quotes Flash and settles the reported cost',
   const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [];
   const rpc: ChatDependencies['rpc'] = async (name, p) => {
     calls.push({ name, p });
-    return name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null;
+    return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null;
   };
   const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000001';
   const sha256Hex = async (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -213,7 +214,7 @@ test('routed Claude plus title and suggestions all admit and settle as OpenRoute
   for (const consent of ['cloud-ai-v4', 'cloud-ai-v5']) {
     const calls: { name: string; p: Record<string, any> }[] = [], events: ChatEvent[] = [], models: string[] = [];
     const rpc: ChatDependencies['rpc'] = async (name, p) => { calls.push({ name, p });
-      return name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
+      return name === 'worker_openrouter_dispatch' ? true : name === 'worker_reserve_chat' ? { replayed: false } : name === 'worker_provider_attempt_begin' ? { granted: true } : null; };
     const accountID = 'aaaaaaaa-0000-4000-8000-000000000001', operationID = 'bbbbbbbb-0000-4000-8000-000000000002';
     const sha256Hex = async (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
     const generate = admittedAnthropic({ accountID, operationID, rpc, sha256Hex }, openRouterChat({ apiKey: 'fixture', fetch: async (_url, init) => {
@@ -252,7 +253,7 @@ test('Vertex Claude forced auxiliaries use a structured schema, never an unsuppo
   for (const content of ['{"questions":["Why units?","What scale?"]}', 'invalid JSON']) {
     let streamed = '';
     const generate = openRouterChat({ apiKey: 'fixture', fetch: async () => response([event({ content }), final()].map(e => ({ ...e, model: forced.model }))) });
-    const result = await generate(forced, { signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { streamed += s; } });
+    const result = await generate(forced, { attribution, signal: new AbortController().signal, inputEstimateTokens: 2000, onText: s => { streamed += s; } });
     assert.equal(streamed, '', 'auxiliary JSON never leaks into the reader answer');
     assert.equal(result.exact, true); assert.equal(priceAttempts(result.attempts), 1000);
     assert.equal(result.status, content === 'invalid JSON' ? 'failed' : 'complete');

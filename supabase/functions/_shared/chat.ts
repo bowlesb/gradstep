@@ -1,3 +1,4 @@
+import { isRouterDeepSeek, clientDeepSeekModel, ROUTER_DEEPSEEK_TARIFF, ROUTER_CONSENT_VERSION } from "./openrouter-deepseek-pricing.ts";
 import { clientClaudeModel, isRouterClaude, routedClaudeModel, ROUTER_CLAUDE_TARIFF } from './openrouter-claude-pricing.ts';
 // Paid chat orchestration: validation, context, hold -> provider -> settle.
 // Deno and Node compatible (no Deno globals). Never log request or answer
@@ -29,13 +30,13 @@ export const CONSENT_VERSION = 'cloud-ai-v2';
 export const FIGURE_CONSENT_VERSION = 'cloud-ai-v3';
 /** v4 (2026-10-16) is v3 plus DeepSeek, named as the processor when the reader chooses it: v4 or later is required. */
 export { DEEPSEEK_CONSENT_VERSION };
-export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, GEMINI_CONSENT_VERSION];
+export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION];
 /** v2 and later name Tavily; v1 (builds up to TestFlight 11) names only Anthropic's search. */
-const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION;
+const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION || version === ROUTER_CONSENT_VERSION;
 /** v3 and later name the figure a question is about. */
-export const namesFigures = (version: string) => version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION;
+export const namesFigures = (version: string) => version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION || version === ROUTER_CONSENT_VERSION;
 /** v4 and later name DeepSeek. */
-export const namesDeepSeek = (version: string) => version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION;
+export const namesDeepSeek = (version: string) => version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION || version === ROUTER_CONSENT_VERSION;
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_TURNS = 60;
 export const MAX_MESSAGE_BYTES = 200_000;
@@ -223,7 +224,7 @@ export function validateChatRequest(input: unknown): ChatRequest {
   // The default profile, named or not, is the same request (and the same digest). `auto` is its own request.
   if (choice && isDefaultChoice(choice)) choice = null;
   // Each provider processes the request only when the reader's consent names it.
-  if (choice?.model === 'gemini' && consentVersion !== GEMINI_CONSENT_VERSION) throw new ChatFailure('consent_required');
+  if (choice?.model === 'gemini' && ![GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION].includes(consentVersion)) throw new ChatFailure('consent_required');
   if (choice?.model === 'deepseek' && !namesDeepSeek(consentVersion)) throw new ChatFailure('consent_required');
   if (body.topic_title !== undefined && body.topic_title !== null && typeof body.topic_title !== 'boolean') invalid();
   const topicTitle = body.topic_title === true;
@@ -610,7 +611,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const routeAux = (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming) => deps.claudeOpenRouter
     ? { ...params, model: routedClaudeModel(params.model) } : params;
   if (deps.claudeOpenRouter && (profile.provider === 'openrouter' || request.topicTitle || request.followUps || request.study)
-      && request.consentVersion !== GEMINI_CONSENT_VERSION) { await admitted(); throw new ChatFailure('consent_required'); }
+      && ![GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION].includes(request.consentVersion)) { await admitted(); throw new ChatFailure('consent_required'); }
+  if (deps.claudeOpenRouter && profile.model === 'deepseek' && request.consentVersion !== ROUTER_CONSENT_VERSION) {
+    await admitted(); throw new ChatFailure('consent_required');
+  }
   // Ingest, Why it matters (the paper only), Study (the paper only) and diagram repairs never search.
   const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
@@ -623,7 +627,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
   if (profile.model === 'gemini' && deps.gemini !== true) throw new ChatFailure('invalid_request');
-  if (profile.provider === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
+  if (profile.model === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
   const tavily = await tavilyReady === true;
   // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
   const nativeSearch = search && deps.nativeSearch === true && profile.provider === 'anthropic';
@@ -1028,7 +1032,7 @@ export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.
   // The answer and auxiliaries retain their exact billed API identities; the route switch selects their card.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
-    tariff: isRouterClaude(params.model) ? ROUTER_CLAUDE_TARIFF : profile.provider === 'openrouter' ? GEMINI_TARIFF : providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
+    tariff: isRouterDeepSeek(params.model) ? ROUTER_DEEPSEEK_TARIFF : isRouterClaude(params.model) ? ROUTER_CLAUDE_TARIFF : profile.provider === 'openrouter' ? GEMINI_TARIFF : providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
     title_model: titleMicrousd === null ? null : (claudeOpenRouter ? routedClaudeModel(TITLE_MODEL) : TITLE_MODEL), title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
@@ -1039,7 +1043,7 @@ export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
 function answeringModel(outcome: ProviderOutcome): string | null {
   const served = outcome.model ?? outcome.attempts.at(-1)?.model ?? null;
-  const model = served ? clientClaudeModel(served) : null; // Stable client identity; attempts and quotes retain the billed route.
+  const model = served ? clientDeepSeekModel(clientClaudeModel(served)) : null; // Stable client identity; attempts and quotes retain the billed route.
   return model && /^[a-z0-9][a-z0-9./-]{0,63}$/.test(model) ? model : null;
 }
 
@@ -1082,7 +1086,7 @@ async function writeTitle(generate: NonNullable<ChatDependencies['generate']>, p
   inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<TitleResult> {
   let raw = '';
   try {
-    const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: text => { raw = (raw + text).slice(0, 2_000); } });
+    const outcome = await generate(params, { signal, inputEstimateTokens, now, purpose: 'topic_title', onText: text => { raw = (raw + text).slice(0, 2_000); } });
     const usable = outcome.status === 'complete' && outcome.stopReason === 'end_turn';
     return { outcome, text: usable ? cleanTitle(raw) : null };
   } catch {

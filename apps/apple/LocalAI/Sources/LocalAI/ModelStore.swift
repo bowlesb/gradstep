@@ -1,7 +1,8 @@
 import CryptoKit
 import Foundation
-#if os(iOS) && !targetEnvironment(macCatalyst)
-import os
+#if os(macOS) || targetEnvironment(macCatalyst)
+import Darwin
+import Metal
 #endif
 
 public struct LocalModel: Codable, Equatable, Identifiable, Sendable {
@@ -16,32 +17,45 @@ public struct LocalModel: Codable, Equatable, Identifiable, Sendable {
     public let revision: String
     public let vision: Bool
     public let files: [File]
+    public let thinking: Bool?
+    public let reasoningEffort: String?
+    public let outputTokens: Int?
+    public let thinkingTokens: Int?
+    public let minimumMemoryBytes: Int?
+    public let textWorkingSetBytes: Int?
+    public let imageWorkingSetBytes: Int?
     public var bytes: Int64 { files.reduce(0) { $0 + $1.bytes } }
     public var identity: String { "local/\(id)/\(revision.prefix(12))" }
-    /// Conservative admission for this prototype, including space for the reader and transient tensors.
-    /// Use measured process footprint as well as MLX allocations. Phone evidence is still pending.
+    /// Measured process footprint plus room for the reader and transient tensors. Download size alone is insufficient.
     public func requiredHeadroom(hasImage: Bool) -> Int {
-        let measured: Int = switch id {
-        case "qwen3-06b": 1_800_000_000
-        case "qwen35-2b": 4_800_000_000
-        case "qwen35-4b": 8_000_000_000
-        case "gemma4-e2b": 8_500_000_000
-        default: Int(bytes) * 2 + 1_000_000_000
-        }
-        return measured
+        (hasImage ? imageWorkingSetBytes : textWorkingSetBytes) ?? Int(bytes) * 2 + 1_000_000_000
+    }
+    public func admitsMemory(total: Int, reclaimable: Int, metalLimit: Int, pressure: Int, hasImage: Bool) -> Bool {
+        let needed = requiredHeadroom(hasImage: hasImage)
+        return total >= (minimumMemoryBytes ?? needed) && reclaimable >= needed && metalLimit >= needed && pressure == 1
     }
     public func admitsCurrentMemory(hasImage: Bool) -> Bool {
-        #if os(iOS) && !targetEnvironment(macCatalyst) && !targetEnvironment(simulator)
-        os_proc_available_memory() >= requiredHeadroom(hasImage: hasImage)
+        #if os(macOS) || targetEnvironment(macCatalyst)
+        guard let available = Self.availableAppMemory, let device = MTLCreateSystemDefaultDevice() else { return false }
+        var pressure: Int32 = 0, size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &pressure, &size, nil, 0) == 0 else { return false }
+        return admitsMemory(total: Int(ProcessInfo.processInfo.physicalMemory), reclaimable: available,
+                            metalLimit: Int(device.recommendedMaxWorkingSetSize), pressure: Int(pressure), hasImage: hasImage)
         #else
-        true // Simulator tests controls; Mac process admission differs from iOS jetsam limits.
+        false
         #endif
     }
     public static var availableAppMemory: Int? {
-        #if os(iOS) && !targetEnvironment(macCatalyst) && !targetEnvironment(simulator)
-        Int(os_proc_available_memory())
+        #if os(macOS) || targetEnvironment(macCatalyst)
+        var statistics = vm_statistics64(), count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &statistics) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count) }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        // Inactive/file-cache pages can be reclaimed. Purgeable pages overlap these counters: do not count them twice.
+        return (Int(statistics.free_count) + Int(statistics.inactive_count) + Int(statistics.speculative_count)) * Int(getpagesize())
         #else
-        nil
+        return nil
         #endif
     }
     public static let all: [LocalModel] = {
@@ -63,9 +77,9 @@ public enum LocalAIError: LocalizedError, Sendable {
         case .imageInvalid: "This figure could not be prepared for Local AI."
         case .contextTooLarge: "The question, selection or image is too large for this local model. Select a smaller passage or one figure."
         case .unsupportedAction: "This action needs cloud search or tools. Choose Cloud AI explicitly to use it."
-        case .unavailable: "Local inference needs an Apple Silicon device with Metal. The Simulator can test the controls only."
+        case .unavailable: "Local AI needs an Apple Silicon Mac with Metal."
         case .emptyAnswer: "The local model produced no answer. Try a shorter question."
-        case .memory: "This device does not currently have enough app memory for this model. Choose a smaller local model."
+        case .memory: "This Mac does not currently have enough available memory for this model. Close other memory-heavy apps or choose the smaller model."
         }
     }
 }
@@ -140,7 +154,14 @@ public actor LocalModelStore {
         guard try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == false else { throw LocalAIError.integrity }
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
         var hash = SHA256()
-        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty { try Task.checkCancellation(); hash.update(data: data) }
+        // FileHandle's Foundation buffers can otherwise accumulate in the enclosing async task's pool.
+        // A 6 GB hash check must not retain 6 GB immediately before the model's memory admission check.
+        while try autoreleasepool(invoking: {
+            try Task.checkCancellation()
+            guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { return false }
+            hash.update(data: data)
+            return true
+        }) {}
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }

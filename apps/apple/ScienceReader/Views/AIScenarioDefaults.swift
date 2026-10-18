@@ -18,6 +18,7 @@ struct AIScenarioDefaults: View {
     var body: some View {
         Form {
             Section {
+                #if targetEnvironment(macCatalyst)
                 Picker("Default model", selection: Binding(get: { model.localDefault(for: scenario) ?? "cloud" }, set: {
                     model.setLocalDefault($0 == "cloud" ? nil : $0, for: scenario)
                 })) {
@@ -26,6 +27,7 @@ struct AIScenarioDefaults: View {
                         Text("\(option.name) (local)").tag(option.id)
                     }
                 }.accessibilityIdentifier("settings.aiScenario.engine")
+                #endif
                 ChatChoiceControls(model: model, mode: .scenario(scenario))
             } footer: {
                 Text("Used when starting \(scenario.title.lowercased()). Existing conversations keep their selected model. You can change it before sending.")
