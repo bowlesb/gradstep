@@ -265,7 +265,21 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "A row closes Contents")
         // The full named reference is now one link (build 71 feedback), not a standalone “(1)” text node.
         let reference = web.links["Equation (1)"].firstMatch
+        #if targetEnvironment(macCatalyst)
+        // Catalyst exposes the rendered formula as one accessibility text element. Its following link can
+        // report isHittable=false; assert the formula's actual viewport geometry, not a tap we do not perform.
+        XCTAssertTrue(reference.waitForExistence(timeout: 5))
+        let display = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "(1) Attention")).firstMatch
+        XCTAssertTrue(display.waitForExistence(timeout: 5))
+        let landed = NSPredicate { _, _ in
+            !display.frame.isEmpty && !reference.frame.isEmpty && web.frame.contains(display.frame)
+                && web.frame.contains(reference.frame) && reference.frame.minY > display.frame.maxY
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landed, object: nil)], timeout: 5), .completed,
+                       "The complete display equation and following reference are inside the reader viewport")
+        #else
         XCTAssertTrue(reference.waitForExistence(timeout: 5) && reference.isHittable, "The equation and its following reference are in view")
+        #endif
         XCTAssertTrue(app.buttons["reader.citation.back"].exists, "The equation jump offers a return to the original place")
         capture(app, "An equation from Contents")
     }

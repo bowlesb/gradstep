@@ -82,3 +82,55 @@ With the same 2% display margin and outward pixel rounding as the clients:
 Zero means zero admitted **crop** coverage; the app still presents the full original image. These figures do not
 supply semantic ground truth and cannot be turned into an accuracy score. The result supports separate panel,
 required-context and presentation-group annotations for fine-tuning, with whole-image coverage checked mechanically.
+
+## Official RT-DETRv2-S export feasibility — 2026-10-18, 21:30 UTC
+
+The proposed alternative now has an actual Core ML conversion check, before spending time or money training it.
+This uses the [official Apache-2.0 implementation](https://github.com/lyuwenyu/RT-DETR/tree/df2a96c8c3a098567a1149bf0248da6efe6d495d/rtdetrv2_pytorch),
+revision `df2a96c8c3a098567a1149bf0248da6efe6d495d`, and its published
+`rtdetrv2_r18vd_120e_coco_rerun_48.1.pth` checkpoint (81,198,974 bytes,
+SHA-256 `2ace52184b620204004509b72752ac7bfe64aadaf7fc1d076b18df8ab5a5c77e`). The checkpoint is loaded with
+`weights_only=True`; the backbone download is disabled. The model has ordinary COCO classes, **not scientific
+panel labels**. No crop-quality score can be inferred from this conversion check.
+
+`scripts/subfigure-rtdetr-export.py` uses the same seven already-local FDE-Gym images, RGB bilinear aspect-fit into
+a white 640-square canvas, float32 NCHW pixels divided by 255. It exports raw logits and normalized cx/cy/w/h
+boxes, leaving postprocessing outside the network. Torch 2.8.0 / coremltools 9.0 / Python 3.9.6, four Torch CPU
+threads, M1 Max, Core ML `ALL` compute units. `sandbox-exec` denied all networking during both complete runs.
+coremltools warns that its latest tested Torch release is 2.7; the numerical comparisons below are therefore
+required evidence rather than relying on nominal compatibility. Static-shape trace warnings are retained.
+
+| Export | Package | First prediction | Median of six warm predictions | Numerical parity |
+|---|---:|---:|---:|---|
+| FP32 | 80,440,457 bytes | 4,677 ms | 30.4 ms | 7/7 pass |
+| FP16 | 40,350,214 bytes | 955 ms | 79.3 ms | 0/7 pass |
+
+First prediction excludes the separate trace/conversion phases and is not a cold application-launch benchmark.
+These are seven sequential wall-clock calls, not repeated performance distributions. Memory, thermal behavior,
+app integration and trained scientific-panel quality remain unmeasured for this model.
+
+`scripts/subfigure-rtdetr-parity.py` preserves the raw errors and then makes a one-to-one assignment of **all 300**
+predictions, minimizing normalized box L1 distance plus maximum class-probability difference. This accounts for
+query reordering at close encoder top-k scores, rather than hiding a box mismatch by independently taking nearest
+neighbors. The explicit numerical gate is maximum coordinate error ≤1/640 and probability error ≤0.001.
+FP32's worst matched coordinate error is **0.0001710** (0.11 pixels at input resolution), and worst probability
+error **0.0000811**. One image has reordered queries; its raw positional error remains in the evidence.
+FP16's matched coordinate error reaches **0.9529**, probability error **0.3522**; even restricting attention to
+pairs where either confidence is ≥0.25 leaves coordinate drift up to **0.3031**. The smaller export is rejected.
+The exact operator causing FP16 drift has not been isolated. Choosing FP32 is an evidence-based baseline,
+not a claim that every future trained checkpoint will preserve these errors or timings.
+
+Artifacts: `.artifacts/subfigure-prototype/rtdetr-coreml/` and `rtdetr-coreml-fp32/`, each containing complete
+Torch/Core ML predictions, a hashed provenance report, model package and `parity.json`; export logs are retained.
+No paid inference, GPU training, dataset purchase, application download or shipped detector was added.
+
+```sh
+sandbox-exec -p '(version 1)(allow default)(deny network*)' \
+  .artifacts/subfigure-prototype/venv/bin/python scripts/subfigure-rtdetr-export.py \
+  --repo .artifacts/subfigure-prototype/RT-DETR \
+  --weights .artifacts/subfigure-prototype/rtdetrv2-s.pth \
+  --bundle .artifacts/feedback/followup-20261017/fde-after/2610.22350v1 \
+  --out .artifacts/subfigure-prototype/rtdetr-coreml-fp32 --precision fp32
+.artifacts/subfigure-prototype/venv/bin/python scripts/subfigure-rtdetr-parity.py \
+  .artifacts/subfigure-prototype/rtdetr-coreml-fp32/results.json
+```

@@ -9,9 +9,13 @@ actions to be visible without opening More, then verify Copy/Back and an unsent 
 preferences gain Device/Authors once and preserve later explicit choices; browser journeys cover horizontal
 scrolling, keyboard focus, persistence and resizing. The fresh import gate remains mandatory for changed row geometry.
 
-The equation navigation assertion now uses the complete “Equation (1)” link plus Back. Its old standalone “(1)”
-query became stale when build-71 feedback made the whole reference clickable; the failed-run screenshot confirms
-the actual equation was correctly shown and highlighted. Old broad-category tag and hidden-zero-chat assertions
+The iOS equation navigation assertion now uses the complete “Equation (1)” link plus Back. Its old standalone “(1)”
+query became stale when build-71 feedback made the whole reference clickable. Catalyst reports the visible link
+as not hittable and exposes the rendered formula as a single accessibility text element; its assertion checks
+that complete formula and following reference are inside the reader viewport, with Back available. Saved failure
+hierarchies and screenshots informed this platform-specific query; the corrected Mac journey passes in
+`release-73-mac-contents-geometry.xcresult`. No production navigation change was needed for these assertion failures.
+Old broad-category tag and hidden-zero-chat assertions
 were aligned to the already approved build-69/70 behavior, with specific-keyword filtering retained. Table floating
 point comparisons allow 0.001 pt numerical noise, not visible layout overflow.
 

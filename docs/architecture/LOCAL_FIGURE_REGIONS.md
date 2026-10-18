@@ -82,8 +82,9 @@ not the first deployment design. The existing heatmap failure demonstrates why c
    Rank by panel recall, false crops, correct label association, and retention of interpretation-critical text.
    Add downstream plot-reading questions with fixed caption/paragraph/LaTeX context. Whole-image fallback is counted
    separately, never relabeled as a successful extraction.
-7. Export the selected trained checkpoint to Core ML FP16; replay identical images through source and exported
-   models, including orientation and wide/tall composites. Quantize only if those results and downstream answers
+7. Export the selected trained checkpoint to Core ML, beginning with FP32; replay identical images through source and exported
+   models, including orientation and wide/tall composites. The measured RT-DETRv2 baseline below does not preserve
+   numerical parity in FP16. Reduce precision only if those results and downstream answers
    remain acceptable. Measure cold start, steady latency, peak process memory, cancellation and concurrent-reader
    behavior on Mac. No paid GPU training or dataset purchase has been started.
 
@@ -93,6 +94,20 @@ Report uncertainty and per-domain counts; these thresholds are targets, not curr
 containment-failing result stays on the whole figure. Only after this evaluation should detection become automatic
 in the shared figure view. The next useful work is annotation and an exportable small-detector baseline, not more
 unreviewed prompt/coordinate heuristics.
+
+### Official detector export feasibility, 2026-10-18
+
+The pinned official RT-DETRv2-S COCO checkpoint now runs on this Mac through Core ML with networking denied.
+Its **FP32** export is 80.44 MB and matches the source prediction set on all seven local figures: maximum matched
+normalized coordinate error 0.000171 and class-probability error 0.0000811. Warm prediction median is 30.4 ms;
+first prediction is 4.68 seconds, separately from conversion. These measurements do not establish panel accuracy
+or app memory use. The generic COCO checkpoint is a conversion baseline, not a trained scientific detector.
+
+The **FP16** export is 40.35 MB but fails parity on all seven images, including after one-to-one query matching;
+confidence drift reaches 0.352 and credible-box coordinate drift 0.303. Do not silently accept that export merely
+because it compiles or is smaller. Use the full-precision model as the first fine-tuning/export baseline; reduced
+precision needs its own diagnosis and replay after training. Exact scripts, checkpoint provenance, timing and
+permutation-aware comparison are in [the measured review](../reviews/LOCAL_FIGURE_REGIONS_20261018.md).
 
 
 ## Whole-image coverage feedback and tuning implications — 2026-10-18

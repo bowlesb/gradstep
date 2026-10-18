@@ -12,8 +12,11 @@ Reduce Motion. The existing complete figure-card change and Mac prototype retire
 Seven unique affected iPhone Simulator journeys pass, including figure/chat, Contents/equations, reference actions,
 double-tap/relaunch and Library columns. Saved screenshots were reviewed. Two native bridge regressions and all
 four targeted browser desktop/phone cases pass; `npm test` passes. Browser Pages **8d2514ec** is deployed with live
-asset/AASA verification. App Store feedback readback contains 203 reports and no further unseen reports. Native
-upload still waits for the fresh optimized import gate and final Mac UI checks; this paragraph is not release evidence.
+asset/AASA verification. App Store feedback readback contains 203 reports and no further unseen reports. The fresh
+optimized import gate passes **13/13, zero failures/skips**, matching production source at **21:22:26 UTC**. Mac
+Library/model-retirement journeys pass; the corrected Contents/equation viewport journey passes at **21:30:19 UTC**.
+Saved screenshots and the Catalyst accessibility hierarchy were reviewed. Build 73 upload/processing is pending;
+this paragraph is not evidence that it is available in TestFlight.
 Mac chat-generation and Library-column units pass **54/54** with a complete result bundle. Disabling coverage collection
 for this focused run allowed result finalization; the earlier completed-test logs with unfinished bundles remain
 retained rather than being represented as valid result bundles.

@@ -11,7 +11,8 @@ authorize those interaction changes. Keep Copy, Open, Add and Discuss, long-pres
 elements and Mac double-click selection. Save gesture discovery on this device only after it actually opens Contents;
 opening Contents by its button does not mark discovery. Existing column choices gain Device/Authors once, then remain
 customizable. The heading-jump bridge still requested `smooth` independently of the already repaired reference jump;
-test with reduced motion disabled. Release evidence is pending for these six reports.
+test with reduced motion disabled. Affected journeys and the fresh 13-case import gate pass; exact native release
+state is recorded in IMPLEMENTATION_STATUS.md.
 
 Additional feedback ALCJLruWVHFOYNzJoULIvSY (20:07 UTC) requires every pixel to remain represented when a figure
 is divided into cards; grouping several panels in a card is acceptable. Cards distinguish panels, concepts and
