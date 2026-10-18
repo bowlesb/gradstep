@@ -131,7 +131,7 @@ struct FigureExplainView: View {
             await opened.start(requesting: requesting)
         }
         .onDisappear { if expandedImage == nil { session?.stop(); if let chatToken { model.endContextualChat(chatToken) } } }
-        .fullScreenCover(item: $expandedImage) { image in FullscreenFigureImage(image: image) { expandedImage = nil } }
+        .modifier(FigureImageCover(image: $expandedImage))
         .sheet(isPresented: $choosingAI) {
             AIChoiceView(model: model, chat: true, needsVision: true) { id in
                 model.localAIModelID = id; session?.stop()
@@ -447,6 +447,38 @@ struct FigureImagePresentation: Identifiable {
     let whole: CGImage?
     let label: String
 }
+
+private struct FigureViewerWindowSizeKey: EnvironmentKey { static let defaultValue = CGSize.zero }
+extension EnvironmentValues {
+    var figureViewerWindowSize: CGSize {
+        get { self[FigureViewerWindowSizeKey.self] }
+        set { self[FigureViewerWindowSizeKey.self] = newValue }
+    }
+}
+
+private struct FigureImageCover: ViewModifier {
+    @Binding var image: FigureImagePresentation?
+    @Environment(\.figureViewerWindowSize) private var windowSize
+    func body(content: Content) -> some View {
+        #if targetEnvironment(macCatalyst)
+        content.sheet(item: $image) { value in
+            // The presenting sheet has its own smaller geometry. Carry the owning window's size from RootView.
+            if #available(iOS 18.0, *), windowSize.width > 0, windowSize.height > 0 {
+                FullscreenFigureImage(image: value) { image = nil }
+                    .frame(width: windowSize.width, height: windowSize.height)
+                    .presentationSizing(.fitted)
+            } else {
+                FullscreenFigureImage(image: value) { image = nil }
+            }
+        }
+        #else
+        content.fullScreenCover(item: $image) { value in
+            FullscreenFigureImage(image: value) { image = nil }
+        }
+        #endif
+    }
+}
+
 struct FullscreenFigureImage: View {
     let image: FigureImagePresentation
     let close: () -> Void
@@ -461,6 +493,7 @@ struct FullscreenFigureImage: View {
                 }
                 Button(action: close) { Image(systemName: "xmark").frame(width: 44, height: 44) }
                     .accessibilityLabel("Close fullscreen image").accessibilityIdentifier("figureView.fullscreen.close")
+                    .macKeyboardShortcut(.escape, modifiers: [])
             }.padding(.horizontal, 16)
             ZoomableFigureImage(image: whole ? image.whole ?? image.image : image.image)
                 .id(whole).accessibilityIdentifier("figureView.fullscreen.image")

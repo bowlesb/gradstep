@@ -22,11 +22,16 @@ customized/cleared keyword metadata and account retirement. `npm test` remains t
 replace import acceptance. Simulator/local fixtures do not verify physical-phone resource behavior or live model
 quality. The one paid FDE-Gym Flash check is separately recorded; the local panel detector used no paid API.
 
-Build-71 release evidence: `.artifacts/import-acceptance/2026-10-18T16-48-10-757Z.xcresult` passes 13/13 with
+Initial iOS build-71 release evidence: `.artifacts/import-acceptance/2026-10-18T16-48-10-757Z.xcresult` passes 13/13 with
 zero failures/skips, matching source at 16:57:23 UTC. Final iPhone figure/local-figure/ownership/metadata retests
 are in `native-feedback-final.xcresult`, and activity defaults in `activity-defaults.xcresult`, under
-`.artifacts/feedback/build70-20261018/`. The final Mac figure retest is blocked by a system dialog; it is not a
-pass, and the signed Mac archive is held. Hosted AASA verification now rejects HTML, redirects, or an incorrect
+`.artifacts/feedback/build70-20261018/`. The resumed Mac figure journey passes, but visual review caught its
+fullscreen being another small sheet. The final journey therefore requires an image viewport spanning at least
+90% of the window width and 75% of its height, plus Escape/⌘W dismissal preserving the explainer. The Mac archive
+is being rebuilt after the full corrected journey passes in `mac-fullwindow-sheet.xcresult` (17:40 UTC).
+The screenshot review confirms a visible window-sized image, usable Close and the retained Chat draft; checking
+an accessibility frame alone had missed clipping by the native presentation. A fresh import gate is required for
+the root-view geometry change before Mac upload. Hosted AASA verification now rejects HTML, redirects, or an incorrect
 application identity, in addition to checking entry-asset content types.
 
 Local AI is an explicit native/Metal tier, never part of routine `npm test`: `swift test --package-path apps/apple/LocalAI --filter ModelStoreTests` checks local model integrity; Core's `LocalAIContextTests` checks

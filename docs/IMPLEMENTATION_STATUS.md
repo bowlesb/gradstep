@@ -44,10 +44,14 @@ environment files are bundled. The deployed `chat` and `discover` functions need
 **13724098** passes entry-asset checks and an exact AASA JSON/app-identity readback at `https://app.gradstep.ai`.
 Release feedback readback at 16:59 UTC still contains 189 screenshots, no next page or new submissions.
 
-Mac Library/draft units, the figure Ask-in-Chat journey and four keyboard journeys pass. The final full figure
-retest is **blocked**, not accepted: a macOS UserNotificationCenter dialog intercepted the test. Computer-use
-safety review refused inspection of that restricted app; the owner was asked to dismiss it. The signed Mac
-archive is retained and its upload is held pending the retest. Physical-phone access remains paused, including
+Mac Library/draft units, the figure Ask-in-Chat journey and four keyboard journeys pass. The full figure retest
+initially encountered a macOS system dialog; the owner's subsequent Continue resumed the ordinary app test,
+which passed without inspecting or controlling that dialog. Visual review then caught a separate acceptance
+gap: Catalyst displayed the fullscreen figure in a small sheet. The final Mac correction uses a fitted sheet
+sized from its owning reader window. The complete journey passes at 17:40 UTC, including visible-window geometry,
+X/Escape/⌘W, extraction, citation return and Chat transfer; fullscreen and transferred-draft screenshots were
+inspected (`mac-fullwindow-sheet.xcresult`). A fresh import replay and replacement signed archive are in progress.
+The earlier signed archive is retained but is not the final Mac candidate. Physical-phone access remains paused, including
 universal-link launch. Artifacts: `.artifacts/feedback/build70-20261018/`.
 
 Local subfigure research has a working Mac Core ML prototype and documented shared-context architecture.

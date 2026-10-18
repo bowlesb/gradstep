@@ -10,7 +10,9 @@ struct RootView: View {
     var body: some View {
         GeometryReader { geometry in
             // The Mac window is always the wide layout (its minimum width fits the panes).
-            if geometry.size.width >= 850 || Platform.isMac { wideLayout(width: geometry.size.width) }
+            if geometry.size.width >= 850 || Platform.isMac {
+                wideLayout(width: geometry.size.width).environment(\.figureViewerWindowSize, geometry.size)
+            }
             else {
                 // Floating chrome (2026-10-07): the tab bar floats over the screen, whose content scrolls
                 // behind it; each screen keeps room for it (`tabBarSpace`) so its last row is reachable.
@@ -19,6 +21,7 @@ struct RootView: View {
                 // The podcast mini-player rides on the tab bar and takes part of its reserve (PodcastMiniPlayer).
                 let miniPlayer = model.podcasts.nowPlaying != nil
                 destination(model.tab)
+                    .environment(\.figureViewerWindowSize, geometry.size)
                     .environment(\.tabBarReserve, softwareKeyboardShown ? 0
                                  : ChromeMetrics.tabBarReserve(safeBottom: safeBottom) + (miniPlayer ? PodcastMiniPlayer.height : 0))
                     .overlay(alignment: .bottom) {

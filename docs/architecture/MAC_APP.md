@@ -1,5 +1,21 @@
 # Mac app
 
+## Build 71 figure fullscreen correction — 2026-10-18 (verified; archive/upload pending)
+
+Visual review caught a gap in the first passing figure journey: SwiftUI's `fullScreenCover` opened a second
+small centered sheet inside the explainer on Catalyst. The old test asserted only that the close button existed.
+The Mac image viewer now receives its owning window's geometry through a SwiftUI environment value set in
+`RootView`, and uses a sheet with that size and fitted presentation sizing. `fullScreenCover` ignored the native
+container sizing: forcing a larger content frame only clipped the content and Close button. The existing SwiftUI
+dismissal, Escape and File → Close paths remain in charge; no custom UIKit presenter or global key-window
+selection is needed. iOS retains its SwiftUI fullscreen sizing. Older Catalyst versions without presentation
+sizing keep the native expanded-image sheet, without forcing content outside its visible bounds.
+The journey now requires at least 90% of the app-window width and 75% of its height for the image viewport and
+checks both keyboard dismissal paths without losing the explanation. It also requires the image to fit its
+containing window and Close to be hittable, then actually closes/reopens before continuing. The full journey
+passes on macOS 26.3.1 at 17:40 UTC (`mac-fullwindow-sheet.xcresult`); fullscreen and Chat-transfer screenshots
+were inspected. The four Mac keyboard journeys pass separately. No model request is made by these fixtures.
+
 ## Build 70 feedback release — 2026-10-18
 
 TestFlight **70** is VALID / IN_BETA_TESTING. The equation/reference menu uses a public menu-button action

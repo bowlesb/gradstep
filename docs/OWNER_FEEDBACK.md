@@ -15,8 +15,9 @@ Twenty new screenshot reports were downloaded and individually inspected. No new
 reports were found. Evidence: `.artifacts/feedback/build70-20261018/`. The screenshot timestamps follow build 70;
 the per-report ASC build relationship was not accessible (403). Build **71** from `c4d15d9` is
 **VALID / IN_BETA_TESTING** for iOS/iPadOS at **2026-10-18T17:04:13.483Z**, with release notes verified. Browser
-Pages **13724098** is deployed. The signed Mac archive is held: a system dialog blocked the final figure journey,
-and computer-use safety review prevented inspecting that restricted dialog. Mac remains on build 70. The final
+Pages **13724098** is deployed. Mac remains on build 70 pending the replacement archive/upload. The visually
+detected fullscreen-sizing defect is corrected; the full Mac journey and screenshot review pass. The earlier
+system-dialog interruption no longer blocks the ordinary app journey. The final
 feedback readback contains 189 screenshots with no further page or new reports. Inclusion below does not claim
 owner-device acceptance; physical iPhone access remains paused.
 

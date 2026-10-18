@@ -94,11 +94,35 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
         capture(app, "Figure walkthrough")
         let fullscreen = app.buttons["figureView.fullscreen"].firstMatch
+        let readerWindow = app.windows.allElementsBoundByIndex.map(\.frame).max { $0.width * $0.height < $1.width * $1.height }!
         XCTAssertTrue(fullscreen.exists); fullscreen.tap()
         XCTAssertTrue(app.buttons["figureView.fullscreen.close"].waitForExistence(timeout: 5))
+        let fullscreenImage = app.descendants(matching: .any)["figureView.fullscreen.image"].firstMatch
         capture(app, "Figure fullscreen before zoom")
+        XCTAssertTrue(fullscreenImage.waitForExistence(timeout: 5))
+        let imageFrame = fullscreenImage.frame
+        let viewerWindow = app.windows.containing(.button, identifier: "figureView.fullscreen.close").firstMatch
+        XCTAssertTrue(viewerWindow.exists)
+        XCTAssertTrue(viewerWindow.frame.insetBy(dx: -2, dy: -2).contains(imageFrame),
+            "The image must fit its visible window, not overflow a small clipped sheet")
+        XCTAssertTrue(app.buttons["figureView.fullscreen.close"].isHittable, "Close must be visible and clickable")
+        XCTAssertGreaterThanOrEqual(imageFrame.width, readerWindow.width * 0.9,
+            "Fullscreen must use the app window, not another small sheet: image \(imageFrame), window \(readerWindow)")
+        XCTAssertGreaterThanOrEqual(imageFrame.height, readerWindow.height * 0.75,
+            "Fullscreen image viewport: \(imageFrame), window \(readerWindow)")
         app.buttons["figureView.fullscreen.close"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 5), "Fullscreen preserves the explanation")
+        #if targetEnvironment(macCatalyst)
+        for shortcut in ["escape", "close"] {
+            fullscreen.tap()
+            let imageClose = app.buttons["figureView.fullscreen.close"]
+            XCTAssertTrue(imageClose.waitForExistence(timeout: 5))
+            if shortcut == "escape" { app.typeKey(.escape, modifierFlags: []) }
+            else { app.typeKey("w", modifierFlags: .command) }
+            XCTAssertTrue(wait(5) { !imageClose.exists }, "\(shortcut) closes the image, not its explainer")
+            XCTAssertTrue(first.exists)
+        }
+        #endif
 
         // "Back up a bit": the part again, more simply, under it.
         partMenu(app, 1).tap()
