@@ -1,7 +1,14 @@
 # Implementation status
 
 
-## Later October 18 feedback — build 73 release verification
+## Later October 18 feedback — TestFlight 73 on iPhone/iPad; Mac upload in progress
+
+iPhone/iPad build **73** is **VALID / IN_BETA_TESTING**, read back after its 21:34:36 UTC upload.
+ASC ID `4fdf3cd5-74a4-4813-b605-0108f1a81fe9`; release notes were written and read back. Its signed archive
+contains production source **1262117** and passes the local-answering-runtime/catalog/resource exclusion guard.
+Subsequent commits change tests, research scripts and documentation, not the archived application source.
+The Mac 73 archive (production source identical, verification commit **1e86de7**) is signed and uploading;
+its archived local-model catalogue is empty. Mac TestFlight availability is not yet confirmed.
 
 Six additional reports at 20:45–20:56 UTC are implemented: full-height Contents; a touch double-tap opens it with
 persisted first-use discovery; genuinely instant section jumps; all reference actions visible together; separate
@@ -15,8 +22,7 @@ four targeted browser desktop/phone cases pass; `npm test` passes. Browser Pages
 asset/AASA verification. App Store feedback readback contains 203 reports and no further unseen reports. The fresh
 optimized import gate passes **13/13, zero failures/skips**, matching production source at **21:22:26 UTC**. Mac
 Library/model-retirement journeys pass; the corrected Contents/equation viewport journey passes at **21:30:19 UTC**.
-Saved screenshots and the Catalyst accessibility hierarchy were reviewed. Build 73 upload/processing is pending;
-this paragraph is not evidence that it is available in TestFlight.
+Saved screenshots and the Catalyst accessibility hierarchy were reviewed. Mac upload/processing is pending.
 Mac chat-generation and Library-column units pass **54/54** with a complete result bundle. Disabling coverage collection
 for this focused run allowed result finalization; the earlier completed-test logs with unfinished bundles remain
 retained rather than being represented as valid result bundles.
@@ -69,6 +75,10 @@ fixed loss of the explicit local engine during a selection action; 32 affected c
 requested two accepted options remain outstanding. Qwen 27B is pinned/downloaded but lacks available test memory;
 other user applications were not closed. New subfigure geometry replay and fine-tuning implications are recorded
 in LOCAL_FIGURE_REGIONS.md and its measured review. No training or paid GPU job has been started.
+The proposed official RT-DETRv2-S baseline has also been converted and replayed locally with networking denied:
+FP32 passes numerical parity on seven figures; FP16 and a mixed-precision variant fail. These generic COCO weights
+are not trained or accepted as a scientific-panel detector. The measured evidence changes the fine-tuning/export
+baseline to FP32, without adding a model to either application.
 
 ## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS and Mac; browser deployed)
 
