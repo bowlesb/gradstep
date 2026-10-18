@@ -590,3 +590,16 @@ Revision 20 closes the full-corpus admission regression from the affiliation lay
 `\ddagger` formulas must stay in the rendered tree with their equation IDs, and inline contact text stays intact.
 The three failing real sources (2610.16794v1, 2610.20584v1, 2610.20592v1) pass full device preparation after the
 fix; all 123 cached sweep sources have zero failures. Revision 19 was a browser-only checkpoint.
+
+### Encoded image total, revision 21
+
+The real-source native replay of 2610.20592v1 exposed a boundary the Chromium run did not: identical input
+assets total 32,747,061 bytes, and Chromium produces a 32,868,722-byte bundle, while WebKit's rasterized PNGs
+exceed the existing 32 MiB limit. Keep the source/member/pixel/bundle ceilings. If composition specifically
+refuses the encoded bundle size, resample its prepared images with a smaller pixel budget, reserving source
+bytes plus 4 MiB for HTML/index/metadata. Preserve original input hashes, every image reference and all
+equations; do not drop figures, refetch assets or increase limits. At most three reductions are permitted;
+other failures retain their original classification. The exact cached source now passes optimized native WebKit
+compilation and independent admission in 13.74 s, retaining 338 blocks, seven figures and 347 equations. The
+other three replay papers also pass; the native suite is 6/6. Evidence: `native-reader-21.xcresult` under
+`.artifacts/feedback/all-20261018/`.

@@ -192,7 +192,26 @@ export async function prepare(source64: string, sourceID: string, revision: numb
     if (image) { pixels += image.width * image.height; check(pixels <= LIMITS.totalImagePixels, 'image_total_limit'); }
     images.set(input.key, image);
   }
-  const bundle = composeArxivReader({ source, sourceID, revision, images, authors, title });
+  // Encoded PNG sizes differ between WebKit and Chromium. A paper near 32 MiB (2610.20592) must not fail on
+  // one device merely because its rasterizer produced larger pixels. Retry only an encoded bundle overflow,
+  // using the already prepared images and retaining their ORIGINAL input hashes. All admission limits remain.
+  const compose = () => composeArxivReader({ source, sourceID, revision, images, authors, title });
+  let bundle: ReturnType<typeof composeArxivReader>;
+  for (let attempt = 0; ; attempt++) {
+    try { bundle = compose(); break; }
+    catch (error) {
+      if (!(error instanceof Error) || error.message !== 'bundle_limit' || attempt >= 3) throw error;
+      const imageBytes = [...images.values()].reduce((n, image) => n + (image?.bytes.length ?? 0), 0);
+      const targetBytes = LIMITS.bundleBytes - source.length - 4 * 1024 * 1024;
+      if (imageBytes <= targetBytes) throw error; // Text/index/count failure, not oversized encoded images.
+      const factor = Math.min(0.85, targetBytes / imageBytes * 0.9);
+      for (const [key, image] of images) {
+        if (!image || image.bytes.length < 65_536) continue;
+        const smaller = await raster(image.bytes, false, Math.max(1, Math.floor(image.width * image.height * factor)));
+        images.set(key, { ...smaller, inputSHA256: image.inputSHA256 });
+      }
+    }
+  }
   validateHTML(bundle.members.get('index.html')!, bundle.index,
     new Map(JSON.parse(decodeUTF8(bundle.manifestBytes)).members.filter((m: { role: string }) => m.role === 'image')
       .map((m: { path: string; width: number; height: number }) => [m.path, { width: m.width, height: m.height }])), true);

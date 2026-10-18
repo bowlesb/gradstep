@@ -37,6 +37,7 @@ revision bump always adds its line.
 
 | Version | Date | What changed |
 |---|---|---|
+| 21 | 2026-10-18 | Image-heavy papers reduce bitmap sizes when needed to fit the existing bundle limit, keeping every figure. Native replay of 2610.20592v1 passes. |
 | 20 | 2026-10-18 | Affiliation lines retain their indexed math marks and contact details. 123-paper replay: no failures. |
 | 19 | 2026-10-18 | Separate affiliation lines after the abstract, including 2610.22353v1; browser-only checkpoint, superseded by 20. |
 | 18 | 2026-10-17 | Font setup text no longer appears on custom title pages, including FDE-Gym. Browser deployed; TestFlight 67 on iOS and Mac. |
