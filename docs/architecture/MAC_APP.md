@@ -1,5 +1,14 @@
 # Mac app
 
+## Build 70 feedback release — 2026-10-18
+
+TestFlight **70** is VALID / IN_BETA_TESTING. The equation/reference menu uses a public menu-button action
+because Catalyst’s Mac idiom does not support presenting `UIEditMenuInteraction`; macOS 14.0–14.3 uses an
+anchored action sheet. The current-Mac equation journey passes: click, AI Explainer, answer, close. The
+figure-chat journey also passes. Signed archive checks cover the shared compiler/catalog, MLX Metal resource,
+speech purpose strings and microphone/audio entitlements. Actual microphone recognition and signed-in owner
+acceptance remain unverified. Earlier platform checkpoints below retain their original scope.
+
 ## Mac-specific review — 2026-10-08
 
 Worktree `science-reader-mac-native-20261008`, branch `codex/mac-native-20261008`, based on `44bf3c2`.

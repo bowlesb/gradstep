@@ -141,7 +141,7 @@ sent without chat consent: Explain asks for it first, as chat does.
 - Apps: a fixture mode `--chat-fixture-mode=equation` and a journey that opens the view from a tapped equation.
 - Browser: `e2e/equation-view.spec.ts` against the fixture backend's `equation` event.
 
-## Build-69 feedback, 2026-10-18 (implementation; release checks pending)
+## Build-69 feedback, 2026-10-18 (TestFlight 70 and browser deployed)
 
 The equation menu starts with **Chat about Equation**, then **AI Explainer**, then Related. Chat about Equation
 opens this view without a generation; AI Explainer chooses the engine and requests the structured explanation.
@@ -168,4 +168,6 @@ supported in Catalyst’s Mac idiom, so clicking an equation produced no actions
 References use the same repaired presenter. iPhone/iPad retain `UIEditMenuInteraction`. Sources:
 [Apple’s editing-interaction documentation](https://developer.apple.com/videos/play/wwdc2022/10071/),
 [`performPrimaryAction`](https://developer.apple.com/documentation/uikit/uicontrol/performprimaryaction()).
-The Mac journey must click the equation, select AI Explainer, render its answer, and close the view.
+The Mac journey passes (32.38 s): click the equation, select AI Explainer, render its answer, and close the view.
+The iPad wide-equation journey also passes; evidence is in `native-mac-7.xcresult` and `native-ipad-final.xcresult`
+under `.artifacts/feedback/all-20261018/`.

@@ -601,5 +601,6 @@ bytes plus 4 MiB for HTML/index/metadata. Preserve original input hashes, every 
 equations; do not drop figures, refetch assets or increase limits. At most three reductions are permitted;
 other failures retain their original classification. The exact cached source now passes optimized native WebKit
 compilation and independent admission in 13.74 s, retaining 338 blocks, seven figures and 347 equations. The
-other three replay papers also pass; the native suite is 6/6. Evidence: `native-reader-21.xcresult` under
+other three replay papers also pass; five native tests pass and the unrelated opt-in live-download test is
+skipped. Evidence: `native-reader-21.xcresult` under
 `.artifacts/feedback/all-20261018/`.

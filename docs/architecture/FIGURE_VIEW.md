@@ -399,7 +399,7 @@ no-crop part, kept on reopen) with `FigureViewAppTests` and `ChatVisualTests`; b
 --paper=… --index=…` now also extracts the first part without a box (its box drawn to
 `<paper>-<figure>-detail.png`); not yet run (the staging Anthropic account was out of credit).
 
-## Build-69 feedback, 2026-10-18 (implementation; release checks pending)
+## Build-69 feedback, 2026-10-18 (TestFlight 70 and browser deployed)
 
 **Chat about Figure** opens the explanation/conversation view without generating; AI Explainer still requests
 the walkthrough explicitly. Follow-ups and the walkthrough stay together. A part's Ask action focuses this

@@ -1,6 +1,6 @@
 # Local AI prototype
 
-Status: native prototype included in TestFlight 68 on iOS and Mac, 2026-10-17. Final acceptance is below.
+Status: the prototype and model-management feedback are included in TestFlight **70** on iOS and Mac, 2026-10-18. Earlier build-68 acceptance remains below. Physical-phone inference remains unverified.
 The [measured comparison](../reviews/LOCAL_AI_20261017.md) retains failures: no model passed all scientific checks.
 
 Owner request: offer Cloud AI (credits) or Local AI (an explicit model download) for chat, equations and figures.
@@ -108,7 +108,7 @@ the source-matching import/session gate passed 13/13 with no skips before upload
 the pinned model catalog and MLX Metal resource, with no downloaded weights. Release evidence is under
 `.artifacts/release-68/`. This is internal beta availability; physical-phone inference remains unverified.
 
-## Build-69 feedback implementation, 2026-10-18 (release validation in progress)
+## Build-69 feedback implementation, 2026-10-18 (TestFlight 70)
 
 The choice starts with Use default, Cloud, Local. Cloud shows actual model names; Local shows downloaded models
 compatible with the action, with an explicit reason when current memory prevents use. Settings → Local models

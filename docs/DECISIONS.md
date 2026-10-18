@@ -1,8 +1,8 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-17 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Build 69 feedback: contextual AI and model management (2026-10-18; implementation underway)
+## Build 69 feedback: contextual AI and model management (2026-10-18; TestFlight 70 and browser deployed)
 
 The owner explicitly asks equation and figure explanations to share their view with conversational follow-ups,
 without navigating to the main Chat tab. Keep the equation/image, structured explainer, citations and general
@@ -20,7 +20,7 @@ Add the explicitly requested author search, editable keyword row before the intr
 automatic zoom/pan, crop zoom, Library metadata fixes and chat composer controls. Keywords are per-reader metadata,
 not a mutation of the verified paper bundle. Dictation, if supported, writes a draft only, with explicit microphone
 permission and on-device recognition; it never sends a question automatically. The complete checklist is in
-[OWNER_FEEDBACK.md](OWNER_FEEDBACK.md#build-69-feedback--2026-10-18-implementation-in-progress-not-yet-released).
+[OWNER_FEEDBACK.md](OWNER_FEEDBACK.md#build-69-feedback--2026-10-18-testflight-70-on-ios-and-mac).
 
 ## Build 68 equation hang and cloud model failure (2026-10-17; repaired, TestFlight 69 on iOS and Mac)
 

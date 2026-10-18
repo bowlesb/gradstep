@@ -1,8 +1,8 @@
 # Implementation status
 
-Updated 2026-10-18 UTC (build-69 feedback implemented; migration 088, author search and browser deployed; native release verification in progress). TestFlight 69 remains the available native release until build 70 is verified below. Flash remains recommended. Earlier checkpoints are historical.
+Updated 2026-10-18 UTC: TestFlight **70** is available on iOS/iPadOS and Mac, source `2e461b4`; both are VALID / IN_BETA_TESTING, verified `2026-10-18T07:20:34.040Z`. Browser Pages **6ddf4887**, migration 088 and author search are deployed. Flash remains recommended. Earlier checkpoints are historical.
 
-## Build 69 feedback — 2026-10-18 (native release verification in progress)
+## Build 69 feedback — 2026-10-18 (TestFlight 70 and browser deployed)
 
 All 169 screenshot submissions were checked; 19 new build-69 reports and four earlier unclosed UI requests are
 tracked in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). The final feedback read still returns 169, with no next page.
@@ -22,21 +22,34 @@ tracked in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). The final feedback read still
   Account/sync and chat heading/draft-label changes are included. Explicit on-device dictation fills a draft;
   microphone/speech purpose strings and Mac audio entitlements are included. Actual microphone input is not
   certified by the deterministic UI fixture.
-- Reader revision **20** repairs the affiliation/contact block in **2610.22353v1**. Exact-source full compilation
+- Reader revision **21** repairs the affiliation/contact block in **2610.22353v1**. Exact-source full compilation
   retains 224 blocks, 369 equations, 7 figures, 22 images and all non-whitespace paragraph text. The exact
-  cached source also passes native WebKit compilation and independent admission in 3.06 s with `-O`. Existing saved
+  cached source also passes native WebKit compilation and independent admission in 2.94 s with `-O`. Existing saved
   papers use Reader version details → Update this paper. Shared validator changes also rebuild device-PDF
   converter **4**, without changing its extraction behavior. The 123-paper cached sweep has zero failures
   (eight retained warnings, one source without HTML); full device compilation passes the reported paper and
   2610.16794v1, 2610.20584v1 and 2610.20592v1. The last three caught a pre-release affiliation formatter defect:
-  flattening superscript math marks left dangling equation-index entries. Revision 20 preserves those marks and contacts.
+  flattening superscript math marks left dangling equation-index entries. Revision 20 preserves those marks and contacts. Revision 21 also repairs WebKit-only encoded image
+  overflow on 2610.20592v1: bounded downsampling retains all seven figures and 347 equations, without raising
+  admission limits. All four native real-paper cases pass; the largest completes in 13.74 s. Final revision-21
+  sweep: `sweep-2026-10-18T06-57-19-355Z.json` (123 papers, zero failures, eight unchanged warnings).
 - Migration **088** is deployed and verified, projecting immutable source creation dates and preserving explicit
   custom/empty keywords through deltas and archive operations. The discover function is deployed. Browser
-  Pages **87e5d0f1** is deployed at app.gradstep.ai; entry asset MIME checks pass.
+  Pages **6ddf4887** is deployed at app.gradstep.ai; entry asset MIME checks pass, and the hashed virtual
+  compiler module actually imported by the browser matches local revision 21 byte-for-byte.
 - Fast tier, full database suite plus final targeted metadata replay, focused Core checks and 20 desktop/phone
   browser journeys pass. Native cloud recovery, Settings/dictation controls, local chat/equation/figure flows,
   saved-answer recovery, equation overflow/typesetting and crop pinch journeys pass. Final iPhone follow-up acceptance passes with two completed answers visible above the keyboard and reopening
-  the saved conversation. Wide-platform checks and the source-matching import/session release gate remain in progress.
+  the saved conversation. The iPad figure-chat, Settings/dictation and wide-equation journeys pass. The Mac
+  equation journey passes after replacing an unsupported Catalyst edit-menu presenter; it clicks the equation,
+  opens AI Explainer, renders its answer and closes the view. The source-matching import/session gate passes **13/13, zero failures/skips**, finished at 07:02:20 UTC
+  (`.artifacts/import-acceptance/2026-10-18T06-57-10-500Z.xcresult`). Fast tier: **660 backend / 479 browser** tests.
+  Both signed archives match the tested revision-21 compiler, device-PDF converter 4 and local-model catalog.
+  Speech purpose strings, Mac microphone/audio entitlements and MLX Metal resources are present; model weights
+  and environment files are absent. Internal-only uploads and both release-note readbacks are verified.
+  Xcode reported an iOS post-build file-removal permission error after writing the archive. Its content/signature
+  audit and executable/dSYM UUID match passed; exporting that completed archive passed Apple validation and
+  upload, followed by VALID / IN_BETA_TESTING. No permissions or release gates were bypassed.
   Evidence: `.artifacts/feedback/all-20261018/`. No paid AI calls or physical-phone access in this batch.
 
 ## Build 68 feedback: Equations hang and unfunded Claude route — 2026-10-17
