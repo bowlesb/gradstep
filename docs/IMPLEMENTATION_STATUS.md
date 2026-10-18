@@ -1,6 +1,11 @@
 # Implementation status
 
-## Build 70 feedback — 2026-10-18 (release candidate 71; not yet uploaded)
+## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS; browser deployed; Mac upload held)
+
+Build **71**, source **c4d15d9**, is **VALID / IN_BETA_TESTING** for iOS/iPadOS, confirmed at
+**2026-10-18T17:04:13.483Z**. Its internal-only upload succeeded and release notes were written and read back.
+ASC build ID: `4fbc78aa-e0f0-4eab-b13a-553cf38687c1`. Browser Pages **13724098** is deployed. Mac remains on
+TestFlight 70 while the final build-71 figure retest is blocked as described below.
 
 Twenty new screenshots after build 70 were downloaded and inspected individually; no new support/crash reports
 were found at intake. Exact IDs and requests are in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). Work includes:
@@ -26,18 +31,31 @@ were found at intake. Exact IDs and requests are in [OWNER_FEEDBACK.md](OWNER_FE
 - Mermaid/HTML actions alongside suggested follow-ups. Browser parity includes cloud activity defaults, search,
   keyword presentation, links, Find, fullscreen, citation return and promotion. Browser model inference remains cloud.
 
-Verification in progress: routine fast suite passes; Core FigureViewTests 8 pass and PaperDiscoveryTests 3 pass;
-native Find journeys 3 pass; Local AI fixture journeys 6 pass. Exact FDE-Gym rendering passes both themes with
-25 headings/63 equations/seven images, no horizontal overflow and working selection. Remaining selected native
-retests, final import gate, archive signing/resource audit and hosted deployment readback are required before
-claiming build 71 shipped. Artifacts: `.artifacts/feedback/build70-20261018/`.
+Verification: the routine fast suite, Core FigureViewTests (8), PaperDiscoveryTests (3), native Find journeys (3)
+and Local AI fixture journeys (6) pass. Final iPhone retests pass for Library metadata/account retirement, scenario
+and conversation ownership, the complete figure journey and the local figure journey. The Settings journey
+changes paper and figure defaults independently and verifies the new paper chat's selection. Exact FDE-Gym
+rendering passes both themes with 25 headings/63 equations/seven images, no horizontal overflow and working
+selection. Browser Find/search/link and figure journeys pass, including the final display-margin assertions.
+The final release-optimized import/session gate passes **13/13, zero failures/skips**, matching source at
+**16:57:23 UTC** (`.artifacts/import-acceptance/2026-10-18T16-48-10-757Z.xcresult`). Both signed build-71 archives
+pass identity/signature, compiler/catalog/resource and Associated Domains checks. No downloaded LLM weights or
+environment files are bundled. The deployed `chat` and `discover` functions need no new migration; browser Pages
+**13724098** passes entry-asset checks and an exact AASA JSON/app-identity readback at `https://app.gradstep.ai`.
+Release feedback readback at 16:59 UTC still contains 189 screenshots, no next page or new submissions.
+
+Mac Library/draft units, the figure Ask-in-Chat journey and four keyboard journeys pass. The final full figure
+retest is **blocked**, not accepted: a macOS UserNotificationCenter dialog intercepted the test. Computer-use
+safety review refused inspection of that restricted app; the owner was asked to dismiss it. The signed Mac
+archive is retained and its upload is held pending the retest. Physical-phone access remains paused, including
+universal-link launch. Artifacts: `.artifacts/feedback/build70-20261018/`.
 
 Local subfigure research has a working Mac Core ML prototype and documented shared-context architecture.
 The 18.8 MB detector runs at median 23 ms after loading on M1 Max, but misses workflow regions and clips heatmap
 labels at high confidence. AGPL research weights are not bundled. No physical iPhone, battery or memory acceptance.
 See [experiment](reviews/LOCAL_FIGURE_REGIONS_20261018.md) and [design](architecture/LOCAL_FIGURE_REGIONS.md).
 
-Updated 2026-10-18 UTC: TestFlight **70** is available on iOS/iPadOS and Mac, source `2e461b4`; both are VALID / IN_BETA_TESTING, verified `2026-10-18T07:20:34.040Z`. Browser Pages **6ddf4887**, migration 088 and author search are deployed. Flash remains recommended. Earlier checkpoints are historical.
+Previous checkpoint, 2026-10-18 UTC: TestFlight **70**, source `2e461b4`, was VALID / IN_BETA_TESTING on iOS/iPadOS and Mac at `2026-10-18T07:20:34.040Z`, with browser Pages **6ddf4887**, migration 088 and author search deployed. Flash remains recommended. Earlier checkpoints are historical.
 
 ## Build 69 feedback — 2026-10-18 (TestFlight 70 and browser deployed)
 

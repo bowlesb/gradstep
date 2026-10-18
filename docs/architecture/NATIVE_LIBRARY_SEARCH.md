@@ -1,6 +1,6 @@
 # Native library search
 
-## Installed-paper body terms (2026-10-18; release candidate 71)
+## Installed-paper body terms (2026-10-18; TestFlight 71 on iOS/iPadOS; Mac held)
 
 `DevicePaperTextIndex` adds a disposable in-memory term set from installed verified bundles to the existing
 library search worker's snapshot. It bounds each paper at 500,000 text characters/10,000 distinct terms and the

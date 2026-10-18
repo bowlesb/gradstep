@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Build 70 feedback: navigation, discovery and figure regions (2026-10-18; implementation in progress)
+## Build 70 feedback: navigation, discovery and figure regions (2026-10-18; implemented, release verification recorded)
 
 The owner explicitly requests: a find occurrence list; direct reference jumps; Back to the exact figure/table
 explainer after a citation; a Chat icon that opens the same contextual conversation in the main chat; fullscreen
@@ -32,6 +32,13 @@ original image digest/dimensions and normalized top-left coordinates. Preserve a
 low confidence keeps the full figure with visible uncertainty. Both cloud/local explainers and ordinary chat
 consume the same region artifact. No model ships until licensing, conversion, quality and resource checks pass;
 Mac/simulator evidence never substitutes for the paused physical-iPhone acceptance.
+
+Implementation and the Mac Core ML detector experiment are complete. Browser Pages 13724098 and the chat/search
+backend changes are deployed; the source-matching import gate passes 13/13 without skips. Native release state
+and the blocked final Mac figure retest are recorded in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+The measured detector is not included in the app: high-confidence crops still omit interpretation-critical text,
+and its AGPL research weights have not passed the distribution gate. See
+[measured results](reviews/LOCAL_FIGURE_REGIONS_20261018.md).
 
 ## Build 69 feedback: contextual AI and model management (2026-10-18; TestFlight 70 and browser deployed)
 

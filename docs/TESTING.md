@@ -11,7 +11,7 @@ viewport grows). Source-only papers must save/restore location without a legacy 
 Figure journeys cover fullscreen/close, crop pinch, simpler/detail requests, citation return to the saved
 walkthrough, and promotion into the same main-chat composer with its unsent draft. Browser assertions check no
 extra request during navigation. `UnsentDraftTests` covers engine restoration, scenario defaults and preservation
-of an explicit profile after promotion. Core/browser crop tests replay the FDE-Gym live box that clipped a label.
+of an explicit profile after promotion. `ChatControlsTests/testDefaultOptionsInSettings` changes figure and paper defaults independently and verifies a new paper chat uses the paper setting. Core/browser crop tests replay the FDE-Gym live box that clipped a label.
 The actual seven-figure FDE-Gym bundle also renders offline at phone width in both themes: 25 headings, 63 equations,
 seven decoded images, preserved selection and no horizontal overflow. The actual padded live crop was viewed.
 
@@ -21,6 +21,13 @@ customized/cleared keyword metadata and account retirement. `npm test` remains t
 13-case `npm run test:imports` gate with current source before every native upload; these UI/figure checks do not
 replace import acceptance. Simulator/local fixtures do not verify physical-phone resource behavior or live model
 quality. The one paid FDE-Gym Flash check is separately recorded; the local panel detector used no paid API.
+
+Build-71 release evidence: `.artifacts/import-acceptance/2026-10-18T16-48-10-757Z.xcresult` passes 13/13 with
+zero failures/skips, matching source at 16:57:23 UTC. Final iPhone figure/local-figure/ownership/metadata retests
+are in `native-feedback-final.xcresult`, and activity defaults in `activity-defaults.xcresult`, under
+`.artifacts/feedback/build70-20261018/`. The final Mac figure retest is blocked by a system dialog; it is not a
+pass, and the signed Mac archive is held. Hosted AASA verification now rejects HTML, redirects, or an incorrect
+application identity, in addition to checking entry-asset content types.
 
 Local AI is an explicit native/Metal tier, never part of routine `npm test`: `swift test --package-path apps/apple/LocalAI --filter ModelStoreTests` checks local model integrity; Core's `LocalAIContextTests` checks
 bounded context and cloud-serialization rejection. `LocalAIJourneyTests` exercises the Cloud/Local choices and

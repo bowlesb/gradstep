@@ -9,38 +9,43 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
-## Build 70 feedback — 2026-10-18 (in progress)
+## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS; browser deployed; Mac held)
 
 Twenty new screenshot reports were downloaded and individually inspected. No new in-app support reports or crash
 reports were found. Evidence: `.artifacts/feedback/build70-20261018/`. The screenshot timestamps follow build 70;
-the per-report ASC build relationship was not accessible (403). None of these items is yet claimed shipped.
+the per-report ASC build relationship was not accessible (403). Build **71** from `c4d15d9` is
+**VALID / IN_BETA_TESTING** for iOS/iPadOS at **2026-10-18T17:04:13.483Z**, with release notes verified. Browser
+Pages **13724098** is deployed. The signed Mac archive is held: a system dialog blocked the final figure journey,
+and computer-use safety review prevented inspecting that restricted dialog. Mac remains on build 70. The final
+feedback readback contains 189 screenshots with no further page or new reports. Inclusion below does not claim
+owner-device acceptance; physical iPhone access remains paused.
 
 | Feedback | Request | Status |
 |---|---|---|
-| `AOxhjTUj5Opevk-Il8QEe7Q` | Looking at table  | Implemented for candidate 71; release verification pending |
-| `AHQ6KQmwNL2yCmG3G5J0sRw` | Zoom works but you need to be able to full screen it before hand  | Implemented for candidate 71; release verification pending |
-| `AJujgmmq5eRFrgxrjf4vUzg` | In these sections, we should say what the authors want to argue as part of the result, ie it should say because X is greater than Y, the authors believe Z , just as am exanamplw  | Implemented for candidate 71; release verification pending |
-| `ABsD30JFf1gsmDpSTepGRm8` | I clicked from a table AI explainer chat to the paper, and there was no “Back to  Table Explajner” and also, then I got directed up here  | Implemented for candidate 71; release verification pending |
-| `APkeR39IIELErvOzT54Freg` | The crop dimensions are not good  | Implemented for candidate 71; release verification pending |
-| `AOkAOUHyt7v6c8t9W3bRWwk` | When I click on references in the paper there are heavy transitions, but they ad no value - just have it take me directly to the correct place  | Implemented for candidate 71; release verification pending |
-| `AKUpnsmo22QanrGf9iVxe6o` | We need a chat icon to the left of X and when you press it does a very graceful transition of this UX into the chat UX, exactly same as if you were to have picked the actual Chat button with the Figure content just magically loaded into it | Implemented for candidate 71; release verification pending |
-| `AIW2SzNnfmiwSiRJIhzKH1c` | I notice the text here is not as wide as it could be, there is a gap on the edges the text needs to extend just a bit more  | Implemented for candidate 71; release verification pending |
-| `AFNROYs1C2shOq6_tVetGQk` | keywords can be a header similar to Abstrct Intro etc.  Also, say the source if we came up with them , say Gradstep Keywords , or from Archiv say “Archiv Keywords” etc . You can put. ( edit ) right after to indicate they are clickable to be edited  | Implemented for candidate 71; release verification pending |
-| `ADpoeQ6c6bAiCu8el1W1Ye8` | To the left of the arrows there should be a icon that allows you to list a list of occurrences in table format, each allows you to click back to the paper at that spot  | Implemented for candidate 71; release verification pending |
-| `ALOAfmV3YuPNtl-N7CpOIhk` | I ended up here after navigating away from the find in paper  | Implemented for candidate 71; release verification pending |
-| `AGKm2VZUi8E9wuaEpQ-zo1M` | Also this after navigating away from find in paper  | Implemented for candidate 71; release verification pending |
-| `AHqnfqgG6QhAxsiiXCycKw8` | I should have a find similar papers option here  | Implemented for candidate 71; release verification pending |
-| `AB5RbQvOOBVm5rcCw7dVdFI` | We need to put a hard no on artificial intelligence and machine learning as keywords. It should be based on keywords that uniquely identify the paper as compared to other papers. My suggestion is to maintain a very fast on device index which also will selectively delete contents for that paper when the reader contents are deleted  | Implemented for candidate 71; release verification pending |
-| `ABQMRH-P_HMeXzuVVvFJhvs` | I want a Share option - that if you click has two options , one just for Archiv or the publisher url. Another specific grad step url, it’s smart about what it does, if the app it on phone, it deep links to the phone and if the paper isn’t there, it takes to search if it is there then it just opens to the actual paper.   These links should be designs in such a way that links to figure and table AI explainers also work ( not necessarily to implement that latter part right now ) | Implemented for candidate 71; release verification pending |
-| `AHnfxB7MNfJSOayC2DDJQKE` | “find papers” text redundant  | Implemented for candidate 71; release verification pending |
-| `ACMcVM602Rz-vXruEFQ43Fo` | My suggestion is that we have a basic keyword search but if you want you can expand it and do a more detailed search that allows you to choose field types from drop downs and then specify the specific criteria | Implemented for candidate 71; release verification pending |
-| `ABsQQla8nqWJpFfXRh1hecE` | The checkmark and the percent number before it are too small and not centered vertically  | Implemented for candidate 71; release verification pending |
-| `AKzAZhje38OzGFDx5K8czRo` | We should cleverly add the html and mermaid options into list of related questions somehow … it’s not a question per se, but try to make it a good option with UX | Implemented for candidate 71; release verification pending |
-| `ABOb4eqeePw0LqdsgW6pBZM` | I notice on here that Deek Seek was chosen , why? My suggestion is that we have different scenarios and different chat option defaults in settings , need to build this UX in settings   | Implemented for candidate 71; release verification pending |
+| `AOxhjTUj5Opevk-Il8QEe7Q` | Looking at table  | Included in iOS/iPadOS 71; Mac pending |
+| `AHQ6KQmwNL2yCmG3G5J0sRw` | Zoom works but you need to be able to full screen it before hand  | Included in iOS/iPadOS 71; Mac pending |
+| `AJujgmmq5eRFrgxrjf4vUzg` | In these sections, we should say what the authors want to argue as part of the result, ie it should say because X is greater than Y, the authors believe Z , just as am exanamplw  | Included in iOS/iPadOS 71; Mac pending |
+| `ABsD30JFf1gsmDpSTepGRm8` | I clicked from a table AI explainer chat to the paper, and there was no “Back to  Table Explajner” and also, then I got directed up here  | Included in iOS/iPadOS 71; Mac pending |
+| `APkeR39IIELErvOzT54Freg` | The crop dimensions are not good  | Included in iOS/iPadOS 71; Mac pending |
+| `AOkAOUHyt7v6c8t9W3bRWwk` | When I click on references in the paper there are heavy transitions, but they ad no value - just have it take me directly to the correct place  | Included in iOS/iPadOS 71; Mac pending |
+| `AKUpnsmo22QanrGf9iVxe6o` | We need a chat icon to the left of X and when you press it does a very graceful transition of this UX into the chat UX, exactly same as if you were to have picked the actual Chat button with the Figure content just magically loaded into it | Included in iOS/iPadOS 71; Mac pending |
+| `AIW2SzNnfmiwSiRJIhzKH1c` | I notice the text here is not as wide as it could be, there is a gap on the edges the text needs to extend just a bit more  | Included in iOS/iPadOS 71; Mac pending |
+| `AFNROYs1C2shOq6_tVetGQk` | keywords can be a header similar to Abstrct Intro etc.  Also, say the source if we came up with them , say Gradstep Keywords , or from Archiv say “Archiv Keywords” etc . You can put. ( edit ) right after to indicate they are clickable to be edited  | Included in iOS/iPadOS 71; Mac pending |
+| `ADpoeQ6c6bAiCu8el1W1Ye8` | To the left of the arrows there should be a icon that allows you to list a list of occurrences in table format, each allows you to click back to the paper at that spot  | Included in iOS/iPadOS 71; Mac pending |
+| `ALOAfmV3YuPNtl-N7CpOIhk` | I ended up here after navigating away from the find in paper  | Included in iOS/iPadOS 71; Mac pending |
+| `AGKm2VZUi8E9wuaEpQ-zo1M` | Also this after navigating away from find in paper  | Included in iOS/iPadOS 71; Mac pending |
+| `AHqnfqgG6QhAxsiiXCycKw8` | I should have a find similar papers option here  | Included in iOS/iPadOS 71; Mac pending |
+| `AB5RbQvOOBVm5rcCw7dVdFI` | We need to put a hard no on artificial intelligence and machine learning as keywords. It should be based on keywords that uniquely identify the paper as compared to other papers. My suggestion is to maintain a very fast on device index which also will selectively delete contents for that paper when the reader contents are deleted  | Included in iOS/iPadOS 71; Mac pending |
+| `ABQMRH-P_HMeXzuVVvFJhvs` | I want a Share option - that if you click has two options , one just for Archiv or the publisher url. Another specific grad step url, it’s smart about what it does, if the app it on phone, it deep links to the phone and if the paper isn’t there, it takes to search if it is there then it just opens to the actual paper.   These links should be designs in such a way that links to figure and table AI explainers also work ( not necessarily to implement that latter part right now ) | Included in iOS/iPadOS 71; Mac pending |
+| `AHnfxB7MNfJSOayC2DDJQKE` | “find papers” text redundant  | Included in iOS/iPadOS 71; Mac pending |
+| `ACMcVM602Rz-vXruEFQ43Fo` | My suggestion is that we have a basic keyword search but if you want you can expand it and do a more detailed search that allows you to choose field types from drop downs and then specify the specific criteria | Included in iOS/iPadOS 71; Mac pending |
+| `ABsQQla8nqWJpFfXRh1hecE` | The checkmark and the percent number before it are too small and not centered vertically  | Included in iOS/iPadOS 71; Mac pending |
+| `AKzAZhje38OzGFDx5K8czRo` | We should cleverly add the html and mermaid options into list of related questions somehow … it’s not a question per se, but try to make it a good option with UX | Included in iOS/iPadOS 71; Mac pending |
+| `ABOb4eqeePw0LqdsgW6pBZM` | I notice on here that Deek Seek was chosen , why? My suggestion is that we have different scenarios and different chat option defaults in settings , need to build this UX in settings   | Included in iOS/iPadOS 71; Mac pending |
 
 Additional owner request: investigate a purpose-built local subfigure/plot detector, shared by Figure AI Explainer
 and ordinary cloud/local chat. Evaluate complete panel boundaries, axes/legends, iPhone resource requirements,
-model/weight licenses and artifact provenance. Research/prototype acceptance does not imply phone readiness.
+model/weight licenses and artifact provenance. Investigation complete: [design](architecture/LOCAL_FIGURE_REGIONS.md) and [measured Mac/Core ML experiment](reviews/LOCAL_FIGURE_REGIONS_20261018.md). The tested detector is fast after loading but misses regions and clips labels; it is not bundled. Research/prototype acceptance does not imply phone readiness.
 
 ## Build 69 feedback — 2026-10-18 (TestFlight 70 on iOS and Mac)
 

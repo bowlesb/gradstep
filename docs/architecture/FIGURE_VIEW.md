@@ -1,6 +1,6 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
-## Build 70 feedback repair — 2026-10-18 (backend deployed; client release pending)
+## Build 70 feedback repair — 2026-10-18 (TestFlight 71 on iOS/iPadOS; browser/backend deployed; Mac held)
 
 The earlier instructions explicitly encouraged a “thin slice” or tiny marker crop. They now ask for a complete
 panel with axes, tick labels, legend and annotations, and no box when uncertain. Narrative asks for the observed
