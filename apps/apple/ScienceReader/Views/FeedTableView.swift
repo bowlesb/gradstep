@@ -312,7 +312,7 @@ struct DiscoveryAddControl: View {
                 VStack(spacing: 2) {
                     ProgressView().controlSize(.small)
                     if let fraction = setup.fraction {
-                        Text("\(Int((fraction * 100).rounded(.down)))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        Text("\(Int((fraction * 100).rounded(.down)))%").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                     }
                 }
                 .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
@@ -322,10 +322,10 @@ struct DiscoveryAddControl: View {
             .accessibilityHint("Shows the Library")
             .accessibilityIdentifier("discover.setup.\(sourceID)")
         } else if inLibrary, let open {
-            Button(action: open) { Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44) }
+            Button(action: open) { Image(systemName: "checkmark").font(.title3.weight(.semibold)).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44) }
                 .buttonStyle(.plain).accessibilityLabel("In library").accessibilityHint("Opens the paper")
         } else if inLibrary {
-            Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44).accessibilityLabel("In library")
+            Image(systemName: "checkmark").font(.title3.weight(.semibold)).foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44).accessibilityLabel("In library")
         } else {
             // Enabled: an accent capsule; unavailable: neutral gray with the system's disabled treatment. Avoid a
             // second opacity reduction, which makes the label almost disappear in light mode.

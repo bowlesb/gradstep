@@ -1,5 +1,18 @@
 # Infrastructure, spending, and recovery
 
+## Build 70 feedback and local region research — 2026-10-18
+
+One live FDE-Gym Figure 5 check used the deployed OpenRouter/Flash route for a walkthrough, simpler explanation
+and detail extraction. `provider_attempts` readback: **$0.014826 + $0.011603 + $0.013198 = $0.039627 actual**;
+all three succeeded at 16:21–16:22 UTC. Nine reader credits settled, zero held; the disposable account was deleted.
+Evidence: `.artifacts/feedback/build70-20261018/live-ledger.json` and `live-figure5.log`, plus the retained figure
+answer/crop artifacts. These are provider-ledger charges, not a complete OpenRouter funding/infrastructure invoice.
+
+Local detector research, conversion, seven-image inference, routine tests, Simulator journeys and browser fixtures
+used **$0 provider inference**. **New fixed commitments $0; new outstanding test reservations $0; further paid
+verification forecast $0.** The backend/client deployments add no service, automatic top-up or paid subscription.
+The existing **$100/month** operating ceiling is unchanged. Research weights remain ignored local artifacts.
+
 ## Fresh owner test account — 2026-10-17
 
 At the owner's explicit request, the fresh account received one **100,000-credit**, nonexpiring testing adjustment

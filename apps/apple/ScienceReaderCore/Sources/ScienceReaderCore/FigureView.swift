@@ -24,6 +24,14 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
                 && x + w <= 1.0001 && y + h <= 1.0001 && !(w >= 0.95 && h >= 0.95)
         }
 
+        /// A small context margin around an accepted model box. Keep the original geometry in storage; display
+        /// nearby tick/axis text too. This cannot rescue a badly located panel: the whole figure stays available.
+        public var displayBox: Box {
+            let margin = 0.02
+            let left = max(0, x - margin), top = max(0, y - margin)
+            return Box(x: left, y: top, w: min(1, x + w + margin) - left, h: min(1, y + h + margin) - top)
+        }
+
         /// The box in pixels of an image of this size, whole pixels within the image; nil when under 2 px a side.
         public func pixels(width: Int, height: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
             guard width > 0, height > 0 else { return nil }

@@ -49,7 +49,7 @@ function globalHeaders(text) {
     // Pages detach directives remove inherited headers. Never accept one, even outside the global rule.
     if (line.trimStart().startsWith('!')) fail('output header detachment is forbidden');
     if (!/^\s/.test(line)) {
-      if ((line !== '/*' && !cacheRules.has(line)) || rules.has(line)) fail('unexpected or duplicate output header route');
+      if ((line !== '/*' && line !== '/.well-known/apple-app-site-association' && !cacheRules.has(line)) || rules.has(line)) fail('unexpected or duplicate output header route');
       current = new Map(); rules.set(line, current); continue;
     }
     const match = line.trim().match(/^([A-Za-z0-9-]+):\s*(.*)$/);
@@ -60,6 +60,9 @@ function globalHeaders(text) {
     const rule = rules.get(route);
     if (rule?.size !== 1 || rule.get('cache-control') !== value) fail('non-global output headers must be the exact cache-only rules');
   }
+  const association = rules.get('/.well-known/apple-app-site-association');
+  if (association && (association.size !== 2 || association.get('content-type') !== 'application/json'
+    || association.get('cache-control') !== 'public, max-age=3600')) fail('association headers must be JSON and bounded caching only');
   return rules.get('/*') ?? new Map();
 }
 export function validateClientOutput(root, directory, target, backend, env) {
@@ -149,6 +152,15 @@ export async function verifyLive(directory, host, { fetchImpl = fetch, wait = ms
     const type = response.headers.get('content-type') ?? '';
     const expected = asset.endsWith('.js') ? /javascript/ : /text\/css/;
     if (!response.ok || !expected.test(type)) fail(`${origin}/${asset} answers ${response.status} ${type}: an edge cached the HTML fallback. Change any source file and deploy again (new asset names)`);
+  }
+  const association = '.well-known/apple-app-site-association';
+  if (existsSync(join(directory, association))) {
+    const response = await fetchImpl(`${origin}/${association}`, { redirect: 'manual', cache: 'no-store' });
+    const type = response.headers.get('content-type') ?? '';
+    let same = false;
+    try { same = JSON.stringify(JSON.parse(await response.text())) === JSON.stringify(JSON.parse(readFileSync(join(directory, association), 'utf8'))); } catch { /* HTML fallback is not an association. */ }
+    if (response.status !== 200 || !type.includes('application/json') || !same) fail(`${host} does not serve the matching app association as JSON without redirects`);
+    log(`Verified ${origin}: app association matches the release`);
   }
   log(`Verified ${origin}: ${assets.length} scripts and stylesheets served with their own types`);
 }

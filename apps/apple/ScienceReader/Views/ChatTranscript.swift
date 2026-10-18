@@ -20,6 +20,19 @@ struct ChatTranscript: View {
         let scope = TranscriptScope(sessionID: model.readerSessionID, composerID: model.chatComposerID)
         let messages = model.chatTranscriptMessages
         ZStack(alignment: .bottomTrailing) {
+            if let context = model.promotedChatContext {
+                ContextualConversationScroll(model: model, token: nil) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(context.label).font(.title2.weight(.semibold)).accessibilityIdentifier("chat.promotedContext")
+                        if let image = context.image {
+                            ZoomableFigureImage(image: image).frame(height: 260).accessibilityLabel(context.label)
+                        }
+                        ChatMessageText(source: context.text, fontSize: fontSize, streaming: false, speaker: "Saved explanation",
+                            identifier: "chat.contextExplanation", assistant: true, onCite: { model.goToCitedBlock($0) })
+                        ContextualChatThread(model: model, token: nil, onCite: { model.goToCitedBlock($0) })
+                    }.padding(.horizontal, 16).padding(.top, insets.top + 16).padding(.bottom, insets.bottom + 16)
+                }.id(scope)
+            } else {
             TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, progress: model.chatStreamingProgress,
                 fontSize: fontSize, diagrams: model.chatDiagrams, followUps: model.chatFollowUpQuestions,
                 openDiagram: { model.openDiagram($0) }, papers: ChatPaperContext(model: model, actions: paperActions), jump: jump,
@@ -32,7 +45,8 @@ struct ChatTranscript: View {
                     if following { hasNewMessages = false }
                 })
                 .id(scope)
-            if messages.isEmpty {
+            }
+            if messages.isEmpty, model.promotedChatContext == nil {
                 if showsStarters {
                     // Keep the starters above the message box, on the ordinary flat chat background (build 65 feedback).
                     ChatStarterList(starters: starters) { model.useFollowUp($0) }
@@ -238,6 +252,14 @@ private struct TranscriptMessage: View {
                         }
                         .buttonStyle(.plain).accessibilityIdentifier("chat.followUps.toggle")
                         if showsFollowUps {
+                            if model.localAIModelID == nil {
+                                Button("Draw a diagram") { model.useFollowUp("Draw a Mermaid diagram explaining the answer above.") }
+                                    .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                                if model.visualAnswers {
+                                    Button("Create a visual explanation") { model.useFollowUp("Create an interactive HTML visual explanation of the answer above.") }
+                                        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                                }
+                            }
                             ForEach(followUps, id: \.self) { question in
                                 Button { model.useFollowUp(question) } label: {
                                     Text(verbatim: question).font(.system(size: fontSize * 0.82)).multilineTextAlignment(.leading).lineLimit(3)

@@ -29,14 +29,15 @@ struct SheetCloseButton: View {
 extension View {
     /// The sheet's top row: **Explain in Chat** and **AI Explainer** (each when offered) on the left, the X on the right
     /// (nil for a page whose sheet closes elsewhere). The bar shows no title.
-    func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, close: (() -> Void)?) -> some View {
-        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, close: close))
+    func sheetTopRow(chat: ExplainAction? = nil, explainer: ExplainAction? = nil, openChat: ExplainAction? = nil, close: (() -> Void)?) -> some View {
+        modifier(SheetTopRowModifier(chat: chat, explainer: explainer, openChat: openChat, close: close))
     }
 }
 
 private struct SheetTopRowModifier: ViewModifier {
     let chat: ExplainAction?
     let explainer: ExplainAction?
+    let openChat: ExplainAction?
     let close: (() -> Void)?
 
     func body(content: Content) -> some View {
@@ -52,7 +53,15 @@ private struct SheetTopRowModifier: ViewModifier {
                         ToolbarItem(placement: .principal) { actions }
                     }
                 }
-                if let close { ToolbarItem(placement: .topBarTrailing) { SheetCloseButton(action: close) } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 16) {
+                        if let openChat {
+                            Button(action: openChat.action) { Image(systemName: "bubble.left.and.text.bubble.right") }
+                                .accessibilityLabel("Open in Chat").accessibilityHint(openChat.hint).accessibilityIdentifier(openChat.identifier)
+                        }
+                        if let close { SheetCloseButton(action: close) }
+                    }
+                }
             }
     }
 

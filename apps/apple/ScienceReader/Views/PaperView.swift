@@ -184,6 +184,7 @@ struct PaperView: View {
     @State private var equationFollowUp: EquationViewOutcome?
     /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
     @State private var findRequestID: UUID?
+    @State private var find = PaperFindController()
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     /// One step of a Contents entry's indent.
     @ScaledMetric(relativeTo: .body) private var contentsIndent = 18.0
@@ -211,7 +212,7 @@ struct PaperView: View {
                     // heading and citation jumps are measured in the page's own viewport, which must be what shows.
                     Group {
                         readerHooks(PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
-                                     location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
+                                     location: model.paperLocations[readingKey],
                                      fontSize: model.paperFontSize * bodySize / 17, lineWidth: model.paperLineWidth, jump: model.paperJump,
                                      reduceMotion: reduceMotion, selectionClearID: selectionClearID, onLoading: {
                                          if model.readerDocumentScope == readerScope { loadingPaper = $0 }
@@ -220,7 +221,7 @@ struct PaperView: View {
                                          // The section being read, for reading mode's bar and J / K (every paper).
                                          if model.readerDocumentScope == readerScope { model.noteReadingPosition(location, paperID: paper.id) }
                                          // A sign-out clears the selection and the account's transient state.
-                                         guard model.readerSessionID == readerScope.sessionID, model.selectedPaper != nil, paper.artifactID != nil else { return }
+                                         guard model.readerSessionID == readerScope.sessionID, model.selectedPaper?.id == paper.id else { return }
                                          model.recordReadingLocation(location, key: key, documentID: paper.id)
                                      }, onJumpApplied: { id in
                                          if model.paperJump?.id == id { model.paperJump = nil }
@@ -245,7 +246,7 @@ struct PaperView: View {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                                          if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
                                          #endif
-                                     }, paperLine: paper.publicationLine, paperTags: paper.tags,
+                                     }, paperLine: paper.publicationLine, paperTags: LibraryTags.tags(for: paper), paperTagSource: paper.tagsCustomized ? "Your keywords" : "Gradstep · on this device",
                                      onTags: { if model.readerDocumentScope == readerScope { model.editTags(for: paper) } },
                                      citationReturnID: citationReturnID, onCitation: { active, origin in
                                          if model.readerDocumentScope == readerScope { citationBack = active; citationOrigin = active ? origin : "" }
@@ -293,6 +294,7 @@ struct PaperView: View {
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
                     .safeAreaInset(edge: .top, spacing: 0) {
+                        if find.isPresented { PaperFindBar(find: find) }
                         if let run = model.deviceModelRun, run.paperID == paper.id { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() } }
                         else if let issue = model.deviceModelIssue { DeviceModelIssueBar(issue: issue) { model.deviceModelIssue = nil } }
                         else if model.isModelReading(paper), !readerFailed {
@@ -449,7 +451,11 @@ struct PaperView: View {
                             }
                         }
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
-                        if let paper = model.selectedPaper { PodcastListenMenuRow(model: model, paper: paper) }
+                        if let paper = model.selectedPaper {
+                            PodcastListenMenuRow(model: model, paper: paper)
+                            PaperShareMenu(paper: paper)
+                            Button("Find similar papers", systemImage: "doc.text.magnifyingglass") { model.findSimilarPapers(paper) }
+                        }
                         // Its saved chats (owner request 2026-10-07: "a paper's own conversations when you open it").
                         if let paper = model.selectedPaper, let count = model.paperChatCounts[paper.id], count > 0 {
                             Button { model.openAllChats(paper: paper.id, thisPaper: true) } label: {
@@ -489,6 +495,23 @@ struct PaperView: View {
                 }
                 .environment(\.figureViewHost, figureHost { showContents = false })
                 .macSheetKeys()
+            }
+            .sheet(item: $model.presentedExplainer, onDismiss: {
+                applyFigureOutcome()
+                if let outcome = equationFollowUp { equationFollowUp = nil; model.applyEquationOutcome(outcome) }
+            }) { presentation in
+                let subject = presentation.subject
+                if subject.action == "equation" {
+                    EquationView(model: model, request: EquationViewRequest(paperID: subject.paperID, equationID: subject.itemID)) { outcome in
+                        equationFollowUp = outcome; model.presentedExplainer = nil
+                    }
+                } else if let context = model.figureContext(paperID: subject.paperID, figureID: subject.itemID) {
+                    NavigationStack {
+                        FigureExplainView(model: model, context: context, requesting: false, finish: { outcome in
+                            model.pendingFigureOutcome = outcome; model.presentedExplainer = nil
+                        }, close: { model.presentedExplainer = nil })
+                    }
+                }
             }
             .sheet(isPresented: $showReaderVersion) {
                 if let paper = model.selectedPaper { ReaderVersionSheet(model: model, paper: paper).macSheetKeys() }
@@ -605,6 +628,7 @@ struct PaperView: View {
         case .paragraph(let paperID, let marker): model.goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context, let part): model.askAboutFigure(context, part: part)
         case .signIn: model.openSignIn()
+        case .continueChat: model.tab = .chat; model.wideMode = .reader; model.readerChatHidden = false; model.requestComposerFocus()
         }
     }
 
@@ -641,13 +665,19 @@ struct PaperView: View {
     private func bottomControls(scope: ReaderDocumentScope) -> some View {
         let notice = readerFailed ? nil : model.referenceNotice
         let back = citationBack && !readerFailed
+        let explainerBack = model.explainerReturn?.paperID == model.selectedPaper?.id && model.explainerReturn != nil
         // After a chat citation opened the paper: a way back to the conversation, unless the chat is beside the page.
         let chatBack = model.returnToChatAvailable && !readerFailed && !(besideChat && !model.readerChatHidden)
         return VStack(spacing: 8) {
             if let notice { referenceBanner(notice) }
-            if back || chatBack {
+            if back || chatBack || explainerBack {
                 HStack(spacing: 8) {
-                    if back { citationBackButton; citationDismissButton }
+                    if explainerBack, let subject = model.explainerReturn {
+                        Button { model.returnToExplainer() } label: {
+                            Label("Back to \(subject.label.hasPrefix("Table") ? "Table" : subject.action == "equation" ? "Equation" : "Figure") Explainer", systemImage: "arrow.uturn.backward")
+                                .font(.subheadline.weight(.semibold)).padding(.horizontal, 12).frame(minHeight: 44)
+                        }.modifier(ReaderControlMaterial()).accessibilityIdentifier("reader.explainer.back")
+                    } else if back { citationBackButton; citationDismissButton }
                     if chatBack { chatBackButton }
                 }
                 .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
@@ -655,8 +685,8 @@ struct PaperView: View {
                 .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + (wideReader ? 52 : 0) + 12 : 12)
             }
         }
-        .padding(.top, notice != nil || back || chatBack ? 6 : 0)
-        .padding(.bottom, notice != nil || back || chatBack ? 8 : 0)
+        .padding(.top, notice != nil || back || chatBack || explainerBack ? 6 : 0)
+        .padding(.bottom, notice != nil || back || chatBack || explainerBack ? 8 : 0)
         .frame(maxWidth: .infinity)
         .chromeBand(.bottom)
     }
@@ -712,6 +742,7 @@ struct PaperView: View {
     /// The hooks added in build 46, set after construction so the page's long initializer still type-checks.
     private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {
         var hooked = view
+        hooked.findController = find
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
@@ -834,6 +865,7 @@ struct PaperWebView: UIViewRepresentable {
     var paperLine: String? = nil
     /// The paper's tags as small chips under that line (docs/architecture/TAGS.md); a tap calls `onTags`.
     var paperTags: [String] = []
+    var paperTagSource = "Gradstep"
     var onTags: () -> Void = {}
     var paperAuthors: [String] = []
     var onAuthor: (String) -> Void = { _ in }
@@ -858,6 +890,7 @@ struct PaperWebView: UIViewRepresentable {
     var onEquation: ((String) -> Void)? = nil
     /// A new value shows the find bar (the paper only; a figure's view has none).
     var findRequestID: UUID? = nil
+    var findController: PaperFindController? = nil
     /// Passages with conversations, underlined; a tap on one reports its conversations (PaperPassages.swift).
     var marks: [PaperMark] = []
     var onMarks: ([UUID]) -> Void = { _ in }
@@ -915,8 +948,9 @@ struct PaperWebView: UIViewRepresentable {
         // The line is placed before the first layout, so restoring a position never shifts.
         let line = figureID == nil ? paperLine.flatMap { try? JSONEncoder().encode($0) } : nil
         context.coordinator.appliedPaperLine = line == nil ? nil : paperLine
-        let tags = figureID == nil ? try? JSONEncoder().encode(paperTags) : nil
+        let tags = figureID == nil ? try? JSONSerialization.data(withJSONObject: ["names": paperTags, "source": paperTagSource]) : nil
         context.coordinator.appliedPaperTags = tags == nil ? [] : paperTags
+        context.coordinator.appliedPaperTagSource = paperTagSource
         context.coordinator.appliedLineWidth = lineWidth
         let authors = (try? JSONEncoder().encode(figureID == nil ? paperAuthors : [])) ?? Data("[]".utf8)
         let prelude = "window.__readerBundleConfig = " + (bundle == nil ? "null" : String(decoding: json, as: UTF8.self)) + ";\n"
@@ -943,7 +977,11 @@ struct PaperWebView: UIViewRepresentable {
             }
         }
         web.isOpaque = false; web.backgroundColor = .systemBackground
-        web.isFindInteractionEnabled = figureID == nil
+        web.isFindInteractionEnabled = false
+        web.findRequested = { [weak web, weak coordinator = context.coordinator] in
+            guard let web else { return }; coordinator?.parent.findController?.open(in: web)
+        }
+        web.findStepped = { [weak coordinator = context.coordinator] backwards in coordinator?.parent.findController?.step(backwards) }
         web.scrollView.contentInsetAdjustmentBehavior = .automatic
         web.navigationDelegate = context.coordinator
         #if DEBUG
@@ -987,6 +1025,10 @@ struct PaperWebView: UIViewRepresentable {
 
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
         coordinator.saveFinalLocation(in: web)
+        coordinator.parent.findController?.close()
+        (web as? ReaderWebView)?.findRequested = nil
+        (web as? ReaderWebView)?.findStepped = nil
+        web.endEditing(true)
         coordinator.active = false
         web.configuration.userContentController.removeScriptMessageHandler(forName: "reader", contentWorld: .defaultClient)
         web.stopLoading()
@@ -1013,6 +1055,7 @@ struct PaperWebView: UIViewRepresentable {
         private var citationActive = false
         var appliedPaperLine: String?
         var appliedPaperTags: [String] = []
+        var appliedPaperTagSource = ""
         var passages = PaperPassageState()
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID; lastCitationDismissID = parent.citationDismissID
@@ -1197,9 +1240,10 @@ struct PaperWebView: UIViewRepresentable {
 
         /// Tags can arrive or change while the paper is open (tagging, an edit on another device).
         func applyPaperTags(in web: WKWebView) {
-            guard parent.figureID == nil, appliedPaperTags != parent.paperTags else { return }
+            guard parent.figureID == nil, appliedPaperTags != parent.paperTags || appliedPaperTagSource != parent.paperTagSource else { return }
             appliedPaperTags = parent.paperTags
-            web.callAsyncJavaScript("window.__scienceReaderSetPaperTags(tags);", arguments: ["tags": parent.paperTags],
+            appliedPaperTagSource = parent.paperTagSource
+            web.callAsyncJavaScript("window.__scienceReaderSetPaperTags(tags);", arguments: ["tags": ["names": parent.paperTags, "source": parent.paperTagSource]],
                                     in: nil, in: .defaultClient, completionHandler: nil)
         }
 

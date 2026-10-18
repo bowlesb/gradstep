@@ -2412,7 +2412,7 @@ test('figure_detail: validated like the figure view, the chat\'s cached prefix, 
   assert.ok(prefix(detail).equals(prefix(chat)), 'the cached prefix (tools, model, thinking, shared instructions, paper) is the chat\'s');
   assert.equal(detail.tool_choice, undefined);
   const after = (detail.system as { text: string }[])[2].text;
-  assert.match(after, /asked to extract one part of it/); assert.match(after, /box: required/); assert.match(after, /exactly one section/);
+  assert.match(after, /asked to extract one part of it/); assert.match(after, /Include the complete relevant panel/); assert.match(after, /exactly one section/);
   assert.equal(detail.max_tokens, figureDetailMaxTokens('low'));
   const last = detail.messages.at(-1)!.content as { type: string; text?: string }[];
   assert.deepEqual(last.map(b => b.type), ['text', 'text', 'image', 'text']);

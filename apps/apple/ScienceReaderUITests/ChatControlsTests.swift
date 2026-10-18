@@ -147,35 +147,35 @@ final class ChatControlsTests: XCTestCase {
         }
     }
 
-    /// Settings › Default options for new chats (owner, build 59): the model and length right in Settings, the credit
-    /// detail behind ⓘ (About AI chat options); new chats start with them.
+    /// Build 70 feedback: defaults belong to each activity, and changing figures must not alter paper chat.
     func testDefaultOptionsInSettings() {
-        let app = launch("light", ["--chat-fixture-auto-profiles"])
-        app.show("settings")
-        XCTAssertTrue(app.staticTexts["Default options for new chats"].waitForExistence(timeout: 10) ||
-                      app.otherElements["Default options for new chats"].exists)
-        let model = app.segmentedControls["chat.profile.model"]
-        XCTAssertTrue(model.waitForExistence(timeout: 10), "The model choice is in Settings itself")
-        XCTAssertTrue(model.buttons["Sonnet"].isSelected)
-        model.buttons["Haiku"].tap()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--chat-fixture-auto-profiles", "--reset-draft-fixture", "--study-fixture"]
+        app.launch(); app.show("settings")
+        func reveal(_ id: String) -> XCUIElement {
+            let row = app.buttons[id]
+            for _ in 0..<10 where !(row.exists && row.isHittable) { app.swipeUp() }
+            XCTAssertTrue(row.exists); return row
+        }
+        reveal("settings.aiScenario.paper").tap()
+        XCTAssertTrue(app.buttons["chat.profile.model.haiku"].waitForExistence(timeout: 5))
+        app.buttons["chat.profile.model.haiku"].tap()
         app.segmentedControls["chat.profile.length"].buttons["Brief"].tap()
-        save("\(device())-light-settings-default-options")
-        app.buttons["settings.aiChatInfo"].tap()
-        XCTAssertTrue(app.navigationBars["About AI chat options"].waitForExistence(timeout: 5))
-        let haikuBrief = app.descendants(matching: .any).matching(identifier: "settings.aiChat.haiku.brief").firstMatch
-        XCTAssertTrue(haikuBrief.waitForExistence(timeout: 5))
-        XCTAssertTrue(haikuBrief.label.contains("Usually 1–2 credits · up to 2"), haikuBrief.label)
-        save("\(device())-light-about-ai-chat-options")
-        let deepseek = app.descendants(matching: .any).matching(identifier: "settings.aiChat.deepseek.standard").firstMatch
-        for _ in 0..<5 where !deepseek.waitForExistence(timeout: 1) { app.swipeUp() }
-        XCTAssertTrue(deepseek.exists, "DeepSeek's credits, as the server lists it")
-        app.navigationBars["About AI chat options"].buttons.firstMatch.tap()
-        app.show("chat")
-        app.buttons["New chat"].tap()
-        answerOptions(app)
-        XCTAssertTrue(app.segmentedControls["chat.profile.model"].buttons["Haiku"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.segmentedControls["chat.profile.model"].buttons["Haiku"].isSelected, "A new chat starts with the defaults")
+        save("Paper chat activity default")
+        app.navigationBars["Paper chat"].buttons.firstMatch.tap()
+        reveal("settings.aiScenario.figures").tap()
+        app.buttons["chat.profile.model.sonnet"].tap()
+        app.segmentedControls["chat.profile.length"].buttons["Detailed"].tap()
+        save("Figures and tables activity default")
+        app.navigationBars["Figures and tables"].buttons.firstMatch.tap()
+        reveal("settings.aiScenario.paper").tap()
+        XCTAssertTrue(app.buttons["chat.profile.model.haiku"].isSelected)
         XCTAssertTrue(app.segmentedControls["chat.profile.length"].buttons["Brief"].isSelected)
+        app.navigationBars["Paper chat"].buttons.firstMatch.tap()
+        app.show("chat"); app.buttons["New chat"].tap()
+        let choice = app.buttons["ai.selection"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 5)); XCTAssertTrue(choice.label.contains("Haiku"), choice.label)
+        save("New paper chat uses its own default")
     }
 
     /// A server without profiles: the options say they couldn't load, and answers are asked exactly as before.

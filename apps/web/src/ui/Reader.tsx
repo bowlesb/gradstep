@@ -121,6 +121,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
+  const [explainerReturn,setExplainerReturn]=useState<{kind:'equation'|'figure';id:string}|null>(null);
   const [tableDetail, setTableDetail] = useState<ReaderFigureReference | null>(null);
   const [referenceNotice, setReferenceNotice] = useState<{ text: string; operationID: string; message: string; kind: 'working' | 'done' | 'not_found' | 'failed' } | null>(null);
   const referenceRequest = useRef<AbortController | null>(null);
@@ -140,7 +141,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const restoreAcross = useRef(false);
   const [finding, setFinding] = useState(false);
   const [findText, setFindText] = useState('');
-  const [found, setFound] = useState<{ count: number; index: number } | null>(null);
+  const [found, setFound] = useState<{ count: number; index: number; matches: {index:number; text:string}[] } | null>(null);
+  const [findList, setFindList] = useState(false);
   const [findFocus, setFindFocus] = useState(0);
   const [font, setFont] = useState(readFont);
   const [lineWidth, setLineWidth] = useState(readLineWidth);
@@ -157,7 +159,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const frameReady = useRef(false);
   const title = item.metadata?.title ?? 'Paper';
   const pdfSource = readingSource(item);
-  const paperLine = publicationLine(item), paperTags = JSON.stringify(effectiveTags(item));
+  const paperLine = publicationLine(item), paperTags = JSON.stringify({names:effectiveTags(item),source:('tags_customized' in item && item.tags_customized) ? 'Your keywords' : 'Gradstep · on this device'});
   const [initialPresentation] = useState(() => ({ paperLine, paperTags, fontSize: font, theme, lineWidth }));
   const appliedPresentation = useRef(initialPresentation);
 
@@ -192,7 +194,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   // One document per bundle. Live presentation changes use the shared native bridge, preserving
   // the reading place, DOM selection and citation-return state instead of navigating the frame.
   const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine: initialPresentation.paperLine,
-    paperAuthors: item.metadata?.authors ?? [], paperTags: JSON.parse(initialPresentation.paperTags) as string[], fontSize: initialPresentation.fontSize, theme: initialPresentation.theme,
+    paperAuthors: item.metadata?.authors ?? [], paperTags: JSON.parse(initialPresentation.paperTags), fontSize: initialPresentation.fontSize, theme: initialPresentation.theme,
     lineWidth: initialPresentation.lineWidth }) : null, [bundle, initialPresentation]);
   // Where each heading sits in the bundle's block order, for the current section.
   const headingBlocks = useMemo(() => {
@@ -217,7 +219,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
 
   useEffect(applyPresentation, [applyPresentation]);
 
-  const closeFind = useCallback(() => { setFinding(false); setFindText(''); setFound(null); command('findClear'); }, [command]);
+  const closeFind = useCallback(() => { setFinding(false); setFindList(false); setFindText(''); setFound(null); command('findClear'); }, [command]);
   const openFind = useCallback(() => { setFinding(true); setFindFocus(n => n + 1); }, []);
   useEffect(() => { if (findFocus) { findField.current?.focus(); findField.current?.select(); } }, [findFocus]);
   useEffect(() => {
@@ -276,7 +278,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         case 'tags': onEditTags?.(); break;
         case 'author': if (item.metadata?.authors.includes(message.name)) setAuthor(message.name); break;
         case 'invalid': setError('This paper couldn’t be shown.'); break;
-        case 'find': setFound({ count: message.count, index: message.index }); break;
+        case 'find': setFound({ count: message.count, index: message.index, matches: message.matches }); break;
         case 'key': onKey(message.key); break;
       }
     };
@@ -444,6 +446,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             data-testid="ask" title="Chat ( ] )"><Icon name="chat" /><span>Chat</span></button>
         </div>
       </header>
+      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='figure')setFigure({id:explainerReturn.id,open:true});else setEquation(equationTarget(explainerReturn.id));setExplainerReturn(null);}}>Back to {explainerReturn.kind==='figure'?'Figure':'Equation'} Explainer</button>}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -454,11 +457,13 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
               if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
             }} />
           <span className="find-count" aria-live="polite" data-testid="find-count">{found && findText.trim() ? (found.count ? `${found.index + 1} of ${found.count}${found.count >= 1000 ? '+' : ''}` : 'No matches') : ''}</span>
+          <button type="button" className="icon-button" disabled={!found?.count} aria-label="List occurrences" onClick={()=>setFindList(v=>!v)}><Icon name="list" /></button>
           <button type="button" className="icon-button" onClick={() => command('find', findText, 'previous')} disabled={!found?.count} aria-label="Previous match"><Icon name="chevronUp" /></button>
           <button type="button" className="icon-button" onClick={() => command('find', findText, 'next')} disabled={!found?.count} aria-label="Next match"><Icon name="chevronDown" /></button>
           <button type="button" className="link" onClick={closeFind}>Done</button>
         </form>
       )}
+      {finding && findList && <div className="find-occurrences" role="list" aria-label="Occurrences">{found?.matches.map(m=><button type="button" key={m.index} onClick={()=>{command('find',findText,m.index);setFindList(false);}}>{m.index+1}. {m.text}</button>)}</div>}
       <div className="paper-stage">
         {error ? ((pdfOffer === 'pdf' || pdfOffer === 'only') && pdfSource ? (
           // One screen whatever stopped the reader (owner, build 62: "there should be just one"; "remove the try again"):
@@ -536,15 +541,15 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       </Dialog>
       {bundle && equation && <Suspense fallback={null}><EquationView key={equation.id} bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
         autoExplain={equation.explain} onSwitch={id => setEquation(equationTarget(id))}
-        onClose={() => setEquation(null)} onCite={marker => { setEquation(null); goToCited(marker); }}
+        onClose={() => setEquation(null)} onCite={marker => { setExplainerReturn({kind:'equation',id:equation.id}); setEquation(null); goToCited(marker); }}
         onAsk={discuss && equation.anchor ? () => { const { quote: text, anchor } = equation; setEquation(null); void onDiscuss!(text, anchor!); } : undefined} /></Suspense>}
       {versionOpen && <ReaderVersionDialog bundle={bundle} update={update} onUpdate={updateCopy} onClose={() => setVersionOpen(false)} />}
       {bundle && equationTiles && <EquationTiles bundle={bundle} theme={theme} onClose={() => setEquationTiles(false)}
         onEquation={id => { setEquationTiles(false); showEquation(id); }} />}
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} explain={figure.explain} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
-          onCite={marker => { setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
-          onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
+          onCite={(marker,id) => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
+          onShowInPaper={id => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
     </div>
   );

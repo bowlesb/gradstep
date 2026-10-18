@@ -37,6 +37,7 @@ enum FigureViewOutcome {
     case askInChat(FigureViewContext, part: FigureWalkthrough.Section?)
     /// Signed out: sign in, from the app (a sheet over this one can't).
     case signIn
+    case continueChat
 }
 
 /// The walkthrough and its parts explained more simply, each kept on the device.

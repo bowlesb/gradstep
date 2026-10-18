@@ -1,3 +1,4 @@
+import {readVisualAnswers} from '../lib/chat-session';
 import { decodeStoredFigureParts, hasPartMarkers, partSegments, storedPaths, stripPartMarkers } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
@@ -61,8 +62,8 @@ export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onC
   return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} />
     : <div className="empty" role="status">Opening chats…</div>;
 }
-export interface ContextualConversation { composer: Composer; quote: string; label: string; anchor: TextAnchor; explanation?: string }
-export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context }: {
+export interface ContextualConversation { composer: Composer; quote: string; label: string; anchor: TextAnchor; explanation?: string; image?:string }
+export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext }: {
   context?: ContextualConversation; chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
   onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
 }) {
@@ -70,7 +71,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const workspace = useWorkspaceControls();
   const persistence = useSyncExternalStore(subscribePersistence, persistenceState, persistenceState);
   const documentID = mode === 'paper' ? paper?.documentID ?? null : null;
-  const c = context?.composer ?? chat.current(documentID);
+  const c = providedContext?.composer ?? chat.current(documentID);
+  const promoted = chat.promotedContexts.get(c.id);
+  const context = providedContext ?? (promoted ? {...promoted,composer:c} : undefined);
   const branch = useMemo(() => chat.branch(c), [chat, c, c.head, c.conversationID, c.phase, historyVersion]);
   const summaries = useMemo(() => chat.history.state.conversationSummaries(), [chat, historyVersion]);
   const summary = summaries.find(s => s.id === c.conversationID);
@@ -231,6 +234,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
               onClick={() => pickStarter(s.text)}>{icon ? <Icon name={icon} size={16} /> : <span className="chat-starter-dot" aria-hidden="true" />}<span>{s.text}</span></button>; })}
         </div>}
       </div>}
+      {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context"><h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}}/>}<Answer text={promoted.explanation ?? promoted.quote} /></section>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
@@ -246,6 +250,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         {/* On request (owner, build 46: "they need to be upon request… take up too much space"). */}
         <button type="button" className="link small follow-ups-toggle" aria-expanded={showFollowUps} data-testid="follow-ups-toggle"
           onClick={() => setShowFollowUps(v => !v)}>{showFollowUps ? 'Hide suggested questions' : `Suggested questions (${c.followUps.length})`}</button>
+        {showFollowUps && <><button type="button" className="follow-up" onClick={()=>{chat.edit(c,'Draw a Mermaid diagram explaining the answer above.');field.current?.focus();}}>Draw a diagram</button>
+          {readVisualAnswers() && <button type="button" className="follow-up" onClick={()=>{chat.edit(c,'Create an interactive HTML visual explanation of the answer above.');field.current?.focus();}}>Create a visual explanation</button>}</>}
         {showFollowUps && c.followUps.map(question => <button key={question} type="button" className="follow-up" data-testid="follow-up" disabled={disabled}
           onClick={() => { if (chat.edit(c, question)) field.current?.focus(); }}>{question}</button>)}</div>}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
@@ -290,8 +296,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         </div>;
       })()}
     </form>
-    <AnswerOptionsDialog open={answerOptions} onClose={() => setAnswerOptions(false)} table={table} choice={choice} defaultChoice={chat.defaultProfile}
-      onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()}
+    <AnswerOptionsDialog open={answerOptions} onClose={() => setAnswerOptions(false)} table={table} choice={choice} defaultChoice={chat.defaultFor(c)} reason={chat.profileReason(c)}
+      onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultFor(c,next)} onRetry={() => chat.reloadProfiles()}
       onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       {/* Consent cloud-ai-v5 (CHAT.md, 2026-10-16), worded as on iPhone, iPad and Mac. */}

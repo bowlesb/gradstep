@@ -4,7 +4,7 @@
 // One top row (owner, build 62; docs/DESIGN.md "Sheet top row"): Explain in Chat (an unsent draft about the figure) and
 // AI Explainer (its walkthrough, FIGURE_VIEW.md) on the left, the close X on the right; the caption names the figure.
 // The walkthrough's heading is a small menu of the paper's figures to switch to; one switched to waits for AI Explainer.
-import { ContextualChat, useContextualChat } from './ContextualChat';
+import { ContextualChat, useContextualChat, promoteContextual } from './ContextualChat';
 import { citedMarker } from '../lib/passage';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { toBase64 } from '../lib/bytes';
@@ -24,7 +24,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   /** The figure view's requests (the chat's consent and cache); without it the page offers Explain in Chat only. */
   figureView?: FigureHost;
   /** A paragraph a walkthrough cites: the page closes and the paper lands there with Back. */
-  onCite?: (paragraph: number) => void;
+  onCite?: (paragraph: number, figureID:string) => void;
 }) {
   const [discussing, setDiscussing] = useState(false), [issue, setIssue] = useState<string | null>(null);
   // While a walkthrough is asked for or shown, the figure gets smaller so its words are in view.
@@ -43,6 +43,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
     });
   }, [bundle, figures]);
   const names = useMemo(() => figures.map(f => figureName(bundle, f.id)), [bundle, figures]);
+  const [fullscreen,setFullscreen]=useState(false);
   const [explanation, setExplanation] = useState('');
   const current = index !== null ? figures[index] : null;
   const context = useContextualChat(figureView?.context, bundle.manifestSHA256, current?.id ?? null, index === null ? 'Figure' : names[index], current?.caption || current?.alt || 'Figure');
@@ -78,7 +79,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
   return (
     <Dialog open onClose={() => { if (!discussing) back(); }} title="Figures" wide className="figure-dialog">
       <div className="figure-viewer">
-        <SheetTop onClose={onClose} closeDisabled={discussing} testID="figure-close">
+        <SheetTop onClose={onClose} closeDisabled={discussing} testID="figure-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,explanation,index!==null?images[index]??undefined:undefined);onClose();}}><Icon name="chat"/></button>}>
           {current ? <>
             {fromGallery && <button className="icon-button sheet-back" disabled={discussing} onClick={() => setIndex(null)} aria-label="All figures" title="All figures"
               data-testid="figure-gallery-back"><Icon name="chevronLeft" /></button>}
@@ -91,6 +92,8 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
         </SheetTop>
         {current && doc ? <>
           <iframe key={current.id} className={`figure-frame${explaining ? ' compact' : ''}`} title={current.alt || names[index!]} sandbox="allow-scripts" srcDoc={doc} />
+          <button className="secondary small" onClick={()=>setFullscreen(true)}>Open fullscreen</button>
+          {fullscreen && <Dialog open onClose={()=>setFullscreen(false)} title={names[index!]} wide className="fullscreen-figure"><SheetTop onClose={()=>setFullscreen(false)}><h2>{names[index!]}</h2></SheetTop><iframe className="figure-frame" title={names[index!]} sandbox="allow-scripts" srcDoc={doc}/></Dialog>}
           <div className="figure-nav">
             <button className="icon-button" onClick={() => show(index! - 1)} disabled={discussing || index === 0} aria-label="Previous figure"><Icon name="chevronLeft" /></button>
             <span className="fine figure-count" aria-live="polite" data-testid="figure-count">{index! + 1} of {figures.length}</span>
@@ -116,10 +119,10 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
             <button key={f.id} type="button" role="menuitemradio" aria-checked={i === index} className="menu-item"
               onClick={() => { close(false); if (i !== index) show(i); }}>{names[i]}</button>)}</MenuButton>
           : names[index!]}</h2>}
-        {current && figureView && <Suspense fallback={null}><FigureExplain key={current.id} manifest={bundle.manifestSHA256} figureID={current.id} host={figureView} profile={context?.profile} onExplanation={setExplanation} busy={discussing}
+        {current && figureView && <Suspense fallback={null}><FigureExplain key={current.id} manifest={bundle.manifestSHA256} figureID={current.id} label={names[index!]} host={figureView} profile={context?.profile} onExplanation={setExplanation} busy={discussing}
           request={request} onActive={setExplaining} onAsk={onDiscuss ? discuss : undefined} onShowFigure={() => onShowInPaper(current.id)}
-          onCite={marker => { if (onCite) onCite(marker); else onShowInPaper(current.id); }} /></Suspense>}
-        {current && <ContextualChat context={context} explanation={explanation} onCite={anchor => { const n = citedMarker(anchor); if (n && onCite) onCite(n); }} />}
+          onCite={marker => { if (onCite) onCite(marker,current.id); else onShowInPaper(current.id); }} /></Suspense>}
+        {current && <ContextualChat context={context} explanation={explanation} onCite={anchor => { const n = citedMarker(anchor); if (n && onCite) onCite(n,current.id); }} />}
       </div>
     </Dialog>
   );

@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, detailQuote, figureBox, figureKey, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
+import { cropRect, cropStyle, displayBox, detailQuote, figureBox, figureKey, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -93,6 +93,15 @@ describe('figure requests', () => {
 });
 
 describe('crops', () => {
+  it('keeps nearby axis text in the FDE-Gym panels without changing stored geometry or leaving the image', () => {
+    const original = { x: 0, y: 0, w: 0.49, h: 0.98 }, size = { width: 1000, height: 400 };
+    const left = cropRect(displayBox(original), size);
+    expect(left.x).toBe(0); expect(left.y).toBe(0);
+    expect(left.x + left.width).toBeGreaterThanOrEqual(510); expect(left.height).toBe(400);
+    expect(original.w).toBe(0.49);
+    const right = cropRect(displayBox({ x: 0.5, y: 0.01, w: 0.49, h: 0.98 }), size);
+    expect(right.x).toBeLessThanOrEqual(480); expect(right.x + right.width).toBe(1000); expect(right.height).toBe(400);
+  });
   it('fill their frame with the box: the right half of a wide figure, and a centred quarter', () => {
     expect(cropStyle({ x: 0.5, y: 0, w: 0.5, h: 1 }, { width: 1000, height: 200 })).toEqual({ aspect: 2.5, size: '200% 100%', position: '100% 0%' });
     expect(cropStyle({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, { width: 800, height: 800 })).toEqual({ aspect: 1, size: '200% 200%', position: '50% 50%' });

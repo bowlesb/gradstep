@@ -82,9 +82,15 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer.getByTestId('figure-section-2').locator('h4')).toHaveText('Legend');
  // The one boxed part carries its crop (the right half of the image that was sent); the others none.
  await expect(walk.getByTestId('figure-crop')).toHaveCount(1);
+ await viewer.getByRole('button',{name:'Open fullscreen',exact:true}).first().click();
+ const full=page.locator('.fullscreen-figure');
+ await expect(full).toBeVisible();
+ await expect(full.locator('iframe')).toBeVisible();
+ await full.getByRole('button',{name:'Close',exact:true}).click();
+ await expect(viewer.getByTestId('figure-summary')).toBeVisible();
  const crop=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
  await expect(crop).toBeVisible();
- expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['200% 100%','100%','0%',true]);
+ expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['192.31% 100%','100%','0%',true]);
  // Math is typeset, [¶N] is a link; AI Explainer has gone, Explain in Chat stays; no credit counts (owner, build 59).
  await expect(viewer.getByTestId('figure-section-1').locator('math')).toBeVisible();
  await expect(viewer.getByTestId('figure-section-0').locator('.cite')).toHaveText('¶2');
@@ -141,7 +147,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(closer).toContainText('three boxes joined by arrows');
  const closerCrop=closer.getByTestId('figure-detail-crop');
  await expect(closerCrop).toBeVisible();
- expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['200% 100%','0%','0%']);
+ expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['192.31% 100%','0%','0%']);
  await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
  sent=await chats();
@@ -168,7 +174,8 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer).toBeHidden();
 
  // Reopened: the walkthrough and the simpler part come back without a new request.
- viewer=await openFigure(page);
+ await page.getByTestId('explainer-return').click();
+ viewer=page.getByRole('dialog',{name:'Figures'});
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await expect(viewer.getByTestId('figure-section-0').getByTestId('figure-simpler')).toContainText('second network');
  await expect(viewer.getByTestId('figure-section-0').getByTestId('figure-detail-crop')).toBeVisible();
@@ -186,7 +193,39 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await composer.fill('Explain the arrows.'); await viewer.getByTestId('contextual-chat').getByRole('button',{name:'Send',exact:true}).click();
  await expect(viewer.getByTestId('contextual-chat').locator('.chat-message.assistant')).toBeVisible();
  const followUp=(await chats()).at(-1)!; expect(followUp.figures).toHaveLength(1); expect(followUp.selection.quote).toContain('Figure 1');
+ const countBeforePromotion=(await chats()).length;
+ await composer.fill('What does the arrow mean here?');
+ await viewer.getByRole('button',{name:'Open in Chat',exact:true}).click();
+ await expect(viewer).toBeHidden();
+ const continued=page.getByRole('textbox',{name:'Message',exact:true});
+ await expect(continued).toHaveValue('What does the arrow mean here?');
+ await expect(page.getByTestId('promoted-context')).toBeVisible();
+ expect((await chats()).length).toBe(countBeforePromotion);
+ await page.screenshot({path:`../../.artifacts/feedback/build70-20261018/promoted-${test.info().project.name}.png`});
  expect(errors).toEqual([]);
+});
+
+test('Find lists occurrences and jumps without rewriting verified paper text',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await openFixture(page,request,twoFigures);
+ const frame=page.frameLocator('[data-testid=reader-frame]');
+ await expect(frame.locator('h1').first()).toBeVisible();
+ const before=await frame.locator('body').innerHTML();
+ await page.getByTestId('find').click();await page.getByTestId('find-input').fill('figure');
+ await expect(page.getByTestId('find-count')).toHaveText(/\d+ of [2-9]\d*/);
+ await page.getByRole('button',{name:'List occurrences'}).click();
+ const matches=page.getByRole('list',{name:'Occurrences'}).getByRole('button');
+ const count=await matches.count();expect(count).toBeGreaterThan(1);
+ await matches.last().click();await expect(page.getByTestId('find-count')).toHaveText(`${count} of ${count}`);
+ const iframe=page.getByTestId('reader-frame');
+ const top=(await iframe.boundingBox())!.y+await frame.locator('body').evaluate(()=>{
+   const range=(CSS.highlights.get('gradstep-find-current') as any).values().next().value as Range;
+   (window as any).__findTestRange=range;return range.getBoundingClientRect().top;
+ });
+ await page.getByRole('search',{name:'Find in paper'}).getByRole('button',{name:'Done'}).click();
+ expect(await frame.locator('body').innerHTML()).toBe(before);
+ const afterTop=(await iframe.boundingBox())!.y+await frame.locator('body').evaluate(()=>(window as any).__findTestRange.getBoundingClientRect().top);
+ expect(Math.abs(afterTop-top)).toBeLessThan(3); // Closing the bar changes viewport height; at the bottom scrollY clamps.
 });
 
 test('a failed walkthrough says so and can be tried again; the figure page’s Explain in Chat drafts about the caption',async({page,request})=>{

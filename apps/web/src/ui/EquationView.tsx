@@ -6,7 +6,7 @@
 // menu it asks at once (consent first), while an equation switched to from the heading waits for it. No credit counts
 // are shown here (owner, build 59). Loaded only when opened (it brings the math typesetter with it).
 import type { ProfileChoice } from '../lib/chat-profiles';
-import { ContextualChat, useContextualChat, type ContextualHost } from './ContextualChat';
+import { ContextualChat, useContextualChat, promoteContextual, type ContextualHost } from './ContextualChat';
 import { citedMarker } from '../lib/passage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VerifiedBundle } from '../lib/bundle';
@@ -125,7 +125,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   return <Dialog open onClose={onClose} title={title} className="equation-dialog">
     <div className="equation-view" data-testid="equation-view">
       {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
-      <SheetTop onClose={onClose} testID="equation-close">
+      <SheetTop onClose={onClose} testID="equation-close" trailing={context && <button type="button" className="icon-button" aria-label="Open in Chat" onClick={()=>{promoteContextual(context,[symbols?.symbols?.summary??symbols?.text,...(symbols?.symbols?.symbols.map(s=>`${s.symbol}: ${s.meaning}`)??[]),background?.text].filter(Boolean).join('\n'));onClose();}}><Icon name="chat"/></button>}>
 
         {host && !symbols && !asking && <button className="sheet-action prominent" onClick={explain} data-testid="equation-explain"
           title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}

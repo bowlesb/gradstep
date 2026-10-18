@@ -23,6 +23,38 @@ final class UnsentDraftTests: XCTestCase {
         XCTAssertFalse(model.hasContextualChat)
     }
 
+    func testScenarioDefaultsAndPromotionPreserveTheSameComposerAndExplicitChoice() throws {
+        let defaults = UserDefaults.standard
+        let prior = defaults.dictionary(forKey: "ai.scenarioProfiles")
+        defer { defaults.set(prior, forKey: "ai.scenarioProfiles") }
+        let model = ReaderModel(configuration: nil); model.openSample()
+        let paper = try XCTUnwrap(model.selectedPaper), manifest = String(repeating: "a", count: 64)
+        let cheap = try XCTUnwrap(ChatProfileChoice(id: "haiku-low-standard"))
+        model.setProfileDefault(cheap, for: .figures)
+        model.setProfileDefault(.standard, for: .paper)
+        model.localAIModelID = "previous-chat-local-model"
+        model.pendingLocalAIChoice = .some(nil) // Explicit Cloud for this explainer.
+        let closed = model.beginContextualChat(paperID: paper.id, manifest: manifest, element: "F0", label: "Figure 0", quote: "Caption")
+        XCTAssertNil(model.localAIModelID)
+        model.endContextualChat(closed)
+        XCTAssertEqual(model.localAIModelID, "previous-chat-local-model", "Closing an explainer restores the previous chat's engine")
+        model.localAIModelID = nil
+        let token = model.beginContextualChat(paperID: paper.id, manifest: manifest, element: "F1", label: "Figure 1", quote: "The caption")
+        let composer = model.chatComposerID
+        XCTAssertEqual(model.chatProfile, cheap)
+        model.chatInput = "Why does the blue line fall?"
+        model.promoteContextualChat(token, explanation: "The blue line falls as the temperature rises.")
+        model.endContextualChat(token)
+        XCTAssertEqual(model.chatComposerID, composer)
+        XCTAssertEqual(model.chatProfile, cheap)
+        XCTAssertEqual(model.chatInput, "Why does the blue line fall?")
+        XCTAssertTrue(model.promotedChatContext?.quote.contains("The caption") == true)
+        model.setProfileDefault(.standard, for: .figures)
+        XCTAssertEqual(model.chatProfile, cheap, "Changing a default cannot silently reroute an existing conversation")
+        model.forgetIndexedPapers([paper.id])
+        XCTAssertNil(model.promotedChatContext, "Removing local contents clears transient image/explainer context")
+    }
+
     func testReportedMathActuallyRendersInLightAndDark() throws {
         for (i, latex) in [#"x \longmapsto \begin{cases} x + cy & \text{if } b = 0, \\ x + cz & \text{if } b = 1, \end{cases}"#,
                             #"\ket{0}^{\otimes n}"#].enumerated() {

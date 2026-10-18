@@ -1,3 +1,4 @@
+import {paperShareLinks,sharePublicURL} from '../lib/public-paper-link';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
 import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
@@ -8,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { vocabularyName } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
 import { BackendError } from '../lib/backend';
 import { CommandRefreshError, type CommandResponse, type Item } from '../lib/library';
-import { effectiveTags } from '../lib/paper';
+import { effectiveTags, allowedKeyword } from '../lib/paper';
 import { containsTag, editedTags, MAX_OWN_TAGS, normalizeTag, ownTagsInLibrary, tagSuggestions } from '../lib/paper-tags';
 import type { useLibrary } from './useLibrary';
 import './library-actions.css';
@@ -24,7 +25,7 @@ export interface ExtraAction { label: string; testID: string; applies: (item: Li
 /** Whether the library manages this paper (tags, archive, remove): every visible paper but a legacy item outside the shared catalog. */
 const managed = (item: LibraryPaper) => !(item.kind === 'item' && item.scope !== 'shared_catalog');
 
-export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extra?: ExtraAction) {
+export function useLibraryActions(library: Library, beforeSequentialNavigation?: () => void, extra?: ExtraAction, onSimilar?: (paper:LibraryPaper)=>void) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const current = useRef(selection), latest = useRef(library), returnTo = useRef<Selection | null>(null), latestExtra = useRef(extra);
@@ -58,7 +59,7 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
     setSelection({ item, trigger, region: null, action: 'tags', last: false });
   };
-  return { library, selection, notice, open, close, choose, editTags, beforeSequentialNavigation, extra, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
+  return { library, selection, notice, open, close, choose, editTags, beforeSequentialNavigation, extra, onSimilar, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
 }
 type Actions = ReturnType<typeof useLibraryActions>;
 
@@ -125,7 +126,12 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
     }
   };
   const extra = actions.extra;
+  const links=paperShareLinks(selection.item);
+  const share=async(url:string)=>{try{await sharePublicURL(url);actions.close(selection,typeof navigator.share==='function'?undefined:'Link copied');}catch(e){if((e as Error).name!=='AbortError')actions.close(selection,'Couldn’t share the link. Try again.');}};
   return <div ref={ref} role="menu" aria-label="Paper actions" className="paper-action-menu" data-library-row-owner={`${selection.item.kind}:${selection.item.id}`} onKeyDown={move}>
+    {actions.onSimilar && <button type="button" role="menuitem" onClick={()=>{actions.close(selection,undefined,false);actions.onSimilar?.(selection.item);}}>Find similar papers</button>}
+    {links.source && <button type="button" role="menuitem" onClick={()=>void share(links.source!)}>Share Source URL</button>}
+    {links.gradstep && <button type="button" role="menuitem" onClick={()=>void share(links.gradstep!)}>Share Gradstep link</button>}
     {extra?.applies(selection.item) && <button type="button" role="menuitem" data-testid={extra.testID} onClick={() => { actions.close(selection, undefined, false); extra.run(selection.item); }}>{extra.label}</button>}
     {selection.item.kind === 'import' && <button type="button" role="menuitem" onClick={() => {
       window.open(`https://arxiv.org/pdf/${selection.item.source_id}v${selection.item.source_revision}`, '_blank', 'noopener,noreferrer');
@@ -169,7 +175,7 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
   const label = editing ? 'Edit tags' : archive ? (archiveTarget ? 'Archive paper' : 'Unarchive paper') : 'Remove paper';
   const verb = editing ? 'Save' : archive ? (archiveTarget ? 'Archive' : 'Unarchive') : 'Remove';
   const own = useMemo(() => ownTagsInLibrary(library.entries, baseline.id), [library.entries, baseline.id]);
-  const suggestions = useMemo(() => tagSuggestions(baseline.tags ?? [], baseline.metadata?.categories ?? [], tags, own, draft), [baseline, tags, own, draft]);
+  const suggestions = useMemo(() => tagSuggestions(baseline.tags ?? [], baseline.metadata?.categories ?? [], tags, own, draft).filter(t=>allowedKeyword(t.name)), [baseline, tags, own, draft]);
   const typed = normalizeTag(draft), ownCount = tags.filter(tag => !containsTag(baseline.tags ?? [], tag)).length;
   const invalidDraft = draft.trim().length > 0 && !typed;
   let invalidTags = false;
@@ -206,6 +212,7 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     if (busy || conflict) return;
     const value = normalizeTag(raw);
     if (!value) { setIssue('Use 1–40 characters, up to 120 UTF-8 bytes, for a tag.'); return; }
+    if (!allowedKeyword(value)) { setIssue('Choose a specific method, dataset or topic instead of AI or machine learning.'); return; }
     const name = vocabularyName(value) ?? value;
     if (!containsTag(tags, name)) {
       if (!containsTag(baseline.tags ?? [], name) && ownCount >= MAX_OWN_TAGS) { setIssue(`A paper can have up to ${MAX_OWN_TAGS} tags of your own.`); return; }

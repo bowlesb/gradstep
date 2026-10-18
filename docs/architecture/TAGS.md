@@ -1,5 +1,21 @@
 # Topic tags
 
+## Device keywords, build 70 feedback (2026-10-18; release candidate 71)
+
+The owner prohibits generic AI/Machine learning keywords and asks for more discriminative paper terms.
+Clients derive up to six specific vocabulary topics and named methods/datasets from title/abstract, excluding
+those generic labels. The reader shows a Keywords heading before Introduction, provenance and Edit. Custom
+and deliberately cleared keywords remain authoritative; legacy own/hidden tag edits are retained. This is
+local deterministic derivation, not a paid model classification or a claimed TF-IDF quality result. Server
+catalog tagging below remains historical/current compatibility data, not the new default display.
+
+Native local search additionally indexes bounded terms from verified encrypted installed reading copies,
+rebuilds off the UI thread, and clears a paper's terms when its contents/account are removed. No plaintext
+persistent index or server paper upload is introduced. See NATIVE_LIBRARY_SEARCH.md and the regression evidence
+in IMPLEMENTATION_STATUS.md. Browser keyword presentation follows the metadata derivation; the native body index
+is not claimed implemented in the browser.
+
+
 Status, 2026-10-07: **implemented and tested locally; not yet applied or deployed.** Migration
 `202610070030_tags.sql` (after 027–029), the pipeline worker change and the app need the main session to apply/deploy.
 Owner request: "I thought we had a tagging system based on topics? … it was useful and we need to bring that back

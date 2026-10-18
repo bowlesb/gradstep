@@ -97,6 +97,11 @@ export const browserLocks: Locks = {
   }),
 };
 
+export type AIUseCase = 'general' | 'paper' | 'equations' | 'figures';
+const scenarioKey = 'gradstep.ai.scenarios.v1';
+function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
+  try { const value=JSON.parse(localStorage.getItem(scenarioKey)??'{}'); return Object.fromEntries(['general','paper','equations','figures'].flatMap(k=>isProfileChoice(value?.[k])?[[k,value[k]]]:[])); } catch { return {}; }
+}
 export class ChatSession {
   private sourcePapers = new Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>();
   setSourcePapers(rows:Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>) { this.sourcePapers=rows; }
@@ -199,6 +204,7 @@ export class ChatSession {
   hasUnresolvedTurn(c: Composer) { return this.turnOwners.has(c.id); }
   lockJournal(state: JournalState) { this.journalState = state; this.retireStorage(); }
   private retireStorage() {
+    this.promotedContexts.clear();
     if (this.retiredStorage || this.signal.aborted) return;
     this.retiredStorage = true;
     // While this account is still valid, stopping goes through the ordinary partial-save path (interrupted answer).
@@ -251,8 +257,29 @@ export class ChatSession {
   }
 
   private contextualComposers = new Map<string, string>();
+  private scenarioChoices = scenarioDefaults();
+  private contextualKinds = new Map<string,AIUseCase>();
+  readonly promotedContexts = new Map<string,{quote:string;label:string;anchor:TextAnchor;explanation?:string;image?:string}>();
+  defaultFor(c:Composer):ProfileChoice { return this.scenarioProfile(this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general')); }
+  setDefaultFor(c:Composer,choice:ProfileChoice) { this.setScenarioProfile(this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general'),choice); }
+  scenarioProfile(kind:AIUseCase):ProfileChoice { const saved=this.scenarioChoices[kind]; return saved && this.profileTable && available(this.profileTable,saved) ? saved : this.defaultProfile; }
+  setScenarioProfile(kind:AIUseCase,choice:ProfileChoice) {
+    this.scenarioChoices[kind]={...choice}; try {localStorage.setItem(scenarioKey,JSON.stringify(this.scenarioChoices));} catch {} this.publish();
+  }
+  promoteContextual(c:Composer, context:{quote:string;label:string;anchor:TextAnchor;explanation?:string;image?:string}) {
+    this.allowed();
+    if(this.promotedContexts.size>=8&&!this.promotedContexts.has(c.id))this.promotedContexts.delete(this.promotedContexts.keys().next().value!);
+    this.promotedContexts.set(c.id,{...context,explanation:context.explanation?.slice(0,32_000)}); this.chooseDraft(c.id);
+  }
+  retainPromotedContexts(documents:ReadonlySet<string>) {
+    let changed=false;
+    for(const [id] of this.promotedContexts)if(!documents.has(this.composers.get(id)?.documentID??'')){this.promotedContexts.delete(id);changed=true;}
+    if(changed)this.publish();
+  }
+  profileReason(c:Composer) { return c.profile ? 'Selected for this conversation' : this.branch(c)?.messages.some(m=>m.payload.role==='assistant' && m.payload.profile) ? 'Kept from this conversation’s last answer' : 'From this activity’s default in AI chat options'; }
+
   /** An equation/figure owns a composer without taking over the main chat's selected draft. */
-  contextualComposer(documentID: string, anchor: TextAnchor): Composer {
+  contextualComposer(documentID: string, anchor: TextAnchor, kind:AIUseCase = 'figures'): Composer {
     this.allowed();
     validateEvent({ kind: 'position', entityID: documentID, documentID, parents: [], anchor });
     const key = JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
@@ -262,7 +289,7 @@ export class ChatSession {
       && s.anchor?.elementID === anchor.elementID && s.anchor?.quote === anchor.quote);
     const c = (saved && [...this.composers.values()].find(c => c.conversationID === saved.id)) || this.blank(documentID);
     if (saved) c.conversationID = saved.id;
-    c.anchor = { ...anchor }; this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.claimEditor(c.id);
+    this.contextualKinds.set(c.id,kind); c.anchor = { ...anchor }; this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.claimEditor(c.id);
     return c;
   }
 
@@ -288,7 +315,7 @@ export class ChatSession {
     if (c.profile && usable(c.profile)) return c.profile;
     const answers = this.branch(c)?.messages.filter(m => m.payload.role === 'assistant') ?? [];
     for (const answer of [...answers].reverse()) { const used = parseProfileID(answer.payload.profile); if (used && usable(used)) return used; }
-    return this.defaultProfile;
+    return this.defaultFor(c);
   }
   setProfile(c: Composer, choice: ProfileChoice) { c.profile = { ...choice }; this.publish(); }
 

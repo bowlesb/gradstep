@@ -1,5 +1,42 @@
 # Implementation status
 
+## Build 70 feedback — 2026-10-18 (release candidate 71; not yet uploaded)
+
+Twenty new screenshots after build 70 were downloaded and inspected individually; no new support/crash reports
+were found at intake. Exact IDs and requests are in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). Work includes:
+
+- App-owned Find with an occurrence list, previous/next, bounded non-mutating highlights and dismissal on tab
+  changes. Source-only papers now save/restore position: the old path incorrectly required a legacy artifact ID.
+  References jump directly. A citation from an explainer offers return to its exact saved paper/bundle/item.
+- Fullscreen figure/crop viewing before zoom; table-specific loading text; promotion of the same contextual
+  conversation into Chat with its draft/model/explanation/image. Prompt repair replaces explicit thin-slice
+  guidance with complete panels and interpretation. A 2% display margin protects nearby labels, while whole
+  images remain available. The live FDE-Gym Figure 5 run passes all three actions for $0.039627; `chat` is deployed.
+- Settings defaults for general chat, paper chat, equations, and figures/tables. Explicit/current conversation
+  choices win over defaults; their reason is visible. Cancelling a chooser drops temporary choices. No evidence
+  identifies why the particular historical screenshot showed DeepSeek; there is no invented causal diagnosis.
+- Keywords before Introduction with attribution/Edit, generic AI/ML terms excluded, specific title/abstract
+  terms, and customized/cleared user tags retained. A bounded in-memory index rebuilds terms from encrypted
+  installed native bundles and removes them with paper contents/account retirement. This is not a trained keyword
+  classifier or a corpus-wide TF-IDF evaluation. The FDE-Gym one-item abstract list uses the body's reading width.
+- Optional field criteria with AND semantics, Find similar, clearer search progress, and Source URL/Gradstep
+  sharing. Installed links open the matching paper; missing papers open Search without import. AASA and signed
+  Associated Domains are part of release verification; physical-phone universal-link launch remains unverified.
+  DOI links preserve the source identity but do not promise every publisher is available in the discovery catalog.
+- Mermaid/HTML actions alongside suggested follow-ups. Browser parity includes cloud activity defaults, search,
+  keyword presentation, links, Find, fullscreen, citation return and promotion. Browser model inference remains cloud.
+
+Verification in progress: routine fast suite passes; Core FigureViewTests 8 pass and PaperDiscoveryTests 3 pass;
+native Find journeys 3 pass; Local AI fixture journeys 6 pass. Exact FDE-Gym rendering passes both themes with
+25 headings/63 equations/seven images, no horizontal overflow and working selection. Remaining selected native
+retests, final import gate, archive signing/resource audit and hosted deployment readback are required before
+claiming build 71 shipped. Artifacts: `.artifacts/feedback/build70-20261018/`.
+
+Local subfigure research has a working Mac Core ML prototype and documented shared-context architecture.
+The 18.8 MB detector runs at median 23 ms after loading on M1 Max, but misses workflow regions and clips heatmap
+labels at high confidence. AGPL research weights are not bundled. No physical iPhone, battery or memory acceptance.
+See [experiment](reviews/LOCAL_FIGURE_REGIONS_20261018.md) and [design](architecture/LOCAL_FIGURE_REGIONS.md).
+
 Updated 2026-10-18 UTC: TestFlight **70** is available on iOS/iPadOS and Mac, source `2e461b4`; both are VALID / IN_BETA_TESTING, verified `2026-10-18T07:20:34.040Z`. Browser Pages **6ddf4887**, migration 088 and author search are deployed. Flash remains recommended. Earlier checkpoints are historical.
 
 ## Build 69 feedback — 2026-10-18 (TestFlight 70 and browser deployed)

@@ -24,6 +24,32 @@ const record=(id:string,version:number,title:string,family:string,given:string,y
  dates:[{date:`${year}-01-15T00:00:00Z`,dateType:'Submitted',dateInformation:'v1'}],publicationYear:year}});
 const noOverflow=async(page:Page)=>expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
 
+test('field criteria are ANDed in the device request and public paper links route without importing',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ const queries:string[]=[];
+ await page.route('https://api.datacite.org/**',async route=>{
+  queries.push(new URL(route.request().url()).searchParams.get('query')??'');
+  await route.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({data:[],meta:{total:0}})});
+ });
+ await signInReader(page,request);await request.post(`${fixtureOrigin}/__device-search`,{data:{enabled:true}});
+ await page.getByTestId('search').click();await page.getByTestId('search-scope-arxiv').click();
+ await page.getByText('Search by fields',{exact:true}).click();
+ await page.getByRole('textbox',{name:'title criterion'}).fill('preference optimization');
+ await page.getByRole('button',{name:'Add criterion'}).click();
+ await page.getByRole('combobox',{name:'Field'}).nth(1).selectOption('author');
+ await page.getByRole('textbox',{name:'author criterion'}).fill('Rafailov');
+ await page.locator('.advanced-search').getByRole('button',{name:'Search',exact:true}).click();
+ await expect(page.getByTestId('discover-empty')).toBeVisible();
+ expect(queries).toHaveLength(1);expect(queries[0]).toContain('titles.title:');expect(queries[0]).toContain('creators.name:');expect(queries[0]).toContain(' AND ');
+ await page.evaluate(()=>sessionStorage.setItem('gradstep.publicLink','https://app.gradstep.ai/p/arxiv/2305.18290v3'));
+ await page.reload();await expect(page).toHaveURL(/\/paper\//);
+ await page.evaluate(()=>sessionStorage.setItem('gradstep.publicLink','https://app.gradstep.ai/p/arxiv/2610.99999v2'));
+ await page.reload();await expect(page.getByTestId('search')).toHaveValue('2610.99999v2');
+ await expect(page.getByTestId('paper-search')).toBeVisible();
+ await noOverflow(page);
+ await page.screenshot({path:`../../.artifacts/feedback/build70-20261018/search-fields-${test.info().project.name}.png`});
+});
+
 test('ML paper search beside the library: the switch, states, order, In library opens the paper, Add shows its percent (server search while device search is off)',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const datacite:string[]=[];page.on('request',r=>{if(r.url().startsWith('https://api.datacite.org'))datacite.push(r.url());});
@@ -40,7 +66,8 @@ test('ML paper search beside the library: the switch, states, order, In library 
  await expect(field).toHaveAttribute('placeholder','Search ML papers');
  await expect(field).toHaveAttribute('aria-label','ML paper search');
  await expect(field).toBeFocused();
- await expect(page.getByTestId('discover-idle')).toContainText('Find papers');
+ await expect(page.getByTestId('discover-idle')).toContainText('Search ML papers by title');
+ await expect(page.getByTestId('discover-idle')).not.toContainText('Find papers');
  await expect(page.getByTestId('library-table')).toHaveCount(0);
  await field.fill('sparse attention');await field.press('Enter');
  const cards=page.getByTestId('paper-search').locator('.feed-card');

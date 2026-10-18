@@ -1091,8 +1091,9 @@
       '.sr-paper-line{font-size:.82rem;line-height:1.4;color:#666;margin:-.3em 0 1.2em;-webkit-user-select:none;user-select:none}',
       '@media(prefers-color-scheme:dark){.sr-paper-line{color:#9a9a9a}}@media(prefers-reduced-motion:reduce){.sr-flash{transition:none}}',
       // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
-      '.sr-paper-tags{display:flex;flex-wrap:wrap;gap:.4em;margin:1em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
+      '.sr-paper-tags{display:block;margin:1.5em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',
+      '.sr-paper-tags h2{margin:0 0 .5em}.sr-paper-tags .sr-tag{display:inline-block;margin:0 .4em .4em 0}.sr-keyword-source{display:block;font-size:.8em;color:var(--sr-muted,#777);margin-bottom:.5em}[data-sr-abstract-list]{padding-left:0;list-style:none;margin-left:0}',
       '.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
       '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.36)}}',
       // A paper's own contents: one entry per line, indented by depth, the page muted on the right.
@@ -1123,13 +1124,20 @@
   // The paper's tags as chips under the paper line (or the title and authors). A tap opens Edit tags.
   const installPaperTags = tags => {
     document.querySelector('[data-sr-paper-tags]')?.remove();
-    if (!Array.isArray(tags)) return;
-    const names = tags.filter(tag => typeof tag === 'string' && tag.trim()).slice(0, 24).map(tag => tag.trim().slice(0, 60));
+    const source = !Array.isArray(tags) && typeof tags?.source === 'string' ? tags.source.slice(0,80) : 'Gradstep';
+    const values = Array.isArray(tags) ? tags : tags?.names;
+    if (!Array.isArray(values)) return;
+    const names = values.filter(tag => typeof tag === 'string' && tag.trim()).slice(0, 24).map(tag => tag.trim().slice(0, 60));
     const row = document.createElement('div');
     row.className = 'sr-paper-tags'; row.setAttribute(CHROME, ''); row.setAttribute('data-sr-paper-tags', '');
     row.setAttribute('role', 'button'); row.tabIndex = 0;
     row.setAttribute('aria-label', names.length ? 'Keywords: ' + names.join(', ') + '. Edit keywords' : 'Add keywords');
-    const label = document.createElement('span'); label.className = 'sr-tag'; label.textContent = names.length ? 'Keywords · Edit' : 'Add keywords'; row.append(label);
+    const label = document.createElement('h2'); label.textContent = 'Keywords'; row.append(label);
+    const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source + ' · Edit'; row.append(origin);
+    // arXiv sometimes wraps the abstract in a one-item list; use the same reading width as the body.
+    for (const heading of document.querySelectorAll('h2,h3,p')) {
+      if (heading.textContent.trim().toLowerCase() === 'abstract' && heading.nextElementSibling?.matches('ul,ol') && heading.nextElementSibling.children.length === 1) heading.nextElementSibling.setAttribute('data-sr-abstract-list','');
+    }
     for (const name of names) {
       const chip = document.createElement('span');
       chip.className = 'sr-tag'; chip.setAttribute('aria-hidden', 'true'); chip.textContent = name;
@@ -1342,7 +1350,7 @@
   };
   const showReference = (entry, instant) => {
     const top = entry.heading || entry.start ? sectionTarget(entry) : scrollTarget(entry.range.getBoundingClientRect());
-    window.scrollTo({top, behavior: instant || reducedMotion() ? 'instant' : 'smooth'});
+    window.scrollTo({top, behavior: 'instant'});
     if (citationBack) citationBack.landing = null;
     settled(() => {
       if (citationBack && citationBack.entry !== entry) return;
@@ -1381,7 +1389,7 @@
     const back = citationBack;
     if (!back) return false;
     citationBack = null;
-    window.scrollTo({top: locationY(back.origin.location), behavior: reducedMotion() ? 'instant' : 'smooth'});
+    window.scrollTo({top: locationY(back.origin.location), behavior: 'instant'});
     post({type:'citation',state:'ended'});
     settled(() => {
       postPosition();
@@ -1826,7 +1834,7 @@
     const origin = citationBack?.origin ?? {location: window.__scienceReaderLocation(), cite: null};
     const offersBack = !atTheTop(origin.location);
     citationBack = offersBack ? {origin, entry, landing: null} : null; movedSinceJump = false;
-    window.scrollTo({top: scrollTarget(found.range.getBoundingClientRect()), behavior: reducedMotion() ? 'instant' : 'smooth'});
+    window.scrollTo({top: scrollTarget(found.range.getBoundingClientRect()), behavior: 'instant'});
     settled(() => {
       if (citationBack && citationBack.entry !== entry) return;
       if (citationBack) citationBack.landing = window.scrollY;
@@ -1902,4 +1910,84 @@
       if (ids.length) post({type: 'marks', manifest_sha256: manifest, ids});
     });
   }
+  (() => {
+  // Find in the paper, shared by native and browser: every match is a CSS custom highlight; the current one is
+  // scrolled to the upper third. Text is matched case-insensitively across inline elements, never across blocks.
+  const FIND = 'gradstep-find', CURRENT = 'gradstep-find-current', LIMIT = 1000;
+  const BLOCK = 'p,li,h1,h2,h3,h4,h5,h6,figure,figcaption,table,td,th,pre,blockquote,dd,dt,div,section,math[display=block]';
+  let findQuery = '', matches = [], current = -1;
+  const lower = text => [...text].map(ch => { const l = ch.toLowerCase(); return l.length === ch.length ? l : ch; }).join('').replace(/\s/g, ' ');
+  const highlights = () => (globalThis.CSS && CSS.highlights && typeof Highlight === 'function') ? CSS.highlights : null;
+  function clearFind() {
+    findQuery = ''; matches = []; current = -1;
+    highlights()?.delete(FIND); highlights()?.delete(CURRENT);
+    return {type: 'find', count: 0, index: -1, matches: []};
+  }
+  function search(query) {
+    const segments = [];
+    let flat = '', block = null;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: node =>
+      !node.data || node.parentElement?.closest('script,style,template,[data-sr-chrome],mjx-assistive-mml,[aria-hidden="true"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const owner = node.parentElement?.closest(BLOCK) ?? null;
+      if (owner !== block) { flat += '\u0000'; block = owner; }
+      segments.push({ node, start: flat.length });
+      flat += lower(node.data);
+    }
+    const at = offset => {
+      let lo = 0, hi = segments.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (segments[mid].start <= offset) lo = mid; else hi = mid - 1; }
+      return { node: segments[lo].node, offset: offset - segments[lo].start };
+    };
+    const found = [];
+    for (let index = flat.indexOf(query); index >= 0 && found.length < LIMIT; index = flat.indexOf(query, index + query.length)) {
+      const start = at(index), end = at(index + query.length - 1);
+      const range = document.createRange();
+      range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset + 1);
+      found.push(range);
+    }
+    return found;
+  }
+  function find(text, direction) {
+    const query = lower(text.trim().replace(/\s+/g, ' ')).slice(0, 200);
+    if (!query) return clearFind();
+    if (query !== findQuery || !matches.length) {
+      findQuery = query; matches = search(query);
+      // Start from the reading place, like the system find bar.
+      current = matches.findIndex(range => range.getBoundingClientRect().bottom > 0);
+      if (current < 0) current = matches.length ? 0 : -1;
+    } else if (Number.isInteger(direction)) current = Math.max(0, Math.min(matches.length - 1, direction));
+    else if (direction === 'previous') current = (current - 1 + matches.length) % matches.length;
+    else if (direction === 'next') current = (current + 1) % matches.length;
+    const registry = highlights();
+    if (registry) {
+      registry.set(FIND, new Highlight(...matches));
+      if (current >= 0) registry.set(CURRENT, new Highlight(matches[current])); else registry.delete(CURRENT);
+      if (!document.getElementById(FIND)) {
+        const style = document.createElement('style');
+        style.id = FIND;
+        style.textContent = `::highlight(${FIND}){background:rgba(250,204,21,.4)}::highlight(${CURRENT}){background:rgba(249,115,22,.7)}`;
+        document.head.append(style);
+      }
+    }
+    if (current >= 0) {
+      const rect = matches[current].getBoundingClientRect();
+      window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight / 3, behavior: 'instant' });
+      if (citationBack) { citationBack = null; post({type:'citation',state:'ended',back:false}); }
+      lastPosition = window.__scienceReaderLocation(); postPosition();
+    }
+    return { type: 'find', count: matches.length, index: current, matches: matches.map((range, index) => {
+      const element = range.startContainer.parentElement;
+      const block = element.closest('[data-reader-block]') ?? element.closest(BLOCK);
+      const text = (block?.textContent ?? range.toString()).replace(/\s+/g, ' ').trim();
+      const prefix = document.createRange(); prefix.selectNodeContents(block ?? element); prefix.setEnd(range.startContainer, range.startOffset);
+      const offset = prefix.toString().replace(/\s+/g,' ').trimStart().length, start = Math.max(0, offset - 64);
+      return {index, text: (start ? '…' : '') + text.slice(start, start + 200) + (text.length > start + 200 ? '…' : '')};
+    })};
+  }
+
+  window.__scienceReaderFind = find;
+  window.__scienceReaderFindClear = clearFind;
+  })();
+
 })();

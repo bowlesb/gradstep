@@ -255,11 +255,11 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
   </div>;
 }
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
   /** Whether this tab has the paper prepared (the row's check); without it every paper shows as still to download. */
   prepared?: (entry: ClientEntry) => boolean;
-  currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void;
+  currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
@@ -267,7 +267,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   const showAll = useCallback(() => model.setWindowed(false), [model.setWindowed]);
   const rowCommands = useRef<LibraryRowsCommands | null>(null);
   const prepareMenuTab = useCallback(() => rowCommands.current?.beforeSequentialNavigation(), []);
-  const actions = useLibraryActions(library, prepareMenuTab);
+  const actions = useLibraryActions(library, prepareMenuTab, undefined, onSimilar);
   const [printing, setPrinting] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const tableHeader = useRef<HTMLTableSectionElement>(null);
@@ -455,11 +455,11 @@ function TableDate({ ms }: { ms: number | null }) {
 }
 
 /** Beside an open paper (the legacy Browse view): the same library, compact. */
-export function CompactLibrary({ model, activity, currentID, onOpen, query, prepared }: {
-  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string; prepared?: (entry: ClientEntry) => boolean;
+export function CompactLibrary({ model, activity, currentID, onOpen, query, prepared, onSimilar }: {
+  model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: LibraryPaper) => void; query: string; prepared?: (entry: ClientEntry) => boolean; onSimilar?:(item:LibraryPaper)=>void;
 }) {
   const list = useRef<HTMLUListElement>(null);
-  const actions = useLibraryActions(model.library);
+  const actions = useLibraryActions(model.library,undefined,undefined,onSimilar);
   useEffect(() => { list.current?.querySelector('.current')?.scrollIntoView({ block: 'nearest' }); }, []);
   return (
     <div className="compact-library">

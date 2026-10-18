@@ -10,7 +10,7 @@ export const FRAME_SCRIPT_HASH = frame.hash;
 
 const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,applet,form,link,noscript,template,portal';
 
-export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | null; paperAuthors?: string[]; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null;
+export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | { names: string[]; source: string } | null; paperAuthors?: string[]; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null;
   /** The text column's measure (READING_MODE.md): comfortable, wide or full. */ lineWidth?: LineWidth }
 export type LineWidth = 'comfortable' | 'wide' | 'full';
 export const LINE_WIDTHS: readonly LineWidth[] = ['comfortable', 'wide', 'full'];
@@ -84,7 +84,7 @@ export type FrameMessage =
   | { type: 'marks'; ids: string[] } | { type: 'passage'; found: boolean }
   | { type: 'reference'; reference: ReaderReference } | { type: 'figureref'; reference: ReaderFigureReference }
   | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' }
-  | { type: 'find'; count: number; index: number }
+  | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
   | { type: 'key'; key: FrameKey };
 
 /** App shortcuts typed while the paper frame has focus (forwarded by the frame shim). */
@@ -134,7 +134,10 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
     case 'find': {
       const count = v.count, index = v.index;
       return Number.isInteger(count) && Number.isInteger(index) && (count as number) >= 0 && (count as number) <= 1000 && (index as number) >= -1 && (index as number) < Math.max(1, count as number)
-        ? { type: 'find', count: count as number, index: count === 0 ? -1 : index as number } : null;
+        ? { type: 'find', count: count as number, index: count === 0 ? -1 : index as number, matches: Array.isArray(v.matches) ? v.matches.slice(0,1000).flatMap((m: unknown) => {
+          if (!m || typeof m !== 'object') return []; const row = m as Record<string,unknown>;
+          return Number.isInteger(row.index) && Number(row.index)>=0 && Number(row.index)<Number(count) && typeof row.text==='string' && row.text.length<=205 ? [{index:Number(row.index),text:row.text}] : [];
+        }) : [] } : null;
     }
     case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
   }

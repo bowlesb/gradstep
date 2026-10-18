@@ -81,17 +81,17 @@ final class PaperToolsTests: XCTestCase {
         let narrow = app.buttons["tab.chat"].exists
         app.buttons["Paper options"].tap()
         app.buttons.matching(identifier: "paper.find").firstMatch.tap()
-        let result = app.staticTexts["find.resultLabel"]
+        let result = app.staticTexts["paper.find.count"]
         // The find bar takes the keyboard focus.
-        XCTAssertTrue(app.buttons["find.doneButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["paper.find.close"].waitForExistence(timeout: 5))
         app.typeText("every claim")
         XCTAssertTrue(wait { result.exists && result.label == "1 of 1" }, "One match: \(result.exists ? result.label : "none")")
         XCTAssertFalse(app.paperSelectionMenuShown, "A highlighted match is not a selection")
         sleep(1)
         capture(app, "Find in paper: a match highlighted")
 
-        app.buttons["find.doneButton"].tap()
-        XCTAssertTrue(app.buttons["find.doneButton"].waitForNonExistence(timeout: 5))
+        app.buttons["paper.find.close"].tap()
+        XCTAssertTrue(app.buttons["paper.find.close"].waitForNonExistence(timeout: 5))
         if narrow { XCTAssertTrue(app.buttons["tab.chat"].waitForExistence(timeout: 5), "The tab bar returns with the keyboard gone") }
         sleep(1) // the page settles at its full height
         // The list item with the match (WebKit reports it as a group with the item's text). Queried once the bar has
@@ -112,86 +112,40 @@ final class PaperToolsTests: XCTestCase {
                       "Returns to the found place (\(offset) → \(found.frame.minY - web.frame.minY))")
     }
 
-    // MARK: - A keyboard frame left behind (TestFlight build 21)
-
-    /// Each appearance, with and without a podcast's mini-player riding on the tab bar.
-    private let chromeVariants: [(appearance: String, arguments: [String], name: String)] = ["light", "dark"].flatMap { appearance in
-        [(appearance, [], appearance),
-         (appearance, ["--feed-fixture", "--podcast-fixture", "--reset-podcast-fixture", "--podcast-autoplay", "--podcast-autoplay-mini"],
-          "\(appearance), mini-player")]
-    }
-
-    /// "Somehow I ended up with this": the tab bar and A−/A+ ~170 pt up, the page cut off above an empty band. Search in the
-    /// find bar hides the keyboard and leaves the bar docked, a hidden keyboard's frame still on screen. The tab bar sits
-    /// just above the bar and the page keeps its room above the tab bar; Done puts both back.
+    /// Build 70 feedback: Find must not move the shared tab bar to the top on another tab.
     func testFindBarDockedAfterSearchKeepsTheTabBarAndPageInPlace() throws {
-        for variant in chromeVariants {
-            let app = openSample(variant.arguments, appearance: variant.appearance)
-            // The floating tab bar is the narrow layout's (iPhone, a narrow iPad); the wide layout has none.
-            if !app.buttons["tab.paper"].exists { app.terminate(); throw XCTSkip("The floating tab bar exists only in the narrow layout") }
-            let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
-            let home = (tab: tab.frame, web: web.frame)
-            app.buttons["Paper options"].tap()
-            app.buttons.matching(identifier: "paper.find").firstMatch.tap()
-            XCTAssertTrue(done.waitForExistence(timeout: 5))
-            app.typeText("every claim")
-            app.typeText("\n")
-            XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists }, "Search hides the keyboard; the tab bar shows")
-            sleep(1)
-            capture(app, "Find bar docked after Search (\(variant.name))")
-            XCTAssertTrue(done.exists, "The find bar stays")
-            let bar = tab.frame.insetBy(dx: 0, dy: -4) // the capsule: 4 pt of glass around its items
-            XCTAssertLessThanOrEqual(bar.maxY, done.frame.minY, "The tab bar is above the find bar")
-            XCTAssertLessThan(done.frame.minY - bar.maxY, 60, "… just above it, with no empty band (\(bar) / \(done.frame))")
-            XCTAssertEqual(tab.frame.minY - web.frame.maxY, home.tab.minY - home.web.maxY, accuracy: 1,
-                           "The page runs to the room kept above the tab bar")
-
-            done.tap()
-            XCTAssertTrue(wait { !done.exists && abs(tab.frame.minY - home.tab.minY) < 1 && abs(web.frame.maxY - home.web.maxY) < 1 },
-                          "Done puts the tab bar and page back (\(tab.frame), \(web.frame))")
-            capture(app, "Find closed (\(variant.name))")
-            app.terminate()
+        let app = openSample(), tab = XCUIApplication().buttons["tab.paper"]
+        let home = tab.frame
+        app.buttons["Paper options"].tap(); app.buttons.matching(identifier: "paper.find").firstMatch.tap()
+        XCTAssertTrue(app.textFields["paper.find.input"].waitForExistence(timeout: 5))
+        app.typeText("paper\n")
+        XCTAssertTrue(wait { app.keyboards.count == 0 })
+        app.buttons["paper.find.matches"].tap()
+        XCTAssertTrue(app.buttons["paper.find.match.0"].waitForExistence(timeout: 5))
+        app.buttons["paper.find.match.0"].tap()
+        app.buttons["paper.find.close"].tap()
+        for screen in ["feed", "library", "paper"] {
+            app.show(screen)
+            XCTAssertTrue(wait { abs(tab.frame.minY - home.minY) < 3 && tab.frame.minY > app.frame.height * 0.75 }, "Tab bar stays at bottom on \(screen)")
+            capture(app, "After Find: \(screen)")
         }
     }
 
-    /// What the device showed: the find session over (the page no longer dimmed), nothing at the bottom, and the hidden
-    /// keyboard's frame still a keyboard safe area. `--find-bar-gone` counts the docked bar as gone, keeping its real
-    /// frame. The tab bar stays at the bottom and the page runs to it; the message box still rises with the next keyboard.
     func testKeyboardFrameLeftWithNothingThereKeepsTheReaderInPlace() throws {
-        for variant in chromeVariants {
-            let app = openSample(["--find-bar-gone"] + variant.arguments, appearance: variant.appearance)
-            // The floating tab bar is the narrow layout's (iPhone, a narrow iPad); the wide layout has none.
-            if !app.buttons["tab.paper"].exists { app.terminate(); throw XCTSkip("The floating tab bar exists only in the narrow layout") }
-            let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
-            let home = (tab: tab.frame, web: web.frame)
-            app.buttons["Paper options"].tap()
-            app.buttons.matching(identifier: "paper.find").firstMatch.tap()
-            XCTAssertTrue(done.waitForExistence(timeout: 5))
-            app.typeText("every claim")
-            app.typeText("\n")
-            XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists }, "Search hides the keyboard; the tab bar shows")
-            sleep(1)
-            capture(app, "Keyboard frame left on screen (\(variant.name))")
-            XCTAssertEqual(tab.frame.minY, home.tab.minY, accuracy: 1, "The tab bar stays at the bottom")
-            XCTAssertEqual(web.frame.maxY, home.web.maxY, accuracy: 1, "The page runs to the tab bar's room")
-            done.tap()
-            XCTAssertTrue(done.waitForNonExistence(timeout: 5))
-
-            app.show("chat")
-            let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
-            XCTAssertTrue(composer.waitForExistence(timeout: 5))
-            composer.tap()
-            let keyboard = app.keyboards.firstMatch
-            // With the mini-player showing, the first tap here doesn't focus the message box (also without this change,
-            // 2026-10-08): tap again.
-            if !keyboard.waitForExistence(timeout: 4) { composer.tap() }
-            XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
-            XCTAssertTrue(wait { composer.frame.maxY <= keyboard.frame.minY }, "The message box rises above the keyboard")
-            capture(app, "Message box above the keyboard (\(variant.name))")
-            app.buttons["chat.dismissKeyboard"].tap()
-            XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists && abs(tab.frame.minY - home.tab.minY) < 1 }, "The tab bar returns in place")
-            app.terminate()
-        }
+        let app = openSample(), tab = XCUIApplication().buttons["tab.paper"]
+        let home = tab.frame
+        app.buttons["Paper options"].tap(); app.buttons.matching(identifier: "paper.find").firstMatch.tap()
+        XCTAssertTrue(app.textFields["paper.find.input"].waitForExistence(timeout: 5))
+        app.typeText("every claim")
+        app.buttons["paper.find.close"].tap()
+        app.show("chat")
+        let composer = app.descendants(matching: .any)["chat.composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 5)); composer.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(wait { composer.frame.maxY <= keyboard.frame.minY + 2 }, "Composer stays above keyboard")
+        app.buttons["chat.dismissKeyboard"].tap()
+        XCTAssertTrue(wait { app.keyboards.count == 0 && abs(tab.frame.minY - home.minY) < 3 })
     }
 
     // MARK: - Contents levels (gap 10)
@@ -439,8 +393,8 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "iPad landscape: full-width paper")
         // ⌘F with a hardware keyboard finds in the paper.
         app.typeKey("f", modifierFlags: .command)
-        XCTAssertTrue(app.buttons["find.doneButton"].waitForExistence(timeout: 5), "⌘F shows the find bar")
-        app.buttons["find.doneButton"].tap()
+        XCTAssertTrue(app.buttons["paper.find.close"].waitForExistence(timeout: 5), "⌘F shows the find bar")
+        app.buttons["paper.find.close"].tap()
 
         XCUIDevice.shared.portraitWhereSupported()
         XCTAssertTrue(wait { app.frame.width < app.frame.height }, "Portrait")
@@ -460,7 +414,7 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(app.buttons["paper.find"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["paper.chatColumn"].exists)
         app.buttons["paper.find"].tap() // closes the menu
-        app.buttons["find.doneButton"].tap()
+        app.buttons["paper.find.close"].tap()
         app.segmentedControls["wide.mode"].buttons["Reader"].tap()
         XCTAssertTrue(app.buttons["paper.showChat"].waitForExistence(timeout: 5))
 

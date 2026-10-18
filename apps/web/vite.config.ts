@@ -79,7 +79,8 @@ function readerFrame(backend: string, auth: string): Plugin {
       // would refuse anyway; Pages joins it with the per-path Cache-Control values below.
       const lines = ['/*', ...Object.entries(values).map(([k, v]) => `  ${k}: ${v}`), ...(backend.startsWith('https:') ? ['  Strict-Transport-Security: max-age=31536000'] : []),
         '  Cache-Control: no-transform',
-        '', '/index.html', '  Cache-Control: no-cache', '', '/', '  Cache-Control: no-cache', '', '/assets/*', '  Cache-Control: public, max-age=31536000, immutable', ''];
+        '', '/index.html', '  Cache-Control: no-cache', '', '/', '  Cache-Control: no-cache', '', '/assets/*', '  Cache-Control: public, max-age=31536000, immutable',
+        '', '/.well-known/apple-app-site-association', '  Content-Type: application/json', '  Cache-Control: public, max-age=3600', ''];
       this.emitFile({ type: 'asset', fileName: '_headers', source: lines.join('\n') });
     },
   };

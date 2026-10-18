@@ -43,7 +43,7 @@ describe('native paper tag parity', () => {
     const paper = item({ metadata: { title: 'Paper', authors: [], categories: ['cs.LG'] }, tags: ['Machine learning'], hidden_tags: ['machine LEARNING'] });
     expect(effectiveTags(paper)).toEqual([]);
     expect(rows([paper])[0].tags).toEqual([]);
-    expect(rows([item({ metadata: paper.metadata })])[0].tags).toEqual(['Machine learning']);
+    expect(rows([item({ metadata: paper.metadata })])[0].tags).toEqual([]); // Generic categories are not paper keywords.
     expect(rows([item({ metadata: paper.metadata, hidden_tags: ['Machine learning'] })])[0].tags).toEqual([]);
   });
   it('uses only other visible papers’ personal tags, ranked by use', () => {

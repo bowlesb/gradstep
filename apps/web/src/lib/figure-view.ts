@@ -104,6 +104,10 @@ export function figureName(bundle: VerifiedBundle, figureID: string): string {
 
 /** A crop as CSS: the whole sent image as the box's background, scaled so the box fills its frame. `aspect` is the
  * box's width over its height in pixels of the sent image. Pure arithmetic, so the crop costs nothing beyond the box. */
+export function displayBox(box: FigureBox): FigureBox {
+  const margin = 0.02, x = Math.max(0, box.x - margin), y = Math.max(0, box.y - margin);
+  return { x, y, w: Math.min(1, box.x + box.w + margin) - x, h: Math.min(1, box.y + box.h + margin) - y };
+}
 export function cropStyle(box: FigureBox, image: { width: number; height: number }): { aspect: number; size: string; position: string } {
   const pct = (n: number) => `${Math.round(n * 10_000) / 100}%`;
   const at = (start: number, side: number) => side >= 1 ? 0 : Math.min(1, Math.max(0, start / (1 - side)));

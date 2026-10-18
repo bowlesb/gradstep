@@ -56,8 +56,8 @@ describe('frame messages added for the large-screen reader', () => {
       .toEqual({ type: 'headings', items: [{ id: 'a', title: 'A', depth: 2 }, { id: 'b', title: 'B' }] });
   });
   it('validates find results and forwarded shortcuts', () => {
-    expect(readFrameMessage({ type: 'find', count: 12, index: 3 })).toEqual({ type: 'find', count: 12, index: 3 });
-    expect(readFrameMessage({ type: 'find', count: 0, index: 0 })).toEqual({ type: 'find', count: 0, index: -1 });
+    expect(readFrameMessage({ type: 'find', count: 12, index: 3 })).toEqual({ type: 'find', count: 12, index: 3, matches: [] });
+    expect(readFrameMessage({ type: 'find', count: 0, index: 0 })).toEqual({ type: 'find', count: 0, index: -1, matches: [] });
     expect(readFrameMessage({ type: 'find', count: 2, index: 2 })).toBeNull();
     expect(readFrameMessage({ type: 'find', count: 5000, index: 1 })).toBeNull();
     expect(readFrameMessage({ type: 'key', key: 'find' })).toEqual({ type: 'key', key: 'find' });

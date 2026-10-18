@@ -32,6 +32,7 @@ enum LibraryPresentationRow: Sendable {
                 canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue,
                 sourceURL: item.sourceURL)
             paper.catalogTags = item.tags ?? []; paper.ownTags = item.userTags ?? []; paper.hiddenTags = item.hiddenTags ?? []
+            paper.tagsCustomized = !paper.ownTags.isEmpty || !paper.hiddenTags.isEmpty
             paper.tags = item.effectiveTags
             return .item(.init(paper: paper, createdSequence: item.createdSequence, canReadStructured: item.canReadStructured))
         case .import(let value):

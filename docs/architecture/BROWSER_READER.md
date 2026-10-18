@@ -1,5 +1,21 @@
 # Browser reader
 
+## Build 70 feedback parity (2026-10-18; release candidate 71)
+
+The shared reader bridge now owns Find highlights/matches for both apps and browser; the browser toolbar adds
+an occurrence list beside previous/next. Closing it preserves the logical reading location. References jump
+without scrolling animation. Figure fullscreen, citation return and explainer-to-Chat promotion preserve the
+same composer and do not send another request. The complete panel prompt and 2% display margin replace thin
+crops; extraction quality still requires the whole-figure fallback and inspection.
+
+Settings offers cloud defaults for general/paper/equation/figure conversations; explicit conversation choices
+win. Search supports optional bounded AND field criteria and Find similar. Keywords use specific title/abstract
+terms with provenance/Edit, preserving user edits. Public `/p/arxiv/{id}` and `/p/doi/{encoded-doi}` routes open an
+installed paper or Search, retaining the pending identity across sign-in and never importing automatically.
+The app-domain AASA uses the actual shared iOS/Mac application identifier; hosting/signature readback is required
+before release. Physical iPhone universal-link behavior is unverified while device testing is paused.
+
+
 2026-10-13 owner direction: the [HTML-first/device-only PDF contract](HTML_FIRST_READER.md) supersedes server PDF
 upload/conversion paths in this document. Keep the current workspace and chat interactions. Implement the arXiv
 HTML profile, local bundle storage and versioned local-text chat; verify direct HTML/asset CORS before promising

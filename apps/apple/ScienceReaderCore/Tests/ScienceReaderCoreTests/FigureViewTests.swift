@@ -92,6 +92,17 @@ import Testing
         #expect(!FigureWalkthrough.Box(x: 0.2, y: 0.2, w: 0.9, h: 0.1).isValid)
     }
 
+    @Test func displayedPanelKeepsNearbyAxisTextAndClampsAtImageEdges() throws {
+        // FDE-Gym Figure 5's live detail stopped at 49%, clipping the final label near the centre.
+        let original = FigureWalkthrough.Box(x: 0, y: 0, w: 0.49, h: 0.98)
+        let shown = try #require(original.displayBox.pixels(width: 1000, height: 400))
+        #expect(shown.x == 0 && shown.y == 0)
+        #expect(shown.x + shown.width >= 510 && shown.height == 400)
+        #expect(original.w == 0.49, "Stored model geometry is unchanged")
+        let other = try #require(FigureWalkthrough.Box(x: 0.5, y: 0.01, w: 0.49, h: 0.98).displayBox.pixels(width: 1000, height: 400))
+        #expect(other.x <= 480 && other.x + other.width == 1000 && other.height == 400)
+    }
+
     @Test func theRequestIsTheChatsOwnWithTheFigureAndNoConversationExtras() throws {
         let bundle = try bundle()
         let context = try LocalPaperChatContext(reference: try SourcePaperReference(membershipID: UUID(), sourceID: "2601.01234", revision: 2), bundle: bundle)

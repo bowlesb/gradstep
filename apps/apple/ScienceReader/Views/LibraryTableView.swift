@@ -418,6 +418,8 @@ struct LibraryRowActions: View {
     var body: some View {
         switch entry {
         case .paper(let paper):
+            Button("Find similar papers", systemImage: "doc.text.magnifyingglass") { model.findSimilarPapers(paper) }
+            PaperShareMenu(paper: paper)
             if model.deviceCopy(for: paper) == .cloud {
                 if model.isPreparingOnDevice(paper) {
                     Button("Stop downloading", systemImage: "xmark.circle") { model.cancelDevicePreparation(paper) }

@@ -937,3 +937,11 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .crop-zoom-controls { display:flex; align-items:center; justify-content:flex-end; gap:4px; font-size:12px; }
 .crop-zoom-controls button { width:32px; height:32px; }
 .zoom-crop .figure-crop { margin:0; }
+
+/* Build 70 feedback: occurrence navigation and complete figure inspection. */
+.find-occurrences{max-height:45dvh;overflow:auto;padding:8px;background:var(--surface);border-bottom:1px solid var(--line)}
+.find-occurrences button{display:block;width:100%;text-align:left;padding:12px;border-bottom:1px solid var(--line);background:transparent;color:var(--text)}
+.advanced-search{padding:12px 0}.advanced-search summary{cursor:pointer;font-weight:600}.search-criterion{display:flex;gap:8px;margin:8px 0}.search-criterion input{min-width:0;flex:1}.advanced-search>button{margin-right:8px}
+.fullscreen-figure{width:calc(100vw - 24px)!important;max-width:none!important;height:calc(100dvh - 24px);max-height:none!important}
+.fullscreen-figure .figure-frame{height:calc(100dvh - 120px)!important}.fullscreen-figure .zoom-crop{max-height:calc(100dvh - 150px);overflow:auto}
+.sheet-top-start{flex:1}.explainer-return{align-self:flex-start;margin:6px 12px}.feed-actions{align-self:center}

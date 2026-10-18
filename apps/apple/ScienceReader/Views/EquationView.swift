@@ -39,6 +39,7 @@ struct EquationViewContext {
 enum EquationViewOutcome {
     case paragraph(paperID: UUID, marker: Int)
     case askInChat(EquationViewContext)
+    case continueChat
 }
 
 /// The view's two requests: the symbols (on opening) and the background (on its button), each kept on the device.
@@ -220,7 +221,10 @@ struct EquationView: View {
                         ? ExplainAction(identifier: "equation.explain", hint: "Choose Cloud AI or Local AI to describe this equation.") { choosingAI = true }
                         : nil
                 },
-                close: { finish(nil) })
+                openChat: ExplainAction(identifier: "equation.openInChat", hint: "Continue this conversation in Chat.") {
+                    guard let chatToken, let session else { return }
+                    model.promoteContextualChat(chatToken, explanation: equationExplanation(session)); finish(.continueChat)
+                }, close: { finish(nil) })
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .frame(minWidth: Platform.isMac ? 560 : nil, minHeight: Platform.isMac ? 640 : nil)
@@ -255,6 +259,12 @@ struct EquationView: View {
                 .presentationDetents([.large])
                 .macSheetKeys()
         }
+    }
+
+    private func rememberReturn() {
+        guard let context = session?.context else { return }
+        model.rememberExplainer(paperID: context.paperID, manifest: context.bundle.manifestSHA256,
+            item: context.equationID, label: context.label, equation: true)
     }
 
     private func composer(_ session: EquationSession) -> some View {
@@ -385,7 +395,7 @@ struct EquationView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(symbol.meaning).fixedSize(horizontal: false, vertical: true)
                 if let paragraph = symbol.paragraph, symbol.source == .paper {
-                    Button("From the paper ¶\(paragraph)") { finish(.paragraph(paperID: paperID, marker: paragraph)) }
+                    Button("From the paper ¶\(paragraph)") { rememberReturn(); finish(.paragraph(paperID: paperID, marker: paragraph)) }
                         .font(.footnote).buttonStyle(.borderless)
                         .accessibilityLabel("From the paper, paragraph \(paragraph)")
                         .accessibilityHint("Shows that paragraph, with Back to return")
@@ -454,7 +464,7 @@ struct EquationView: View {
 
     private func cite(_ session: EquationSession) -> ChatCiteHandler {
         let paperID = session.context.paperID
-        return { marker in finish(.paragraph(paperID: paperID, marker: marker)) }
+        return { marker in rememberReturn(); finish(.paragraph(paperID: paperID, marker: marker)) }
     }
 }
 
@@ -599,28 +609,28 @@ struct ContextualConversationScroll<Content: View>: View {
                 }
                 // Native attributed text can finish its layout after the final stream event.
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                    if followsAnswer, model.ownsContextualChat(token), !model.chatTranscriptMessages.isEmpty {
+                    if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatTranscriptMessages.isEmpty {
                         proxy.scrollTo(bottom, anchor: .bottom)
                     }
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                if followsAnswer, model.ownsContextualChat(token), !model.chatTranscriptMessages.isEmpty {
+                if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatTranscriptMessages.isEmpty {
                     proxy.scrollTo(bottom, anchor: .bottom)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(DragGesture().onChanged { _ in followsAnswer = false })
             .onChange(of: model.chatTranscriptMessages.last?.id) { _, _ in
-                guard model.ownsContextualChat(token) else { return }
+                guard (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)) else { return }
                 followsAnswer = true
                 withAnimation { proxy.scrollTo(bottom, anchor: .bottom) }
             }
             .onChange(of: model.chatTranscriptMessages.last?.payload.text) { _, _ in
-                if followsAnswer, model.ownsContextualChat(token) { proxy.scrollTo(bottom, anchor: .bottom) }
+                if followsAnswer, (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)) { proxy.scrollTo(bottom, anchor: .bottom) }
             }
             .onAppear {
-                if model.ownsContextualChat(token), !model.chatTranscriptMessages.isEmpty { proxy.scrollTo(bottom, anchor: .bottom) }
+                if (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)), !model.chatTranscriptMessages.isEmpty { proxy.scrollTo(bottom, anchor: .bottom) }
             }
         }
     }
@@ -632,7 +642,7 @@ struct ContextualChatThread: View {
     let onCite: ChatCiteHandler
     @ScaledMetric(relativeTo: .body) private var size = 17.0
     var body: some View {
-        if model.ownsContextualChat(token) {
+        if (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)) {
             let messages = model.chatTranscriptMessages
             if !messages.isEmpty { Divider().padding(.vertical, 8) }
             ForEach(messages, id: \.id) { message in

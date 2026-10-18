@@ -93,6 +93,12 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["figureView.section.2.crop"].exists, "a part without a box has no crop")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
         capture(app, "Figure walkthrough")
+        let fullscreen = app.buttons["figureView.fullscreen"].firstMatch
+        XCTAssertTrue(fullscreen.exists); fullscreen.tap()
+        XCTAssertTrue(app.buttons["figureView.fullscreen.close"].waitForExistence(timeout: 5))
+        capture(app, "Figure fullscreen before zoom")
+        app.buttons["figureView.fullscreen.close"].tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 5), "Fullscreen preserves the explanation")
 
         // "Back up a bit": the part again, more simply, under it.
         partMenu(app, 1).tap()
@@ -149,12 +155,8 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The paper is shown")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "doesn’t have")).firstMatch.waitForExistence(timeout: 2),
                        "The paragraph is found")
-        if app.buttons["reader.citation.back"].exists { app.buttons["reader.citation.back"].tap() }
-
-        // Reopened: the walkthrough and the simpler part kept on the device show at once, no new request.
-        openFigureOne(app)
-        app.buttons["figureView.explain"].tap()
-        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        // Return directly to the same saved explainer, without a model picker or another request.
+        XCTAssertTrue(app.buttons["reader.explainer.back"].waitForExistence(timeout: 5)); app.buttons["reader.explainer.back"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 3), "kept walkthrough")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.simpler"].exists, "kept simpler part")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.2.detail"].exists, "kept extract")
@@ -162,7 +164,7 @@ final class FigureViewJourneyTests: XCTestCase {
 
         // Ask in chat about one part: the paper's chat, the part's text as the passage, nothing sent.
         partMenu(app, 1).tap()
-        menuItem(app, "figureView.askAbout", "Ask in chat about this").tap()
+        menuItem(app, "figureView.askAbout", "Ask about this part").tap()
         let composer = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 8), "The chat opens")
         XCTAssertTrue(wait(5) { (composer.value as? String ?? "").contains("Left half") },
@@ -170,6 +172,12 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
                        "nothing is sent")
         capture(app, "Ask in chat about a part")
+        app.buttons["figureView.openInChat"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.promotedContext"].waitForExistence(timeout: 5))
+        let promotedComposer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(promotedComposer.waitForExistence(timeout: 5))
+        XCTAssertTrue((promotedComposer.value as? String ?? "").contains("Left half"), "Promotion preserves the draft")
+        capture(app, "Continue the same figure conversation in Chat")
     }
 
     /// The figure page's own Ask in chat: the figure's caption is the passage (in dark mode, with the walkthrough seen first).

@@ -90,6 +90,18 @@ test('invalid CSP, missing HSTS/no-transform, and leaked credentials block uploa
   }
 });
 
+test('paper-link association permits only its JSON type and bounded cache headers', t => {
+  for (const extra of ['', '\n  Content-Security-Policy: default-src *', '\n  X-Content-Type-Options: invalid']) {
+    const f = fixture(t);
+    f.afterBuild(directory => {
+      const path = join(directory, '_headers');
+      writeFileSync(path, readFileSync(path, 'utf8') + '\n/.well-known/apple-app-site-association\n  Content-Type: application/json\n  Cache-Control: public, max-age=3600' + extra + '\n');
+    });
+    if (extra) assert.throws(() => deployWeb('app', f.options), /association headers/);
+    else assert.equal(deployWeb('app', f.options).pagesProject, 'gradstep-app');
+  }
+});
+
 test('route rules cannot detach or override inherited security headers', t => {
   for (const header of ['Content-Security-Policy', 'Strict-Transport-Security', 'X-Content-Type-Options', 'Cache-Control']) {
     for (const route of ['/index.html', '/assets/*']) {
@@ -202,4 +214,23 @@ test('a worktree deploys with the main checkout\'s secrets and live-release snap
   assert.equal(sharedRoot(worktree, run), main);
   assert.equal(sharedRoot(main, () => { throw new Error('not asked'); }), main, 'a checkout with its own secrets uses them');
   assert.equal(sharedRoot(worktree, () => { throw new Error('not a git checkout'); }), worktree);
+});
+
+test('live universal-link admission rejects HTML fallback, redirects and a different application identity', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'gradstep-association-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(join(directory, '.well-known'));
+  writeFileSync(join(directory, 'index.html'), '<html>fixture</html>');
+  const document = JSON.stringify({applinks:{details:[{appIDs:['TEAM.reader'],components:[{'/':'/p/*'}]}]}});
+  writeFileSync(join(directory, '.well-known/apple-app-site-association'), document);
+  const serve = (status, type, body) => async (url, options) => {
+    if (!url.includes('apple-app-site-association')) return {text:async()=>'<html>fixture</html>'};
+    assert.equal(options.redirect, 'manual');
+    return {status, headers:new Map([['content-type',type]]),text:async()=>body};
+  };
+  const options = {wait:async()=>{},log:()=>{}};
+  await verifyLive(directory, 'app.example', {...options,fetchImpl:serve(200,'application/json',document)});
+  for (const [status,type,body] of [[200,'text/html','<html>fallback</html>'],[302,'application/json',document],[200,'application/json','{}']]) {
+    await assert.rejects(verifyLive(directory,'app.example',{...options,fetchImpl:serve(status,type,body)}), /app association/);
+  }
 });

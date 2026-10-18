@@ -38,7 +38,7 @@ export interface SearchResult {
 
 export type SearchPlan =
   | { kind: 'id'; sourceID: string; revision: number | null }
-  | { kind: 'text'; text: string; words: string[]; phrase: string | null; author?: string };
+  | { kind: 'text'; text: string; words: string[]; phrase: string | null; author?: string; fields?: {field: 'title' | 'author' | 'abstract' | 'year'; value: string}[] };
 export type SearchRole = 'id' | 'relevance' | 'phrase' | 'cited' | 'broad';
 export type SearchEngine = 'arxiv' | 'datacite';
 /** `source`: who answers it, and so how it is read (the arXiv engine also asks DataCite for `cited` and `broad`). */
@@ -61,6 +61,21 @@ export function planSearch(raw: string): SearchPlan | null {
   if (id) {
     const sourceID = id[1].replace(/^([a-z-]+)\.([a-z]{2})\//i, (_, a: string, b: string) => `${a.toLowerCase()}.${b.toUpperCase()}/`).replace(/^([a-z-]+)\//i, (m: string) => m.toLowerCase());
     if (isArxivSourceID(sourceID)) return { kind: 'id', sourceID, revision: id[2] ? Number(id[2]) : null };
+  }
+  // The optional field UI emits a small quoted grammar, never raw index syntax.
+  if (/^(title|abstract|year):|^author:\s*"/i.test(text)) {
+    const fields: NonNullable<Extract<SearchPlan, {kind:'text'}>['fields']> = [];
+    let rest = text;
+    while (rest.trim()) {
+      const match = /^\s*(title|author|abstract|year):\s*"([^"]{1,80})"/i.exec(rest);
+      if (!match || fields.length >= 4) return null;
+      const field = match[1].toLowerCase() as typeof fields[number]['field'];
+      const value = match[2].replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim();
+      if (!value || (field === 'year' && !/^(19|20)\d{2}(?:-(19|20)\d{2})?$/.test(value))) return null;
+      if (field === 'year' && Number(value.slice(0,4)) > Number(value.slice(-4))) return null;
+      fields.push({field,value}); rest=rest.slice(match[0].length);
+    }
+    return {kind:'text',text,words:[],phrase:null,fields};
   }
   // The app's explicit author action, never arbitrary index syntax. Names remain data in quoted fields.
   if (/^author:/i.test(text)) {
@@ -92,6 +107,9 @@ export function arxivSearchRequests(plan: SearchPlan): SearchRequests {
   if (plan.kind === 'id') {
     return { requests: [{ role: 'id', source: 'arxiv', url: arxivURL({ id_list: `${plan.sourceID}${plan.revision ? `v${plan.revision}` : ''}`, max_results: '1' }) }], broad: null };
   }
+  if (plan.fields) return {requests:[{role:'relevance',source:'arxiv',url:arxivURL({search_query:plan.fields.map(({field,value}) =>
+    field === 'year' ? `submittedDate:[${value.slice(0,4)}01010000 TO ${value.slice(-4)}12312359]` : `${{title:'ti',author:'au',abstract:'abs'}[field]}:"${value}"`).join(' AND '),
+    max_results:String(SEARCH_CANDIDATES),sortBy:'relevance',sortOrder:'descending'})}],broad:null};
   if (plan.author) return { requests: [{ role: 'relevance', source: 'arxiv', url: arxivURL({ search_query: `au:"${plan.author}"`,
     max_results: String(SEARCH_CANDIDATES), sortBy: 'submittedDate', sortOrder: 'descending' }) }], broad: null };
   const field = (w: string) => `all:${w.includes('-') ? `"${w}"` : w}`;
@@ -160,6 +178,8 @@ export function dataciteSearchRequests(plan: SearchPlan): SearchRequests {
   if (plan.kind === 'id') return { requests: [{ role: 'id', source: 'datacite', url: `${DATACITE_API}/dois/10.48550/arXiv.${plan.sourceID}` }], broad: null };
   // DataCite commonly stores "Family, Given", while the byline is "Given Family". Require every name
   // term in the author field without imposing byline word order; never fall back to titles/topics.
+  if (plan.fields) return {requests:[{role:'relevance',source:'datacite',url:dataciteSearchURL(plan.fields.map(({field,value}) =>
+    field === 'year' ? `publicationYear:[${value.slice(0,4)} TO ${value.slice(-4)}]` : `${{title:'titles.title',author:'creators.name',abstract:'descriptions.description'}[field]}:(${value.split(' ').map(word=>`"${word}"`).join(' AND ')})`).join(' AND '),SEARCH_CANDIDATES,'relevance')}],broad:null};
   if (plan.author) return { requests: [{ role: 'relevance', source: 'datacite', url: dataciteSearchURL(
     `creators.name:(${plan.words.map(word => `"${word}"`).join(' AND ')})`, SEARCH_CANDIDATES, '-published') }], broad: null };
   const strict = plan.words.map(dataciteTerm).join(' ');
@@ -212,7 +232,7 @@ export function explainSearch(plan: SearchPlan, lists: Partial<Record<SearchRole
   { result: SearchResult; score: number; factors: SearchFactors }[] {
   if (plan.kind === 'id') return (lists.id ?? []).filter(r => r.source_id === plan.sourceID).slice(0, 1)
     .map(({ citations: _, ...result }) => ({ result, score: 1, factors: { relevance: 1, title: 1, field: 1, exact: 1, original: 1, known: 1 } }));
-  if (plan.author) return (lists.relevance ?? []).slice(0, limit).map(({ citations: _, ...result }, i) => ({ result, score: 1 / (i + 1),
+  if (plan.author || plan.fields) return (lists.relevance ?? []).slice(0, limit).map(({ citations: _, ...result }, i) => ({ result, score: 1 / (i + 1),
     factors: { relevance: 1 / (i + 1), title: 1, field: 1, exact: 1, original: 1, known: 1 } }));
   const wanted = words(plan.text), content = [...new Set(wanted.filter(w => !STOP.has(w)))];
   const distinctive = content.filter(w => !GENERIC.has(w)).length ? content.filter(w => !GENERIC.has(w)) : content;

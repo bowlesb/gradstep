@@ -1,3 +1,5 @@
+import {parsePublicPaperLink,paperShareLinks} from '../lib/public-paper-link';
+import {effectiveTags} from '../lib/paper';
 import {useDevicePDFs} from './useDevicePDFs';
 import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
@@ -17,7 +19,7 @@ import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
 import { ChatOptionsDialog, type ChatOptionsView } from './ChatProfile';
 import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
-import type { ChatSession, Explanation } from '../lib/chat-session';
+import type { ChatSession, Explanation, AIUseCase } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
@@ -58,6 +60,7 @@ function usePath(): [string, (path: string) => void] {
 }
 
 export function App() {
+  useEffect(()=>{if(parsePublicPaperLink(location.href))try{sessionStorage.setItem('gradstep.publicLink',location.href);}catch{}},[]);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [oauth, setOAuth] = useState<{ working: boolean; issue: AuthIssue | null }>({ working: location.pathname === '/auth/callback', issue: null });
   const { session, generation } = useSyncExternalStore(auth.subscribe, auth.snapshot);
@@ -120,7 +123,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
   const readerCommands = useRef<ReaderCommands | null>(null);
   const readerActions = useLibraryActions(library, undefined, useMemo(() => ({ label: 'Reader version details', testID: 'reader-version-details',
-    applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() }), []));
+    applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() }), []),similar);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
@@ -236,6 +239,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       readerCache.set(key,bundle);while(readerCache.size>3)readerCache.delete(readerCache.keys().next().value!);return bundle;
     }}])));
   },[chat,library.entries,readerCache,account]);
+  useEffect(()=>{if(chat&&library.state==='ready')chat.retainPromotedContexts(new Set(library.entries.filter((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible).map(paperIdentity)));},[chat,library.state,library.entries]);
   // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter and the tag are
   // remembered between visits too, as the apps remember them (owner-approved follow-up, 2026-10-07).
   const [view, setViewState] = useState<LibraryQuery>(() => ({ ...INITIAL_QUERY,
@@ -256,6 +260,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // Paper search beside the library search (native RootView: the Library / arXiv switch under the field while
   // searching; PaperSearch.tsx). Each side keeps its own query, as native libraryQuery and discoveryQuery do.
   const paperSearch = usePaperSearch(account);
+  function similar(paper:LibraryPaper) {
+    const tags=effectiveTags(paper).slice(0,3); paperSearch.setQuery(tags.length?tags.join(' '):paper.metadata?.title??'');
+    setSearchExternal(true);navigate('/');paperSearch.run();
+  }
   const [searchExternal, setSearchExternal] = useState(false);
   const [searchFocus, setSearchFocus] = useState(false);
   const scope = useRef<HTMLDivElement>(null);
@@ -270,6 +278,15 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     setPassage(anchor ? { id: crypto.randomUUID(), documentID: paperIdentity(paper), anchor, at: Date.now() } : null);
   }), [navigate]);
 
+  const publicLinkHandled=useRef(false);
+  useEffect(()=>{
+    if(publicLinkHandled.current||library.state!=='ready')return;
+    let raw=location.href;try{raw=sessionStorage.getItem('gradstep.publicLink')??raw;}catch{}
+    const link=parsePublicPaperLink(raw);if(!link)return;publicLinkHandled.current=true;
+    try{sessionStorage.removeItem('gradstep.publicLink');}catch{}
+    const installed=library.entries.find((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible&&parsePublicPaperLink(paperShareLinks(p).gradstep??'')?.identity===link.identity);
+    if(installed)openReader(installed);else{paperSearch.setQuery(link.identity);setSearchExternal(true);navigate('/');paperSearch.run();}
+  },[library.state,library.entries,openReader,paperSearch,navigate]);
   useEffect(() => {
     let live = true;
     setActivityLoaded(false);
@@ -497,14 +514,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // The equation view's requests: the chat's consent, default model and cache for this paper (EQUATION_VIEW.md).
   const equationDocument = item ? paperIdentity(item) : null;
   const equationHost = useMemo<EquationHost | undefined>(() => chat && equationDocument ? {
-    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper" },
+    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper", onPromote:()=>{setChatMode('paper');latest.current.ws.show('right');} },
     consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
     saved: (manifest, equationID, action, choice) => chat.savedEquation(manifest, equationID, action, choice),
     run: (input, action, update, signal, choice) => chat.equation(equationDocument, input, action, update, signal, choice),
   } : undefined, [chat, equationDocument]);
   // The figure view's requests, the same way (FIGURE_VIEW.md).
   const figureHost = useMemo<FigureHost | undefined>(() => chat && equationDocument ? {
-    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper" },
+    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper", onPromote:()=>{setChatMode('paper');latest.current.ws.show('right');} },
     consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
     saved: (manifest, figureID, action, part, choice) => chat.savedFigure(manifest, figureID, action, part, choice),
     run: (input, action, update, signal, choice) => chat.figure(equationDocument, input, action, update, signal, choice),
@@ -529,7 +546,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </span>} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
       <div className="rail-body" role="tabpanel">
         {railTab === 'contents' ? <div ref={setContentsSlot} className="contents-slot"><p className="fine rail-note">The contents appear when the paper opens.</p></div>
-          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} query={view.query} prepared={prepared} />}
+          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} onSimilar={similar} query={view.query} prepared={prepared} />}
       </div>
     </>
   ) : (
@@ -577,7 +594,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
-      currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
+      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} />;
   }
 
   const nav = (to: string, label: string, icon: IconName, current: boolean, testID?: string) => (
@@ -729,7 +746,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view: false | ChatOptionsView; onView: (view: ChatOptionsView) => void; onClose: () => void }) {
   useChatUpdates(chat);
   const [visualAnswers, setVisualAnswers] = useState(() => readVisualAnswers());
-  return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
+  const [scenario,setScenario] = useState<AIUseCase>('general');
+  return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.scenarioProfile(scenario)} onChange={next => chat.setScenarioProfile(scenario,next)} scenarioControl={<label>Activity <select value={scenario} onChange={e=>setScenario(e.target.value as AIUseCase)}><option value="general">General chat</option><option value="paper">Paper chat</option><option value="equations">Equation explanations</option><option value="figures">Figures and tables</option></select></label>} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
 function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;

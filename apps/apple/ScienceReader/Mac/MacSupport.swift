@@ -248,17 +248,10 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows the find bar over the paper.
-    func showFind() {
-        _ = becomeFirstResponder()
-        findInteraction?.presentFindNavigator(showingReplace: false)
-    }
-
-    func findNext(backwards: Bool) {
-        guard let findInteraction else { return }
-        if findInteraction.searchText?.isEmpty ?? true { showFind() }
-        else if backwards { findInteraction.findPrevious() } else { findInteraction.findNext() }
-    }
+    var findRequested: (() -> Void)?
+    var findStepped: ((Bool) -> Void)?
+    func showFind() { findRequested?() }
+    func findNext(backwards: Bool) { findStepped?(backwards) }
 
     /// Selected text: the actions right after the system's Copy.
     override func buildMenu(with builder: any UIMenuBuilder) {

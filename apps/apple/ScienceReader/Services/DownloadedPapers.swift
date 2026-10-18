@@ -31,6 +31,7 @@ extension ReaderModel {
     /// Removes this device's copies of one paper (all revisions). The paper stays in the library; opening it downloads
     /// and prepares it again.
     func removeDownloads(_ ids: Set<String>) async {
+        forgetIndexedPapers(Set(papers.filter { ids.contains($0.sourceID ?? "") }.map(\.id)))
         let readers = localReaderRecords.filter { ids.contains($0.identity.sourceID) }
         let pdfs = localPaperRecords.filter { ids.contains($0.identity.sourceID) }
         do {

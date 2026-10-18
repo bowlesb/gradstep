@@ -1,5 +1,27 @@
 # Fast and slow tests
 
+## Build 70 feedback acceptance (2026-10-18)
+
+The Find regressions assert occurrence selection, non-mutating paper DOM/text, retained reading position and
+normal tab layout after dismissal. Native `PaperToolsTests` exercises the actual app-owned Find row and tab
+switches; `PaperWebViewTests` covers matches across inline elements. Browser `figure-view.spec.ts` checks
+highlight ranges and the same logical reading position after closing Find (raw scrollY can clamp when the
+viewport grows). Source-only papers must save/restore location without a legacy artifact ID.
+
+Figure journeys cover fullscreen/close, crop pinch, simpler/detail requests, citation return to the saved
+walkthrough, and promotion into the same main-chat composer with its unsent draft. Browser assertions check no
+extra request during navigation. `UnsentDraftTests` covers engine restoration, scenario defaults and preservation
+of an explicit profile after promotion. Core/browser crop tests replay the FDE-Gym live box that clipped a label.
+The actual seven-figure FDE-Gym bundle also renders offline at phone width in both themes: 25 headings, 63 equations,
+seven decoded images, preserved selection and no horizontal overflow. The actual padded live crop was viewed.
+
+Search tests inspect field-constrained requests (AND semantics), installed/missing public-link destinations and
+no automatic import. Device index tests cover bounded terms and per-paper removal; native Library tests cover
+customized/cleared keyword metadata and account retirement. `npm test` remains the routine tier. Run the exact
+13-case `npm run test:imports` gate with current source before every native upload; these UI/figure checks do not
+replace import acceptance. Simulator/local fixtures do not verify physical-phone resource behavior or live model
+quality. The one paid FDE-Gym Flash check is separately recorded; the local panel detector used no paid API.
+
 Local AI is an explicit native/Metal tier, never part of routine `npm test`: `swift test --package-path apps/apple/LocalAI --filter ModelStoreTests` checks local model integrity; Core's `LocalAIContextTests` checks
 bounded context and cloud-serialization rejection. `LocalAIJourneyTests` exercises the Cloud/Local choices and
 encrypted explanation reopen using a deterministic inference fixture. Actual MLX quality and memory are measured

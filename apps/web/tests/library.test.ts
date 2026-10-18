@@ -62,7 +62,7 @@ describe('library entries', () => {
       metadata: { title: 'x', authors: [], categories: [] }, metadata_recorded_at: at, source_url: 'https://arxiv.org/abs/1706.03762v1' }));
     const list = rows([plain, resolved]);
     expect(list).toHaveLength(1);
-    expect(list[0].tags).toEqual(['Machine learning', 'Natural language processing']);
+    expect(list[0].tags).toEqual(['DPO']);
     expect(list[0].year).toBe(2023);
   });
 });

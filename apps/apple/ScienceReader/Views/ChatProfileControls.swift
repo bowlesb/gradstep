@@ -10,14 +10,26 @@ import ScienceReaderCore
 /// The model and length pickers, each with what the chosen option means. `chat` edits the visible chat's choice;
 /// `defaults` edits what new chats start with.
 struct ChatChoiceControls: View {
-    enum Mode { case chat, defaults }
+    enum Mode: Equatable { case chat, defaults, scenario(AIUseCase), choice(AIUseCase) }
     @Bindable var model: ReaderModel
     let mode: Mode
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private var choice: ChatProfileChoice { mode == .chat ? model.chatProfile : model.chatDefaultProfile }
+    private var choice: ChatProfileChoice {
+        switch mode {
+        case .chat: model.chatProfile
+        case .defaults: model.chatDefaultProfile
+        case .scenario(let scenario): model.profileDefault(for: scenario)
+        case .choice(let scenario): model.pendingAIChoice ?? model.profileDefault(for: scenario)
+        }
+    }
     private func set(_ value: ChatProfileChoice) {
-        if mode == .chat { model.setChatProfile(value) } else { model.chatDefaultProfile = value }
+        switch mode {
+        case .chat: model.setChatProfile(value)
+        case .defaults: model.chatDefaultProfile = value
+        case .scenario(let scenario): model.setProfileDefault(value, for: scenario)
+        case .choice: model.pendingAIChoice = value
+        }
     }
     private var table: ChatProfileTable? { model.chatProfileTable }
     /// DeepSeek only when the server's table lists it.
@@ -105,6 +117,7 @@ struct AnswerOptionsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    Text(model.chatProfileReason).font(.footnote).foregroundStyle(.secondary)
                     ChatChoiceControls(model: model, mode: .chat)
                     defaults
                     NavigationLink { AIChatOptionsView(model: model).toolbar(.visible, for: .navigationBar) } label: {
@@ -136,11 +149,11 @@ struct AnswerOptionsSheet: View {
         let choice = model.chatProfile, table = model.chatProfileTable
         VStack(alignment: .leading, spacing: 6) {
             Divider()
-            let unchanged = ChatProfileText.summary(choice) == ChatProfileText.summary(model.chatDefaultProfile)
-            Text("New chats currently start with \(ChatProfileText.summary(model.chatDefaultProfile, table: table)).")
+            let unchanged = ChatProfileText.summary(choice) == ChatProfileText.summary(model.profileDefault(for: model.currentAIUseCase))
+            Text("New chats currently start with \(ChatProfileText.summary(model.profileDefault(for: model.currentAIUseCase), table: table)).")
                 .font(.footnote).foregroundStyle(.secondary)
                 .accessibilityIdentifier(unchanged ? "chat.profile.isDefault" : "chat.profile.defaultNote")
-            Button("Reset default settings") { model.chatDefaultProfile = choice }
+            Button("Use for new \(model.currentAIUseCase.title.lowercased())") { model.setProfileDefault(choice, for: model.currentAIUseCase) }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(unchanged || table == nil ? Color.secondary : Color.accentColor)
                 .disabled(unchanged || table == nil)

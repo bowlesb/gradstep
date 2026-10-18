@@ -1,5 +1,27 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Build 70 feedback repair — 2026-10-18 (backend deployed; client release pending)
+
+The earlier instructions explicitly encouraged a “thin slice” or tiny marker crop. They now ask for a complete
+panel with axes, tick labels, legend and annotations, and no box when uncertain. Narrative asks for the observed
+relationship and authors' interpretation separately from inference; descriptive tables do not invent results.
+The deployed Flash/OpenRouter route passed FDE-Gym Figure 5 walkthrough, simpler explanation and detail extraction
+on 2026-10-18 at 16:21–16:22 UTC. Actual ledger cost: $0.039627, three successful attempts, nine reader credits,
+no held test credits. The reviewed output has complete panels. A remaining edge-label clip led to a 2% display
+margin, clamped to the image, in native/browser crop rendering; stored model coordinates remain unchanged. This
+margin is not a guarantee of correct geometry. Whole-figure fullscreen remains available.
+
+Explainers now offer fullscreen before zoom, table-specific loading text, a return path after paper citations,
+and a Chat button beside Close. Chat promotion retains the composer, draft, selected model, image/caption and
+bounded prior explanation context; it does not send another request. Transient presentation context is bounded
+to eight conversations and cleared on account/paper retirement; it is not reconstructed after app restart.
+Original encrypted answer storage remains unchanged. Browser and native journey evidence is recorded in
+`IMPLEMENTATION_STATUS.md`. Per-activity defaults preserve explicit conversation choices and closing a sheet
+restores the previous chat's engine.
+
+A separate [local region detector investigation](LOCAL_FIGURE_REGIONS.md) and [measured experiment](../reviews/LOCAL_FIGURE_REGIONS_20261018.md)
+are complete. No detector/model weights are included in the client release.
+
 Native Local AI prototype (2026-10-17, TestFlight 68): AI Explainer first offers Cloud AI / Local AI. A vision-capable local model receives this figure bitmap, caption and bounded nearby/relevant paragraphs. The initial local result is prose; structured parts/crop proposals are not implemented. The comparison found numeric-reading errors despite tighter crops. See [LOCAL_AI.md](LOCAL_AI.md).
 
 Current provider verification, 2026-10-17: the deployed OpenRouter route passes the live DPO Figure 1 walkthrough,

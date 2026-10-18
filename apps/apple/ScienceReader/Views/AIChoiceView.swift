@@ -6,10 +6,16 @@ import SwiftUI
 struct AIChoiceView: View {
     @Bindable var model: ReaderModel
     var chat = false
+    var scenario: AIUseCase? = nil
     let needsVision: Bool
     let choose: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
-    private var cloudChoice: ChatProfileChoice { chat ? model.chatProfile : model.chatDefaultProfile }
+    @State private var selectionMade = false
+    @State private var initialized = false
+    private var useCase: AIUseCase { scenario ?? model.currentAIUseCase }
+    private var defaultProfile: ChatProfileChoice { model.profileDefault(for: useCase) }
+    private var defaultLocal: String? { model.localDefault(for: useCase) }
+    private var cloudChoice: ChatProfileChoice { chat ? model.chatProfile : model.pendingAIChoice ?? defaultProfile }
     private var local: LocalAIController { model.localAI }
 
     var body: some View {
@@ -17,12 +23,12 @@ struct AIChoiceView: View {
             List {
                 Section {
                     Button {
-                        if chat { model.setChatProfile(model.chatDefaultProfile) }
-                        choose(model.localAIDefaultModelID); dismiss()
+                        if chat { model.setChatProfile(defaultProfile) } else { model.pendingAIChoice = defaultProfile }
+                        select(defaultLocal)
                     } label: {
                         Label { VStack(alignment: .leading, spacing: 3) {
                             Text("Use default")
-                            Text(model.defaultAIName).font(.caption).foregroundStyle(.secondary)
+                            Text(defaultLocal.map { "\(local.name($0)) (local)" } ?? (model.chatProfileTable?.label(defaultProfile.model) ?? defaultProfile.model.label)).font(.caption).foregroundStyle(.secondary)
                             if let reason = defaultUnavailableReason {
                                 Text(reason).font(.caption).foregroundStyle(.secondary)
                             }
@@ -31,9 +37,10 @@ struct AIChoiceView: View {
                     .disabled(!defaultAvailable).accessibilityIdentifier("ai.chooseDefault")
                     NavigationLink {
                         List {
-                            ChatChoiceControls(model: model, mode: chat ? .chat : .defaults)
+                            ChatChoiceControls(model: model, mode: chat ? .chat : .choice(useCase))
                             Button("Use \(model.chatProfileTable?.label(cloudChoice.model) ?? cloudChoice.model.label)") {
-                                choose(nil); dismiss()
+                                if !chat { model.pendingAIChoice = cloudChoice }
+                                select(nil)
                             }.disabled(model.chatProfileTable == nil || model.chatProfilesRefreshing)
                                 .accessibilityIdentifier("ai.chooseCloud")
                         }.navigationTitle("Cloud models").navigationBarTitleDisplayMode(.inline)
@@ -48,7 +55,7 @@ struct AIChoiceView: View {
                             }
                             ForEach(installed) { option in
                                 let available = option.admitsCurrentMemory(hasImage: needsVision)
-                                Button { choose(option.id); dismiss() } label: {
+                                Button { select(option.id) } label: {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text("\(option.name) (local)")
                                         if !available { Text(option.memoryExplanation).font(.caption).foregroundStyle(.secondary) }
@@ -65,13 +72,23 @@ struct AIChoiceView: View {
             .navigationTitle("Choose model").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
-        .task { model.refreshChatProfiles(force: true); await local.refresh() }
+        .task {
+            if !initialized { initialized = true; if !chat { model.pendingAIChoice = nil } }
+            model.refreshChatProfiles(force: true); await local.refresh()
+        }
+        .onDisappear { if !chat, !selectionMade { model.pendingAIChoice = nil; model.pendingLocalAIChoice = nil } }
         .frame(minWidth: Platform.isMac ? 480 : nil, minHeight: Platform.isMac ? 500 : nil)
+    }
+
+    private func select(_ id: String?) {
+        selectionMade = true
+        if !chat { model.pendingLocalAIChoice = .some(id) }
+        choose(id); dismiss()
     }
 
     private var defaultAvailable: Bool { defaultUnavailableReason == nil }
     private var defaultUnavailableReason: String? {
-        if let id = model.localAIDefaultModelID {
+        if let id = defaultLocal {
             guard let option = local.models.first(where: { $0.id == id }) else { return "This model is no longer available. Choose another model." }
             if needsVision && !option.vision { return "This default reads text only. Choose a model that reads figures." }
             if !local.installed.contains(id) { return "Download this model in Settings → Local models, or choose another model." }
@@ -126,14 +143,19 @@ struct LocalAISettingsView: View {
                     Text(option.memoryExplanation).font(.footnote).foregroundStyle(.secondary)
                     if local.installed.contains(option.id) {
                         Label("Downloaded", systemImage: "checkmark.circle").foregroundStyle(.secondary)
-                        Button("Use as default") { model.localAIDefaultModelID = option.id; model.localAIModelID = option.id }
-                            .disabled(!option.admitsCurrentMemory(hasImage: option.vision) || model.localAIDefaultModelID == option.id)
+                        Menu("Use as default") {
+                            ForEach(AIUseCase.allCases.filter { $0 != .figures || option.vision }) { scenario in
+                                Button(scenario.title) { model.setLocalDefault(option.id, for: scenario) }
+                            }
+                        }
+                            .disabled(!option.admitsCurrentMemory(hasImage: option.vision))
                             .accessibilityIdentifier("ai.default.\(option.id)")
                         Button("Remove download", role: .destructive) {
                             Task {
                                 await local.remove(option)
                                 if !local.installed.contains(option.id) {
                                     if model.localAIDefaultModelID == option.id { model.localAIDefaultModelID = nil }
+                                    for scenario in AIUseCase.allCases where model.localDefault(for: scenario) == option.id { model.setLocalDefault(nil, for: scenario) }
                                     if model.localAIModelID == option.id { model.localAIModelID = nil }
                                 }
                             }

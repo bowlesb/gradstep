@@ -43,6 +43,7 @@ export type PaperSearch = ReturnType<typeof usePaperSearch>;
 
 export function PaperSearchView({ search, library, preparing, onAdded, onOpen, onLibrary }: { search: PaperSearch; library: Library;
   preparing?: Map<string, number | null>; onAdded?: (sourceID: string) => void; onOpen?: (sourceID: string) => void; onLibrary?: () => void }) {
+  const [criteria,setCriteria]=useState([{field:'title',value:''}]);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -63,7 +64,7 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
   let body;
   switch (search.state.kind) {
     case 'idle':
-      body = <div className="empty" data-testid="discover-idle"><Icon name="search" size={28} /><p><strong>Find papers</strong></p>
+      body = <div className="empty" data-testid="discover-idle"><Icon name="search" size={28} />
         <p className="muted">Search ML papers by title, author, topic or arXiv ID, then add a paper to your library.</p></div>;
       break;
     case 'searching':
@@ -87,6 +88,14 @@ export function PaperSearchView({ search, library, preparing, onAdded, onOpen, o
   }
   return <section className="feed paper-search" aria-labelledby="paper-search-title" data-testid="paper-search">
     <h1 id="paper-search-title" className="visually-hidden">ML paper search</h1>
+    <details className="advanced-search"><summary>Search by fields</summary>
+      {criteria.map((c,i)=><div className="search-criterion" key={i}><select aria-label="Field" value={c.field} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,field:e.target.value}:r))}>{['title','author','abstract','year'].map(f=><option key={f} value={f}>{f[0].toUpperCase()+f.slice(1)}</option>)}</select>
+        <input aria-label={`${c.field} criterion`} value={c.value} maxLength={60} placeholder={c.field==='year'?'2024 or 2020-2026':'Contains…'} onChange={e=>setCriteria(rows=>rows.map((r,j)=>j===i?{...r,value:e.target.value.replaceAll('"','')}:r))}/>
+        {criteria.length>1 && <button type="button" aria-label="Remove criterion" onClick={()=>setCriteria(rows=>rows.filter((_,j)=>i!==j))}>−</button>}</div>)}
+      <button type="button" className="secondary small" disabled={criteria.length>=4} onClick={()=>setCriteria(rows=>[...rows,{field:'title',value:''}])}>Add criterion</button>
+      <button type="button" className="primary small" disabled={criteria.every(c=>!c.value.trim())} onClick={()=>{search.setQuery(criteria.filter(c=>c.value.trim()).map(c=>`${c.field}:"${c.value}"`).join(' '));search.run();}}>Search</button>
+      <p className="fine">Results must match all criteria.</p>
+    </details>
     {body}
   </section>;
 }

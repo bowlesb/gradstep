@@ -7,22 +7,6 @@ struct RootView: View {
     /// A software keyboard covers the tab bar, as with the system tab bar, so
     /// the chat transcript keeps its space while typing.
     @State private var softwareKeyboardShown = false
-    /// What the last keyboard hide left on screen (TestFlight build 21: the tab bar and A−/A+ ~170 pt up, the paper cut
-    /// off above an empty band). After Search, WebKit's find bar stays docked where the keyboard was: UIKit reports the
-    /// keyboard hidden with its end frame still on screen, and SwiftUI keeps that frame as a keyboard safe area. The tab
-    /// bar was padded for the home indicator on top of it, and on a device the frame stayed once the bar had gone.
-    @State private var keyboardLeftover = KeyboardLeftover.none
-    /// The last keyboard shown was the find bar's: only its hide leaves a frame behind.
-    @State private var findKeyboard = false
-
-    private enum KeyboardLeftover {
-        case none
-        /// The find bar is docked: the tab bar sits just above it, the page above the tab bar.
-        case findBar
-        /// Nothing is there: the screens ignore the frame until the next keyboard.
-        case frame
-    }
-
     var body: some View {
         GeometryReader { geometry in
             // The Mac window is always the wide layout (its minimum width fits the panes).
@@ -31,7 +15,7 @@ struct RootView: View {
                 // Floating chrome (2026-10-07): the tab bar floats over the screen, whose content scrolls
                 // behind it; each screen keeps room for it (`tabBarSpace`) so its last row is reachable.
                 // Over a docked find bar, the bar is the bottom safe area: no home indicator below the tabs.
-                let safeBottom = keyboardLeftover == .findBar ? 0 : geometry.safeAreaInsets.bottom
+                let safeBottom = geometry.safeAreaInsets.bottom
                 // The podcast mini-player rides on the tab bar and takes part of its reserve (PodcastMiniPlayer).
                 let miniPlayer = model.podcasts.nowPlaying != nil
                 destination(model.tab)
@@ -46,7 +30,7 @@ struct RootView: View {
                                 .padding(.horizontal, DesignMetrics.margin)
                                 .padding(.bottom, ChromeMetrics.tabBarBottom(safeBottom: safeBottom))
                                 .frame(maxHeight: .infinity, alignment: .bottom)
-                                .ignoresSafeArea(keyboardLeftover == .frame ? [.container, .keyboard] : .container, edges: .bottom)
+                                .ignoresSafeArea(.container, edges: .bottom)
                         }
                     }
                     .onChange(of: model.generalChat) { _, general in
@@ -54,31 +38,22 @@ struct RootView: View {
                     }
             }
         }
-        // A frame left with nothing there: ignored here and inside each screen's NavigationStack (`tabBarSpace`).
-        .ignoresSafeArea(keyboardLeftover == .frame ? .keyboard : [], edges: .bottom)
         // Visual checks pin the appearance (`--appearance=`); nil follows the system.
         .preferredColorScheme(Platform.fixtureAppearance)
         #if DEBUG && FIXTURE_HOST
         .task { await VisualCapture.runIfRequested(model) }
         #endif
-        .environment(\.ignoresKeyboardFrame, keyboardLeftover == .frame)
         // On the root so the state stays true across wide/compact layout switches.
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             // A hardware keyboard's shortcut bar is short; keep the tabs then.
             let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
             softwareKeyboardShown = (frame?.height ?? 0) > 150
-            keyboardLeftover = .none
-            findKeyboard = findBarShown
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { keyboardHidden($0) }
-        // Again once hidden, when the find bar has settled whether it stays.
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { keyboardHidden($0) }
-        // The bar can go with no further keyboard notification (the device's page was no longer dimmed for find):
-        // its frame is then left with nothing there.
-        .task(id: keyboardLeftover) {
-            while keyboardLeftover == .findBar, (try? await Task.sleep(for: .milliseconds(500))) != nil {
-                if !findBarShown { keyboardLeftover = .frame }
-            }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in softwareKeyboardShown = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in softwareKeyboardShown = false }
+        .onChange(of: model.tab) { _, _ in
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            softwareKeyboardShown = false
         }
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         .overlay(alignment: .topTrailing) {
@@ -155,21 +130,6 @@ struct RootView: View {
             }
         }
     }
-
-    private func keyboardHidden(_ note: Notification) {
-        softwareKeyboardShown = false
-        let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .null
-        guard let screen = note.object as? UIScreen, !frame.isEmpty, frame.minY < screen.bounds.maxY else { keyboardLeftover = .none; return }
-        var barShown = findBarShown
-        #if DEBUG && FIXTURE_HOST
-        // UI tests: the device's case, the find bar's frame left once the bar had gone.
-        if ProcessInfo.processInfo.arguments.contains("--find-bar-gone") { barShown = false }
-        #endif
-        keyboardLeftover = barShown ? .findBar : findKeyboard ? .frame : .none
-    }
-
-    /// WebKit's find bar is over the paper.
-    private var findBarShown: Bool { ReaderWebView.paper?.findInteraction?.isFindNavigatorVisible == true }
 
     /// The tab bar: one glass capsule floating over the screen (2026-10-07).
     private var tabBar: some View {
@@ -458,6 +418,7 @@ struct LibraryView: View {
             if searching {
                 Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
                     .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
+                if model.searchExternal { AdvancedPaperSearch(model: model) }
             }
         }
         .modifier(HeaderWidth(fullWidth: tableShown))
@@ -1359,30 +1320,28 @@ struct SettingsView: View {
                     } header: { Text("AI credits") }
                 }
                 if model.chatTransport != nil {
+                    Section("AI defaults by activity") {
+                        ForEach(AIUseCase.allCases) { scenario in
+                            NavigationLink { AIScenarioDefaults(model: model, scenario: scenario) } label: {
+                                LabeledContent(scenario.title, value: model.localDefault(for: scenario).map { "\(model.localAI.name($0)) (local)" }
+                                    ?? (model.chatProfileTable?.label(model.profileDefault(for: scenario).model) ?? model.profileDefault(for: scenario).model.label))
+                            }.accessibilityIdentifier("settings.aiScenario.\(scenario.rawValue)")
+                        }
+                    }
                     // Owner, build 59: "it should say default options for new chats… the actual toggles belong with the
                     // rest of the toggles, all the info can stay in the special info section… accessible with another
                     // info icon".
                     Section {
-                        Picker("Default model", selection: Binding(get: { model.localAIDefaultModelID ?? "cloud" }, set: { id in
-                            model.localAIDefaultModelID = id == "cloud" ? nil : id
-                            model.localAIModelID = model.localAIDefaultModelID
-                        })) {
-                            Text("Cloud · \(model.chatProfileTable?.label(model.chatDefaultProfile.model) ?? model.chatDefaultProfile.model.label)").tag("cloud")
-                            ForEach(model.localAI.models.filter { model.localAI.installed.contains($0.id) || model.localAIDefaultModelID == $0.id }) { option in
-                                Text("\(option.name) (local)").tag(option.id).disabled(!model.localAI.installed.contains(option.id))
-                            }
-                        }.accessibilityIdentifier("settings.defaultAI")
                         NavigationLink { LocalAISettingsView(model: model) } label: {
                             LabeledContent("Local models", value: model.localAIDefaultModelID.map { model.localAI.name($0) } ?? "Downloads and device testing")
                         }.accessibilityIdentifier("settings.localModels")
-                        ChatChoiceControls(model: model, mode: .defaults).padding(.vertical, 4)
                         Toggle(isOn: $model.visualAnswers) {
                             LabelWithInfo(title: "Visual answers", info: "Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
                         }
                         .accessibilityIdentifier("settings.visualAnswers")
                     } header: {
                         HStack(spacing: 4) {
-                            Text("Default options for new chats")
+                            Text("AI options")
                             NavigationLink { AIChatOptionsView(model: model) } label: {
                                 Image(systemName: "info.circle").font(.system(size: 14)).frame(width: 30, height: 24)
                             }
@@ -1672,7 +1631,7 @@ struct DiscoveryList: View {
     var body: some View {
         switch model.discoveryState {
         case .idle:
-            ContentUnavailableView("Find papers", systemImage: "magnifyingglass",
+            ContentUnavailableView("Search by title, author or topic", systemImage: "magnifyingglass",
                                    description: Text("Search ML papers by title, author, topic or arXiv ID, then add a paper to your library."))
                 .accessibilityIdentifier("discover.idle")
         case .searching:
@@ -1721,7 +1680,7 @@ struct DiscoveryRow: View {
     @State private var adding = false
     @State private var expanded = false
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             // The Library rows' type scale (design audit F6): title, authors, then details.
             VStack(alignment: .leading, spacing: 4) {
                 Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)

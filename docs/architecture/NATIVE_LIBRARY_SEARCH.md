@@ -1,5 +1,16 @@
 # Native library search
 
+## Installed-paper body terms (2026-10-18; release candidate 71)
+
+`DevicePaperTextIndex` adds a disposable in-memory term set from installed verified bundles to the existing
+library search worker's snapshot. It bounds each paper at 500,000 text characters/10,000 distinct terms and the
+cache at 200 papers. It loads/decrypts one installed copy at a time off the UI thread and checks account/session
+and removal epochs before publishing. Queries still use the existing worker/generation fences. This bounded
+cache does not promise full-text coverage of every paper in an arbitrarily large library. No plaintext index is
+persisted. Paper content deletion, library removal and account retirement invalidate terms and pending work.
+Metadata keywords remain derived separately; this index is not yet a corpus-wide keyword ranker.
+
+
 Status, 2026-10-04: asynchronous integration and the optimized maximum-library rerun pass. The original baseline found an 812–828 ms main-thread no-match scan. LibraryView could request that computation several times per render. This slice changes scheduling and result ownership; matching, row fields and navigation remain the same.
 
 ## Matching and ownership

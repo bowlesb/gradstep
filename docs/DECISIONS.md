@@ -2,6 +2,37 @@
 
 Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Build 70 feedback: navigation, discovery and figure regions (2026-10-18; implementation in progress)
+
+The owner explicitly requests: a find occurrence list; direct reference jumps; Back to the exact figure/table
+explainer after a citation; a Chat icon that opens the same contextual conversation in the main chat; fullscreen
+figure/crop viewing; per-scenario AI defaults; optional field-based search; similar-paper discovery; two share
+choices; and specific, attributed, editable keywords before Introduction. Existing encrypted histories and
+per-chat explicit selections remain authoritative. No silent model/provider fallback or automatic paid calls.
+
+Find becomes an app-owned row with bounded, non-mutating text ranges, match highlights, previous/next and an
+occurrence table. This replaces the system find interaction whose keyboard/safe-area lifetime leaks across tabs.
+The reader location survives close/tab changes, and finding never creates a selection or alters paper bytes.
+Explainer citation return records paper, exact bundle/item and conversation independently of sheet dismissal;
+promotion into Chat transfers that same composer, preserving the previous draft and explanation context.
+
+Share has Source URL and Gradstep link. Public links carry only a normalized source identity/revision, never an
+account ID, token or private text: `https://app.gradstep.ai/p/arxiv/{id}` or `/p/doi/{encoded-doi}`. Optional
+future `figure`/`table` targets are reserved in a bounded fragment. Installed library membership opens the paper;
+otherwise open a search for that identity, without automatically importing it. Universal links need the signed
+Associated Domains entitlement and matching AASA plus a browser landing route before being claimed working.
+
+Keywords exclude generic artificial intelligence/machine learning tags. Distinguish author/source keywords,
+Gradstep-derived terms and user edits. Use a bounded, device-only in-memory inverted index over verified installed
+bundle text for discriminative terms and local search; it is rebuilt from encrypted bundles, has no plaintext
+persistent copy, and removes a paper synchronously on content removal/account retirement. No server upload.
+
+Investigate a dedicated local panel detector, independent of the chat model. Region coordinates bind to the
+original image digest/dimensions and normalized top-left coordinates. Preserve axes, labels and shared legends;
+low confidence keeps the full figure with visible uncertainty. Both cloud/local explainers and ordinary chat
+consume the same region artifact. No model ships until licensing, conversion, quality and resource checks pass;
+Mac/simulator evidence never substitutes for the paused physical-iPhone acceptance.
+
 ## Build 69 feedback: contextual AI and model management (2026-10-18; TestFlight 70 and browser deployed)
 
 The owner explicitly asks equation and figure explanations to share their view with conversational follow-ups,

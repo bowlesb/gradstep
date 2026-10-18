@@ -86,11 +86,12 @@ export function MenuButton({ icon, label, testID, className, disabled = false, t
 
 /** An information sheet's one top row (owner, build 62; docs/DESIGN.md "Sheet top row"): its controls at the start —
  * a title menu, the page's actions — and a round close X at the end. No Done, no separate action bar. */
-export function SheetTop({ children, onClose, closeLabel = 'Close', closeDisabled = false, testID }: {
-  children?: ReactNode; onClose: () => void; closeLabel?: string; closeDisabled?: boolean; testID?: string;
+export function SheetTop({ children, onClose, closeLabel = 'Close', closeDisabled = false, testID, trailing }: {
+  children?: ReactNode; onClose: () => void; closeLabel?: string; closeDisabled?: boolean; testID?: string; trailing?:ReactNode;
 }) {
   return <header className="sheet-top">
     <div className="sheet-top-start">{children}</div>
+    {trailing}
     <button type="button" className="icon-button sheet-close" onClick={onClose} disabled={closeDisabled} aria-label={closeLabel} title={closeLabel}
       data-testid={testID}><Icon name="close" /></button>
   </header>;

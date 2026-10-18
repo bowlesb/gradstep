@@ -83,12 +83,14 @@ enum ArxivTopics {
 /// names derived from its arXiv categories (the Feed chips' names).
 enum LibraryTags {
     static func tags(for paper: Paper) -> [String] {
-        let own = distinct(paper.tags)
-        return own.isEmpty && paper.sourceMembership == nil ? ArxivTopics.names(for: paper.keywords, limit: .max) : own
+        let own = distinct(paper.tags).filter(PaperKeywords.allowed)
+        if paper.tagsCustomized { return own }
+        let derived = PaperKeywords.derive(title: paper.title, abstract: paper.abstract)
+        return derived.isEmpty ? own : derived
     }
 
     static func tags(for item: LibraryImportRecord) -> [String] {
-        item.tagsCustomized == true || !(item.userTags ?? []).isEmpty ? (item.userTags ?? []) : ArxivTopics.names(for: item.metadata?.categories ?? [], limit: .max)
+        (item.tagsCustomized == true || !(item.userTags ?? []).isEmpty ? (item.userTags ?? []) : PaperKeywords.derive(title: item.metadata?.title ?? "", abstract: item.metadata?.abstract ?? "")).filter(PaperKeywords.allowed)
     }
 
     /// Trimmed, non-empty, first spelling of each kept (case-insensitive).

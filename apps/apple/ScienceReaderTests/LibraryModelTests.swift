@@ -444,6 +444,9 @@ final class LibraryModelTests: XCTestCase {
         let server = LibraryModelServer(), fixture = try fixture(server), model = fixture.model
         await model.start()
         var row = server.pending(state: 3, sourceOnly: true)
+        var metadata = try XCTUnwrap(row["metadata"] as? [String: Any])
+        metadata["title"] = "Direct Preference Optimization: DPO"
+        row["metadata"] = metadata
         row["added_at"] = "2026-10-02T09:15:00Z"; row["tags_customized"] = false
         server.deliver(server.changes([row], through: 3)); await model.refreshLibrary()
         let paper = try XCTUnwrap(model.papers.first { $0.sourceMembership != nil })

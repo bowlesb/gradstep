@@ -3,7 +3,7 @@
 // this chat; AI chat options (the account menu) sets the Default options for new chats, and its ⓘ, About AI chat
 // options, explains each model and its usual cost. Estimates and labels come from the server's published table; nothing here decides a price or limit
 // (the chat function holds and charges).
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { EFFORTS, effortOption, hasAutoEffort, LENGTHS, lengthOption, listedModels, MODEL_STRENGTHS, modelOption, modelProvider, offersModelLength,
   profileSummary, sameChoice, typicalEstimate, withChoice, type Estimate, type LengthChoice, type ModelChoice, type ProfileChoice, type ProfileTable } from '../lib/chat-profiles';
 import { Dialog, InfoTip } from './common';
@@ -59,14 +59,15 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
 }
 
 /** The chat's ⋯ › Answer options: Model, Length, Use for new chats and the link to About AI chat options. Nothing else. */
-export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoice, onChange, onMakeDefault, onRetry, onAbout }: {
-  open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; defaultChoice: ProfileChoice;
+export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoice, onChange, onMakeDefault, onRetry, onAbout, reason }: {
+  open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; defaultChoice: ProfileChoice; reason?:string;
   onChange: (choice: ProfileChoice) => void; onMakeDefault: (choice: ProfileChoice) => void; onRetry: () => Promise<void>; onAbout: () => void;
 }) {
   return <Dialog open={open} onClose={onClose} title="Answer options" className="answer-options">
     <div className="answer-options-body" data-testid="answer-options">
       <div className="profile-panel-heading"><h2>Answer options</h2>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close" size={14} /></button></div>
+      {reason && <p className="fine">{reason}</p>}
       <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />
       {!table && <p className="fine">Answer options couldn’t be loaded. Answers use Sonnet · Standard. <RetryOptions onRetry={onRetry} /></p>}
       <div className="answer-options-actions">
@@ -88,10 +89,10 @@ const range = (e: Estimate) => e.low === e.high ? `${e.low}` : `${e.low}–${e.h
  * usual credits per question from the server's published estimates. Answer options' "About AI chat options" opens the
  * About view directly. */
 export type ChatOptionsView = 'defaults' | 'about';
-export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers }: {
+export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, onChange, onRetry, visualAnswers, onVisualAnswers, scenarioControl }: {
   open: boolean; onClose: () => void; view: ChatOptionsView; onView: (view: ChatOptionsView) => void;
   table: ProfileTable | null; choice: ProfileChoice; onChange: (choice: ProfileChoice) => void; onRetry: () => Promise<void>;
-  visualAnswers?: boolean; onVisualAnswers?: (on: boolean) => void;
+  visualAnswers?: boolean; onVisualAnswers?: (on: boolean) => void; scenarioControl?:ReactNode;
 }) {
   const models = listedModels(table), auto = hasAutoEffort(table);
   if (view === 'defaults') return <Dialog open={open} onClose={onClose} title="AI chat options" className="chat-options">
@@ -101,6 +102,7 @@ export function ChatOptionsDialog({ open, onClose, view, onView, table, choice, 
         data-testid="chat-options-about"><Icon name="info" size={14} /></button>
     </div>
     <p className="fine">New chats in this browser start with these. Each chat can change them from its ⋯ menu › Answer options.</p>
+    {scenarioControl}
     <ChoicePicker table={table} choice={choice} onChange={onChange} autoFocus />
     {onVisualAnswers && <label className="check-row"><input type="checkbox" checked={visualAnswers ?? true} onChange={e => onVisualAnswers(e.target.checked)} data-testid="visual-answers" />
       <span className="with-info">Visual answers <InfoTip text="Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose." testID="visual-answers-info" /></span></label>}

@@ -17,10 +17,10 @@ struct TagEditorView: View {
 
     init(model: ReaderModel, paper: Paper) {
         self.model = model; self.paper = paper
-        _tags = State(initialValue: paper.tags)
+        _tags = State(initialValue: LibraryTags.tags(for: paper))
     }
 
-    private var changed: Bool { tags != paper.tags }
+    private var changed: Bool { tags != LibraryTags.tags(for: paper) }
     private var preventsDismissal: Bool { saving || changed || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var ownCount: Int { tags.filter { !PaperTags.contains(paper.catalogTags, $0) }.count }
     private var typed: String? { PaperTags.normalized(draft) }
@@ -31,7 +31,7 @@ struct TagEditorView: View {
     private var suggestions: [(name: String, detail: String?)] {
         var result: [(name: String, detail: String?)] = []
         func add(_ name: String, _ detail: String?) {
-            guard !PaperTags.contains(tags, name), !result.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
+            guard PaperKeywords.allowed(name), !PaperTags.contains(tags, name), !result.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
             result.append((name, detail))
         }
         let own = model.ownTagsInLibrary(excluding: paper.id)
@@ -49,6 +49,7 @@ struct TagEditorView: View {
 
     private func add(_ raw: String) {
         guard let text = PaperTags.normalized(raw) else { return }
+        guard PaperKeywords.allowed(text) else { issue = "Choose a specific method, dataset or topic instead of AI or machine learning."; return }
         draft = ""
         if PaperTags.contains(tags, text) { return }
         // Use the vocabulary's spelling when it is a vocabulary tag.

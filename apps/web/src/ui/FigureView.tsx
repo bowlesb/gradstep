@@ -8,10 +8,10 @@ import type { ProfileChoice } from '../lib/chat-profiles';
 import type { ContextualHost } from './ContextualChat';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
-import { cropStyle, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
+import { displayBox, cropStyle, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
 import { safeLink } from '../lib/markdown';
 import Answer from './Answer';
-import { MenuButton } from './common';
+import { Dialog, SheetTop, MenuButton } from './common';
 import { Icon } from './icons';
 
 /** What the reader's host offers the view: the chat's consent and its requests (ChatSession.figure). */
@@ -22,7 +22,7 @@ export interface FigureHost {
   run: (input: { figureID: string; part?: { key: string; label: string; title: string; text: string } }, action: FigureAction,
     update: (result: FigureResult) => void, signal: AbortSignal, choice?: ProfileChoice) => Promise<FigureResult>;
 }
-type Props = { profile?: ProfileChoice; onExplanation?: (text: string) => void; manifest: string; figureID: string; host?: FigureHost;
+type Props = { label?:string; profile?: ProfileChoice; onExplanation?: (text: string) => void; manifest: string; figureID: string; host?: FigureHost;
   /** The page's figure gets smaller while a walkthrough is asked for or shown, so the words are in view. */
   onActive: (active: boolean) => void;
   /** A `[¶N]` or a part's Show in the paper: the page closes and the paper lands there with Back. */
@@ -40,7 +40,7 @@ const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' &
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
 
-export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile, onExplanation }: Props) {
+export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile, onExplanation, label = 'Figure' }: Props) {
   const [consented, setConsented] = useState(() => !!host?.consented());
   const [asking, setAsking] = useState(false);
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure', '', profile) ?? null);
@@ -122,13 +122,13 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
         <h3 id="figure-what">What it shows</h3>
         {result.walkthrough?.summary ? <div data-testid="figure-summary"><Answer text={result.walkthrough.summary} /></div>
           : !result.walkthrough && result.text ? <div data-testid="figure-words"><Answer text={result.text} streaming={result.phase === 'loading'} /></div>
-          : result.phase === 'loading' ? <p className="fine" role="status">Looking at the figure…</p> : null}
+          : result.phase === 'loading' ? <p className="fine" role="status">Looking at the {label.startsWith('Table') ? 'table' : 'figure'}…</p> : null}
       </section>
       {sections.length > 0 && <section className="equation-section" aria-labelledby="figure-parts">
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
-          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), style = s.box && image ? cropStyle(s.box, image) : null;
-          const closer = details.get(key), closerImage = closer?.image ?? image, closerStyle = closer?.detail && closerImage ? cropStyle(closer.detail.box, closerImage) : null;
+          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), style = s.box && image ? cropStyle(displayBox(s.box), image) : null;
+          const closer = details.get(key), closerImage = closer?.image ?? image, closerStyle = closer?.detail && closerImage ? cropStyle(displayBox(closer.detail.box), closerImage) : null;
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
               <h4>{s.label && <span className="figure-section-label">{s.label}</span>}<span>{s.title}</span></h4>
@@ -143,7 +143,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                   onClick={() => { close(false); void onAsk(s.text); }}><Icon name="chat" size={14} /> Ask in chat about this</button>}
               </>}</MenuButton>
             </div>
-            {style && background && <ZoomableCrop label={`${heading}, the part of the figure it describes`} testID="figure-crop"
+            {style && background && <ZoomableCrop label={`${heading}, the part of the figure it describes`} testID="figure-crop" whole={image ?? undefined}
               style={{ aspectRatio: String(style.aspect), width: `min(100%, ${Math.round(Math.min(560, 320 * style.aspect))}px)`, backgroundImage: background,
                 backgroundSize: style.size, backgroundPosition: style.position }} />}
             <Answer text={s.text} />
@@ -159,7 +159,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
               {closer.phase === 'failed' && !closer.text ? <div className="equation-issue" role="alert"><p>{issueText(closer.issue ?? 'provider_unavailable')}</p>
                 {closer.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_detail', s, i)}>Try again</button>}</div>
                 : closer.phase === 'loading' ? <p className="fine" role="status">Extracting this part…</p> : <>
-                  {closerStyle && closerImage && <ZoomableCrop label={`${heading}, up close`} testID="figure-detail-crop"
+                  {closerStyle && closerImage && <ZoomableCrop label={`${heading}, up close`} testID="figure-detail-crop" whole={closerImage ?? undefined}
                     style={{ aspectRatio: String(closerStyle.aspect), width: `min(100%, ${Math.round(Math.min(560, 360 * closerStyle.aspect))}px)`,
                       backgroundImage: `url("data:image/jpeg;base64,${closerImage.data}")`, backgroundSize: closerStyle.size, backgroundPosition: closerStyle.position }} />}
                   <Answer text={closer.detail?.text ?? closer.text} />
@@ -181,7 +181,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
 }
 
 /** Zoom the extracted region, preserving its crop; no larger image or AI request is needed. */
-function ZoomableCrop({ label, testID, style }: { label: string; testID: string; style: CSSProperties }) {
+function ZoomableCrop({ label, testID, style, whole, canExpand=true }: { label: string; testID: string; style: CSSProperties; whole?:{data:string;width:number;height:number}; canExpand?:boolean }) {
+  const [expanded,setExpanded]=useState(false),[showWhole,setShowWhole]=useState(false);
   const [scale, setScale] = useState(1), [pan, setPan] = useState({x:0,y:0});
   const points = useRef(new Map<number,{x:number;y:number}>()), previous = useRef<{x:number;y:number;distance:number}|null>(null);
   const box = useRef<HTMLDivElement>(null), held = useRef({scale,pan}); held.current={scale,pan};
@@ -190,7 +191,7 @@ function ZoomableCrop({ label, testID, style }: { label: string; testID: string;
     setScale(s); setPan({x:Math.min((r?.width??0)*(s-1)/2,Math.max(-(r?.width??0)*(s-1)/2,x)),y:Math.min((r?.height??0)*(s-1)/2,Math.max(-(r?.height??0)*(s-1)/2,y))});
   };
   const center = () => { const p=[...points.current.values()]; return p.length ? {x:p.reduce((s,p)=>s+p.x,0)/p.length,y:p.reduce((s,p)=>s+p.y,0)/p.length,distance:p.length===2?Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y):0}:null; };
-  return <div className="zoom-crop" style={{width:style.width,maxWidth:'100%'}}>
+  return <><div className="zoom-crop" style={{width:style.width,maxWidth:'100%'}}>
     <div ref={box} role="img" aria-label={label} data-testid={testID} data-scale={scale} style={{aspectRatio:style.aspectRatio,overflow:'hidden',touchAction:'none',position:'relative'}}
       onDoubleClick={()=>change(scale>1?1:2,0,0)} onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});previous.current=center();}}
       onPointerMove={e=>{if(!points.current.has(e.pointerId))return;points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});const c=center(),p=previous.current;if(c&&p)change(c.distance&&p.distance?held.current.scale*c.distance/p.distance:held.current.scale,held.current.pan.x+c.x-p.x,held.current.pan.y+c.y-p.y);previous.current=c;}}
@@ -199,6 +200,10 @@ function ZoomableCrop({ label, testID, style }: { label: string; testID: string;
     </div>
     <div className="crop-zoom-controls"><button type="button" className="icon-button" aria-label="Zoom out of crop" disabled={scale<=1} onClick={()=>change(scale-.5)}>−</button>
       <button type="button" className="icon-button" aria-label="Zoom into crop" disabled={scale>=8} onClick={()=>change(scale+.5)}>+</button>
-      <output aria-live="polite">{Math.round(scale*100)}%</output></div>
-  </div>;
+      <output aria-live="polite">{Math.round(scale*100)}%</output>
+      {canExpand && <button type="button" className="secondary small" onClick={()=>setExpanded(true)}>Open fullscreen</button>}</div>
+  </div>{expanded && <Dialog open onClose={()=>setExpanded(false)} title={label} wide className="fullscreen-figure">
+    <SheetTop onClose={()=>setExpanded(false)}><h2>{label}</h2>{whole && <button className="secondary small" onClick={()=>setShowWhole(v=>!v)}>{showWhole?'Show detail':'Whole figure'}</button>}</SheetTop>
+    <ZoomableCrop label={label} testID="fullscreen-crop" canExpand={false} style={showWhole && whole ? {width:'100%',aspectRatio:String(whole.width/whole.height),backgroundImage:`url("data:image/jpeg;base64,${whole.data}")`,backgroundSize:'100% 100%',backgroundPosition:'center'} : {...style,width:'100%'}} />
+  </Dialog>}</>;
 }

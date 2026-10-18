@@ -7,6 +7,31 @@ import ScienceReaderCore
 
 @MainActor
 final class PaperWebViewTests: XCTestCase {
+    func testFindMatchesAcrossInlineMarkupWithoutChangingThePaperOrSelection() async throws {
+        let harness = try Harness(document: "<h2 id='intro'>Introduction</h2><p>needle <em>across</em> inline</p><div style='height:1200px'></div><h2 id='results'>Results</h2><p>needle across inline again</p>")
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let json = try await web.callAsyncJavaScript("""
+            const before=document.body.innerHTML, selection=String(window.getSelection());
+            const first=window.__scienceReaderFind('needle across','next');
+            const second=window.__scienceReaderFind('needle across',1);
+            const y=scrollY, after=document.body.innerHTML;
+            const cleared=window.__scienceReaderFindClear();
+            return JSON.stringify({before,after,selection,afterSelection:String(window.getSelection()),first,second,y,afterY:scrollY,cleared});
+            """, arguments: [:], in: nil, contentWorld: .defaultClient) as? String
+        let data = try XCTUnwrap(json?.data(using: .utf8))
+        let result = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(result["before"] as? String, result["after"] as? String, "Find cannot invalidate text anchors or add selection markup")
+        XCTAssertEqual(result["selection"] as? String, result["afterSelection"] as? String)
+        XCTAssertEqual((result["first"] as? [String: Any])?["count"] as? Int, 2)
+        XCTAssertEqual((result["second"] as? [String: Any])?["index"] as? Int, 1)
+        XCTAssertEqual(((result["second"] as? [String: Any])?["matches"] as? [[String: Any]])?.count, 2)
+        XCTAssertGreaterThan(result["y"] as? Double ?? 0, 500)
+        XCTAssertEqual(result["y"] as? Double, result["afterY"] as? Double, "Closing Find keeps the selected occurrence in view")
+        XCTAssertEqual((result["cleared"] as? [String: Any])?["count"] as? Int, 0)
+    }
+
     func testGeneratedBundleLoadsAndEquationSelectionResolvesItsExactSource() async throws {
         let bundle = try ReaderBundleLoader.sample()
         let harness = try Harness(bundle: bundle)

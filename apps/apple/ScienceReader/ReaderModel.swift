@@ -68,6 +68,7 @@ struct Paper: Identifiable, Sendable {
     /// those the reader removed, then the reader's own, including an edit still syncing. Library columns and
     /// filters, the reader's header chips and search use these.
     var tags: [String] = []
+    var tagsCustomized = false
     /// The server's lists behind `tags` (migration 030): the catalog's, the reader's own and the removed ones.
     var catalogTags: [String] = []
     var ownTags: [String] = []
@@ -135,6 +136,53 @@ final class ReaderModel {
     var tab: ReaderTab = .library { didSet { if tab == .chat { returnToChatAvailable = false } } }
     var wideMode: WideMode = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
+    @ObservationIgnored private var deviceTextIndex = DevicePaperTextIndex()
+    @ObservationIgnored private var indexEpoch = UUID()
+    @ObservationIgnored private var warmingTextIndex: Task<Void, Never>?
+    func forgetIndexedPapers(_ ids: Set<UUID>) {
+        indexEpoch = UUID()
+        warmingTextIndex?.cancel(); warmingTextIndex = nil
+        for id in ids { deviceTextIndex.remove(id) }
+        promotedChatContexts = promotedChatContexts.filter { !ids.contains($0.value.origin?.documentID ?? UUID()) }
+        librarySearchSourceChanged()
+    }
+    private func indexPaper(_ paper: Paper) {
+        guard let bundle = paper.readerBundle, deviceTextIndex.entries[paper.id]?.digest != bundle.manifestSHA256 else { return }
+        let epoch = indexEpoch, scope = sessionID
+        Task {
+            let entry = await Task.detached(priority: .utility) {
+                DevicePaperTextIndex.Entry(digest: bundle.manifestSHA256, text: PaperChatContext.text(bundle.index))
+            }.value
+            guard sessionID == scope, indexEpoch == epoch, papers.contains(where: { $0.id == paper.id }) else { return }
+            deviceTextIndex.insert(entry, for: paper.id); librarySearchSourceChanged()
+        }
+    }
+    /// Rebuild bounded search terms from encrypted installed copies, one at a time. No plaintext index on disk.
+    private func warmTextIndex() {
+        guard warmingTextIndex == nil, !papers.isEmpty, !workOwnership.isActivating else { return }
+        let stores = [localPersistence.localReaderStore, localPersistence.modelReaderStore].compactMap { $0 }
+        guard !stores.isEmpty else { return }
+        let epoch = indexEpoch, scope = sessionID
+        warmingTextIndex = Task(priority: .utility) {
+            defer { if indexEpoch == epoch { warmingTextIndex = nil } }
+            for store in stores {
+                for record in await store.records() {
+                    guard !Task.isCancelled, sessionID == scope, indexEpoch == epoch else { return }
+                    guard let paper = papers.first(where: { $0.sourceID == record.identity.sourceID && $0.sourceRevision == record.identity.revision }),
+                          deviceTextIndex.entries[paper.id] == nil else { continue }
+                    let id = paper.id
+                    let entry = await Task.detached(priority: .utility) { () -> DevicePaperTextIndex.Entry? in
+                        guard let bundle = try? await store.read(record.identity) else { return nil }
+                        return DevicePaperTextIndex.Entry(digest: bundle.manifestSHA256, text: PaperChatContext.text(bundle.index))
+                    }.value
+                    guard !Task.isCancelled, sessionID == scope, indexEpoch == epoch else { return }
+                    if let entry, papers.contains(where: { $0.id == id }), deviceTextIndex.entries[id] == nil {
+                        deviceTextIndex.insert(entry, for: id); librarySearchSourceChanged()
+                    }
+                }
+            }
+        }
+    }
     private(set) var libraryImports: [LibraryImportRecord] = [] {
         didSet {
             guard libraryImports != oldValue else { return }
@@ -236,6 +284,9 @@ final class ReaderModel {
     }
     /// After a chat citation opened the paper, the reader offers "Back to chat" (owner, 2026-10-15).
     var returnToChatAvailable = false
+    var explainerReturn: ExplanationSubject?
+    var presentedExplainer: ExplanationPresentation?
+    private var promotedChatContexts: [UUID: PromotedChatContext] = [:]
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
     private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
@@ -282,6 +333,7 @@ final class ReaderModel {
             if oldValue?.id != selectedPaper?.id || oldValue?.artifactID != selectedPaper?.artifactID || oldValue?.fileURL != selectedPaper?.fileURL || oldValue?.readerBundle?.manifestSHA256 != selectedPaper?.readerBundle?.manifestSHA256 {
                 headings = []; paperJump = nil; selectedQuote = ""
                 releaseUnselectedReaderBundles()
+                if let selectedPaper { indexPaper(selectedPaper) }
             }
         }
     }
@@ -452,6 +504,39 @@ final class ReaderModel {
             UserDefaults.standard.set(newValue.id, forKey: Self.chatDefaultKey)
         }
     }
+    private var scenarioProfiles: [String: String] = UserDefaults.standard.dictionary(forKey: "ai.scenarioProfiles") as? [String: String] ?? [:]
+    private var scenarioLocals: [String: String] = UserDefaults.standard.dictionary(forKey: "ai.scenarioLocals") as? [String: String] ?? [:]
+    var pendingAIChoice: ChatProfileChoice?
+    // Outer nil means no choice was made; .some(nil) explicitly selects cloud.
+    var pendingLocalAIChoice: String??
+    var currentAIUseCase: AIUseCase {
+        if let contextualChat { return contextualChat.label.hasPrefix("Equation") ? .equations : .figures }
+        if let promotedChatContext { return promotedChatContext.label.hasPrefix("Equation") ? .equations : .figures }
+        return generalChat ? .general : .paper
+    }
+    func profileDefault(for scenario: AIUseCase) -> ChatProfileChoice {
+        scenarioProfiles[scenario.rawValue].flatMap(ChatProfileChoice.init(id:)) ?? chatDefaultProfile
+    }
+    func setProfileDefault(_ value: ChatProfileChoice, for scenario: AIUseCase) {
+        scenarioProfiles[scenario.rawValue] = value.id
+        UserDefaults.standard.set(scenarioProfiles, forKey: "ai.scenarioProfiles")
+    }
+    func localDefault(for scenario: AIUseCase) -> String? {
+        guard let value = scenarioLocals[scenario.rawValue] else { return localAIDefaultModelID }
+        return value == "cloud" ? nil : value
+    }
+    func setLocalDefault(_ id: String?, for scenario: AIUseCase) {
+        scenarioLocals[scenario.rawValue] = id ?? "cloud"
+        UserDefaults.standard.set(scenarioLocals, forKey: "ai.scenarioLocals")
+    }
+    func resetAIDefault(for scenario: AIUseCase) {
+        setProfileDefault(chatProfileTable?.defaultChoice ?? .standard, for: scenario); setLocalDefault(nil, for: scenario)
+    }
+    var chatProfileReason: String {
+        if let composer = chatComposerID, pendingChatProfiles[composer] != nil { return "Selected for this conversation" }
+        if Self.answeredProfile(in: chatMessages) != nil { return "Kept from this conversation’s last answer" }
+        return "From Settings → \(currentAIUseCase.title)"
+    }
     private static let chatDefaultKey = "chat.defaultProfile"
     private static func storedChatDefault() -> ChatProfileChoice? {
         UserDefaults.standard.string(forKey: chatDefaultKey).flatMap(ChatProfileChoice.init(id:))
@@ -464,7 +549,7 @@ final class ReaderModel {
     /// Settings › Chat defaults.
     var chatProfile: ChatProfileChoice {
         if let composer = chatComposerID, let pending = pendingChatProfiles[composer] { return pending }
-        return Self.answeredProfile(in: chatMessages) ?? chatDefaultProfile
+        return Self.answeredProfile(in: chatMessages) ?? profileDefault(for: currentAIUseCase)
     }
 
     func setChatProfile(_ choice: ChatProfileChoice) {
@@ -696,6 +781,7 @@ final class ReaderModel {
     func refreshLocalRecords() async {
         localReaderRecords = await localPersistence.localReaderStore?.records() ?? []
         await refreshLocalPaperRecords()
+        warmTextIndex()
     }
     func acceptLocalReaderStoreWrite<Value: Sendable>(_ operation: @escaping @Sendable (DeviceReaderStore) async throws -> Value) throws -> Task<Value, Error> {
         try localPersistence.acceptLocalReaderWrite(operation)
@@ -841,6 +927,8 @@ final class ReaderModel {
         // Installing verified bytes changes row presentation, not searchable
         // metadata. Keep the worker's snapshot free of reading bundles.
         let currentIDs = Set(papers.map(\.id))
+        deviceTextIndex.retain(currentIDs)
+        if !Set(previous.map(\.id)).subtracting(currentIDs).isEmpty { forgetIndexedPapers(Set(previous.map(\.id)).subtracting(currentIDs)) }
         libraryRowLookup = libraryRowLookup.filter {
             if case .paper(let paper) = $0.value { return currentIDs.contains(paper.id) }
             return true
@@ -862,6 +950,7 @@ final class ReaderModel {
             old.tags == new.tags && old.archived == new.archived && old.pageCount == new.pageCount && old.sourceURL == new.sourceURL
         }
         if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
+        warmTextIndex()
     }
 
     private func librarySearchSourceChanged() {
@@ -964,7 +1053,7 @@ final class ReaderModel {
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
                                        chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
                                        source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL))
-            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags,
+            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags + (deviceTextIndex.entries[paper.id]?.terms ?? []),
                    sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
         }
         for item in libraryImports {
@@ -1808,7 +1897,9 @@ final class ReaderModel {
 
     private func clearAccountView() {
         localAI.cancelInference()
-        contextualChat = nil; contextualComposers = [:]
+        contextualChat = nil; contextualComposers = [:]; explainerReturn = nil; presentedExplainer = nil; promotedChatContexts = [:]
+        deviceTextIndex = DevicePaperTextIndex(); indexEpoch = UUID(); warmingTextIndex?.cancel(); warmingTextIndex = nil
+        pendingAIChoice = nil; pendingLocalAIChoice = nil
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
         // The old account's reading activity is saved by its own writer, which retirement drains.
@@ -2010,6 +2101,11 @@ final class ReaderModel {
 
     /// ML paper search (arXiv's papers) for the current discovery query. The latest query owns
     /// the results; failures are shown as failures, never as empty results.
+    func findSimilarPapers(_ paper: Paper) {
+        let tags = LibraryTags.tags(for: paper).prefix(3)
+        discoveryQuery = tags.isEmpty ? paper.title : tags.joined(separator: " ")
+        searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+    }
     func runDiscovery() {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         discoveryTask?.cancel(); discoveryGeneration += 1
@@ -2205,6 +2301,7 @@ final class ReaderModel {
 
     private static func withTagEdit(_ paper: Paper, _ edit: (own: [String], hidden: [String])?) -> Paper {
         var row = paper
+        if edit != nil { row.tagsCustomized = true }
         row.tags = PaperTags.effective(catalog: paper.catalogTags, own: edit?.own ?? paper.ownTags, hidden: edit?.hidden ?? paper.hiddenTags)
         return row
     }
@@ -2490,7 +2587,7 @@ final class ReaderModel {
                 authors: item.metadata?.authors.joined(separator: ", ") ?? "", year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
                 abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [], artifactID: nil,
                 sourceID: sourceID, sourceRevision: revision, readerBundle: cached, sourceMembership: ref,
-                authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt?.date, canReadStructured: true, archived: item.archived ?? false, venue: item.metadata?.venue, tags: LibraryTags.tags(for: item), ownTags: LibraryTags.tags(for: item), sourceURL: item.sourceURL)
+                authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt?.date, canReadStructured: true, archived: item.archived ?? false, venue: item.metadata?.venue, tags: LibraryTags.tags(for: item), tagsCustomized: item.tagsCustomized == true || !(item.userTags ?? []).isEmpty, ownTags: LibraryTags.tags(for: item), sourceURL: item.sourceURL)
             next.append(Self.withTagEdit(paper.displaying(cached), tagEdits[paper.id]))
         }
         let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
@@ -2681,6 +2778,7 @@ final class ReaderModel {
                 _ = try await commit.value
                 guard self.sessionID == scope else { return }
                 self.localReaderRecords = await store.records()
+                self.indexPaper(paper.displaying(bundle))
             } catch is CancellationError {
             } catch {
                 guard self.sessionID == scope else { return }
@@ -3247,7 +3345,7 @@ final class ReaderModel {
     /// takes the request when it appears instead of seeing it change.
     @ObservationIgnored private var chatComposerFocusPending = false
 
-    private func requestComposerFocus() {
+    func requestComposerFocus() {
         chatComposerFocusPending = true
         chatComposerFocusRequest = UUID()
     }
@@ -3330,7 +3428,7 @@ final class ReaderModel {
 
     func newChat(general: Bool) {
         guard general || canUsePaperChat else { return }
-        generalChat = general; activeConversation = nil; localAIModelID = localAIDefaultModelID
+        generalChat = general; activeConversation = nil; localAIModelID = localDefault(for: general ? .general : .paper)
         if !general { readerChatHidden = false }
     }
 
@@ -3354,6 +3452,8 @@ final class ReaderModel {
         let pending = pendingSelection.flatMap { pending in
             let prompt = pending.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             return pending.composerID == submission.composerID && (pending.prefix ? submission.text.hasPrefix(prompt) : prompt == submission.text) ? pending : nil
+        } ?? promotedChatContexts[submission.composerID].map { context in
+            (composerID: submission.composerID, prompt: submission.text, quote: context.quote, action: nil as ChatAction?, origin: context.origin, prefix: false)
         }
         let selection = pending?.quote
         if pendingSelection?.composerID == submission.composerID { pendingSelection = nil }
@@ -3553,6 +3653,7 @@ final class ReaderModel {
         switch outcome {
         case .paragraph(let paperID, let marker): goToCitedBlock(marker, paperID: paperID)
         case .askInChat(let context): askAboutEquation(context)
+        case .continueChat: tab = .chat; wideMode = .reader; readerChatHidden = false; requestComposerFocus()
         }
     }
 
@@ -3686,7 +3787,7 @@ final class ReaderModel {
     var pendingExplanation: ExplanationSubject?
     @discardableResult func openExplanation(_ subject: ExplanationSubject) -> Bool {
         guard let paper = papers.first(where: { $0.id == subject.paperID && !$0.isSample }) else { return false }
-        localAIModelID = subject.localModelID
+        pendingLocalAIChoice = .some(subject.localModelID)
         pendingExplanation = subject
         select(paper)
         return true
@@ -5006,6 +5107,43 @@ final class ReaderRetirementQueue {
 // A contextual sheet borrows the existing encrypted chat workspace, without changing tabs or destroying the
 // previously selected composer. Its anchor makes the conversation discoverable again after an app restart/sync.
 extension ReaderModel {
+    struct ExplanationPresentation: Identifiable {
+        let id = UUID()
+        let subject: ExplanationSubject
+    }
+    struct PromotedChatContext {
+        let label: String, text: String, quote: String
+        let origin: PassageOrigin?
+        let image: CGImage?
+    }
+    var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
+
+    func rememberExplainer(paperID: UUID, manifest: String, item: String, label: String, equation: Bool) {
+        explainerReturn = ExplanationSubject(paperID: paperID, paperTitle: selectedPaper?.title ?? "",
+            manifestSHA256: manifest, itemID: item, label: label, action: equation ? "equation" : "figure", savedAt: Date(), localModelID: localAIModelID)
+    }
+    func returnToExplainer() {
+        guard let subject = explainerReturn,
+              let paper = papers.first(where: { $0.id == subject.paperID }), paper.readerBundle?.manifestSHA256 == subject.manifestSHA256 else {
+            explainerReturn = nil; return
+        }
+        pendingLocalAIChoice = .some(subject.localModelID)
+        presentedExplainer = ExplanationPresentation(subject: subject)
+        explainerReturn = nil
+    }
+    /// Keep this composer selected; sheet disappearance must not restore the previous one. No new request is made.
+    func promoteContextualChat(_ token: UUID, explanation: String, image: CGImage? = nil) {
+        guard ownsContextualChat(token), let current = contextualChat else { return }
+        let subject = "About \(current.label): " + current.quote
+        let bounded = String(subject.unicodeScalars.prefix(ChatGenerationRequest.maximumSelectionScalars))
+        let allowance = max(0, ChatGenerationRequest.maximumSelectionScalars - bounded.unicodeScalars.count - 52)
+        let quote = bounded + (explanation.isEmpty || allowance == 0 ? "" : "\n\nEarlier AI explanation (may contain errors):\n" + String(explanation.unicodeScalars.prefix(allowance)))
+        pendingChatProfiles[current.composer] = chatProfile
+        if promotedChatContexts.count >= 8 { promotedChatContexts.removeValue(forKey: promotedChatContexts.keys.first!) }
+        promotedChatContexts[current.composer] = PromotedChatContext(label: current.label, text: String(explanation.prefix(32_000)), quote: quote, origin: current.origin, image: image)
+        contextualChat = nil
+    }
+
     @discardableResult
     func beginContextualChat(paperID: UUID, manifest: String, element: String, label: String, quote: String) -> UUID {
         let key = "\(paperID.wire)|\(manifest)|\(element)"
@@ -5013,6 +5151,9 @@ extension ReaderModel {
         if let current = contextualChat { endContextualChat(current.token) }
         let previous = chatWorkspace.composer(in: chatContext), priorGeneral = generalChat, priorPaper = chatPaperID
         let priorSelection = pendingSelection, priorLocal = localAIModelID
+        let chosen = pendingAIChoice; pendingAIChoice = nil
+        localAIModelID = pendingLocalAIChoice ?? localDefault(for: label.hasPrefix("Equation") ? .equations : .figures)
+        pendingLocalAIChoice = nil
         generalChat = false; chatPaperID = paperID; pendingSelection = nil
         let anchor = TextAnchor.contextual(manifestSHA256: manifest, elementID: element, quote: quote)
         let origin = anchor.map { PassageOrigin(documentID: paperID, anchor: $0) }
@@ -5025,6 +5166,7 @@ extension ReaderModel {
         } else { activeConversation = nil }
         let composer = chatWorkspace.composer(in: chatContext), token = UUID()
         contextualComposers[key] = composer
+        if let chosen { pendingChatProfiles[composer] = chosen }
         contextualChat = ContextualChatBinding(token: token, session: sessionID, composer: composer, key: key, label: label,
             quote: quote, origin: origin, priorGeneral: priorGeneral, priorPaper: priorPaper, priorComposer: previous,
             priorLocal: priorLocal, priorSelection: priorSelection)

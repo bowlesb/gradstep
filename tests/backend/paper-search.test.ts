@@ -206,3 +206,15 @@ test('author searches stay in author fields with no topic or fuzzy fallback', ()
   const unsafe = planSearch('author:A" OR * B')!;
   assert.equal(params(dataciteSearchRequests(unsafe).requests[0].url).query, 'creators.name:("a" AND "or" AND "b")');
 });
+
+
+test('field criteria stay in their fields on both indexes and reject malformed ranges or injected syntax',()=>{
+  const plan=planSearch('title:"mixture of experts" author:"Ada Lovelace" year:"2020-2026"');
+  assert.ok(plan);
+  const arxiv=new URL(arxivSearchRequests(plan).requests[0].url).searchParams.get('search_query');
+  assert.equal(arxiv,'ti:"mixture of experts" AND au:"Ada Lovelace" AND submittedDate:[202001010000 TO 202612312359]');
+  const dc=new URL(dataciteSearchRequests(plan).requests[0].url).searchParams.get('query');
+  assert.ok(dc?.includes('titles.title:'));assert.ok(dc?.includes('creators.name:'));assert.ok(dc?.includes('publicationYear:[2020 TO 2026]'));
+  assert.equal(arxivSearchRequests(plan).broad,null);
+  for(const bad of ['year:"2026-2020"','title:"test" OR *:*','abstract:"x" author:"','year:"tomorrow"'])assert.equal(planSearch(bad),null);
+});
