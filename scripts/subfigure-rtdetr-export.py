@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Unpaid, offline RT-DETRv2-S/Core ML feasibility check, not a scientific-panel evaluation.
+"""Offline RT-DETRv2-S/Core ML feasibility check, not a scientific-panel evaluation.
 
 Use the pinned official Apache-2.0 implementation and COCO checkpoint in a disposable
-environment. No downloads, training or application changes happen here. A successful
-conversion does not qualify these generic-object weights as a subfigure detector.
+environment, or an explicitly hashed five-class research checkpoint. No downloads,
+training or application changes happen here. Conversion does not qualify crop quality.
 """
 import argparse
 import hashlib
@@ -32,6 +32,7 @@ def main():
     parser.add_argument('--weights', required=True)
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--out', required=True)
+    parser.add_argument('--checkpoint-manifest', help='Explicit hash/class/training provenance for a research fine-tuned checkpoint')
     parser.add_argument('--precision', choices=['fp16', 'fp32', 'mixed'], default='fp32',
                         help='mixed keeps geometry, normalization and nonlinearities in FP32')
     args = parser.parse_args()
@@ -40,7 +41,12 @@ def main():
     dirty = subprocess.check_output(['git', '-C', str(repo), 'status', '--porcelain', '--untracked-files=no'], text=True)
     if revision != REPOSITORY_REVISION or dirty:
         raise ValueError('Expected the unmodified, pinned official repository')
-    if digest(weights) != WEIGHTS_SHA256:
+    fine_tuned=json.loads(pathlib.Path(args.checkpoint_manifest).read_text()) if args.checkpoint_manifest else None
+    expected_sha=fine_tuned['weights_sha256'] if fine_tuned else WEIGHTS_SHA256
+    if fine_tuned and (fine_tuned['upstream_revision']!=REPOSITORY_REVISION or fine_tuned['classes']!=
+                      ['shared_legend','shared_title','shared_x_axis','shared_y_axis','panel']):
+        raise ValueError('Unexpected fine-tuned checkpoint architecture/classes')
+    if digest(weights) != expected_sha:
         raise ValueError('Unreviewed checkpoint')
     out.mkdir(parents=True, exist_ok=True)
 
@@ -56,7 +62,10 @@ def main():
     cfg = YAMLConfig(str(config))
     # The complete checkpoint supplies the backbone; do not fetch another set of weights.
     cfg.yaml_cfg['PResNet']['pretrained'] = False
+    if fine_tuned:cfg.yaml_cfg.update(num_classes=len(fine_tuned['classes']),remap_mscoco_category=False)
     checkpoint = torch.load(weights, map_location='cpu', weights_only=True)
+    if fine_tuned and checkpoint.get('meta',{}).get('data_manifest_sha256')!=fine_tuned['data_manifest_sha256']:
+        raise ValueError('Fine-tuned checkpoint dataset provenance mismatch')
     state = checkpoint['ema']['module'] if 'ema' in checkpoint else checkpoint['model']
     cfg.model.load_state_dict(state, strict=True)
     del checkpoint, state
@@ -90,9 +99,10 @@ def main():
     if not images:
         raise ValueError('No figure images')
     report = {
-        'purpose': 'Conversion and numerical parity only; COCO classes are not scientific panel labels',
+        'purpose': 'Conversion and numerical parity only; not quality or distribution qualification',
         'repository': 'https://github.com/lyuwenyu/RT-DETR', 'revision': revision,
-        'weights_sha256': WEIGHTS_SHA256, 'weights_bytes': weights.stat().st_size,
+        'weights_sha256': expected_sha, 'weights_bytes': weights.stat().st_size,
+        'checkpoint_manifest':fine_tuned,'deployment_qualified':False,
         'script_sha256': digest(pathlib.Path(__file__)), 'python': platform.python_version(),
         'torch': torch.__version__, 'coremltools': ct.__version__,
         'preprocessing': 'RGB; bilinear aspect-fit 640 square; white padding; NCHW float32 / 255',

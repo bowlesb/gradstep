@@ -1,5 +1,19 @@
 # Implementation status
 
+## Owner GPU subfigure training — 2026-10-18 (research; not released)
+
+Fine-tuning is running in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real
+corpus contains 1,846 figures from 398 papers, with 235 figures/60 papers reserved for an unscored final test.
+The fresh-start/spatial-variation run finds 284/297 panels on 89 compound validation figures at IoU .75, with
+8 false crops (95.62% recall, 97.26% precision). Across all 297 validation figures, precision is only 89.76%
+because single figures are also falsely split. Shared context and some panel letters remain incomplete; no
+model meets the acceptance gates. The next run uses 1,314 real training figures plus 384 rendered plots and
+384 composites made only from training images. Offline Mac OCR, containment loss and generated shared context
+have not qualified a model. An earlier trained checkpoint passes FP32 Core ML parity on seven development
+figures; this is not crop-quality acceptance. Source rights/annotation review, final test and full Mac runtime
+acceptance remain open. No application source, catalogue or deployment changed. Dataset, training, cost and
+evidence details: [Subfigure training](reviews/SUBFIGURE_TRAINING_20261018.md).
+
 
 ## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed
 

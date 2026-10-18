@@ -2,6 +2,21 @@
 
 Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Subfigure fine-tuning on the owner's GPU machine (2026-10-18; authorized, qualification pending)
+
+The owner explicitly authorizes SSH to `192.168.1.32` for fine-tuning and iteration until the subfigure detector
+performs strongly. Use an isolated `/home/ben/science-reader-subfigures` workspace on that machine; preserve the
+earlier source checkout and unrelated workloads. The inspected GPU is an idle RTX 3090 (24 GB), with 87 GiB
+available system memory and 1.4 TiB free disk. This authorizes research training on that existing machine, not a
+GPU rental, production PDF processing, transfer of private reader content/credentials, or an app release.
+
+Keep immutable source/license/hash manifests, paper/family-disjoint train/validation/test splits, separate run
+directories and checkpoint/metric provenance. Iterate on validation errors; reserve an independent final test.
+The seven previously examined FDE-Gym images are development regressions, not an untouched test. Synthetic
+results alone cannot establish performance on scientific papers. Preserve the panel/context/coverage gates in
+LOCAL_FIGURE_REGIONS.md; an unqualified model remains a research artifact. Mac-only deployment and the paused
+physical-iPhone restriction remain unchanged.
+
 ## OpenRouter exclusively, Mac-only local AI, build 71 feedback (owner, 2026-10-18; rollout shipped, replacements qualifying)
 
 Six further screenshots (20:45–20:56 UTC) request: all reference actions visible together; Contents opening at full

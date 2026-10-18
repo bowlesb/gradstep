@@ -1,6 +1,30 @@
 # Local figure regions
 
-Status, 2026-10-18: investigated with a working Mac PyTorch/Core ML experiment. No detector is bundled with the app. No physical iPhone measurements. See [measured results](../reviews/LOCAL_FIGURE_REGIONS_20261018.md). This is the design for the next prototype, not a released capability.
+Status, 2026-10-18: iterative scientific-panel fine-tuning is running on the owner's GPU machine. The real corpus
+has 1,846 figures from 398 papers; 235 figures from 60 papers are reserved for the final test. No detector is
+qualified or bundled with the app. See [training/data evidence](../reviews/SUBFIGURE_TRAINING_20261018.md) and
+[earlier Mac export results](../reviews/LOCAL_FIGURE_REGIONS_20261018.md). No physical iPhone measurements.
+
+## Authorized training workspace — 2026-10-18
+
+The owner authorizes iterative fine-tuning over SSH on `ben@192.168.1.32`. Use only the new project directory
+`/home/ben/science-reader-subfigures`: `source/` for reviewed training scripts and the pinned official detector,
+`env/` for an isolated Python environment, `data/sources/` for source assets/licenses, `data/manifests/` for frozen
+splits/annotation revisions, `data/generated/` for reproducible synthetic plots, and `runs/<run-id>/` for configs,
+logs, checkpoints, metrics and resource measurements. Keep the existing October 13 checkout and unrelated jobs
+unchanged. No production secrets or private papers belong here. No paid model API is needed for the first pilot.
+
+Begin with one bounded GPU job, record elapsed time/VRAM/temperature and stop on non-finite loss or resource
+failure. Save resumable checkpoints, the exact script/dataset/config hashes and validation predictions. Do not
+install packages globally or change the GPU driver. The RTX 3090 has 24 GB VRAM; leave headroom for the desktop.
+The $100 monthly service budget is unchanged: no rented GPU or fixed commitment is added; electricity cost is
+unknown and must not be described as zero. Small reports/checkpoints may return to the Mac, whose disk is nearly full.
+
+Treat the seven already inspected FDE-Gym images as development regressions. New paper/family-disjoint test
+examples must not be used for early stopping, threshold selection or hard-example training. Record annotation
+origin and review status honestly; automated/generated labels are not human review. First measure a frozen-backbone
+baseline, then last-stage fine-tuning. Broaden the training data in response to validation failures, and qualify
+the selected model on real held-out figures before claiming the requested strong performance.
 
 The owner asked for a purpose-built local model to extract subfigures and plots, shared by Figure AI Explainer and ordinary chat, regardless of the chosen cloud/local answering model. Geometry belongs on the device; explanation belongs to the chosen chat model. A small detector can locate panels without an LLM generating coordinates or receiving a whole PDF. PDFs, figure acquisition and cropping remain device-only, as in [HTML_FIRST_READER](HTML_FIRST_READER.md).
 
@@ -18,7 +42,7 @@ The explainer and Chat retain one composer, selected model and conversation. Ful
 
 Do not modify a verified reader bundle. Cache accepted geometry as an account-isolated encrypted sidecar using the existing local encrypted-storage conventions. Cache key includes image hash, detector hash and preprocessing revision. Derived image crops need not be persisted: reproduce them from the original image. Clear sidecars and in-memory regions with paper-content removal and account removal. No server schema, uploaded PDFs or plaintext persistent search index is needed.
 
-Before admitting a region, validate finite coordinates, positive extent, bounds, minimum rendered detail, image identity and transform. Detect duplicate/near-identical and crossing boxes; preserve legitimate insets separately. Check that axes, tick labels, panel labels and legends needed to interpret the plot are included. OCR/text-block containment is useful here, but is not yet implemented or proven. A confidence threshold is insufficient: the tested heatmap lost labels at 0.92 confidence. When checks disagree, retain the whole figure and permit answering from it.
+Before admitting a region, validate finite coordinates, positive extent, bounds, minimum rendered detail, image identity and transform. Detect duplicate/near-identical and crossing boxes; preserve legitimate insets separately. Check that axes, tick labels, panel labels and legends needed to interpret the plot are included. Offline Mac OCR and an experimental containment policy have been measured on the 297 real validation figures, but are not yet qualified or integrated. A confidence threshold is insufficient: the tested heatmap lost labels at 0.92 confidence. When checks disagree, retain the whole figure and permit answering from it.
 
 Bound image dimensions, concurrent work (one detector run), result count and cache size. Run inference outside the UI thread, cancel on paper/account change, and allow memory pressure to discard model/results. Model installation must use a pinned manifest/hash and verified license. Reuse the app's Local models download/error conventions if a separate download is needed. Never download another chat model merely to crop a figure.
 
@@ -30,7 +54,7 @@ Test the complete preprocessing/export pipeline, not just the source weights. Pi
 
 Distribution remains gated on a suitable license and quality. The current figpanel weights and inference tooling carry AGPL terms; they are research inputs only. Next candidates are a permissively licensed/trainable small detector and the Florence-2 plot adapter, with both base and adapter licenses checked. The research does not justify shipping the current detector as an automatic cropper.
 
-## Fine-tuning plan, 2026-10-18 (Mac prototype; not yet trained)
+## Fine-tuning plan, 2026-10-18 (Mac prototype; research training underway)
 
 The new owner direction makes local answering models Mac-only. Keep this detector experiment on Mac too; no new
 model is included in the iPhone/iPad app. The localization component remains independent of the answering model,
@@ -94,6 +118,17 @@ Report uncertainty and per-domain counts; these thresholds are targets, not curr
 containment-failing result stays on the whole figure. Only after this evaluation should detection become automatic
 in the shared figure view. The next useful work is annotation and an exportable small-detector baseline, not more
 unreviewed prompt/coordinate heuristics.
+
+Training evaluation clarification: report the compound-figure subset and the complete population including
+single-figure negatives separately. A model that finds compound panels but splits single charts/connected diagrams
+unnecessarily fails the gate. Threshold selection must include both populations; compound AP alone is insufficient.
+
+Research ablation: a small binary single/compound classifier can consume pooled features from the frozen
+detector encoder. Train that head only on real training figures and validate it on the same real held-out
+validation papers. It tests whether global figure context reduces the observed splitting of connected diagrams
+and legends. It does not replace localization or qualify a fallback as extraction. Any later gating policy must
+count rejected compound figures as missed panels and repeat exact-checkpoint export/runtime checks. No classifier
+is included in the app catalogue.
 
 ### Official detector export feasibility, 2026-10-18
 

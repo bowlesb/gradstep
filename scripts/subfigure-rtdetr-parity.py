@@ -22,6 +22,10 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('report', type=Path)
 args = parser.parse_args()
 source = json.loads(args.report.read_text())
+checkpoint=source.get('checkpoint_manifest')
+if checkpoint and checkpoint['classes']!=['shared_legend','shared_title','shared_x_axis','shared_y_axis','panel']:
+    raise ValueError('Unexpected fine-tuned class manifest')
+classes=5 if checkpoint else 80
 result = {
     'report_sha256': digest(args.report), 'script_sha256': digest(Path(__file__)),
     'purpose': 'Numerical Core ML export parity; no subfigure-quality claim',
@@ -37,7 +41,7 @@ for image in source['images']:
     with np.load(path, allow_pickle=False) as data:
         tb, cb = data['torch_boxes'][0], data['coreml_boxes'][0]
         tl, cl = data['torch_logits'][0], data['coreml_logits'][0]
-        if tb.shape != (300, 4) or cb.shape != tb.shape or tl.shape != (300, 80) or cl.shape != tl.shape:
+        if tb.shape != (300, 4) or cb.shape != tb.shape or tl.shape != (300, classes) or cl.shape != tl.shape:
             raise ValueError('Unexpected raw prediction shape')
         if not all(np.isfinite(x).all() for x in [tb, cb, tl, cl]):
             raise ValueError('Non-finite predictions')

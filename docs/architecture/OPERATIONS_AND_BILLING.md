@@ -1,5 +1,15 @@
 # Infrastructure, spending, and recovery
 
+## Owner GPU subfigure training — 2026-10-18
+
+The owner authorized iterative training on the existing RTX 3090 at `192.168.1.32`. New provider API spend,
+GPU rental, dataset purchase, fixed service commitments and provider reservations are **$0** for this research.
+The $100/month service budget and server allocation are unchanged. Local electricity cost is unknown, not zero;
+completed runs retain elapsed time and peak memory, with per-epoch GPU power/temperature samples on later runs.
+Further bounded training/export has **$0 paid-service forecast** and does not authorize rented hardware or paid
+inference. Public dataset/image downloads incur no purchased dataset fee. Exact run records and qualifications:
+[training review](../reviews/SUBFIGURE_TRAINING_20261018.md).
+
 ## OpenRouter consolidation and Mac evaluation — 2026-10-18
 
 Live verification recorded **$0.403296** in newly attributed hosted attempts: paper chat/title/suggestions

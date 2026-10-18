@@ -1,0 +1,187 @@
+# Subfigure detector training — 2026-10-18
+
+Status: research training on the owner's RTX 3090, not an accepted or distributed model. No application source,
+model catalogue or release changed. Architecture and acceptance gates: [Local figure regions](../architecture/LOCAL_FIGURE_REGIONS.md).
+
+## What the dataset is
+
+The source is [TobiPoni/CompoundFigureSeparation](https://huggingface.co/datasets/TobiPoni/CompoundFigureSeparation),
+pinned to `6439d75905c5486a17ff9b343239faba5a9c7da2`. Its real figures come from
+[SCI-3000](https://zenodo.org/records/8357124), covering computer science, physics, chemistry, medicine and
+technology. The source Label Studio export provides rectangle annotations and explicit panel-to-shared-context
+relations. Its metadata identifies manual annotations; this is not independent verification by us.
+
+The selected real corpus contains **1,846 figures from 398 papers**: 701 admitted records from the annotated
+compound collection, plus 1,145 source-curated single figures. Of these, 691 have multiple retained leaf panels;
+the other 1,155 have one. Single figures teach the model to avoid unnecessary splitting. Enclosing category boxes
+are kept in the provenance but excluded as extra panels when explicit child panels exist. The importer retains
+source annotation IDs, classes, relations, revisions, removed parents and rejection reasons.
+
+| Real split | Figures | Papers | Multi-panel figures | Panel boxes | Explicit context links |
+|---|---:|---:|---:|---:|---:|
+| Train | 1,314 | 272 | 479 | 2,422 | 976 |
+| Validation | 297 | 66 | 89 | 505 | 75 |
+| Final test, not yet scored | 235 | 60 | 123 | 560 | 175 |
+
+Training has 59 shared legends, 67 titles, 92 shared X-axis regions and 89 shared Y-axis regions. Validation has
+only **2 legends, 28 titles, 2 X-axis regions and 1 Y-axis region**. This scarcity limits any broad claim about
+shared-context performance. Many ordinary axes/legends are already inside the panel rectangles and are not
+separately annotated. Panel-box area retention cannot prove that every critical character is preserved.
+
+The frozen `real-v3` split groups papers, matching first/last author identities, exact-image duplicates and
+near-duplicate image families. Prior pilot training/validation exposure stays out of the final test. This is not
+a guarantee that every coauthor, laboratory or visual template is disjoint. All source image dimensions and
+SHA-256 hashes are checked before training; training, validation and test have no intersecting recorded paper,
+family or exact-image identity. No final-test prediction or threshold selection has been performed.
+
+Twenty-four source-curated single examples and selected annotated validation cases were visually inspected,
+including microscopy grids, shared color bars, Bode plots and stacked plots. Most annotations have not received
+independent local review. Upstream's 2,500 synthetic charts are excluded: their generator/provenance was not
+established. A further **384 project-generated Matplotlib plots** are admitted to training only, with exact
+renderer-derived bounds. The augmented dataset has **1,698 training figures** and retains the real validation/test
+files byte-for-byte. It adds 1,535 panel boxes, 376 shared legends, 384 titles and 189 shared labels on each axis.
+Generated labels are programmatic, explicitly identified and not independent human review. Visual inspection
+rejected an initial layout generator with overlapping legends/axis labels; the admitted revision rejects clipped
+annotations and unintended panel/context overlap (139 rejected candidates). Eight generated examples were
+visually reviewed after correction. The discarded/partial generations were never used for training.
+
+The next generated set (`shared-v8`) replaces those 384 plots with examples of shared row/column headings,
+shared color bars and explicitly declared legends inside panels. It contains 1,543 generated panels, 796 titles,
+382 legends and 192 shared labels on each axis; 125 unintended/clipped layouts were rejected. These layouts
+address observed validation failures, so they are development augmentation, not new independent evidence.
+
+`composites-v10` adds another **384 composites assembled only from real training single figures**. It preserves
+each complete source image, adds panel letters above/below/in wider margins, and records the source paper,
+image hash, original dimensions and paste transform. Labels cover the complete image plus its letter. The
+result has **2,082 training images: 1,314 real, 384 rendered plots and 384 real-image composites**. Validation
+and final-test files remain byte-identical to `real-v3`. Eight composites were visually reviewed; they are
+programmatic augmentations, not 384 additional real papers or independently annotated examples. The underlying
+image-rights limitations remain unchanged. The earlier smoke generation is not used in training.
+
+## Source rights and workspace
+
+The annotation repository declares MIT. SCI-3000's Zenodo metadata declares CC BY 4.0, whereas its actual archive
+LICENSE says CC BY-SA 4.0. Preserve this discrepancy. Public DOAJ/Crossref checks found permissive CC BY/BY-SA/CC0
+license URLs for 192 of the 398 papers; 206 remain unresolved. This is provenance evidence, not a blanket
+distribution clearance. **Current weights are research-only.** No MedICaT images or AGPL figpanel weights were
+used for this fine-tuning.
+
+Only public figure images, annotations and publication/license metadata were downloaded/transferred. No PDFs,
+private reader library, production credentials, NAS data or app account content entered the training machine.
+Bulk data/checkpoints stay under `/home/ben/science-reader-subfigures` on `ben@192.168.1.32`. The earlier source
+checkout and unrelated processes are unchanged. The isolated venv and complete dependency lock are in `env/`
+and `runs/environment.lock.txt`; no GPU driver or global Python package was changed.
+
+## Training recipe and measured results
+
+Official Apache-2.0 RT-DETRv2-S/R18, upstream revision `df2a96c8c3a098567a1149bf0248da6efe6d495d`, starts from
+the published COCO checkpoint with SHA-256 `2ace52184b620204004509b72752ac7bfe64aadaf7fc1d076b18df8ab5a5c77e`.
+The class heads become panel, shared legend, shared title, shared X axis and shared Y axis. The pretrained
+backbone initially stays frozen, then the last stage or whole backbone is fine-tuned at a smaller learning rate.
+Model predictions are matched one-to-one to reference rectangles; classification, box-coordinate and overlap
+losses update the weights. AdamW, gradient clipping, EMA checkpoints and bounded early stopping are recorded.
+
+Images preserve their aspect ratio within a white 640-square input, using RGB bilinear resize and the exact
+rounded X/Y scales. Contrast/grayscale variation never mirrors text or removes figure content. Training is
+deterministic-seeded, with source/config/data/checkpoint hashes and resumable optimizer/RNG state retained per run.
+Later runs record GPU temperature/power/memory and stop at 85 C. No model API participates in the training loop.
+
+| Run | Training set | Validation finding | Time / peak allocated GPU memory |
+|---|---|---|---|
+| `baseline-real-v1` | 90 real figures | Tiny pilot: 18/18 panels found, 3 extra crops at threshold .6; inadequate precision | 73.7 s / 3.11 GB |
+| `real-v2-laststage` | 488 real figures | 89 compound figures: 279/297 panels found, 12 false crops at .7; recall 93.94%, precision 95.88% | 234.4 s / 3.11 GB |
+| `real-v3-full` | 1,314 real figures, including singles | Full-backbone tuning reduced compound-panel recall; rejected as an improvement | 386.3 s / 4.95 GB |
+| `real-v4-baseline` | 1,314 real; compound sampling weight 4; last stage | Best compound mean AP50/AP75 .9510, below the earlier .9696 | 480.9 s / 3.11 GB |
+| `real-v5-containment` | Same real data, with inward-edge loss weight 2 | Mean retained panel area improved, but compound recall fell; not accepted | 265.9 s / 3.11 GB |
+| `plots-v6-baseline` | 1,314 real + 384 generated | Best compound mean AP50/AP75 .9530; adding generated plots alone did not improve real validation | 334.2 s / 3.11 GB |
+| `plots-v7-fresh-jitter` | Same 1,698 figures, fresh COCO start and spatial variation | Compound: 284/297 found, 8 extra at .6 (95.62% recall, 97.26% precision); all figures: 482/505 found, 55 extra (95.45% / 89.76%) | 613.5 s / 3.11 GB |
+| `shared-v8-head` | 1,314 real + 384 shared-layout plots; tune v7 with backbone frozen | Best compound mean AP50/AP75 .9650, below v7 .9747; no improvement accepted | 321.5 s / 2.98 GB |
+| `composites-v9-fresh` | 2,082 images from `composites-v10`, fresh COCO start | Running; no result claimed | Pending |
+
+All detection counts above require IoU at least .75. An oversized whole-figure box cannot match multiple panels;
+duplicates count as false crops. AP and point-threshold precision/recall are distinct. Validation is used for
+checkpoint/threshold decisions, so these are development measurements, not final-test generalization estimates.
+The best second run's mean AP50/AP75 is .9696 on the 89 compound images, but **that does not mean 96.96% of crops
+are correct or complete**. At .7 only 226/279 matched panels retained at least 99% of their annotated area after
+the 2% context margin. Visual review confirmed omitted panel-letter footers despite high prediction confidence.
+
+The expanded real set improved single-figure behavior but did not improve compound detection. Follow-up runs
+separate three hypotheses: oversampling compound figures with only the final backbone stage trainable; an
+additional inward-edge penalty against clipped margins; and generated examples of shared context. Existing
+L1/overlap losses remain active so the extra containment penalty cannot simply reward arbitrarily large boxes.
+These experiments are not accepted results until their saved validation comparisons are reviewed.
+
+A diagnostic on **128 sampled training images** at epoch 8 of `plots-v6-baseline` found AP50 1.0 on all five
+generated classes and the sampled real panel/title/legend classes (real X axis .9327; no Y-axis target in that
+sample). In contrast, real validation shared-legend/X/Y AP remained zero at epoch 5. This is evidence of
+overfitting/domain mismatch, not failure to execute the training loss. Generated global titles/outside legends
+do not adequately represent the validation set's shared column headings, internal legends and shared color bars.
+A fresh-start run from the pinned COCO weights adds content-preserving training scale/position variation; no
+image pixels, text or labels are cropped out. It improves compound detection to the v7 result above, but shared
+context remains weak and single-figure false splits remain frequent. Its 97.26% precision is specifically the
+compound subset, not the full validation population. The scoring tools now explicitly report both populations;
+threshold selection and detection gates must account for both. Earlier frozen run scripts/results are retained.
+
+Six single-figure failure cases were visually reviewed. The detector splits chemical reaction mechanisms,
+separates a pie chart from its legend, divides a connected physics diagram, and invents smaller regions in a
+sequence alignment. These are actual model errors, not a reason to remove single-figure negatives or silently
+change the ground truth. The newly added composites teach complete labelled image boundaries. They do not by
+themselves demonstrate that these errors are fixed.
+
+Validation-only duplicate suppression and two-checkpoint ensemble ablations also fail the detection target.
+The best tested union ensemble reaches 287/297 compound panels with 7 false crops (96.63% / 97.62%), still short
+of the false-crop target before considering single-figure negatives and required context. It is not selected
+for distribution. Checkpoint selection by mean AP50/AP75 is only a development objective, not a qualification gate.
+
+A separate diagnostic (`compound_classifier.py`) trains a small single/compound head on pooled features from
+the frozen v7 detector. It uses only the 1,314 real training figures, with content-preserving augmented views;
+validation selects the head. This tests global figure coherence without retraining the answering LLM. It is
+queued after the current detector run, and no classification or combined-crop result is claimed yet.
+
+Inference-only resolution ablations on the earlier checkpoint also failed: at threshold .7 compound recall /
+precision fell from .9394/.9588 at 640 to .7811/.8467 at 960 and .3805/.7386 at 1280. Larger inputs need their own
+appropriate training; simply changing inference size is not a fix. The resolution-dependent anchor grids are
+regenerated explicitly, with learned-parameter shape mismatches still rejected.
+
+## Mac OCR and crop-policy comparison
+
+Mac Vision accurately-mode OCR ran on all **297** validation figures with networking denied by `sandbox-exec`.
+It completed in **39.03 s** wall time, with **214,827,008-byte maximum RSS** and **188,762,240-byte measured peak
+memory footprint**. Each record binds image hash/dimensions, OS and Vision revision, recognized text boxes,
+confidence and timing. These are a separate OCR aid, not independent ground-truth text annotations.
+
+The experimental policy preserves raw panel geometry, adds a bounded crop margin and completes nearby OCR lines.
+Text shared by several panels remains separate common context. Color bars/legend markers require image context;
+recognized text alone cannot substitute for them. Raw, duplicate-filtered and OCR-assisted outputs are compared
+on the same real validation figures. Whole-figure presentation coverage and independent critical-label review
+remain outstanding. No policy qualifies a model merely by averaging away a visibly clipped label.
+
+Scripts: `scripts/subfigure-training/`; immutable real manifests: `data/manifests/real-v3/`; saved run configs,
+predictions, metrics, resource logs and checkpoints: `runs/` on the training host. Mac visual/OCR evidence:
+`.artifacts/subfigure-training/`. The seven already viewed FDE-Gym figures remain development regressions.
+The 235-figure final test stays reserved until the model and complete inference policy are frozen.
+
+## Export of the actual trained checkpoint
+
+The earlier `real-v2-laststage` checkpoint now also has a verified FP32 Core ML conversion, with networking denied.
+Its weight SHA-256 is `856a2c7f9cf296c4076f905ab42adb7cdfbce4eef501208313bb49455d7018ae`, with an explicit five-class
+checkpoint manifest and matching training-data provenance. The package is **80.286 MB**. All seven already seen
+FDE-Gym figures pass numerical parity: maximum matched normalized box error .00028235, class-probability error
+.00011958. Warm prediction median is **29.39 ms**; first prediction in this conversion process was **411.38 ms**.
+This first prediction is not a standalone app cold-launch measurement or a memory/cancellation acceptance test.
+
+The visual replay still finds an incorrect additional crop within the left scatter plot and overlapping
+rectangles in a text-heavy diagram. The heatmap prediction includes its surrounding labels, unlike the earlier
+research baseline, but this does not establish all-label preservation broadly. The export therefore remains a
+research artifact. Evidence: `.artifacts/subfigure-training/v2-coreml-fp32/` and `v2-coreml-fde-review.jpg`.
+Both the original 80-class COCO parity replay and this five-class replay pass; the routine `npm test` tier and
+20 independent metric/geometry/context-loss checks pass, including a case where perfect compound detections
+must fail qualification because a single figure is falsely split. No slow app release suite is warranted by these
+research-only script/document changes.
+
+## Cost and release status
+
+This work uses the owner's existing machine. New model API spend, GPU rental, dataset purchase, fixed service
+commitments and provider reservations are all **$0**. Electricity cost is unknown; no zero-total-cost claim is
+made. The $100/month service budget is unchanged. The trained scientific detector has a numerical export proof,
+but has not passed crop-quality, distribution or full app-runtime qualification.
