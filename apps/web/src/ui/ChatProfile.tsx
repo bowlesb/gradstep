@@ -23,7 +23,8 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
     return () => cancelAnimationFrame(frame);
   }, [autoFocus]);
   const groups: { key: Group; title: string; values: readonly string[] }[] = [
-    { key: 'model', title: 'Model', values: listedModels(table) }, { key: 'length', title: 'Length', values: LENGTHS }];
+    { key: 'model', title: 'Anthropic models', values: listedModels(table).filter(m => ['haiku','sonnet','opus'].includes(m)) },
+    { key: 'model', title: 'Other providers', values: listedModels(table).filter(m => !['haiku','sonnet','opus'].includes(m)) }, { key: 'length', title: 'Length', values: LENGTHS }];
   const possible = (group: Group, value: string) => !!table && (group === 'model'
     ? offersModelLength(table, value as ModelChoice, choice.length) : offersModelLength(table, choice.model, value as LengthChoice));
   const option = (group: Group, value: string) => group === 'model' ? modelOption(table, value as ModelChoice) : lengthOption(table, value as LengthChoice);
@@ -42,9 +43,9 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
     requestAnimationFrame(() => container?.querySelector<HTMLButtonElement>(`[data-value="${next}"]`)?.focus());
   };
   return <div className="profile-picker">
-    {groups.map((g, gi) => <div className="profile-group" key={g.key}>
-      <div className="profile-group-title" id={`${id}-${g.key}`}>{g.title}</div>
-      <div className="profile-options" role="radiogroup" aria-labelledby={`${id}-${g.key}`} aria-describedby={`${id}-${g.key}-detail`}>
+    {groups.map((g, gi) => <div className="profile-group" key={g.title}>
+      <div className="profile-group-title" id={`${id}-${gi}`}>{g.title}</div>
+      <div className="profile-options" role="radiogroup" aria-labelledby={`${id}-${gi}`} aria-describedby={`${id}-${gi}-detail`}>
         {g.values.map(value => {
           const checked = choice[g.key] === value;
           return <button key={value} type="button" role="radio" aria-checked={checked} data-value={value} tabIndex={checked ? 0 : -1}
@@ -52,7 +53,7 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
             onClick={() => pick(g.key, value)} onKeyDown={keys(g.key, g.values)}>{option(g.key, value).label}</button>;
         })}
       </div>
-      <p className="fine profile-detail" id={`${id}-${g.key}-detail`}>{option(g.key, choice[g.key]).detail}</p>
+      <p className="fine profile-detail" id={`${id}-${gi}-detail`}>{option(g.key, choice[g.key]).detail}</p>
     </div>)}
   </div>;
 }

@@ -4,7 +4,9 @@
 // drew a box (cut here from the image that was sent, so it costs nothing more). Each part's ⋯ offers Explain more
 // simply (streamed under it), Extract the subfigure and more context (owner, TestFlight 62: a loader under the part, then
 // its crop and a closer reading), Show in the paper and Ask in chat about this. No credit counts (owner, build 59).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ProfileChoice } from '../lib/chat-profiles';
+import type { ContextualHost } from './ContextualChat';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
 import { cropStyle, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
 import { safeLink } from '../lib/markdown';
@@ -14,12 +16,13 @@ import { Icon } from './icons';
 
 /** What the reader's host offers the view: the chat's consent and its requests (ChatSession.figure). */
 export interface FigureHost {
+  context?: ContextualHost;
   consented: () => boolean; accept: () => boolean;
-  saved: (manifest: string, figureID: string, action: FigureAction, part?: string) => FigureResult | null;
+  saved: (manifest: string, figureID: string, action: FigureAction, part?: string, choice?: ProfileChoice) => FigureResult | null;
   run: (input: { figureID: string; part?: { key: string; label: string; title: string; text: string } }, action: FigureAction,
-    update: (result: FigureResult) => void, signal: AbortSignal) => Promise<FigureResult>;
+    update: (result: FigureResult) => void, signal: AbortSignal, choice?: ProfileChoice) => Promise<FigureResult>;
 }
-type Props = { manifest: string; figureID: string; host?: FigureHost;
+type Props = { profile?: ProfileChoice; onExplanation?: (text: string) => void; manifest: string; figureID: string; host?: FigureHost;
   /** The page's figure gets smaller while a walkthrough is asked for or shown, so the words are in view. */
   onActive: (active: boolean) => void;
   /** A `[¶N]` or a part's Show in the paper: the page closes and the paper lands there with Back. */
@@ -37,27 +40,32 @@ const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' &
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
 
-export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request }: Props) {
+export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile, onExplanation }: Props) {
   const [consented, setConsented] = useState(() => !!host?.consented());
   const [asking, setAsking] = useState(false);
-  const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure') ?? null);
+  const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure', '', profile) ?? null);
   const [simpler, setSimpler] = useState<Map<string, FigureResult>>(() => new Map());
   const [details, setDetails] = useState<Map<string, FigureResult>>(() => new Map());
   const requests = useRef(new Map<string, AbortController>());
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
   useEffect(() => { onActive(asking || !!walk); }, [asking, walk, onActive]);
 
+  useEffect(() => {
+    for (const c of requests.current.values()) c.abort();
+    setWalk(host?.saved(manifest, figureID, 'figure', '', profile) ?? null); setSimpler(new Map()); setDetails(new Map());
+  }, [JSON.stringify(profile)]);
+  useEffect(() => { onExplanation?.(walk?.walkthrough ? [walk.walkthrough.summary, ...walk.walkthrough.sections.map(s => s.text)].join('\n') : walk?.text ?? ''); }, [walk, onExplanation]);
   // A reopened walkthrough brings its parts' simpler explanations with it (this session only).
   useEffect(() => {
     if (!host || !walk?.walkthrough) return;
     setSimpler(previous => {
       const next = new Map(previous);
-      walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_simpler', k); if (saved && !next.has(k)) next.set(k, saved); });
+      walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_simpler', k, profile); if (saved && !next.has(k)) next.set(k, saved); });
       return next;
     });
     setDetails(previous => {
       const next = new Map(previous);
-      walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_detail', k); if (saved && !next.has(k)) next.set(k, saved); });
+      walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_detail', k, profile); if (saved && !next.has(k)) next.set(k, saved); });
       return next;
     });
   }, [host, manifest, figureID, walk?.walkthrough]);
@@ -74,8 +82,8 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       else setSimpler(m => new Map(m).set(key, result));
     };
     set(loading());
-    void host.run({ figureID, ...(part ? { part: { key, label: part.label, title: part.title, text: part.text } } : {}) }, action, set, controller.signal).catch(() => {});
-  }, [host, figureID]);
+    void host.run({ figureID, ...(part ? { part: { key, label: part.label, title: part.title, text: part.text } } : {}) }, action, set, controller.signal, profile).catch(() => {});
+  }, [host, figureID, JSON.stringify(profile)]);
 
   const panel = useRef<HTMLDivElement>(null);
   const explain = () => {
@@ -135,7 +143,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                   onClick={() => { close(false); void onAsk(s.text); }}><Icon name="chat" size={14} /> Ask in chat about this</button>}
               </>}</MenuButton>
             </div>
-            {style && background && <div className="figure-crop" role="img" aria-label={`${heading}, the part of the figure it describes`} data-testid="figure-crop"
+            {style && background && <ZoomableCrop label={`${heading}, the part of the figure it describes`} testID="figure-crop"
               style={{ aspectRatio: String(style.aspect), width: `min(100%, ${Math.round(Math.min(560, 320 * style.aspect))}px)`, backgroundImage: background,
                 backgroundSize: style.size, backgroundPosition: style.position }} />}
             <Answer text={s.text} />
@@ -151,7 +159,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
               {closer.phase === 'failed' && !closer.text ? <div className="equation-issue" role="alert"><p>{issueText(closer.issue ?? 'provider_unavailable')}</p>
                 {closer.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_detail', s, i)}>Try again</button>}</div>
                 : closer.phase === 'loading' ? <p className="fine" role="status">Extracting this part…</p> : <>
-                  {closerStyle && closerImage && <div className="figure-crop" role="img" aria-label={`${heading}, up close`} data-testid="figure-detail-crop"
+                  {closerStyle && closerImage && <ZoomableCrop label={`${heading}, up close`} testID="figure-detail-crop"
                     style={{ aspectRatio: String(closerStyle.aspect), width: `min(100%, ${Math.round(Math.min(560, 360 * closerStyle.aspect))}px)`,
                       backgroundImage: `url("data:image/jpeg;base64,${closerImage.data}")`, backgroundSize: closerStyle.size, backgroundPosition: closerStyle.position }} />}
                   <Answer text={closer.detail?.text ?? closer.text} />
@@ -169,5 +177,28 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     {link && <div className="equation-link" role="group" aria-label="Open source"><p className="source-address">{link}</p>
       <button className="secondary small" onClick={() => setLink(null)}>Cancel</button>
       <a className="primary small" href={link} target="_blank" rel="noopener noreferrer" onClick={() => setLink(null)}>Open link</a></div>}
+  </div>;
+}
+
+/** Zoom the extracted region, preserving its crop; no larger image or AI request is needed. */
+function ZoomableCrop({ label, testID, style }: { label: string; testID: string; style: CSSProperties }) {
+  const [scale, setScale] = useState(1), [pan, setPan] = useState({x:0,y:0});
+  const points = useRef(new Map<number,{x:number;y:number}>()), previous = useRef<{x:number;y:number;distance:number}|null>(null);
+  const box = useRef<HTMLDivElement>(null), held = useRef({scale,pan}); held.current={scale,pan};
+  const change = (zoom: number, x=held.current.pan.x, y=held.current.pan.y) => {
+    const s=Math.min(8,Math.max(1,zoom)), r=box.current?.getBoundingClientRect();
+    setScale(s); setPan({x:Math.min((r?.width??0)*(s-1)/2,Math.max(-(r?.width??0)*(s-1)/2,x)),y:Math.min((r?.height??0)*(s-1)/2,Math.max(-(r?.height??0)*(s-1)/2,y))});
+  };
+  const center = () => { const p=[...points.current.values()]; return p.length ? {x:p.reduce((s,p)=>s+p.x,0)/p.length,y:p.reduce((s,p)=>s+p.y,0)/p.length,distance:p.length===2?Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y):0}:null; };
+  return <div className="zoom-crop" style={{width:style.width,maxWidth:'100%'}}>
+    <div ref={box} role="img" aria-label={label} data-testid={testID} data-scale={scale} style={{aspectRatio:style.aspectRatio,overflow:'hidden',touchAction:'none',position:'relative'}}
+      onDoubleClick={()=>change(scale>1?1:2,0,0)} onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});previous.current=center();}}
+      onPointerMove={e=>{if(!points.current.has(e.pointerId))return;points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});const c=center(),p=previous.current;if(c&&p)change(c.distance&&p.distance?held.current.scale*c.distance/p.distance:held.current.scale,held.current.pan.x+c.x-p.x,held.current.pan.y+c.y-p.y);previous.current=c;}}
+      onPointerUp={e=>{points.current.delete(e.pointerId);previous.current=center();}} onPointerCancel={e=>{points.current.delete(e.pointerId);previous.current=center();}}>
+      <div className="figure-crop" style={{...style,width:'100%',height:'100%',transform:`translate(${pan.x}px,${pan.y}px) scale(${scale})`,transformOrigin:'center'}} />
+    </div>
+    <div className="crop-zoom-controls"><button type="button" className="icon-button" aria-label="Zoom out of crop" disabled={scale<=1} onClick={()=>change(scale-.5)}>−</button>
+      <button type="button" className="icon-button" aria-label="Zoom into crop" disabled={scale>=8} onClick={()=>change(scale+.5)}>+</button>
+      <output aria-live="polite">{Math.round(scale*100)}%</output></div>
   </div>;
 }

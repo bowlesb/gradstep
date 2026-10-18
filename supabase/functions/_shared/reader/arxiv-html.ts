@@ -13,7 +13,7 @@ import type { ReaderIndex } from './render.ts';
 import { createContext, nearest, type ArxivConvertOptions, type ResolveImage } from './arxiv/context.ts';
 import { article, omitForeignGraphics } from './arxiv/source.ts';
 import { svgOnly, svgTextLabels, withSharedDefinitions } from './arxiv/pictures.ts';
-import { catalogHeader, catalogTitle, dropRepeatedTitle, frontMatterFirst } from './arxiv/front-matter.ts';
+import { catalogHeader, catalogTitle, dropRepeatedTitle, frontMatterFirst, frontAffiliations } from './arxiv/front-matter.ts';
 import { flow } from './arxiv/flow.ts';
 import { checkMathCoverage, checkNotStub, closingNote, compose, dropEmptyParagraphs, dropMacroParagraphs } from './arxiv/finish.ts';
 
@@ -35,7 +35,7 @@ export const ARXIV_PROVENANCE_FORMAT = 'arxiv-html-reader-provenance-v2';
  * serve (not found, not an image, too large on its own) is that figure's note, not the paper's refusal, and the index
  * lists the paper's captioned tables (`tables`) for Contents › Tables), so a device re-prepares papers it
  * compiled with an older app (ReaderModel.openHTMLReader). */
-export const ARXIV_RENDERER_REVISION = 18;
+export const ARXIV_RENDERER_REVISION = 20;
 
 /** Only the paper's content assets, never logos, styles or PDF object fallbacks. */
 export function arxivHTMLAssets(source: string, sourceURL: string, options: ArxivConvertOptions = {}): string[] {
@@ -84,6 +84,7 @@ export function convertArxivHTML(source: string, sourceURL: string, resolveImage
   // page read into them.
   frontMatterFirst(cx);
   catalogHeader(cx);
+  frontAffiliations(cx);
   // What is no content, then the checks and the ledger.
   dropMacroParagraphs(cx);
   dropEmptyParagraphs(cx);

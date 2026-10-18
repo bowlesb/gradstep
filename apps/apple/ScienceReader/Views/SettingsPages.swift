@@ -84,10 +84,6 @@ struct AccountRow: View {
         // At accessibility sizes the words wrap instead of truncating, and the picture gives up its width.
         let large = dynamicTypeSize.isAccessibilitySize
         HStack(spacing: 12) {
-            if !large {
-                Image(systemName: "person.crop.circle.fill").font(.system(size: 36)).foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.headline).lineLimit(large ? 4 : 1).truncationMode(.middle)
                 Text(detail).font(.footnote).foregroundStyle(.secondary).lineLimit(large ? nil : 2)
@@ -131,7 +127,7 @@ struct AccountView: View {
                 }
                 .accessibilityElement(children: .combine).accessibilityIdentifier("account.sync")
                 Button("Sync now") { Task { await model.synchronize(reportErrors: true) } }
-                    .disabled(model.syncStatus == "Syncing…")
+                    .disabled(model.syncStatus == "Syncing…" || sync.tone == .synced)
                     .accessibilityIdentifier("account.syncNow")
             } header: { Text("Sync") } footer: {
                 Text("Sync keeps your library, chats and notes the same on every device where you sign in.")

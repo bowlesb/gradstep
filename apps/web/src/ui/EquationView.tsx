@@ -5,6 +5,9 @@
 // symbol described with where that comes from, after which More background is offered; chosen from the equation's own
 // menu it asks at once (consent first), while an equation switched to from the heading waits for it. No credit counts
 // are shown here (owner, build 59). Loaded only when opened (it brings the math typesetter with it).
+import type { ProfileChoice } from '../lib/chat-profiles';
+import { ContextualChat, useContextualChat, type ContextualHost } from './ContextualChat';
+import { citedMarker } from '../lib/passage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VerifiedBundle } from '../lib/bundle';
 import { failureText } from '../lib/chat';
@@ -20,9 +23,10 @@ import { readStored, writeStored } from './prefs';
 
 /** What the reader's host offers the view: the chat's consent and its requests (ChatSession.equation). */
 export interface EquationHost {
+  context?: ContextualHost;
   consented: () => boolean; accept: () => boolean;
-  saved: (manifest: string, equationID: string, action: EquationAction) => EquationResult | null;
-  run: (input: { equationID: string; latex: string; number: string | null }, action: EquationAction, update: (result: EquationResult) => void, signal: AbortSignal) => Promise<EquationResult>;
+  saved: (manifest: string, equationID: string, action: EquationAction, choice?: ProfileChoice) => EquationResult | null;
+  run: (input: { equationID: string; latex: string; number: string | null }, action: EquationAction, update: (result: EquationResult) => void, signal: AbortSignal, choice?: ProfileChoice) => Promise<EquationResult>;
 }
 type Props = { bundle: VerifiedBundle; equationID: string; theme: 'light' | 'dark'; fontSize: number; host?: EquationHost;
   /** AI Explainer was chosen on the equation in the paper: the explanation is asked for at once (after the consent). */
@@ -42,6 +46,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const others = useMemo(() => { const numbers = equationNumbers(bundle); return contentsEquations(bundle.index, id => numbers.get(id) ?? null); }, [bundle]);
   const latex = useMemo(() => equationLatex(bundle, equationID), [bundle, equationID]);
   const title = number ? `Equation ${number}` : 'Equation';
+  const context = useContextualChat(host?.context, bundle.manifestSHA256, equationID, title, latex ?? '');
+  const profile = context?.profile, profileKey = JSON.stringify(profile);
   const [view, setView] = useState(readView);
   const viewRef = useRef(view); viewRef.current = view;
   const [doc, setDoc] = useState<string | null>(null);
@@ -52,7 +58,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
 
   useEffect(() => {
     let next: string | null = null;
-    try { next = equationDocument(bundle, equationID, { parentOrigin: location.origin, theme, size: size(viewRef.current.scale), scroll: viewRef.current.scroll }); } catch { next = null; }
+    try { next = equationDocument(bundle, equationID, { parentOrigin: location.origin, theme, size: fontSize, scale: viewRef.current.scale / 100 }); } catch { next = null; }
     setDoc(next); setMissing(!next);
   }, [bundle, equationID, theme]);
   useEffect(() => {
@@ -66,7 +72,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   }, []);
   const change = (next: { scale: number; scroll: boolean }) => {
     setView(next); writeStored(VIEW_KEY, next);
-    frame.current?.contentWindow?.postMessage({ gradstep: 'equation-command', size: size(next.scale), scroll: next.scroll }, '*');
+    frame.current?.contentWindow?.postMessage({ gradstep: 'equation-command', size: fontSize, scale: next.scale / 100 }, '*');
   };
   const step = (delta: number) => { const i = SCALES.indexOf(view.scale) + delta; if (i >= 0 && i < SCALES.length) change({ ...view, scale: SCALES[i] }); };
 
@@ -74,8 +80,8 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
   const [consented, setConsented] = useState(() => !!host?.consented());
   // Explain was pressed before the chat's consent: the consent shows, and Allow asks.
   const [asking, setAsking] = useState(false);
-  const [symbols, setSymbols] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation') ?? null);
-  const [background, setBackground] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation_background') ?? null);
+  const [symbols, setSymbols] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation', profile) ?? null);
+  const [background, setBackground] = useState<EquationResult | null>(() => host?.saved(bundle.manifestSHA256, equationID, 'equation_background', profile) ?? null);
   const requests = useRef(new Map<EquationAction, AbortController>());
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
   const run = useCallback((action: EquationAction) => {
@@ -83,8 +89,13 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
     requests.current.get(action)?.abort();
     const controller = new AbortController(); requests.current.set(action, controller);
     const set = action === 'equation' ? setSymbols : setBackground;
-    void host.run({ equationID, latex, number }, action, result => { if (!controller.signal.aborted) set(result); }, controller.signal).catch(() => {});
-  }, [host, latex, equationID, number]);
+    void host.run({ equationID, latex, number }, action, result => { if (!controller.signal.aborted) set(result); }, controller.signal, profile).catch(() => {});
+  }, [host, latex, equationID, number, profileKey]);
+  useEffect(() => {
+    for (const c of requests.current.values()) c.abort();
+    setSymbols(host?.saved(bundle.manifestSHA256, equationID, 'equation', profile) ?? null);
+    setBackground(host?.saved(bundle.manifestSHA256, equationID, 'equation_background', profile) ?? null);
+  }, [profileKey]);
   const loading: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
   const explain = () => {
     if (!host || symbols) return;
@@ -115,8 +126,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
     <div className="equation-view" data-testid="equation-view">
       {/* Owner, build 62: the actions in the top row with the X; no Done, no action bar under the equation. */}
       <SheetTop onClose={onClose} testID="equation-close">
-        {onAsk && <button className="sheet-action" onClick={onAsk} data-testid="equation-ask"
-          title="Opens the paper’s chat with this equation as the passage; nothing is sent"><Icon name="chat" size={15} />Explain in Chat</button>}
+
         {host && !symbols && !asking && <button className="sheet-action prominent" onClick={explain} data-testid="equation-explain"
           title="Describes the equation and each of its symbols. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
       </SheetTop>
@@ -132,11 +142,10 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
       </div>
       <div className="equation-controls">
         <span className="equation-size" role="group" aria-label="Equation size">
-          <button className="icon-button text-size" onClick={() => step(-1)} disabled={view.scale <= SCALES[0]} aria-label="Smaller equation" title="Smaller"><span className="a-small">A</span></button>
+          <button className="icon-button text-size" onClick={() => step(-1)} disabled={view.scale <= SCALES[0]} aria-label="Smaller equation" title="Smaller"><span>−</span></button>
+          <button className="icon-button text-size" onClick={() => step(1)} disabled={view.scale >= SCALES.at(-1)!} aria-label="Larger equation" title="Larger"><span>+</span></button>
           <output aria-live="polite" data-testid="equation-scale">{view.scale}%</output>
-          <button className="icon-button text-size" onClick={() => step(1)} disabled={view.scale >= SCALES.at(-1)!} aria-label="Larger equation" title="Larger"><span className="a-large">A</span></button>
         </span>
-        <label className="equation-toggle"><input type="checkbox" checked={view.scroll} onChange={e => change({ ...view, scroll: e.target.checked })} data-testid="equation-scroll" />Scroll sideways</label>
       </div>
 
       {!host ? <p className="fine">Explanations need a signed-in chat.</p> : asking && !consented ? <section className="equation-consent" data-testid="equation-consent">
@@ -171,6 +180,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
                 {background.text ? <Answer text={background.text} streaming={background.phase === 'loading'} /> : <p className="fine" role="status">Writing background…</p>}</div>}
         </section>}
       </>}
+      <ContextualChat context={context} explanation={[symbols?.symbols?.summary ?? symbols?.text, background?.text].filter(Boolean).join('\n')} onCite={anchor => { const n = citedMarker(anchor); if (n) onCite(n); }} />
       {link && <div className="equation-link" role="group" aria-label="Open source"><p className="source-address">{link}</p>
         <button className="secondary small" onClick={() => setLink(null)}>Cancel</button>
         <a className="primary small" href={link} target="_blank" rel="noopener noreferrer" onClick={() => setLink(null)}>Open link</a></div>}

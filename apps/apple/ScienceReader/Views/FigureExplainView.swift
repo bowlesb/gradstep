@@ -1,5 +1,6 @@
 import ScienceReaderCore
 import SwiftUI
+import UIKit
 
 // The figure view's screens (owner, build 59; docs/architecture/FIGURE_VIEW.md): a figure page offers Explain and Ask in
 // chat side by side; Explain opens the walkthrough in the equation view's look: the figure, what it shows, then each
@@ -46,14 +47,15 @@ private struct FigurePageActions: ViewModifier {
     @Environment(\.expandSheet) private var expandSheet
     @State private var context: FigureViewContext?
     @State private var explaining = false
+    @State private var explainOnOpen = true
     @State private var choosingAI = false
 
     func body(content: Content) -> some View {
         content
             .sheetTopRow(
                 chat: host.flatMap { host in context.map { context in
-                    ExplainAction(identifier: "figureView.askInChat", hint: "Opens the paper’s chat with this figure as the passage; nothing is sent") {
-                        host.finish(.askInChat(context, part: nil))
+                    ExplainAction(identifier: "figureView.askInChat", hint: "Ask about this figure here; nothing is sent") {
+                        explainOnOpen = false; expandSheet?(); explaining = true
                     }
                 } },
                 // An arXiv paper on this device only: the walkthrough reads the paper numbered here.
@@ -62,12 +64,12 @@ private struct FigurePageActions: ViewModifier {
                     : nil,
                 close: close)
             .navigationDestination(isPresented: $explaining) {
-                if let host, let context { FigureExplainView(model: host.model, context: context, finish: host.finish, close: host.close) }
+                if let host, let context { FigureExplainView(model: host.model, context: context, requesting: explainOnOpen, finish: host.finish, close: host.close) }
             }
             .sheet(isPresented: $choosingAI) {
                 if let host {
                     AIChoiceView(model: host.model, needsVision: true) { id in
-                        host.model.localAIModelID = id; expandSheet?(); explaining = true
+                        host.model.localAIModelID = id; explainOnOpen = true; expandSheet?(); explaining = true
                     }
                 }
             }
@@ -90,22 +92,25 @@ struct FigureExplainView: View {
     /// The figure AI Explainer was chosen for is asked for at once; one switched to from the heading is not.
     @State private var requestsOnOpen = true
     @State private var choosingAI = false
+    @State private var chatToken: UUID?
+    @State private var chatFocus = 0
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
 
-    init(model: ReaderModel, context: FigureViewContext, finish: @escaping @MainActor (FigureViewOutcome) -> Void,
+    init(model: ReaderModel, context: FigureViewContext, requesting: Bool = true, finish: @escaping @MainActor (FigureViewOutcome) -> Void,
          close: @escaping @MainActor () -> Void) {
         self.model = model; self.finish = finish; self.close = close
         _context = State(initialValue: context)
+        _requestsOnOpen = State(initialValue: requesting)
     }
 
     var body: some View {
-        Group {
-            if let session { content(session) } else { ProgressView() }
+        VStack(spacing: 0) {
+            Group {
+                if let session { content(session) } else { ProgressView() }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            composer
         }
         .sheetTopRow(
-            chat: ExplainAction(identifier: "figureView.walkthrough.askInChat", hint: "Opens the paper’s chat with this figure as the passage; nothing is sent") {
-                finish(.askInChat(context, part: nil))
-            },
             explainer: session.map { $0.walkthrough.state == .idle } == true
                 ? ExplainAction(identifier: "figureView.walkthrough.explain", hint: "Choose Cloud AI or Local AI to explain this figure.") { choosingAI = true }
                 : nil,
@@ -113,15 +118,17 @@ struct FigureExplainView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .task(id: context.figureID) {
             session?.stop()
+            chatToken = model.beginContextualChat(paperID: context.paperID, manifest: context.bundle.manifestSHA256,
+                element: context.figureID, label: context.label, quote: context.caption)
             let opened = FigureExplainSession(context: context, model: model)
             session = opened
             let requesting = requestsOnOpen
             requestsOnOpen = false
             await opened.start(requesting: requesting)
         }
-        .onDisappear { session?.stop() }
+        .onDisappear { session?.stop(); if let chatToken { model.endContextualChat(chatToken) } }
         .sheet(isPresented: $choosingAI) {
-            AIChoiceView(model: model, needsVision: true) { id in
+            AIChoiceView(model: model, chat: true, needsVision: true) { id in
                 model.localAIModelID = id; session?.stop()
                 let opened = FigureExplainSession(context: context, model: model); session = opened
                 Task { await opened.start() }
@@ -134,20 +141,37 @@ struct FigureExplainView: View {
         }
     }
 
+    private var composer: some View {
+        ContextualChatComposer(model: model, token: chatToken, label: context.label, needsVision: true,
+            explanation: figureExplanation, busy: session?.walkthrough.state == .loading, focusRequest: chatFocus,
+            modelChanged: {
+                session?.stop()
+                let next = FigureExplainSession(context: context, model: model); session = next
+                Task { await next.start(requesting: false) }
+            })
+    }
+
+    private var figureExplanation: String {
+        guard let session else { return "" }
+        guard let walkthrough = session.walkthrough.walkthrough else { return session.walkthrough.text }
+        return ([walkthrough.summary] + walkthrough.sections.map { "\($0.name): \($0.text)" }).joined(separator: "\n")
+    }
+
     private func cloudLabel(_ session: FigureExplainSession) -> String {
-        if let served = session.walkthrough.answeredModel { return "Cloud AI · \(ChatProfileText.modelName(served))" }
-        if session.walkthrough.state == .done { return "Cloud AI" }
-        return "Cloud AI · \(model.chatProfileTable?.label(model.equationProfile.model) ?? model.equationProfile.model.label)"
+        if let served = session.walkthrough.answeredModel { return "\(ChatProfileText.modelName(served))" }
+        if session.walkthrough.state == .done { return "Saved explanation" }
+        return "\(model.chatProfileTable?.label(model.equationProfile.model) ?? model.equationProfile.model.label)"
     }
 
     private func content(_ session: FigureExplainSession) -> some View {
-        ScrollView {
+        ContextualConversationScroll(model: model, token: chatToken) {
             VStack(alignment: .leading, spacing: 18) {
                 heading
                 figureCard(session)
-                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Figure and selected excerpts" } ?? cloudLabel(session))
+                Text(session.localModelID.map { "\(model.localAI.name($0)) (local)" } ?? cloudLabel(session))
                     .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("figureView.aiSource")
                 walkthrough(session)
+                ContextualChatThread(model: model, token: chatToken, onCite: cite)
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 20).padding(.vertical, 16)
@@ -176,9 +200,9 @@ struct FigureExplainView: View {
         VStack(alignment: .leading, spacing: 10) {
             if let image = session.image {
                 // Figures are drawn on white in the paper; keep that in dark mode too.
-                Image(decorative: image, scale: 1).resizable().scaledToFit()
-                    // Never more than twice its own size: a small figure stays sharp.
-                    .frame(maxWidth: CGFloat(image.width) * 2, maxHeight: min(300, CGFloat(image.height) * 2))
+                ZoomableFigureImage(image: image).id(context.figureID).aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
+                    // Even a tiny bitmap needs enough room for a two-finger gesture.
+                    .frame(maxWidth: max(160, CGFloat(image.width) * 2), maxHeight: min(300, max(160, CGFloat(image.height) * 2)))
                     .padding(8).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel(context.label)
@@ -236,8 +260,8 @@ struct FigureExplainView: View {
             .accessibilityHint("Options for this part")
             .accessibilityIdentifier("figureView.section.\(number).menu")
             if let box = section.box, let image = session.image, let crop = Self.crop(image, box) {
-                Image(decorative: crop, scale: 1).resizable().scaledToFit()
-                    .frame(maxWidth: CGFloat(crop.width) * 2, maxHeight: min(260, CGFloat(crop.height) * 2))
+                ZoomableFigureImage(image: crop).aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
+                    .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(260, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
                     .frame(maxWidth: .infinity)
@@ -274,8 +298,8 @@ struct FigureExplainView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Up close", systemImage: "viewfinder").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             if let box = detail.detail?.box, let image = session.image, let crop = Self.crop(image, box) {
-                Image(decorative: crop, scale: 1).resizable().scaledToFit()
-                    .frame(maxWidth: CGFloat(crop.width) * 2, maxHeight: min(320, CGFloat(crop.height) * 2))
+                ZoomableFigureImage(image: crop).aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
+                    .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(320, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
                     .frame(maxWidth: .infinity)
@@ -309,7 +333,7 @@ struct FigureExplainView: View {
             finish(section.paragraphs.first.map { .paragraph(paperID: context.paperID, marker: $0) } ?? .figure(paperID: context.paperID, figureID: context.figureID))
         } label: { Label("Show in the paper", systemImage: "doc.text.magnifyingglass") }
             .accessibilityIdentifier("figureView.showInPaper")
-        Button { finish(.askInChat(context, part: section)) } label: { Label("Ask in chat about this", systemImage: "bubble.left.and.text.bubble.right") }
+        Button { model.chatInput = "About \(section.name): "; chatFocus += 1 } label: { Label("Ask about this part", systemImage: "bubble.left.and.text.bubble.right") }
             .accessibilityIdentifier("figureView.askAbout")
     }
 
@@ -349,4 +373,55 @@ struct FigureExplainView: View {
         guard let rect = box.pixels(width: image.width, height: image.height) else { return nil }
         return image.cropping(to: CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height))
     }
+}
+
+/// Every figure crop is directly pinchable; at 1× its scroll view has no pan extent, so the enclosing page scrolls.
+struct ZoomableFigureImage: UIViewRepresentable {
+    let image: CGImage
+    func makeUIView(context: Context) -> FigureZoomScroll { FigureZoomScroll(image: image) }
+    func updateUIView(_ view: FigureZoomScroll, context: Context) { view.setImage(image) }
+}
+
+final class FigureZoomScroll: UIScrollView, UIScrollViewDelegate {
+    private let picture = UIImageView()
+    private var pixels: CGImage
+    private var laidOut = CGSize.zero
+    init(image: CGImage) {
+        pixels = image
+        super.init(frame: .zero)
+        delegate = self; minimumZoomScale = 1; maximumZoomScale = 8
+        bounces = false; bouncesZoom = false; contentInsetAdjustmentBehavior = .never
+        showsVerticalScrollIndicator = false; showsHorizontalScrollIndicator = false
+        backgroundColor = .white; picture.image = UIImage(cgImage: image); addSubview(picture)
+        isAccessibilityElement = true; accessibilityTraits = [.image, .adjustable]
+        accessibilityHint = "Pinch to zoom, drag to pan; double tap to reset."
+        accessibilityValue = "100%"
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(toggleZoom)); doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func setImage(_ image: CGImage) {
+        guard pixels !== image else { return }
+        let changedSize = pixels.width != image.width || pixels.height != image.height
+        pixels = image; picture.image = UIImage(cgImage: image)
+        if changedSize { laidOut = .zero; setNeedsLayout() }
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != laidOut, bounds.width > 0, bounds.height > 0 else { return }
+        laidOut = bounds.size; setZoomScale(1, animated: false)
+        let fit = min(bounds.width / CGFloat(pixels.width), bounds.height / CGFloat(pixels.height))
+        picture.frame = CGRect(x: 0, y: 0, width: CGFloat(pixels.width) * fit, height: CGFloat(pixels.height) * fit)
+        contentSize = picture.frame.size; centerImage()
+    }
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { picture }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        centerImage(); accessibilityValue = "\(Int((zoomScale * 100).rounded()))%"
+    }
+    private func centerImage() {
+        contentInset = UIEdgeInsets(top: max(0, (bounds.height - contentSize.height) / 2), left: max(0, (bounds.width - contentSize.width) / 2), bottom: 0, right: 0)
+    }
+    @objc private func toggleZoom() { setZoomScale(zoomScale > 1 ? 1 : 2, animated: true) }
+    override func accessibilityIncrement() { setZoomScale(min(maximumZoomScale, zoomScale + 0.5), animated: false) }
+    override func accessibilityDecrement() { setZoomScale(max(1, zoomScale - 0.5), animated: false) }
 }

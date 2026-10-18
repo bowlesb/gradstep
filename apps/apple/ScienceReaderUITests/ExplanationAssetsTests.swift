@@ -48,7 +48,7 @@ final class ExplanationAssetsTests: XCTestCase {
         var item = app.revealEditMenuItem("AI Explainer", timeout: 2)
         if !item.exists { item = app.revealEditMenuItem("Equation") }
         XCTAssertTrue(item.exists); item.tap()
-        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.1"].waitForExistence(timeout: 10), "The explanation")
 
         // A new launch keeps what this device kept.
@@ -77,7 +77,7 @@ final class ExplanationAssetsTests: XCTestCase {
         XCTAssertTrue(figure.waitForExistence(timeout: 5)); figure.tap()
         let explain = first([app.buttons["figureView.explain"], app.buttons["AI Explainer"]])
         XCTAssertTrue(explain.exists); explain.tap()
-        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 10), "The walkthrough")
 
         app.terminate()

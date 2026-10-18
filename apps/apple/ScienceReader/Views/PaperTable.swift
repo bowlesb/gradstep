@@ -563,6 +563,8 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
+        let placeholder = title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil
+        ZStack(alignment: .leading) {
         VStack(alignment: .leading, spacing: 2) {
             // One line limit: an expanded title is whole; a row being added keeps two lines' room.
             Text(title.title).font(.subheadline.weight(.semibold))
@@ -594,6 +596,12 @@ struct PaperTableTitleCell: View {
                 }
                 .frame(minHeight: libraryLine)
             }
+        }
+        .opacity(placeholder ? 0 : 1).accessibilityHidden(placeholder)
+        if placeholder {
+            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
         }
     }
 }

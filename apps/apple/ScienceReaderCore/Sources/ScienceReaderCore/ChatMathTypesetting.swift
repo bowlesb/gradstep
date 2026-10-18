@@ -15,6 +15,7 @@ public enum ChatMathTypesetting {
         ("lesssim", "\u{2272}", .relation), ("gtrsim", "\u{2273}", .relation), ("lessapprox", "\u{2A85}", .relation),
         ("gtrapprox", "\u{2A86}", .relation), ("nmid", "\u{2224}", .relation), ("intercal", "\u{22BA}", .ordinary),
         ("iint", "\u{222C}", .largeOperator), ("iiint", "\u{222D}", .largeOperator),
+        ("longmapsto", "\u{27FC}", .relation),
     ]
     /// Commands replaced by a fixed string of supported LaTeX.
     private static let symbols: [String: String] = [
@@ -32,6 +33,8 @@ public enum ChatMathTypesetting {
     /// or nil to drop the argument.
     private static let unary: [String: (String, String)?] = [
         "operatorname": ("\\mathrm{", "}"), "mathop": ("{", "}"), "mathbin": ("{", "}"), "mathrel": ("{", "}"),
+        "ket": ("\\left|", "\\right\\rangle"), "bra": ("\\left\\langle", "\\right|"),
+        "Ket": ("\\left|", "\\right\\rangle"), "Bra": ("\\left\\langle", "\\right|"),
         "boxed": ("{", "}"), "cancel": ("{", "}"), "emph": ("\\textit{", "}"), "mathds": ("\\mathbb{", "}"),
         "mathscr": ("\\mathcal{", "}"), "underbrace": ("\\underline{", "}"), "overbrace": ("\\overline{", "}"),
         "xrightarrow": ("\\rightarrow^{", "}"), "xleftarrow": ("\\leftarrow^{", "}"), "tag": ("\\qquad (", ")"),

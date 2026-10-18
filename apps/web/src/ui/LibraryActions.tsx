@@ -15,7 +15,7 @@ import './library-actions.css';
 
 type Library = ReturnType<typeof useLibrary>;
 type Action = 'menu' | 'tags' | 'archive' | 'remove';
-interface Selection { item: LibraryPaper; trigger: HTMLButtonElement; region: Element | null; action: Action; last: boolean }
+interface Selection { item: LibraryPaper; trigger: HTMLElement; region: Element | null; action: Action; last: boolean }
 type OpenMenu = (item: LibraryPaper, trigger: HTMLButtonElement, last?: boolean) => void;
 const title = (item: LibraryPaper) => item.metadata?.title ?? (item.source_id ? `arXiv ${item.source_id}` : 'Untitled paper');
 
@@ -50,10 +50,15 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
     if (selection || !returnTo.current) return;
     const owner = returnTo.current;
     returnTo.current = null;
-    if (owner.trigger.isConnected && !owner.trigger.disabled) owner.trigger.focus();
+    if (owner.trigger.isConnected && !(owner.trigger instanceof HTMLButtonElement && owner.trigger.disabled)) owner.trigger.focus();
     else if (owner.region?.isConnected) owner.region.querySelector<HTMLElement>('.table-wrap, .paper-menu-button, a.compact-link')?.focus();
   }, [selection]);
-  return { library, selection, notice, open, close, choose, beforeSequentialNavigation, extra, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
+  const editTags = (item: LibraryPaper) => {
+    if (!item.visible || !managed(item) || latest.current.pending.has(item.id)) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
+    setSelection({ item, trigger, region: null, action: 'tags', last: false });
+  };
+  return { library, selection, notice, open, close, choose, editTags, beforeSequentialNavigation, extra, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
 }
 type Actions = ReturnType<typeof useLibraryActions>;
 

@@ -22,6 +22,12 @@ public extension TextAnchor {
         return (try? anchor.validate()) == nil ? nil : anchor
     }
 
+    /// A verified equation/figure viewed on its own. Its immutable element identifies the saved conversation.
+    static func contextual(manifestSHA256: String, elementID: String, quote: String) -> TextAnchor? {
+        let anchor = TextAnchor(artifactID: nil, manifestSHA256: manifestSHA256, quote: quote, prefix: "", suffix: "", elementID: elementID)
+        return (try? anchor.validate()) == nil ? nil : anchor
+    }
+
     /// One line for lists: the quote with whitespace collapsed.
     var displayQuote: String { Self.collapsed(quote) }
 

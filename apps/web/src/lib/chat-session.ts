@@ -229,7 +229,8 @@ export class ChatSession {
   }
   private create(documentID: string | null): Composer {
     // Empty, inactive composers can be retired. Unsent text is never evicted to make room.
-    for (const [id, c] of this.composers) if (!c.draft && !c.conversationID && !busy(c) && !c.question && !c.answer && c.revision === 0 && c.savedRevision === 0) { this.composers.delete(id); this.releaseEditor(id); }
+    const contextual = new Set(this.contextualComposers.values());
+    for (const [id, c] of this.composers) if (!contextual.has(id) && !c.draft && !c.conversationID && !busy(c) && !c.question && !c.answer && c.revision === 0 && c.savedRevision === 0) { this.composers.delete(id); this.releaseEditor(id); }
     const c = this.blank(documentID);
     this.composers.set(c.id, c); this.selected.set(scope(documentID), c.id);
     this.claimEditor(c.id);
@@ -247,6 +248,22 @@ export class ChatSession {
   /** `profile`: a selection action carries the choice shown in the chat pane into its new conversation. */
   newChat(documentID: string | null, profile: ProfileChoice | null = null): Composer {
     this.allowed(); const c = this.create(documentID); c.profile = profile ? { ...profile } : null; this.publish(); return c;
+  }
+
+  private contextualComposers = new Map<string, string>();
+  /** An equation/figure owns a composer without taking over the main chat's selected draft. */
+  contextualComposer(documentID: string, anchor: TextAnchor): Composer {
+    this.allowed();
+    validateEvent({ kind: 'position', entityID: documentID, documentID, parents: [], anchor });
+    const key = JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
+    const cached = this.composers.get(this.contextualComposers.get(key) ?? '');
+    if (cached && (!cached.conversationID || !this.history.state.isDeleted(cached.conversationID))) return cached;
+    const saved = this.history.state.conversationSummaries().find(s => s.documentID === documentID && s.anchor?.manifestSHA256 === anchor.manifestSHA256
+      && s.anchor?.elementID === anchor.elementID && s.anchor?.quote === anchor.quote);
+    const c = (saved && [...this.composers.values()].find(c => c.conversationID === saved.id)) || this.blank(documentID);
+    if (saved) c.conversationID = saved.id;
+    c.anchor = { ...anchor }; this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.claimEditor(c.id);
+    return c;
   }
 
   // ---------- Model, effort and length ----------
@@ -544,15 +561,15 @@ export class ChatSession {
   }
   private equationProfile(): ProfileChoice { return this.profiles.table ? this.defaultProfile : STANDARD_PROFILE; }
   /** A finished result for this equation with the current default model (memory only, this login lifetime). */
-  savedEquation(manifest: string, equationID: string, action: EquationAction): EquationResult | null {
-    const p = this.equationProfile();
+  savedEquation(manifest: string, equationID: string, action: EquationAction, choice?: ProfileChoice): EquationResult | null {
+    const p = choice ?? this.equationProfile();
     return this.equations.get(equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`)) ?? null;
   }
   /** One equation-view request, sent exactly as this browser's chat sends a question about the paper (its default
    * profile, capabilities, consent and the numbered paper on this device), so the server reads the same cached prefix.
    * No conversation or history is made; the finished result is kept in memory for this session. */
   async equation(documentID: string, input: { equationID: string; latex: string; number: string | null }, action: EquationAction,
-    update: (result: EquationResult) => void, signal: AbortSignal): Promise<EquationResult> {
+    update: (result: EquationResult) => void, signal: AbortSignal, choice?: ProfileChoice): Promise<EquationResult> {
     this.allowed();
     let result: EquationResult = { phase: 'loading', symbols: null, text: '', credits: null, issue: null };
     const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
@@ -562,7 +579,7 @@ export class ChatSession {
     if (!reference || !local) return finish('local_reader_unavailable');
     update(result);
     const table = await this.profiles.load();
-    const profile = table ? this.defaultProfile : STANDARD_PROFILE;
+    const profile = table ? choice ?? this.defaultProfile : STANDARD_PROFILE;
     let bundle: VerifiedBundle;
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
@@ -597,8 +614,8 @@ export class ChatSession {
   private figureResults = new Map<string, FigureResult>();
   private profileKey(): string { const p = this.equationProfile(); return `${p.model}-${p.effort}-${p.length}`; }
   /** A finished walkthrough (or, with `part`, that part more simply) with the current default model (memory only). */
-  savedFigure(manifest: string, figureID: string, action: FigureAction, part = ''): FigureResult | null {
-    return this.figureResults.get(figureKey(manifest, figureID, action, this.profileKey(), part)) ?? null;
+  savedFigure(manifest: string, figureID: string, action: FigureAction, part = '', choice?: ProfileChoice): FigureResult | null {
+    return this.figureResults.get(figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part)) ?? null;
   }
   /** One figure-view request, sent exactly as this browser's chat sends a question about the paper (its default profile,
    * capabilities, consent and the numbered paper on this device) with this figure's image, as a chat question naming it
@@ -606,7 +623,7 @@ export class ChatSession {
    * `figure_simpler`: one part again, more simply (that part's text as the selection). No conversation or history is
    * made; the finished result is kept in memory for this session, with the image it was about (crops are cut from it). */
   async figure(documentID: string, input: { figureID: string; part?: { key: string; label: string; title: string; text: string } }, action: FigureAction,
-    update: (result: FigureResult) => void, signal: AbortSignal): Promise<FigureResult> {
+    update: (result: FigureResult) => void, signal: AbortSignal, choice?: ProfileChoice): Promise<FigureResult> {
     this.allowed();
     let result: FigureResult = { phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null };
     const finish = (issue: string | null) => { result = { ...result, phase: issue ? 'failed' : 'done', issue }; update(result); return result; };
@@ -619,7 +636,7 @@ export class ChatSession {
     if (!local || !named) return finish('local_reader_unavailable');
     update(result);
     const table = await this.profiles.load();
-    const profile = table ? this.defaultProfile : STANDARD_PROFILE;
+    const profile = table ? choice ?? this.defaultProfile : STANDARD_PROFILE;
     let bundle: VerifiedBundle;
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');

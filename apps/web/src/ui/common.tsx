@@ -20,7 +20,9 @@ export function Dialog({ open, onClose, title, children, wide = false, className
     if (!open && dialog.open) dialog.close();
   }, [open]);
   return (
-    <dialog ref={ref} className={`${wide ? 'dialog wide' : 'dialog'}${className ? ` ${className}` : ''}`} onClose={onClose} onCancel={e => { e.preventDefault(); onClose(); }} aria-label={title}
+    <dialog ref={ref} className={`${wide ? 'dialog wide' : 'dialog'}${className ? ` ${className}` : ''}`}
+      onClose={e => { if (e.target === e.currentTarget) onClose(); }}
+      onCancel={e => { if (e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); onClose(); } }} aria-label={title}
       onClick={e => { if (e.target === ref.current) onClose(); }}>
       {open && <div className="dialog-body">{children}</div>}
     </dialog>

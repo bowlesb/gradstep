@@ -440,6 +440,25 @@ final class LibraryModelTests: XCTestCase {
         try await capture(window, name: "Source-only result beside saved paper")
     }
 
+    func testSourceAddedDateClearedKeywordsAndContextualSignOut() async throws {
+        let server = LibraryModelServer(), fixture = try fixture(server), model = fixture.model
+        await model.start()
+        var row = server.pending(state: 3, sourceOnly: true)
+        row["added_at"] = "2026-10-02T09:15:00Z"; row["tags_customized"] = false
+        server.deliver(server.changes([row], through: 3)); await model.refreshLibrary()
+        let paper = try XCTUnwrap(model.papers.first { $0.sourceMembership != nil })
+        XCTAssertEqual(paper.addedAt, ISO8601DateFormatter().date(from: "2026-10-02T09:15:00Z"))
+        XCTAssertFalse(LibraryTags.tags(for: paper).isEmpty)
+        row["state_seq"] = 4; row["intent_revision"] = 2; row["tags_customized"] = true; row["user_tags"] = [String]()
+        server.deliver(server.changes([row], through: 4)); await model.refreshLibrary()
+        let cleared = try XCTUnwrap(model.papers.first { $0.sourceMembership != nil })
+        XCTAssertEqual(cleared.addedAt, paper.addedAt); XCTAssertTrue(LibraryTags.tags(for: cleared).isEmpty)
+        let token = model.beginContextualChat(paperID: paper.id, manifest: String(repeating: "a", count: 64), element: "eq1", label: "Equation (1)", quote: "x^2")
+        XCTAssertTrue(model.ownsContextualChat(token)); await model.signOut()
+        XCTAssertFalse(model.hasContextualChat); XCTAssertFalse(model.ownsContextualChat(token))
+        model.endContextualChat(token); XCTAssertFalse(model.hasContextualChat)
+    }
+
     func testLiveHTMLSelectionInstallsAndDisplaysThroughTheAccountModel() async throws {
         guard ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_HTML"] == "1" else {
             throw XCTSkip("Opt-in live official HTML on the Simulator only.")

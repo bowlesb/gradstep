@@ -100,6 +100,7 @@ import Testing
         #expect(ChatProfileText.answeredBy(model: nil, profile: "haiku-low-brief") == "Haiku · Brief")
         #expect(ChatProfileText.answeredBy(model: nil, profile: nil) == nil)
         #expect(ChatProfileText.answeredBy(model: "claude-sonnet-5-5", profile: "diagram_fix") == "Claude Sonnet 5.5")
+        #expect(ChatProfileText.answeredBy(model: "local/qwen35-4b/123456789abc", profile: "haiku-low-standard") == "Qwen3.5 4B (local)")
         #expect(ChatProfileText.modelName("claude-haiku-4-5-20251001") == "Claude Haiku 4.5")
     }
 

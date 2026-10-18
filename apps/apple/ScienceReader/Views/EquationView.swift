@@ -14,6 +14,7 @@ struct EquationViewRequest: Identifiable, Equatable {
     let equationID: String
     /// Asks for the explanation at once (AI Explainer was the reader's request); otherwise only on the view's button.
     var explains = false
+    var chats = false
 }
 
 /// One equation resolved from the paper's verified bundle (`ReaderModel.equationContext(for:)`).
@@ -189,13 +190,14 @@ struct EquationView: View {
     @State private var session: EquationSession?
     @State private var missing = false
     @State private var choosingAI = false
+    @State private var chatToken: UUID?
+    @State private var chatFocus = 0
     /// The equation shown: the request's, or another chosen from the heading (owner, build 62: "a little thing you can
     /// expand to get to… all your equation listings"); one switched to waits for AI Explainer.
     @State private var equationID: String?
     @State private var equations: [PaperContentsSheet.Equation] = []
     /// The equation's size against the reader's text: 100–400 %, 160 % to start (remembered on this device).
     @AppStorage("equation.scale") private var scale = 1.6
-    @AppStorage("equation.scrollSideways") private var scrollSideways = false
     @State private var displayHeight: CGFloat = 96
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
 
@@ -203,18 +205,16 @@ struct EquationView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let session { content(session) }
-                else if missing { ContentUnavailableView("Couldn’t open this equation", systemImage: "function") }
-                else { ProgressView() }
+            VStack(spacing: 0) {
+                Group {
+                    if let session { content(session) }
+                    else if missing { ContentUnavailableView("Couldn’t open this equation", systemImage: "function") }
+                    else { ProgressView() }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let session { composer(session) }
             }
             // The top row (DESIGN.md "Sheet top row"): Explain in Chat, AI Explainer until it is asked, and the X.
             .sheetTopRow(
-                chat: session.map { session in
-                    ExplainAction(identifier: "equation.askInChat", hint: "Opens the paper’s chat with this equation as the passage; nothing is sent") {
-                        finish(.askInChat(session.context))
-                    }
-                },
                 explainer: session.flatMap { session in
                     session.symbols.state == .idle
                         ? ExplainAction(identifier: "equation.explain", hint: "Choose Cloud AI or Local AI to describe this equation.") { choosingAI = true }
@@ -230,6 +230,9 @@ struct EquationView: View {
             session?.stop()
             guard let context = model.equationContext(for: EquationViewRequest(paperID: request.paperID, equationID: shown)) else { missing = true; return }
             missing = false
+            chatToken = model.beginContextualChat(paperID: context.paperID, manifest: context.bundle.manifestSHA256,
+                element: context.blockID, label: context.label, quote: context.latex)
+            if request.chats { chatFocus += 1 }
             let opened = EquationSession(context: context, model: model)
             session = opened
             opened.start()
@@ -237,9 +240,9 @@ struct EquationView: View {
             if request.explains, equationID == nil, opened.symbols.state == .idle { choosingAI = true }
             if equations.isEmpty { equations = await PaperContentsSheet.equations(in: context.bundle) }
         }
-        .onDisappear { session?.stop() }
+        .onDisappear { session?.stop(); if let chatToken { model.endContextualChat(chatToken) } }
         .sheet(isPresented: $choosingAI) {
-            AIChoiceView(model: model, needsVision: false) { id in
+            AIChoiceView(model: model, chat: true, needsVision: false) { id in
                 model.localAIModelID = id
                 guard let context = session?.context else { return }
                 session?.stop()
@@ -254,8 +257,17 @@ struct EquationView: View {
         }
     }
 
+    private func composer(_ session: EquationSession) -> some View {
+        ContextualChatComposer(model: model, token: chatToken, label: session.context.label, needsVision: false,
+            explanation: equationExplanation(session), busy: session.symbols.state == .loading || session.background.state == .loading,
+            focusRequest: chatFocus, modelChanged: {
+                session.stop()
+                let next = EquationSession(context: session.context, model: model); self.session = next; next.start()
+            })
+    }
+
     private func content(_ session: EquationSession) -> some View {
-        ScrollView {
+        ContextualConversationScroll(model: model, token: chatToken) {
             VStack(alignment: .leading, spacing: 22) {
                 // "Equation (4) ⌄": the paper's other equations to switch to.
                 ExplainerHeadingMenu(title: session.context.label, items: equations, current: session.context.equationID,
@@ -264,10 +276,12 @@ struct EquationView: View {
                     if other.id != session.context.equationID { equationID = other.id }
                 }
                 display(session.context)
-                Text(session.localModelID.map { "Local AI · \(model.localAI.name($0)) · Selected excerpts" } ?? cloudLabel(session))
+                Text(session.localModelID.map { "\(model.localAI.name($0)) (local)" } ?? cloudLabel(session))
                     .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("equation.aiSource")
                 symbols(session)
                 if session.symbols.state == .done { backgroundSection(session) }
+                ContextualChatThread(model: model, token: chatToken, onCite: cite(session))
+                    .id("contextChat.thread")
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 20).padding(.vertical, 16)
@@ -277,9 +291,16 @@ struct EquationView: View {
     }
 
     private func cloudLabel(_ session: EquationSession) -> String {
-        if let served = session.symbols.answeredModel { return "Cloud AI · \(ChatProfileText.modelName(served))" }
-        if session.symbols.state == .done { return "Cloud AI" } // A legacy saved answer may not name its model.
-        return "Cloud AI · \(model.chatProfileTable?.label(model.equationProfile.model) ?? model.equationProfile.model.label)"
+        if let served = session.symbols.answeredModel { return "\(ChatProfileText.modelName(served))" }
+        if session.symbols.state == .done { return "Saved explanation" } // A legacy saved answer may not name its model.
+        return "\(model.chatProfileTable?.label(model.equationProfile.model) ?? model.equationProfile.model.label)"
+    }
+
+    private func equationExplanation(_ session: EquationSession) -> String {
+        let symbols = session.symbols.symbols
+        return [symbols?.summary ?? session.symbols.text,
+                symbols?.symbols.map { "\($0.symbol): \($0.meaning)" }.joined(separator: "\n") ?? "",
+                session.background.text].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     // MARK: The equation
@@ -289,7 +310,7 @@ struct EquationView: View {
             Group {
                 if let markup = context.markup {
                     EquationWebView(bundle: context.bundle, markup: markup, fontSize: model.paperFontSize * bodySize / 17,
-                                    scale: scale, scrollSideways: scrollSideways, height: $displayHeight)
+                                    scale: scale, height: $displayHeight)
                         .frame(height: displayHeight)
                 } else {
                     ScrollView(.horizontal) {
@@ -301,21 +322,17 @@ struct EquationView: View {
             .frame(maxWidth: .infinity)
             HStack(spacing: 12) {
                 HStack(spacing: 0) {
-                    sizeButton("minus.magnifyingglass", label: "Smaller", id: "equation.smaller", enabled: scale > Self.scales.lowerBound + 0.01) {
+                    sizeButton("minus", label: "Smaller", id: "equation.smaller", enabled: scale > Self.scales.lowerBound + 0.01) {
                         scale = max(Self.scales.lowerBound, ((scale - 0.2) * 10).rounded() / 10)
+                    }
+                    sizeButton("plus", label: "Larger", id: "equation.larger", enabled: scale < Self.scales.upperBound - 0.01) {
+                        scale = min(Self.scales.upperBound, ((scale + 0.2) * 10).rounded() / 10)
                     }
                     Text("\(Int((scale * 100).rounded())) %").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                         .frame(minWidth: 52).accessibilityIdentifier("equation.sizeValue")
-                    sizeButton("plus.magnifyingglass", label: "Larger", id: "equation.larger", enabled: scale < Self.scales.upperBound - 0.01) {
-                        scale = min(Self.scales.upperBound, ((scale + 0.2) * 10).rounded() / 10)
-                    }
                 }
                 .accessibilityElement(children: .contain).accessibilityLabel("Equation size")
-                Spacer(minLength: 8)
-                Toggle("Scroll sideways", isOn: $scrollSideways).fixedSize()
-                    .disabled(context.markup == nil)
-                    .accessibilityHint("Keeps the chosen size and scrolls a wide equation instead of shrinking it")
-                    .accessibilityIdentifier("equation.scroll")
+
             }
             .font(.subheadline)
         }
@@ -449,7 +466,6 @@ struct EquationWebView: UIViewRepresentable {
     let markup: String
     let fontSize: Double
     let scale: Double
-    let scrollSideways: Bool
     @Binding var height: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -512,12 +528,14 @@ struct EquationWebView: UIViewRepresentable {
         eq.style.zoom = '1';
         const available = Math.max(1, document.documentElement.clientWidth - 8);
         const natural = eq.scrollWidth;
-        const fit = !last.scroll && natural > available ? available / natural : 1;
+        // Fit once at the reader's base size, then apply the requested zoom. A wide formula must
+        // grow when + is tapped; fitting its already-enlarged width would cancel every zoom step.
+        const fit = Math.min(1, available / Math.max(1, natural)) * last.scale;
         eq.style.zoom = String(fit);
         const height = Math.ceil(eq.getBoundingClientRect().height + 28);
         return { height, fit, natural, available };
       };
-      window.__equationLayout = (size, scroll) => { last = { size, scroll }; return apply(); };
+      window.__equationLayout = (size, scale) => { last = { size, scale }; return apply(); };
       window.addEventListener('resize', () => { const result = apply(); if (result) window.webkit.messageHandlers.equation.postMessage(result); });
     })();
     """
@@ -525,7 +543,7 @@ struct EquationWebView: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: EquationWebView
         private var loaded = false
-        private var applied: (size: Double, scroll: Bool)?
+        private var applied: (size: Double, scale: Double)?
         init(_ parent: EquationWebView) { self.parent = parent }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -544,15 +562,15 @@ struct EquationWebView: UIViewRepresentable {
         }
 
         func layout(_ web: WKWebView) {
-            let size = parent.fontSize * parent.scale, scroll = parent.scrollSideways
-            web.scrollView.isScrollEnabled = scroll
-            guard loaded, applied?.size != size || applied?.scroll != scroll else { return }
-            applied = (size, scroll)
-            web.callAsyncJavaScript("return window.__equationLayout(size, scroll);", arguments: ["size": size, "scroll": scroll],
+            let size = parent.fontSize, scale = parent.scale
+            web.scrollView.isScrollEnabled = true
+            guard loaded, applied?.size != size || applied?.scale != scale else { return }
+            applied = (size, scale)
+            web.callAsyncJavaScript("return window.__equationLayout(size, scale);", arguments: ["size": size, "scale": scale],
                                     in: nil, in: .defaultClient) { [weak self, weak web] result in
                 guard let self, case .success(let value) = result, let body = value as? [String: Any], let height = body["height"] as? Double else { return }
                 self.report(height, in: web)
-                if !scroll { web?.scrollView.setContentOffset(.zero, animated: false) }
+                if scale <= 1 { web?.scrollView.setContentOffset(.zero, animated: false) }
             }
         }
 
@@ -561,5 +579,146 @@ struct EquationWebView: UIViewRepresentable {
             let value = CGFloat(min(max(height, 48), 2_400))
             if abs(parent.height - value) > 1 { parent.height = value }
         }
+    }
+}
+
+/// Inline use of the real chat event store: no second transcript format or unencrypted conversation cache.
+struct ContextualConversationScroll<Content: View>: View {
+    let model: ReaderModel
+    let token: UUID?
+    @ViewBuilder var content: Content
+    @State private var followsAnswer = true
+    private let bottom = "contextChat.bottom"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    content
+                    Color.clear.frame(height: 1).id(bottom).accessibilityHidden(true)
+                }
+                // Native attributed text can finish its layout after the final stream event.
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                    if followsAnswer, model.ownsContextualChat(token), !model.chatTranscriptMessages.isEmpty {
+                        proxy.scrollTo(bottom, anchor: .bottom)
+                    }
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                if followsAnswer, model.ownsContextualChat(token), !model.chatTranscriptMessages.isEmpty {
+                    proxy.scrollTo(bottom, anchor: .bottom)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(DragGesture().onChanged { _ in followsAnswer = false })
+            .onChange(of: model.chatTranscriptMessages.last?.id) { _, _ in
+                guard model.ownsContextualChat(token) else { return }
+                followsAnswer = true
+                withAnimation { proxy.scrollTo(bottom, anchor: .bottom) }
+            }
+            .onChange(of: model.chatTranscriptMessages.last?.payload.text) { _, _ in
+                if followsAnswer, model.ownsContextualChat(token) { proxy.scrollTo(bottom, anchor: .bottom) }
+            }
+            .onAppear {
+                if model.ownsContextualChat(token), !model.chatTranscriptMessages.isEmpty { proxy.scrollTo(bottom, anchor: .bottom) }
+            }
+        }
+    }
+}
+
+struct ContextualChatThread: View {
+    let model: ReaderModel
+    let token: UUID?
+    let onCite: ChatCiteHandler
+    @ScaledMetric(relativeTo: .body) private var size = 17.0
+    var body: some View {
+        if model.ownsContextualChat(token) {
+            let messages = model.chatTranscriptMessages
+            if !messages.isEmpty { Divider().padding(.vertical, 8) }
+            ForEach(messages, id: \.id) { message in
+                VStack(alignment: .leading, spacing: 8) {
+                    let streaming = model.chatStreamingMessageID == message.id
+                    if streaming && (message.payload.text ?? "").isEmpty {
+                        HStack { ProgressView(); Text(model.chatStreamingProgress?.text ?? "Thinking…").foregroundStyle(.secondary) }
+                    } else {
+                        ChatMessageText(source: message.payload.text ?? "", fontSize: size, streaming: streaming,
+                            speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "contextChat.message.\(message.id.wire)",
+                            assistant: message.payload.role == .assistant, onCite: streaming ? nil : onCite)
+                    }
+                    if message.payload.status == .interrupted { Text("Response interrupted").font(.caption).foregroundStyle(.secondary) }
+                    if !streaming, message.payload.role == .assistant,
+                       let name = ChatProfileText.answeredBy(model: message.payload.model, profile: message.payload.profile) {
+                        Text(name).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let diagram = model.chatDiagrams[message.id] {
+                        Button("View diagram") { model.openDiagram(diagram.id) }
+                    }
+                }
+                .padding(message.payload.role == .user ? 12 : 0)
+                .frame(maxWidth: .infinity, alignment: message.payload.role == .user ? .trailing : .leading)
+                .background(message.payload.role == .user ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 14))
+            }
+        }
+    }
+}
+
+struct ContextualChatComposer: View {
+    @Bindable var model: ReaderModel
+    let token: UUID?
+    let label: String
+    let needsVision: Bool
+    let explanation: String
+    var busy = false
+    var focusRequest = 0
+    var modelChanged: () -> Void = {}
+    @FocusState private var focused: Bool
+    @State private var choosing = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let issue = model.chatAnswerIssue, model.ownsContextualChat(token) {
+                Text(issue.message).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("contextChat.error")
+                if issue.retryable { Button(issue.actionTitle) { model.retryAnswer() }.accessibilityIdentifier("contextChat.retry") }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Ask about \(label)", text: Binding(get: { model.ownsContextualChat(token) ? model.chatInput : "" },
+                    set: { if model.ownsContextualChat(token) { model.chatInput = $0 } }), axis: .vertical)
+                    .focused($focused).lineLimit(1...5).padding(.horizontal, 14).padding(.top, 12)
+                    .accessibilityIdentifier("contextChat.composer")
+                HStack(spacing: 12) {
+                    Button { choosing = true } label: {
+                        HStack(spacing: 4) { Text(model.currentAIName); Image(systemName: "chevron.down").font(.caption2) }
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.accessibilityIdentifier("contextChat.model")
+                    Spacer(minLength: 4)
+                    ChatDictationButton(model: model)
+                    if model.isAnswering {
+                        Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
+                            .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("contextChat.stop")
+                    } else {
+                        Button {
+                            guard let token else { return }
+                            Task { await model.sendContextualMessage(token, explanation: explanation) }
+                        } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: canSend) }
+                            .disabled(!canSend).accessibilityLabel("Send").accessibilityIdentifier("contextChat.send")
+                    }
+                }.padding(.leading, 14).padding(.trailing, 3).padding(.bottom, 3)
+            }
+            .chromeSurface(RoundedRectangle(cornerRadius: 22), outlined: true)
+        }
+        .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6)
+        .background(.regularMaterial)
+        .onChange(of: focusRequest) { _, _ in focused = true }
+        .sheet(isPresented: $choosing) {
+            AIChoiceView(model: model, chat: true, needsVision: needsVision) { id in
+                model.localAIModelID = id; modelChanged()
+            }
+        }
+        .sheet(item: Binding(get: { model.ownsContextualChat(token) ? model.chatConsentPrompt : nil }, set: { next in
+            if model.ownsContextualChat(token), next == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
+        })) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
+    }
+    private var canSend: Bool {
+        model.ownsContextualChat(token) && !busy && !model.isGenerating && !model.isDiscardingDraft && model.chatContextComplete
+            && !model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

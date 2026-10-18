@@ -1,6 +1,43 @@
 # Implementation status
 
-Updated 2026-10-17 23:46 UTC (build-68 Equations hang repaired; Claude chat and auxiliaries now use the funded OpenRouter route, with live verification; browser deployed; TestFlight 69 available on iOS and Mac). Flash remains the recommendation. The owner's beta login and requested 100,000-credit test grant are verified. The owner explicitly waived the OpenRouter logging/data-use account-settings verification hold. Earlier checkpoints below are historical.
+Updated 2026-10-18 UTC (build-69 feedback implemented; migration 088, author search and browser deployed; native release verification in progress). TestFlight 69 remains the available native release until build 70 is verified below. Flash remains recommended. Earlier checkpoints are historical.
+
+## Build 69 feedback — 2026-10-18 (native release verification in progress)
+
+All 169 screenshot submissions were checked; 19 new build-69 reports and four earlier unclosed UI requests are
+tracked in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). The final feedback read still returns 169, with no next page.
+
+- Equation and figure explanations share a view with anchored, encrypted conversational follow-ups. Main-chat
+  drafts are restored on exit; account changes retire the contextual owner. Cloud failure recovery stays in place.
+  The composer names the actual model; local attribution omits the compatibility cloud profile. Model choices
+  use two rows. Local downloads/defaults and measured memory/performance details live in Settings; downloading
+  no longer requires inference headroom. Physical iPhone inference remains unverified and larger models still
+  require enough app memory. The current distribution profile lacks the optional increased-memory entitlement.
+- Equation zoom now scales after fitting and pans automatically; the reported routing-cases and quantum-ket
+  expressions typeset. Figure crops pinch/pan, including a usable gesture area for tiny bitmaps. Equation actions
+  start with Chat about Equation, remove the duplicate/Why actions, and copy the full LaTeX as text.
+- Paper keywords are editable before the introduction, including explicitly clearing all inferred tags. Author
+  taps offer an author-only search; the browser checks an actual search request, including a fixed stale-query
+  race and DataCite’s reversed name order (live author query: 40 papers). Library shows 0 chats and the source's real Added date; Adding titles are centered in equal-height rows.
+  Account/sync and chat heading/draft-label changes are included. Explicit on-device dictation fills a draft;
+  microphone/speech purpose strings and Mac audio entitlements are included. Actual microphone input is not
+  certified by the deterministic UI fixture.
+- Reader revision **20** repairs the affiliation/contact block in **2610.22353v1**. Exact-source full compilation
+  retains 224 blocks, 369 equations, 7 figures, 22 images and all non-whitespace paragraph text. The exact
+  cached source also passes native WebKit compilation and independent admission in 3.06 s with `-O`. Existing saved
+  papers use Reader version details → Update this paper. Shared validator changes also rebuild device-PDF
+  converter **4**, without changing its extraction behavior. The 123-paper cached sweep has zero failures
+  (eight retained warnings, one source without HTML); full device compilation passes the reported paper and
+  2610.16794v1, 2610.20584v1 and 2610.20592v1. The last three caught a pre-release affiliation formatter defect:
+  flattening superscript math marks left dangling equation-index entries. Revision 20 preserves those marks and contacts.
+- Migration **088** is deployed and verified, projecting immutable source creation dates and preserving explicit
+  custom/empty keywords through deltas and archive operations. The discover function is deployed. Browser
+  Pages **87e5d0f1** is deployed at app.gradstep.ai; entry asset MIME checks pass.
+- Fast tier, full database suite plus final targeted metadata replay, focused Core checks and 20 desktop/phone
+  browser journeys pass. Native cloud recovery, Settings/dictation controls, local chat/equation/figure flows,
+  saved-answer recovery, equation overflow/typesetting and crop pinch journeys pass. Final iPhone follow-up acceptance passes with two completed answers visible above the keyboard and reopening
+  the saved conversation. Wide-platform checks and the source-matching import/session release gate remain in progress.
+  Evidence: `.artifacts/feedback/all-20261018/`. No paid AI calls or physical-phone access in this batch.
 
 ## Build 68 feedback: Equations hang and unfunded Claude route — 2026-10-17
 

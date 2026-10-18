@@ -356,6 +356,8 @@
 		FD08F421C19FD815101B52AA /* AccountSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7859432114A8256D26BEF75F /* AccountSettingsTests.swift */; };
 		FD84D16563ED6E2867A32EAB /* ChatTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */; };
 		FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7005386659A627AA9009A5 /* DeviceKeys.swift */; };
+		BB9E6D63659255F475607826 /* ChatDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C434EAC6F923CC7D1116094C /* ChatDictation.swift */; };
+		2E1B398B33828FA95393B292 /* ChatDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C434EAC6F923CC7D1116094C /* ChatDictation.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -609,6 +611,7 @@
 		FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandCoordinator.swift; sourceTree = "<group>"; };
 		FF2AF682F191DAAA468C083F /* DeviceApprovalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceApprovalViews.swift; sourceTree = "<group>"; };
 		FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFixture.swift; sourceTree = "<group>"; };
+		C434EAC6F923CC7D1116094C /* ChatDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDictation.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -676,6 +679,7 @@
 				36AC968DB8F9AD4321F50917 /* LibrarySearchCoordinator.swift */,
 				1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */,
 				86B744FF4DF8FEBDBABCDA50 /* LibraryV5Fixture.swift */,
+				C434EAC6F923CC7D1116094C /* ChatDictation.swift */,
 				66A337A053CFEF4CD75A4FCD /* LocalAIController.swift */,
 				E072DDE973F6D2C53EE77686 /* NativeAuthenticationPresenter.swift */,
 				81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */,
@@ -1268,6 +1272,7 @@
 				8B2DB555A391F27C94B6D6BC /* LibraryService.swift in Sources */,
 				C24A7231A5C8FBD16FC1122D /* LibraryTableView.swift in Sources */,
 				B9B9EAC7257B4D1FFAD8D8D0 /* LibraryV5Fixture.swift in Sources */,
+				BB9E6D63659255F475607826 /* ChatDictation.swift in Sources */,
 				4AB0B361277D27FA451D1F49 /* LocalAIController.swift in Sources */,
 				FB74D6DD82A28EE6BF3C6EFD /* MacCommands.swift in Sources */,
 				0F79BA1BC1A1F56B6368049D /* MacDeviceApproval.swift in Sources */,
@@ -1503,6 +1508,7 @@
 				C18B2C6966B5F6B5E4B2CEDB /* LibraryService.swift in Sources */,
 				419D2CB618EB1E251BB07582 /* LibraryTableView.swift in Sources */,
 				61230986E123312383912C9C /* LibraryV5Fixture.swift in Sources */,
+				2E1B398B33828FA95393B292 /* ChatDictation.swift in Sources */,
 				1BF0A0B7076E7ADDD5ACC744 /* LocalAIController.swift in Sources */,
 				9B903FD8ACD9CBCBA973B03D /* MacCommands.swift in Sources */,
 				05C1840B75E4F7FD19F2DAA4 /* MacDeviceApproval.swift in Sources */,

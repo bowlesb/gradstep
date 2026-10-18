@@ -5,8 +5,12 @@ import XCTest
 /// items on iOS 16+, buttons in some layouts), paging the horizontal menu when an item is past its arrow.
 extension XCUIApplication {
     func editMenuItem(_ title: String) -> XCUIElement {
+        #if targetEnvironment(macCatalyst)
+        return menuItems.matching(NSPredicate(format: "title == %@ OR label == %@", title, title)).firstMatch
+        #else
         descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)",
             title, XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+        #endif
     }
 
     /// Waits for the edit menu to show `title`. The horizontal menu shows the first items and an arrow ("Forward") that
@@ -14,7 +18,7 @@ extension XCUIApplication {
     @discardableResult
     func revealEditMenuItem(_ title: String, timeout: TimeInterval = 5) -> XCUIElement {
         let item = editMenuItem(title), copy = editMenuItem("Copy"), forward = buttons["Forward"]
-        _ = copy.waitForExistence(timeout: timeout) || editMenuItem("Copy LaTeX").waitForExistence(timeout: 1)
+        _ = copy.waitForExistence(timeout: timeout) || editMenuItem("Copy as Text").waitForExistence(timeout: 1) || editMenuItem("Copy LaTeX").exists
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if item.exists, item.isHittable, !forward.exists || item.frame.maxX <= forward.frame.minX + 1 { return item }

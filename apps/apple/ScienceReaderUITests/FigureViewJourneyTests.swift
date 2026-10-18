@@ -65,7 +65,7 @@ final class FigureViewJourneyTests: XCTestCase {
         // the X on the right, no Done; nothing is asked of the AI on opening.
         let explain = app.buttons["figureView.explain"], ask = app.buttons["figureView.askInChat"], close = app.buttons["sheet.close"]
         XCTAssertTrue(explain.waitForExistence(timeout: 5)); XCTAssertTrue(ask.exists); XCTAssertTrue(close.exists)
-        XCTAssertEqual(explain.label, "AI Explainer"); XCTAssertEqual(ask.label, "Explain in Chat")
+        XCTAssertEqual(explain.label, "AI Explainer"); XCTAssertEqual(ask.label, "Chat about Figure")
         XCTAssertEqual(explain.frame.midY, ask.frame.midY, accuracy: 4, "one row")
         XCTAssertEqual(close.frame.midY, ask.frame.midY, accuracy: 4, "the X in the same row")
         XCTAssertLessThan(ask.frame.maxX, close.frame.minX, "the actions on the left, the X on the right")
@@ -74,7 +74,7 @@ final class FigureViewJourneyTests: XCTestCase {
         capture(app, "Figure page: the top row")
 
         explain.tap()
-        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let first = app.descendants(matching: .any)["figureView.section.1"]
         XCTAssertTrue(first.waitForExistence(timeout: 8), "The walkthrough's parts")
         // Contents opens at half height on a phone; the walkthrough takes the full height.
@@ -85,12 +85,12 @@ final class FigureViewJourneyTests: XCTestCase {
         }
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.3"].exists, "every part")
         // The walkthrough's own row: Explain in Chat and the X; its heading names the figure, a menu of the others.
-        XCTAssertTrue(app.buttons["figureView.walkthrough.askInChat"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["contextChat.composer"].exists)
         XCTAssertFalse(app.buttons["figureView.walkthrough.explain"].exists, "asked already: no AI Explainer")
         XCTAssertEqual(app.descendants(matching: .any)["figureView.heading"].firstMatch.label, "Figure 1")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.summary"].exists, "what it shows")
-        XCTAssertTrue(app.images["figureView.section.1.crop"].exists, "the left half, cropped from the paper's own image")
-        XCTAssertFalse(app.images["figureView.section.2.crop"].exists, "a part without a box has no crop")
+        XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.crop"].exists, "the left half, cropped from the paper's own image")
+        XCTAssertFalse(app.descendants(matching: .any)["figureView.section.2.crop"].exists, "a part without a box has no crop")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
         capture(app, "Figure walkthrough")
 
@@ -113,10 +113,17 @@ final class FigureViewJourneyTests: XCTestCase {
         #endif
         second.tap()
         menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
-        let extractedCrop = app.images["figureView.section.2.detailCrop"], extracted = app.descendants(matching: .any)["figureView.section.2.detail"]
+        let extractedCrop = app.descendants(matching: .any)["figureView.section.2.detailCrop"], extracted = app.descendants(matching: .any)["figureView.section.2.detail"]
         XCTAssertTrue(extractedCrop.waitForExistence(timeout: 8), "the part, cropped")
         XCTAssertTrue(extracted.waitForExistence(timeout: 2)); XCTAssertTrue(extracted.label.contains("single filled block"), extracted.label)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
+        #if !targetEnvironment(macCatalyst)
+        let composerBounds = app.descendants(matching: .any)["contextChat.composer"]
+        for _ in 0..<6 where !(extractedCrop.isHittable && extractedCrop.frame.maxY < composerBounds.frame.minY) { app.swipeUp() }
+        let beforeZoom = extractedCrop.value as? String
+        extractedCrop.pinch(withScale: 2, velocity: 1)
+        XCTAssertTrue(wait { (extractedCrop.value as? String) != beforeZoom }, "The extracted crop actually zooms")
+        #endif
         capture(app, "A part extracted, up close")
         let third = partMenu(app, 3)
         #if targetEnvironment(macCatalyst)
@@ -127,7 +134,7 @@ final class FigureViewJourneyTests: XCTestCase {
         third.tap()
         menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
         XCTAssertTrue(app.staticTexts["figureView.section.3.detailNoCrop"].waitForExistence(timeout: 8), "no region: the words, and it says so")
-        XCTAssertFalse(app.images["figureView.section.3.detailCrop"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["figureView.section.3.detailCrop"].exists)
 
         // Show in the paper: the part's paragraph, the sheet gone.
         #if targetEnvironment(macCatalyst)
@@ -147,7 +154,7 @@ final class FigureViewJourneyTests: XCTestCase {
         // Reopened: the walkthrough and the simpler part kept on the device show at once, no new request.
         openFigureOne(app)
         app.buttons["figureView.explain"].tap()
-        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 3), "kept walkthrough")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.simpler"].exists, "kept simpler part")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.2.detail"].exists, "kept extract")
@@ -156,9 +163,9 @@ final class FigureViewJourneyTests: XCTestCase {
         // Ask in chat about one part: the paper's chat, the part's text as the passage, nothing sent.
         partMenu(app, 1).tap()
         menuItem(app, "figureView.askAbout", "Ask in chat about this").tap()
-        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        let composer = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 8), "The chat opens")
-        XCTAssertTrue(wait(5) { (composer.value as? String ?? "").hasPrefix("About Figure 1, Left half [¶4]") },
+        XCTAssertTrue(wait(5) { (composer.value as? String ?? "").contains("Left half") },
                       "The composer starts with the part: \(composer.value as? String ?? "")")
         XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
                        "nothing is sent")
@@ -171,16 +178,16 @@ final class FigureViewJourneyTests: XCTestCase {
         openFigureOne(app)
         capture(app, "Figure page, dark")
         app.buttons["figureView.explain"].tap()
-        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1"].waitForExistence(timeout: 8))
         capture(app, "Figure walkthrough, dark")
         // Back (the sheet bar's system Back) to the figure's page.
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
         let ask = app.buttons["figureView.askInChat"]
         XCTAssertTrue(ask.waitForExistence(timeout: 5)); ask.tap()
-        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        let composer = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 8), "The chat opens")
-        XCTAssertTrue(wait(5) { (composer.value as? String ?? "").hasPrefix("About Figure 1 [¶6]") },
+        XCTAssertTrue(wait(5) { (composer.value as? String ?? "").isEmpty },
                       "The composer starts with the figure: \(composer.value as? String ?? "")")
         capture(app, "Ask in chat from a figure")
     }

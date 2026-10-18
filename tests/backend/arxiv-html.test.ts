@@ -619,3 +619,21 @@ test('a mark set as a formula reads as its symbol in the title page\'s notes (Pr
  assert.match(html,/<span class="reader-notes"><sup>∗<\/sup> Equal contribution<\/span>/);
  assert.doesNotMatch(html.replace(/<math[\s\S]*?<\/math>|<[^>]+>/g,' '),/\\ast|, ,/);
 });
+
+test('affiliations placed after the abstract read separately without losing marks or contacts', () => {
+  const html = source.replace('<section id="S1">', '<p><sup>1</sup> ETH Zurich <sup>2</sup> The University of Hong Kong <sup>3</sup> Max Planck Institute <sup>4</sup> WU Vienna</p><p>contact@example.org</p><section id="S1">');
+  const {html: rendered, checked} = buildWith(html);
+  const result = {html: rendered, index: checked.index};
+  assert.match(result.html, /reader-affiliation-lines/);
+  assert.match(result.html, /ETH Zurich\s*<br><sup>2<\/sup>/);
+  assert.match(result.html, /contact@example.org/);
+  assert.equal(result.index.equations.length, 2);
+});
+
+test('affiliation line breaks preserve indexed math marks and contacts in the same paragraph', () => {
+ const dagger='<math alttext="\\dagger" display="inline"><mo>†</mo></math>';
+ const paragraph=`<p><sup>${dagger}</sup> ETH Zurich contact@example.org <sup>2</sup> Example Institute</p>`;
+ const {html,checked}=buildWith(source.replace('<section id="S1">',paragraph+'<section id="S1">'));
+ assert.match(html,/reader-affiliation-lines/); assert.match(html,/contact@example.org/);
+ assert.ok(checked.index.equations.some(e=>e.latex==='\\dagger'));
+});

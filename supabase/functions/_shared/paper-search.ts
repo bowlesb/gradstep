@@ -38,7 +38,7 @@ export interface SearchResult {
 
 export type SearchPlan =
   | { kind: 'id'; sourceID: string; revision: number | null }
-  | { kind: 'text'; text: string; words: string[]; phrase: string | null };
+  | { kind: 'text'; text: string; words: string[]; phrase: string | null; author?: string };
 export type SearchRole = 'id' | 'relevance' | 'phrase' | 'cited' | 'broad';
 export type SearchEngine = 'arxiv' | 'datacite';
 /** `source`: who answers it, and so how it is read (the arXiv engine also asks DataCite for `cited` and `broad`). */
@@ -61,6 +61,12 @@ export function planSearch(raw: string): SearchPlan | null {
   if (id) {
     const sourceID = id[1].replace(/^([a-z-]+)\.([a-z]{2})\//i, (_, a: string, b: string) => `${a.toLowerCase()}.${b.toUpperCase()}/`).replace(/^([a-z-]+)\//i, (m: string) => m.toLowerCase());
     if (isArxivSourceID(sourceID)) return { kind: 'id', sourceID, revision: id[2] ? Number(id[2]) : null };
+  }
+  // The app's explicit author action, never arbitrary index syntax. Names remain data in quoted fields.
+  if (/^author:/i.test(text)) {
+    const name = text.slice(7).replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 256);
+    if (!name) return null;
+    return { kind: 'text', text: name, words: name.toLowerCase().split(' '), phrase: name, author: name };
   }
   // Index query syntax never reaches an index: only letters, digits and hyphens inside words.
   const terms = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).map(w => w.replace(/^-+|-+$/g, ''))
@@ -86,6 +92,8 @@ export function arxivSearchRequests(plan: SearchPlan): SearchRequests {
   if (plan.kind === 'id') {
     return { requests: [{ role: 'id', source: 'arxiv', url: arxivURL({ id_list: `${plan.sourceID}${plan.revision ? `v${plan.revision}` : ''}`, max_results: '1' }) }], broad: null };
   }
+  if (plan.author) return { requests: [{ role: 'relevance', source: 'arxiv', url: arxivURL({ search_query: `au:"${plan.author}"`,
+    max_results: String(SEARCH_CANDIDATES), sortBy: 'submittedDate', sortOrder: 'descending' }) }], broad: null };
   const field = (w: string) => `all:${w.includes('-') ? `"${w}"` : w}`;
   const datacite = dataciteTextRequests(plan);
   const requests: SearchRequest[] = [{ role: 'relevance', source: 'arxiv', url: arxivURL({ search_query: plan.words.map(field).join(' AND '),
@@ -150,6 +158,10 @@ function dataciteTextRequests(plan: Extract<SearchPlan, { kind: 'text' }>): { ci
  * `BROAD_BELOW`. */
 export function dataciteSearchRequests(plan: SearchPlan): SearchRequests {
   if (plan.kind === 'id') return { requests: [{ role: 'id', source: 'datacite', url: `${DATACITE_API}/dois/10.48550/arXiv.${plan.sourceID}` }], broad: null };
+  // DataCite commonly stores "Family, Given", while the byline is "Given Family". Require every name
+  // term in the author field without imposing byline word order; never fall back to titles/topics.
+  if (plan.author) return { requests: [{ role: 'relevance', source: 'datacite', url: dataciteSearchURL(
+    `creators.name:(${plan.words.map(word => `"${word}"`).join(' AND ')})`, SEARCH_CANDIDATES, '-published') }], broad: null };
   const strict = plan.words.map(dataciteTerm).join(' ');
   const shared = dataciteTextRequests(plan);
   const requests: SearchRequest[] = [{ role: 'relevance', source: 'datacite', url: dataciteSearchURL(strict, SEARCH_CANDIDATES, 'relevance') }, shared.cited];
@@ -200,6 +212,8 @@ export function explainSearch(plan: SearchPlan, lists: Partial<Record<SearchRole
   { result: SearchResult; score: number; factors: SearchFactors }[] {
   if (plan.kind === 'id') return (lists.id ?? []).filter(r => r.source_id === plan.sourceID).slice(0, 1)
     .map(({ citations: _, ...result }) => ({ result, score: 1, factors: { relevance: 1, title: 1, field: 1, exact: 1, original: 1, known: 1 } }));
+  if (plan.author) return (lists.relevance ?? []).slice(0, limit).map(({ citations: _, ...result }, i) => ({ result, score: 1 / (i + 1),
+    factors: { relevance: 1 / (i + 1), title: 1, field: 1, exact: 1, original: 1, known: 1 } }));
   const wanted = words(plan.text), content = [...new Set(wanted.filter(w => !STOP.has(w)))];
   const distinctive = content.filter(w => !GENERIC.has(w)).length ? content.filter(w => !GENERIC.has(w)) : content;
   const phrase = plan.phrase ? words(plan.phrase).join(' ') : null;

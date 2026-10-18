@@ -64,7 +64,7 @@ export const HTML_ATTRIBUTES: Record<string, readonly string[]> = {
 export const CLASSES = new Set(['reader-authors', 'reader-abstract', 'reader-caption', 'reader-table', 'reader-references',
   'reader-footnotes', 'reader-custom-marker', 'reader-marker', 'reader-equation', 'reader-inline', 'reader-display',
   'reader-tagged', 'reader-tag', 'reader-math-fallback',
-  'reader-affiliations', 'reader-notes']);
+  'reader-affiliations', 'reader-notes', 'reader-affiliation-lines']);
 
 const MATH_TOKEN = new Set(['mi', 'mo', 'mn', 'mtext', 'ms']);
 const MATH_CONTAINER = new Set(['math', 'mrow', 'msub', 'msup', 'msubsup', 'munder', 'mover', 'munderover', 'mfrac',

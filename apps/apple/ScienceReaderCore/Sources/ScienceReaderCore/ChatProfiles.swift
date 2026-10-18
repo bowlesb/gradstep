@@ -200,6 +200,8 @@ public enum ChatProfileText {
     /// The line under an answer: its profile ("Sonnet · Standard"), and the model when another one wrote it (a
     /// refusal fallback): "Sonnet · Standard · by Claude Sonnet 5". Nil for answers saved without either.
     public static func answeredBy(model: String?, profile: String?, table: ChatProfileTable? = nil) -> String? {
+        // Local requests retain a cloud profile for wire compatibility; it did not answer this question.
+        if let model, model.hasPrefix("local/") { return modelName(model) }
         let choice = profile.flatMap(ChatProfileChoice.init(id:))
         var parts: [String] = []
         if let choice { parts.append(summary(choice, table: table)) }
@@ -220,7 +222,7 @@ public enum ChatProfileText {
         let trimmed = String(id.prefix(64))
         if trimmed.hasPrefix("local/") {
             let names = ["qwen3-06b": "Qwen3 0.6B", "qwen35-2b": "Qwen3.5 2B", "qwen35-4b": "Qwen3.5 4B", "gemma4-e2b": "Gemma 4 E2B"]
-            return (trimmed.split(separator: "/").dropFirst().first.flatMap { names[String($0)] } ?? "Local AI") + " · on device"
+            return (trimmed.split(separator: "/").dropFirst().first.flatMap { names[String($0)] } ?? "Local AI") + " (local)"
         }
         if trimmed == "gemini-3.8-flash" { return "Gemini 3.8 Flash" }
         if trimmed.hasPrefix("deepseek-") { return trimmed == "deepseek-flash" ? "DeepSeek V4.1 Flash" : "DeepSeek" }

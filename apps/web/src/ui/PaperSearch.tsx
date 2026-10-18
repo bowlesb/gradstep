@@ -19,10 +19,12 @@ const UNAVAILABLE = 'ML paper search isn’t available right now. Try again in a
  * empty list (native runDiscovery). */
 export function usePaperSearch(account: string) {
   const engine = useMemo(() => browserSearch(account), [account]);
-  const [query, setQuery] = useState('');
+  const [query, setQueryState] = useState('');
   const [state, setState] = useState<DiscoveryState>({ kind: 'idle' });
   const [order, setOrder] = useStored<DiscoveryOrder>(DISCOVERY_ORDER_KEY, 'newest', v => v === 'newest' || v === 'relevance');
   const latest = useRef(query); latest.current = query;
+  // An author tap sets the query and runs it in the same event, before React renders.
+  const setQuery = useCallback((text: string) => { latest.current = text; setQueryState(text); }, []);
   const request = useRef<AbortController | null>(null);
   const run = useCallback(() => {
     const text = latest.current.trim();

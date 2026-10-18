@@ -140,3 +140,32 @@ sent without chat consent: Explain asks for it first, as chat does.
 - Live: `node scripts/chat-live-smoke.mjs --equation` on DPO's loss.
 - Apps: a fixture mode `--chat-fixture-mode=equation` and a journey that opens the view from a tapped equation.
 - Browser: `e2e/equation-view.spec.ts` against the fixture backend's `equation` event.
+
+## Build-69 feedback, 2026-10-18 (implementation; release checks pending)
+
+The equation menu starts with **Chat about Equation**, then **AI Explainer**, then Related. Chat about Equation
+opens this view without a generation; AI Explainer chooses the engine and requests the structured explanation.
+The conversation composer and answers are below that explanation, in the same view. Its actual model name opens
+the default/cloud/local choice. There is no top Explain in Chat action that discards the view for the main chat.
+Every follow-up includes the original LaTeX and a bounded earlier explanation explicitly labeled as fallible AI
+output. The encrypted conversation anchor identifies the paper manifest and equation; reopening resumes it, and
+the main chat's earlier draft is restored when the sheet closes. Account retirement fences late view callbacks.
+
+Equation sizing fits at 100% once, then applies zoom; fitting the enlarged width had cancelled zoom on wide math.
+Minus, plus and percent remain; overflow scrolls horizontally without a separate switch. Native WebKit and
+browser journeys verify actual overflow, not merely a changing percentage. The paper equation menu has one
+**Copy as Text** action containing the full LaTeX, with no duplicate Copy LaTeX or Why it matters.
+
+The conversation viewport and its composer are separate children inside the navigation stack. An outer
+`safeAreaInset` let the scroll view extend behind the keyboard/composer; a completed answer could be present
+but covered. The conversation follows both content and viewport height changes, including attributed-text layout
+after the last stream event, while a reader’s manual scroll disables following until the next turn. Acceptance
+waits for the second completed assistant answer and checks its visible frame above the composer.
+
+The wide-layout acceptance also exposed a Mac-specific defect: `presentEditMenu(with:)` logs that it is not
+supported in Catalyst’s Mac idiom, so clicking an equation produced no actions. The Mac path presents the same
+`UIMenu` using a menu control’s public primary action; macOS 14.0–14.3 retains an anchored action sheet.
+References use the same repaired presenter. iPhone/iPad retain `UIEditMenuInteraction`. Sources:
+[Apple’s editing-interaction documentation](https://developer.apple.com/videos/play/wwdc2022/10071/),
+[`performPrimaryAction`](https://developer.apple.com/documentation/uikit/uicontrol/performprimaryaction()).
+The Mac journey must click the equation, select AI Explainer, render its answer, and close the view.

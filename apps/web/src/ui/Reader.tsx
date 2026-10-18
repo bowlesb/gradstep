@@ -80,6 +80,7 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   /** Prepares an unsent draft; true only once the host accepted/persisted it. Never a paid Send. */
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
+  onEditTags?: () => void; onAuthorSearch?: (name: string) => void;
   equations?: EquationHost;
   /** The figure view's requests (FIGURE_VIEW.md), the same way. */
   figureView?: FigureHost;
@@ -97,7 +98,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -112,6 +113,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   // Back after a jump: offered with the section it returns to ('' when unknown), null when not offered.
   const [back, setBack] = useState<{ from: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [author, setAuthor] = useState<string | null>(null);
   const [markedChats, setMarkedChats] = useState<string[]>([]);
   const [bridgeReady, setBridgeReady] = useState(false);
   const appliedPassage = useRef<string | null>(null);
@@ -190,7 +192,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   // One document per bundle. Live presentation changes use the shared native bridge, preserving
   // the reading place, DOM selection and citation-return state instead of navigating the frame.
   const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine: initialPresentation.paperLine,
-    paperTags: JSON.parse(initialPresentation.paperTags) as string[], fontSize: initialPresentation.fontSize, theme: initialPresentation.theme,
+    paperAuthors: item.metadata?.authors ?? [], paperTags: JSON.parse(initialPresentation.paperTags) as string[], fontSize: initialPresentation.fontSize, theme: initialPresentation.theme,
     lineWidth: initialPresentation.lineWidth }) : null, [bundle, initialPresentation]);
   // Where each heading sits in the bundle's block order, for the current section.
   const headingBlocks = useMemo(() => {
@@ -271,7 +273,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         case 'reference': setReference(message.reference); break;
         // An older bridge never emits figureref. Keep its existing figure gallery path unchanged.
         case 'figureref': setFigureReference(message.reference); break;
-        case 'tags': setNotice('Editing tags is not yet available in the browser.'); break;
+        case 'tags': onEditTags?.(); break;
+        case 'author': if (item.metadata?.authors.includes(message.name)) setAuthor(message.name); break;
         case 'invalid': setError('This paper couldn’t be shown.'); break;
         case 'find': setFound({ count: message.count, index: message.index }); break;
         case 'key': onKey(message.key); break;
@@ -487,11 +490,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             <progress max={1} value={loaded} aria-label={`${loaded < 0.8 ? 'Downloading' : 'Preparing'} ${Math.floor(loaded * 100)} percent`} /></div>
         )}
         {quote && selection && bundle && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
-          {SELECTION_ACTIONS.flatMap(({ action, title }) => [<button key={action} className="secondary small" onClick={() => {
+          {SELECTION_ACTIONS.filter(({action}) => !(selection.parts.length === 1 && selection.parts[0].kind === 'equation') || ['define','similar'].includes(action)).flatMap(({ action, title }) => [<button key={action} className="secondary small" onClick={() => {
             const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
             const paragraph = bundle.index.blocks.findIndex(b => b.id === selection.parts[0]?.blockID) + 1;
+            if (action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID) { setEquation({ id:selection.parts[0].equationID,quote,anchor,explain:false }); setSelection(null); command('clearSelection'); return; }
             if (anchor) { onSelection(action, quote, anchor, paragraph > 0 ? paragraph : undefined); setSelection(null); command('clearSelection'); }
-          }}>{title}</button>,
+          }}>{action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' ? 'Chat about Equation' : title}</button>,
             // One tapped equation: AI Explainer, right after Explain, opens its view and asks at once (owner, build 62:
             // "Replace Explain with AI Explainer"; EQUATION_VIEW.md).
             ...(action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID ? [
@@ -518,13 +522,18 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         onAdd={() => void addReference(reference.text)} onDiscuss={discuss ? () => discuss(reference.text, reference.blockID) : undefined} />}
       {bundle && figureReference && <FigureReferenceDetail bundle={bundle} reference={figureReference} theme={theme} fontSize={font}
         onClose={() => setFigureReference(null)} onGo={() => { setFigureReference(null); command('showFigure', figureReference.id, reduced(), true); }}
+        onChat={figureView?.context ? () => { setFigureReference(null); setFigure({ id: figureReference.id, open: true }); } : undefined}
         onDiscuss={discuss} onExplain={figureView && bundle.index.figures.some(f => f.id === figureReference.id)
           ? () => { setFigureReference(null); setFigure({ id: figureReference.id, open: true, explain: true }); } : undefined} />}
       {bundle && tableDetail && <FigureReferenceDetail bundle={bundle} reference={tableDetail} theme={theme} fontSize={font}
+        onChat={figureView?.context && bundle.index.figures.some(f => f.id === tableDetail.id) ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true }); } : undefined}
         onClose={() => setTableDetail(null)} onDiscuss={discuss} onExplain={figureView && bundle.index.figures.some(f => f.id === tableDetail.id)
           ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true, explain: true }); } : undefined} onGo={() => {
           setTableDetail(null); command('showFigure', tableDetail.id, reduced(), true); if (workspace && !workspace.left.inline) workspace.show('left', false);
         }} />}
+      <Dialog open={!!author} onClose={() => setAuthor(null)} title="Author">
+        <h2>{author}</h2><button className="primary" onClick={() => { if (author) onAuthorSearch?.(author); setAuthor(null); }}>Find papers by {author}</button>
+      </Dialog>
       {bundle && equation && <Suspense fallback={null}><EquationView key={equation.id} bundle={bundle} equationID={equation.id} theme={theme} fontSize={font} host={equations}
         autoExplain={equation.explain} onSwitch={id => setEquation(equationTarget(id))}
         onClose={() => setEquation(null)} onCite={marker => { setEquation(null); goToCited(marker); }}
@@ -656,9 +665,9 @@ function ReferenceActions({ reference, frame, onClose, onAdd, onDiscuss }: {
 /** A figure, table or code block on its own: one top row — Explain in Chat and, for a figure or table the figure view
  * can read, AI Explainer (its walkthrough on the figure page) — and the X (owner, build 62; DESIGN.md "Sheet top row");
  * Show in paper (or Go to …) under it. */
-function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss, onExplain }: {
+function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss, onExplain, onChat }: {
   bundle: VerifiedBundle; reference: ReaderFigureReference; theme: 'light' | 'dark'; fontSize: number;
-  onClose: () => void; onGo: () => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>; onExplain?: () => void;
+  onClose: () => void; onGo: () => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>; onExplain?: () => void; onChat?: () => void;
 }) {
   const doc = useMemo(() => frameDocument(bundle, { parentOrigin: location.origin, figureID: reference.id, theme, fontSize }), [bundle, reference.id, theme, fontSize]);
   const [busy, setBusy] = useState(false), [issue, setIssue] = useState<string | null>(null);
@@ -675,8 +684,8 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
   return <Dialog open onClose={() => { if (!busy) onClose(); }} title={reference.label} wide>
     <div className="reader-reference-detail">
       <SheetTop onClose={onClose} closeDisabled={busy} testID="figure-reference-close">
-        {onDiscuss && <button className="sheet-action" disabled={busy} onClick={() => void discuss()} data-testid="figure-reference-ask"
-          title="Opens the paper’s chat with this as the passage; nothing is sent"><Icon name="chat" size={15} />{busy ? 'Saving draft…' : 'Explain in Chat'}</button>}
+        {(onChat || onDiscuss) && <button className="sheet-action" disabled={busy} onClick={() => onChat ? onChat() : void discuss()} data-testid="figure-reference-ask"
+          title="Ask about this figure; nothing is sent"><Icon name="chat" size={15} />{busy ? 'Saving draft…' : 'Chat about Figure'}</button>}
         {onExplain && <button className="sheet-action prominent" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
           title="Walks through it part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
         {!onDiscuss && !onExplain && <h2>{reference.label}</h2>}

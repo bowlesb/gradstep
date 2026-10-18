@@ -2,6 +2,26 @@
 
 Last updated: 2026-10-17 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Build 69 feedback: contextual AI and model management (2026-10-18; implementation underway)
+
+The owner explicitly asks equation and figure explanations to share their view with conversational follow-ups,
+without navigating to the main Chat tab. Keep the equation/image, structured explainer, citations and general
+conversation together. Reuse the established encrypted chat event store, account fences, request routing and
+credit admission; no separate plaintext transcript or backend schema. Opening a view must not spend credits.
+A chosen AI Explainer or an explicitly sent question is the request. Context switches must not mix equations,
+figures, papers or accounts. Saved explanations and conversations remain available under their existing semantics.
+
+Replace the long inline model downloader with a concise default/cloud/local choice. Settings owns downloads,
+compatibility and measured performance. Offer installed, usable local models at question time; explain unavailable
+models before download. Never pretend Mac tests verify an iPhone. Model names replace redundant Cloud AI labels;
+local model names end in “(local)”. Preserve the chosen/served-model distinction and no silent provider fallback.
+
+Add the explicitly requested author search, editable keyword row before the introduction, equation menu cleanup,
+automatic zoom/pan, crop zoom, Library metadata fixes and chat composer controls. Keywords are per-reader metadata,
+not a mutation of the verified paper bundle. Dictation, if supported, writes a draft only, with explicit microphone
+permission and on-device recognition; it never sends a question automatically. The complete checklist is in
+[OWNER_FEEDBACK.md](OWNER_FEEDBACK.md#build-69-feedback--2026-10-18-implementation-in-progress-not-yet-released).
+
 ## Build 68 equation hang and cloud model failure (2026-10-17; repaired, TestFlight 69 on iOS and Mac)
 
 The owner reports an indefinitely loading Equations tab and a default explainer that fails without explaining why,

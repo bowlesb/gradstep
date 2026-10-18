@@ -572,3 +572,21 @@ checks spent $0. This deployment adds no recurring service or subscription; Clou
 existing service limits. All eight fixed/overhead components currently lack October observations in the spending
 ledger (Tavily, domains, Supabase, Cloud Run, storage/egress, builds/registry, backups and web hosting). Their amounts
 are unknown, not zero, and the total-month forecast remains incomplete. No budget was increased.
+
+## Import creation date in Library (build 69 feedback, 2026-10-18; migration 088 deployed)
+
+Source-only memberships use import entries, whose format-2 projection omitted `created_at`; native projection
+therefore had no Added date. Add optional top-level `added_at` from the existing immutable import creation time.
+Older clients ignore it; new clients accept old entries without it and show an unknown marker rather than a blank.
+Do not substitute catalog publication/metadata time or the device's current date. Reproject existing visible import
+entries with fresh state sequences under the normal account/library locks, so incremental clients receive the
+field without an equal-revision conflict. No new table, PDF processing, data acquisition or legacy migration.
+Native/browser wire decoding and offline storage preserve the timestamp; identity checks reject changes to a
+known date. Migration 088 is applied on staging. The full database suite and a fresh-schema replay of
+`import_metadata.sql` pass, including the final archive-only/custom-keyword distinction. Native projection checks
+cover the actual source creation date, explicitly cleared keywords and account retirement.
+
+Revision 20 closes the full-corpus admission regression from the affiliation layout: superscript `\dagger`/
+`\ddagger` formulas must stay in the rendered tree with their equation IDs, and inline contact text stays intact.
+The three failing real sources (2610.16794v1, 2610.20584v1, 2610.20592v1) pass full device preparation after the
+fix; all 123 cached sweep sources have zero failures. Revision 19 was a browser-only checkpoint.

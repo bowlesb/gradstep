@@ -4,6 +4,8 @@
 // One top row (owner, build 62; docs/DESIGN.md "Sheet top row"): Explain in Chat (an unsent draft about the figure) and
 // AI Explainer (its walkthrough, FIGURE_VIEW.md) on the left, the close X on the right; the caption names the figure.
 // The walkthrough's heading is a small menu of the paper's figures to switch to; one switched to waits for AI Explainer.
+import { ContextualChat, useContextualChat } from './ContextualChat';
+import { citedMarker } from '../lib/passage';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { toBase64 } from '../lib/bytes';
 import type { VerifiedBundle } from '../lib/bundle';
@@ -41,7 +43,9 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
     });
   }, [bundle, figures]);
   const names = useMemo(() => figures.map(f => figureName(bundle, f.id)), [bundle, figures]);
+  const [explanation, setExplanation] = useState('');
   const current = index !== null ? figures[index] : null;
+  const context = useContextualChat(figureView?.context, bundle.manifestSHA256, current?.id ?? null, index === null ? 'Figure' : names[index], current?.caption || current?.alt || 'Figure');
   const doc = useMemo(() => current ? frameDocument(bundle, { parentOrigin: location.origin, figureID: current.id, theme }) : null, [bundle, current, theme]);
   const back = () => { if (index !== null && fromGallery) setIndex(null); else onClose(); };
   const show = (i: number) => { setExplaining(false); setIndex(i); };
@@ -58,6 +62,11 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
 
   // Explain in Chat: an unsent draft about the figure (its caption), or about one part of its walkthrough (that part's text).
   const discuss = async (text = ''): Promise<boolean> => {
+    if (context) {
+      if (text) context.host.chat.edit(context.composer, `About this part: ${text} `);
+      requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.contextual-chat textarea')?.focus());
+      return true;
+    }
     if (!current || !onDiscuss || discussing) return false;
     setDiscussing(true); setIssue(null);
     try { if (await onDiscuss(text || current.caption || current.alt, current.block_id)) { onClose(); return true; } setIssue('Couldn’t save the chat draft. Try again.'); }
@@ -74,7 +83,7 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
             {fromGallery && <button className="icon-button sheet-back" disabled={discussing} onClick={() => setIndex(null)} aria-label="All figures" title="All figures"
               data-testid="figure-gallery-back"><Icon name="chevronLeft" /></button>}
             {onDiscuss && <button className="sheet-action" onClick={() => void discuss()} disabled={discussing} data-testid="figure-ask"
-              title="Opens the paper’s chat with this figure as the passage; nothing is sent"><Icon name="chat" size={15} />Explain in Chat</button>}
+              title="Ask about this figure below; nothing is sent"><Icon name="chat" size={15} />Chat about Figure</button>}
             {figureView && !explaining && <button className="sheet-action prominent" disabled={discussing} data-testid="figure-explain"
               onClick={() => setRequest(r => ({ id: current.id, n: (r?.n ?? 0) + 1 }))}
               title="Walks through the figure part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
@@ -107,9 +116,10 @@ export function FigureViewer({ bundle, theme, initial, explain = false, onClose,
             <button key={f.id} type="button" role="menuitemradio" aria-checked={i === index} className="menu-item"
               onClick={() => { close(false); if (i !== index) show(i); }}>{names[i]}</button>)}</MenuButton>
           : names[index!]}</h2>}
-        {current && figureView && <Suspense fallback={null}><FigureExplain key={current.id} manifest={bundle.manifestSHA256} figureID={current.id} host={figureView} busy={discussing}
+        {current && figureView && <Suspense fallback={null}><FigureExplain key={current.id} manifest={bundle.manifestSHA256} figureID={current.id} host={figureView} profile={context?.profile} onExplanation={setExplanation} busy={discussing}
           request={request} onActive={setExplaining} onAsk={onDiscuss ? discuss : undefined} onShowFigure={() => onShowInPaper(current.id)}
           onCite={marker => { if (onCite) onCite(marker); else onShowInPaper(current.id); }} /></Suspense>}
+        {current && <ContextualChat context={context} explanation={explanation} onCite={anchor => { const n = citedMarker(anchor); if (n && onCite) onCite(n); }} />}
       </div>
     </Dialog>
   );

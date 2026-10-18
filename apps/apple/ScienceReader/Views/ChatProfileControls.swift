@@ -27,9 +27,10 @@ struct ChatChoiceControls: View {
         VStack(alignment: .leading, spacing: 18) {
             if table == nil { unavailable }
             Group {
-                group("Model", selection: Binding(get: { choice.model }, set: { var next = choice; next.model = $0; set(next) }),
-                      options: models, label: { table?.label($0) ?? $0.label },
-                      detail: table?.detail(choice.model) ?? choice.model.detail, identifier: "model")
+                modelRow("Anthropic models", options: models.filter { [.haiku, .sonnet, .opus].contains($0) })
+                modelRow("Other providers", options: models.filter { ![.haiku, .sonnet, .opus].contains($0) })
+                Text(table?.detail(choice.model) ?? choice.model.detail).font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chat.profile.model.detail")
                 group("Length", selection: Binding(get: { choice.length }, set: { var next = choice; next.length = $0; set(next) }),
                       options: ChatProfileChoice.Length.allCases, label: { table?.label($0) ?? $0.label },
                       detail: table?.detail(choice.length) ?? choice.length.detail, identifier: "length")
@@ -39,9 +40,33 @@ struct ChatChoiceControls: View {
         }
     }
 
+    @ViewBuilder private func modelRow(_ title: String, options: [ChatProfileChoice.Model]) -> some View {
+        if !options.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.subheadline.weight(.semibold))
+                HStack(spacing: 4) {
+                    ForEach(options, id: \.self) { option in
+                        Button {
+                            var next = choice; next.model = option; set(next)
+                        } label: {
+                            Text(table?.label(option) ?? option.label).font(.subheadline)
+                                .frame(maxWidth: .infinity, minHeight: 38).contentShape(RoundedRectangle(cornerRadius: 9))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(choice.model == option ? Color.primary : Color.secondary)
+                        .background(choice.model == option ? Color(uiColor: .tertiarySystemGroupedBackground) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 9))
+                        .accessibilityAddTraits(choice.model == option ? .isSelected : [])
+                        .accessibilityIdentifier("chat.profile.model.\(option.rawValue)")
+                    }
+                }.padding(3).background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
     @ViewBuilder private var unavailable: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(model.chatProfileTableFailed ? "Couldn’t load the answer options. Answers use Sonnet · Standard."
+            Text(model.chatProfileTableFailed ? "Couldn’t load cloud models. Try again to choose a model."
                  : "Loading the answer options…").font(.footnote).foregroundStyle(.secondary)
             if model.chatProfileTableFailed {
                 Button("Try again") { model.refreshChatProfiles(force: true) }.font(.footnote.weight(.semibold))

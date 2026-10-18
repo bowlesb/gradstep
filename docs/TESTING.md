@@ -10,6 +10,27 @@ Owner direction, 2026-10-13: run fast checks routinely; run slow checks once for
 related changes or a reported problem. A slow run is not a prerequisite for an unrelated edit. Save failures and
 turn a discovered bug into a small fast regression where possible.
 
+## Build 69 feedback acceptance
+
+`LocalAIJourneyTests` now exercises Settings model management/defaults, dictation into an unsent draft, local
+chat/equation/figure choices, saved explanations after restart, inline billing recovery, and two follow-ups in the
+equation view. The latest answer must actually be visible above the composer, not merely present offscreen.
+`FigureViewJourneyTests` exercises the real UIKit crop pinch and in-place question draft. `UnsentDraftTests` checks
+context ownership/draft restoration, real equation overflow and actual typesetting of the reported cases/ket LaTeX;
+`LibraryModelTests/testSourceAddedDateClearedKeywordsAndContextualSignOut` covers the authenticated account boundary.
+These are release-optimized Simulator checks, not on-device model-quality or microphone-recognition measurements.
+
+Browser `equation-view.spec.ts` and `figure-view.spec.ts` cover inline conversations, preserved explanation,
+model/consent changes, reload, automatic equation overflow, crop zoom, nested-dialog isolation and author search
+on desktop and phone layouts. The author journey checks an actual search request: setting a field alone is not
+acceptance. Shared search tests verify author-only provider queries and recent ordering.
+
+The exact reported 2610.22353v1 source is compiled before/after revision 19, including bundle admission, all 22
+images and unchanged non-whitespace paragraph text; screenshots show the affiliation/contact block. The authored
+regression uses full bundle validation, which catches a missing sanitizer class admission. Migration 088 has
+`tests/database/import_metadata.sql` for date/delta delivery, explicit empty keywords, archive-only preservation,
+account isolation and idempotency. Evidence is retained under `.artifacts/feedback/all-20261018/`.
+
 ## Build 68 Equations regression
 
 `swift test --package-path apps/apple/ScienceReaderCore --filter 'EquationViewTests|ChatStreamTests'` covers complete
@@ -173,3 +194,9 @@ Reports and logs are in `.artifacts/test-tiers/`, browser failure traces in `.ar
 results in `.artifacts/reader-corpus-results/`, and native evidence under `.artifacts/reader-integration-build/`.
 Source fingerprints are conservative signals, not a requirement to repeat slow checks after every change.
 Current measured evidence and limitations are recorded in [implementation status](IMPLEMENTATION_STATUS.md).
+
+For focused Catalyst UI acceptance on this Xcode installation, pass `-enableCodeCoverage NO`. A successful UI
+run otherwise stalled while Xcode downloaded runtime profiles (sample: `XCTHRuntimeProfileGenerationCoordinator`
+→ `downloadRuntimeProfilesFromDirectories`), after the test had finished. This disables instrumentation only;
+keep every interaction/assertion and the release optimization flags. `-collect-test-diagnostics never` avoids
+large repeated system-log archives; normal test attachments still provide screenshots and failure evidence.

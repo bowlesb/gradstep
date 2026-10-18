@@ -497,15 +497,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // The equation view's requests: the chat's consent, default model and cache for this paper (EQUATION_VIEW.md).
   const equationDocument = item ? paperIdentity(item) : null;
   const equationHost = useMemo<EquationHost | undefined>(() => chat && equationDocument ? {
+    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper" },
     consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
-    saved: (manifest, equationID, action) => chat.savedEquation(manifest, equationID, action),
-    run: (input, action, update, signal) => chat.equation(equationDocument, input, action, update, signal),
+    saved: (manifest, equationID, action, choice) => chat.savedEquation(manifest, equationID, action, choice),
+    run: (input, action, update, signal, choice) => chat.equation(equationDocument, input, action, update, signal, choice),
   } : undefined, [chat, equationDocument]);
   // The figure view's requests, the same way (FIGURE_VIEW.md).
   const figureHost = useMemo<FigureHost | undefined>(() => chat && equationDocument ? {
+    context: { chat, documentID: equationDocument, title: item?.metadata?.title ?? "Paper" },
     consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
-    saved: (manifest, figureID, action, part) => chat.savedFigure(manifest, figureID, action, part),
-    run: (input, action, update, signal) => chat.figure(equationDocument, input, action, update, signal),
+    saved: (manifest, figureID, action, part, choice) => chat.savedFigure(manifest, figureID, action, part, choice),
+    run: (input, action, update, signal, choice) => chat.figure(equationDocument, input, action, update, signal, choice),
   } : undefined, [chat, equationDocument]);
   const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined)]);
 
@@ -560,6 +562,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
+        onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => { setSearchExternal(true); paperSearch.setQuery('author:' + name); navigate('/'); paperSearch.run(); }}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>

@@ -18,10 +18,10 @@ export interface Item {
   original_availability_revision?: number; render_availability_revision?: number; archived?: boolean; tags?: string[]; user_tags?: string[]; hidden_tags?: string[];
 }
 export interface Import {
-  kind: 'import'; id: string; created_seq: number; state_seq: number; intent_revision: number; visible: boolean; phase: string; source: string;
+  kind: 'import'; id: string; added_at?: number; created_seq: number; state_seq: number; intent_revision: number; visible: boolean; phase: string; source: string;
   source_id: string; requested_revision?: number; source_revision?: number; metadata_id?: string; version_id?: string; metadata?: Metadata;
   metadata_recorded_at?: number; source_url: string; document_id?: string; library_item_id?: string; error_code?: string; retryable: boolean;
-  progress?: string; progress_detail?: ProgressDetail; archived?: boolean; user_tags?: string[];
+  progress?: string; progress_detail?: ProgressDetail; archived?: boolean; user_tags?: string[]; tags_customized?: boolean;
 }
 export type Entry = Item | Import;
 
@@ -107,11 +107,12 @@ export function decodeEntry(raw: unknown): Entry {
   }
   if (e.kind === 'import') {
     const entry: Import = {
-      kind: 'import', id: uuid(e.id)!, created_seq: e.created_seq as number, state_seq: e.state_seq as number, intent_revision: e.intent_revision as number,
+      kind: 'import', id: uuid(e.id)!, added_at: absent(e.added_at) ? undefined : timestamp(e.added_at), created_seq: e.created_seq as number, state_seq: e.state_seq as number, intent_revision: e.intent_revision as number,
       visible: e.visible as boolean, phase: e.phase as string, source: e.source as string, source_id: e.source_id as string,
       requested_revision: opt(e.requested_revision as number), source_revision: opt(e.source_revision as number), metadata_id: uuid(e.metadata_id, false),
       version_id: uuid(e.version_id, false), metadata: metadata(e.metadata), metadata_recorded_at: absent(e.metadata_recorded_at) ? undefined : timestamp(e.metadata_recorded_at),
       source_url: e.source_url as string, document_id: uuid(e.document_id, false), library_item_id: uuid(e.library_item_id, false),
+      tags_customized: absent(e.tags_customized) ? undefined : typeof e.tags_customized === "boolean" ? e.tags_customized : fail("entry"),
       archived: absent(e.archived) ? undefined : typeof e.archived === "boolean" ? e.archived : fail("entry"), user_tags: tagList(e.user_tags, 32),
       error_code: opt(e.error_code as string), retryable: e.retryable as boolean, progress: opt(e.progress as string), progress_detail: progressDetail(e.progress_detail),
     };
@@ -252,7 +253,7 @@ function validateIdentity(old: Entry, next: Entry): void {
       && preserves(old.original_object_id, next.original_object_id) && preserves(old.artifact_id, next.artifact_id)
       && advances(old.original_availability_revision, next.original_availability_revision) && advances(old.render_availability_revision, next.render_availability_revision))) fail('identity');
   } else if (old.kind === 'import' && next.kind === 'import') {
-    if (old.source !== next.source || old.source_id !== next.source_id || old.requested_revision !== next.requested_revision
+    if (!preserves(old.added_at, next.added_at) || old.source !== next.source || old.source_id !== next.source_id || old.requested_revision !== next.requested_revision
       || (old.library_item_id && next.library_item_id && old.library_item_id !== next.library_item_id)
       || (old.document_id && next.document_id && old.document_id !== next.document_id)) fail('identity');
     if (next.state_seq > old.state_seq && !(next.intent_revision >= old.intent_revision && preserves(old.metadata_id, next.metadata_id)

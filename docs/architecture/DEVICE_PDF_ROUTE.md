@@ -117,3 +117,9 @@ Built and running on this Mac and in the iOS Simulator; not yet tried on an iPho
   and "Show the HTML reading". Readings are kept in a store of their own (`device-model-readers`, encrypted like the
   others) and reopen at once. Models: 365 MB in the app (layout fp16, recogniser int8, tagger).
 - **Feedback for the model-building agent**: `docs/proposals/DEVICE_MODEL_FEEDBACK.md`.
+
+### Port revision 4 — 2026-10-18
+
+The shared HTML validator now admits the arXiv compiler's bounded affiliation-line span. Device-PDF output itself
+is unchanged; the embedded converter is rebuilt and its port identity advanced because its dependency bytes
+changed. The compiler freshness check caught the stale embedded bundle before release.

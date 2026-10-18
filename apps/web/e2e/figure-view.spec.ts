@@ -61,7 +61,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  // figure; no Done, no action bar under it; nothing is asked on opening.
  let viewer=await openFigure(page);
  const explain=viewer.getByTestId('figure-explain'),ask=viewer.getByTestId('figure-ask'),close=viewer.getByTestId('figure-close');
- await expect(explain).toHaveText('AI Explainer');await expect(ask).toHaveText('Explain in Chat');await expect(close).toHaveAccessibleName('Close');
+ await expect(explain).toHaveText('AI Explainer');await expect(ask).toHaveText('Chat about Figure');await expect(close).toHaveAccessibleName('Close');
  const [explainBox,askBox,closeBox,figureBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!,(await close.boundingBox())!,(await viewer.locator('iframe.figure-frame').boundingBox())!];
  const middle=(b:{y:number;height:number})=>b.y+b.height/2;
  expect(Math.abs(middle(explainBox)-middle(askBox))).toBeLessThan(2);expect(Math.abs(middle(closeBox)-middle(askBox))).toBeLessThan(3);
@@ -84,15 +84,17 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(walk.getByTestId('figure-crop')).toHaveCount(1);
  const crop=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
  await expect(crop).toBeVisible();
- expect(await crop.evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['200% 100%','100%','0%',true]);
+ expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['200% 100%','100%','0%',true]);
  // Math is typeset, [¶N] is a link; AI Explainer has gone, Explain in Chat stays; no credit counts (owner, build 59).
  await expect(viewer.getByTestId('figure-section-1').locator('math')).toBeVisible();
  await expect(viewer.getByTestId('figure-section-0').locator('.cite')).toHaveText('¶2');
  await expect(explain).toHaveCount(0);await expect(ask).toBeVisible();
- await expect(viewer).not.toContainText(/\d+\s+credits?\b/);
+ await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
  // The figure gets smaller while its walkthrough shows, so the words are in view.
  expect((await viewer.locator('iframe.figure-frame').boundingBox())!.height).toBeLessThan(470);
  await expect(viewer.getByRole('heading',{name:'What it shows'})).toBeInViewport();
+ await crop.locator('..').getByRole('button',{name:'Zoom into crop'}).click(); await expect(crop).toHaveAttribute('data-scale','1.5');
+ await crop.locator('..').getByRole('button',{name:'Zoom out of crop'}).click(); await expect(crop).toHaveAttribute('data-scale','1');
  let sent=await chats();
  expect(sent).toHaveLength(1);
  expect(sent[0]).toMatchObject({action:'figure',mode:'paper',consent_version:'cloud-ai-v5',selection:{quote:'Figure 1: A test figure.'},messages:[{role:'user',text:'Figure 1'}],
@@ -139,9 +141,9 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(closer).toContainText('three boxes joined by arrows');
  const closerCrop=closer.getByTestId('figure-detail-crop');
  await expect(closerCrop).toBeVisible();
- expect(await closerCrop.evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['200% 100%','0%','0%']);
+ expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['200% 100%','0%','0%']);
  await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
- await expect(viewer).not.toContainText(/\d+\s+credits?\b/);
+ await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
  sent=await chats();
  expect(sent[2]).toMatchObject({action:'figure_detail',selection:{quote:'(a) The three-stage pipeline\nRead left to right: preference data trains a **reward model**, which then scores samples for reinforcement learning [¶2].'},
   messages:[{role:'user',text:'Figure 1 (a)'}]});
@@ -176,11 +178,14 @@ test('a figure is explained only on request, part by part with its crop; a part 
  // Ask in chat about this: an unsent draft about that part, the composer focused; nothing is sent.
  await viewer.getByTestId('figure-section-menu-2').click();
  await page.getByRole('menu').getByRole('menuitem',{name:'Ask in chat about this'}).click();
- await expect(viewer).toBeHidden();
- const composer=page.getByRole('textbox',{name:'Message',exact:true});
- await expect(composer).toBeVisible();await expect(composer).toHaveValue('About “Arrows show where data flows; the trophy marks the preferred response.”: ');
+ await expect(viewer).toBeVisible();
+ const composer=viewer.getByTestId('contextual-chat').getByRole('textbox',{name:'Message',exact:true});
+ await expect(composer).toBeVisible();await expect(composer).toHaveValue('About this part: Arrows show where data flows; the trophy marks the preferred response. ');
  await expect(composer).toBeFocused();
  expect(await chats()).toHaveLength(4);
+ await composer.fill('Explain the arrows.'); await viewer.getByTestId('contextual-chat').getByRole('button',{name:'Send',exact:true}).click();
+ await expect(viewer.getByTestId('contextual-chat').locator('.chat-message.assistant')).toBeVisible();
+ const followUp=(await chats()).at(-1)!; expect(followUp.figures).toHaveLength(1); expect(followUp.selection.quote).toContain('Figure 1');
  expect(errors).toEqual([]);
 });
 
@@ -204,8 +209,8 @@ test('a failed walkthrough says so and can be tried again; the figure page’s E
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await expect(viewer.getByTestId('figure-issue')).toHaveCount(0);
  await viewer.getByTestId('figure-ask').click();
- await expect(viewer).toBeHidden();
- await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveValue('About “Figure 1: A test figure.”: ');
+ await expect(viewer).toBeVisible();
+ await expect(viewer.getByTestId('contextual-chat').getByRole('textbox',{name:'Message',exact:true})).toBeFocused();
 });
 
 test('without a walkthrough the words show as the description; cut off at its length, it says it wasn’t charged',async({page,request})=>{
@@ -224,7 +229,7 @@ test('without a walkthrough the words show as the description; cut off at its le
  await expect(viewer.getByTestId('figure-words')).toContainText('The figure shows two pipelines side by side');
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-note')).toHaveText('Interrupted · not charged');
- await expect(viewer).not.toContainText(/\d+\s+credits?\b/);
+ await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
 });
 
 test('a figure reference in the text offers Explain in Chat and AI Explainer; AI Explainer opens its page and asks at once',async({page,request})=>{
@@ -235,7 +240,7 @@ test('a figure reference in the text offers Explain in Chat and AI Explainer; AI
  const link=frame.locator('.sr-cite[data-sr-figure]').first();
  await expect(link).toBeAttached({timeout:20000});await link.scrollIntoViewIfNeeded();await link.click();
  const detail=page.getByRole('dialog',{name:'Figure 1'});
- await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Explain in Chat');
+ await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat about Figure');
  await expect(detail.getByTestId('figure-reference-explain')).toHaveText('AI Explainer');
  await expect(detail.getByRole('button',{name:'Discuss in chat'})).toHaveCount(0);await expect(detail.getByRole('button',{name:'Done'})).toHaveCount(0);
  await expect(detail.getByTestId('figure-reference-go')).toBeVisible();

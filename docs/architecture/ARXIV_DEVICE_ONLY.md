@@ -1206,3 +1206,17 @@ projection.
 - [Chat](CHAT.md)
 - [Content hosting review, 2026-10-09](../research/ARXIV_CONTENT_HOSTING_20261009.md)
 - [Decisions: commercial arXiv content gate](../DECISIONS.md#commercial-arxiv-content-gate--2026-10-09-owner-review-required)
+
+## Author search, build-69 feedback — 2026-10-18
+
+Exact author names in the displayed byline become accessible buttons. A tap offers Find papers by that author
+and runs an explicit `author:` search, not a title similarity query. The shared plan emits arXiv `au:` or DataCite
+`creators.name` with date ordering, without title/token fallback; it preserves provider ordering. Metadata names
+are validated again at the native/browser bridge. Preparation remains device-only.
+
+Live author acceptance found that DataCite commonly serializes names as `Family, Given`: the byline-order
+phrase for Rafael Rafailov returned zero results. The final query requires all quoted name terms within
+`creators.name`, independent of order, sorted by publication date. The actual shared query returned 40 papers;
+the two newest returned records include that author. It never broadens into title/topic matching. This is a
+name-based search, not ORCID identity disambiguation. Evidence: `author-live.json` in the feedback artifact
+directory; [DataCite query syntax](https://support.datacite.org/docs/queries).

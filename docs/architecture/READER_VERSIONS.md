@@ -37,6 +37,8 @@ revision bump always adds its line.
 
 | Version | Date | What changed |
 |---|---|---|
+| 20 | 2026-10-18 | Affiliation lines retain their indexed math marks and contact details. 123-paper replay: no failures. |
+| 19 | 2026-10-18 | Separate affiliation lines after the abstract, including 2610.22353v1; browser-only checkpoint, superseded by 20. |
 | 18 | 2026-10-17 | Font setup text no longer appears on custom title pages, including FDE-Gym. Browser deployed; TestFlight 67 on iOS and Mac. |
 | 17 | 2026-10-17 | Text badges inside equations retain their labels; their algorithms remain text listings. Browser deployed; TestFlight 66 on iOS and Mac. |
 | 16 | 2026-10-16 | Contents › Tables lists the paper's tables; an image arXiv doesn't serve leaves a note in its figure instead of stopping the paper. |

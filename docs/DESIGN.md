@@ -106,3 +106,15 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
 
 Each UI change follows the [visual check loop](VISUAL_CHECK.md); significant redesigns get an independent audit
 against this page.
+
+## Build-69 feedback — contextual conversations and model choice
+
+Equation/figure views contain the structured explanation followed by their conversation; Chat about Equation/Figure
+opens it without sending. AI Explainer requests the initial explanation. The bottom composer has the actual model,
+text input, native dictation and send/stop; it does not redirect follow-ups to the main Chat tab. The main unsent
+draft is retained. Model choice starts with default/cloud/local; downloads, defaults, measured requirements and
+compatibility are in Settings. Cloud model controls use separate Anthropic and other-provider rows.
+
+Library Search, zero Chats and actual import Added date replace the old placeholders. The temporary title stays
+vertically centered in the reserved row height. Keywords are editable immediately before the introduction;
+author names offer an author search. Working papers keep their reader version until explicitly updated.

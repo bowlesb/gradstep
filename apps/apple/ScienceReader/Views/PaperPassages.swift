@@ -12,6 +12,8 @@ struct PassageOrigin: Equatable {
     let documentID: UUID
     let anchor: TextAnchor
 
+    init(documentID: UUID, anchor: TextAnchor) { self.documentID = documentID; self.anchor = anchor }
+
     /// Nil for a paper without an immutable artifact (nothing to anchor to) or an empty quote.
     init?(scope: ReaderDocumentScope, selection: ReaderSelection, quote: String) {
         guard let anchor = TextAnchor.passage(artifactID: scope.artifactID, manifestSHA256: scope.artifactID == nil ? scope.manifestSHA256 : nil, selection: selection, quote: quote) else { return nil }

@@ -1,9 +1,51 @@
 import Foundation
 import XCTest
+import ScienceReaderCore
+import WebKit
 @testable import ScienceReader
 
 @MainActor
 final class UnsentDraftTests: XCTestCase {
+    func testContextualChatsPreserveDraftsAndFenceOldViews() async throws {
+        let model = ReaderModel(configuration: nil); model.openSample()
+        let paper = try XCTUnwrap(model.selectedPaper), manifest = String(repeating: "a", count: 64)
+        model.chatInput = "Keep my ordinary paper draft"; let previous = model.chatComposerID
+        let first = model.beginContextualChat(paperID: paper.id, manifest: manifest, element: "eq1", label: "Equation (1)", quote: "x^2")
+        XCTAssertTrue(model.ownsContextualChat(first)); XCTAssertNotEqual(model.chatComposerID, previous)
+        XCTAssertEqual(model.chatInput, ""); model.chatInput = "Why squared?"
+        let second = model.beginContextualChat(paperID: paper.id, manifest: manifest, element: "F1", label: "Figure 1", quote: "A figure")
+        XCTAssertFalse(model.ownsContextualChat(first)); XCTAssertTrue(model.ownsContextualChat(second)); XCTAssertEqual(model.chatInput, "")
+        model.endContextualChat(first); XCTAssertTrue(model.ownsContextualChat(second), "late view disappearance cannot close its replacement")
+        model.endContextualChat(second); XCTAssertEqual(model.chatComposerID, previous); XCTAssertEqual(model.chatInput, "Keep my ordinary paper draft")
+        let reopened = model.beginContextualChat(paperID: paper.id, manifest: manifest, element: "eq1", label: "Equation (1)", quote: "x^2")
+        XCTAssertEqual(model.chatInput, "Why squared?")
+        model.endContextualChat(reopened); XCTAssertFalse(model.ownsContextualChat(reopened))
+        XCTAssertFalse(model.hasContextualChat)
+    }
+
+    func testReportedMathActuallyRendersInLightAndDark() throws {
+        for (i, latex) in [#"x \longmapsto \begin{cases} x + cy & \text{if } b = 0, \\ x + cz & \text{if } b = 1, \end{cases}"#,
+                            #"\ket{0}^{\otimes n}"#].enumerated() {
+            for dark in [false, true] {
+                let rendered = try XCTUnwrap(ChatMathCache.shared.render(latex, size: 22, display: true, dark: dark), latex)
+                XCTAssertGreaterThan(rendered.image.size.width, 15); XCTAssertGreaterThan(rendered.image.size.height, 15)
+                let attachment = XCTAttachment(image: rendered.image); attachment.name = "Reported math \(i) \(dark ? "dark" : "light")"; attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
+    func testEquationEnlargementReallyOverflowsWithoutAToggle() async throws {
+        let config = WKWebViewConfiguration(), web = WKWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 240), configuration: config)
+        web.loadHTMLString("<html><head><meta name='viewport' content='width=device-width'></head><body style='margin:0'><div id='eq' style='display:inline-block'><span style='display:inline-block;width:1600px;height:40px'>Wide equation</span></div></body></html>", baseURL: nil)
+        for _ in 0..<100 { if !web.isLoading { break }; try await Task.sleep(for: .milliseconds(30)) }
+        _ = try await web.evaluateJavaScript(EquationWebView.layoutScript)
+        _ = try await web.evaluateJavaScript("window.__equationLayout(17,1)")
+        let fit = try await web.evaluateJavaScript("document.documentElement.scrollWidth") as! Double
+        _ = try await web.evaluateJavaScript("window.__equationLayout(17,2)")
+        let enlarged = try await web.evaluateJavaScript("document.documentElement.scrollWidth") as! Double
+        XCTAssertLessThanOrEqual(fit, 322); XCTAssertGreaterThan(enlarged, 500)
+    }
+
     func testFailedFirstSaveAndNewerDraftBothRemainReachable() throws {
         var workspace = ChatWorkspace()
         workspace.setDraft("Original question", in: "general")

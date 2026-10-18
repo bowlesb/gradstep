@@ -1140,3 +1140,23 @@ preparation, blind grading, durable spend reservations and provider-side key lim
 requests pass dry construction and all contestant routes pass catalogue checks, but **no paid answer or quality
 ranking exists** because available credit is zero. Sonnet remains the default. Neither recent publication dates
 nor first-party routing prove training-set exclusion or unquantized weights.
+
+## Build-69 feedback implementation — 2026-10-18
+
+Native and browser composers show the actual model beside the input, with answer options nearby. The successful
+Draft saved label is removed; durable draft persistence is unchanged. New chat and its paper subtitle align left.
+Native dictation uses an explicit microphone action and only `requiresOnDeviceRecognition`; unsupported languages
+or denied permissions produce a visible explanation. It never records a file, uploads audio or sends the draft.
+It stops on context/account changes, backgrounding, manual edits or the 55-second deadline. Simulator uses a
+fixture for draft/permission-independent UI acceptance; real microphone and phone language availability are not
+claimed. Speech and microphone usage descriptions are present in the signed application's Info.plist.
+
+Equation and figure sheets now embed real encrypted conversations (see their architecture documents). A browser
+nested-dialog regression revealed that React's close event bubbled from Answer options into its parent sheet;
+the handler now acts only on its own dialog. Browser contextual composers cannot be evicted as empty main drafts,
+and unloaded model tables do not pin a provisional Sonnet choice over the published Flash default.
+
+The Mac target grants the sandbox microphone and hardened-runtime audio-input entitlements for explicit
+dictation, and both generated Info.plist and `project.yml` carry the microphone/speech purpose strings. These
+are checked in the signed archive; a deterministic microphone fixture does not verify actual speech recognition.
+See [Apple’s Catalyst microphone requirements](https://developer.apple.com/forums/thread/825449).

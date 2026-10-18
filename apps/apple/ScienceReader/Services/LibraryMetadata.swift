@@ -84,11 +84,11 @@ enum ArxivTopics {
 enum LibraryTags {
     static func tags(for paper: Paper) -> [String] {
         let own = distinct(paper.tags)
-        return own.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: .max) : own
+        return own.isEmpty && paper.sourceMembership == nil ? ArxivTopics.names(for: paper.keywords, limit: .max) : own
     }
 
     static func tags(for item: LibraryImportRecord) -> [String] {
-        ArxivTopics.names(for: item.metadata?.categories ?? [], limit: .max)
+        item.tagsCustomized == true || !(item.userTags ?? []).isEmpty ? (item.userTags ?? []) : ArxivTopics.names(for: item.metadata?.categories ?? [], limit: .max)
     }
 
     /// Trimmed, non-empty, first spelling of each kept (case-insensitive).

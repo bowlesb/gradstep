@@ -25,7 +25,7 @@ enum SelectionAction: String, CaseIterable {
         switch self { case .define: "text.magnifyingglass"; case .relevance: "lightbulb"; case .similar: "point.3.connected.trianglepath.dotted"; case .ingest: "plus.square.on.square" }
     }
     /// A tapped equation offers these (adding the paper a passage cites makes no sense for a formula).
-    static let equationActions: [SelectionAction] = [.define, .relevance, .similar]
+    static let equationActions: [SelectionAction] = [.define, .similar]
 }
 enum PaperOfflineStatus: Equatable { case none, available, unavailable }
 
@@ -368,6 +368,8 @@ final class ReaderModel {
     var generalChat = true
     var chatPaperID: UUID?
     private var chatWorkspace = ChatWorkspace()
+    private var contextualChat: ContextualChatBinding?
+    private var contextualComposers: [String: UUID] = [:]
     private var branchSelections = ConversationBranchSelections()
     private(set) var chatFollowRequest: ChatFollowRequest?
     private var chatContext: String { generalChat ? "general" : "paper/\((chatPaperID ?? selectedPaper?.id)?.wire ?? "none")" }
@@ -421,7 +423,16 @@ final class ReaderModel {
     /// The chat function's published table; nil until fetched, or when the server offers no choices. Without it,
     /// requests carry no choice and ask for no title, exactly as before profiles.
     let localAI = LocalAIController()
-    var localAIModelID: String?
+    var localAIModelID: String? = UserDefaults.standard.string(forKey: "ai.localDefault")
+    var localAIDefaultModelID: String? = UserDefaults.standard.string(forKey: "ai.localDefault") {
+        didSet { UserDefaults.standard.set(localAIDefaultModelID, forKey: "ai.localDefault") }
+    }
+    var currentAIName: String {
+        localAIModelID.map { "\(localAI.name($0)) (local)" } ?? (chatProfileTable?.label(chatProfile.model) ?? chatProfile.model.label)
+    }
+    var defaultAIName: String {
+        localAIDefaultModelID.map { "\(localAI.name($0)) (local)" } ?? (chatProfileTable?.label(chatDefaultProfile.model) ?? chatDefaultProfile.model.label)
+    }
     private(set) var chatProfileTable: ChatProfileTable?
     /// The last fetch failed (the control offers Try again).
     private(set) var chatProfileTableFailed = false
@@ -632,7 +643,15 @@ final class ReaderModel {
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     /// `prefix`: the reader completes the prompt with their own question (Ask in chat from the equation view), so the
     /// quote goes with a message that starts with it rather than one that equals it.
-    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?, prefix: Bool)?
+    private typealias PendingChatSelection = (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?, prefix: Bool)
+    @ObservationIgnored private var pendingSelection: PendingChatSelection?
+    private struct ContextualChatBinding {
+        let token: UUID, session: UUID, composer: UUID
+        let key: String, label: String, quote: String
+        let origin: PassageOrigin?
+        let priorGeneral: Bool, priorPaper: UUID?, priorComposer: UUID, priorLocal: String?
+        let priorSelection: PendingChatSelection?
+    }
     var chatConsentPrompt: ChatConsentPrompt?
     /// Paper podcasts: Listen catalog, player, downloads, private generation (Services/PodcastCenter.swift).
     let podcasts = PodcastCenter()
@@ -1033,7 +1052,7 @@ final class ReaderModel {
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil,
                 authors: LibraryFormat.shortAuthors(item.metadata?.authors ?? []),
                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
-                tags: LibraryTags.tags(for: item), added: nil, opened: nil, progress: nil,
+                tags: LibraryTags.tags(for: item), added: item.addedAt?.date, opened: nil, progress: nil,
                 chats: 0, pages: nil, status: status,
                 needsCredits: !retrying && item.phase == .failed && item.errorCode == .insufficientCredits,
                 stepTiming: importSteps.timing(of: item), importProgress: retrying ? nil : importProgress(for: item),
@@ -1789,6 +1808,7 @@ final class ReaderModel {
 
     private func clearAccountView() {
         localAI.cancelInference()
+        contextualChat = nil; contextualComposers = [:]
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
         // The old account's reading activity is saved by its own writer, which retirement drains.
@@ -2470,7 +2490,7 @@ final class ReaderModel {
                 authors: item.metadata?.authors.joined(separator: ", ") ?? "", year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
                 abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [], artifactID: nil,
                 sourceID: sourceID, sourceRevision: revision, readerBundle: cached, sourceMembership: ref,
-                authorNames: item.metadata?.authors ?? [], canReadStructured: true, archived: item.archived ?? false, venue: item.metadata?.venue, tags: item.userTags ?? [], ownTags: item.userTags ?? [], sourceURL: item.sourceURL)
+                authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt?.date, canReadStructured: true, archived: item.archived ?? false, venue: item.metadata?.venue, tags: LibraryTags.tags(for: item), ownTags: LibraryTags.tags(for: item), sourceURL: item.sourceURL)
             next.append(Self.withTagEdit(paper.displaying(cached), tagEdits[paper.id]))
         }
         let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
@@ -3310,7 +3330,7 @@ final class ReaderModel {
 
     func newChat(general: Bool) {
         guard general || canUsePaperChat else { return }
-        generalChat = general; activeConversation = nil
+        generalChat = general; activeConversation = nil; localAIModelID = localAIDefaultModelID
         if !general { readerChatHidden = false }
     }
 
@@ -3460,7 +3480,7 @@ final class ReaderModel {
     /// when the server's table offers it), so the request reads the same cached paper as that chat.
     var equationProfile: ChatProfileChoice {
         guard let table = chatProfileTable else { return .standard }
-        return table.requested(chatDefaultProfile)
+        return table.requested(contextualChat == nil ? chatDefaultProfile : chatProfile)
     }
     var hasCloudConsent: Bool { accountID.map { chatConsent.hasAccepted($0) } ?? false }
     /// The chat's own consent, accepted from the equation view; false when it couldn't be saved.
@@ -4980,5 +5000,70 @@ final class ReaderRetirementQueue {
 
     func wait() async {
         while let task = pending?.task { await task.value }
+    }
+}
+
+// A contextual sheet borrows the existing encrypted chat workspace, without changing tabs or destroying the
+// previously selected composer. Its anchor makes the conversation discoverable again after an app restart/sync.
+extension ReaderModel {
+    @discardableResult
+    func beginContextualChat(paperID: UUID, manifest: String, element: String, label: String, quote: String) -> UUID {
+        let key = "\(paperID.wire)|\(manifest)|\(element)"
+        if let current = contextualChat, current.session == sessionID, current.key == key { return current.token }
+        if let current = contextualChat { endContextualChat(current.token) }
+        let previous = chatWorkspace.composer(in: chatContext), priorGeneral = generalChat, priorPaper = chatPaperID
+        let priorSelection = pendingSelection, priorLocal = localAIModelID
+        generalChat = false; chatPaperID = paperID; pendingSelection = nil
+        let anchor = TextAnchor.contextual(manifestSHA256: manifest, elementID: element, quote: quote)
+        let origin = anchor.map { PassageOrigin(documentID: paperID, anchor: $0) }
+        if let composer = contextualComposers[key], chatWorkspace.selectDraft(composer) != nil {
+            branchSelections.reconcile(with: privateState, observing: activeConversation)
+        } else if let saved = conversationSummaries.first(where: {
+            $0.documentID == paperID && $0.anchor?.manifestSHA256 == manifest && $0.anchor?.elementID == element && $0.anchor?.quote == quote
+        }) {
+            activeConversation = saved.id
+        } else { activeConversation = nil }
+        let composer = chatWorkspace.composer(in: chatContext), token = UUID()
+        contextualComposers[key] = composer
+        contextualChat = ContextualChatBinding(token: token, session: sessionID, composer: composer, key: key, label: label,
+            quote: quote, origin: origin, priorGeneral: priorGeneral, priorPaper: priorPaper, priorComposer: previous,
+            priorLocal: priorLocal, priorSelection: priorSelection)
+        return token
+    }
+
+    var hasContextualChat: Bool { contextualChat != nil }
+
+    func ownsContextualChat(_ token: UUID?) -> Bool {
+        guard let token, let current = contextualChat else { return false }
+        return current.token == token && current.session == sessionID && chatComposerID == current.composer
+    }
+
+    func endContextualChat(_ token: UUID) {
+        guard let current = contextualChat, current.token == token else { return }
+        contextualChat = nil
+        guard current.session == sessionID else { return }
+        if chatComposerID == current.composer { stopAnswer() }
+        generalChat = current.priorGeneral; chatPaperID = current.priorPaper
+        _ = chatWorkspace.selectDraft(current.priorComposer)
+        branchSelections.reconcile(with: privateState, observing: activeConversation)
+        pendingSelection = current.priorSelection; localAIModelID = current.priorLocal
+    }
+
+    /// Every follow-up names the same item, so an elliptical figure question still attaches its image. The preceding
+    /// explainer is bounded extra context; the original equation/caption is never trimmed to make room for it.
+    func sendContextualMessage(_ token: UUID, explanation: String) async {
+        guard ownsContextualChat(token), let current = contextualChat, !isAnswering, !isGenerating else { return }
+        let draft = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else { return }
+        let heading = "About \(current.label): "
+        let question = draft.hasPrefix(heading) ? draft : heading + draft
+        var quote = current.quote
+        let allowance = ChatGenerationRequest.maximumSelectionScalars - quote.unicodeScalars.count - 52
+        if allowance > 0, !explanation.isEmpty {
+            quote += "\n\nEarlier AI explanation (may contain errors):\n" + String(explanation.unicodeScalars.prefix(allowance))
+        }
+        chatInput = question
+        pendingSelection = (current.composer, question, quote, nil, current.origin, false)
+        await sendMessage()
     }
 }

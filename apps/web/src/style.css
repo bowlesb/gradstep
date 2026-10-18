@@ -923,3 +923,17 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .diagram-hint { margin-right: auto; min-width: 0; }
 .diagram-tools button { flex: none; }
 @media (max-width: 480px) { .diagram-hint { display: none; } }
+
+/* Build 69 feedback: the model belongs beside the composer; contextual follow-ups stay with the object. */
+.composer-pill { flex-wrap: wrap; }
+.composer-pill textarea { flex: 1 0 100%; }
+.composer-model { display:flex; align-items:center; gap:8px; font-size:12px; padding:6px 0; }
+.composer-pill .composer-send { margin-left:auto; }
+.contextual-chat { border-top:1px solid var(--line); padding-top:12px; min-width:0; }
+.contextual-chat .chat-pane { height:auto; min-height:100px; }
+.contextual-chat .chat-transcript { min-height:0; max-height:55dvh; }
+.contextual-chat .chat-composer { position:sticky; bottom:0; background:var(--surface); }
+.contextual-chat .chat-transcript:empty { display:none; }
+.crop-zoom-controls { display:flex; align-items:center; justify-content:flex-end; gap:4px; font-size:12px; }
+.crop-zoom-controls button { width:32px; height:32px; }
+.zoom-crop .figure-crop { margin:0; }

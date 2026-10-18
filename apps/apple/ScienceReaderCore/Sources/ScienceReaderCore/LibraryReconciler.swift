@@ -324,6 +324,7 @@ func validateLibraryIdentity(_ old: LibraryEntry, _ new: LibraryEntry) throws {
             }
         }
     case (.import(let lhs), .import(let rhs)):
+        guard lhs.addedAt == nil || lhs.addedAt == rhs.addedAt else { throw LibraryProtocolError.identityConflict(new.id) }
         guard (lhs.source == rhs.source && lhs.sourceID == rhs.sourceID) || rhs.omitsTombstoneSource || lhs.omitsTombstoneSource
         else { throw LibraryProtocolError.identityConflict(new.id) }
         guard lhs.requestedRevision == rhs.requestedRevision,

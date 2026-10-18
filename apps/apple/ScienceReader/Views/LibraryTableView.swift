@@ -106,7 +106,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
         case .opened:
             guard facts.paper != nil else { return nil }
             return facts.opened.map { "Opened " + LibraryFormat.relativeDayInSentence($0, now: now) } ?? "Not opened"
-        case .chats: return facts.chats > 0 ? LibraryFormat.chats(facts.chats) : nil
+        case .chats: return LibraryFormat.chats(facts.chats)
         case .progress:
             if let progress = facts.importProgress { return progress.presentation(at: now).accessibilityLabel }
             if let timing = facts.stepTiming, timing.step == facts.step {
@@ -241,11 +241,10 @@ struct LibraryTableCell: View {
         case .source: Text(facts.source ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle)
         case .pages: PaperTableText(text: facts.pages.map(String.init))
-        case .added: PaperTableDate(date: facts.added)
+        case .added: PaperTableDate(date: facts.added, placeholder: "—")
         // "—" for a paper never opened on this device; imports have no reading activity.
         case .opened: PaperTableDate(date: facts.opened, placeholder: facts.paper == nil ? nil : "—")
-        // No chats is the usual case: left blank, so the counts stand out.
-        case .chats: PaperTableText(text: facts.chats > 0 ? String(facts.chats) : nil)
+        case .chats: PaperTableText(text: String(facts.chats))
         case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled, explain: explain)
         case nil: EmptyView()
         }

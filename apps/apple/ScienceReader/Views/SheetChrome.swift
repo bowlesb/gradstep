@@ -70,10 +70,10 @@ private struct SheetTopRowModifier: ViewModifier {
         HStack(spacing: 8) {
             if let chat {
                 Button(action: chat.action) {
-                    BarCapsule(title: "Explain in Chat", symbol: symbol ? "bubble.left.and.text.bubble.right" : nil, prominent: false)
+                    BarCapsule(title: "Chat about Figure", symbol: symbol ? "bubble.left.and.text.bubble.right" : nil, prominent: false)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Explain in Chat").accessibilityHint(chat.hint).accessibilityIdentifier(chat.identifier)
+                .accessibilityLabel("Chat about Figure").accessibilityHint(chat.hint).accessibilityIdentifier(chat.identifier)
             }
             if let explainer {
                 Button(action: explainer.action) { BarCapsule(title: "AI Explainer", symbol: symbol ? "sparkles" : nil, prominent: true) }

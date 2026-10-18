@@ -150,6 +150,7 @@ export function validateHTML(bytes: Uint8Array, index: ReaderIndex, images: Map<
         } else if (attr(node, 'class') === 'reader-tag') {
           check(node.parent && attr(node.parent, 'data-reader-equation') !== undefined && node.children.every(child => child.type === 'text'), 'equation_representation');
         } else check((attr(node, 'class') === 'reader-marker' && node.parent?.name === 'li')
+          || (attr(node, 'class') === 'reader-affiliation-lines' && node.parent?.name === 'p' && attr(node.parent, 'class') === undefined)
           || (['reader-affiliations', 'reader-notes'].includes(attr(node, 'class') ?? '') && node.parent?.name === 'p' && attr(node.parent, 'class') === 'reader-authors'), 'html_structure');
         break;
       }

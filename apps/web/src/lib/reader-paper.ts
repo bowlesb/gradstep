@@ -5,7 +5,7 @@ import type { SourcePaperReference } from './events';
 import type { VerifiedBundle } from './bundle';
 export type SourcePaper = Import & { source:'arxiv'; phase:'source_only'; source_revision:number; metadata:Metadata;
   artifact_id?:never; readiness?:never; render_availability?:never; render_availability_revision?:never;
-  scope?:never; page_count?:never; tags?:never; hidden_tags?:never; added_at?:never; membership_revision?:never };
+  scope?:never; page_count?:never; tags?:never; hidden_tags?:never; membership_revision?:never };
 export type ReaderPaper = Item | SourcePaper;
 export function isSourcePaper(e: ClientEntry): e is SourcePaper {
  return e.kind === 'import' && e.visible && e.source === 'arxiv' && e.phase === 'source_only' && !!e.source_revision && !!e.metadata && !e.document_id;
@@ -42,6 +42,6 @@ export class ReaderBundles extends Map<string, VerifiedBundle> {
  * when its metadata was recorded, moments after Add. */
 export function isNewPaper(e: ClientEntry, opened: boolean, now = Date.now()): boolean {
   if (opened) return false;
-  const added = e.kind === 'item' || e.kind === 'local_pdf' ? e.added_at : e.metadata_recorded_at;
+  const added = e.kind === 'item' || e.kind === 'local_pdf' ? e.added_at : e.added_at ?? e.metadata_recorded_at;
   return typeof added === 'number' && now - added >= 0 && now - added < 3 * 24 * 3600 * 1000;
 }

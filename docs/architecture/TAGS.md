@@ -7,6 +7,15 @@ and make it a first class citizen." The archival web app asked an LLM for 5–10
 them as chips (`reference/web/lib/metadata.ts`, `PaperTable.tsx`); free keywords drifted between papers. Gradstep
 keeps the chips and makes the tags consistent.
 
+## Source-only keywords (build 69 feedback; migration 088 planned)
+
+New device-only papers have category-derived keywords until the reader edits them. The per-account
+`import_requests.source_tags_customized` flag distinguishes an explicitly empty list from no customization.
+The existing revision-fenced, idempotent `v5_set_source_details` marks a successful edit customized; the import
+projection adds `tags_customized` without changing catalog metadata. Nonempty existing source tags count as
+customized. Clearing all keywords must stay empty after sync and restart. The reader presents the editable row
+immediately before the first body section, with an Add keywords action when empty. No model call is involved.
+
 ## Two kinds of tags
 
 | | Catalog tags | Personal tags |

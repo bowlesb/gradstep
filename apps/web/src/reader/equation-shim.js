@@ -29,29 +29,24 @@
     return;
   }
   const box = document.getElementById('eq-box'), eq = document.getElementById('eq');
-  let size = config.size || 28, scroll = !!config.scroll, width = -1;
+  let size = config.size || 28, scale = config.scale || 1, width = -1;
   const report = () => parent.postMessage({ gradstep: 'equation', height: Math.ceil(box.getBoundingClientRect().height) }, config.origin || '*');
   const apply = () => {
     root.style.fontSize = size + 'px';
     eq.style.zoom = '';
-    box.classList.toggle('scroll', scroll);
-    if (!scroll) {
-      const style = getComputedStyle(box), room = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      // Text does not shrink exactly in proportion (hinting, rounding): measure again once and correct.
-      let zoom = 1;
-      for (let pass = 0; pass < 2; pass++) {
-        const wide = eq.getBoundingClientRect().width;
-        if (!(wide > room && wide > 0 && room > 0)) break;
-        zoom = Math.max(0.05, zoom * (room - 1) / wide);
-        eq.style.zoom = String(zoom);
-      }
-    }
+    box.classList.add('scroll');
+    const style = getComputedStyle(box), room = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const natural = eq.getBoundingClientRect().width;
+    let fit = Math.max(0.05, Math.min(1, room > 0 && natural > 0 ? (room - 2) / natural : 1));
+    for (let i=0;i<2;i++) { eq.style.zoom=String(fit); const actual=eq.getBoundingClientRect().width; if(actual>room-2 && actual>0)fit*=Math.max(1,room-2)/actual; }
+    eq.style.zoom = String(fit * scale);
+    if (scale <= 1) box.scrollLeft = 0;
     report();
   };
   window.addEventListener('message', e => {
     if (e.source !== parent || e.data?.gradstep !== 'equation-command') return;
     if (Number.isFinite(e.data.size)) size = Math.min(112, Math.max(10, e.data.size));
-    scroll = !!e.data.scroll;
+    if (Number.isFinite(e.data.scale)) scale = Math.max(1, Math.min(4, e.data.scale));
     apply();
   });
   new ResizeObserver(() => { if (box.clientWidth !== width) { width = box.clientWidth; apply(); } }).observe(box);

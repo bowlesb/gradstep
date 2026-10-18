@@ -194,3 +194,15 @@ test('runSearch: the broad request only when the strict one is short; a missing 
   assert.equal(partial.length, 12);
   assert.deepEqual(await runSearch('arxiv', ' ', async () => { throw new Error('never asked'); }), []);
 });
+
+test('author searches stay in author fields with no topic or fuzzy fallback', () => {
+  const plan = planSearch('author:Bingcong Li')!;
+  const native = arxivSearchRequests(plan), browser = dataciteSearchRequests(plan);
+  assert.equal(params(native.requests[0].url).search_query, 'au:"Bingcong Li"');
+  assert.equal(params(browser.requests[0].url).query, 'creators.name:("bingcong" AND "li")');
+  assert.equal(native.requests.length, 1); assert.equal(browser.requests.length, 1);
+  assert.equal(native.broad, null); assert.equal(browser.broad, null);
+  assert.equal(planSearch('author:'), null);
+  const unsafe = planSearch('author:A" OR * B')!;
+  assert.equal(params(dataciteSearchRequests(unsafe).requests[0].url).query, 'creators.name:("a" AND "or" AND "b")');
+});

@@ -173,6 +173,7 @@ struct PaperView: View {
     /// One silent reload after the web content process died (owner, build 44: a swipe on Back ended on "Couldn't open").
     @State private var crashReloads = 0
     @State private var reference: ReaderReference?
+    @State private var authorToSearch: String?
     /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
     @State private var figureReference: ReaderFigureReference?
     /// The figure reference's sheet: half height, the full height for a walkthrough.
@@ -255,7 +256,9 @@ struct PaperView: View {
                                      }, onMenuAction: { action, chosen in
                                          // The edit menu's action on what was selected when it was chosen.
                                          guard model.readerDocumentScope == readerScope else { return }
-                                         model.selectionAction(action, selection: chosen, scope: readerScope)
+                                         if action == .define, chosen.parts.count == 1, let id = chosen.parts.first?.equationID {
+                                             equation = EquationViewRequest(paperID: paper.id, equationID: id, chats: true)
+                                         } else { model.selectionAction(action, selection: chosen, scope: readerScope) }
                                          selection = nil; selectionClearID = UUID()
                                      }, hasSelection: selection != nil, onEquation: { id in
                                          guard model.readerDocumentScope == readerScope else { return }
@@ -467,7 +470,14 @@ struct PaperView: View {
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
             }
-            .sheet(isPresented: $showContents, onDismiss: {
+            .confirmationDialog(authorToSearch ?? "Author", isPresented: Binding(get: { authorToSearch != nil }, set: { if !$0 { authorToSearch = nil } }), titleVisibility: .visible) {
+            if let name = authorToSearch {
+                Button("Find papers by \(name)") {
+                    model.discoveryQuery = "author:" + name; model.searchExternal = true; model.tab = .library; model.runDiscovery(); authorToSearch = nil
+                }
+            }
+        }
+        .sheet(isPresented: $showContents, onDismiss: {
                 // After the sheet has gone, as the gallery does, so the jump is seen.
                 if case let (target, id)? = contentsJump, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: target) }
                 contentsJump = nil
@@ -703,6 +713,8 @@ struct PaperView: View {
     private func readerHooks(_ view: PaperWebView, scope: ReaderDocumentScope) -> PaperWebView {
         var hooked = view
         hooked.citationDismissID = citationDismissID
+        hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
+        hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
         hooked.onCrash = handleCrash
         hooked.onReferenceAction = { value, action in handleReferenceAction(value, action, scope: scope) }
         return hooked
@@ -823,6 +835,8 @@ struct PaperWebView: UIViewRepresentable {
     /// The paper's tags as small chips under that line (docs/architecture/TAGS.md); a tap calls `onTags`.
     var paperTags: [String] = []
     var onTags: () -> Void = {}
+    var paperAuthors: [String] = []
+    var onAuthor: (String) -> Void = { _ in }
     /// A new value returns from a citation jump to the reading position.
     var citationReturnID: UUID? = nil
     /// A new value ends the Back offer in the page without going back.
@@ -904,8 +918,10 @@ struct PaperWebView: UIViewRepresentable {
         let tags = figureID == nil ? try? JSONEncoder().encode(paperTags) : nil
         context.coordinator.appliedPaperTags = tags == nil ? [] : paperTags
         context.coordinator.appliedLineWidth = lineWidth
+        let authors = (try? JSONEncoder().encode(figureID == nil ? paperAuthors : [])) ?? Data("[]".utf8)
         let prelude = "window.__readerBundleConfig = " + (bundle == nil ? "null" : String(decoding: json, as: UTF8.self)) + ";\n"
             + "window.__readerPaperLine = " + (line.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
+            + "window.__readerAuthors = " + String(decoding: authors, as: UTF8.self) + ";\n"
             + "window.__readerPaperTags = " + (tags.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
             + "window.__readerLineWidth = \"\(lineWidth.rawValue)\";\n"
             + (figureID == nil ? Self.keyScript : "")
@@ -1042,6 +1058,9 @@ struct PaperWebView: UIViewRepresentable {
                 citationActive = state == "jumped" && (body["back"] as? Bool ?? true)
                 let origin = (body["from"] as? String ?? "").replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
                 parent.onCitation(citationActive, citationActive ? String(origin.prefix(48)) : "")
+            case "author":
+                guard ready, parent.figureID == nil, let name = body["name"] as? String, parent.paperAuthors.contains(name) else { return }
+                parent.onAuthor(name)
             case "tags":
                 guard ready, parent.figureID == nil else { return }
                 parent.onTags()

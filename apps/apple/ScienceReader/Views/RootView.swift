@@ -212,8 +212,8 @@ struct RootView: View {
 
     /// A system dismissal counts as declining that captured question only.
     private var consentPresentation: Binding<ChatConsentPrompt?> {
-        Binding(get: { model.chatConsentPrompt }, set: { value in
-            if value == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
+        Binding(get: { model.hasContextualChat ? nil : model.chatConsentPrompt }, set: { value in
+            if !model.hasContextualChat, value == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
         })
     }
 
@@ -440,7 +440,7 @@ struct LibraryView: View {
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search your library",
+                LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
                     .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
                     .chromeSurface(Capsule())
@@ -1016,9 +1016,6 @@ struct ChatView: View {
                     Text(issue).font(.caption)
                     Button("Retry") { model.retryDraftSave() }.font(.caption.weight(.semibold))
                 }.padding(.horizontal, 16).accessibilityIdentifier("chat.draftIssue")
-            } else if model.draftsArePersistent && !model.chatInput.isEmpty {
-                Text(model.chatDraftStatusText).font(.caption2).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("chat.draftStatus")
             }
             composer(compact: compact).readableColumn()
             // Design audit F8: sync status only when something needs attention.
@@ -1042,33 +1039,34 @@ struct ChatView: View {
     /// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
     /// to the right side"); Answer options are in the chat's ⋯ menu.
     @ViewBuilder private func composer(compact: Bool) -> some View {
-        // iPhone only: the iPad's keyboard has its own hide key, and a hardware keyboard has none to hide.
         let keyboardUp = composerFocused && UIDevice.current.userInterfaceIdiom == .phone
         let prompt = model.chatStudyMap != nil ? "Your answer" : model.generalChat ? "Ask anything" : "Ask anything about the paper"
-        VStack(alignment: .leading, spacing: 6) {
-        AISelectionButton(model: model).padding(.horizontal, 16)
-        HStack(alignment: .bottom, spacing: 0) {
-            if keyboardUp {
-                Button { composerFocused = false } label: {
-                    Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Circle())
-                }
-                .buttonStyle(.plain).padding(.leading, 3).padding(.bottom, 3)
-                .accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
-                .keyboardShortcut(.cancelAction)
-            }
+        VStack(alignment: .leading, spacing: 2) {
             TextField(prompt, text: $model.chatInput, axis: .vertical)
                 .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
-                // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true }
                 .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, keyboardUp ? 0 : 20).padding(.trailing, 4).padding(.vertical, 14)
-            sendButton
+                .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
+            HStack(spacing: 4) {
+                AISelectionButton(model: model).padding(.leading, 14)
+                Spacer(minLength: 0)
+                Button { model.showAnswerOptions = true } label: {
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 18)).foregroundStyle(.secondary)
+                        .frame(width: 38, height: 40).contentShape(Circle())
+                }.buttonStyle(.plain).accessibilityLabel("Answer options").accessibilityIdentifier("chat.composerOptions")
+                if keyboardUp {
+                    Button { composerFocused = false } label: {
+                        Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 16)).foregroundStyle(.secondary)
+                            .frame(width: 38, height: 40).contentShape(Circle())
+                    }.buttonStyle(.plain).accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
+                        .keyboardShortcut(.cancelAction)
+                }
+                ChatDictationButton(model: model)
+                sendButton
+            }
         }
-        .frame(minHeight: 50)
         .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
-        }
     }
 
     private var sendButton: some View {
@@ -1178,7 +1176,7 @@ struct ChatView: View {
     /// The conversation title is the menu that switches Paper chat / General chat; under it, the paper the
     /// conversation is about (tap to return to it), or "General chat".
     private var titleView: some View {
-        VStack(spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             Menu {
                 // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
                 Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
@@ -1194,7 +1192,7 @@ struct ChatView: View {
                 HStack(spacing: 3) {
                     Text(visibleTitle).font(.system(size: titleFontSize, weight: .semibold)).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                }.foregroundStyle(.primary).frame(minWidth: 0, maxWidth: .infinity)
+                }.foregroundStyle(.primary).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("chat.context")
@@ -1365,6 +1363,18 @@ struct SettingsView: View {
                     // rest of the toggles, all the info can stay in the special info section… accessible with another
                     // info icon".
                     Section {
+                        Picker("Default model", selection: Binding(get: { model.localAIDefaultModelID ?? "cloud" }, set: { id in
+                            model.localAIDefaultModelID = id == "cloud" ? nil : id
+                            model.localAIModelID = model.localAIDefaultModelID
+                        })) {
+                            Text("Cloud · \(model.chatProfileTable?.label(model.chatDefaultProfile.model) ?? model.chatDefaultProfile.model.label)").tag("cloud")
+                            ForEach(model.localAI.models.filter { model.localAI.installed.contains($0.id) || model.localAIDefaultModelID == $0.id }) { option in
+                                Text("\(option.name) (local)").tag(option.id).disabled(!model.localAI.installed.contains(option.id))
+                            }
+                        }.accessibilityIdentifier("settings.defaultAI")
+                        NavigationLink { LocalAISettingsView(model: model) } label: {
+                            LabeledContent("Local models", value: model.localAIDefaultModelID.map { model.localAI.name($0) } ?? "Downloads and device testing")
+                        }.accessibilityIdentifier("settings.localModels")
                         ChatChoiceControls(model: model, mode: .defaults).padding(.vertical, 4)
                         Toggle(isOn: $model.visualAnswers) {
                             LabelWithInfo(title: "Visual answers", info: "Lets the assistant draw diagrams and explanations beside its answers; off, it answers in prose.")
@@ -1379,7 +1389,7 @@ struct SettingsView: View {
                             .accessibilityLabel("About AI chat options").accessibilityIdentifier("settings.aiChatInfo")
                         }
                     }
-                    .task { model.refreshChatProfiles() }
+                    .task { model.refreshChatProfiles(); await model.localAI.refresh() }
                 }
                 Section {
                     Toggle(isOn: $model.autoDownloadNewPapers) {

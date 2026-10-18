@@ -398,3 +398,18 @@ no-crop part, kept on reopen) with `FigureViewAppTests` and `ChatVisualTests`; b
 `figure-view.spec.ts` desktop and phone 6/6; `npm test`. Live: `node scripts/chat-live-smoke.mjs --figure-view=2
 --paper=… --index=…` now also extracts the first part without a box (its box drawn to
 `<paper>-<figure>-detail.png`); not yet run (the staging Anthropic account was out of credit).
+
+## Build-69 feedback, 2026-10-18 (implementation; release checks pending)
+
+**Chat about Figure** opens the explanation/conversation view without generating; AI Explainer still requests
+the walkthrough explicitly. Follow-ups and the walkthrough stay together. A part's Ask action focuses this
+composer and fills an unsent draft. Every sent turn names the figure, attaches the same relevant image through
+the existing figure resolver, and carries the caption plus bounded earlier explanation. Its encrypted anchored
+conversation resumes on reopen without replacing the main chat's draft.
+
+Native full/cropped/Up close images now support pinch, pan and double-tap zoom. Browser crops support two-pointer
+pinch, pan, double-click and accessible minus/plus controls. Zoom is bounded to 1–8× and never re-crops a different
+source region. Existing no-box behavior and explicit extract requests remain.
+
+Tiny bitmap crops retain a usable minimum gesture area. The native acceptance pinches the actual UIKit view
+and verifies the zoom percentage changes; it also checks saved detail recovery and the in-place unsent draft.

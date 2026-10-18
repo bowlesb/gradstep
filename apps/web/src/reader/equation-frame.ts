@@ -8,7 +8,7 @@ import type { VerifiedBundle } from '../lib/bundle';
 import { equationElement } from '../lib/equation';
 import { bundleStyles, scrub } from './frame';
 
-export interface EquationFrameOptions { parentOrigin: string; theme: 'light' | 'dark'; size: number; scroll: boolean }
+export interface EquationFrameOptions { parentOrigin: string; theme: 'light' | 'dark'; size: number; scroll?: boolean; scale?: number }
 
 
 const SCHEME = /\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi;
@@ -39,7 +39,7 @@ export function equationDocument(bundle: VerifiedBundle, equationID: string, opt
   const eq = doc.createElement('div'); eq.id = 'eq'; eq.append(element); box.append(eq);
   const config = doc.createElement('script');
   config.setAttribute('type', 'application/json'); config.id = 'eq-config';
-  config.textContent = JSON.stringify({ origin: options.parentOrigin, size: options.size, scroll: options.scroll }).replace(/</g, '\\u003c');
+  config.textContent = JSON.stringify({ origin: options.parentOrigin, size: options.size, scale: options.scale ?? 1 }).replace(/</g, '\\u003c');
   const script = doc.createElement('script'); script.textContent = frame.script;
   doc.body.append(box, config, script);
   return '<!doctype html>\n' + doc.documentElement.outerHTML;

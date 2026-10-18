@@ -470,6 +470,7 @@ public struct LibraryImportProgressDetail: Codable, Equatable, Sendable {
 
 public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let id: UUID
+    public let addedAt: LibraryTimestamp?
     public let createdSequence: Int64
     public let stateSequence: Int64
     public let intentRevision: Int64
@@ -499,10 +500,13 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let descriptorReference: LibraryDescriptorReference?
     public let archived: Bool?
     public let userTags: [String]?
+    public let tagsCustomized: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case id, visible, phase, source, metadata, retryable, progress, archived
+        case addedAt = "added_at"
         case userTags = "user_tags"
+        case tagsCustomized = "tags_customized"
         case createdSequence = "created_seq", stateSequence = "state_seq", intentRevision = "intent_revision"
         case sourceID = "source_id", requestedRevision = "requested_revision", sourceRevision = "source_revision"
         case metadataID = "metadata_id", versionID = "version_id", metadataRecordedAt = "metadata_recorded_at"
@@ -515,6 +519,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
+        addedAt = try c.decodeIfPresent(LibraryTimestamp.self, forKey: .addedAt)
         createdSequence = try c.decode(Int64.self, forKey: .createdSequence)
         stateSequence = try c.decode(Int64.self, forKey: .stateSequence)
         intentRevision = try c.decode(Int64.self, forKey: .intentRevision)
@@ -539,6 +544,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
         descriptorReference = try c.decodeIfPresent(LibraryDescriptorReference.self, forKey: .descriptorReference)
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived)
         userTags = try c.decodeIfPresent([String].self, forKey: .userTags)
+        tagsCustomized = try c.decodeIfPresent(Bool.self, forKey: .tagsCustomized)
     }
 
     func validate() throws {

@@ -25,7 +25,7 @@ final class WorkflowJourneyTests: XCTestCase {
     private func chatContext(_ app: XCUIApplication) -> String? { app.buttons["chat.context"].value as? String }
 
     private func capture(_ app: XCUIApplication, _ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 
@@ -522,22 +522,22 @@ final class WorkflowJourneyTests: XCTestCase {
             return item
         }
         let item = openEquation()
-        let explain = app.editMenuItem("Explain in Chat")
+        let explain = app.editMenuItem("Chat about Equation")
         // Right after Explain in Chat: below it in the menu's list, or beside it in a horizontal menu.
         XCTAssertTrue(explain.exists)
         XCTAssertTrue(explain.frame.maxY <= item.frame.minY + 1 || explain.frame.maxX <= item.frame.minX + 1, "right after Explain in Chat")
         capture(app, "AI Explainer in a tapped equation's menu")
         item.tap()
-        XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
+        XCTAssertTrue(app.buttons["ai.cloudOptions"].waitForExistence(timeout: 5)); app.buttons["ai.cloudOptions"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let heading = app.descendants(matching: .any)["equation.heading"].firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 5)); XCTAssertEqual(heading.label, "Equation (1)", "The view names the equation")
         // AI Explainer is the reader's request: the explanation comes at once (owner, build 62), so the row offers
         // Explain in Chat and the X only; no Done.
         let symbol = app.descendants(matching: .any)["equation.symbol.1"]
         XCTAssertTrue(symbol.waitForExistence(timeout: 8), "The symbols are described")
-        let ask = app.buttons["equation.askInChat"], close = app.buttons["sheet.close"]
-        XCTAssertTrue(ask.isHittable, "Explain in Chat is in view at once"); XCTAssertEqual(ask.label, "Explain in Chat")
-        XCTAssertEqual(close.frame.midY, ask.frame.midY, accuracy: 4, "one top row")
+        let composer = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
+        XCTAssertTrue(composer.exists, "Follow up in this view")
+        XCTAssertTrue(app.buttons["sheet.close"].exists)
         XCTAssertFalse(app.buttons["equation.explain"].exists, "asked already")
         XCTAssertFalse(app.buttons["Done"].exists, "no Done")
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].exists)
@@ -550,11 +550,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(size.label, "160 %")
         app.buttons["equation.larger"].tap(); app.buttons["equation.larger"].tap()
         XCTAssertEqual(size.label, "200 %")
-        let scroll = app.switches["equation.scroll"]
-        XCTAssertTrue(scroll.exists)
-        let before = scroll.value as? String
-        if scroll.switches.firstMatch.exists { scroll.switches.firstMatch.tap() } else { scroll.tap() }
-        XCTAssertNotEqual(scroll.value as? String, before, "Scroll sideways turns on")
+        XCTAssertFalse(app.switches["equation.scroll"].exists, "Overflow pans without a separate mode")
         capture(app, "Equation view: large, symbols described")
         app.buttons["equation.smaller"].tap(); app.buttons["equation.smaller"].tap()
         XCTAssertEqual(size.label, "160 %")
@@ -581,33 +577,45 @@ final class WorkflowJourneyTests: XCTestCase {
         // Reopened: the answers kept on the device show at once, then Ask in chat.
         openEquation().tap()
         XCTAssertTrue(symbol.waitForExistence(timeout: 3), "kept symbols")
+        XCTAssertFalse(app.buttons["ai.chooseDefault"].exists, "A saved explanation needs no new provider choice or request")
         XCTAssertTrue(app.descendants(matching: .any)["equation.backgroundText"].exists, "kept background, no new request")
-        XCTAssertTrue(ask.waitForExistence(timeout: 5)); ask.tap()
-        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 8), "The chat opens")
-        let prefilled = NSPredicate { _, _ in (composer.value as? String ?? "").hasPrefix("About Equation (1) [¶5]") }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: prefilled, object: nil)], timeout: 5), .completed,
-                       "The composer starts with the equation: \(composer.value as? String ?? "")")
-        XCTAssertFalse(app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
-                       "nothing is sent")
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "Follow-ups stay below the explanation")
+        XCTAssertTrue((composer.value as? String ?? "").isEmpty || (composer.value as? String ?? "").hasPrefix("Ask about"))
         capture(app, "Ask in chat from the equation view")
     }
 
     /// The equation view in the wide layout (iPad landscape, the Mac): a sheet over the reader and its chat column.
     func testEquationViewInTheWideLayout() throws {
+        #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
+        #endif
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=equation", "--chat-fixture-consented", "--reset-draft-fixture", "--study-fixture"]
         app.launch()
         // The wide layout's Reader mode; a phone's Paper tab.
-        let reader = app.segmentedControls["wide.mode"].buttons["Reader"]
-        if reader.waitForExistence(timeout: 5) { reader.tap() } else if app.buttons["tab.paper"].exists { app.buttons["tab.paper"].tap() }
+        app.show("paper")
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         let number = web.staticTexts["(1)"].firstMatch
-        XCTAssertTrue(number.waitForExistence(timeout: 10)); number.tap()
+        XCTAssertTrue(number.waitForExistence(timeout: 10))
+        #if targetEnvironment(macCatalyst)
+        number.click()
+        defer { app.typeKey(.escape, modifierFlags: []) }
+        #else
+        number.tap()
+        #endif
         let item = app.revealEditMenuItem("AI Explainer")
-        XCTAssertTrue(item.exists); item.tap()
+        #if targetEnvironment(macCatalyst)
+        capture(app, "Mac equation action menu")
+        #endif
+        XCTAssertTrue(item.exists)
+        guard item.exists else { return }
+        #if targetEnvironment(macCatalyst)
+        item.click()
+        #else
+        item.tap()
+        #endif
+        XCTAssertTrue(app.buttons["ai.chooseDefault"].waitForExistence(timeout: 5)); app.buttons["ai.chooseDefault"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8), "explained at once")
         app.buttons["equation.background"].tap()
         let text = app.descendants(matching: .any)["equation.backgroundText"]

@@ -34,10 +34,18 @@ local means no AI provider receives the question. A stopped or superseded local 
 account or paper. No KV cache is shared across requests. Run one inference at a time and release its model/cache
 afterward; cancel when the owning action is closed, the account retires or iOS leaves the foreground. A 120-second
 deadline emits a visible failure and cancels the job. A registration epoch fences cancellation before a task is
-registered. On iOS, check `os_proc_available_memory()` before offering the download/use and again before loading:
+registered. On iOS, check `os_proc_available_memory()` before offering use and again before loading. Downloads
+are independent of transient free memory and are managed in Settings → Local models:
 conservative additional headroom is 1.8 GB (0.6B), 4.8 GB (2B), 8.0 GB (4B), 8.5 GB (Gemma). These are admission
-bounds informed by Mac process footprint, not a guarantee against jetsam. No increased-memory entitlement was
-added speculatively. A phone can therefore refuse the larger models even after they are offered in the catalog.
+bounds informed by Mac process footprint, not a guarantee against jetsam. Build-69 feedback exposed that the old
+picker disabled downloads using these execution limits, with no useful explanation. Downloads are now separate;
+the picker shows the actual available/required app memory when a downloaded model cannot run. The current distribution profile does not grant
+`com.apple.developer.kernel.increased-memory-limit`, and the app retains its existing signed configuration. The
+public ASC API does not expose this additional capability; developer-portal access was unavailable. Enabling it
+requires a portal/profile update and still would not promise a particular limit or establish safe 4B phone inference.
+Apple documents it as a request on supported devices, not a fixed RAM guarantee:
+[entitlement reference](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.kernel.increased-memory-limit),
+[DTS provisioning explanation](https://developer.apple.com/forums/thread/685084).
 
 The picker names the selected model and its modality. The text-only baseline refuses image questions instead of
 pretending it saw a figure. Initial local explainers can return ordinary formatted prose in the existing fallback
@@ -99,3 +107,16 @@ TestFlight 68 on iOS and Mac, both VALID / IN_BETA_TESTING as of 2026-10-17 15:0
 the source-matching import/session gate passed 13/13 with no skips before upload. Both signed archives contain
 the pinned model catalog and MLX Metal resource, with no downloaded weights. Release evidence is under
 `.artifacts/release-68/`. This is internal beta availability; physical-phone inference remains unverified.
+
+## Build-69 feedback implementation, 2026-10-18 (release validation in progress)
+
+The choice starts with Use default, Cloud, Local. Cloud shows actual model names; Local shows downloaded models
+compatible with the action, with an explicit reason when current memory prevents use. Settings → Local models
+allows downloads/removal in advance, publishes measured Mac performance and license links, and says physical
+iPhone inference is unverified. Settings also selects the default cloud/local engine. A local default missing its
+weights or memory does not silently run a cloud request. Names end in “(local)”; no redundant Cloud AI strip.
+
+Equation and figure follow-ups now use the same encrypted chat implementation underneath the explanation. They
+retain the equation/caption and bounded previous explanation, preserve the main chat's unsent draft, and continue
+using the engine selected in that view. The deterministic Simulator fixture verifies routing/persistence; it does
+not establish phone speed or memory acceptance.

@@ -1,9 +1,9 @@
 // Front matter (arXiv converter component): the title, the authors and the abstract head the paper whatever template
 // set them. A catalog title or author line when the HTML has none; a custom title page read into the header; front
 // matter before anything LaTeXML placed above the title; a paragraph that only repeats the title left out.
-import { elements, normalizeSpace, outText, textContent, type DomNode, type OutNode } from '../html.ts';
+import { el, elements, normalizeSpace, outText, textContent, type DomNode, type OutNode } from '../html.ts';
 import { block, fold, isMarker, remove, reorder, children, type ArxivContext, type Child } from './context.ts';
-import { EMAIL, MARKS, parseRun, plain, renderAuthors, unwrap } from './authors.ts';
+import { EMAIL, MARKS, isSup, parseRun, plain, renderAuthors, unwrap } from './authors.ts';
 
 /** A title page LaTeXML could not convert (a custom report template whose macros it does not know, 2610.18356): the
  * abstract, the affiliations and the contribution notes it carried are kept for the header; the rest (a logo path,
@@ -144,5 +144,23 @@ export function dropRepeatedTitle(cx: ArxivContext): void {
   if (cx.metadataTitle && cx.blocks[0]?.node.name === 'h1' && cx.blocks[0].node.children[0] === cx.metadataTitle) {
     const repeat = cx.blocks.find((b, i) => i > 0 && b.kind === 'paragraph' && fold(outText(b.node)) === fold(cx.metadataTitle));
     if (repeat) remove(cx, repeat);
+  }
+}
+
+/** Some templates put all affiliations in one paragraph after the abstract (2610.22353). Keep the
+ * paragraph identity and every institution, but give each superscript-led affiliation its own line. */
+export function frontAffiliations(cx: ArxivContext): void {
+  // Only unwrap visual emphasis. Reusing the author-name formatter for output flattened math marks and stripped
+  // e-mail: an indexed dagger disappeared from the DOM, making three real papers fail independent admission.
+  const partsOf = (parts: Child[]): Child[] => parts.flatMap(part => typeof part === 'string' || isSup(part)
+    || part.attribs['data-reader-equation'] ? [part]
+    : ['em', 'i', 'strong', 'b', 'u', 'span'].includes(part.name) ? partsOf(part.children) : [part]);
+  for (const node of cx.top) {
+    if (/^h[2-6]$/.test(node.name) && fold(outText(node)) !== 'abstract') break;
+    if (node.name !== 'p' || node.attribs.class) continue;
+    const parts = partsOf(node.children), run = parseRun(unwrap(parts));
+    if (run.names.length || run.affiliations.length < 2) continue;
+    let marks = 0;
+    node.children = [el('span', { class: 'reader-affiliation-lines' }, parts.flatMap(part => isSup(part) && marks++ > 0 ? [el('br'), part] : [part]))];
   }
 }

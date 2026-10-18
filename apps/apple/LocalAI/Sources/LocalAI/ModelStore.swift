@@ -37,6 +37,13 @@ public struct LocalModel: Codable, Equatable, Identifiable, Sendable {
         true // Simulator tests controls; Mac process admission differs from iOS jetsam limits.
         #endif
     }
+    public static var availableAppMemory: Int? {
+        #if os(iOS) && !targetEnvironment(macCatalyst) && !targetEnvironment(simulator)
+        Int(os_proc_available_memory())
+        #else
+        nil
+        #endif
+    }
     public static let all: [LocalModel] = {
         guard let url = Bundle.module.url(forResource: "models", withExtension: "json"),
               let data = try? Data(contentsOf: url), let models = try? JSONDecoder().decode([LocalModel].self, from: data) else { return [] }

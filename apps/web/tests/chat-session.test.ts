@@ -177,3 +177,20 @@ it('keeps an answer’s follow-up suggestions with a complete answer only, and t
   expect(d.followUps).toBeNull(); expect(d.issue).toBe('provider_unavailable');
   expect(JSON.stringify(server.rows)).not.toContain('KL term');
 });
+
+it('contextual composers keep the main draft, resume their encrypted anchor and isolate figures', async () => {
+  const { chat, history } = await setup();
+  const documentID = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const main = chat.current(documentID); chat.edit(main, 'My unsent paper question');
+  const anchor = { manifestSHA256: 'a'.repeat(64), elementID: 'eq-1', quote: 'x = y', prefix: '', suffix: '' };
+  const equation = chat.contextualComposer(documentID, anchor);
+  expect(chat.current(documentID)).toBe(main); expect(main.draft).toBe('My unsent paper question');
+  expect(server.requests).toHaveLength(0);
+  chat.edit(equation, 'About Equation (1): why?'); await chat.send(equation, anchor.quote, null, anchor);
+  const saved = history.state.conversationSummaries().find(c => c.id === equation.conversationID)!;
+  expect(saved.anchor).toEqual(anchor); expect(JSON.stringify(server.rows)).not.toContain('x = y');
+  expect(chat.contextualComposer(documentID, anchor)).toBe(equation);
+  const figure = chat.contextualComposer(documentID, {...anchor, elementID:'F1', quote:'Figure one'});
+  expect(figure.id).not.toBe(equation.id); expect(figure.draft).toBe('');
+  expect(chat.current(documentID)).toBe(main);
+});

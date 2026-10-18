@@ -485,3 +485,13 @@ new $20 allowance. The $1 repair cap, $40 staging allocation and $100 monthly op
 An Opus live check was refused locally before inference because its search-inclusive ceiling exceeded the
 remaining repair allocation. All temporary hosted test accounts were deleted. Evidence:
 `.artifacts/equations-feedback-20261017/provider-evidence.json`, live logs and the durable rollout spend ledger.
+
+## Build 69 feedback implementation — 2026-10-18
+
+This UI, device-reader and metadata batch makes **no paid provider calls**: actual verification spend **$0**,
+new reservations **$0**, further paid verification forecast **$0**. Existing cloud routing and model prompts are
+unchanged; the prior deployed-route checks remain their evidence. Local acceptance uses deterministic model
+responses, exact cached paper sources and a disposable local database. Migration 088 and the browser/discover
+deployments add no service or recurring commitment. The last recorded repair allocation remains $0.22811676
+actual and $0.001541 unresolved liability; neither this entry nor fixture success releases those older holds.
+Normal reader traffic remains metered independently. The $100/month operating ceiling is unchanged.

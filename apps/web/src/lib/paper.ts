@@ -9,6 +9,7 @@ const lower = (list: string[]) => new Set(list.map(t => t.toLowerCase()));
 
 /** What the reader sees: the catalog's tags minus those they removed, then their own (PaperTags.effective). */
 export function effectiveTags(item: LibraryPaper): string[] {
+  if (isSourcePaper(item)) return item.tags_customized || item.user_tags?.length ? item.user_tags ?? [] : tagsFromCategories(item.metadata.categories ?? []);
   const hidden = lower(item.hidden_tags ?? []), result: string[] = [];
   const add = (tag: string) => { if (!result.some(t => t.toLowerCase() === tag.toLowerCase())) result.push(tag); };
   for (const tag of item.tags ?? []) if (!hidden.has(tag.toLowerCase())) add(tag);
@@ -61,7 +62,7 @@ function importRow(entry: Import): Row {
   const failed = entry.phase === 'failed' && !retryingAutomatically(entry);
   return {
     key: 'import:' + entry.id, entry, title: m?.title ?? placeholder(entry.source_id), firstAuthor: m?.authors[0] ?? null, year: year(m?.published_at),
-    tags: entry.user_tags ?? tagsFromCategories(m?.categories ?? []), added: null, source: sourceLabel(entry.source_id), pages: null, readable: isSourcePaper(entry), archived: entry.archived === true,
+    tags: entry.tags_customized || entry.user_tags?.length ? entry.user_tags ?? [] : tagsFromCategories(m?.categories ?? []), added: entry.added_at ?? null, source: sourceLabel(entry.source_id), pages: null, readable: isSourcePaper(entry), archived: entry.archived === true,
     status: isSourcePaper(entry) ? null : { kind: step || retryingAutomatically(entry) ? 'active' : failed || entry.phase === 'membership_conflict' ? 'problem' : 'info', text: importStatus(entry) },
     action: isSourcePaper(entry) ? null : action, failed,
   };

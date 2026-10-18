@@ -11,6 +11,7 @@
   const target = config?.parent_origin;
   window.__readerBundleConfig = config?.bundle ?? null;
   window.__readerPaperLine = config?.paper_line ?? null;
+  window.__readerAuthors = config?.paper_authors ?? [];
   window.__readerPaperTags = config?.paper_tags ?? null;
   window.__readerLineWidth = config?.line_width ?? null;
   const send = value => { if (target) parent.postMessage({ gradstep: 'reader', value }, target); };

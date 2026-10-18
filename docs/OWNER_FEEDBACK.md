@@ -9,6 +9,38 @@ At that checkpoint, build **21** (`c10e54c`) superseded both and was VALID / IN_
 It retained those fixes and added clearer reader download-limit, interrupted-download and update-required messages;
 35 focused native tests pass. Evidence: `.artifacts/takeover-20261008/build-21-processing.json`.
 
+## Build 69 feedback — 2026-10-18 (implementation in progress; not yet released)
+
+All 169 screenshot submissions were retrieved; the 19 new build-69 reports and four unclosed earlier UI requests
+were inspected individually, including the seven chat inspiration images. Evidence: `.artifacts/feedback/all-20261018/`.
+The following is the acceptance checklist, not a claim that these changes have shipped.
+
+| Feedback | Required result | Status |
+|---|---|---|
+| `AJ_ghNZCc2TPoLQcQI64ss4`, `AF8s3goTA3zCRKQgfDCo5Tk`, `AOGV8iwN8oALZBCIwiyBJOA` | Actual model name in a consolidated composer/explainer control; local names end in “(local)”. | Implemented; release verification pending |
+| `AF3va71uyfJl9SS2unSsRVQ`, `AMZILJ5QrDuQxRe1s68Qh-g` | Simple default/cloud/local choice; proactive downloads and honest device compatibility/performance in Settings. Establish why iPhone refuses larger models. | Implemented; release verification pending |
+| `AEMnPGx7JyLldpyKPDyoOXI` | Remove the account face icon. | Implemented; release verification pending |
+| `AFMWFCg4drJsFsphnc5r7q8` | Disable Sync now when already synced. | Implemented; release verification pending |
+| `ANzwcWN12jtwwn5VOe4xxr4` | Three Anthropic model choices and two other-provider choices on separate rows. | Implemented; release verification pending |
+| `AEhYxws8LHOkth-WZbiHQKg` | Equation menu starts with Chat about Equation; remove Why it matters and duplicate copy; Copy as Text copies full LaTeX. | Implemented; release verification pending |
+| `AJmP3AGjSBDc_lSKXki3Sbg` | Library placeholder is Search. | Implemented; release verification pending |
+| `AH4X0rcoCTrD7GMa8ZVhJoI` | Editable paper keywords before the introduction. | Implemented; release verification pending |
+| `ABpFobeCnmum1y5oQ6eXJaY` | Show 0 in the Chats column. | Implemented; release verification pending |
+| `AFApSc2oh3EHD6gjW7Dvlgo` | Find and repair the missing Added date. | Implemented; release verification pending |
+| `ADtu4d3nuppfXDfMCpltx2o` | Repair the affiliation/contact block of 2610.22353v1 (the screenshot is not a bibliography failure). | Implemented; release verification pending |
+| `ACo538NX-0smYuNu1fjpQoQ` | Author tap offers a search for that author’s papers. | Implemented; release verification pending |
+| `ABYO8P1SY4632Iona4eyyuk` | Equation zoom actually enlarges; pan follows overflow automatically; minus, plus, percentage. | Implemented; release verification pending |
+| `AGzcvn1gg3maCYx7j1nUA9o` | Equation and figure explanations plus conversational follow-ups in the same view. | Implemented; release verification pending |
+| `AELl5FEzHTGgvHM9ZVZOZzo` | Render the reported conditional-routing cases and quantum ket formulas. | Implemented; release verification pending |
+| `ALwRw3t1IcviLG-AEohCJXY` | Zoom figure explanation crops. | Implemented; release verification pending |
+| `AEHfQ2RMLuN3d5lH8wDtk0g` (68) | Vertically center the temporary arXiv title while Adding, preserving equal row heights. | Implemented; release verification pending |
+| `AHZ7kJjPRjyb0R38c9Ph43k` (67) | Remove the Draft saved label; retain draft persistence. | Implemented; release verification pending |
+| `AKs7SR4wVXNI88s6V0BwZ7s` (67) | Align New chat with its paper subtitle. | Implemented; release verification pending |
+| `APvKLlmyyygSM6UlVANkQ-Y` (67) | Composer microphone and readily accessible answer controls, informed by the supplied examples. | Implemented; release verification pending |
+
+Physical iPhone access remains paused. Simulator, exact-source compiler replay and real Mac inference are distinct
+acceptance evidence; none establishes iPhone inference speed or memory safety. No broad paid model comparison.
+
 ## OpenRouter activation override — 2026-10-17 19:54 UTC (deployed, live check passed)
 
 Owner: **“I am over riding the check, please make open router work again.”** The account logging/data-use check

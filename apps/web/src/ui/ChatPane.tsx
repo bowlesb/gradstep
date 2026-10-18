@@ -4,8 +4,8 @@ import type { DiagramFormat } from '../lib/events';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { transcriptFollows } from '../lib/chat-follow';
 import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
-import { answeredBy, profileSummary } from '../lib/chat-profiles';
-import { ChatSession, composerBusy } from '../lib/chat-session';
+import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
+import { ChatSession, composerBusy, type Composer } from '../lib/chat-session';
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
@@ -61,15 +61,16 @@ export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onC
   return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} />
     : <div className="empty" role="status">Opening chats…</div>;
 }
-function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions }: {
-  chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
+export interface ContextualConversation { composer: Composer; quote: string; label: string; anchor: TextAnchor; explanation?: string }
+export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context }: {
+  context?: ContextualConversation; chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
   onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
 }) {
   const historyVersion = useChatUpdates(chat);
   const workspace = useWorkspaceControls();
   const persistence = useSyncExternalStore(subscribePersistence, persistenceState, persistenceState);
   const documentID = mode === 'paper' ? paper?.documentID ?? null : null;
-  const c = chat.current(documentID);
+  const c = context?.composer ?? chat.current(documentID);
   const branch = useMemo(() => chat.branch(c), [chat, c, c.head, c.conversationID, c.phase, historyVersion]);
   const summaries = useMemo(() => chat.history.state.conversationSummaries(), [chat, historyVersion]);
   const summary = summaries.find(s => s.id === c.conversationID);
@@ -129,9 +130,17 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
   const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
   const canAnswer = !retired && !chat.hasUnresolvedTurn(c) && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
   const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
-  const send = () => { if (!disabled) void chat.send(c); };
+  const send = () => {
+    if (disabled) return;
+    if (context) {
+      if (!c.draft.trim()) return;
+      if (!c.draft.startsWith(`About ${context.label}:`)) chat.edit(c, `About ${context.label}: ${c.draft}`);
+      const selection = [...(context.quote + (context.explanation ? '\nEarlier AI explanation (may contain errors):\n' + context.explanation : ''))].slice(0, 4000).join('');
+      void chat.send(c, selection, null, context.anchor);
+    } else void chat.send(c);
+  };
   // Study (experimental): an adaptive tutor for this paper; offered when the paper is numbered on this device.
-  const studyOffered = mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
+  const studyOffered = !context && mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
   const startStudy = () => { if (!disabled) void chat.startStudy(c); };
   const choiceBusy = retired || composerBusy(c) || !!c.answer;
   const [answerOptions, setAnswerOptions] = useState(false);
@@ -153,7 +162,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
   }, [chat, documentID, empty]);
   const starters = useMemo(() => !documentID ? chooseStarters(null, seed) : structure?.documentID === documentID ? chooseStarters(structure.paper, seed) : [],
     [documentID, structure, seed]);
-  const showStarters = empty && !deleted && !retired && !c.study && (!c.draft.trim() || starters.some(s => s.text === c.draft));
+  const showStarters = !context && empty && !deleted && !retired && !c.study && (!c.draft.trim() || starters.some(s => s.text === c.draft));
   const pickStarter = (text: string) => {
     if (!chat.edit(c, text)) return;
     requestAnimationFrame(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } });
@@ -165,7 +174,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
   }, [c.draft, c.id]);
 
   return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane">
-    <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
+    {!context && <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
       <button className={mode === 'paper' ? 'segment on' : 'segment'} aria-pressed={mode === 'paper'} disabled={!paper} onClick={() => onMode('paper')}>Paper</button>
       <button className={mode === 'general' ? 'segment on' : 'segment'} aria-pressed={mode === 'general'} onClick={() => onMode('general')}>General</button>
     </span>} onClose={() => workspace?.show('right', false)} closeLabel="Hide chat">
@@ -181,8 +190,8 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
         {c.study && <button type="button" role="menuitem" className="menu-item" data-testid="study-end-menu" disabled={composerBusy(c) || !!c.answer}
           onClick={() => { close(); chat.endStudy(c); }}><Icon name="book" size={14} /> End study mode</button>}
       </>}</MenuButton>
-    </PaneHeader>
-    <div className="chat-heading">
+    </PaneHeader>}
+    {!context && <div className="chat-heading">
       {renaming && summary ? <RenameField initial={titleText} label="Chat name" onCancel={() => setRenaming(false)}
         onSave={async name => { const ok = await chat.rename(summary.id, name); if (ok) setRenaming(false); return ok; }} />
         : <div className="chat-title-row"><strong title={titleText} data-testid="chat-title">{titleText}</strong>
@@ -193,6 +202,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
         <option value="" disabled>Choose a branch</option>{branches.map((b, i) => <option key={b.head} value={b.head}>Branch {i + 1} · {b.messages.length} messages</option>)}
       </select></label>}
     </div>
+    }
     {(chat.history.status !== 'ready' || chat.history.issue || chat.history.unsaved > 0) && <div className="chat-sync fine" role="status">
       {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : chat.durable ? 'Saved on this device. Syncing encrypted history…'
         : chat.journalState === 'unsupported' ? 'This browser can’t keep chats between visits: they stay for this session and sync while this tab is open.' : 'Saving encrypted history… Keep this tab open.')}
@@ -208,7 +218,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
       const a = (e.target as Element).closest('a[href]'); if (!a) return;
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
     }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
-      {empty && <div className="chat-empty" data-testid="chat-empty">
+      {empty && !context && <div className="chat-empty" data-testid="chat-empty">
         {/* With starters there is no heading, as on iPhone, iPad and Mac (owner, build 57: Gemini's empty chat). */}
         {!(showStarters && starters.length > 0) && <>
           <p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
@@ -257,10 +267,11 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
         (owner, build 57: "We can't have the typing window awkwardly to the right side"). */}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
       <div className="composer-pill">
-        <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={composerPlaceholder(mode, !!c.study)} value={c.draft} rows={1} maxLength={200_000} readOnly={retired}
+        <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={context ? `Ask about ${context.label.toLowerCase()}…` : composerPlaceholder(mode, !!c.study)} value={c.draft} rows={1} maxLength={200_000} readOnly={retired}
           title="Enter sends; Shift+Enter starts a new line"
           onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
+        <button type="button" className="link composer-model" disabled={choiceBusy} onClick={() => setAnswerOptions(true)} aria-label="Answer options" data-testid="composer-model">{modelOption(table, choice.model).label} <Icon name="sliders" size={14} /></button>
         {c.phase === 'streaming' ? <button type="button" className="composer-send stop" aria-label="Stop" title="Stop" onClick={() => chat.stop(c)}><Icon name="stop" size={16} /></button>
           : <button type="submit" className="composer-send" aria-label={c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'} title="Send (Enter)"
             disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}><Icon name="arrowUp" size={17} /></button>}
@@ -270,7 +281,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onCha
         // Only what the reader should act on: a stopped tab, a failed device save, or a draft that is not kept after a reload.
         const hint = retired ? 'This tab has stopped sending. Select your text to copy it.'
           : chat.durable ? (c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
-            : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : persistence === 'best-effort' ? 'Saved in this browser. It may clear this when space runs low.' : 'Saved on this device.')
+            : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : '')
           : 'Unsent drafts stay in this tab only and aren’t kept after a reload.';
         const balance = chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : null;
         return <div className="composer-status">

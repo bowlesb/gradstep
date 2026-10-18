@@ -227,7 +227,7 @@ function wireEntry(entry: Entry): Record<string, unknown> {
     if (!/^\d{4}-\d{2}-\d{2}T/.test(text)) throw new Error('timestamp');
     return text;
   };
-  if (Object.hasOwn(value, 'added_at')) value.added_at = date(value.added_at);
+  if (Object.hasOwn(value, 'added_at') && value.added_at !== undefined) value.added_at = date(value.added_at);
   if (Object.hasOwn(value, 'metadata_recorded_at') && value.metadata_recorded_at !== undefined) value.metadata_recorded_at = date(value.metadata_recorded_at);
   return value;
 }

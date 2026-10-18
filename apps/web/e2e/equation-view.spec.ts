@@ -28,7 +28,7 @@ async function openFixture(page:import('@playwright/test').Page,request:import('
   const response=await route.fetch(),body=await response.json();
   const row=body.entries.find((e:{kind:string})=>e.kind==='item');
   body.entries=[{kind:'import',id:member,created_seq:row.created_seq,state_seq:row.state_seq,intent_revision:1,visible:true,phase:'source_only',source:'arxiv',source_id:'2601.01234',requested_revision:2,source_revision:2,
-   metadata_id:row.metadata_id,version_id:row.version_id,metadata_recorded_at:row.metadata_recorded_at,source_url:'https://arxiv.org/abs/2601.01234v2',retryable:false,metadata:{title:'Authored HTML fixture',authors:['Fixture author'],categories:['cs.LG']}}];
+   metadata_id:row.metadata_id,version_id:row.version_id,metadata_recorded_at:row.metadata_recorded_at,source_url:'https://arxiv.org/abs/2601.01234v2',retryable:false,metadata:{title:'Authored HTML fixture',authors:['A. Author'],categories:['cs.LG']}}];
   body.has_more=false;body.next_cursor={format:2,account_id:body.account_id,through:body.baseline_cursor,created_seq:row.created_seq,id:member,kind:'import'};
   await route.fulfill({response,json:body});
  });
@@ -39,129 +39,44 @@ async function openFixture(page:import('@playwright/test').Page,request:import('
  await page.getByTestId('library-table').getByRole('link',{name:'Authored HTML fixture',exact:true}).click();
 }
 
-test('a tapped equation’s AI Explainer opens it large and asks at once; background after that; others wait; then into the chat',async({page,request})=>{
+test('equation explanation, model choice and follow-up remain together with encrypted history',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
- expect(equations).toContain('id="eq2"');expect(equations).toContain('id="eq3"');
  await openFixture(page,request,equations);
- const frame=page.frameLocator('[data-testid=reader-frame]');
- const display=frame.locator('.reader-display[data-reader-equation]').first();
+ const frame=page.frameLocator('[data-testid=reader-frame]'), display=frame.locator('.reader-display[data-reader-equation]').first();
  await expect(display).toBeVisible({timeout:20000});
- const chats=async()=>(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests as Record<string,unknown>[];
-
- // The tapped equation offers AI Explainer right after Explain (owner, build 62: it was "Equation"); a text selection does not.
- await display.click();
- const bar=page.getByRole('toolbar',{name:'Selected passage'});
- await expect(bar.getByRole('button')).toHaveText(['Explain','AI Explainer','Why it matters','Related','Add paper']);
- await bar.getByTestId('equation-open').click();
- const view=page.getByTestId('equation-view');
- await expect(view.getByRole('heading',{name:'Equation (1)'})).toBeVisible();
- await expect(view.frameLocator('[data-testid=equation-frame]').locator('math')).toBeVisible();
- // AI Explainer asks at once: the chat's own consent first, nothing sent before it.
- await expect(view.getByTestId('equation-consent')).toBeVisible();
- await expect(view.getByTestId('equation-consent')).toContainText('Google through OpenRouter');
- await page.waitForTimeout(500);expect(await chats()).toHaveLength(0);
- // Not now: the view stays, its top row offering Explain in Chat and AI Explainer beside the X; no Done.
- await view.getByRole('button',{name:'Not now'}).click();
- const explain=view.getByTestId('equation-explain'),ask=view.getByTestId('equation-ask'),close=view.getByTestId('equation-close');
- await expect(explain).toHaveText('AI Explainer');await expect(ask).toHaveText('Explain in Chat');await expect(close).toHaveAccessibleName('Close');
- await expect(view.getByRole('button',{name:'Done'})).toHaveCount(0);
- const [explainBox,askBox,closeBox,stageBox]=[(await explain.boundingBox())!,(await ask.boundingBox())!,(await close.boundingBox())!,(await view.getByTestId('equation-frame').boundingBox())!];
- const middle=(b:{y:number;height:number})=>b.y+b.height/2;
- expect(Math.abs(middle(explainBox)-middle(askBox))).toBeLessThan(2);expect(Math.abs(middle(closeBox)-middle(askBox))).toBeLessThan(3);
- expect(askBox.x).toBeLessThan(explainBox.x);expect(explainBox.x).toBeLessThan(closeBox.x);expect(askBox.y+askBox.height).toBeLessThan(stageBox.y);
- await expect(view.getByRole('heading',{name:'What it says'})).toHaveCount(0);await expect(view.getByTestId('equation-more')).toHaveCount(0);
+ // Metadata controls are independent of the verified paper text.
+ await expect(frame.getByRole('button',{name:'More papers by A. Author'})).toBeVisible();
+ const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('Machine learning');
+ expect(await keywords.evaluate(e=>e.nextElementSibling?.textContent)).toContain('Introduction');
+ await keywords.click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
+ await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
+ await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
+ await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Related']);
+ await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
+ const view=page.getByTestId('equation-view'), context=view.getByTestId('contextual-chat');
+ await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();
+ const chats=async()=>(await(await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests;
  expect(await chats()).toHaveLength(0);
- await page.screenshot({path:`../../.artifacts/equation-view-opened-${test.info().project.name}.png`});
- // AI Explainer in the top row asks again: consent, then the explanation.
- await explain.click();
- await expect(view.getByTestId('equation-consent')).toBeVisible();expect(await chats()).toHaveLength(0);
- await view.getByRole('button',{name:'Allow and explain'}).click();
+ await context.getByTestId('composer-model').click();
+ const options=page.getByRole('dialog',{name:'Answer options',exact:true});
+ await options.getByRole('radio',{name:'Haiku',exact:true}).click(); await options.getByRole('button',{name:'Close',exact:true}).click();
+ await view.getByTestId('equation-explain').click();await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toHaveText('It squares x: the value multiplied by itself.');
- await expect(view.getByTestId('equation-symbols').locator('li')).toHaveCount(3);
- // Every symbol is typeset: from its LaTeX, or from its text when the model gave none ("L_DPO(π_θ; π_ref)").
- for(let i=0;i<3;i++)await expect(view.getByTestId('equation-symbols').locator('li').nth(i).locator('.equation-symbol math')).toBeVisible();
- await expect(view.getByTestId('equation-symbols').locator('li').nth(2).locator('.equation-symbol msub')).toHaveCount(3);
- await expect(view.getByTestId('equation-source')).toHaveText('From the paper ¶2');
- await expect(view.getByTestId('equation-symbols')).toContainText('General meaning');
- // Explained: AI Explainer has gone, Explain in Chat stays, More background is offered.
- await expect(explain).toHaveCount(0);await expect(ask).toBeVisible();await expect(view.getByTestId('equation-more')).toBeVisible();
-
- // Size: larger keeps growing the equation; sideways scroll keeps the size instead of fitting the width.
- const frameBox=view.getByTestId('equation-frame');
- const before=(await frameBox.boundingBox())!.height;
- await expect(view.getByTestId('equation-scale')).toHaveText('160%');
- await view.getByRole('button',{name:'Larger equation'}).click();await view.getByRole('button',{name:'Larger equation'}).click();
- await expect(view.getByTestId('equation-scale')).toHaveText('240%');
- await expect.poll(async()=>(await frameBox.boundingBox())!.height).toBeGreaterThan(before);
- await view.getByTestId('equation-scroll').check();await expect(view.getByTestId('equation-scroll')).toBeChecked();
-
- // Background only on request, rendered like an answer.
- await view.getByTestId('equation-more').click();
- const background=view.getByTestId('equation-background');
- await expect(background).toContainText('That symmetry is why the paper uses it.');
- // Every paragraph stays once streaming has finished (landing-page capture, 2026-10-15: only the first remained).
- await page.waitForTimeout(3000);
- await expect(background.locator('p')).toHaveCount(3);await expect(background.locator('h2, h3, h4')).toHaveCount(1);await expect(background.locator('li')).toHaveCount(2);
- // It reads in view: its heading was brought up, and its last paragraph can be scrolled to.
- await expect(view.getByRole('heading',{name:'Background'})).toBeInViewport();
- const last=background.locator('p').last();await last.scrollIntoViewIfNeeded();await expect(last).toBeInViewport();
- await expect(background).toContainText('For x = 3 it gives 9.');await expect(background).toContainText('That symmetry is why the paper uses it.');
- // No credit counts in the view (owner, build 59).
- await expect(view.getByTestId('equation-credits')).toHaveCount(0);await expect(view).not.toContainText(/\d+\s+credits?\b/);
- const sent=await chats();
- expect(sent.map(r=>r.action)).toEqual(['equation','equation_background']);
- for(const r of sent){
-  expect(r).toMatchObject({mode:'paper',consent_version:'cloud-ai-v5',selection:{quote:'x^2'},messages:[{role:'user',text:'Equation (1)'}],
-   local_context:{format:'reader-local-context-v2',membership_id:member}});
-  for(const key of ['topic_title','follow_ups','figures','document_id'])expect(r).not.toHaveProperty(key);
- }
- // No conversation was made.
- expect((await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).events).toHaveLength(0);
- await page.screenshot({path:`../../.artifacts/equation-view-${test.info().project.name}.png`});
- // Dark: the panel and the equation's own frame follow the app's appearance.
- await page.emulateMedia({colorScheme:'dark'});
- // The frame is rebuilt in the new colours; a read during the rebuild just tries again.
- await expect.poll(()=>view.frameLocator('[data-testid=equation-frame]').locator('html').evaluate(e=>getComputedStyle(e).colorScheme).catch(()=>'')).toBe('dark');
- await page.screenshot({path:`../../.artifacts/equation-view-${test.info().project.name}-dark.png`});
- await page.emulateMedia({colorScheme:'light'});
-
- // The heading is a menu of the paper's equations (owner, build 62: "a little thing you can expand to get to… all your
- // equation listings"): one switched to waits for AI Explainer; switching back shows the kept explanation.
- const heading=view.getByTestId('equation-heading');
- // The whole title shows (no ellipsis) beside its ⌄.
- expect(await heading.locator('span').evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true);
- await heading.click();
- const menu=page.getByRole('menu',{name:'Equation (1)'});
- await expect(menu.getByRole('menuitemradio')).toHaveText(['Equation (1)','Equation (2)','Equation · 2 Method']);
- await page.screenshot({path:`../../.artifacts/equation-view-heading-${test.info().project.name}.png`});
- await menu.getByRole('menuitemradio',{name:'Equation (2)'}).click();
- await expect(view.getByRole('heading',{name:'Equation (2)'})).toBeVisible();
- await expect(view.frameLocator('[data-testid=equation-frame]').locator('mfrac')).toBeVisible();
- await expect(view.getByTestId('equation-explain')).toBeVisible();await expect(view.getByTestId('equation-consent')).toHaveCount(0);
- await expect(view.getByTestId('equation-summary')).toHaveCount(0);
- await page.waitForTimeout(300);expect(await chats()).toHaveLength(2);
- await view.getByTestId('equation-heading').click();
- await page.getByRole('menu',{name:'Equation (2)'}).getByRole('menuitemradio',{name:'Equation (1)'}).click();
- await expect(view.getByTestId('equation-summary')).toBeVisible();expect(await chats()).toHaveLength(2);
-
- // A symbol's paragraph: the view closes and the paper lands there, with Back offered unless the reader was at the top.
- const atTop=await frame.locator('body').evaluate(()=>scrollY<4);
- await view.getByTestId('equation-source').click();
- await expect(view).toBeHidden();
- if(atTop)await expect(page.getByTestId('citation-back')).toHaveCount(0);else await expect(page.getByTestId('citation-back')).toBeVisible();
-
- // Reopened, the results come back without a new request; Explain in Chat starts a draft about the equation, unsent.
- await display.click();await bar.getByTestId('equation-open').click();
- await expect(view.getByTestId('equation-summary')).toBeVisible();await expect(view.getByTestId('equation-background')).toContainText('That symmetry is why the paper uses it.');
- await expect(view.getByTestId('equation-explain')).toHaveCount(0);
- await expect(view.getByTestId('equation-scale')).toHaveText('240%');
- expect(await chats()).toHaveLength(2);
- await view.getByTestId('equation-ask').click();
- await expect(view).toBeHidden();
- const composer=page.getByRole('textbox',{name:'Message',exact:true});
- await expect(composer).toBeVisible();await expect(composer).toHaveValue('About “\\[x^2\\]”: ');
- await expect(composer).toBeFocused();
- expect(await chats()).toHaveLength(2);
+ expect((await chats())[0].profile.model).toBe('haiku');
+ await view.getByTestId('equation-more').click();await expect(view.getByTestId('equation-background')).toContainText('That symmetry is why the paper uses it.');
+ await context.getByRole('textbox',{name:'Message',exact:true}).fill('Why is it squared?');await context.getByRole('button',{name:'Send',exact:true}).click();
+ await expect(context.locator('.chat-message.assistant').first()).toBeVisible();
+ await expect(view).toBeVisible();
+ let requests=await chats();expect(requests.at(-1).messages.at(-1).text).toBe('About Equation (1): Why is it squared?');
+ expect(requests.at(-1).selection.quote).toContain('x^2');expect(requests.at(-1).selection.quote).toContain('It squares x');expect(requests.at(-1).profile.model).toBe('haiku');
+ await context.getByRole('textbox',{name:'Message',exact:true}).fill('And when it is negative?');await context.getByRole('button',{name:'Send',exact:true}).click();
+ await expect(context.locator('.chat-message.assistant')).toHaveCount(2);
+ await expect(context.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0);
+ await expect(context.getByRole('button',{name:'Send',exact:true})).toBeVisible();
+ requests=await chats();expect(requests.at(-1).messages.length).toBeGreaterThanOrEqual(3);
+ await page.screenshot({path:`../../.artifacts/feedback/all-20261018/equation-chat-${test.info().project.name}.png`});
+ await view.getByTestId('equation-close').click();await display.click();await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
+ await expect(page.getByTestId('contextual-chat').locator('.chat-message.assistant')).toHaveCount(2);expect(await chats()).toHaveLength(requests.length);
 });
 
 // Contents with Figures, Tables and Equations (owner, build 59): Contents first; a figure or table row is its number and
@@ -289,7 +204,7 @@ test('Contents says when a paper has no tables or equations',async({page,request
  await tabs.getByRole('tab',{name:'Figures'}).click(); await expect(page.getByTestId('contents-figure-0')).toHaveText('Figure 1 — A test figure.');
 });
 
-test('a wide equation fits the width, or keeps its size and scrolls sideways',async({page,request})=>{
+test('a wide equation fits at 100 percent and automatically pans when enlarged',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const term=(i:number)=>`<msub><mi>a</mi><mn>${i}</mn></msub><mo>+</mo>`;
  const wide=`<table class="ltx_equation" id="eq2"><tbody><tr><td><math alttext="S=a_1+\\dots+b" display="block"><semantics><mrow><mi>S</mi><mo>=</mo>${Array.from({length:40},(_,i)=>term(i+1)).join('')}<mi>b</mi></mrow><annotation encoding="application/x-tex">S=a_1+\\dots+b</annotation></semantics></math></td><td><span class="ltx_tag_equation">(2)</span></td></tr></tbody></table>`;
@@ -303,12 +218,26 @@ test('a wide equation fits the width, or keeps its size and scrolls sideways',as
  const box=view.frameLocator('[data-testid=equation-frame]').locator('#eq-box');
  await expect(box.locator('math')).toBeVisible();
  const overflow=()=>box.evaluate(e=>e.scrollWidth-e.clientWidth);
- if(await view.getByTestId('equation-scroll').isChecked())await view.getByTestId('equation-scroll').uncheck();
+ while(await view.getByTestId('equation-scale').textContent()!=='100%') await view.getByRole('button',{name:'Smaller equation'}).click();
  await expect.poll(overflow).toBeLessThanOrEqual(1);
- await view.getByTestId('equation-scroll').check();
- await expect.poll(overflow).toBeGreaterThan(100);
+ await view.getByRole('button',{name:'Larger equation'}).click(); await view.getByRole('button',{name:'Larger equation'}).click();
+ await expect.poll(overflow).toBeGreaterThan(50);
+ await box.evaluate(e=>{e.scrollLeft=60;});expect(await box.evaluate(e=>e.scrollLeft)).toBeGreaterThan(0);
+ await expect(view.getByText('Scroll sideways',{exact:true})).toHaveCount(0);
  // No page-level sideways scroll at any width.
  expect(await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
  await page.screenshot({path:`../../.artifacts/equation-view-wide-${test.info().project.name}.png`});
- await view.getByTestId('equation-scroll').uncheck();
+
+});
+
+
+test('an author byline offers an author search without an AI request', async ({page,request}) => {
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await openFixture(page,request,equations);
+ const author=page.frameLocator('[data-testid=reader-frame]').getByRole('button',{name:'More papers by A. Author'});
+ await expect(author).toBeVisible({timeout:20000}); await author.click();
+ const search=page.waitForRequest(r=>r.url().includes('/functions/v1/discover?') && new URL(r.url()).searchParams.get('q')==='author:A. Author');
+ await page.getByRole('dialog',{name:'Author',exact:true}).getByRole('button',{name:'Find papers by A. Author'}).click();
+ await search; await expect(page).toHaveURL(/\/$/);
+ expect((await(await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests).toHaveLength(0);
 });

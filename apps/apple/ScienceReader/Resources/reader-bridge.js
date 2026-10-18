@@ -1091,7 +1091,7 @@
       '.sr-paper-line{font-size:.82rem;line-height:1.4;color:#666;margin:-.3em 0 1.2em;-webkit-user-select:none;user-select:none}',
       '@media(prefers-color-scheme:dark){.sr-paper-line{color:#9a9a9a}}@media(prefers-reduced-motion:reduce){.sr-flash{transition:none}}',
       // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
-      '.sr-paper-tags{display:flex;flex-wrap:wrap;gap:.4em;margin:-1.05em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
+      '.sr-paper-tags{display:flex;flex-wrap:wrap;gap:.4em;margin:1em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',
       '.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
       '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.36)}}',
@@ -1125,11 +1125,11 @@
     document.querySelector('[data-sr-paper-tags]')?.remove();
     if (!Array.isArray(tags)) return;
     const names = tags.filter(tag => typeof tag === 'string' && tag.trim()).slice(0, 24).map(tag => tag.trim().slice(0, 60));
-    if (!names.length) return;
     const row = document.createElement('div');
     row.className = 'sr-paper-tags'; row.setAttribute(CHROME, ''); row.setAttribute('data-sr-paper-tags', '');
     row.setAttribute('role', 'button'); row.tabIndex = 0;
-    row.setAttribute('aria-label', 'Tags: ' + names.join(', ') + '. Edit tags');
+    row.setAttribute('aria-label', names.length ? 'Keywords: ' + names.join(', ') + '. Edit keywords' : 'Add keywords');
+    const label = document.createElement('span'); label.className = 'sr-tag'; label.textContent = names.length ? 'Keywords · Edit' : 'Add keywords'; row.append(label);
     for (const name of names) {
       const chip = document.createElement('span');
       chip.className = 'sr-tag'; chip.setAttribute('aria-hidden', 'true'); chip.textContent = name;
@@ -1138,12 +1138,29 @@
     row.addEventListener('keydown', event => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); post({type:'tags'}); }
     });
-    let anchor = document.querySelector('[data-sr-paper-line]');
-    if (!anchor) {
-      anchor = document.querySelector('h1[data-reader-block]') || document.querySelector('h1');
-      while (anchor?.nextElementSibling?.classList.contains('reader-authors')) anchor = anchor.nextElementSibling;
+    const heading = [...document.querySelectorAll('h2,h3,h4,h5,h6')].find(h => !/^(abstract|contents|table of contents)$/i.test(h.textContent.trim()));
+    if (heading) heading.before(row);
+    else document.body.append(row);
+  };
+  // Author names supplied by verified library metadata; only these exact names can leave the frame.
+  const installAuthors = authors => {
+    if (!Array.isArray(authors)) return;
+    const names = authors.filter(a => typeof a === 'string' && a.length > 1 && a.length <= 256).sort((a,b) => b.length-a.length);
+    for (const header of document.querySelectorAll('.reader-authors')) {
+      for (const name of names) {
+        const walker = document.createTreeWalker(header, NodeFilter.SHOW_TEXT);
+        const nodes = []; while (walker.nextNode()) if (!walker.currentNode.parentElement.closest('button,a,.reader-affiliations')) nodes.push(walker.currentNode);
+        for (const node of nodes) {
+          const at = node.textContent.indexOf(name); if (at < 0) continue;
+          const tail = node.splitText(at), rest = tail.splitText(name.length);
+          const button = document.createElement('button'); button.type = 'button'; button.className = 'sr-author'; button.textContent = name;
+          button.style.cssText = 'font:inherit;color:inherit;padding:0;border:0;background:none;text-decoration:underline;text-decoration-style:dotted;cursor:pointer';
+          button.setAttribute('aria-label', 'More papers by ' + name);
+          button.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); post({type:'author', name}); });
+          tail.replaceWith(button);
+        }
+      }
     }
-    if (anchor) anchor.after(row); else document.body.prepend(row);
   };
   window.__scienceReaderSetPaperTags = tags => {
     if (config?.figure_id) return false;
@@ -1168,6 +1185,7 @@
       installCitationStyle(); collectReferences(); formatContents(); linkCitations(); linkFigureReferences();
       installPaperLine(window.__readerPaperLine);
       installPaperTags(window.__readerPaperTags);
+      installAuthors(window.__readerAuthors);
     }
     if (config?.figure_id) {
       // A figure, or a table or code block a figure reference names (FIGURE REFERENCES).
