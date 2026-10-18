@@ -7,6 +7,18 @@ validation in each client. HTML must never be mislabeled as Mathpix output. The 
 
 Status, 2026-10-05: deployed in the `paper-worker` Edge Function on staging; real conversions (DPO, LoRA, Mamba, Mistral, Adam, PPO) render, validate and open in the Simulator journey.
 
+## Current navigation follow-up — 2026-10-18 (verification in progress)
+
+The later owner screenshot identified an independent `__scienceReaderJumpToHeading` path that still requested
+smooth scrolling after reference jumps were made instant. It now uses `instant` too. Frame-by-frame tests with
+Reduce Motion disabled verify immediate landing and no subsequent scrolling. The keyword heading keeps the row's
+editing action and accessible name but removes the separate visible Edit word. Native bibliography actions use a
+vertical action sheet on iPhone/iPad, retaining the Mac menu; all Copy/Open/Add/Discuss actions are visible at once.
+A two-short-touch-tap bridge event opens Contents, excluding controls, drag, long press and mouse selection. The
+native/browser hosts remember successful discovery locally and hide the initial hint; no paper/account data is
+stored in that preference. Contents starts at full height on iPhone/iPad. TestFlight inclusion is recorded in
+IMPLEMENTATION_STATUS.md when verified, not inferred from these implementation notes.
+
 ## Shape
 
 `supabase/functions/_shared/reader/` turns Mathpix's `mmd.zip` (expanded by `unpackReaderZip`) into a `reader-bundle-v1` bundle. It uses only `markdown-it@9.1.0`, `mathpix-markdown-it@3.0.1`, `htmlparser2@12.0.0`, `node:zlib` and `node:crypto` — no child processes, filesystem reads, network or SVG.

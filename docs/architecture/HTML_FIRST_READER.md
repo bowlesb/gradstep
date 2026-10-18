@@ -556,13 +556,10 @@ paper's text reads from the same place:
 | **Not on this device yet** (`.cloud`) | In the synced library (a membership, or an older server-processed item) but not prepared here | Opens from arXiv (or the server's copy) when online, then becomes *On this device* | Need the paper opened here first; Listen says "Open this paper first so its text is ready on this device" |
 | **No readable copy** (`.unavailable`) | Not converted, quarantined, or source unavailable | — | — |
 
-The Library rows show the state as a small symbol before the byline (native `PaperTableTitleCell`: ✓ on this
-device, a document for a PDF, a cloud for not yet here, ⚠ for no readable copy; VoiceOver and the Mac tooltip read the
-words). The browser keeps nothing between visits yet, so its rows say "Opens from arXiv; prepared in this browser when
-opened" or "Reads from the server's converted copy". Sync carries memberships, not files: two devices of one library
-can and do hold different papers, and the row is where that shows. What each feature says when the text isn't here
-is in `PodcastCenter.noEpisodeSource(for:)` and the chat's paper-context copy; nothing silently pretends the paper is
-present.
+The Library table now puts device availability (check/cloud) and Authors in separate, selectable columns
+(owner follow-up, 2026-10-18); Title does not repeat them below itself. The cloud control still downloads on this
+device. Existing saved column choices gain Device/Authors once, then respect subsequent explicit removal. Pending
+and completed rows reserve the same title geometry. Other list/card arrangements retain their own metadata.
 
 ### Budget at cutover
 

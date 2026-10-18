@@ -83,7 +83,7 @@ export type FrameMessage =
   | { type: 'selection'; empty: boolean; selection: Selection | null }
   | { type: 'marks'; ids: string[] } | { type: 'passage'; found: boolean }
   | { type: 'reference'; reference: ReaderReference } | { type: 'figureref'; reference: ReaderFigureReference }
-  | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' }
+  | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'contentsGesture' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
   | { type: 'key'; key: FrameKey };
 
@@ -130,6 +130,7 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
     }
     case 'figure': return typeof v.id === 'string' && /^[0-9A-Za-z_-]{1,200}$/.test(v.id) ? { type: 'figure', id: v.id } : null;
     case 'tags': return { type: 'tags' };
+    case 'contentsGesture': return bundle && v.manifest_sha256 === bundle.manifestSHA256 ? { type: 'contentsGesture' } : null;
     case 'invalid': return { type: 'invalid' };
     case 'find': {
       const count = v.count, index = v.index;

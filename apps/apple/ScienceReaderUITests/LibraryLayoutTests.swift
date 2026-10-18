@@ -78,6 +78,17 @@ final class LibraryLayoutTests: XCTestCase {
         let attached = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); attached.name = name; attached.lifetime = .keepAlways; add(attached)
     }
 
+    func testDeviceAndAuthorsHaveSeparateColumns() throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = launch(["--library-layout=table", "--library-columns=device,authors"])
+        XCTAssertTrue(header("Device", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(header("Authors", in: app).exists)
+        let row = cell(attention, in: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.label.contains("Vaswani"), "The separate Authors cell remains in the accessible row")
+        attach(app, "Library Device and Authors columns")
+    }
+
     func testTableSortsByColumnHeadersAndOpensAPaper() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad; the phone has its own test")
         // Landscape is the wide layout (segments, Reader beside the chat); portrait is checked at the end.

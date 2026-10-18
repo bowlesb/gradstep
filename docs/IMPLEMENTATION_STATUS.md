@@ -1,6 +1,23 @@
 # Implementation status
 
 
+## Later October 18 feedback — build 73 release verification
+
+Six additional reports at 20:45–20:56 UTC are implemented: full-height Contents; a touch double-tap opens it with
+persisted first-use discovery; genuinely instant section jumps; all reference actions visible together; separate
+Library Device/Authors columns; and no visible keyword Edit label. The missed animation was a second bridge path
+that still explicitly requested smooth scrolling. Native and browser frame timing now verifies the jump without
+Reduce Motion. The existing complete figure-card change and Mac prototype retirement are included in this source.
+
+Seven unique affected iPhone Simulator journeys pass, including figure/chat, Contents/equations, reference actions,
+double-tap/relaunch and Library columns. Saved screenshots were reviewed. Two native bridge regressions and all
+four targeted browser desktop/phone cases pass; `npm test` passes. Browser Pages **8d2514ec** is deployed with live
+asset/AASA verification. App Store feedback readback contains 203 reports and no further unseen reports. Native
+upload still waits for the fresh optimized import gate and final Mac UI checks; this paragraph is not release evidence.
+Mac chat-generation and Library-column units pass **54/54** with a complete result bundle. Disabling coverage collection
+for this focused run allowed result finalization; the earlier completed-test logs with unfinished bundles remain
+retained rather than being represented as valid result bundles.
+
 ## Build 71 feedback and OpenRouter consolidation — 2026-10-18 (TestFlight 72 on iPhone/iPad)
 
 iPhone/iPad build **72**, source **de722cf**, is **VALID / IN_BETA_TESTING**, read back at 20:36 UTC.

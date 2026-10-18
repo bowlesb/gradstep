@@ -151,6 +151,7 @@ struct ReaderFigureReference: Identifiable, Equatable {
 struct PaperView: View {
     @Bindable var model: ReaderModel
     @State private var showContents = false
+    @AppStorage("reader.contents.doubleTapDiscovered") private var contentsDoubleTapDiscovered = false
     @State private var showReaderVersion = false
     @State private var selection: ReaderSelection?
     @State private var readerFailed = false
@@ -747,6 +748,11 @@ struct PaperView: View {
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
         hooked.onCrash = handleCrash
+        hooked.onContentsGesture = {
+            guard model.readerDocumentScope == scope, !showContents else { return }
+            contentsDoubleTapDiscovered = true
+            showContents = true
+        }
         hooked.onReferenceAction = { value, action in handleReferenceAction(value, action, scope: scope) }
         return hooked
     }
@@ -867,6 +873,7 @@ struct PaperWebView: UIViewRepresentable {
     var paperTags: [String] = []
     var paperTagSource = "Gradstep"
     var onTags: () -> Void = {}
+    var onContentsGesture: () -> Void = {}
     var paperAuthors: [String] = []
     var onAuthor: (String) -> Void = { _ in }
     /// A new value returns from a citation jump to the reading position.
@@ -1107,6 +1114,12 @@ struct PaperWebView: UIViewRepresentable {
             case "tags":
                 guard ready, parent.figureID == nil else { return }
                 parent.onTags()
+            case "contentsGesture":
+                guard ready, parent.figureID == nil, let bundle = parent.bundle,
+                      body["manifest_sha256"] as? String == bundle.manifestSHA256 else { return }
+                #if !targetEnvironment(macCatalyst)
+                parent.onContentsGesture()
+                #endif
             case "reference":
                 guard ready, let bundle = parent.bundle, let size = message.webView?.bounds.size,
                       let reference = ReaderReference(message: body, bundle: bundle, viewport: size) else { return }

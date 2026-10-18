@@ -26,18 +26,14 @@ final class PaperTableTests: XCTestCase {
     }
 
     func testLibraryDefaultColumnsFollowTheWidth() {
-        let phone = LibraryColumnSettings.compactDefault, pad = LibraryColumnSettings.regularDefault
-        XCTAssertEqual(libraryColumns(Width.phoneSmall, phone), ["year", "progress"], "Phone portrait: title and two columns")
-        XCTAssertEqual(libraryColumns(Width.phone, phone), ["year", "progress"])
-        XCTAssertEqual(libraryColumns(Width.phoneMax, phone), ["year", "progress"])
-        let wide = ["year", "added", "opened", "chats", "progress"]
-        XCTAssertEqual(libraryColumns(Width.phoneLandscape, phone), wide, "Phone landscape adds the dates and chats")
-        XCTAssertEqual(libraryColumns(Width.padPortrait, pad), wide, "iPad portrait: Tags needs more room")
-        XCTAssertEqual(libraryColumns(Width.padLandscape, pad), ["year", "tags", "added", "opened", "chats", "progress"])
-        XCTAssertEqual(libraryColumns(Width.browseColumn, pad), ["progress"], "The iPad Browse column keeps progress before year")
-        XCTAssertEqual(libraryColumns(Width.phone, scale: 1.35, phone), ["progress"], "Larger text needs more room per column")
-        XCTAssertEqual(libraryColumns(0, pad), [], "Before the first measurement, the title alone")
-        XCTAssertEqual(LibraryTableColumn.allCases.last, .progress, "Progress (with an import's Retry) is the trailing column")
+        for enabled in [LibraryColumnSettings.compactDefault, LibraryColumnSettings.regularDefault] {
+            XCTAssertTrue(enabled.isSuperset(of: [.device, .authors]))
+            for width in [Width.phoneSmall, Width.phone, Width.phoneMax, Width.phoneLandscape, Width.padPortrait, Width.padLandscape] {
+                let layout = PaperTableLayout.arrangement(LibraryTableColumn.columns(enabled), width: width, scale: 1, scrolling: true)
+                XCTAssertEqual(Set(layout.columns + layout.pinned), Set(enabled.map(\.rawValue)), "All chosen metadata is reachable at \(width)")
+            }
+        }
+        XCTAssertEqual(LibraryTableColumn.allCases.last, .progress)
     }
 
     /// The reader's choice is a ceiling: the width only ever leaves chosen columns out, never adds others.
@@ -55,7 +51,7 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(libraryColumns(Width.padLandscape, [.pages, .source, .progress]), ["source", "pages", "progress"], "Row order")
         XCTAssertEqual(libraryColumns(Width.padLandscape, []), [], "Title alone")
         // A phone shows whatever short column the reader picks next to Progress (Year off, Added on, say).
-        for column in LibraryTableColumn.allCases where ![.progress, .tags, .venue].contains(column) {
+        for column in LibraryTableColumn.allCases where ![.progress, .tags, .venue, .authors].contains(column) {
             XCTAssertEqual(libraryColumns(Width.phone, [column, .progress]), [column.rawValue, "progress"], column.rawValue)
             if column != .source {
                 XCTAssertEqual(libraryColumns(Width.phoneSmall, [column, .progress]), [column.rawValue, "progress"], "17e: \(column)")
@@ -69,8 +65,8 @@ final class PaperTableTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         XCTAssertEqual(LibraryColumnSettings.load(from: defaults), LibraryColumnSettings(), "Defaults before any choice")
-        XCTAssertEqual(LibraryColumnSettings()[.compact], [.year, .added, .opened, .chats, .progress])
-        XCTAssertEqual(LibraryColumnSettings()[.regular], [.year, .tags, .added, .opened, .chats, .progress])
+        XCTAssertEqual(LibraryColumnSettings()[.compact], [.device, .authors, .year, .added, .opened, .chats, .progress])
+        XCTAssertEqual(LibraryColumnSettings()[.regular], [.device, .authors, .year, .tags, .added, .opened, .chats, .progress])
 
         var settings = LibraryColumnSettings()
         settings[.compact] = [.added, .progress]
@@ -79,13 +75,24 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "library.columns.compact"), "added,progress", "Saved in row order")
         let loaded = LibraryColumnSettings.load(from: defaults)
         XCTAssertEqual(loaded, settings)
-        XCTAssertEqual(loaded[.regular], [.year, .tags, .source, .added, .opened, .progress], "iPad keeps its own choice")
+        XCTAssertEqual(loaded[.regular], [.device, .authors, .year, .tags, .source, .added, .opened, .progress], "iPad keeps its own choice")
 
         settings[.compact] = []
         settings.save(to: defaults)
         XCTAssertEqual(LibraryColumnSettings.load(from: defaults)[.compact], [], "All off is a choice (the title alone), not the defaults")
         defaults.set("year,topics,progress,", forKey: "library.columns.regular")
         XCTAssertEqual(LibraryColumnSettings.load(from: defaults)[.regular], [.year, .progress], "Unknown names are ignored")
+    }
+
+    func testSeparateMetadataAppearsOnceForExistingColumnChoices() throws {
+        let suite = "PaperTableTests.columns.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("year,progress", forKey: "library.columns.compact")
+        var columns = LibraryColumnSettings.load(from: defaults)
+        XCTAssertEqual(columns[.compact], [.device, .authors, .year, .progress])
+        columns[.compact].remove(.authors); columns.save(to: defaults)
+        XCTAssertFalse(LibraryColumnSettings.load(from: defaults)[.compact].contains(.authors), "A later explicit choice is respected")
     }
 
     func testDetailedRowsBecomeTheTableAndTheTableIsTheDefault() {
@@ -107,12 +114,12 @@ final class PaperTableTests: XCTestCase {
     func testChosenColumnsRemainReachableWithoutMovingPinnedControls() {
         let library = PaperTableLayout.arrangement(LibraryTableColumn.columns(LibraryColumnSettings.compactDefault),
                                                     width: Width.phone, scrolling: true)
-        XCTAssertEqual(library.columns, ["year", "progress", "added", "opened", "chats"])
+        XCTAssertEqual(library.columns, ["device", "progress", "authors", "year", "added", "opened", "chats"])
         XCTAssertTrue(library.scrolls)
         XCTAssertEqual(library.titleWidth, 155)
         XCTAssertEqual(library.regionWidth, 203)
-        XCTAssertEqual(library.extent, 183)
-        XCTAssertEqual(library.snapOffsets, [0, 52, 164, 183])
+        XCTAssertEqual(library.extent, 423)
+        XCTAssertEqual(library.snapOffsets, [0, 60, 172, 352, 404, 423])
         let feed = PaperTableLayout.arrangement(FeedTableColumn.columns(Set(FeedTableColumn.choosable)),
                                                width: Width.phoneSmall, scrolling: true)
         XCTAssertEqual(feed.pinned, ["add"])
@@ -169,7 +176,7 @@ final class PaperTableTests: XCTestCase {
                 let visible = PaperTableLayout.visibleColumns(columns, width: width, scale: scale)
                 guard !visible.isEmpty else { continue }
                 let columnsWidth = visible.reduce(0) { $0 + PaperTableLayout.spacing + $1.width * scale }
-                XCTAssertGreaterThanOrEqual(width - columnsWidth, PaperTableLayout.titleWidth(in: width, scale: scale),
+                XCTAssertGreaterThanOrEqual(width - columnsWidth + 0.001, PaperTableLayout.titleWidth(in: width, scale: scale),
                                             "The title keeps its share and nothing overflows at \(width) × \(scale)", file: file, line: line)
             }
             let ids = Set(PaperTableLayout.visibleColumns(columns, width: width).map(\.id))
@@ -199,8 +206,8 @@ final class PaperTableTests: XCTestCase {
             guard let field = column.sortKey else { continue }
             XCTAssertEqual(column.ascendingFirst, field.defaultAscending, column.id)
         }
-        XCTAssertEqual(Set(columns.values.compactMap(\.sortKey)), Set(LibrarySearchSort.Field.allCases).subtracting([.authors]),
-                       "Every sort but Authors has a header (authors stay in the Sort menu)")
+        XCTAssertEqual(Set(columns.values.compactMap(\.sortKey)), Set(LibrarySearchSort.Field.allCases),
+                       "Authors has its own sortable header")
     }
 
     // MARK: Library values
@@ -228,7 +235,7 @@ final class PaperTableTests: XCTestCase {
             opened: nil, progress: 0.3, chats: 0, pages: nil, status: .problem("Not converted"), needsCredits: false)
         XCTAssertEqual(LibraryTableColumn.progress.spoken(LibraryTableItem(entry: .paper(paper), facts: problem), now: now), "Not converted",
                        "A problem takes the place of progress")
-        XCTAssertNil(LibraryTableColumn.chats.spoken(LibraryTableItem(entry: .paper(paper), facts: problem), now: now))
+        XCTAssertEqual(LibraryTableColumn.chats.spoken(LibraryTableItem(entry: .paper(paper), facts: problem), now: now), "0 chats", "Zero is explicit (build 69 feedback)")
 
         XCTAssertEqual(LibraryFormat.firstAuthor(["Priya Nair"]), "Priya Nair", "One author keeps the full name")
         XCTAssertEqual(LibraryFormat.firstAuthor(["Ludwig van Beethoven", "X Y"]), "van Beethoven et al.")
@@ -248,9 +255,9 @@ final class PaperTableTests: XCTestCase {
         return paper
     }
 
-    func testTagsAreThePapersOwnElseTopicsFromItsCategories() {
+    func testTagsKeepSpecificKeywordsWithoutBroadCategoryFallback() {
         XCTAssertEqual(LibraryTags.tags(for: paper("A", keywords: ["cs.LG", "cs.CL", "stat.ML", "cs.LG"])),
-                       ["Machine learning", "Natural language processing"], "Topic names from the tag vocabulary, every distinct one, in the paper's order (cs.LG and stat.ML are both Machine learning)")
+                       [], "Broad arXiv subject classes are not discriminative paper keywords (build 70 feedback)")
         XCTAssertEqual(LibraryTags.tags(for: paper("B", keywords: ["cs.LG"], tags: ["Alignment", " alignment ", "", "RLHF"])),
                        ["Alignment", "RLHF"], "Own tags win; trimmed, blank and repeated ones dropped")
         XCTAssertEqual(LibraryTags.tags(for: paper("C")), [])
@@ -331,16 +338,16 @@ final class PaperTableTests: XCTestCase {
         shown = await rows(); XCTAssertEqual(shown, [archived.title])
 
         model.libraryFilter = .all; model.libraryTagFilter = "Natural language processing"
-        shown = await rows(); XCTAssertEqual(shown, [unread.title, importTitle], "Tags derived from categories; archived stays out")
+        shown = await rows(); XCTAssertEqual(shown, [], "Broad categories are not paper keywords (build 70 feedback)")
         model.libraryTagFilter = "Alignment"
         shown = await rows(); XCTAssertEqual(shown, [tagged.title], "The paper's own tags")
         model.libraryTagFilter = nil; model.libraryQuery = "language"
-        shown = await rows(); XCTAssertEqual(shown, [unread.title, importTitle], "Search matches tag names too")
+        shown = await rows(); XCTAssertEqual(shown, [importTitle], "The title matches language; a broad subject class does not add a keyword match")
         model.libraryQuery = ""
 
         let summary = model.libraryFilterSummary()
         XCTAssertEqual(summary.count(.failed), 1); XCTAssertEqual(summary.count(.archived), 1); XCTAssertEqual(summary.count(.reading), 1)
-        XCTAssertEqual(summary.tags.first?.tag, "Natural language processing", "Natural language processing is the most used tag in All")
+        XCTAssertEqual(summary.tags.first?.tag, "Alignment", "Specific own keywords remain available without category placeholders")
         XCTAssertFalse(summary.tags.contains { $0.tag == "Computer vision" && $0.count != 1 })
 
         // Reading a paper moves it out of Unread at once.

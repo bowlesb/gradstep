@@ -1150,7 +1150,7 @@
     row.setAttribute('role', 'button'); row.tabIndex = 0;
     row.setAttribute('aria-label', names.length ? 'Keywords: ' + names.join(', ') + '. Edit keywords' : 'Add keywords');
     const label = document.createElement('h2'); label.textContent = 'Gradstep Keywords'; row.append(label);
-    const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source === 'Gradstep' ? 'Edit' : source + ' · Edit'; row.append(origin);
+    if (source !== 'Gradstep') { const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source; row.append(origin); }
     // arXiv sometimes wraps the abstract in a one-item list; use the same reading width as the body.
     for (const heading of document.querySelectorAll('h2,h3,p')) {
       if (heading.textContent.trim().toLowerCase() === 'abstract' && heading.nextElementSibling?.matches('ul,ol') && heading.nextElementSibling.children.length === 1) heading.nextElementSibling.setAttribute('data-sr-abstract-list','');
@@ -1275,7 +1275,7 @@
     const element = headings.get(id);
     if (!element) return false;
     if (citationBack) endCitation();
-    element.scrollIntoView({behavior:reduced?'instant':'smooth',block:'start'});
+    element.scrollIntoView({behavior:'instant',block:'start'});
     return true;
   };
   window.__scienceReaderLocation = () => {
@@ -1898,6 +1898,34 @@
     }
     return marks.length;
   };
+  // Two short touch taps in article text open Contents. Mouse double-click and long-press selection remain
+  // native. This is separate from citation/figure/equation controls, which must never open Contents as well.
+  if (!config?.figure_id) {
+    const excluded = 'a,button,input,textarea,select,figure,math,[role="button"],.sr-cite,.sr-toc-link,[data-sr-reference],[data-sr-paper-tags],[data-reader-equation],[data-sr-chrome]';
+    let down = null, first = null;
+    const article = target => {
+      const node = target instanceof Element ? target : target?.parentElement;
+      return node && !node.closest(excluded) && node.closest('p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,section,article');
+    };
+    document.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'touch' || !event.isPrimary || !article(event.target)) { down = first = null; return; }
+      // An existing selection is being adjusted, not a request to open Contents.
+      if (!first && !window.getSelection()?.isCollapsed) { down = null; return; }
+      down = {id: event.pointerId, x: event.clientX, y: event.clientY, at: event.timeStamp};
+    }, {passive: true});
+    document.addEventListener('pointermove', event => {
+      if (down?.id === event.pointerId && Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8) down = first = null;
+    }, {passive: true});
+    document.addEventListener('pointercancel', () => { down = first = null; }, {passive: true});
+    document.addEventListener('pointerup', event => {
+      const tap = down; down = null;
+      if (!tap || tap.id !== event.pointerId || event.timeStamp - tap.at > 250 || !article(event.target)) { first = null; return; }
+      if (first && event.timeStamp - first.at < 400 && Math.hypot(event.clientX - first.x, event.clientY - first.y) < 24) {
+        first = null; event.preventDefault(); window.getSelection()?.removeAllRanges();
+        post({type:'contentsGesture', manifest_sha256:manifest});
+      } else first = {x:event.clientX, y:event.clientY, at:event.timeStamp};
+    }, {passive: false});
+  }
   // The conversations marked at a point: the caret there is inside the mark and the point is on its text.
   const marksAt = (x, y) => {
     const caret = document.caretRangeFromPoint?.(x, y);

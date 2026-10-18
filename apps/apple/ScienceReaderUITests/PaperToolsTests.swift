@@ -191,6 +191,30 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(wait { heading.exists && abs(heading.frame.minY - web.frame.minY) < 80 }, "The entry jumps to its heading")
     }
 
+    func testContentsOpensAtFullHeightAndRemembersDoubleTapDiscovery() throws {
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("Touch discovery belongs to iPhone and iPad; Mac keeps double-click selection")
+        #else
+        let app = openSample(["--contents-discovery-reset"])
+        app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.staticTexts["contents.doubleTapHint"].waitForExistence(timeout: 5))
+        XCTAssertLessThan(app.contentsTabs.frame.minY, app.frame.height * 0.25, "Contents starts at full height")
+        app.buttons["sheet.close"].tap()
+        let text = app.webViews.firstMatch.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Select a few words")).firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 5)); text.doubleTap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5), "Two taps in article text open Contents")
+        XCTAssertFalse(app.staticTexts["contents.doubleTapHint"].exists)
+        capture(app, "Contents after double-tap discovery")
+        app.terminate()
+        app.launchArguments = ["--workflow-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10)); app.buttons[sampleID].tap()
+        XCTAssertTrue(app.buttons["Table of contents"].waitForExistence(timeout: 8)); app.buttons["Table of contents"].tap()
+        XCTAssertTrue(app.contentsTabs.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["contents.doubleTapHint"].exists, "Discovery survives relaunch")
+        #endif
+    }
+
     /// Contents with Figures, Tables and Equations tabs (owner, build 59): Contents first; each list's rows go into
     /// the paper with Back.
     func testContentsTabsListFiguresTablesAndEquations() throws {
@@ -239,7 +263,10 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Equations tab")
         equation.tap()
         XCTAssertTrue(tabs.waitForNonExistence(timeout: 5), "A row closes Contents")
-        XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The equation is shown in the paper")
+        // The full named reference is now one link (build 71 feedback), not a standalone “(1)” text node.
+        let reference = web.links["Equation (1)"].firstMatch
+        XCTAssertTrue(reference.waitForExistence(timeout: 5) && reference.isHittable, "The equation and its following reference are in view")
+        XCTAssertTrue(app.buttons["reader.citation.back"].exists, "The equation jump offers a return to the original place")
         capture(app, "An equation from Contents")
     }
 
@@ -296,7 +323,10 @@ final class PaperToolsTests: XCTestCase {
         capture(app, "Equations as tiles (light)")
         tile.tap()
         XCTAssertTrue(app.contentsTabs.waitForNonExistence(timeout: 5), "A tile closes Contents")
-        XCTAssertTrue(web.staticTexts["(1)"].firstMatch.waitForExistence(timeout: 5), "The equation is shown in the paper")
+        // The full named reference is now one link (build 71 feedback), not a standalone “(1)” text node.
+        let reference = web.links["Equation (1)"].firstMatch
+        XCTAssertTrue(reference.waitForExistence(timeout: 5) && reference.isHittable, "The equation and its following reference are in view")
+        XCTAssertTrue(app.buttons["reader.citation.back"].exists, "The equation jump offers a return to the original place")
     }
 
     func testEquationTilesInDarkMode() throws {

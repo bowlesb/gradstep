@@ -74,12 +74,20 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   then). The equation's edit menu item "Equation" is **AI Explainer** too (owner, build 62). An explainer's title is a
   small menu (⌄) listing the paper's other figures or equations, to switch without going back to Contents.
 
+- **Contents discovery** (owner, 2026-10-18): open at full height. On touch devices, double-tapping article text opens
+  Contents; links, equations, figures, reference entries and selections retain their own actions. Long-press selection
+  remains available, and Mac double-click still selects text. Above the four tabs, show “Double tap anywhere while
+  reading the article for this menu” until the gesture succeeds; remember that fact on this device across launches.
+  Contents and reference jumps land immediately, including with Reduce Motion off. Bibliography entries show all
+  their actions together in a vertical native menu, without a horizontal More page.
+
 - **Rows**: `.headline` title (≤ 2 lines), `.subheadline` authors, `.footnote` details/status; 16 pt side and 12 pt
   vertical padding; at most one trailing icon; navigation rows have a chevron, action rows accent text.
 - **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). A pinned
   header of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again
   to reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold
-  title (≤ 2 lines, truncated) and the first author in `.footnote` secondary. The reader chooses columns (screen
+  title (≤ 2 lines, truncated). Library uses separate Device and Authors columns, enabled by default; the title does
+  not repeat those details below it. Pending and completed rows reserve the same two title lines. The reader chooses columns (screen
   options › Columns, a half-height sheet of toggles; Title always shows). Every chosen column remains available:
   when they do not fit, the title stays pinned and the other columns scroll sideways, settling at column boundaries.
   Feed's Add and All chats' Last used stay pinned at the right. Wide cells wrap or truncate within the scrolling

@@ -46,7 +46,7 @@ export function useLibraryColumns() {
   });
   const update = useCallback((next: readonly LibraryColumn[]) => {
     setColumns(next);
-    writeStored(LIBRARY_COLUMNS_KEY, { version: 1, columns: next });
+    writeStored(LIBRARY_COLUMNS_KEY, { version: 2, columns: next });
   }, []);
   // Defaults differ at first use or an explicit Reset only. Resizing never hides a chosen column.
   const reset = useCallback(() => update(defaultLibraryColumns(compactLibrary())), [update]);

@@ -179,3 +179,35 @@ test.describe('desktop',()=>{
   }
  });
 });
+
+
+test('heading navigation is immediate without reduced motion', async ({page,request}, info) => {
+ test.skip(info.project.name!=='desktop','DOM frame timing measured on desktop.');
+ await openFixture(page,request);
+ const result=await frame(page).locator('body').evaluate(async()=>{
+   const target=[...document.querySelectorAll('h2')].find(e=>e.textContent==='3 Results')!;
+   const bridge=window as unknown as {__scienceReaderJumpToHeading:(id:string,reduced:boolean)=>boolean};
+   const ok=bridge.__scienceReaderJumpToHeading(target.id,false), y=scrollY, top=target.getBoundingClientRect().top;
+   const samples=[];for(let n=0;n<8;n++){await new Promise(requestAnimationFrame);samples.push(scrollY);}
+   return {ok,y,top,samples,margin:parseFloat(getComputedStyle(target).scrollMarginTop)||0};
+ });
+ expect(result.ok).toBe(true);expect(result.y).toBeGreaterThan(500);expect(Math.abs(result.top-result.margin)).toBeLessThan(2);
+ for(const y of result.samples)expect(Math.abs(y-result.y)).toBeLessThan(2);
+});
+
+test('touch Contents discovery opens the menu and persists across reload', async ({page,request},info)=>{
+ test.skip(info.project.name!=='phone','Touch gesture belongs to touch devices.');
+ await openFixture(page,request);
+ const paragraph=para(page,0);
+ await paragraph.evaluate(e=>e.scrollIntoView({behavior:'instant',block:'start'}));
+ // Native UI tests also exercise a physical double-tap event in the Simulator.
+ await paragraph.evaluate(e=>{
+   for(let n=0;n<2;n++)for(const type of ['pointerdown','pointerup'])e.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerType:'touch',pointerId:1,isPrimary:true,clientX:100,clientY:100}));
+ });
+ await expect(page.getByTestId('contents-tab-contents')).toBeVisible();
+ await expect(page.locator('.contents-touch-hint')).toHaveCount(0);
+ expect(await page.evaluate(()=>localStorage.getItem('gradstep.contents.doubleTapDiscovered'))).toBe('true');
+ await page.screenshot({path:'../../.artifacts/contents-discovery-phone.png'});
+ await page.reload();await expect(page.getByTestId('reader-frame')).toBeVisible();
+ await page.getByTestId('contents').click();await expect(page.locator('.contents-touch-hint')).toHaveCount(0);
+});

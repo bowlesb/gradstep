@@ -4,6 +4,15 @@ Last updated: 2026-10-18 UTC. Requirements below come from the current user conv
 
 ## OpenRouter exclusively, Mac-only local AI, build 71 feedback (owner, 2026-10-18; implementation in progress)
 
+Six further screenshots (20:45–20:56 UTC) request: all reference actions visible together; Contents opening at full
+height; a touch double-tap in article text opening Contents with a persistent, first-use hint; instant section jumps;
+separate Library Device and Authors columns; and removal of the visible keyword Edit label. These explicitly
+authorize those interaction changes. Keep Copy, Open, Add and Discuss, long-press text selection, interactive paper
+elements and Mac double-click selection. Save gesture discovery on this device only after it actually opens Contents;
+opening Contents by its button does not mark discovery. Existing column choices gain Device/Authors once, then remain
+customizable. The heading-jump bridge still requested `smooth` independently of the already repaired reference jump;
+test with reduced motion disabled. Release evidence is pending for these six reports.
+
 Additional feedback ALCJLruWVHFOYNzJoULIvSY (20:07 UTC) requires every pixel to remain represented when a figure
 is divided into cards; grouping several panels in a card is acceptable. Cards distinguish panels, concepts and
 related work, with consistent titles. Keep the existing figure/conversation/navigation arrangement. Extend the

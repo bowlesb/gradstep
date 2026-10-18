@@ -1,5 +1,18 @@
 # Owner feedback log
 
+## Further screenshot feedback — 2026-10-18, 20:45–20:56 UTC (implemented; native release gate in progress)
+
+All six screenshots were downloaded and inspected in `.artifacts/feedback/build71-20261018/`.
+
+| Report | Requested behavior / diagnosed cause | Evidence |
+|---|---|---|
+| `AIxTRD9PfGy-NN-c6jJjzvY` | Reference actions all visible: the horizontal iOS edit menu paginates Copy/Open/Add/Discuss. Replaced by a vertical native action sheet; Mac retains its complete menu. | Native Copy/Back and Discuss journeys pass; screenshots inspected. |
+| `AG6Tt6EQHLYdjkDVr7wbfEE` | Full-height Contents by default; double-tap article text opens it. | Actual Simulator double-tap and full-height assertion pass. |
+| `ABXmwha89ij3YBl_O7vJmmk` | Small hint above the four tabs, persisted until the gesture has actually been used. | Simulator relaunch and browser reload preserve discovery; first-use hint disappears. |
+| `AGKMdEtP7pqVb2aAzZqY6rg` | No section-jump animation: `__scienceReaderJumpToHeading` still explicitly used smooth scrolling. | Native and browser frame-by-frame tests pass with Reduce Motion off. |
+| `ABakbeFhKrV6jstQ5kcx1Vo` | Device check/cloud and authors in separate columns, not beneath Title. | Simulator screenshot inspected; browser desktop/phone column persistence and scrolling journeys pass. |
+| `AJLDiNJ6Dzq4eb06F-CvAhc` | Remove the visible keyword Edit text; keep keyword editing reachable. | Shared bridge updated; accessible editing name/action retained. |
+
 
 ## Build 71 feedback — 2026-10-18 (implemented; native release pending)
 

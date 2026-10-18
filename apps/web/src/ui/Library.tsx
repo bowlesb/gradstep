@@ -353,7 +353,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
           <table className="papers" data-testid="library-table" aria-label="Papers" aria-rowcount={shown.length + 1}>
             <colgroup><col className="col-title" />{visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
             <thead ref={tableHeader}><tr aria-rowindex={1}>
-              {header('title', 'Title', 'col-title')}{visibleColumns.map(c => header(c.key, c.label, `col-${c.key}`))}
+              {header('title', 'Title', 'col-title')}{visibleColumns.map(c => c.key === 'device' ? <th key={c.key} className="col-device" scope="col">{c.label}</th> : header(c.key, c.label, `col-${c.key}`))}
             </tr></thead>
             <LibraryRows rows={shown} scroller={scroller} header={tableHeader} viewport={model.viewport}
               query={JSON.stringify(view)} columns={columns} full={!model.windowed || printing} printing={printing} commands={rowCommands} showAll={showAll} render={(row, index, measure) => {
@@ -414,14 +414,13 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
         {isLibraryPaper(entry) && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
-        {(() => { const copy = deviceCopy(entry, onDevice), author = !columns.includes('authors') && row.firstAuthor ? firstAuthorLine(authors) : null;
-          return (copy || isNew || author) ? <span className="author"><RowMarks isNew={isNew} copy={copy} />{author}</span>
-            : adding && !columns.includes('authors') && <span className="author" aria-hidden="true">{' '}</span>; })()}
+
         {row.status && !progress && <span className={`status ${row.status.kind}`}>{row.status.kind === 'problem' ? '⚠︎ ' : ''}{row.status.text}</span>}
         {progress && <span className="status active" aria-label={progress.label}>{progress.title}{progress.detail ? ` (${progress.detail})` : ''}</span>}
         {busy && <span className="status active">Updating…</span>}
         <span className="inline-action"><RowAction row={row} busy={busy} retry={retry} remove={remove} run={run} /></span>
       </td>
+      {columns.includes('device') && <td className="col-device"><RowMarks isNew={isNew} copy={deviceCopy(entry, onDevice)} /></td>}
       {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{compactAuthors(authors) || <span className="faint">—</span>}</td>}
       {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (

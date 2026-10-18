@@ -7,6 +7,48 @@ import ScienceReaderCore
 
 @MainActor
 final class PaperWebViewTests: XCTestCase {
+    func testContentsJumpLandsImmediatelyWithReduceMotionOff() async throws {
+        let harness = try Harness(document: "<h2 id='first'>First section</h2><p>Intro</p><div style='height:2400px'></div><h2 id='last'>Last section</h2><p style='height:1400px'>End</p>")
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let result = try await script(web, """
+            const ok=window.__scienceReaderJumpToHeading('last',false);
+            const immediate=scrollY, top=document.getElementById('last').getBoundingClientRect().top;
+            const samples=[];
+            for(let i=0;i<8;i++){await new Promise(requestAnimationFrame);samples.push(scrollY);}
+            return {ok,immediate,top,samples};
+            """, [:]) as? [String: Any]
+        XCTAssertEqual(result?["ok"] as? Bool, true)
+        let y = try XCTUnwrap(result?["immediate"] as? Double)
+        XCTAssertGreaterThan(y, 2000, "The target is reached before the next frame, not after an animation")
+        XCTAssertEqual(result?["top"] as? Double ?? -100, 0, accuracy: 1)
+        for sample in try XCTUnwrap(result?["samples"] as? [Double]) { XCTAssertEqual(sample, y, accuracy: 1) }
+    }
+
+    func testTouchContentsGestureExcludesControlsDragAndLongPress() async throws {
+        let harness = try Harness(document: "<p id='text'>A paragraph for reading</p><p><a id='link' href='https://example.org'>A link</a></p>")
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let result = try await script(web, """
+            const received=[];window.webkit.messageHandlers.reader.postMessage=m=>received.push(m);
+            let time=1000;
+            const pointer=(target,type,x,dt,kind='touch')=>{
+              time+=dt;const e=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,isPrimary:true,pointerType:kind,clientX:x,clientY:100});
+              Object.defineProperty(e,'timeStamp',{value:time});document.getElementById(target).dispatchEvent(e);
+            };
+            const tap=(target='text',duration=30,kind='touch')=>{pointer(target,'pointerdown',100,50,kind);pointer(target,'pointerup',100,duration,kind);};
+            tap('link');tap('link');tap('text',600);tap('text',600);tap('text',30,'mouse');tap('text',30,'mouse');
+            pointer('text','pointerdown',100,50);pointer('text','pointermove',130,20);pointer('text','pointerup',130,30);
+            const before=received.filter(m=>m.type==='contentsGesture').length;
+            tap();tap();
+            return {before,after:received.filter(m=>m.type==='contentsGesture').length};
+            """, [:]) as? [String: Any]
+        XCTAssertEqual(result?["before"] as? Int, 0)
+        XCTAssertEqual(result?["after"] as? Int, 1)
+    }
+
     func testNamedNativeReferencesLinkTheWholePhraseWithoutChangingText() async throws {
         let original = "See Figure 1, Table 2 and Equation (4). Reference 5 is separate."
         let harness = try Harness(document: "<p id='named'>See Figure <a href='#f'>1</a>, Table <a href='#t'>2</a> and Equation (<a href='#e'>4</a>). Reference <a href='#r'>5</a> is separate.</p><div id='f'></div><div id='t'></div><div id='e'></div><div id='r'></div>")

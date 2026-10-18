@@ -95,8 +95,9 @@ final class ReaderNavigationTests: XCTestCase {
         let copy = app.editMenuItem("Copy")
         XCTAssertTrue(copy.waitForExistence(timeout: 5), "A reference opens the edit menu")
         let actions = XCTAttachment(screenshot: app.screenshot()); actions.name = "Reference actions"; actions.lifetime = .keepAlways; add(actions)
-        XCTAssertTrue(app.revealEditMenuItem("Open on arXiv").exists, "Reference 11 names arXiv:2204.02311")
-        XCTAssertTrue(app.revealEditMenuItem("Add to library").exists)
+        XCTAssertTrue(app.editMenuItem("Open on arXiv").isHittable, "Reference 11 names arXiv:2204.02311")
+        XCTAssertTrue(app.editMenuItem("Add to library").isHittable)
+        XCTAssertTrue(app.editMenuItem("Discuss in chat").isHittable, "All four reference actions are visible without paging")
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "[11]")).count, 1,
                        "The reference stays in the paper and is not repeated as a tall menu message")
         if !copy.exists || !copy.isHittable { entry.tap(); _ = copy.waitForExistence(timeout: 5) }
@@ -183,7 +184,7 @@ final class ReaderNavigationTests: XCTestCase {
             entry.tap()
             XCTAssertTrue(app.editMenuItem("Copy").waitForExistence(timeout: 5), "A reference opens the edit menu, Copy first")
             capture("Reference actions in the edit menu (\(appearance))")
-            let discuss = app.revealEditMenuItem("Discuss in chat")
+            let discuss = app.editMenuItem("Discuss in chat")
             XCTAssertTrue(discuss.exists, "Discuss in chat is one of the reference's actions")
             discuss.tap()
             let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch

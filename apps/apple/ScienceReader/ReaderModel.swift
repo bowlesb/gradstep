@@ -1430,6 +1430,9 @@ final class ReaderModel {
             return
         }
         if ProcessInfo.processInfo.arguments.contains("--workflow-fixture") {
+            if ProcessInfo.processInfo.arguments.contains("--contents-discovery-reset") {
+                UserDefaults.standard.removeObject(forKey: "reader.contents.doubleTapDiscovered")
+            }
             do { try configureWorkflowFixture() } catch { show(error) }
             return
         }

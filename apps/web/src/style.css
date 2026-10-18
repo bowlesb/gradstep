@@ -946,3 +946,8 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .fullscreen-figure{width:calc(100vw - 24px)!important;max-width:none!important;height:calc(100dvh - 24px);max-height:none!important}
 .fullscreen-figure .figure-frame{height:calc(100dvh - 120px)!important}.fullscreen-figure .zoom-crop{max-height:calc(100dvh - 150px);overflow:auto}
 .sheet-top-start{flex:1}.explainer-return{align-self:flex-start;margin:6px 12px}.feed-actions{align-self:center}
+
+/* Touch-only Contents discovery. Desktop double-click remains text selection. */
+.contents-touch-hint { display: none; }
+@media (pointer: coarse) { .contents-touch-hint { display: block; margin: 8px 12px; font-size: .8rem; color: var(--muted); text-align: center; } }
+.papers .col-device { text-align: center; }

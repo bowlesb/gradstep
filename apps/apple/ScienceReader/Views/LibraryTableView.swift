@@ -30,7 +30,7 @@ struct LibraryTableItem: Identifiable {
 /// The Library's columns beside Title (owner request 2026-10-07: "columns that can be turned on or off"). Cases are
 /// in row order; Progress is last: it carries an import's status and its Retry, the cell with the most to say.
 enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
-    case year, venue, tags, source, pages, added, opened, chats, progress
+    case device, authors, year, venue, tags, source, pages, added, opened, chats, progress
 
     typealias Column = PaperTableColumn<LibrarySearchSort.Field>
     static let title = Column(id: "title", title: "Title", sortKey: .title, ascendingFirst: true)
@@ -39,7 +39,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .year: "Year"; case .venue: "Venue"; case .tags: "Tags"; case .source: "Source"; case .pages: "Pages"; case .added: "Added"
+        case .device: "Device"; case .authors: "Authors"; case .year: "Year"; case .venue: "Venue"; case .tags: "Tags"; case .source: "Source"; case .pages: "Pages"; case .added: "Added"
         case .opened: "Opened"; case .chats: "Chats"; case .progress: "Progress"
         }
     }
@@ -47,6 +47,8 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     /// What the column chooser says about it.
     var explanation: String {
         switch self {
+        case .device: "What is available on this device"
+        case .authors: "The paper’s authors"
         case .year: "Year published"
         case .venue: "Where it was published (NeurIPS, a journal)"
         case .tags: "Topics, as chips"
@@ -63,15 +65,15 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     /// pages and source go first.
     var priority: Int {
         switch self {
-        case .progress: 0; case .year: 1; case .added: 2; case .opened: 3; case .chats: 4; case .tags: 5; case .pages: 6; case .source: 7
-        case .venue: 8
+        case .device: 0; case .progress: 1; case .year: 2; case .authors: 3; case .added: 4; case .opened: 5; case .chats: 6; case .tags: 7; case .pages: 8; case .source: 9
+        case .venue: 10
         }
     }
 
     /// At the default text size; grows with Dynamic Type.
     var width: CGFloat {
         switch self {
-        case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
+        case .device: 48; case .authors: 168; case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
         case .progress: 100
         }
     }
@@ -79,7 +81,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     /// The order its header sets; nil for a column that doesn't sort (Venue).
     var sortField: LibrarySearchSort.Field? {
         switch self {
-        case .year: .year; case .tags: .tags; case .source: .source; case .pages: .pages; case .added: .recent
+        case .device: nil; case .authors: .authors; case .year: .year; case .tags: .tags; case .source: .source; case .pages: .pages; case .added: .recent
         case .opened: .opened; case .chats: .chats; case .progress: .progress; case .venue: nil
         }
     }
@@ -97,6 +99,8 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     func spoken(_ item: LibraryTableItem, now: Date = Date()) -> String? {
         let facts = item.facts
         switch self {
+        case .device: return facts.deviceCopy?.label
+        case .authors: return facts.authors
         case .year: return facts.year.map(String.init)
         case .venue: return facts.paper?.venue.map { "Published in \($0)" }
         case .tags: return facts.tags.isEmpty ? nil : "Tags: " + facts.tags.joined(separator: ", ")
@@ -145,17 +149,19 @@ struct LibraryPaperTable<Top: View>: View {
                    identifier: "library.table",
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
-                       PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry), deviceCopy: item.facts.deviceCopy,
-                                       download: item.facts.deviceCopy == .cloud ? item.facts.paper.map { paper in { model.prepareOnDevice(paper) } } : nil,
-                                       isNew: model.isNew(item.facts.paper), reservesSpace: true)
+                       PaperTableTitle(title: item.facts.title, highlighted: isSelected(item.entry),
+                                       reservesSpace: true, reservesSubtitleSpace: false)
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
                                         filterTag: { tag in model.libraryTagFilter = model.libraryTagFilter == tag ? nil : tag },
+                                        download: item.facts.paper.map { paper in { model.prepareOnDevice(paper) } },
+                                        isNew: model.isNew(item.facts.paper),
                                         act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
                    },
                    cellIsControl: { item, column in
-                       (column == LibraryTableColumn.progress.rawValue && (item.facts.importAction != nil || item.facts.importProgress != nil))
+                       (column == LibraryTableColumn.device.rawValue && item.facts.deviceCopy == .cloud)
+                           || (column == LibraryTableColumn.progress.rawValue && (item.facts.importAction != nil || item.facts.importProgress != nil))
                            || (column == LibraryTableColumn.tags.rawValue && !item.facts.tags.isEmpty)
                    },
                    spoken: { item, column in LibraryTableColumn(rawValue: column)?.spoken(item) },
@@ -228,6 +234,8 @@ struct LibraryTableCell: View {
     var highlightedTag: String? = nil
     /// Filters the Library by a tapped tag chip (again: back to all).
     var filterTag: ((String) -> Void)? = nil
+    var download: (() -> Void)? = nil
+    var isNew = false
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
     var explain: (() -> Void)? = nil
@@ -235,6 +243,19 @@ struct LibraryTableCell: View {
     var body: some View {
         let facts = item.facts
         switch column {
+        case .device:
+            HStack(spacing: 5) {
+                if let copy = facts.deviceCopy {
+                    let symbol = Image(systemName: copy.symbol).font(.subheadline)
+                        .foregroundStyle(copy == .reader || copy == .pdf ? Color.accentColor : copy == .unavailable ? .orange : .secondary)
+                    if copy == .cloud, let download {
+                        Button(action: download) { symbol.frame(minWidth: 32, minHeight: 32) }.buttonStyle(.plain)
+                            .accessibilityLabel("Download to this device").help("Download to this device")
+                    } else { symbol.accessibilityLabel(copy.label).help(copy.label) }
+                }
+                if isNew { Circle().fill(Color.accentColor).frame(width: 7, height: 7).accessibilityLabel("New") }
+            }
+        case .authors: Text(facts.authors ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
         case .year: PaperTableText(text: facts.year.map(String.init))
         case .venue: Text(facts.paper?.venue ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
         case .tags: PaperTableChips(tags: Array(facts.tags.prefix(4)), highlighted: highlightedTag, onTap: filterTag)

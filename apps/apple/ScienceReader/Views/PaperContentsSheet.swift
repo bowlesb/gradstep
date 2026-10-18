@@ -26,8 +26,7 @@ struct PaperContentsSheet: View {
     @State private var tab: Tab = .contents
     @State private var path = NavigationPath()
     @State private var equations: [Equation]? = nil
-    /// Half height to start; a figure's walkthrough takes the full height (FIGURE_VIEW.md).
-    @State private var detent: PresentationDetent = .medium
+    @AppStorage("reader.contents.doubleTapDiscovered") private var doubleTapDiscovered = false
     @ScaledMetric(relativeTo: .body) private var indent = 18.0
 
     private var figures: [GalleryFigure] { bundle.map { GalleryFigure.all(in: $0.index) } ?? [] }
@@ -39,6 +38,14 @@ struct PaperContentsSheet: View {
             // One glass row: the tabs (they name the tab, so no title) and an X (owner, build 62: "remove Done, use x
             // button… Liquid… tabs"; "the title Equations is duplicative").
             VStack(spacing: 0) {
+                #if !targetEnvironment(macCatalyst)
+                if !doubleTapDiscovered {
+                    Text("Double tap anywhere while reading the article for this menu")
+                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .padding(.horizontal, 16).padding(.top, 8)
+                        .accessibilityIdentifier("contents.doubleTapHint")
+                }
+                #endif
                 SheetTopRow(close: { dismiss() }) {
                     GlassTabs(options: Tab.allCases.map { ($0, $0.rawValue) }, selection: $tab, identifier: "contents.tabs")
                 }
@@ -85,8 +92,7 @@ struct PaperContentsSheet: View {
                 }
             }
         }
-        .environment(\.expandSheet) { detent = .large }
-        .presentationDetents([.medium, .large], selection: $detent)
+        .presentationDetents([.large])
     }
 
     @ViewBuilder private var list: some View {

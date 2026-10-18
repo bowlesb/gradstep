@@ -16,7 +16,7 @@ and **$0.314683** for a public DPO script/review/checker/speech diagnostic, with
 storage/delivery. Combined new verification expense before the final figure check: **$0.72719639**. Evidence and durable journals are under
 `.artifacts/openrouter-unification-20261018/`.
 
-Server allocation readback: **$29.870995 spent / $40**, **$0.000138 unresolved**, work enabled. The tiny hold predates
+Server allocation readback (21:10 UTC, after the final figure check): **$29.900879 spent / $40**, **$0.000138 unresolved**, work enabled. The tiny hold predates
 this rollout and lacks a receipt; it remains reserved. The $0.32390039 research/wire expense is tracked separately,
 not silently added to the server counter or omitted from overall operating cost. New fixed commitments **$0**;
 Mac/local-model and detector inference **$0 API cost**; no GPU training or paid dataset commitment. Overall

@@ -222,8 +222,8 @@ struct LibraryColumnSettings: Equatable, Sendable {
 
     static let defaultsKeyPrefix = "library.columns."
     /// Phone: Year and Progress in portrait; landscape adds the dates and chats where they fit.
-    static let compactDefault: Set<LibraryTableColumn> = [.year, .added, .opened, .chats, .progress]
-    static let regularDefault: Set<LibraryTableColumn> = [.year, .tags, .added, .opened, .chats, .progress]
+    static let compactDefault: Set<LibraryTableColumn> = [.device, .authors, .year, .added, .opened, .chats, .progress]
+    static let regularDefault: Set<LibraryTableColumn> = [.device, .authors, .year, .tags, .added, .opened, .chats, .progress]
 
     var compact = Self.compactDefault
     var regular = Self.regularDefault
@@ -242,10 +242,15 @@ struct LibraryColumnSettings: Equatable, Sendable {
             guard let saved = defaults.string(forKey: defaultsKeyPrefix + width.rawValue) else { continue }
             settings[width] = Set(saved.split(separator: ",").compactMap { LibraryTableColumn(rawValue: String($0)) })
         }
+        if !defaults.bool(forKey: defaultsKeyPrefix + "separateMetadata") {
+            for width in WidthClass.allCases { settings[width].formUnion([.device, .authors]) }
+            settings.save(to: defaults)
+        }
         return settings
     }
 
     func save(to defaults: UserDefaults) {
+        defaults.set(true, forKey: Self.defaultsKeyPrefix + "separateMetadata")
         for width in WidthClass.allCases {
             let names = LibraryTableColumn.allCases.filter(self[width].contains).map(\.rawValue)
             defaults.set(names.joined(separator: ","), forKey: Self.defaultsKeyPrefix + width.rawValue)

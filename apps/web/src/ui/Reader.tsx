@@ -118,6 +118,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [bridgeReady, setBridgeReady] = useState(false);
   const appliedPassage = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [contentsDiscovered, setContentsDiscovered] = useState(() => readStored('gradstep.contents.doubleTapDiscovered', false, v => typeof v === 'boolean'));
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
@@ -276,6 +277,10 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         // An older bridge never emits figureref. Keep its existing figure gallery path unchanged.
         case 'figureref': setFigureReference(message.reference); break;
         case 'tags': onEditTags?.(); break;
+        case 'contentsGesture':
+          setContentsDiscovered(true); writeStored('gradstep.contents.doubleTapDiscovered', true);
+          if (!workspace?.left.open) onContents();
+          break;
         case 'author': if (item.metadata?.authors.includes(message.name)) setAuthor(message.name); break;
         case 'invalid': setError('This paper couldn’t be shown.'); break;
         case 'find': setFound({ count: message.count, index: message.index, matches: message.matches }); break;
@@ -284,7 +289,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled]);
+  }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
 
@@ -520,7 +525,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           {referenceNotice.kind !== 'working' && <button className="icon-button" aria-label="Dismiss reference message" onClick={() => setReferenceNotice(null)}><Icon name="close" size={14} /></button>}
         </div>}
       </div>
-      {contentsSlot && bundle && bridgeReady && createPortal(<Contents headings={headings} active={active} bundle={bundle} onJump={jump}
+      {contentsSlot && bundle && bridgeReady && createPortal(<Contents discovered={contentsDiscovered} headings={headings} active={active} bundle={bundle} onJump={jump}
         onFigure={id => setFigure({ id, open: true })} onTiles={() => setFigure({ id: null, open: true })} onEquation={showEquation} onEquationTiles={() => setEquationTiles(true)}
         onTable={t => setTableDetail({ id: t.id, label: t.number ?? 'Table', goTitle: 'Show in paper' })} />, contentsSlot)}
       {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}
@@ -563,8 +568,8 @@ const CONTENTS_TABS: readonly [ContentsTab, string][] = [['contents', 'Contents'
  * consistent styling in the rows and be clickable into the paper"), as the app's PaperContentsSheet. A figure or table
  * row opens that figure or table with its whole caption; an equation row goes to it in the paper with Back. Tables are
  * the captioned tables the index lists (revision 16) beside those arXiv published as images (contentsTables). */
-function Contents({ headings, active, bundle, onJump, onFigure, onTable, onTiles, onEquation, onEquationTiles }: {
-  headings: Heading[]; active: string | null; bundle: VerifiedBundle; onJump: (id: string) => void;
+function Contents({ discovered, headings, active, bundle, onJump, onFigure, onTable, onTiles, onEquation, onEquationTiles }: {
+  discovered: boolean; headings: Heading[]; active: string | null; bundle: VerifiedBundle; onJump: (id: string) => void;
   onFigure: (id: string) => void; onTable: (table: ContentsFigure) => void; onTiles: () => void; onEquation: (id: string) => void; onEquationTiles: () => void;
 }) {
   const [tab, setTab] = useState<ContentsTab>('contents');
@@ -591,6 +596,7 @@ function Contents({ headings, active, bundle, onJump, onFigure, onTable, onTiles
   const rows = tab === 'figures' ? figures.filter(f => !f.table) : tab === 'tables' ? tables : [];
   return (
     <div className="contents-panel">
+      {!discovered && <p className="contents-touch-hint">Double tap anywhere while reading the article for this menu</p>}
       <div className="contents-tabbar">
         <div className="contents-tabs" role="tablist" aria-label="Show" ref={tabs}>
           {CONTENTS_TABS.map(([id, title], index) => <button key={id} role="tab" id={`contents-tab-${id}`} aria-selected={tab === id} aria-controls="contents-tabpanel"

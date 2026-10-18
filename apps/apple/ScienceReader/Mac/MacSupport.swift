@@ -219,25 +219,32 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     private lazy var equationMenu = UIEditMenuInteraction(delegate: self)
     /// The equation whose menu is open: its quote, where it is, its ID in the page, and this presentation's token.
     private var equation: (quote: String, rect: CGRect, equationID: String, id: String)?
-    /// A tapped bibliography entry's actions, as the same edit menu (owner, build 44: "a native style popup like
-    /// Copy"): the actions and this presentation's token.
-    private var referenceMenuItems: (actions: [UIMenuElement], id: String)?
+    /// All bibliography actions together (owner, 2026-10-18); iOS edit menus otherwise paginate them.
+    private weak var referenceSheet: UIAlertController?
     #if targetEnvironment(macCatalyst)
     private var macMenuButton: ReaderMenuButton?
     private weak var macMenuSheet: UIAlertController?
     #endif
 
-    /// Opens the edit menu beside a tapped reference with the given actions.
+    /// Opens every action together: a native action sheet on touch devices, an anchored menu on Mac.
     func presentReferenceMenu(rect: CGRect, actions: [UIMenuElement]) {
         #if targetEnvironment(macCatalyst)
         presentMacMenu(UIMenu(children: actions), rect: rect)
         #else
-        if !interactions.contains(where: { $0 === equationMenu }) { addInteraction(equationMenu) }
-        let id = UUID().uuidString
-        referenceMenuItems = (actions, id)
+        referenceSheet?.dismiss(animated: false)
+        var responder: UIResponder? = self
+        while responder != nil, !(responder is UIViewController) { responder = responder?.next }
+        guard let controller = responder as? UIViewController else { return }
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        for case let action as UIAction in actions {
+            sheet.addAction(UIAlertAction(title: action.title, style: .default) { _ in UIControl().sendAction(action) })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         let visible = rect.intersection(bounds)
-        let point = visible.isNull ? CGPoint(x: bounds.midX, y: bounds.midY) : CGPoint(x: visible.midX, y: visible.minY)
-        equationMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: id as NSString, sourcePoint: point))
+        sheet.popoverPresentationController?.sourceView = self
+        sheet.popoverPresentationController?.sourceRect = visible.isNull ? CGRect(x: bounds.midX, y: bounds.midY, width: 1, height: 1) : visible
+        referenceSheet = sheet
+        controller.present(sheet, animated: true)
         #endif
     }
 
@@ -308,10 +315,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
                              suggestedActions: [UIMenuElement]) -> UIMenu? {
-        if let referenceMenuItems, configuration.identifier as? String == referenceMenuItems.id {
-            self.referenceMenuItems = nil
-            return UIMenu(children: referenceMenuItems.actions)
-        }
+
         guard let equation, configuration.identifier as? String == equation.id else { return nil }
         return equationActionsMenu()
     }

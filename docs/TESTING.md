@@ -1,5 +1,20 @@
 # Fast and slow tests
 
+## Later October 18 navigation and column acceptance
+
+Tests separately cover heading and citation jumps with Reduce Motion disabled, including immediate position and
+subsequent animation frames. Touch discovery is exercised by real Simulator double-tap, with preference survival
+across relaunch; bridge cases exclude mouse, links, drag and long press. Native reference journeys require all four
+actions to be visible without opening More, then verify Copy/Back and an unsent Discuss draft. Library column
+preferences gain Device/Authors once and preserve later explicit choices; browser journeys cover horizontal
+scrolling, keyboard focus, persistence and resizing. The fresh import gate remains mandatory for changed row geometry.
+
+The equation navigation assertion now uses the complete “Equation (1)” link plus Back. Its old standalone “(1)”
+query became stale when build-71 feedback made the whole reference clickable; the failed-run screenshot confirms
+the actual equation was correctly shown and highlighted. Old broad-category tag and hidden-zero-chat assertions
+were aligned to the already approved build-69/70 behavior, with specific-keyword filtering retained. Table floating
+point comparisons allow 0.001 pt numerical noise, not visible layout overflow.
+
 ## Build 70 feedback acceptance (2026-10-18)
 
 The Find regressions assert occurrence selection, non-mutating paper DOM/text, retained reading position and

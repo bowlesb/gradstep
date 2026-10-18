@@ -240,6 +240,7 @@ struct PaperTableTitle {
     /// A paper still being added: the row keeps the height it will have once its title and authors arrive (two title
     /// lines and the authors' line), so it doesn't grow midway (owner, build 58).
     var reservesSpace = false
+    var reservesSubtitleSpace = true
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -574,7 +575,7 @@ struct PaperTableTitleCell: View {
             // A Library row's second line is always the cloud button's height (24 pt), so a row doesn't change height as
             // a paper is added, downloaded and opened (owner, builds 58–59).
             let libraryLine: CGFloat? = title.deviceCopy != nil || title.reservesSpace ? 24 : nil
-            if title.reservesSpace && title.subtitle == nil && title.deviceCopy == nil {
+            if title.reservesSpace && title.reservesSubtitleSpace && title.subtitle == nil && title.deviceCopy == nil {
                 Text(" ").font(.footnote).frame(minHeight: libraryLine).accessibilityHidden(true)
             }
             if title.subtitle != nil || title.deviceCopy != nil {
