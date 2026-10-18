@@ -3396,10 +3396,14 @@ final class ReaderModel {
         selectedQuote = quote
         // The chat's current model, effort and length go with the action into its new conversation.
         let carried = chatProfile
+        let carriedLocal = localAIModelID
         // The prompts live with `ChatTitle`, which turns them back into short titles. The passage's paragraph number
         // (the paper's own [¶N] numbering) goes with the question, so the answer can start from the exact place and the
         // transcript links back to it (owner, build 42).
         newChat(general: false); chatInput = action.prompt(quote) + (paragraph.map { " [¶\($0)]" } ?? "")
+        // A selection action continues the explicit engine choice; a scenario default must not turn a local
+        // request into cloud inference (or switch a cloud choice to a local default).
+        localAIModelID = carriedLocal
         if carried != chatDefaultProfile { setChatProfile(carried) }
         tab = .chat; wideMode = .reader; readerChatHidden = false
         // The quote (and the passage it came from, saved on the new conversation) travels with this exact prompt

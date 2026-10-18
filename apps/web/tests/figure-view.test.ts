@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, displayBox, detailQuote, figureBox, figureKey, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
+import { cropRect, cropStyle, cropCoverage, cardTypeLabel, displayBox, detailQuote, figureBox, figureKey, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -30,7 +30,7 @@ describe('the walkthrough event', () => {
   it('keeps a checked walkthrough as it came', () => {
     expect(parseFigureWalkthrough(event)).toEqual(event);
   });
-  it('degrades rather than refuses: a part without words goes, a box that doesn’t fit goes (its part stays), at most 12 parts and 4 boxes', () => {
+  it('degrades rather than refuses: a part without words goes, a box that doesn’t fit goes (its part stays), at most 12 parts and 12 boxes', () => {
     const parsed = parseFigureWalkthrough({ ...event, sections: [
       { label: 'x', title: '', text: 'no title' }, { label: 'y', title: 'No text', text: '  ' }, 'row', null,
       { label: 'z', title: 'Outside', text: 'Box past the edge.', paragraphs: [0, 4, 4, 1e6, 'x'], box: { x: 0.8, y: 0, w: 0.3, h: 0.5 } },
@@ -40,7 +40,7 @@ describe('the walkthrough event', () => {
     expect(parsed.sections.every(s => !s.box)).toBe(true);
     expect(parsed.sections[0].paragraphs).toEqual([4]);
     const many = parseFigureWalkthrough({ ...event, sections: Array.from({ length: 15 }, (_, i) => ({ label: `${i}`, title: `Part ${i}`, text: 'Words.', box: { x: 0, y: 0, w: 0.5, h: 0.5 } })) })!;
-    expect(many.sections).toHaveLength(12); expect(many.sections.filter(s => s.box)).toHaveLength(4);
+    expect(many.sections).toHaveLength(12); expect(many.sections.filter(s => s.box)).toHaveLength(12);
     expect(parseFigureWalkthrough({ ...event, format: 'figure-walkthrough-v2' })).toBeNull();
     expect(parseFigureWalkthrough({ ...event, sections: [] })).toBeNull();
     expect(parseFigureWalkthrough({ ...event, summary: 'a\u0000b ' + 'c'.repeat(900) })!.summary).toHaveLength(800);
@@ -106,7 +106,7 @@ describe('crops', () => {
     expect(cropStyle({ x: 0.5, y: 0, w: 0.5, h: 1 }, { width: 1000, height: 200 })).toEqual({ aspect: 2.5, size: '200% 100%', position: '100% 0%' });
     expect(cropStyle({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, { width: 800, height: 800 })).toEqual({ aspect: 1, size: '200% 200%', position: '50% 50%' });
     expect(cropStyle({ x: 0.1, y: 0.6, w: 0.2, h: 0.4 }, { width: 1000, height: 500 })).toEqual({ aspect: 1, size: '500% 250%', position: '12.5% 100%' });
-    expect(cropRect({ x: 0.5, y: 0, w: 0.5, h: 1 }, { width: 1001, height: 200 })).toEqual({ x: 501, y: 0, width: 500, height: 200 });
+    expect(cropRect({ x: 0.5, y: 0, w: 0.5, h: 1 }, { width: 1001, height: 200 })).toEqual({ x: 500, y: 0, width: 501, height: 200 });
     expect(cropRect({ x: 0.9999, y: 0.9999, w: 0.04, h: 0.04 }, { width: 100, height: 100 })).toEqual({ x: 99, y: 99, width: 1, height: 1 });
   });
 });
@@ -198,5 +198,34 @@ describe('the figure view in the chat session', () => {
     expect(failed.phase).toBe('failed');
     expect(chat.explanations('equation').map(e => e.targetID)).toEqual(['e1']);
     expect(chat.explanations('figure').map(e => e.targetID)).toEqual(['b-3']);
+  });
+});
+
+
+describe('complete-figure presentation', () => {
+  const section = (box: {x:number;y:number;w:number;h:number}) => ({label:'',title:'Panel',text:'Text',paragraphs:[],box});
+  const size = {width:1001,height:503};
+  it('counts every pixel once for grids, overlap, insets and grouped panels', () => {
+    const grid = [0, 0.5].flatMap(y => [0, 1/3, 2/3].map(x => section({x,y,w:1/3,h:0.5})));
+    expect(cropCoverage(grid,size)).toBe(1);
+    expect(cropCoverage([...grid,section({x:0.2,y:0.2,w:0.1,h:0.1})],size)).toBe(1);
+    const grouped = [section({x:0,y:0,w:0.7,h:1}),section({x:0.6,y:0,w:0.4,h:1})];
+    expect(cropCoverage(grouped,size)).toBe(1);
+  });
+  it('detects holes and missing legends despite summed overlapping areas greater than a whole image', () => {
+    const partial = [section({x:0,y:0,w:0.7,h:0.8}),section({x:0.3,y:0,w:0.7,h:0.8})];
+    expect(cropCoverage(partial,size)).toBeLessThan(0.83);
+    const hole = [section({x:0,y:0,w:0.4,h:1}),section({x:0.6,y:0,w:0.4,h:1}),section({x:0,y:0,w:1,h:0.4}),section({x:0,y:0.6,w:1,h:0.4})];
+    expect(cropCoverage(hole,size)).toBeLessThan(1);
+    expect(cropCoverage([],size)).toBeNull();
+    expect(cropCoverage([section({x:0,y:0,w:1,h:1})],size)).toBeNull(); // A whole image is no successful extraction.
+    expect(cropCoverage(partial,{width:0,height:10})).toBeNull();
+  });
+  it('keeps old cards readable, labels new kinds, and never crops a concept or related-work card', () => {
+    const box = {x:0,y:0,w:0.5,h:1};
+    const parsed = parseFigureWalkthrough({...event,sections:['concept','related_work','future',undefined].map(kind => ({...section(box),kind}))})!;
+    expect(parsed.sections.map(cardTypeLabel)).toEqual(['Concept','Related work','Panel','Panel']);
+    expect(parsed.sections.map(s => !!s.box)).toEqual([false,false,true,true]);
+    expect(cropCoverage(parsed.sections,size)).toBeLessThan(1);
   });
 });

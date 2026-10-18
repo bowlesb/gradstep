@@ -8,7 +8,7 @@ import type { ProfileChoice } from '../lib/chat-profiles';
 import type { ContextualHost } from './ContextualChat';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
-import { displayBox, cropStyle, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
+import { displayBox, cropStyle, cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
 import { safeLink } from '../lib/markdown';
 import Answer from './Answer';
 import { Dialog, SheetTop, MenuButton } from './common';
@@ -111,11 +111,12 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const result = walk, sections = result?.walkthrough?.sections ?? [];
   const note = endedEarly(result);
   const image = result?.image ?? null;
+  const coverage = image ? cropCoverage(sections, image) : null;
   const background = useMemo(() => image ? `url("data:image/jpeg;base64,${image.data}")` : null, [image]);
 
   return <div className="figure-explain" ref={panel}>
     {!host ? null : asking && !consented ? <section className="equation-consent" data-testid="figure-consent">
-      <p>Explaining the figure uses cloud AI: the figure’s image and the paper’s text go to Google Vertex through OpenRouter, or DeepSeek according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
+      <p>Explaining the figure uses cloud AI: the figure’s image and the paper’s text go through OpenRouter to Google Vertex or DeepInfra according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>
     </section> : !result ? null : <div className="figure-walkthrough" data-testid="figure-walkthrough" onClick={answerClick} onKeyDown={citeKey}>
       <section className="equation-section" aria-labelledby="figure-what">
@@ -124,19 +125,20 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
           : !result.walkthrough && result.text ? <div data-testid="figure-words"><Answer text={result.text} streaming={result.phase === 'loading'} /></div>
           : result.phase === 'loading' ? <p className="fine" role="status">Looking at the {label.startsWith('Table') ? 'table' : 'figure'}…</p> : null}
       </section>
+      {coverage !== null && coverage < 1 && <p className="fine" data-testid="figure-coverage-fallback">The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.</p>}
       {sections.length > 0 && <section className="equation-section" aria-labelledby="figure-parts">
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
-          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), style = s.box && image ? cropStyle(displayBox(s.box), image) : null;
+          const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), style = (!s.kind || s.kind === 'panel') && s.box && image ? cropStyle(displayBox(s.box), image) : null;
           const closer = details.get(key), closerImage = closer?.image ?? image, closerStyle = closer?.detail && closerImage ? cropStyle(displayBox(closer.detail.box), closerImage) : null;
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
-              <h4>{s.label && <span className="figure-section-label">{s.label}</span>}<span>{s.title}</span></h4>
+              <h4><span className="figure-section-label">{[cardTypeLabel(s), s.label].filter(Boolean).join(' · ')}</span><span>{s.title}</span></h4>
               <MenuButton icon="more" label={`${heading}: options`} testID={`figure-section-menu-${i}`}>{close => <>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-simpler-item" disabled={!!more && more.phase !== 'failed'}
                   onClick={() => { close(false); run('figure_simpler', s, i); }}><Icon name="lightbulb" size={14} /> Explain more simply</button>
-                <button type="button" role="menuitem" className="menu-item" data-testid="figure-detail-item" disabled={!!closer && closer.phase !== 'failed'}
-                  onClick={() => { close(false); run('figure_detail', s, i); }}><Icon name="search" size={14} /> Extract the subfigure and more context</button>
+                {(!s.kind || s.kind === 'panel') && <button type="button" role="menuitem" className="menu-item" data-testid="figure-detail-item" disabled={!!closer && closer.phase !== 'failed'}
+                  onClick={() => { close(false); run('figure_detail', s, i); }}><Icon name="search" size={14} /> Extract the subfigure and more context</button>}
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-show-item"
                   onClick={() => { close(false); if (s.paragraphs[0]) onCite(s.paragraphs[0]); else onShowFigure(); }}><Icon name="book" size={14} /> Show in the paper</button>
                 {onAsk && <button type="button" role="menuitem" className="menu-item" data-testid="figure-ask-item" disabled={busy}
@@ -146,6 +148,7 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
             {style && background && <ZoomableCrop label={`${heading}, the part of the figure it describes`} testID="figure-crop" whole={image ?? undefined}
               style={{ aspectRatio: String(style.aspect), width: `min(100%, ${Math.round(Math.min(560, 320 * style.aspect))}px)`, backgroundImage: background,
                 backgroundSize: style.size, backgroundPosition: style.position }} />}
+            {s.kind === 'related_work' && <p className="fine">As described in this paper</p>}
             <Answer text={s.text} />
             {more && <div className="figure-simpler" data-testid="figure-simpler">
               <p className="figure-simpler-head">More simply</p>

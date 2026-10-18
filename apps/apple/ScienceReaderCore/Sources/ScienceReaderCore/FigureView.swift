@@ -9,7 +9,7 @@ import Foundation
 /// The server's `figure` event (format `figure-walkthrough-v1`): a summary, then one section per part of the figure.
 public struct FigureWalkthrough: Codable, Equatable, Sendable {
     public static let format = "figure-walkthrough-v1"
-    public static let maximumSections = 12, maximumBoxes = 4, maximumParagraphs = 8
+    public static let maximumSections = 12, maximumBoxes = 12, maximumParagraphs = 8
     public static let maximumText = 1_500, maximumSummary = 800, maximumLabel = 60, maximumTitle = 120
     public static let minimumSide = 0.04
 
@@ -35,15 +35,22 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
         /// The box in pixels of an image of this size, whole pixels within the image; nil when under 2 px a side.
         public func pixels(width: Int, height: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
             guard width > 0, height > 0 else { return nil }
-            let left = max(0, min(width, Int((x * Double(width)).rounded(.down)))), top = max(0, min(height, Int((y * Double(height)).rounded(.down))))
-            let right = max(left, min(width, Int(((x + w) * Double(width)).rounded(.up))))
-            let bottom = max(top, min(height, Int(((y + h) * Double(height)).rounded(.up))))
+            let left = max(0, min(width, Int((x * Double(width) + 1e-9).rounded(.down)))), top = max(0, min(height, Int((y * Double(height) + 1e-9).rounded(.down))))
+            let right = max(left, min(width, Int(((x + w) * Double(width) - 1e-9).rounded(.up))))
+            let bottom = max(top, min(height, Int(((y + h) * Double(height) - 1e-9).rounded(.up))))
             guard right - left >= 2, bottom - top >= 2 else { return nil }
             return (left, top, right - left, bottom - top)
         }
     }
 
     public struct Section: Codable, Equatable, Sendable {
+        public enum Kind: String, Sendable { case panel, concept, relatedWork = "related_work" }
+        // Optional string preserves older answers and degrades unknown future kinds to panel cards.
+        private let kind: String?
+        public var cardKind: Kind { kind.flatMap(Kind.init(rawValue:)) ?? .panel }
+        public var typeLabel: String {
+            switch cardKind { case .panel: "Panel"; case .concept: "Concept"; case .relatedWork: "Related work" }
+        }
         /// The part as the figure names it ("(a)", "Left panel"); may be empty.
         public let label: String
         public let title: String
@@ -51,8 +58,9 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
         public let text: String
         public let paragraphs: [Int]
         public let box: Box?
-        public init(label: String, title: String, text: String, paragraphs: [Int] = [], box: Box? = nil) {
-            self.label = label; self.title = title; self.text = text; self.paragraphs = paragraphs; self.box = box
+        public init(label: String, title: String, text: String, paragraphs: [Int] = [], box: Box? = nil, kind: Kind? = nil) {
+            self.label = label; self.title = title; self.text = text; self.paragraphs = paragraphs
+            self.kind = kind?.rawValue; self.box = kind == nil || kind == .panel ? box : nil
         }
         /// How the part is named in a request ("Left panel", else its title).
         public var name: String { label.isEmpty ? title : label }
@@ -65,12 +73,12 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
     public init(summary: String, sections: [Section]) { format = Self.format; self.summary = summary; self.sections = sections }
 
     /// The event's JSON, checked and bounded as the server checks it, degrading rather than refusing: a section without a
-    /// title or text is left out, a box that doesn't fit is dropped (the section stays), the first 12 sections and 4 boxes
+    /// title or text is left out, a box that doesn't fit is dropped (the section stays), the first 12 sections and 12 boxes
     /// are kept. Nil when no section is left.
     public static func validated(_ data: Data) -> FigureWalkthrough? {
         struct Raw: Decodable {
             struct RawBox: Decodable { let x: Double?; let y: Double?; let w: Double?; let h: Double? }
-            struct Row: Decodable { let label: String?; let title: String?; let text: String?; let paragraphs: [Int]?; let box: RawBox? }
+            struct Row: Decodable { let kind: String?; let label: String?; let title: String?; let text: String?; let paragraphs: [Int]?; let box: RawBox? }
             let format: String; let summary: String?; let sections: [Row]
         }
         guard data.count <= 128 * 1024, let raw = try? JSONDecoder().decode(Raw.self, from: data), raw.format == format else { return nil }
@@ -84,14 +92,36 @@ public struct FigureWalkthrough: Codable, Equatable, Sendable {
             var numbers: [Int] = []
             for n in row.paragraphs ?? [] where (1...100_000).contains(n) && !numbers.contains(n) && numbers.count < maximumParagraphs { numbers.append(n) }
             var box: Box?
-            if boxes < maximumBoxes, let b = row.box, let x = b.x, let y = b.y, let w = b.w, let h = b.h {
+            let kind = row.kind.flatMap(Section.Kind.init(rawValue:))
+            if (kind == nil || kind == .panel), boxes < maximumBoxes, let b = row.box, let x = b.x, let y = b.y, let w = b.w, let h = b.h {
                 let candidate = Box(x: x, y: y, w: w, h: h)
                 if candidate.isValid { box = candidate; boxes += 1 }
             }
-            sections.append(Section(label: label, title: title, text: text, paragraphs: numbers, box: box))
+            sections.append(Section(label: label, title: title, text: text, paragraphs: numbers, box: box, kind: kind))
         }
         guard !sections.isEmpty else { return nil }
         return FigureWalkthrough(summary: prose(raw.summary, maximumSummary), sections: sections)
+    }
+
+    /// Pixel-exact union of the displayed crops; overlap/insets count once. Nil means no split, not success.
+    /// The complete overview remains visible when coverage is incomplete. This does not certify label retention.
+    public func cropCoverage(width: Int, height: Int) -> Double? {
+        guard (1...32768).contains(width), (1...32768).contains(height) else { return nil }
+        let rectangles = sections.prefix(Self.maximumSections).compactMap { section in
+            section.cardKind == .panel && section.box?.isValid == true ? section.box?.displayBox.pixels(width: width, height: height) : nil
+        }
+        guard !rectangles.isEmpty else { return nil }
+        let xs = Set([0, width] + rectangles.flatMap { [$0.x, $0.x + $0.width] }).sorted()
+        var area = 0
+        for i in 1..<xs.count {
+            let left = xs[i - 1], right = xs[i]
+            let ys = rectangles.filter { $0.x <= left && $0.x + $0.width >= right }
+                .map { (top: $0.y, end: $0.y + $0.height) }.sorted { $0.top < $1.top }
+            var bottom = 0, covered = 0
+            for y in ys { covered += max(0, y.end - max(y.top, bottom)); bottom = max(bottom, y.end) }
+            area += (right - left) * covered
+        }
+        return Double(area) / Double(width * height)
     }
 
     /// One line, control characters and runs of white space as one space, cut with "…".

@@ -113,7 +113,7 @@ import XCTest
         #if targetEnvironment(macCatalyst)
         for _ in 0..<10 where !(models.exists && models.isHittable) { app.swipeUp() }
         XCTAssertTrue(models.exists); models.tap()
-        XCTAssertTrue(app.staticTexts["Mac models"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Mac memory"].waitForExistence(timeout: 5))
         #else
         for _ in 0..<8 { app.swipeUp(); XCTAssertFalse(models.exists) }
         #endif
@@ -121,6 +121,18 @@ import XCTest
     }
 
     #if targetEnvironment(macCatalyst)
+    func testRetiredMacModelsAreNotOffered() {
+        let app = XCUIApplication(); app.launchArguments = ["--chat-fixture", "--study-fixture", "--reset-draft-fixture"]
+        app.launch(); app.show("chat"); app.buttons["ai.selection"].tap()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
+        XCTAssertTrue(app.buttons["ai.manageModels"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ai.chooseLocal.")).count, 0)
+        app.buttons["ai.manageModels"].tap()
+        XCTAssertTrue(app.staticTexts["Models under evaluation"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ai.downloadModel.")).count, 0)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Mac models await qualification"; shot.lifetime = .keepAlways; add(shot)
+    }
+
     func testLocalChatChoiceThenSendNeedsNoCloudConsent() {
         let app = launch(); app.show("chat")
         let choice = app.buttons["ai.selection"]

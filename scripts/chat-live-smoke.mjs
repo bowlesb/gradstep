@@ -20,7 +20,7 @@
 // rendered from the bundle's own HTML in headless Chromium as a device shows it. --warm asks one chat question first, so
 // the walkthrough's cache read shows it shares the chat's cached prefix. Writes the image sent, the image with the
 // walkthrough's boxes drawn and numbered, and a JSON record (sections, boxes, credits, seconds, usage) under
-// .artifacts/figure-view/. --paper=<id>v<rev> names the arXiv paper the --index bundle is (default DPO 2305.18290v3).
+// .artifacts/figure-view/. --figure-walkthrough-only skips the two follow-up actions. --paper=<id>v<rev> names the arXiv paper the --index bundle is (default DPO 2305.18290v3).
 //
 // --questions=2 sends the first suggested follow-up as a second turn (exercises the prompt cache). --index names any
 // compiled reader index for arXiv 2305.18290 (default: the DPO bundle under .artifacts/bundles); the server only sees
@@ -49,6 +49,8 @@ const EQUATION = process.argv.includes('--equation') || process.argv.includes('-
 const FIGURE_VIEW = Number(process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? 0);
 const TABLE_VIEW = Number(process.argv.find(a => a.startsWith('--table-view='))?.slice(13) ?? 0);
 const WARM = process.argv.includes('--warm');
+// Isolate a changed walkthrough contract without paying again for unchanged simpler/detail actions.
+const WALKTHROUGH_ONLY = process.argv.includes('--figure-walkthrough-only');
 /** `--ingest=<reference text>`: Add paper from the chat on that reference (CHAT.md "Add paper after settlement"); prints
  * the report and the operation's settlement (an add that doesn't happen settles 0 credits with the cost absorbed). */
 const INGEST = process.argv.find(a => a.startsWith('--ingest='))?.slice(9) ?? null;
@@ -281,7 +283,7 @@ async function figureViews({ local_context, token }) {
       model: walk.done?.model ?? null, usage: walk.done?.usage ?? null, error: walk.error, walkthrough: w });
     // One part again, more simply: the first section with a box, else the second.
     const part = w ? (w.sections.find(s => s.box) ?? w.sections[1] ?? w.sections[0]) : null;
-    if (part) {
+    if (part && !WALKTHROUGH_ONLY) {
       log(`=== ${name}: explain more simply "${part.label} ${part.title}" ===`);
       const simpler = await figureRequest({ ...base, operation_id: randomUUID(), action: 'figure_simpler', selection: { quote: part.text }, messages: [{ role: 'user', text: `${name} ${part.label}`.trim() }], figures }, token);
       console.log('--- simpler ---\n' + redact(simpler.text) + '\n--- end ---');
@@ -291,7 +293,7 @@ async function figureViews({ local_context, token }) {
     }
     // One part extracted with more context (owner, TestFlight 62): a section without a box, so its required box is new.
     const extract = w ? (w.sections.find(s => !s.box) ?? w.sections[0]) : null;
-    if (extract) {
+    if (extract && !WALKTHROUGH_ONLY) {
       log(`=== ${name}: extract "${extract.label} ${extract.title}" ===`);
       const quote = `${[extract.label, extract.title].filter(Boolean).join(' ')}\n${extract.text}`;
       const closer = await figureRequest({ ...base, operation_id: randomUUID(), action: 'figure_detail', selection: { quote }, messages: [{ role: 'user', text: `${name} ${extract.label || extract.title}`.trim() }], figures }, token);

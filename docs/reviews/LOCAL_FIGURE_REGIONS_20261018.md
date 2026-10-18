@@ -60,3 +60,25 @@ Example reproduction (after obtaining the pinned research weights and disposable
 ```
 
 Use `--export-coreml` to export and `--coreml --size 640` to run the exported package on the Mac. The script does not download papers, change app behavior, or run during routine tests.
+
+
+## Coverage replay after the later owner feedback
+
+`python3 scripts/subfigure-coverage.py .artifacts/subfigure-prototype/fde-coreml/results.json
+--out .artifacts/subfigure-prototype/coverage-20261018.json` reuses the pinned predictions; no inference/network.
+The output binds the input report and image/weight hashes. Near-whole-image boxes are excluded as extractions.
+With the same 2% display margin and outward pixel rounding as the clients:
+
+| Image suffix | Admitted crops | Pixel coverage | Interpretation |
+|---|---:|---:|---|
+| -4 | 2 | 100% | Complete geometric union; shared meaning still needs review. |
+| -24 | 0 | 0% | Whole-image fallback, not a workflow split. |
+| -49 | 0 | 0% | Whole-image fallback, not five extracted blocks. |
+| -83 | 2 | 98.46% | Uncovered pixels remain between/around the plots. |
+| -87 | 0 | 0% | Single-plot overview is appropriate; no extraction claimed. |
+| -92 | 2 | 97.75% | Coverage remains incomplete; prior critical-label failure remains. |
+| -98 | 0 | 0% | Single-plot overview is appropriate; no extraction claimed. |
+
+Zero means zero admitted **crop** coverage; the app still presents the full original image. These figures do not
+supply semantic ground truth and cannot be turned into an accuracy score. The result supports separate panel,
+required-context and presentation-group annotations for fine-tuning, with whole-image coverage checked mechanically.

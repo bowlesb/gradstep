@@ -1,5 +1,31 @@
 # Infrastructure, spending, and recovery
 
+## OpenRouter consolidation and Mac evaluation — 2026-10-18
+
+Live verification recorded **$0.403296** in newly attributed hosted attempts: paper chat/title/suggestions
+$0.010869; four podcast attempts $0.054099, $0.023931, $0.067877 and $0.246520. The podcast provider calls completed
+but the content failed the existing completion/evidence/correction/review gates; customer charge was zero.
+A separate rejected Sonnet reasoning contract call cost $0. The 11 dispatched attempts have account, operation,
+attempt, UTC dispatch, feature/model/endpoint metadata; completed bills have generation receipts. The readback
+also includes an earlier 19:30 owner call ($0.018986) before the routing cutover; it is not test spend and has no
+new dispatch metadata. No historical record was fabricated to fill that gap.
+
+Explicit service-identified research journals outside the hosted ledger record **$0.00921739** for wire checks
+and **$0.314683** for a public DPO script/review/checker/speech diagnostic, with zero held. That diagnostic produced
+180.240 seconds of real 24 kHz mono PCM audio from an accepted 450-word script; it does not prove hosted episode
+storage/delivery. Combined new verification expense before the final figure check: **$0.72719639**. Evidence and durable journals are under
+`.artifacts/openrouter-unification-20261018/`.
+
+Server allocation readback: **$29.870995 spent / $40**, **$0.000138 unresolved**, work enabled. The tiny hold predates
+this rollout and lacks a receipt; it remains reserved. The $0.32390039 research/wire expense is tracked separately,
+not silently added to the server counter or omitted from overall operating cost. New fixed commitments **$0**;
+Mac/local-model and detector inference **$0 API cost**; no GPU training or paid dataset commitment. Overall
+**$100/month** ceiling remains unchanged. The final FDE-Gym Figure 5 walkthrough/detail check added **$0.029884**, both succeeded with complete dispatch
+and receipt attribution, seven reader credits and zero held; its disposable account was deleted. The walkthrough
+returned two panel cards whose union covers the full figure; axes/labels were inspected. Combined verification
+usage is now **$0.75708039**. Remaining release checks have **$0 provider-spend forecast**. These API expenses do
+not represent a complete invoice including funding fees, tax or infrastructure.
+
 ## Build 70 feedback and local region research — 2026-10-18
 
 One live FDE-Gym Figure 5 check used the deployed OpenRouter/Flash route for a walkthrough, simpler explanation

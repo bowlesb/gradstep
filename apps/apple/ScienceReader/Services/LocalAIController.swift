@@ -1,3 +1,14 @@
+/// Stable identities keep encrypted answers from retired models readable, without making those models runnable.
+private enum RetiredLocalModels {
+    static let entries = [
+        "qwen3-06b": (name: "Qwen3 0.6B", revision: "73e3e38d9813"),
+        "qwen35-2b": (name: "Qwen3.5 2B", revision: "674aaa7240b9"),
+        "qwen35-4b": (name: "Qwen3.5 4B", revision: "0e7ffd5c629e"),
+        "gemma4-e2b": (name: "Gemma 4 E2B", revision: "238767527555")
+    ]
+    static func identity(_ id: String) -> String? { entries[id].map { "local/\(id)/\($0.revision)" } }
+}
+
 #if targetEnvironment(macCatalyst)
 import Foundation
 import LocalAI
@@ -5,7 +16,7 @@ import Observation
 import ScienceReaderCore
 
 @MainActor @Observable final class LocalAIController {
-    let models = LocalModel.all
+    let models: [LocalModel]
     let store: LocalModelStore
     let engine = LocalEngine()
     @ObservationIgnored private let jobs = LocalAIJobs()
@@ -20,8 +31,19 @@ import ScienceReaderCore
     #endif
 
     init() {
+        #if DEBUG && FIXTURE_HOST
+        // A synthetic catalogue exercises the chooser/cache without approving or downloading any research model.
+        if ProcessInfo.processInfo.arguments.contains("--local-ai-fixture") {
+            let json = #"[{"id":"qwen35-4b","name":"Fixture Mac model","repository":"fixture/no-download","revision":"0e7ffd5c629e000000000000000000000000000000","vision":true,"files":[]}]"#
+            models = (try? JSONDecoder().decode([LocalModel].self, from: Data(json.utf8))) ?? []
+        } else { models = LocalModel.all }
+        #else
+        models = LocalModel.all
+        #endif
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         store = LocalModelStore(root: base.appendingPathComponent("LocalAIModels", isDirectory: true))
+        let retired = RetiredLocalModels.entries.map { "\($0.key)-\($0.value.revision)" }
+        Task { [store] in try? await store.removeRetiredDownloads(retired) }
         #if DEBUG && FIXTURE_HOST
         if ProcessInfo.processInfo.arguments.contains("--local-ai-fixture") {
             fixtureStream = { _ in AsyncThrowingStream { continuation in
@@ -63,8 +85,13 @@ import ScienceReaderCore
         guard jobs.isEmpty else { issue = "Stop the local answer before removing a model."; return }
         do { try await store.remove(model); await refresh() } catch { issue = error.localizedDescription }
     }
-    func name(_ id: String?) -> String { id.flatMap { id in models.first { $0.id == id }?.name } ?? "Cloud AI" }
-    func identity(_ id: String?) -> String? { id.flatMap { id in models.first { $0.id == id }?.identity } }
+    func name(_ id: String?) -> String {
+        guard let id else { return "Cloud AI" }
+        return models.first { $0.id == id }?.name ?? RetiredLocalModels.entries[id]?.name ?? "Unavailable Mac model"
+    }
+    func identity(_ id: String?) -> String? {
+        id.flatMap { id in models.first { $0.id == id }?.identity ?? RetiredLocalModels.identity(id) }
+    }
     func transport(_ id: String) -> any ChatTransport {
         #if DEBUG && FIXTURE_HOST
         if let fixtureStream { return LocalFixtureTransport(makeStream: fixtureStream) }
@@ -185,9 +212,7 @@ import ScienceReaderCore
     func cancelInference() {}
     func name(_ id: String?) -> String { id == nil ? "Cloud AI" : "Mac model" }
     func identity(_ id: String?) -> String? {
-        let revisions = ["qwen3-06b": "73e3e38d9813", "qwen35-2b": "674aaa7240b9",
-                         "qwen35-4b": "0e7ffd5c629e", "gemma4-e2b": "238767527555"]
-        return id.flatMap { id in revisions[id].map { "local/\(id)/\($0)" } }
+        id.flatMap(RetiredLocalModels.identity)
     }
     func transport(_ id: String) -> any ChatTransport { MacOnlyLocalTransport() }
 }

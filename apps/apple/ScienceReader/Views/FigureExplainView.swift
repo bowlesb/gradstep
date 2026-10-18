@@ -217,6 +217,7 @@ struct FigureExplainView: View {
 
     private func figureCard(_ session: FigureExplainSession) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("Whole figure").font(.subheadline.weight(.semibold))
             if let image = session.image {
                 // Figures are drawn on white in the paper; keep that in dark mode too.
                 expandable(image, label: context.label, identifier: "figureView.figure").id(context.figureID).aspectRatio(CGFloat(image.width) / CGFloat(image.height), contentMode: .fit)
@@ -242,6 +243,10 @@ struct FigureExplainView: View {
                     ChatMessageText(source: walkthrough.summary, fontSize: bodySize, streaming: false, speaker: "Assistant",
                                     identifier: "figureView.summary", assistant: true, onCite: cite)
                 }
+                if let image = session.image, let coverage = walkthrough.cropCoverage(width: image.width, height: image.height), coverage < 1 {
+                    Text("The detail cards do not cover the entire image. The whole figure above keeps every panel, axis and legend available.")
+                        .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("figureView.coverageFallback")
+                }
                 ForEach(Array(walkthrough.sections.enumerated()), id: \.offset) { index, section in
                     sectionCard(section, index: index, session: session)
                 }
@@ -262,9 +267,8 @@ struct FigureExplainView: View {
             Menu { menuItems(section, index: index, session: session) } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        if !section.label.isEmpty {
-                            Text(section.label).font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                        }
+                        Text([section.typeLabel, section.label].filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
                         Text(section.title).font(.headline).foregroundStyle(.primary).multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 8)
@@ -276,12 +280,15 @@ struct FigureExplainView: View {
             .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
             .accessibilityHint("Options for this part")
             .accessibilityIdentifier("figureView.section.\(number).menu")
-            if let box = section.box, let image = session.image, let crop = Self.crop(image, box) {
+            if section.cardKind == .panel, let box = section.box, let image = session.image, let crop = Self.crop(image, box) {
                 expandable(crop, label: "Detail of \(context.label): \(section.name)", identifier: "figureView.section.\(number).crop").aspectRatio(CGFloat(crop.width) / CGFloat(crop.height), contentMode: .fit)
                     .frame(maxWidth: max(160, CGFloat(crop.width) * 2), maxHeight: min(260, max(160, CGFloat(crop.height) * 2)))
                     .padding(6).background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.secondary.opacity(0.25)))
                     .frame(maxWidth: .infinity)
+            }
+            if section.cardKind == .relatedWork {
+                Text("As described in this paper").font(.caption).foregroundStyle(.secondary)
             }
             ChatMessageText(source: section.text, fontSize: bodySize, streaming: false, speaker: "Assistant",
                             identifier: "figureView.section.\(number).text", assistant: true, onCite: cite)
@@ -339,9 +346,11 @@ struct FigureExplainView: View {
         Button { session.simplify(index) } label: { Label("Explain more simply", systemImage: "arrow.uturn.backward") }
             .disabled(state == .loading || state == .done)
             .accessibilityIdentifier("figureView.simpler")
-        Button { session.extract(index) } label: { Label("Extract the subfigure and more context", systemImage: "viewfinder") }
-            .disabled(extracted == .loading || extracted == .done)
-            .accessibilityIdentifier("figureView.extract")
+        if section.cardKind == .panel {
+            Button { session.extract(index) } label: { Label("Extract the subfigure and more context", systemImage: "viewfinder") }
+                .disabled(extracted == .loading || extracted == .done)
+                .accessibilityIdentifier("figureView.extract")
+        }
         Button {
             rememberReturn()
             finish(section.paragraphs.first.map { .paragraph(paperID: context.paperID, marker: $0) } ?? .figure(paperID: context.paperID, figureID: context.figureID))

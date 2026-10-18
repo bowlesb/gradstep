@@ -41,8 +41,23 @@ import Testing
         #expect(await !store.isInstalled(model))
         #expect(FileManager.default.fileExists(atPath: other.path))
     }
-    @Test func cataloguePinsEveryFileAndBothVisionProcessors() {
-        #expect(LocalModel.all.count == 4)
+    @Test func retiredModelsCannotBeSelectedOrDownloaded() {
+        let retired = Set(["qwen3-06b", "qwen35-2b", "qwen35-4b", "gemma4-e2b"])
+        #expect(LocalModel.all.allSatisfy { !retired.contains($0.id) })
+        // No candidate has passed the scientific quality gate yet.
+        #expect(LocalModel.all.isEmpty)
+    }
+    @Test func retirementRemovesOnlyNamedWeightDirectories() async throws {
+        let (store, _, root) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        let retired = root.appendingPathComponent("qwen-old-pinned"), keep = root.appendingPathComponent("qualified-model")
+        try FileManager.default.createDirectory(at: retired, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: keep)
+        try await store.removeRetiredDownloads(["qwen-old-pinned"])
+        #expect(!FileManager.default.fileExists(atPath: retired.path))
+        #expect(try Data(contentsOf: keep) == Data("keep".utf8))
+        await #expect(throws: LocalAIError.self) { try await store.removeRetiredDownloads(["../answers"]) }
+    }
+    @Test func cataloguePinsEveryFileAndVisionProcessor() {
         for model in LocalModel.all {
             #expect(model.revision.count == 40)
             #expect(model.files.contains { $0.name == "model.safetensors" })

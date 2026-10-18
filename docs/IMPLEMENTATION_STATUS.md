@@ -1,7 +1,12 @@
 # Implementation status
 
 
-## Build 71 feedback and OpenRouter consolidation — 2026-10-18 (native release pending)
+## Build 71 feedback and OpenRouter consolidation — 2026-10-18 (TestFlight 72 on iPhone/iPad)
+
+iPhone/iPad build **72**, source **de722cf**, is **VALID / IN_BETA_TESTING**, read back at 20:36 UTC.
+ASC ID `2f20c64f-0444-4275-ac9d-4d606f9c2b42`; release notes were written and read back. Its signed archive
+passes the local-model/MLX exclusion guard. The source-matching import gate passed 13/13 at 20:19:10 UTC.
+Mac model retirement and the eighth figure-card report are subsequent work, not included in this iOS build.
 
 Seven screenshot reports are implemented and their affected native regressions pass; exact diagnoses and test
 coverage are in [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md). The initial import gate exposed an asynchronous test race;
@@ -26,6 +31,24 @@ The iPhone/iPad build now excludes local answering MLX code/catalog/resources; a
 before upload. Device-only PDF extraction remains. Mac replacements are undergoing actual offline qualification;
 Qwen 9B and Gemma 12B failed critical scientific checks. Neither is promoted merely because it fits or runs.
 Subfigure research/fine-tuning design is updated; no detector or newly trained model is claimed released.
+
+## Later figure-card feedback and Mac retirement — 2026-10-18 (native release verification in progress)
+
+The eighth report (3DCodeVerse-2M Figure 2) adds typed panel/concept/related-work cards and complete-image coverage.
+The backend is deployed; browser Pages **37ef6b86** passes asset/AASA checks. Cards retain their full overview,
+measure the union of displayed crops and explicitly label incomplete coverage. Both clients round outward to
+whole pixels. Backend (136), Core figure (10), browser figure (14), routine fast tests and all 12 desktop/phone
+figure journeys pass. Screenshots were inspected; a cropped-image fullscreen control width defect was also fixed.
+The live Flash walkthrough/detail check costs $0.029884 and returns two full-height halves whose union covers the
+source image. This is not broad detector qualification. Details: FIGURE_VIEW.md and OWNER_FEEDBACK.md.
+
+The Mac catalogue retires all four small prototypes; historical encrypted answers remain readable and only their
+app-owned public weights are removed. No replacement has passed the scientific gate. Settings says so explicitly;
+no candidate is offered as a qualified model. Local store/admission tests pass 7/7. Mac integration exposed and
+fixed loss of the explicit local engine during a selection action; 32 affected chat-generation tests pass. The
+requested two accepted options remain outstanding. Qwen 27B is pinned/downloaded but lacks available test memory;
+other user applications were not closed. New subfigure geometry replay and fine-tuning implications are recorded
+in LOCAL_FIGURE_REGIONS.md and its measured review. No training or paid GPU job has been started.
 
 ## Build 70 feedback — 2026-10-18 (TestFlight 71 on iOS/iPadOS and Mac; browser deployed)
 

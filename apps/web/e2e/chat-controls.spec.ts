@@ -245,7 +245,7 @@ test('Flash is the new default after named consent; explicit Sonnet is preserved
   await consent.getByRole('button', { name: 'Allow and get answer' }).click();
   await expect.poll(async () => (await evidence(request)).requests.length).toBe(1);
   const first = (await evidence(request)).requests[0];
-  expect(first.consent_version).toBe('cloud-ai-v5');
+  expect(first.consent_version).toBe('cloud-ai-v6');
   expect(first.profile).toEqual({ model: 'gemini', effort: 'auto', length: 'standard' });
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   await expect(page.locator('[data-testid="answer-by"]').last()).toContainText('Gemini Flash');

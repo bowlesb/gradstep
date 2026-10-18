@@ -187,6 +187,7 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertThrowsError(try request.encoded())
         XCTAssertTrue(cloud.requests.isEmpty)
         model.selectionAction(.define, quote: String(repeating: "x", count: ChatGenerationRequest.maximumSelectionScalars + 1))
+        XCTAssertEqual(model.localAIModelID, "qwen35-4b", "Selection actions preserve the explicit engine instead of adopting the scenario default")
         await model.sendMessage()
         try await waitUntil("oversized local selection rejected") { model.chatAnswerIssue != nil }
         XCTAssertEqual(model.chatAnswerIssue?.code, "local_context_large", "Do not collapse the actual local failure into invalid_request")

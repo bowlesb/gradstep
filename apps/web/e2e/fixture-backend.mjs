@@ -497,9 +497,9 @@ createServer(async (request, response) => {
   }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
-    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    if (!body?.operation_id || !['cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5', 'cloud-ai-v6'].includes(body.consent_version) || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
     // Figures (chat-figures.ts): only under v3 or v4, only in a paper chat, at most three bounded JPEG/PNG images.
-    if (body.figures !== undefined && (!['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version) || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
+    if (body.figures !== undefined && (!['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5', 'cloud-ai-v6'].includes(body.consent_version) || body.mode !== 'paper' || !Array.isArray(body.figures) || body.figures.length > 3
       || body.figures.some(f => !/^F[1-3]$/.test(f.id) || !Number.isSafeInteger(f.paragraph) || !['image/jpeg', 'image/png'].includes(f.media_type) || typeof f.data !== 'string' || f.data.length < 16))) {
       return send(response, 400, { code: 'invalid_figures' });
     }
@@ -508,9 +508,9 @@ createServer(async (request, response) => {
     const p = body.profile, auto = a.chatProfiles === 'auto' || a.chatProfiles === 'gemini';
     if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus', ...(auto ? ['deepseek'] : []), ...(a.chatProfiles === 'gemini' ? ['gemini'] : [])].includes(p.model)
       || !['low', 'medium', 'high', ...(auto ? ['auto'] : [])].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
-    // DeepSeek answers only under the consent that names it (cloud-ai-v4).
-    if (p?.model === 'deepseek' && !['cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version)) return send(response, 403, { code: 'consent_required' });
-    if (p?.model === 'gemini' && body.consent_version !== 'cloud-ai-v5') return send(response, 403, { code: 'consent_required' });
+    // The deployed OpenRouter route requires v6 to name DeepInfra for DeepSeek.
+    if (p?.model === 'deepseek' && body.consent_version !== 'cloud-ai-v6') return send(response, 403, { code: 'consent_required' });
+    if (p?.model === 'gemini' && !['cloud-ai-v5', 'cloud-ai-v6'].includes(body.consent_version)) return send(response, 403, { code: 'consent_required' });
     if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups !== undefined && typeof body.follow_ups !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     if (body.follow_ups === true && (body.action === 'ingest' || body.action === 'diagram_fix')) return send(response, 400, { code: 'invalid_request' });
@@ -527,7 +527,7 @@ createServer(async (request, response) => {
     // says it has the view (`figure_view`, whose chats carry the walkthrough tool).
     const figureView = body.action === 'figure' || body.action === 'figure_simpler' || body.action === 'figure_detail';
     if (figureView && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.selection?.quote || body.messages.length !== 1
-      || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures?.length !== 1 || !['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5'].includes(body.consent_version)
+      || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures?.length !== 1 || !['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5', 'cloud-ai-v6'].includes(body.consent_version)
       || !(body.capabilities ?? []).includes('figure_view'))) return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });

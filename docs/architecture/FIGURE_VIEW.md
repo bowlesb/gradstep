@@ -1,5 +1,35 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Complete image coverage and card types — 2026-10-18 (backend/browser verified; native release pending)
+
+Owner feedback ALCJLruWVHFOYNzJoULIvSY asks for every pixel to remain represented in the presentation, usually
+one card per subfigure but allowing grouped panels. Keep the complete image above the walkthrough. Add optional
+`kind` (`panel`, `concept`, `related_work`) to existing v1 sections; absent/unknown kinds remain panel cards for
+old answers. Use a consistent type/part label, title, optional image and explanation. Related work is grounded
+in citations to the supplied paper, explicitly described as that paper's account, not a claim to have read other
+sources. No new automatic retrieval, paid requests, storage schema or conversation is introduced.
+
+Increase the crop limit to the existing 12-section bound. Ask for complete panels and shared axes/legends, with
+overlap or grouped panels when useful. Check the union of validated, displayed crop rectangles, including their
+bounded context margin. A split with uncovered image area retains the full figure and shows a clear coverage
+fallback message. Do not invent coordinates or fill gaps by assigning them to a panel. Pixel bounds round outward
+on both clients. Full coverage does not prove semantic panel completeness or that each crop has its required
+legend: those are separate model-quality checks. Invalid geometry remains rejected. Single-panel figures need
+no crop. Old saved results stay readable without another AI request.
+
+The local detector uses the same acceptance principle: record uncovered area, missed panels and critical-label
+loss separately; a whole-image fallback is never scored as a successful split. Regression cases include grids,
+overlap, insets, small holes, edge labels, a shared legend and the reported 3DCodeVerse-2M Figure 2 layout.
+
+Verification: backend chat tests 136, Core figure tests 10, browser figure units 14 pass. Desktop/phone journeys
+cover all 12 figure cases, including typed cards and crop/fullscreen controls. The first browser run exposed a
+fixture still rejecting the new v6 consent; it now mirrors the deployed route instead of rejecting valid clients.
+Visual review also found the fullscreen text button inheriting a 32-pixel icon width; its controls now wrap safely.
+Live Flash on FDE-Gym Figure 5 returned two panel cards at x=0/w=.5 and x=.5/w=.5, both full-height. The union is
+100%; the plotted axes, labels and titles were inspected. Walkthrough + detail cost $0.029884; this is one example,
+not a corpus-level quality claim. Records: `.artifacts/feedback/build71-20261018/` and
+`.artifacts/figure-view/2026-10-18T20-50-04-799Z-2610.22350v1.json`.
+
 ## Build 70 feedback repair — 2026-10-18 (TestFlight 71 on iOS/iPadOS and Mac; browser/backend deployed)
 
 The earlier instructions explicitly encouraged a “thin slice” or tiny marker crop. They now ask for a complete

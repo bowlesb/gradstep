@@ -103,6 +103,15 @@ public actor LocalModelStore {
         let folder = directory(for: model)
         if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
     }
+    /// Retire only named public weight directories. Never enumerate/remove answer stores or unknown downloads.
+    public func removeRetiredDownloads(_ names: [String]) throws {
+        guard !downloading else { throw LocalAIError.busy }
+        for name in names {
+            guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { throw LocalAIError.integrity }
+            let folder = root.appendingPathComponent(name, isDirectory: true)
+            if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
+        }
+    }
     public func verifiedDirectory(_ model: LocalModel) throws -> URL {
         guard isInstalled(model) else { throw LocalAIError.needsDownload }
         let folder = directory(for: model)

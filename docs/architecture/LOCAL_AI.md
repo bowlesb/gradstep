@@ -12,10 +12,10 @@ The Mac candidates are pinned in `tests/local-ai/candidates.json`; they are eval
 choices. Qwen 3.5 9B and Gemma 4 12B each completed 27 scientific cases from five pinned papers with network denied.
 Neither is qualified: DPO gradient errors and unsupported numerical plot claims remain. Gemma's measured image
 process footprint reached 17.2 GB, excluding it from the proposed 16 GB tier. Qwen 3.8 27B and Gemma 4 26B A4B
-are larger candidates; no successful native inference is claimed for them yet. The four old small models will be
-retired from the Mac catalogue before release. Do not substitute model-card scores for this acceptance.
+are larger candidates; no successful native inference is claimed for them yet. The four old small models are retired from the Mac catalogue; no unqualified replacement is downloadable.
+Their app-owned weight folders are removed, while stable identities keep old encrypted answers readable. Do not substitute model-card scores for this acceptance.
 
-The evaluation found and repaired two application defects: retrieval omitted a specifically requested source
+The evaluation found and repaired application defects: retrieval omitted a specifically requested source
 formula (explicit equation references now prioritize it and its neighbors), and Foundation hash buffers could
 accumulate while verifying large weights (each chunk now has its own autorelease pool). Qwen 9B's repeated direct
 checks after those fixes use about 7.0–7.6 GB process memory; its DPO answer still reverses the loss argument and
@@ -27,6 +27,20 @@ one generation at a time, and no inference networking. Mac admission checks phys
 headroom, Metal's recommended working-set limit and normal memory pressure immediately before loading. An unknown
 or insufficient reading refuses locally. Trial evidence includes exact executable/model/source hashes, real
 latencies, process and MLX memory and retained failures under `.artifacts/local-ai/mac-eval*-20261018/`.
+
+The pinned Qwen 3.8 27B download is verified (16,081,488,731 bytes). Two native admission checks on the 32 GB
+M1 Max refused **before loading weights**: about 13.46 GB reclaimable versus 21 GB required for text or 23 GB for
+an image. These are unavailable-memory results, not inference or quality failures. The owner has been asked
+whether to free memory or use a roomier Mac. Other applications/containers were not closed, and admission limits
+were not lowered to force a run. Exact evidence: `mac-eval-large-admission-20261018/`; the probe now reports a
+bounded error instead of crashing on an expected memory refusal. The requested two accepted Mac models remain
+**unfulfilled** pending quality and memory evidence; publishing two names would misrepresent the measurements.
+
+Mac integration tests also exposed a routing defect: a selection action created a new conversation and applied
+the scenario default, losing the explicitly chosen local engine. It now carries both cloud profile and local
+identity into that action. The local-PDF oversized-selection regression now rejects locally and makes no cloud
+request; the complete affected chat-generation unit class passes (32 tests). This is independent of candidate
+model quality. Old default identities remain explicit/unavailable rather than silently becoming paid cloud calls.
 
 ## Historical phone prototype and acceptance (superseded scope)
 

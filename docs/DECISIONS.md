@@ -4,6 +4,14 @@ Last updated: 2026-10-18 UTC. Requirements below come from the current user conv
 
 ## OpenRouter exclusively, Mac-only local AI, build 71 feedback (owner, 2026-10-18; implementation in progress)
 
+Additional feedback ALCJLruWVHFOYNzJoULIvSY (20:07 UTC) requires every pixel to remain represented when a figure
+is divided into cards; grouping several panels in a card is acceptable. Cards distinguish panels, concepts and
+related work, with consistent titles. Keep the existing figure/conversation/navigation arrangement. Extend the
+bounded walkthrough additively with optional card kinds, retaining old encrypted answers. Verify crop-union
+coverage deterministically; an incomplete split keeps the complete overview and explicitly explains why. Do not
+claim this fallback is a successful extraction, or invent missing panel geometry. Related-work cards cite what
+the supplied paper says and do not imply that an external paper was fetched. See FIGURE_VIEW.md.
+
 All remote model inference must use OpenRouter, including DeepSeek chat, catalog classification, podcast writing,
 review and speech. Remove direct-provider fallback. Preserve device-only PDF acquisition/processing, current
 consent, durable admission, actual-cost reconciliation and the $100/month operating budget. Attribution is mandatory

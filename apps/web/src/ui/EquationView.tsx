@@ -149,7 +149,7 @@ export default function EquationView({ bundle, equationID, theme, fontSize, host
       </div>
 
       {!host ? <p className="fine">Explanations need a signed-in chat.</p> : asking && !consented ? <section className="equation-consent" data-testid="equation-consent">
-        <p>Explaining the equation uses cloud AI: the equation and the paper’s text go to Google Vertex through OpenRouter, or DeepSeek according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
+        <p>Explaining the equation uses cloud AI: the equation and the paper’s text go through OpenRouter to Google Vertex or DeepInfra according to your choice, as with chat. They may retain requests under their API terms. Answers use credits.</p>
         <div className="dialog-actions"><button className="secondary" onClick={() => setAsking(false)}>Not now</button><button className="primary" onClick={allow}>Allow and explain</button></div>
       </section> : !symbols ? null : <>
         <section className="equation-section" aria-labelledby="equation-what">

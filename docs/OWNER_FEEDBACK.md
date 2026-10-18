@@ -674,3 +674,15 @@ fixture UI evidence does not establish live provider availability. Owner accepta
 Also seen: 2504.02792 and 2610.22083 failed their re-preparation (revision 16) on the phone while they prepare on the
 Mac and in the Simulator; the reason was hidden behind the default wording. The failure reason is now shown in Reader
 version details, a killed web compiler is retried once, and preparations run one at a time.
+
+
+## Additional build 71 figure-card instruction — 2026-10-18 20:07 UTC (implementation under verification)
+
+Report **ALCJLruWVHFOYNzJoULIvSY**, 3DCodeVerse-2M Figure 2: every pixel represented when divided into cards;
+allow grouped panels; consistent titles/subtitles and distinct panel/concept/related-work cards. Screenshot
+inspected under `.artifacts/feedback/build71-20261018/`. The app/browser retain the full overview, check the
+pixel union of outward-rounded crops, and label an incomplete split explicitly. Additive card kinds preserve old
+saved answers and prevent a concept/related-work card from becoming a crop. Related work identifies the supplied
+paper as its source; no other paper is fetched automatically. Server prompt asks for complete grouped/panel
+coverage, with at most the existing 12 sections. No detector is promoted by these presentation changes.
+The initial seven reports shipped in iPhone/iPad TestFlight 72; this eighth report is subsequent work.

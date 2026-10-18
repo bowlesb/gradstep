@@ -91,6 +91,7 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["figureView.summary"].exists, "what it shows")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.crop"].exists, "the left half, cropped from the paper's own image")
         XCTAssertFalse(app.descendants(matching: .any)["figureView.section.2.crop"].exists, "a part without a box has no crop")
+        XCTAssertTrue(app.staticTexts["figureView.coverageFallback"].exists, "An incomplete split keeps the whole figure, without claiming extraction is complete")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
         capture(app, "Figure walkthrough")
         let fullscreen = app.buttons["figureView.fullscreen"].firstMatch

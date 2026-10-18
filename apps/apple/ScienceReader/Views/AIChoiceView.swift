@@ -125,7 +125,7 @@ struct AISelectionButton: View {
 }
 
 #if targetEnvironment(macCatalyst)
-/// Public model files are managed here independently of a question or the phone's transient free-memory state.
+/// Mac model installation is separate from questions and current memory admission.
 struct LocalAISettingsView: View {
     @Bindable var model: ReaderModel
     @Environment(\.scenePhase) private var scenePhase
@@ -136,12 +136,19 @@ struct LocalAISettingsView: View {
         List {
             Section {
                 Text("Download ahead of time, then choose a local model when asking a question. Your paper, question and images stay on this device during inference.")
-                Text("Experimental: these small models made mistakes on equations and numerical plots. Check their answers against the paper.")
+                Text("Only models that pass our scientific-question and memory checks are offered here.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let bytes = LocalModel.availableAppMemory {
                     LabeledContent("Available to this app now", value: Self.size(bytes))
                     Button("Check memory again") { memoryRevision += 1 }
                 }
+            }
+            if local.models.isEmpty {
+                Section("Models under evaluation") {
+                    Text("The earlier prototype models have been retired. Replacements are being tested for equation accuracy, figure reading and memory use before downloads become available.")
+                    Text("Your saved local answers remain available. Choose a cloud model explicitly to ask a new question.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }.accessibilityIdentifier("ai.modelsUnderEvaluation")
             }
             ForEach(local.models) { option in
                 Section(option.name) {
@@ -183,12 +190,8 @@ struct LocalAISettingsView: View {
                 }
             }
             if let issue = local.issue { Section { Text(issue).foregroundStyle(.red).accessibilityIdentifier("ai.downloadError") } }
-            Section("Device testing") {
-                LabeledContent("iPhone 17 Pro", value: "Controls tested in Simulator")
-                Text("Local inference has not been measured on a physical iPhone, including iPhone 17 Pro. No iPhone model is certified yet. Available app memory, rather than the phone’s total RAM, decides which model can run.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                LabeledContent("M1 Max Mac · 32 GB", value: "All four models ran")
-                Text("The performance notes above come from this Mac. They are not iPhone speed or battery estimates. Qwen 3.5 4B gave the most useful explanations in this small test, but none passed every scientific question.")
+            Section("Mac memory") {
+                Text("Local answers run on Apple Silicon Macs. Model size, figure resolution and other open apps affect memory use. Availability is checked again before each answer.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -205,18 +208,13 @@ extension LocalModel {
         if let available = Self.availableAppMemory {
             let free = ByteCountFormatter.string(fromByteCount: Int64(available), countStyle: .file)
             let required = ByteCountFormatter.string(fromByteCount: Int64(requiredHeadroom(hasImage: vision)), countStyle: .file)
-            return admitsCurrentMemory(hasImage: vision) ? "Enough app memory available now. Phone performance is unverified."
+            return admitsCurrentMemory(hasImage: vision) ? "Enough app memory is available now."
                 : "Cannot run now: \(required) free app memory required; \(free) available. A download can be kept for later."
         }
-        return "Mac inference measured; iPhone inference unverified."
+        return "Memory availability could not be checked. Try again before starting an answer."
     }
     var measuredPerformance: String {
-        switch id {
-        case "qwen35-4b": "Mac: first text in 5.6–6.8 seconds; answers in 14.5–16.9 seconds. Peak process memory about 6.7 GB. Useful mechanism explanations, but some plot values were wrong."
-        case "gemma4-e2b": "Mac: first text in 7.4–8.2 seconds; answers in 10.1–11.6 seconds. Peak process memory about 6.7 GB. Missed numerical figure details and some equation meanings."
-        case "qwen35-2b": "Mac: about 3.85 GB peak process memory. More practical memory use, but it misread plot values and an equation parameter. Phone speed has not been measured."
-        default: "Text-only baseline. It ran quickly on Mac but failed the tested equation explanation and overstated an unsupported compute claim. Not suitable for reading figures."
-        }
+        "This model must pass the Mac scientific-question and memory evaluation before it is available for download."
     }
 }
 

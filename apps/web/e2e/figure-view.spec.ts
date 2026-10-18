@@ -78,10 +78,11 @@ test('a figure is explained only on request, part by part with its crop; a part 
  const walk=viewer.getByTestId('figure-walkthrough');
  await expect(viewer.getByTestId('figure-summary')).toContainText('The figure compares two pipelines');
  await expect(walk.locator('.figure-section')).toHaveCount(3);
- await expect(viewer.getByTestId('figure-section-0').locator('h4')).toHaveText('(a)The three-stage pipeline');
- await expect(viewer.getByTestId('figure-section-2').locator('h4')).toHaveText('Legend');
+ await expect(viewer.getByTestId('figure-section-0').locator('h4')).toHaveText('Panel · (a)The three-stage pipeline');
+ await expect(viewer.getByTestId('figure-section-2').locator('h4')).toHaveText('PanelLegend');
  // The one boxed part carries its crop (the right half of the image that was sent); the others none.
  await expect(walk.getByTestId('figure-crop')).toHaveCount(1);
+ await expect(walk.getByTestId('figure-coverage-fallback')).toContainText('whole figure above');
  await viewer.getByRole('button',{name:'Open fullscreen',exact:true}).first().click();
  const full=page.locator('.fullscreen-figure');
  await expect(full).toBeVisible();
@@ -90,7 +91,8 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer.getByTestId('figure-summary')).toBeVisible();
  const crop=viewer.getByTestId('figure-section-1').getByTestId('figure-crop');
  await expect(crop).toBeVisible();
- expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['192.31% 100%','100%','0%',true]);
+ // The authored bitmap is 12 pixels wide: the 2% margin rounds outward to 7 complete pixels, not a fractional 6.24.
+ expect(await crop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY,s.backgroundImage.startsWith('url("data:image/jpeg;base64,')];})).toEqual(['171.43% 100%','100%','0%',true]);
  // Math is typeset, [¶N] is a link; AI Explainer has gone, Explain in Chat stays; no credit counts (owner, build 59).
  await expect(viewer.getByTestId('figure-section-1').locator('math')).toBeVisible();
  await expect(viewer.getByTestId('figure-section-0').locator('.cite')).toHaveText('¶2');
@@ -103,7 +105,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await crop.locator('..').getByRole('button',{name:'Zoom out of crop'}).click(); await expect(crop).toHaveAttribute('data-scale','1');
  let sent=await chats();
  expect(sent).toHaveLength(1);
- expect(sent[0]).toMatchObject({action:'figure',mode:'paper',consent_version:'cloud-ai-v5',selection:{quote:'Figure 1: A test figure.'},messages:[{role:'user',text:'Figure 1'}],
+ expect(sent[0]).toMatchObject({action:'figure',mode:'paper',consent_version:'cloud-ai-v6',selection:{quote:'Figure 1: A test figure.'},messages:[{role:'user',text:'Figure 1'}],
   local_context:{format:'reader-local-context-v2',membership_id:member}});
  expect(sent[0].capabilities).toContain('figure_view');expect(sent[0].figures).toHaveLength(1);
  expect(sent[0].figures[0]).toMatchObject({id:'F1',media_type:'image/jpeg'});
@@ -147,7 +149,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(closer).toContainText('three boxes joined by arrows');
  const closerCrop=closer.getByTestId('figure-detail-crop');
  await expect(closerCrop).toBeVisible();
- expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['192.31% 100%','0%','0%']);
+ expect(await closerCrop.locator('.figure-crop').evaluate(e=>{const s=getComputedStyle(e);return [s.backgroundSize,s.backgroundPositionX,s.backgroundPositionY];})).toEqual(['171.43% 100%','0%','0%']);
  await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
  sent=await chats();
@@ -295,4 +297,28 @@ test('a figure reference in the text offers Explain in Chat and AI Explainer; AI
  await page.screenshot({path:`../../.artifacts/figure-reference-explained-${test.info().project.name}-dark.png`});
  await page.emulateMedia({colorScheme:'light'});
  await viewer.getByTestId('figure-close').click();await expect(viewer).toBeHidden();
+});
+
+
+test('concept and related-work cards keep distinct titles and paper provenance without crop actions',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await openFixture(page,request);
+ await page.route(`${fixtureOrigin}/functions/v1/chat`,async route=>{
+  const answer={format:'figure-walkthrough-v1',summary:'Two ways to interpret the figure.',sections:[
+   {kind:'concept',label:'',title:'Preference learning',text:'The context of this result [¶2].',paragraphs:[2]},
+   {kind:'related_work',label:'',title:'Earlier reward-model methods',text:'The supplied paper describes this comparison [¶2].',paragraphs:[2]}
+  ]};
+  await route.fulfill({status:200,contentType:'text/event-stream',body:`event: figure\ndata: ${JSON.stringify(answer)}\n\nevent: done\ndata: {"stop_reason":"end_turn","credits":2,"charged":true}\n\n`});
+ });
+ const viewer=await openFigure(page);await viewer.getByTestId('figure-explain').click();
+ await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ const concept=viewer.getByTestId('figure-section-0'),related=viewer.getByTestId('figure-section-1');
+ await expect(concept.locator('h4')).toHaveText('ConceptPreference learning');
+ await expect(related.locator('h4')).toHaveText('Related workEarlier reward-model methods');
+ await expect(related).toContainText('As described in this paper');
+ await expect(viewer.getByTestId('figure-crop')).toHaveCount(0);
+ await viewer.getByTestId('figure-section-menu-1').click();
+ await expect(viewer.getByTestId('figure-detail-item')).toHaveCount(0);
+ await page.keyboard.press('Escape');
+ await page.screenshot({path:`../../.artifacts/figure-card-kinds-${test.info().project.name}.png`});
 });

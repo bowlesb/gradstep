@@ -93,3 +93,33 @@ Report uncertainty and per-domain counts; these thresholds are targets, not curr
 containment-failing result stays on the whole figure. Only after this evaluation should detection become automatic
 in the shared figure view. The next useful work is annotation and an exportable small-detector baseline, not more
 unreviewed prompt/coordinate heuristics.
+
+
+## Whole-image coverage feedback and tuning implications — 2026-10-18
+
+The later 3DCodeVerse-2M Figure 2 report requires all pixels to remain represented in the card presentation, with
+panels allowed to share a card. This adds a hard presentation invariant to the earlier detection metrics. Keep
+**core panel bounds**, **required context** (axes/labels/shared legends), and **presentation groups** as separate
+annotations. Train the detector on panels/context; do not call a full-image box a successful split or improve an
+IoU score by labeling every figure as one enormous panel. Reviewed groups may overlap to preserve shared context.
+
+The baseline now has a reproducible geometry replay, `scripts/subfigure-coverage.py`, consuming retained inference
+output without another download or model call. Of the seven FDE-Gym images, only the two-panel overview has complete
+multi-crop coverage after the 2% context margin; the scatter plots cover 98.46%, the heatmap 97.75%. Four outputs
+have no admitted subfigure crops (whole-image boxes are excluded). These are **pixel coverage measurements**, not
+accuracy, panel recall or proof of label completeness. The overview still needs semantic/legend review. See the
+[experiment](../reviews/LOCAL_FIGURE_REGIONS_20261018.md).
+
+Fine-tuning ablations must report both detection quality and accepted presentation quality: detector alone;
+detector plus OCR/context containment; and caption-assisted grouping. Keep original source bounds during resizing
+and export, and replay the same outward pixel rounding used by the clients. Measure uncovered pixels exactly,
+critical text cut by each individual card, omitted panels, duplicate cards and false panel associations. A split
+is accepted only when its presentation union covers 100% of pixels and its required context passes inspection.
+Otherwise preserve the complete figure with an explicit fallback, without another paid model request. This
+mechanical guarantee is separate from semantic model quality; the fallback counts as a missed extraction.
+
+Prefer annotation and small-detector head/last-stage tuning before a larger generative localization model. The
+new feedback reinforces a **panel + context relationship** task; simply increasing detector confidence or training
+on tighter boxes optimizes the wrong outcome. The first pilot should use rights-cleared figures and generated
+plots, then hold out complete paper/template families. No GPU rental, training job, licensed data purchase or
+trained-model acceptance is claimed. Local extraction remains a Mac prototype shared by local/cloud conversations.

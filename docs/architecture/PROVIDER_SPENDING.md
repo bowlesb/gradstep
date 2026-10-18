@@ -13,7 +13,7 @@ Provider SDK and search transport retries are disabled. A new explicit request, 
 continuation, needs a new grant and must fit the operation's remaining ceiling. The database records
 admission, final usage and reconciliation; application logs contain identifiers and counts only.
 
-## OpenRouter consolidation — 2026-10-18 (staging deployed; native release pending)
+## OpenRouter consolidation — 2026-10-18 (staging deployed; iPhone/iPad TestFlight 72)
 
 Migration 089, the chat function and Cloud Run worker revision `gradstep-pipeline-00049-ghn` are deployed.
 Admin Pages `2506e98b` exposes transport and receipt metadata in account-filtered attempt details; browser
@@ -31,7 +31,11 @@ missing accounting. A Sonnet contract probe identified that Vertex requires reas
 that requirement inside the original output cap, while DeepSeek/Haiku retain reasoning disabled. The synthetic
 Sonnet schema request passed; its deliberately small output limit is not a successful full episode. Neither
 rejection is recorded as a successful podcast. Evidence:
-`.artifacts/openrouter-unification-20261018/`; final cost/readback and delivery results follow below.
+`.artifacts/openrouter-unification-20261018/`. The subsequent hosted Sonnet script/review cost $0.246520 and was
+rejected by review (zero customer charge). A separate public-DPO diagnostic used the production adapters and
+checker successfully: 450-word accepted script, followed by 180.240 seconds of PCM speech, $0.314683 total. This
+isolates working draft/review/speech contracts from the still-unproven hosted episode completion. Full accounting,
+the pre-cutover owner call distinction and final allocation readback are in OPERATIONS_AND_BILLING.md.
 
 One historical direct-Anthropic attempt from 2026-10-17 remains unknown with $0.000138 reserved. It has no
 provider receipt; elapsed time is not proof of zero cost. Do not release or invent a settlement for that hold.

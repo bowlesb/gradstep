@@ -2309,7 +2309,7 @@ test('the figure view reads the chat cache: tools, model, thinking, shared instr
   assert.deepEqual(off.map(toolNames), [['figure_walkthrough'], ['figure_walkthrough']]);
 });
 
-test('figure_walkthrough input: sections kept in order, bounded, boxes inside the image (at most 4), citations inside the paper', () => {
+test('figure_walkthrough input: sections kept in order, bounded, boxes inside the image (at most 12), citations inside the paper', () => {
   assert.deepEqual(figureBox({ x: -0.01, y: 0.5, w: 0.31, h: 0.2 }), { x: 0, y: 0.5, w: 0.3, h: 0.2 }, 'a tiny overshoot is clamped');
   assert.deepEqual(figureBox({ x: 0.7, y: 0.7, w: 0.31, h: 0.3 }), { x: 0.7, y: 0.7, w: 0.3, h: 0.3 });
   for (const bad of [{ x: 0.9, y: 0.9, w: 0.02, h: 0.05 }, { x: 0, y: 0, w: 1, h: 1 }, { x: 0.5, y: 0.5, w: 0.6, h: 0.2 }, { x: 0, y: 0, w: 0.5 }, [0, 0, 0.5, 0.5],
@@ -2332,7 +2332,7 @@ test('figure_walkthrough input: sections kept in order, bounded, boxes inside th
   assert.deepEqual(walkthrough.sections.map(s => [s.label, s.title]), [['(a)', 'The RLHF pipeline'], ['', 'Legend'], ['', '(b)'], ['(c)', 'C'], ['(d)', 'D'], ['(e)', 'E'], ['(f)', 'F']]);
   assert.deepEqual(walkthrough.sections[0], { label: '(a)', title: 'The RLHF pipeline', text: 'Three stages [¶12]. A made-up block .\n\nThen a reward model [¶13].',
     paragraphs: [12, 13], box: { x: 0, y: 0.1, w: 0.1, h: 0.1 } });
-  assert.deepEqual(walkthrough.sections.map(s => s.box?.x ?? null), [0, null, null, 0.2, 0.4, 0.6, null], 'the box too small is dropped, the fifth box too');
+  assert.deepEqual(walkthrough.sections.map(s => s.box?.x ?? null), [0, null, null, 0.2, 0.4, 0.6, 0.8], 'the box too small is dropped; the fifth panel is retained');
   assert.equal(offeredBoxes(input), 6, 'the log counts the boxes the model offered');
   // At most 12 sections; a long text ends at a sentence before 1,500 characters; long labels and titles are shortened.
   const many = figureWalkthrough({ summary: 's', sections: Array.from({ length: 13 }, (_, i) => ({ label: 'L'.repeat(70), title: 'T'.repeat(130),
@@ -2800,4 +2800,15 @@ test('a Study turn pays for the tutor\'s finished reply; a map update that came 
   // The tutor's 4,800 micro-USD are charged; the map's 700 x $0.10 + 200 x $0.50 = 170 are absorbed.
   assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 4_970,
     p_action: 'study', p_ending: 'completed', p_absorbed_microusd: 170 });
+});
+
+
+test('figure card kinds are additive; concept and related-work cards cannot masquerade as image regions', () => {
+  const row = {label:'',title:'Prior method',text:'This paper describes it [¶2].',paragraphs:[2],box:{x:0,y:0,w:0.5,h:1}};
+  const checked = figureWalkthrough({sections:['panel','concept','related_work','future',undefined].map(kind => ({...row,kind}))}, 3)!;
+  assert.deepEqual(checked.sections.map(s => s.kind), ['panel','concept','related_work',undefined,undefined]);
+  assert.deepEqual(checked.sections.map(s => !!s.box), [true,false,false,true,true]);
+  assert.equal(figureDetail({sections:[{...row,kind:'concept'}]},3),null);
+  const many = figureWalkthrough({sections:Array.from({length:15},()=>row)},3)!;
+  assert.equal(many.sections.length,12); assert.equal(many.sections.filter(s=>s.box).length,12);
 });

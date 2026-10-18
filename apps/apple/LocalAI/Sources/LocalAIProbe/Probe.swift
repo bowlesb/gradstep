@@ -4,7 +4,15 @@ import ScienceReaderCore
 
 // Opt-in, local-only evidence. Never part of routine npm test. No provider credentials or paid calls.
 @main struct Probe {
-    static func main() async throws {
+    static func main() async {
+        do { try await run() }
+        catch {
+            // A rejected candidate is evidence, not a process crash or a giant crash report.
+            FileHandle.standardError.write(Data((String(error.localizedDescription.prefix(300)) + "\n").utf8))
+            exit(1)
+        }
+    }
+    static func run() async throws {
         var args = Array(CommandLine.arguments.dropFirst())
         var models = LocalModel.all
         if let flag = args.firstIndex(of: "--catalog"), args.indices.contains(flag + 1) {
@@ -23,6 +31,9 @@ import ScienceReaderCore
         let fixture = try JSONDecoder().decode(Case.self, from: Data(contentsOf: URL(fileURLWithPath: args[2])))
         let image = args.count > 3 ? try Data(contentsOf: URL(fileURLWithPath: args[3])) : nil
         let directory = try await store.verifiedDirectory(model)
+        if !model.admitsCurrentMemory(hasImage: image != nil) {
+            FileHandle.standardError.write(Data("Memory admission: available=\(LocalModel.availableAppMemory ?? 0), required=\(model.requiredHeadroom(hasImage: image != nil)) bytes\n".utf8))
+        }
         let result = try await LocalEngine().answer(model: model, directory: directory,
             input: .init(question: fixture.question, selection: fixture.selection, paper: fixture.paper, focus: fixture.focus,
                          action: fixture.action.flatMap(ChatAction.init(rawValue:))), image: image) { _ in }

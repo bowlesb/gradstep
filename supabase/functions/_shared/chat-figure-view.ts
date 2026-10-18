@@ -19,7 +19,7 @@ export const isFigureAction = (action: string | null | undefined): action is Fig
 export const FIGURE_VIEW_CAPABILITY = 'figure_view';
 export const FIGURE_FORMAT = 'figure-walkthrough-v1';
 export const FIGURE_LIMITS = Object.freeze({ sections: 12, textChars: 1_500, summaryChars: 800, labelChars: 60, titleChars: 120,
-  paragraphs: 8, boxes: 4, minSide: 0.04 });
+  paragraphs: 8, boxes: 12, minSide: 0.04 });
 /** The walkthrough's output allowance: a standard answer's, plus the effort's thinking (the reader's length does not
  * apply: the walkthrough has its own shape). */
 export const FIGURE_ANSWER_TOKENS = 6_000;
@@ -44,13 +44,14 @@ export const FIGURE_WALKTHROUGH_TOOL: Anthropic.Beta.Messages.BetaTool = {
     properties: {
       summary: { type: 'string', description: 'What the figure shows and the point it makes, in two or three plain sentences.' },
       sections: { type: 'array', minItems: 1, maxItems: FIGURE_LIMITS.sections, items: { type: 'object', properties: {
+        kind: { type: 'string', enum: ['panel', 'concept', 'related_work'], description: 'Panel or grouped panels; a supporting concept; or related work as described by this paper.' },
         label: { type: 'string', description: 'The part as the figure names it: "(a)", "Left", "Top row", "Inset"; empty when it has no name.' },
         title: { type: 'string', description: 'What this part shows, in a few words (under 80 characters).' },
         text: { type: 'string', description: 'The walkthrough of this part in Markdown, with [¶N] citations; at most about 1,200 characters.' },
         paragraphs: { type: 'array', items: { type: 'integer' }, description: 'The N of each [¶N] paragraph that discusses this part.' },
         box: { type: 'object', description: 'A region of the image the reader sees enlarged above this section. Give one when the text points '
           + 'at a panel that needs enlargement. Enclose the complete panel, its axes, tick labels, title and legend; never cut a plot into a thin slice. '
-          + 'For a single-panel figure omit the box. x, y: its top-left corner; w, h: its width and height; fractions of the image, each side at least 0.04. At most 4 in a walkthrough.',
+          + 'For a single-panel figure omit the box. x, y: its top-left corner; w, h: its width and height; fractions of the image, each side at least 0.04. At most 12 in a walkthrough. Together, panel boxes must cover the entire figure, including margins and shared legends; overlap or group panels if needed.',
         properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
       }, required: ['label', 'title', 'text', 'paragraphs'] } },
     },
@@ -61,11 +62,12 @@ export const FIGURE_WALKTHROUGH_TOOL: Anthropic.Beta.Messages.BetaTool = {
 export const FIGURE_INSTRUCTIONS = `The reader opened the figure view on the attached figure (F1; the <selected_passage> block is its caption) and asked for a walkthrough of it. Read the image itself, closely: every panel, axis, tick label, legend entry, colour, marker, line style, arrow and annotation.
 Call figure_walkthrough once with the whole walkthrough, even when part of the image is unclear or cut off (say so in the text). Write no other text, use no other tool and do not search the web.
 - summary: two or three plain sentences: what the figure shows and the point it makes in the paper.
-- sections: one per sub-figure, panel or region, in reading order (the figure's own labels (a), (b)…, else left to right, top to bottom). Leave none out; panels that repeat one pattern may share a section (at most ${FIGURE_LIMITS.sections} sections). A figure with a single panel gets a section for each part worth reading on its own: the axes and what they measure, each group of curves, bars or boxes, a notable region, the legend.
+- sections: primarily panel cards, one per sub-figure or coherent group of panels, in reading order (the figure's own labels (a), (b)…, else left to right, top to bottom). Leave none out; panels that repeat one pattern may share a section (at most ${FIGURE_LIMITS.sections} sections). A single-panel figure can use one panel card without a crop. Add concept or related-work cards only when they help interpret this figure, not to fill a quota.
+- kind: panel, concept, or related_work. A concept card explains an idea needed to understand the result; a related_work card summarizes only what the supplied paper says about another work, names that work in its title and cites the supporting [¶N]. Do not imply you have read another paper. Non-panel cards have no box.
 - label: the part as the figure names it ("(a)", "Left", "Top row", "Inset"), empty when it has no name; title: what that part shows, in a few words.
 - text: explain every detail a careful reader needs, in plain words: what is plotted against what, units and scales (log axes, normalisation, ranges), what each colour, marker, line style or arrow encodes, the values, trends or exceptions to notice, and how this part supports the paper's claim. Say what the image shows, not only what the caption says. Cite the paragraphs that discuss it by writing their [¶N] markers in the text, right after the statement each supports, as in an answer (only markers that exist in the paper), and list their numbers in paragraphs. Use the room: usually 500 to 1,200 characters, the most for a dense panel.
 - A table shown as a figure: a first section on how to read it (what the rows and columns are, the units, what bold, underline or colour marks), then a section for each comparison or result it supports.
-- box: an optional crop of a COMPLETE subfigure or panel, including its axis titles, tick labels, units, panel label, annotations and legend. Enlarge to include shared legends or use no box when context would be cut off. The crop must contain everything the section explains. Never isolate a narrow slice of a plot, a curve crossing or a label when discussing the full result. A single-panel plot usually needs no box: the whole image is already shown and can be opened fullscreen. Coordinates are normalized top-left x,y,width,height, with a little margin and each side at least ${FIGURE_LIMITS.minSide}; at most ${FIGURE_LIMITS.boxes} boxes.
+- box: for a multi-panel figure, include a crop for every panel card and ALWAYS cover all pixels of the original image across those cards, including margins, labels and legends. Overlap is allowed; group multiple panels in one card when needed. Never leave gaps between crops or omit an inconvenient region. Each crop contains a COMPLETE subfigure or panel, including its axis titles, tick labels, units, panel label, annotations and legend. Enlarge or group panels to include shared legends. If you cannot divide the figure without losing context, use the full-figure explanation without crops and state why. The crop must contain everything the section explains. Never isolate a narrow slice of a plot, a curve crossing or a label when discussing the full result. A single-panel plot usually needs no box: the whole image is already shown and can be opened fullscreen. Coordinates are normalized top-left x,y,width,height, with a little margin and each side at least ${FIGURE_LIMITS.minSide}; at most ${FIGURE_LIMITS.boxes} boxes.
 - For comparisons, state the observed relationship (which quantity is larger/lower, the actual numbers only if legible), then what the authors infer from it and why. Separate observation from the authors' interpretation and your inference. For descriptive tables explain the design or categories; never invent a numerical result. A section naming axes or table headers alone is not an explanation of the result.`;
 
 export const FIGURE_SIMPLER_INSTRUCTIONS = `The reader is reading a walkthrough of the attached figure (F1) and asked for one part of it, in the <selected_passage> block, to be explained more simply ("back up a bit"). Explain only that part again, for someone meeting it for the first time: where to look in the image and what is there, in plain words; the background it relies on, each idea briefly (what the axes or quantities mean, why this kind of plot or measure is used, any term the passage takes for granted); then what to notice and why it matters to the paper, with a small concrete example when it helps. Do not walk through the rest of the figure and do not repeat the passage. Cite the paper as usual. Do not use any tool and do not search the web.`;
@@ -81,7 +83,8 @@ Call figure_walkthrough once with exactly one section, that part, even when it i
 - summary: one plain sentence saying what this part shows.`;
 
 export interface FigureBox { x: number; y: number; w: number; h: number }
-export interface FigureSection { label: string; title: string; text: string; paragraphs: number[]; box?: FigureBox }
+export type FigureCardKind = 'panel' | 'concept' | 'related_work';
+export interface FigureSection { kind?: FigureCardKind; label: string; title: string; text: string; paragraphs: number[]; box?: FigureBox }
 export interface FigureWalkthrough { format: typeof FIGURE_FORMAT; summary: string; sections: FigureSection[] }
 
 const scalars = (text: string) => [...text].length;
@@ -125,7 +128,7 @@ export function figureBox(value: unknown): FigureBox | null {
 
 /** The model's figure_walkthrough input, checked and bounded (untrusted: the paper and the image can steer it). Degrades
  * rather than refuses: a section without text is left out, a box that does not fit is dropped (the section stays), the
- * first 12 sections and 4 boxes are kept, a [¶N] outside the paper is removed. Null when no section is left.
+ * first 12 sections and 12 boxes are kept, a [¶N] outside the paper is removed. Null when no section is left.
  * `paragraphs` is the paper's block count. */
 export function figureWalkthrough(input: unknown, paragraphs: number): FigureWalkthrough | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
@@ -143,9 +146,10 @@ export function figureWalkthrough(input: unknown, paragraphs: number): FigureWal
     if (!text || !title) continue;
     const given = Array.isArray(s.paragraphs) ? (s.paragraphs as unknown[]).filter((n): n is number => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= paragraphs) : [];
     const numbers = [...new Set([...given, ...cited(text)])].slice(0, FIGURE_LIMITS.paragraphs);
-    const box = boxes < FIGURE_LIMITS.boxes ? figureBox(s.box) : null;
+    const kind = s.kind === 'concept' || s.kind === 'related_work' || s.kind === 'panel' ? s.kind : undefined;
+    const box = (!kind || kind === 'panel') && boxes < FIGURE_LIMITS.boxes ? figureBox(s.box) : null;
     if (box) boxes++;
-    sections.push({ label, title, text, paragraphs: numbers, ...(box ? { box } : {}) });
+    sections.push({ ...(kind ? { kind } : {}), label, title, text, paragraphs: numbers, ...(box ? { box } : {}) });
   }
   if (!sections.length) return null;
   return { format: FIGURE_FORMAT, summary: prose(v.summary, FIGURE_LIMITS.summaryChars, paragraphs), sections };

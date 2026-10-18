@@ -934,8 +934,9 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .contextual-chat .chat-transcript { min-height:0; max-height:55dvh; }
 .contextual-chat .chat-composer { position:sticky; bottom:0; background:var(--surface); }
 .contextual-chat .chat-transcript:empty { display:none; }
-.crop-zoom-controls { display:flex; align-items:center; justify-content:flex-end; gap:4px; font-size:12px; }
-.crop-zoom-controls button { width:32px; height:32px; }
+.crop-zoom-controls { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:4px; font-size:12px; }
+.crop-zoom-controls button { min-height:32px; white-space:nowrap; }
+.crop-zoom-controls .icon-button { width:32px; height:32px; }
 .zoom-crop .figure-crop { margin:0; }
 
 /* Build 70 feedback: occurrence navigation and complete figure inspection. */

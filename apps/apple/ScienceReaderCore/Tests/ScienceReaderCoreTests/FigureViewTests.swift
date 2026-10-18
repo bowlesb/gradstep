@@ -22,7 +22,7 @@ import Testing
         #expect(walkthrough.sections.map(\.name) == ["Left panel", "(b)"])
         #expect(walkthrough.sections[0].paragraphs == [21, 9]); #expect(walkthrough.sections[0].box == nil)
         #expect(walkthrough.sections[1].box == .init(x: 0.5, y: 0, w: 0.5, h: 0.9))
-        // Degrades: no title takes the label, no text drops the section, a bad box drops the box, at most 4 boxes and 12 sections.
+        // Degrades: no title takes the label, no text drops the section, a bad box drops the box, at most 12 boxes and 12 sections.
         let box: [String: Any] = ["x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2]
         var rows: [[String: Any]] = [["label": "Inset", "title": "", "text": "Small print."], ["label": "x", "title": "t", "text": " "],
                                      ["label": "", "title": "Too thin", "text": "t", "box": ["x": 0.1, "y": 0.1, "w": 0.01, "h": 0.5]],
@@ -35,9 +35,40 @@ import Testing
         #expect(messy.sections[0].label.isEmpty && messy.sections[0].title == "Inset")
         #expect(messy.sections[1].title == "Too thin" && messy.sections[1].box == nil)
         #expect(messy.sections[2].box == nil && messy.sections[3].box == nil, "the whole figure and a box outside it are no crops")
-        #expect(messy.sections.compactMap(\.box).count == FigureWalkthrough.maximumBoxes)
+        #expect(messy.sections.compactMap(\.box).count == 8)
         #expect(FigureWalkthrough.validated(Self.json(["format": "figure-walkthrough-v1", "summary": "s", "sections": []])) == nil)
         #expect(FigureWalkthrough.validated(Self.json(["format": "other", "sections": Self.event["sections"]!])) == nil)
+    }
+
+    @Test func pixelCoverageDistinguishesCompleteSplitsFromHolesAndWholeFigureFallback() throws {
+        func walk(_ boxes: [FigureWalkthrough.Box]) -> FigureWalkthrough {
+            .init(summary: "", sections: boxes.map { .init(label: "", title: "Panel", text: "Text", box: $0) })
+        }
+        let grid = [0.0, 0.5].flatMap { y in [0.0, 1.0/3, 2.0/3].map { x in
+            FigureWalkthrough.Box(x: x, y: y, w: 1.0/3, h: 0.5)
+        } }
+        #expect(walk(grid).cropCoverage(width: 1001, height: 503) == 1)
+        #expect(walk(grid + [.init(x: 0.2, y: 0.2, w: 0.1, h: 0.1)]).cropCoverage(width: 1001, height: 503) == 1)
+        let partial: [FigureWalkthrough.Box] = [.init(x: 0, y: 0, w: 0.7, h: 0.8), .init(x: 0.3, y: 0, w: 0.7, h: 0.8)]
+        #expect(try #require(walk(partial).cropCoverage(width: 1001, height: 503)) < 0.83)
+        let hole: [FigureWalkthrough.Box] = [.init(x: 0, y: 0, w: 0.4, h: 1), .init(x: 0.6, y: 0, w: 0.4, h: 1),
+            .init(x: 0, y: 0, w: 1, h: 0.4), .init(x: 0, y: 0.6, w: 1, h: 0.4)]
+        #expect(try #require(walk(hole).cropCoverage(width: 1001, height: 503)) < 1)
+        #expect(walk([]).cropCoverage(width: 1001, height: 503) == nil)
+        #expect(walk([.init(x: 0, y: 0, w: 1, h: 1)]).cropCoverage(width: 1001, height: 503) == nil)
+    }
+
+    @Test func cardKindsAreAdditiveAndDoNotCropNonPanelCards() throws {
+        let row: [String: Any] = ["label": "", "title": "Prior method", "text": "This paper describes it.",
+            "paragraphs": [2], "box": ["x": 0, "y": 0, "w": 0.5, "h": 1]]
+        let rows = ["concept", "related_work", "future"].map { kind in row.merging(["kind": kind]) { _, new in new } } + [row]
+        let walk = try #require(FigureWalkthrough.validated(Self.json(["format": FigureWalkthrough.format, "sections": rows])))
+        #expect(walk.sections.map(\.typeLabel) == ["Concept", "Related work", "Panel", "Panel"])
+        #expect(walk.sections.map { $0.box != nil } == [false, false, true, true])
+        let old = try JSONDecoder().decode(FigureWalkthrough.Section.self, from: Self.json(row))
+        #expect(old.cardKind == .panel)
+        let restored = try JSONDecoder().decode(FigureWalkthrough.self, from: JSONEncoder().encode(walk))
+        #expect(restored == walk)
     }
 
     @Test func theStreamCarriesTheWalkthroughAndIgnoresAnUnusableOne() throws {
