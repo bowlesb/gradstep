@@ -1,18 +1,33 @@
 # Implementation status
 
-## Owner GPU subfigure training — 2026-10-18 (research; not released)
+## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 
 Fine-tuning is running in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real
 corpus contains 1,846 figures from 398 papers, with 235 figures/60 papers reserved for an unscored final test.
 The fresh-start/spatial-variation run finds 284/297 panels on 89 compound validation figures at IoU .75, with
 8 false crops (95.62% recall, 97.26% precision). Across all 297 validation figures, precision is only 89.76%
 because single figures are also falsely split. Shared context and some panel letters remain incomplete; no
-model meets the acceptance gates. The next run uses 1,314 real training figures plus 384 rendered plots and
-384 composites made only from training images. Offline Mac OCR, containment loss and generated shared context
+model meets the acceptance gates. Composite augmentation and a natural-sampling run did not improve quality.
+A learned single/compound gate improves all-figure precision to 92.51%, still short of the target. Offline Mac
+OCR, containment loss and generated shared context
 have not qualified a model. An earlier trained checkpoint passes FP32 Core ML parity on seven development
 figures; this is not crop-quality acceptance. Source rights/annotation review, final test and full Mac runtime
 acceptance remain open. No application source, catalogue or deployment changed. Dataset, training, cost and
 evidence details: [Subfigure training](reviews/SUBFIGURE_TRAINING_20261018.md).
+
+The owner's PDF-saving service was found: `gradstep-acquire.service` in `/home/ben/mathpix` on the same host,
+with 17,372 arXiv PDFs and 525 PMC PDFs. That folder/service remains unchanged by this work. A verified 12-paper,
+69 MiB sample was copied to the Mac; PDF parsing/rendering stayed local. Automatic figure labels exposed clipped
+and contaminated candidates. The first development annotation batch has 30 training figures and 16 validation
+figures from separate papers, with explicit shared-context relationships and checked duplicate/author boundaries.
+These are Codex visual annotations, not independent human review. Only extracted images/annotations went to the
+GPU workspace. The original 235-image final test remains byte-identical and unscored.
+
+The prior model gets only 32/38 panels with 6 false crops on these new validation papers at threshold .6; shared
+context remains poor. `mathpix-v11-fresh` completed on the combined 1,728-image dataset but regressed: 29/38 new
+panels with 8 false crops, and worse original-cohort results. It is rejected. `mathpix-v12-gentle` is a bounded,
+lower-learning-rate adaptation of the earlier best checkpoint with a frozen backbone. The same validation
+cohorts/annotations remain fixed. No new provider/API spend.
 
 
 ## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed

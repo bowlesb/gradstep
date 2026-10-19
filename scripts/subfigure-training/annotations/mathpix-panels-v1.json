@@ -1,0 +1,2783 @@
+{
+  "version": 1,
+  "candidate_manifest_sha256": "c0ebbef5f3ddb1eb7f6710d0e2df4260a7a563e120b671013c26f66681f085f9",
+  "annotator": "Codex visual inspection, 2026-10-19 UTC",
+  "independent_human_review": false,
+  "status": "Development annotations; not an independent quality qualification",
+  "coordinate_system": "candidate raster pixels, xyxy; crop and all boxes refer to original candidate, before translation",
+  "policy": "Independent plots/comparison images are panels; connected workflows remain whole; nested insets stay with their panel. Required shared labels/legends are explicit. Candidate labels are not adopted automatically. Selection precedes model inference. Difficult/deferred candidates stay in review queue.",
+  "records": [
+    {
+      "id": "2602.10863v2-f0000",
+      "candidate_sha256": "aa019c16a12148cb6139ab702e0b279de58addf9bed48ada57b5428ddae1a878",
+      "crop": [
+        45,
+        65,
+        965,
+        484
+      ],
+      "panels": [
+        {
+          "box": [
+            45,
+            65,
+            965,
+            484
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected end-to-end framework; keep interactions and legend together. Remove caption fragments/margins."
+    },
+    {
+      "id": "2602.10863v2-f0004",
+      "candidate_sha256": "d2d180a2bcbfb939431332a0fc9cd6363d55b4dffca0f5484a6d01041e33c476",
+      "crop": [
+        0,
+        0,
+        916,
+        271
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            308,
+            227
+          ],
+          "required": [
+            "legend"
+          ]
+        },
+        {
+          "box": [
+            309,
+            0,
+            611,
+            227
+          ],
+          "required": [
+            "legend"
+          ]
+        },
+        {
+          "box": [
+            612,
+            0,
+            916,
+            227
+          ],
+          "required": [
+            "legend"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "legend",
+          "class": 0,
+          "box": [
+            369,
+            239,
+            548,
+            266
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2609.23026v1-f0003",
+      "candidate_sha256": "4045affa32f0615813e053a819c490e1b10bcd258f2026e3123b86d1b801b49b",
+      "crop": [
+        0,
+        0,
+        388,
+        345
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            388,
+            345
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "One complete line plot, including its legend."
+    },
+    {
+      "id": "2609.23026v1-f0004",
+      "candidate_sha256": "8bf7d68129735067786c42cb8400389bb855fecebe90e5756f1ed191287e3ab8",
+      "crop": [
+        0,
+        0,
+        389,
+        345
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            389,
+            345
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "One complete line plot, including its legend."
+    },
+    {
+      "id": "2609.23026v1-f0005",
+      "candidate_sha256": "de362f24c26f4a410ad0648f2b8b7e2704d27b0e0b1ed0e2c99ebf6c7a19db66",
+      "crop": [
+        0,
+        0,
+        460,
+        185
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            231,
+            185
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            234,
+            0,
+            460,
+            185
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": ""
+    },
+    {
+      "id": "2609.23026v1-f0001",
+      "candidate_sha256": "ad3b6e12d927c0e2352682137a0f3d925cc4aa1e18139faf298e660f8cfb86c5",
+      "crop": [
+        0,
+        0,
+        994,
+        598
+      ],
+      "panels": [
+        {
+          "box": [
+            100,
+            43,
+            240,
+            181
+          ],
+          "required": [
+            "column-0",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            258,
+            43,
+            398,
+            181
+          ],
+          "required": [
+            "column-1",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            399,
+            43,
+            537,
+            181
+          ],
+          "required": [
+            "column-2",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            539,
+            43,
+            680,
+            181
+          ],
+          "required": [
+            "column-3",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            680,
+            43,
+            823,
+            181
+          ],
+          "required": [
+            "column-4",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            823,
+            43,
+            967,
+            181
+          ],
+          "required": [
+            "column-5",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            100,
+            182,
+            240,
+            318
+          ],
+          "required": [
+            "column-0",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            258,
+            182,
+            398,
+            318
+          ],
+          "required": [
+            "column-1",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            399,
+            182,
+            537,
+            318
+          ],
+          "required": [
+            "column-2",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            539,
+            182,
+            680,
+            318
+          ],
+          "required": [
+            "column-3",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            680,
+            182,
+            823,
+            318
+          ],
+          "required": [
+            "column-4",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            823,
+            182,
+            967,
+            318
+          ],
+          "required": [
+            "column-5",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            100,
+            319,
+            240,
+            456
+          ],
+          "required": [
+            "column-0",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            258,
+            319,
+            398,
+            456
+          ],
+          "required": [
+            "column-1",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            399,
+            319,
+            537,
+            456
+          ],
+          "required": [
+            "column-2",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            539,
+            319,
+            680,
+            456
+          ],
+          "required": [
+            "column-3",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            680,
+            319,
+            823,
+            456
+          ],
+          "required": [
+            "column-4",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            823,
+            319,
+            967,
+            456
+          ],
+          "required": [
+            "column-5",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            100,
+            456,
+            240,
+            596
+          ],
+          "required": [
+            "column-0",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            258,
+            456,
+            398,
+            596
+          ],
+          "required": [
+            "column-1",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            399,
+            456,
+            537,
+            596
+          ],
+          "required": [
+            "column-2",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            539,
+            456,
+            680,
+            596
+          ],
+          "required": [
+            "column-3",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            680,
+            456,
+            823,
+            596
+          ],
+          "required": [
+            "column-4",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            823,
+            456,
+            967,
+            596
+          ],
+          "required": [
+            "column-5",
+            "row-3"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "column-0",
+          "class": 1,
+          "box": [
+            100,
+            6,
+            240,
+            37
+          ]
+        },
+        {
+          "id": "column-1",
+          "class": 1,
+          "box": [
+            258,
+            6,
+            398,
+            37
+          ]
+        },
+        {
+          "id": "column-2",
+          "class": 1,
+          "box": [
+            399,
+            6,
+            537,
+            37
+          ]
+        },
+        {
+          "id": "column-3",
+          "class": 1,
+          "box": [
+            539,
+            6,
+            680,
+            37
+          ]
+        },
+        {
+          "id": "column-4",
+          "class": 1,
+          "box": [
+            680,
+            6,
+            823,
+            37
+          ]
+        },
+        {
+          "id": "column-5",
+          "class": 1,
+          "box": [
+            823,
+            6,
+            967,
+            37
+          ]
+        },
+        {
+          "id": "row-0",
+          "class": 1,
+          "box": [
+            3,
+            43,
+            96,
+            181
+          ]
+        },
+        {
+          "id": "row-1",
+          "class": 1,
+          "box": [
+            3,
+            182,
+            96,
+            318
+          ]
+        },
+        {
+          "id": "row-2",
+          "class": 1,
+          "box": [
+            3,
+            319,
+            96,
+            456
+          ]
+        },
+        {
+          "id": "row-3",
+          "class": 1,
+          "box": [
+            3,
+            456,
+            96,
+            596
+          ]
+        }
+      ],
+      "review_note": "24 comparisons; each magnified inset stays with its parent image. Column method and row dataset names are required."
+    },
+    {
+      "id": "2610.18690v1-f0000",
+      "candidate_sha256": "1e7413162f7d237240aa188b9d54fc338b6a41e49d09582def7319aa30f11495",
+      "crop": [
+        45,
+        220,
+        486,
+        679
+      ],
+      "panels": [
+        {
+          "box": [
+            45,
+            220,
+            486,
+            679
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Remove author/affiliation text; preserve radar plot, ticks and complete legend."
+    },
+    {
+      "id": "2610.18690v1-f0001",
+      "candidate_sha256": "04ab6afdfe31b21d80423250282a7e38b63e14758d547ecf7b805c8847253c64",
+      "crop": [
+        0,
+        0,
+        999,
+        245
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            999,
+            245
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected model pipeline, not independent object crops."
+    },
+    {
+      "id": "2610.18690v1-f0004",
+      "candidate_sha256": "07b817dcfbe6e3281c521943d50d19d2e15e773872dbf5e6c652e3cdbaea68d4",
+      "crop": [
+        0,
+        0,
+        482,
+        324
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            482,
+            324
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "One connected classification diagram; keep nested regions and bottom legend."
+    },
+    {
+      "id": "2610.18690v1-f0006",
+      "candidate_sha256": "c90e1ddc54d3f75634729b3e51598ddbb7c05571155b60dcddb4ba0a4c51b23d",
+      "crop": [
+        0,
+        0,
+        999,
+        356
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            345,
+            294
+          ],
+          "required": [
+            "legend",
+            "vertical-label"
+          ]
+        },
+        {
+          "box": [
+            352,
+            0,
+            670,
+            294
+          ],
+          "required": [
+            "legend",
+            "vertical-label"
+          ]
+        },
+        {
+          "box": [
+            680,
+            0,
+            999,
+            294
+          ],
+          "required": [
+            "legend",
+            "vertical-label"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "legend",
+          "class": 0,
+          "box": [
+            175,
+            309,
+            825,
+            351
+          ]
+        },
+        {
+          "id": "vertical-label",
+          "class": 3,
+          "box": [
+            5,
+            43,
+            27,
+            242
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2607.05915v4-f0002",
+      "candidate_sha256": "30fe80de77dba138a983c27e8c05940e2e24cf2dc25295c175124ecb88f8f8f9",
+      "crop": [
+        0,
+        0,
+        916,
+        264
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            916,
+            264
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected state/action diagram. Arrows establish a single interaction; preserve the complete diagram."
+    },
+    {
+      "id": "2607.05915v4-f0003",
+      "candidate_sha256": "43acda72785acb0c2ee2c737e7a2e2785d83c19fb09360fc7533e0a3a6f2ea32",
+      "crop": [
+        0,
+        0,
+        816,
+        204
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            816,
+            204
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected state/action diagram. Arrows establish a single interaction; preserve the complete diagram."
+    },
+    {
+      "id": "2607.05915v4-f0018",
+      "candidate_sha256": "f9b3628ec3c6c12a17a68106acd6b65e2863c0a818480ac8ed80311b5fae1c7c",
+      "crop": [
+        0,
+        0,
+        734,
+        185
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            734,
+            185
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected state/action diagram. Arrows establish a single interaction; preserve the complete diagram."
+    },
+    {
+      "id": "2607.05915v4-f0020",
+      "candidate_sha256": "83e94d466d92fa496c8f520a9279f864ef35473b82224e508bac2f74f8d0db8d",
+      "crop": [
+        0,
+        0,
+        734,
+        185
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            734,
+            185
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected state/action diagram. Arrows establish a single interaction; preserve the complete diagram."
+    },
+    {
+      "id": "2607.05915v4-f0024",
+      "candidate_sha256": "1ced6171e1d580fa9e610f20f9b62a80998a47a160c9c39022b10d9ca72b131b",
+      "crop": [
+        0,
+        0,
+        734,
+        185
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            734,
+            185
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected state/action diagram. Arrows establish a single interaction; preserve the complete diagram."
+    },
+    {
+      "id": "2607.05915v4-f0027",
+      "candidate_sha256": "1e1c9eeeca4e249845f8fb1a9970bb763c161429e3f78096390c3d89e941130f",
+      "crop": [
+        0,
+        0,
+        734,
+        185
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            734,
+            185
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected state/action diagram. Arrows establish a single interaction; preserve the complete diagram."
+    },
+    {
+      "id": "2607.05915v4-f0031",
+      "candidate_sha256": "666cd99a740357ca5754d1d23755c36af6b9bcfb8fa8b75ca15be0007c26f1bb",
+      "crop": [
+        0,
+        0,
+        1018,
+        445
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            1018,
+            445
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single framed prompt illustration, not separate text-line panels."
+    },
+    {
+      "id": "2607.05915v4-f0032",
+      "candidate_sha256": "ba7a915fa60d07ce0171274badc8bd0663a5b428c84dfd1df1ebc5328a598380",
+      "crop": [
+        0,
+        0,
+        1018,
+        284
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            1018,
+            284
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single framed prompt illustration, not separate text-line panels."
+    },
+    {
+      "id": "2607.05915v4-f0033",
+      "candidate_sha256": "6fc7b8ab7746af22f6f1c9cfbf500be5e03fe2e4f80f50b2170b998e626b6b9a",
+      "crop": [
+        0,
+        0,
+        1018,
+        86
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            1018,
+            86
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single framed prompt illustration, not separate text-line panels."
+    },
+    {
+      "id": "2607.05915v4-f0037",
+      "candidate_sha256": "e72d10fdc4792bb87d318ee26f13ece6182b2e27658024e3021c9bc3e9624070",
+      "crop": [
+        0,
+        0,
+        716,
+        362
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            716,
+            362
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single histogram with its internal legend and threshold annotations."
+    },
+    {
+      "id": "2607.05915v4-f0012",
+      "candidate_sha256": "ded97838dce69662fe4980e1882c716e6045662c1eab161ee81accad855d9197",
+      "crop": [
+        0,
+        0,
+        896,
+        372
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            28,
+            165,
+            146
+          ],
+          "required": [
+            "column-0"
+          ]
+        },
+        {
+          "box": [
+            177,
+            28,
+            343,
+            146
+          ],
+          "required": [
+            "column-1"
+          ]
+        },
+        {
+          "box": [
+            355,
+            28,
+            522,
+            146
+          ],
+          "required": [
+            "column-2"
+          ]
+        },
+        {
+          "box": [
+            534,
+            28,
+            702,
+            146
+          ],
+          "required": [
+            "column-3"
+          ]
+        },
+        {
+          "box": [
+            711,
+            28,
+            884,
+            146
+          ],
+          "required": [
+            "column-4"
+          ]
+        },
+        {
+          "box": [
+            0,
+            149,
+            165,
+            269
+          ],
+          "required": [
+            "column-0"
+          ]
+        },
+        {
+          "box": [
+            177,
+            149,
+            343,
+            269
+          ],
+          "required": [
+            "column-1"
+          ]
+        },
+        {
+          "box": [
+            355,
+            149,
+            522,
+            269
+          ],
+          "required": [
+            "column-2"
+          ]
+        },
+        {
+          "box": [
+            534,
+            149,
+            702,
+            269
+          ],
+          "required": [
+            "column-3"
+          ]
+        },
+        {
+          "box": [
+            711,
+            149,
+            884,
+            269
+          ],
+          "required": [
+            "column-4"
+          ]
+        },
+        {
+          "box": [
+            0,
+            271,
+            165,
+            371
+          ],
+          "required": [
+            "column-0"
+          ]
+        },
+        {
+          "box": [
+            177,
+            271,
+            343,
+            371
+          ],
+          "required": [
+            "column-1"
+          ]
+        },
+        {
+          "box": [
+            355,
+            271,
+            522,
+            371
+          ],
+          "required": [
+            "column-2"
+          ]
+        },
+        {
+          "box": [
+            534,
+            271,
+            702,
+            371
+          ],
+          "required": [
+            "column-3"
+          ]
+        },
+        {
+          "box": [
+            711,
+            271,
+            884,
+            371
+          ],
+          "required": [
+            "column-4"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "column-0",
+          "class": 1,
+          "box": [
+            0,
+            5,
+            165,
+            27
+          ]
+        },
+        {
+          "id": "column-1",
+          "class": 1,
+          "box": [
+            177,
+            5,
+            343,
+            27
+          ]
+        },
+        {
+          "id": "column-2",
+          "class": 1,
+          "box": [
+            355,
+            5,
+            522,
+            27
+          ]
+        },
+        {
+          "id": "column-3",
+          "class": 1,
+          "box": [
+            534,
+            5,
+            702,
+            27
+          ]
+        },
+        {
+          "id": "column-4",
+          "class": 1,
+          "box": [
+            711,
+            5,
+            884,
+            27
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2607.05915v4-f0030",
+      "candidate_sha256": "a68060ead57e248cc91c1cf2768178a55f981a9cc818df0c385caab23e5ea2f8",
+      "crop": [
+        0,
+        0,
+        1018,
+        652
+      ],
+      "panels": [
+        {
+          "box": [
+            4,
+            36,
+            346,
+            205
+          ],
+          "required": [
+            "column-0",
+            "row-0",
+            "x-0"
+          ]
+        },
+        {
+          "box": [
+            353,
+            36,
+            677,
+            205
+          ],
+          "required": [
+            "column-1",
+            "row-0",
+            "x-1"
+          ]
+        },
+        {
+          "box": [
+            691,
+            36,
+            1018,
+            205
+          ],
+          "required": [
+            "column-2",
+            "row-0",
+            "x-2"
+          ]
+        },
+        {
+          "box": [
+            4,
+            230,
+            346,
+            404
+          ],
+          "required": [
+            "column-0",
+            "row-1",
+            "x-0"
+          ]
+        },
+        {
+          "box": [
+            353,
+            230,
+            677,
+            404
+          ],
+          "required": [
+            "column-1",
+            "row-1",
+            "x-1"
+          ]
+        },
+        {
+          "box": [
+            691,
+            230,
+            1018,
+            404
+          ],
+          "required": [
+            "column-2",
+            "row-1",
+            "x-2"
+          ]
+        },
+        {
+          "box": [
+            4,
+            430,
+            346,
+            646
+          ],
+          "required": [
+            "column-0",
+            "row-2",
+            "x-0"
+          ]
+        },
+        {
+          "box": [
+            353,
+            430,
+            677,
+            646
+          ],
+          "required": [
+            "column-1",
+            "row-2",
+            "x-1"
+          ]
+        },
+        {
+          "box": [
+            691,
+            430,
+            1018,
+            646
+          ],
+          "required": [
+            "column-2",
+            "row-2",
+            "x-2"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "column-0",
+          "class": 1,
+          "box": [
+            4,
+            5,
+            346,
+            36
+          ]
+        },
+        {
+          "id": "column-1",
+          "class": 1,
+          "box": [
+            353,
+            5,
+            677,
+            36
+          ]
+        },
+        {
+          "id": "column-2",
+          "class": 1,
+          "box": [
+            691,
+            5,
+            1018,
+            36
+          ]
+        },
+        {
+          "id": "row-0",
+          "class": 3,
+          "box": [
+            10,
+            87,
+            53,
+            166
+          ]
+        },
+        {
+          "id": "row-1",
+          "class": 3,
+          "box": [
+            10,
+            285,
+            53,
+            349
+          ]
+        },
+        {
+          "id": "row-2",
+          "class": 3,
+          "box": [
+            10,
+            483,
+            53,
+            560
+          ]
+        },
+        {
+          "id": "x-0",
+          "class": 2,
+          "box": [
+            4,
+            610,
+            346,
+            642
+          ]
+        },
+        {
+          "id": "x-1",
+          "class": 2,
+          "box": [
+            353,
+            610,
+            677,
+            642
+          ]
+        },
+        {
+          "id": "x-2",
+          "class": 2,
+          "box": [
+            691,
+            610,
+            1018,
+            642
+          ]
+        }
+      ],
+      "review_note": "Nine plots; method headings, row metric names and step-axis labels remain shared context."
+    },
+    {
+      "id": "2608.11994v1-f0000",
+      "candidate_sha256": "16f2938cd77a9c7159d0b9f4c64a3d33db117b862f2e2b59b2bcaf446e142df7",
+      "crop": [
+        0,
+        80,
+        800,
+        415
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            80,
+            800,
+            415
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "One connected explanation. Remove page running header/rule."
+    },
+    {
+      "id": "2608.11994v1-f0001",
+      "candidate_sha256": "d6fd8d832772fedce8df0ae7975d82015fcc12e53c6af51dd17f52c07e8b592f",
+      "crop": [
+        86,
+        87,
+        708,
+        305
+      ],
+      "panels": [
+        {
+          "box": [
+            86,
+            87,
+            708,
+            305
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "One plot with all four legend entries; remove page header."
+    },
+    {
+      "id": "2608.11994v1-f0002",
+      "candidate_sha256": "af8f77e0b1f17a0424dd18e6b2a1032b9be8338ade2cf709d8faf563967bb550",
+      "crop": [
+        0,
+        85,
+        801,
+        720
+      ],
+      "panels": [
+        {
+          "box": [
+            20,
+            126,
+            218,
+            282
+          ],
+          "required": [
+            "legend",
+            "column-0",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            229,
+            126,
+            412,
+            282
+          ],
+          "required": [
+            "legend",
+            "column-1",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            425,
+            126,
+            609,
+            282
+          ],
+          "required": [
+            "legend",
+            "column-2",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            624,
+            126,
+            801,
+            282
+          ],
+          "required": [
+            "legend",
+            "column-3",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            20,
+            285,
+            218,
+            425
+          ],
+          "required": [
+            "legend",
+            "column-0",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            229,
+            285,
+            412,
+            425
+          ],
+          "required": [
+            "legend",
+            "column-1",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            425,
+            285,
+            609,
+            425
+          ],
+          "required": [
+            "legend",
+            "column-2",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            624,
+            285,
+            801,
+            425
+          ],
+          "required": [
+            "legend",
+            "column-3",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            20,
+            427,
+            218,
+            567
+          ],
+          "required": [
+            "legend",
+            "column-0",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            229,
+            427,
+            412,
+            567
+          ],
+          "required": [
+            "legend",
+            "column-1",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            425,
+            427,
+            609,
+            567
+          ],
+          "required": [
+            "legend",
+            "column-2",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            624,
+            427,
+            801,
+            567
+          ],
+          "required": [
+            "legend",
+            "column-3",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            20,
+            568,
+            218,
+            720
+          ],
+          "required": [
+            "legend",
+            "column-0",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            229,
+            568,
+            412,
+            720
+          ],
+          "required": [
+            "legend",
+            "column-1",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            425,
+            568,
+            609,
+            720
+          ],
+          "required": [
+            "legend",
+            "column-2",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            624,
+            568,
+            801,
+            720
+          ],
+          "required": [
+            "legend",
+            "column-3",
+            "row-3"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "legend",
+          "class": 0,
+          "box": [
+            292,
+            89,
+            513,
+            111
+          ]
+        },
+        {
+          "id": "column-0",
+          "class": 1,
+          "box": [
+            20,
+            125,
+            218,
+            146
+          ]
+        },
+        {
+          "id": "column-1",
+          "class": 1,
+          "box": [
+            229,
+            125,
+            412,
+            146
+          ]
+        },
+        {
+          "id": "column-2",
+          "class": 1,
+          "box": [
+            425,
+            125,
+            609,
+            146
+          ]
+        },
+        {
+          "id": "column-3",
+          "class": 1,
+          "box": [
+            624,
+            125,
+            801,
+            146
+          ]
+        },
+        {
+          "id": "row-0",
+          "class": 1,
+          "box": [
+            0,
+            150,
+            20,
+            265
+          ]
+        },
+        {
+          "id": "row-1",
+          "class": 1,
+          "box": [
+            0,
+            290,
+            20,
+            413
+          ]
+        },
+        {
+          "id": "row-2",
+          "class": 1,
+          "box": [
+            0,
+            433,
+            20,
+            559
+          ]
+        },
+        {
+          "id": "row-3",
+          "class": 1,
+          "box": [
+            0,
+            572,
+            20,
+            689
+          ]
+        }
+      ],
+      "review_note": "16 plot grid; method legend plus column benchmark and row model labels required. Remove running header."
+    },
+    {
+      "id": "2608.23627v1-f0000",
+      "candidate_sha256": "a0df60fe9023d96553053cf0e897dc9a6e52a14b8a955f39de89cb455799a5a6",
+      "crop": [
+        0,
+        0,
+        825,
+        324
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            825,
+            324
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected workflow/taxonomy/flowchart; preserve relationships as one diagram."
+    },
+    {
+      "id": "2608.23627v1-f0001",
+      "candidate_sha256": "873918faa85e15a94d6e9b8fe1cf3637be5b2f369c300bcdb10a4e3c765c1cbb",
+      "crop": [
+        0,
+        0,
+        757,
+        366
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            757,
+            366
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected workflow/taxonomy/flowchart; preserve relationships as one diagram."
+    },
+    {
+      "id": "2608.23627v1-f0002",
+      "candidate_sha256": "c0863fa360545f081eb2d213433c50658c7841ebcc24a90993527aca494c7597",
+      "crop": [
+        0,
+        0,
+        380,
+        401
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            380,
+            401
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected workflow/taxonomy/flowchart; preserve relationships as one diagram."
+    },
+    {
+      "id": "2609.22633v1-f0001",
+      "candidate_sha256": "6a6a9677ca40a1b2b3ed812a1a6d03a8e60326c2b984d613e60952104c7b9861",
+      "crop": [
+        0,
+        0,
+        916,
+        246
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            916,
+            246
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single grouped bar chart, including category/legend labels."
+    },
+    {
+      "id": "2609.22633v1-f0004",
+      "candidate_sha256": "86de732e82b3c6284a7a0d2d96e1628c152f62027f76a0fe753cb330c27bc365",
+      "crop": [
+        0,
+        0,
+        445,
+        399
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            445,
+            399
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single grouped bar chart, including category/legend labels."
+    },
+    {
+      "id": "2609.31632v1-f0000",
+      "candidate_sha256": "f5664805986c034f94affcd459c6ae24b02638372617b5cd5178a0c8cb27ceb5",
+      "crop": [
+        15,
+        10,
+        934,
+        512
+      ],
+      "panels": [
+        {
+          "box": [
+            15,
+            10,
+            934,
+            512
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single scatter plot; remove top border fragment and caption fragments."
+    },
+    {
+      "id": "2609.31632v1-f0002",
+      "candidate_sha256": "17d232757fbdbd0db426401f88f1ceb7b21263184847c2c1d502f6330c148706",
+      "crop": [
+        0,
+        0,
+        856,
+        520
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            856,
+            520
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single Sankey diagram; preserve complete connected flow."
+    },
+    {
+      "id": "2609.31632v1-f0005",
+      "candidate_sha256": "73bae62f21317621332c0f1fe3f03513973bad8ec2a39deb07187eaa0779a1b4",
+      "crop": [
+        0,
+        0,
+        902,
+        568
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            902,
+            568
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single scatter plot and cost axis."
+    },
+    {
+      "id": "2609.31632v1-f0007",
+      "candidate_sha256": "84b9ca018d2bacb0c29f77f6e526d1deb5b21178876b4ac8fb8560c9036b55ab",
+      "crop": [
+        0,
+        0,
+        856,
+        360
+      ],
+      "panels": [
+        {
+          "box": [
+            18,
+            6,
+            386,
+            350
+          ],
+          "required": [
+            "legend",
+            "vertical-label"
+          ]
+        },
+        {
+          "box": [
+            389,
+            6,
+            677,
+            350
+          ],
+          "required": [
+            "legend",
+            "vertical-label"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "legend",
+          "class": 0,
+          "box": [
+            678,
+            97,
+            848,
+            245
+          ]
+        },
+        {
+          "id": "vertical-label",
+          "class": 3,
+          "box": [
+            20,
+            59,
+            44,
+            284
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2609.31632v1-f0015",
+      "candidate_sha256": "161623c7ff8f47020ec0ebff39d5e91b30faa51561da0c1b17c8bfe4f64bd810",
+      "crop": [
+        0,
+        0,
+        950,
+        171
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            950,
+            171
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Reference and predicted intervals share one time axis; keep as one timeline."
+    },
+    {
+      "id": "2609.31632v1-f0017",
+      "candidate_sha256": "df03e7ff04afec8fc5dbcf634e5e9d41e56ae17a84b4e05d7800a7ded9b424b0",
+      "crop": [
+        0,
+        0,
+        950,
+        352
+      ],
+      "panels": [
+        {
+          "box": [
+            8,
+            8,
+            943,
+            151
+          ],
+          "required": [
+            "time-axis"
+          ]
+        },
+        {
+          "box": [
+            8,
+            155,
+            943,
+            339
+          ],
+          "required": [
+            "time-axis"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "time-axis",
+          "class": 2,
+          "box": [
+            71,
+            287,
+            942,
+            339
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2608.01092v1-f0000",
+      "candidate_sha256": "b18c016786e4614868f5b9ab5d5e6748359060288c6c0ced7955105e24c96d72",
+      "crop": [
+        0,
+        0,
+        463,
+        362
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            463,
+            362
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected geometry/framework diagram; one complete region."
+    },
+    {
+      "id": "2608.01092v1-f0001",
+      "candidate_sha256": "ff1edd2e9051db0ad7698ac0cdfe379500b8ef684032e3f62c9b6eb41715b34d",
+      "crop": [
+        0,
+        0,
+        916,
+        341
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            916,
+            341
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Connected geometry/framework diagram; one complete region."
+    },
+    {
+      "id": "2608.01092v1-f0003",
+      "candidate_sha256": "7a70a99e48d6f047f560c12fe3c5d6aa8cbfa9acc6acc85ca49a10e71b5534b7",
+      "crop": [
+        0,
+        0,
+        486,
+        341
+      ],
+      "panels": [
+        {
+          "box": [
+            4,
+            3,
+            266,
+            157
+          ],
+          "required": [
+            "legend",
+            "row-top"
+          ]
+        },
+        {
+          "box": [
+            278,
+            3,
+            479,
+            157
+          ],
+          "required": [
+            "legend",
+            "row-top"
+          ]
+        },
+        {
+          "box": [
+            4,
+            162,
+            266,
+            314
+          ],
+          "required": [
+            "legend",
+            "row-bottom"
+          ]
+        },
+        {
+          "box": [
+            278,
+            162,
+            479,
+            314
+          ],
+          "required": [
+            "legend",
+            "row-bottom"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "legend",
+          "class": 0,
+          "box": [
+            113,
+            315,
+            408,
+            334
+          ]
+        },
+        {
+          "id": "row-top",
+          "class": 3,
+          "box": [
+            6,
+            24,
+            82,
+            137
+          ]
+        },
+        {
+          "id": "row-bottom",
+          "class": 3,
+          "box": [
+            6,
+            183,
+            82,
+            296
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2608.01092v1-f0004",
+      "candidate_sha256": "a6a0d1e4a809a4fae71b709622f9df1edbbdf634b901ec6412f6c5926c2a2ec6",
+      "crop": [
+        0,
+        0,
+        463,
+        175
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            235,
+            175
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            237,
+            0,
+            463,
+            175
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two structural views; retain each view\u2019s overlaid residue labels and split name."
+    },
+    {
+      "id": "2608.01092v1-f0005",
+      "candidate_sha256": "4b74814fa1a203b3977c41af5b4c7da5fea6e86f6c3743975829cbbecd6295e3",
+      "crop": [
+        0,
+        0,
+        485,
+        338
+      ],
+      "panels": [
+        {
+          "box": [
+            1,
+            0,
+            245,
+            163
+          ],
+          "required": [
+            "legend"
+          ]
+        },
+        {
+          "box": [
+            249,
+            0,
+            485,
+            163
+          ],
+          "required": [
+            "legend"
+          ]
+        },
+        {
+          "box": [
+            1,
+            163,
+            245,
+            320
+          ],
+          "required": [
+            "legend"
+          ]
+        },
+        {
+          "box": [
+            249,
+            163,
+            485,
+            320
+          ],
+          "required": [
+            "legend"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "legend",
+          "class": 0,
+          "box": [
+            183,
+            318,
+            300,
+            334
+          ]
+        }
+      ],
+      "review_note": ""
+    },
+    {
+      "id": "2607.06540v4-f0000",
+      "candidate_sha256": "e2c4bb69ba69c1f141c2742dc2adc9276d8dd33ddf8ee7092d9d241693031ae9",
+      "crop": [
+        0,
+        0,
+        415,
+        309
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            415,
+            309
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Single cost/accuracy plot including in-plot model labels and legend."
+    },
+    {
+      "id": "2607.06540v4-f0001",
+      "candidate_sha256": "f6ef0fcc2343aacbce019a6e2d73553bb6abdf028e8c762ee1f6db686823e91f",
+      "crop": [
+        0,
+        0,
+        872,
+        374
+      ],
+      "panels": [
+        {
+          "box": [
+            3,
+            92,
+            424,
+            371
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            450,
+            23,
+            872,
+            371
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two plots; left begins lower on page but all its axes and annotations are retained."
+    },
+    {
+      "id": "2607.06540v4-f0008",
+      "candidate_sha256": "ab684b6c2b8f0d6dbd73319290c374ba6c0312e02545ebaadbb268f96c320948",
+      "crop": [
+        0,
+        0,
+        985,
+        555
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            985,
+            555
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "One connected conversation/time illustration; no independent waveform panels."
+    },
+    {
+      "id": "2607.06540v4-f0010",
+      "candidate_sha256": "e7a0126452a6afa81c13faa622012df88942164bbc18c68e2e3ed7dbd75164d2",
+      "crop": [
+        0,
+        0,
+        872,
+        357
+      ],
+      "panels": [
+        {
+          "box": [
+            4,
+            0,
+            350,
+            351
+          ],
+          "required": [
+            "scale"
+          ]
+        },
+        {
+          "box": [
+            355,
+            62,
+            756,
+            351
+          ],
+          "required": [
+            "scale",
+            "right-heading"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "scale",
+          "class": 0,
+          "box": [
+            780,
+            66,
+            867,
+            325
+          ]
+        },
+        {
+          "id": "right-heading",
+          "class": 1,
+          "box": [
+            353,
+            0,
+            838,
+            61
+          ]
+        }
+      ],
+      "review_note": "Two heatmaps. The long right heading extends beyond its grid: keep it as required shared context rather than cutting the title. Both require the common color scale."
+    },
+    {
+      "id": "2609.26731v1-f0002",
+      "candidate_sha256": "efda90369900928dd94979ab8a75108901fb8c297a4e5560f66c7dd36a02a6c1",
+      "crop": [
+        0,
+        0,
+        477,
+        332
+      ],
+      "panels": [
+        {
+          "box": [
+            32,
+            24,
+            176,
+            101
+          ],
+          "required": [
+            "column-0",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            181,
+            24,
+            324,
+            101
+          ],
+          "required": [
+            "column-1",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            329,
+            24,
+            475,
+            101
+          ],
+          "required": [
+            "column-2",
+            "row-0"
+          ]
+        },
+        {
+          "box": [
+            32,
+            101,
+            176,
+            177
+          ],
+          "required": [
+            "column-0",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            181,
+            101,
+            324,
+            177
+          ],
+          "required": [
+            "column-1",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            329,
+            101,
+            475,
+            177
+          ],
+          "required": [
+            "column-2",
+            "row-1"
+          ]
+        },
+        {
+          "box": [
+            32,
+            177,
+            176,
+            251
+          ],
+          "required": [
+            "column-0",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            181,
+            177,
+            324,
+            251
+          ],
+          "required": [
+            "column-1",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            329,
+            177,
+            475,
+            251
+          ],
+          "required": [
+            "column-2",
+            "row-2"
+          ]
+        },
+        {
+          "box": [
+            32,
+            251,
+            176,
+            329
+          ],
+          "required": [
+            "column-0",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            181,
+            251,
+            324,
+            329
+          ],
+          "required": [
+            "column-1",
+            "row-3"
+          ]
+        },
+        {
+          "box": [
+            329,
+            251,
+            475,
+            329
+          ],
+          "required": [
+            "column-2",
+            "row-3"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "column-0",
+          "class": 1,
+          "box": [
+            32,
+            0,
+            176,
+            24
+          ]
+        },
+        {
+          "id": "column-1",
+          "class": 1,
+          "box": [
+            181,
+            0,
+            324,
+            24
+          ]
+        },
+        {
+          "id": "column-2",
+          "class": 1,
+          "box": [
+            329,
+            0,
+            475,
+            24
+          ]
+        },
+        {
+          "id": "row-0",
+          "class": 1,
+          "box": [
+            0,
+            24,
+            29,
+            101
+          ]
+        },
+        {
+          "id": "row-1",
+          "class": 1,
+          "box": [
+            0,
+            101,
+            29,
+            177
+          ]
+        },
+        {
+          "id": "row-2",
+          "class": 1,
+          "box": [
+            0,
+            177,
+            29,
+            251
+          ]
+        },
+        {
+          "id": "row-3",
+          "class": 1,
+          "box": [
+            0,
+            251,
+            29,
+            329
+          ]
+        }
+      ],
+      "review_note": "12 component comparisons; FFT inset/composite stays within each component card. Shared method/component labels required."
+    }
+  ],
+  "deferred_root_candidates": [
+    {
+      "id": "2602.10863v2-f0001",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.31632v1-f0001",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.31632v1-f0006",
+      "reason": "Candidate visibly truncates figure content or axes; cannot use as whole-figure truth."
+    },
+    {
+      "id": "2609.23026v1-f0000",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.23026v1-f0002",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2610.18690v1-f0003",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2610.18690v1-f0005",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2610.18690v1-f0007",
+      "reason": "Candidate mixes adjacent figure/body/table content; requires a corrected source-page extraction."
+    },
+    {
+      "id": "2610.18690v1-f0008",
+      "reason": "Candidate mixes adjacent figure/body/table content; requires a corrected source-page extraction."
+    },
+    {
+      "id": "2609.26731v1-f0000",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.26731v1-f0001",
+      "reason": "Candidate visibly truncates figure content or axes; cannot use as whole-figure truth."
+    },
+    {
+      "id": "2609.26731v1-f0003",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2607.05915v4-f0004",
+      "reason": "Candidate visibly truncates figure content or axes; cannot use as whole-figure truth."
+    },
+    {
+      "id": "2607.05915v4-f0021",
+      "reason": "Candidate mixes adjacent figure/body/table content; requires a corrected source-page extraction."
+    },
+    {
+      "id": "2608.01092v1-f0002",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.22633v1-f0000",
+      "reason": "Candidate visibly truncates figure content or axes; cannot use as whole-figure truth."
+    },
+    {
+      "id": "2609.22633v1-f0002",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.22633v1-f0003",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.22633v1-f0005",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.22633v1-f0006",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2609.22633v1-f0007",
+      "reason": "Candidate visibly truncates figure content or axes; cannot use as whole-figure truth."
+    },
+    {
+      "id": "2609.22633v1-f0008",
+      "reason": "Candidate visibly truncates figure content or axes; cannot use as whole-figure truth."
+    },
+    {
+      "id": "2607.06540v4-f0004",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    },
+    {
+      "id": "2607.06540v4-f0005",
+      "reason": "Same candidate contains two separately captioned figures; not one compound figure."
+    },
+    {
+      "id": "2607.06540v4-f0006",
+      "reason": "Same candidate contains two separately captioned figures; not one compound figure."
+    },
+    {
+      "id": "2607.06540v4-f0007",
+      "reason": "Candidate mixes adjacent figure/body/table content; requires a corrected source-page extraction."
+    },
+    {
+      "id": "2607.06540v4-f0009",
+      "reason": "Deferred: complete figure/group boundaries require further review; no inference used for selection."
+    }
+  ],
+  "visual_review": "All 46 corrected crops and panel/context overlays inspected before inference. The initial right-heatmap box clipped its long title; corrected before admission. No independent human review."
+}

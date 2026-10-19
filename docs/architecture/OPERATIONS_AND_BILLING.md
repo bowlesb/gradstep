@@ -10,6 +10,12 @@ Further bounded training/export has **$0 paid-service forecast** and does not au
 inference. Public dataset/image downloads incur no purchased dataset fee. Exact run records and qualifications:
 [training review](../reviews/SUBFIGURE_TRAINING_20261018.md).
 
+October 19 UTC continuation: locating the owner's existing `/home/ben/mathpix` acquisition service, copying
+12 public papers (69 MiB) to the Mac, local figure annotation and the next GPU run add **$0 provider/API spend**.
+No acquisition/processing service in that project was changed, and no new hosted PDF processing was provisioned.
+Only extracted public images/annotations went into the training workspace. The forecast, reservations and
+electricity caveat above remain unchanged.
+
 ## OpenRouter consolidation and Mac evaluation — 2026-10-18
 
 Live verification recorded **$0.403296** in newly attributed hosted attempts: paper chat/title/suggestions

@@ -27,8 +27,22 @@ Run one GPU job at a time. No PDFs, private reader data or production credential
 - `ensemble.py`: validation-only two-checkpoint comparison; no ensemble has passed the quality gate.
 - `compound_classifier.py`: small single/compound classification head on frozen detector features. Uses real
   training labels and validation selection only; classification accuracy is not crop/localization qualification.
+- `classifier_policy.py`: validation-only combined classifier/detector comparison. A compound figure retained
+  whole counts as missed panels; both the compound and complete populations must pass.
+- `mathpix_sample.py`: read-only manifest sampler for the owner's existing `/home/ben/mathpix` corpus. Never
+  imports its code, modifies its files/services, visits secrets or processes PDFs. Copy only its selected paths.
+- `mathpix_figures.py`: on the Mac, verify that copy and render candidate regions from `build/plain.pdf` using
+  the matching silver labels. The candidates are a review queue, not training truth. Preserve the original copy.
+- `annotations/mathpix-panels-v1.json`: explicit visual development annotations, including source hashes,
+  corrected figure bounds, panel/context relationships and deferred examples. No independent human review claimed.
+- `curate_mathpix.py`: materialize those annotations into separate figure images; check source licenses,
+  first/last-author and exact/perceptual cross-split overlap; preserve the original final-test bytes. Whole-figure
+  bounds and panel/context bounds are separate. Only resulting images/annotations transfer to the GPU workspace.
 - `test_metrics.py`: independent known-answer cases for matching, false crops, retained context, transforms and
   the containment-loss gradient. Run with the project Python environment.
+- `test_curate.py`: crop-coordinate, required-context and duplicate/author-identity admission cases.
+- `cohort_report.py`: fixed-threshold comparisons from saved validation predictions, separated into original
+  and new arXiv cohorts. Counts required context on missed panels explicitly; never reads/scans the final test.
 
 ## Run and inspect
 
@@ -56,6 +70,13 @@ be presented as held-out performance. Training-only scale/position augmentation 
 validation preprocessing stays fixed. Do not flip scientific text or crop away labels as augmentation.
 Report compound and all-figure precision/recall separately. Good compound detections cannot compensate for
 unwanted splits of single figures; both populations must pass the detection gate.
+
+New domain examples may carry an explicit, bounded `sampling_weight` in their immutable training records.
+The sampler multiplies that by the existing compound weight and records expected source proportions in
+`sampling.json`; it never changes validation/test selection. `mathpix-v2` adds 30 training figures and 16
+validation figures from separate papers, with an 8x source weight (9.59% expected training draws after the
+compound weighting). The 1,728-image training set still contains the original 384 generated plots. These small,
+visually selected development cohorts do not establish broad domain accuracy or replace the final test.
 
 The 235-image real final test remains unscored. Freeze model hash, preprocessing, threshold and crop policy before
 using its explicit CLI acknowledgement. Do not tune to final-test errors and continue to call it untouched.

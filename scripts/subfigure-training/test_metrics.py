@@ -2,10 +2,12 @@
 import unittest
 from PIL import Image
 from train import letterbox, metrics, retained, average_precision
-from train import containment_loss, summarize
+from train import containment_loss, summarize, sampling_weights
 import torch
 from crop_policy import complete_text, deduplicate, crop_metrics, detection_gate
 from compound_classifier import classification_metrics
+from classifier_policy import apply_policy, score_policy
+from cohort_report import compact
 
 
 class MetricTests(unittest.TestCase):
@@ -16,6 +18,15 @@ class MetricTests(unittest.TestCase):
     def test_whole_figure_does_not_count_as_two_successful_crops(self):
         result=metrics([self.row],[[{'class':4,'box':[0,0,200,100],'score':.99}]])
         self.assertEqual((result['tp'],result['fp'],result['fn']),(0,1,2))
+
+    def test_source_sampling_is_explicit_and_preserves_legacy_defaults(self):
+        single={'boxes':[{'class':4}]}
+        compound={'boxes':[{'class':4},{'class':4},{'class':0}]}
+        self.assertEqual(sampling_weights([single,compound],3),[1,3])
+        self.assertEqual(sampling_weights([{**single,'sampling_weight':8},{**compound,'sampling_weight':8}],3),[8,24])
+        for bad in (0,-1,float('nan'),float('inf'),17):
+            with self.assertRaises(ValueError):sampling_weights([single],bad)
+            with self.assertRaises(ValueError):sampling_weights([{**single,'sampling_weight':bad}],1)
 
     def test_duplicate_crops_are_false_positives(self):
         predictions=[{'class':4,'box':b['box'],'score':.9} for b in self.row['boxes']]
@@ -59,6 +70,22 @@ class MetricTests(unittest.TestCase):
     def test_classifier_rejects_nonfinite_or_misaligned_scores(self):
         with self.assertRaises(ValueError):classification_metrics([1,0],[.5],.5)
         with self.assertRaises(ValueError):classification_metrics([1,0],[.5,float('nan')],.5)
+
+    def test_classifier_abstention_cannot_count_a_large_compound_panel_as_success(self):
+        row={**self.row,'boxes':[{'class':4,'box':[0,0,180,100]},
+                               {'class':4,'box':[180,0,200,100]}]}
+        output=apply_policy([],.01,200,100,.1,.6)
+        result=score_policy([row],[output],.6)
+        self.assertEqual((result['compound_figures']['tp'],result['compound_figures']['fn']),(0,2))
+        self.assertEqual(result['compound_figures_missed_by_gate'],1)
+        self.assertFalse(result['detection_gate'])
+
+    def test_classifier_retaining_a_single_figure_creates_no_extra_crops(self):
+        row={**self.row,'boxes':[{'class':4,'box':[0,0,200,100]}]}
+        output=apply_policy([{'class':4,'box':[0,0,100,100],'score':.99}],.01,200,100,.1,.6)
+        result=score_policy([row],[output],.6)
+        self.assertEqual((result['all_figures']['tp'],result['all_figures']['fp'],result['all_figures']['fn']),(1,0,0))
+        self.assertEqual(result['crops']['single_figures_falsely_split'],0)
 
     def test_perfect_predictions_have_perfect_ap_and_retention(self):
         predictions=[{'class':4,'box':b['box'],'score':.9} for b in self.row['boxes']]
@@ -149,6 +176,18 @@ class MetricTests(unittest.TestCase):
         result=crop_metrics([row],[[{'class':4,'score':.9,'box':[0,0,60,80]}]],.5)
         self.assertEqual(result['annotated_panel_area_retention_mean'],1.)
         self.assertEqual(result['context_links_missing_or_clipped'],1)
+
+    def test_cohort_report_includes_context_on_missed_panels(self):
+        row={'id':'two-contexts','group':'a','width':200,'height':100,'boxes':[
+            {'id':'left','class':4,'box':[0,0,80,80],'required_context_ids':['legend']},
+            {'id':'right','class':4,'box':[110,0,190,80],'required_context_ids':['legend']},
+            {'id':'legend','class':0,'box':[85,20,105,60]}]}
+        report=compact([row],[[{'class':4,'score':.9,'box':[0,0,80,80]}]],.6)
+        self.assertEqual(report['context']['annotated_links'],2)
+        self.assertEqual(report['context']['links_on_matched_panels'],1)
+        self.assertEqual(report['context']['links_on_missed_panels'],1)
+        self.assertEqual(report['context']['links_missing_or_clipped_on_matched_panels'],1)
+        self.assertFalse(report['detection_gate'])
 
     def test_context_inside_panel_is_retained_even_if_separate_detection_is_clipped(self):
         row={'id':'inside','group':'a','width':100,'height':100,'boxes':[

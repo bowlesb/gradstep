@@ -42,6 +42,18 @@ def prediction_records(rows,predictions):
              'predictions':ps} for r,ps in zip(rows,predictions)]
 
 
+def sampling_weights(rows, compound_weight):
+    if not math.isfinite(compound_weight) or not 0 < compound_weight <= 16:
+        raise ValueError('Compound sampling weight must be finite and in (0,16]')
+    weights=[]
+    for row in rows:
+        source_weight=row.get('sampling_weight',1.)
+        if not math.isfinite(source_weight) or not 0 < source_weight <= 16:
+            raise ValueError('Source sampling weight must be finite and in (0,16]')
+        weights.append(source_weight*(compound_weight if sum(b['class']==4 for b in row['boxes'])>1 else 1.))
+    return weights
+
+
 def letterbox(image, size=640,zoom=1.,position=(.5,.5)):
     w, h = image.size
     if not 0<zoom<=1 or any(not 0<=x<=1 for x in position):raise ValueError('Invalid content-preserving placement')
@@ -313,9 +325,13 @@ def main():
         print(json.dumps({k:report['compound_panel'][k] for k in ('recall','precision','tp','fp','fn')}),flush=True);return
     train=Figures(args.root,args.data,'train',augment=True,limit=args.limit,size=args.size,spatial_jitter=args.spatial_jitter)
     generator=torch.Generator().manual_seed(args.seed)
-    if args.compound_weight<=0:raise ValueError('Sampling weight must be positive')
-    weights=[args.compound_weight if sum(b['class']==4 for b in r['boxes'])>1 else 1. for r in train.rows]
-    sampler=WeightedRandomSampler(weights,len(train),replacement=True,generator=generator) if args.compound_weight!=1 else None
+    weights=sampling_weights(train.rows,args.compound_weight)
+    sampler=WeightedRandomSampler(weights,len(train),replacement=True,generator=generator) if any(w!=1 for w in weights) else None
+    source_weights=collections.Counter()
+    for row,weight in zip(train.rows,weights):source_weights[row.get('source','unspecified')]+=weight
+    write_json(args.out/'sampling.json',{'draws_per_epoch':len(train), 'total_weight':sum(weights),
+        'expected_source_fraction':{k:v/sum(weights) for k,v in source_weights.items()},
+        'compound_weight':args.compound_weight,'uses_recorded_source_weights':any(r.get('sampling_weight',1.)!=1 for r in train.rows)})
     loader=DataLoader(train,batch_size=args.batch,shuffle=sampler is None,sampler=sampler,collate_fn=collate,num_workers=args.workers,
                       worker_init_fn=seed_worker,generator=generator,pin_memory=True,drop_last=True)
     backbone=[];other=[]

@@ -1,6 +1,20 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-18 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-19 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Existing Mathpix-replacement research collection (owner, October 18 local / October 19 UTC)
+
+The owner asks us to locate the PDF-saving service in the `mathpix` project and use its existing papers to improve
+subfigure training, explicitly without changing that folder. It is `/home/ben/mathpix` on the authorized GPU host;
+the existing `gradstep-acquire.service` saves public papers under `data/arxiv/`. Read manifests and copy a bounded
+sample out; do not edit its code/data, invoke its processing pipeline, inspect secrets, or manage its services.
+This is an existing independent research collection, not permission to add server PDF processing to Science Reader.
+
+Parse/render the copied PDFs on this Mac only. Transfer only reviewed public figure images/annotations into the
+isolated training workspace. Verify hashes, exact PDF/label geometry, article license metadata and split/duplicate
+boundaries. Its generated layout labels are candidates, not subfigure ground truth. Keep Codex visual annotation
+distinct from independent human review, and preserve the reserved final test. No new paid service or release is
+authorized by locating this dataset. Inventory, provenance and the first comparison are in the training review.
 
 ## Subfigure fine-tuning on the owner's GPU machine (2026-10-18; authorized, qualification pending)
 

@@ -7,7 +7,7 @@ qualified or bundled with the app. See [training/data evidence](../reviews/SUBFI
 
 ## Authorized training workspace — 2026-10-18
 
-The owner authorizes iterative fine-tuning over SSH on `ben@192.168.1.32`. Use only the new project directory
+The owner authorizes iterative fine-tuning over SSH on `ben@192.168.1.32`. Write only in the new project directory
 `/home/ben/science-reader-subfigures`: `source/` for reviewed training scripts and the pinned official detector,
 `env/` for an isolated Python environment, `data/sources/` for source assets/licenses, `data/manifests/` for frozen
 splits/annotation revisions, `data/generated/` for reproducible synthetic plots, and `runs/<run-id>/` for configs,
@@ -59,6 +59,14 @@ Distribution remains gated on a suitable license and quality. The current figpan
 The new owner direction makes local answering models Mac-only. Keep this detector experiment on Mac too; no new
 model is included in the iPhone/iPad app. The localization component remains independent of the answering model,
 so a selected region can feed either OpenRouter chat or Mac-local chat through the same figure conversation.
+
+The later owner direction permits **read-only** use of `/home/ben/mathpix`, an existing public-paper research
+collection on that host. Its acquisition/processing services remain unchanged. Copy a bounded, hash-verified
+sample to the Mac; source layout labels refer to the recompiled `build/plain.pdf`, not necessarily `arxiv.pdf`.
+PDF parsing/rendering remains on the Mac. Only extracted public images and reviewed annotations enter the GPU
+workspace. Correct or defer bad source bounds, retain captions/licenses/transforms, and quarantine cross-split
+paper/first-last-author/exact/perceptual-image conflicts. Codex visual annotations are development labels,
+not independent human qualification. The first 46-figure addition and its limitations are recorded in the review.
 
 Use a small detector first, then deterministic text/legend containment. Fine-tuning the answering LLM to emit
 coordinates couples unrelated failure modes and adds a much larger runtime. It remains a comparison baseline,
@@ -128,7 +136,9 @@ detector encoder. Train that head only on real training figures and validate it 
 validation papers. It tests whether global figure context reduces the observed splitting of connected diagrams
 and legends. It does not replace localization or qualify a fallback as extraction. Any later gating policy must
 count rejected compound figures as missed panels and repeat exact-checkpoint export/runtime checks. No classifier
-is included in the app catalogue.
+is included in the app catalogue. The measured head reaches validation AUC .9894, but its combined crop policy
+still fails: retaining 174 single figures whole gives all-figure precision 92.51%, compound precision 97.59%,
+and leaves 24 required context links missing/clipped. AUC alone does not qualify it.
 
 ### Official detector export feasibility, 2026-10-18
 
@@ -172,6 +182,7 @@ mechanical guarantee is separate from semantic model quality; the fallback count
 
 Prefer annotation and small-detector head/last-stage tuning before a larger generative localization model. The
 new feedback reinforces a **panel + context relationship** task; simply increasing detector confidence or training
-on tighter boxes optimizes the wrong outcome. The first pilot should use rights-cleared figures and generated
-plots, then hold out complete paper/template families. No GPU rental, training job, licensed data purchase or
-trained-model acceptance is claimed. Local extraction remains a Mac prototype shared by local/cloud conversations.
+on tighter boxes optimizes the wrong outcome. The authorized local GPU runs now use real and generated figures,
+with a reserved final test and unresolved data-rights/annotation limits recorded above. No GPU rental, licensed
+data purchase or trained-model acceptance is claimed. Local extraction remains a Mac prototype shared by
+local/cloud conversations.

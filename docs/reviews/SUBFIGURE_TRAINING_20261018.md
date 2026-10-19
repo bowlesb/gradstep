@@ -66,8 +66,10 @@ license URLs for 192 of the 398 papers; 206 remain unresolved. This is provenanc
 distribution clearance. **Current weights are research-only.** No MedICaT images or AGPL figpanel weights were
 used for this fine-tuning.
 
-Only public figure images, annotations and publication/license metadata were downloaded/transferred. No PDFs,
-private reader library, production credentials, NAS data or app account content entered the training machine.
+Only public figure images, annotations and publication/license metadata enter the isolated training workspace.
+No PDFs, private reader library, production credentials, NAS data or app account content enter that workspace.
+The later read-only use of an existing, separate PDF research project is documented below; its PDFs are parsed
+only after copying a bounded sample to the Mac.
 Bulk data/checkpoints stay under `/home/ben/science-reader-subfigures` on `ben@192.168.1.32`. The earlier source
 checkout and unrelated processes are unchanged. The isolated venv and complete dependency lock are in `env/`
 and `runs/environment.lock.txt`; no GPU driver or global Python package was changed.
@@ -96,7 +98,10 @@ Later runs record GPU temperature/power/memory and stop at 85 C. No model API pa
 | `plots-v6-baseline` | 1,314 real + 384 generated | Best compound mean AP50/AP75 .9530; adding generated plots alone did not improve real validation | 334.2 s / 3.11 GB |
 | `plots-v7-fresh-jitter` | Same 1,698 figures, fresh COCO start and spatial variation | Compound: 284/297 found, 8 extra at .6 (95.62% recall, 97.26% precision); all figures: 482/505 found, 55 extra (95.45% / 89.76%) | 613.5 s / 3.11 GB |
 | `shared-v8-head` | 1,314 real + 384 shared-layout plots; tune v7 with backbone frozen | Best compound mean AP50/AP75 .9650, below v7 .9747; no improvement accepted | 321.5 s / 2.98 GB |
-| `composites-v9-fresh` | 2,082 images from `composites-v10`, fresh COCO start | Running; no result claimed | Pending |
+| `composites-v9-fresh` | 2,082 images from `composites-v10`, fresh COCO start | Compound: 272/297 found, 13 false crops at .6 (91.58% recall, 95.44% precision); no improvement | 570.4 s / 3.11 GB |
+| `real-v10-fresh-balanced` | 1,314 real, natural sampling distribution, fresh COCO; select on all figures | At .7: all 475/505 found, 31 false (94.06% / 93.87%); compound 271/297, 11 false (91.25% / 96.10%). Lower recall; not accepted | 308.3 s / 3.11 GB |
+| `mathpix-v11-fresh` | 1,314 real + 384 generated + 30 new arXiv figures, explicit source weighting | At .6, original cohort 460 TP / 111 FP / 45 FN; new cohort 29 / 8 / 9. Regression in both cohorts; rejected | 430.0 s / 3.11 GB |
+| `mathpix-v12-gentle` | Same data, start from v7, backbone frozen, LR .00002 | Running; compare against both baseline and fresh-start regression | Pending |
 
 All detection counts above require IoU at least .75. An oversized whole-figure box cannot match multiple panels;
 duplicates count as false crops. AP and point-threshold precision/recall are distinct. Validation is used for
@@ -109,7 +114,8 @@ The expanded real set improved single-figure behavior but did not improve compou
 separate three hypotheses: oversampling compound figures with only the final backbone stage trainable; an
 additional inward-edge penalty against clipped margins; and generated examples of shared context. Existing
 L1/overlap losses remain active so the extra containment penalty cannot simply reward arbitrarily large boxes.
-These experiments are not accepted results until their saved validation comparisons are reviewed.
+The completed comparisons above do not meet the quality gate. The composite and natural-sampling runs change
+more than one training factor, so their differences are not an isolated causal estimate for a single parameter.
 
 A diagnostic on **128 sampled training images** at epoch 8 of `plots-v6-baseline` found AP50 1.0 on all five
 generated classes and the sampled real panel/title/legend classes (real X axis .9327; no Y-axis target in that
@@ -136,7 +142,98 @@ for distribution. Checkpoint selection by mean AP50/AP75 is only a development o
 A separate diagnostic (`compound_classifier.py`) trains a small single/compound head on pooled features from
 the frozen v7 detector. It uses only the 1,314 real training figures, with content-preserving augmented views;
 validation selects the head. This tests global figure coherence without retraining the answering LLM. It is
-queued after the current detector run, and no classification or combined-crop result is claimed yet.
+complete in 22.39 s. Its selected head has validation ROC-AUC **.98936** (epoch 7). Classification alone does not
+qualify a crop policy. At a conservative compound threshold .02 and panel threshold .65, the combined policy
+retains 174 figures whole and rejects no true compound figure: all-figure recall/precision **95.45% / 92.51%**
+(482 TP, 39 FP, 23 FN); compound **95.29% / 97.59%** (283 TP, 7 FP, 14 FN). It still misses/clips 24 required
+context links. A stricter gate improves precision but misses genuine compounds. No tested policy qualifies.
+`classifier_policy.py` explicitly counts a rejected compound as missed panels, even when one dominant panel
+overlaps the whole figure. It verifies classifier/detector hashes and image identity before combining outputs.
+
+## Existing PDF-saving service and new arXiv figures — October 19 UTC
+
+The owner's `mathpix` folder is **`/home/ben/mathpix` on `192.168.1.32`**. This is the separate local Mathpix-replacement
+research project, not Mathpix API output. Its `gradstep-acquire.service` is active, with the acquisition loop idle
+and zero backlog at inspection. `src/gradstep/data/acquire.py` writes each paper's `arxiv.pdf`, official HTML,
+abstract metadata and source archive beneath `data/arxiv/<revision>/`. We only read its code/manifests/status;
+we did not invoke its pipeline, edit files, inspect secrets, change the service or request new downloads.
+
+At **2026-10-19 00:24:01 UTC**, a one-directory-level inventory found:
+
+| Existing collection | Top-level PDF files | PDF bytes |
+|---|---:|---:|
+| `data/arxiv` | 17,372 | 81,127,515,050 |
+| `data/pmc` | 525 | 2,575,247,356 |
+
+These are file counts, not deduplicated unique papers. `data/arxiv/papers.jsonl` has 17,412 records: 17,179 marked
+CC BY 4.0 and 233 CC0. Its main categories are ML (6,090), computer vision (3,917), AI (3,802) and language (3,593).
+The service and inventory evidence is `.artifacts/subfigure-training/mathpix-source/service-inventory.json`.
+The copied catalog SHA-256 is `6d2f4a7ef8bab0b1e6fb8d49f5f2eb21aa7ad4b39a15750953209e339a3232c5`.
+
+`mathpix_sample.py` selected **12 papers / 69 MiB** with original PDF, HTML/abstract, recompiled `build/plain.pdf`,
+silver `build/labels.json`, layout check and original/recompiled comparison. It checks source hashes, bounds
+and file stability; all 84 copied files match their recorded bytes. The sample manifest SHA-256 is
+`3d8f338b9649d09f24a7b5ba43a040e9f4caec2a7e0ed9a848a37e2443b9900b`. Keep a small local copy because the Mac
+has about 4 GiB free. No PDF was sent into the GPU training workspace or processed there.
+
+**Label geometry refers to the recompiled `plain.pdf`, not necessarily the original `arxiv.pdf`.** All 12 paired
+layout checks report identical glyph placement. The Mac rendered those exact PDFs; a Poppler full-page render
+was also visually inspected. The candidate pass produced 83 regions (73 roots), rejecting 32 unmatched/multi-box
+or invalid candidates. Its automatic bounds are not reliable ground truth: inspected examples include author
+text, adjacent body/table content, duplicate groups of separately captioned figures and truncated axes/panels.
+Twenty-seven root candidates remain deferred with reasons; there is no automatic admission of every source label.
+
+`annotations/mathpix-panels-v1.json` records **46 visually annotated complete figures** with 133 panel boxes,
+52 shared-context regions and 192 explicit panel/context links. These are **Codex visual development annotations,
+not independent human review**. Candidate identities/hashes, corrected crop bounds and exact transforms are kept.
+Connected diagrams remain whole; independent plots/comparison images are panels; insets stay with their parent.
+This is an explicit development labeling policy, not a claim that every possible conceptual subdivision has a
+unique right answer. Selection and annotations were fixed before detector inference. Every final crop/overlay
+was inspected. A long heatmap heading clipped in the first annotation draft was corrected into required context
+before any training/evaluation; the discarded `mathpix-curated-v1` was never trained or scored.
+
+| Added development split | Figures | Papers | Compound figures | Panels | Required context links |
+|---|---:|---:|---:|---:|---:|
+| Training | 30 | 7 | 7 | 95 | 147 |
+| Validation | 16 | 4 | 8 | 38 | 45 |
+
+The paper-family hash assigns splits before figure selection. First/last-author identities and exact/perceptual
+image comparisons against both new and existing splits found no conflicts. This does not prove all authors,
+laboratories, templates or visually related images are independent. Source abstract pages confirm the selected
+article licenses; redistribution of the combined trained weights remains blocked by the older corpus's unresolved
+rights and incomplete independent review. No final-test papers/images were inspected or scored for this addition.
+
+Admitted dataset **`mathpix-v2`** has **1,728 training / 313 validation / 235 unchanged final-test figures**. The
+dataset manifest SHA-256 is `e47d9f1d047f492a7c655063a1c0b7d1eaa1c2e19af5ad9ca28334314c4937e4`; annotations SHA-256
+`326ca84cddf0800dd5408af7263ef0cb76af655778255f98a1b636fb80beffc6`. New training records have explicit 8x source
+weight, resulting in **9.59% expected draws** after compound weighting; `sampling.json` records the actual mix.
+Sampling never changes validation/test. Only the resulting figure PNGs/annotations were copied to
+`/home/ben/science-reader-subfigures/data/reviewed/mathpix-v2/` and `data/manifests/mathpix-v2/`.
+
+Before retraining, the existing v7 checkpoint was evaluated on exactly that validation set at threshold .6:
+
+| Cohort | Panel TP / FP / FN | Recall | Precision |
+|---|---|---:|---:|
+| Original 297 figures | 482 / 55 / 23 | 95.45% | 89.76% |
+| New 16 arXiv figures | 32 / 6 / 6 | 84.21% | 84.21% |
+| New 8 compound figures only | 26 / 3 / 4 | 86.67% | 89.66% |
+
+On the new cohort, 33 of 39 required-context links on matched panels are missing/clipped; another 6 links belong
+to missed panels. These small, selected development examples expose a domain/context gap; they are not an
+unbiased estimate for all 17,000 papers. The next run starts from the same official COCO checkpoint with v7's
+last-stage/augmentation settings, trains with the added examples and reports original/new cohorts separately.
+This comparison uses no paid API. Labels are agent-authored from visual inspection, not human ground truth;
+the detector's predictions were not used to author them. No strong-performance or release claim follows.
+
+The fresh-start run completed **15 epochs / 430.04 s**, best epoch 2, at **2026-10-19 00:29:30 UTC**. It regressed
+at the same .6 operating point: original cohort **460 TP / 111 FP / 45 FN** (91.09% recall, 80.56% precision),
+new cohort **29 / 8 / 9** (76.32% / 78.38%). On the new cohort, 19 of 33 context links on matched panels are
+missing/clipped, and 12 belong to missed panels. Some context recognition improved, but localization regressed;
+the checkpoint is rejected as an improvement. This does not show that more PDFs are useless; it shows that this
+particular data/training change did not improve the measured task. `mathpix-v12-gentle` therefore adapts the prior
+best checkpoint at LR .00002 with the backbone frozen, keeping the same new data and validation set.
+Saved fixed-threshold comparisons: `runs/mathpix-v11-fresh/cohort-comparison.json` and the local
+`.artifacts/subfigure-training/mathpix-comparisons/v11.json`.
 
 Inference-only resolution ablations on the earlier checkpoint also failed: at threshold .7 compound recall /
 precision fell from .9394/.9588 at 640 to .7811/.8467 at 960 and .3805/.7386 at 1280. Larger inputs need their own
@@ -175,7 +272,8 @@ rectangles in a text-heavy diagram. The heatmap prediction includes its surround
 research baseline, but this does not establish all-label preservation broadly. The export therefore remains a
 research artifact. Evidence: `.artifacts/subfigure-training/v2-coreml-fp32/` and `v2-coreml-fde-review.jpg`.
 Both the original 80-class COCO parity replay and this five-class replay pass; the routine `npm test` tier and
-20 independent metric/geometry/context-loss checks pass, including a case where perfect compound detections
+28 independent metric/geometry/context-loss/admission checks pass on both the Mac and GPU host,
+including a case where perfect compound detections
 must fail qualification because a single figure is falsely split. No slow app release suite is warranted by these
 research-only script/document changes.
 
