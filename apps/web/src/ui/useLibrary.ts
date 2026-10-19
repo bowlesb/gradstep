@@ -1,5 +1,7 @@
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import type { DevicePDFs } from './useDevicePDFs';
+import type { CatalogController } from './useCatalogs';
+import { arxivCatalogKey, entryCatalogKey } from '../lib/library-catalogs';
 import { type ReaderPaper } from '../lib/reader-paper';
 import { isUUID } from '../lib/bytes';
 // Account-scoped library state: one bounded pull at a time, import polling on the native
@@ -14,7 +16,7 @@ import { backoffDelay, jittered, retryAfterMs } from '../lib/retry';
 
 export type LoadState = 'loading' | 'ready' | 'error';
 
-export function useLibrary(account: string, devicePDFs?:DevicePDFs) {
+export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:CatalogController) {
   const reconciler = useRef(new Reconciler(account));
   const running = useRef<Promise<void> | null>(null);
   const lifetime = useRef<ReturnType<typeof cancellation> | null>(null);
@@ -156,12 +158,15 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs) {
     }
   }, [account, refresh]);
 
-  const addArxiv = useCallback((sourceID: string, revision: number | null) => {
+  const addArxiv = useCallback(async (sourceID: string, revision: number | null) => {
     if (snapshot.cursor === null) return Promise.reject(new BackendError('library_not_ready'));
+    if (pendingKeys.current.has('add')) throw new BackendError('library_command_pending');
+    const key = arxivCatalogKey(sourceID);
+    if (key && catalogs && !entries.some(e => e.visible && entryCatalogKey(e) === key)) await catalogs.assign(key);
     return command('add', {
       endpoint: 'v2_begin_import', p_source_id: sourceID, p_requested_revision: revision, p_observed_cursor: snapshot.cursor,
     });
-  }, [command, snapshot.cursor]);
+  }, [command, snapshot.cursor, catalogs, entries]);
   const retry = useCallback((i: Import) => command(i.id, { endpoint: 'v2_retry_import', p_import_id: i.id, p_expected_revision: i.intent_revision }), [command]);
   const remove = useCallback((i: Import) => command(i.id, { endpoint: 'v2_cancel_import', p_import_id: i.id, p_expected_revision: i.intent_revision }), [command]);
   // These v2 commands belong to the current public-library path. Private uploads need the
@@ -188,5 +193,31 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs) {
   }, [itemCommand,sourceDetails,devicePDFs]);
 
   const displayed:ClientEntry[]=useMemo(()=>[...entries,...(devicePDFs?.rows??[])],[entries,devicePDFs?.rows]);
-  return { entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
+  const latest = useRef(displayed); latest.current = displayed;
+  const catalogEntries = (id: string) => {
+    const state = catalogs?.currentState();
+    return [...new Map(latest.current.filter(e => e.visible && state?.catalogFor(entryCatalogKey(e)) === id).map(e => [entryCatalogKey(e), e])).values()];
+  };
+  const deleteCatalogPapers = async (id: string, progress: (done: number, total: number) => void) => {
+    if (!catalogs?.ready) throw Error('Unlock your library before changing catalogs.');
+    const owner = lifetime.current; if (!owner || owner.signal.aborted) throw new BackendError('cancelled');
+    // Capture exactly the confirmed papers and revision preconditions. New arrivals never join this batch.
+    const plan = latest.current.filter(e => e.visible && catalogs.currentState().catalogFor(entryCatalogKey(e)) === id);
+    for (const [i, entry] of plan.entries()) {
+      owner.signal.throwIfAborted();
+      if (catalogs.currentState().catalogFor(entryCatalogKey(entry)) !== id) continue;
+      if (entry.kind !== 'local_pdf' && !reconciler.current.entries.get(entry.kind + ':' + entry.id)?.visible) continue;
+      if (pendingKeys.current.has(entry.id)) throw Error('A paper change is still syncing. The catalog is still here with its remaining papers.');
+      progress(i + 1, plan.length);
+      if (entry.kind === 'import') await remove(entry); else await removePaper(entry);
+    }
+    owner.signal.throwIfAborted();
+    // Reconciler is authoritative immediately after catch-up, before React publishes its render.
+    const remaining = [...reconciler.current.entries.values()].some(e => e.visible && catalogs.currentState().catalogFor(entryCatalogKey(e)) === id);
+    const localRemaining = catalogEntries(id).some(e => e.kind === 'local_pdf' && !plan.some(p => p.id === e.id));
+    if (remaining || localRemaining) throw Error('Papers were added to this catalog during deletion. Review the remaining papers before deleting it.');
+    const destination = catalogs.currentState().catalogs.find(c => c.id !== id)?.id;
+    await catalogs.retire(id, destination, destination ? undefined : 'Default');
+  };
+  return { ...(catalogs ? { catalogs } : {}), catalogEntries, deleteCatalogPapers, entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
 }

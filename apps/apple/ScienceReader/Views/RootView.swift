@@ -344,6 +344,7 @@ struct LibraryView: View {
             }
             .sheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
             .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model).macSheetKeys() }
+            .sheet(isPresented: $model.showCatalogs) { LibraryCatalogsView(model: model).macSheetKeys() }
         }
     }
 
@@ -423,6 +424,25 @@ struct LibraryView: View {
                     .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
                 if model.searchExternal { AdvancedPaperSearch(model: model) }
             }
+            if !model.searchExternal && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default") {
+                HStack {
+                    Menu {
+                        ForEach(model.libraryCatalogs.catalogs) { catalog in
+                            Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
+                                model.selectCatalog(catalog.id)
+                            }
+                        }
+                        Divider()
+                        Button("Manage catalogs…") { model.showCatalogs = true }
+                    } label: {
+                        HStack {
+                            Label(model.currentCatalog.name, systemImage: "folder").lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption)
+                        }
+                    }.accessibilityIdentifier("library.catalog")
+                    Spacer()
+                }.font(.subheadline)
+            }
         }
         .modifier(HeaderWidth(fullWidth: tableShown))
         .padding(.top, 2).padding(.bottom, 8)
@@ -436,6 +456,9 @@ struct LibraryView: View {
     /// show the current choice, then where else to go, then reporting.
     private var optionsMenu: some View {
         Menu {
+            Section {
+                MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
+            }
             Section {
                 Menu {
                     Picker("View as", selection: $model.libraryLayout) {

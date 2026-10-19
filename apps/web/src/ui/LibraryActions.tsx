@@ -1,4 +1,5 @@
 import {paperShareLinks,sharePublicURL} from '../lib/public-paper-link';
+import {entryCatalogKey} from '../lib/library-catalogs';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
 import { type ReaderPaper, isReaderPaper, isSourcePaper, paperIdentity } from '../lib/reader-paper';
@@ -15,7 +16,7 @@ import type { useLibrary } from './useLibrary';
 import './library-actions.css';
 
 type Library = ReturnType<typeof useLibrary>;
-type Action = 'menu' | 'tags' | 'archive' | 'remove';
+type Action = 'menu' | 'tags' | 'archive' | 'remove' | 'catalog';
 interface Selection { item: LibraryPaper; trigger: HTMLElement; region: Element | null; action: Action; last: boolean }
 type OpenMenu = (item: LibraryPaper, trigger: HTMLButtonElement, last?: boolean) => void;
 const title = (item: LibraryPaper) => item.metadata?.title ?? (item.source_id ? `arXiv ${item.source_id}` : 'Untitled paper');
@@ -139,6 +140,7 @@ function PaperMenu({ selection, actions }: { selection: Selection; actions: Acti
     }}>Open PDF on this device</button>}
     {managed(selection.item) && <>
       <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'tags')}>Edit tags…</button>
+      {actions.library.catalogs && actions.library.catalogs.state.catalogs.length > 1 && <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'catalog')}>Move to catalog…</button>}
       <button type="button" role="menuitem" onClick={() => actions.choose(selection, 'archive')}>{selection.item.archived ? 'Unarchive…' : 'Archive…'}</button>
       <button type="button" role="menuitem" className="remove-action" onClick={() => actions.choose(selection, 'remove')}>Remove from library…</button>
     </>}
@@ -166,14 +168,16 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
   const [conflict, setConflict] = useState(false), [sending, setSending] = useState(false), [refreshing, setRefreshing] = useState(false);
   const [awaiting, setAwaiting] = useState<CommandResponse | null>(null);
   const ref = useRef<HTMLDialogElement>(null), field = useRef<HTMLInputElement>(null), alive = useRef(false), submitted = useRef(false);
+  const moving = selection.action === 'catalog';
+  const [destination, setDestination] = useState(() => library.catalogs?.state.catalogFor(entryCatalogKey(selection.item)) ?? '');
   const editing = selection.action === 'tags', archive = selection.action === 'archive', archiveTarget = !selection.item.archived;
   const changed = JSON.stringify(tags) !== JSON.stringify(effectiveTags(baseline));
   const dirty = editing && (changed || draft.trim().length > 0);
   const busy = sending || awaiting !== null || library.pending.has(baseline.id);
   const current = library.entries.find((entry): entry is LibraryPaper => isLibraryPaper(entry) && entry.id === baseline.id);
   const available = current?.visible === true;
-  const label = editing ? 'Edit tags' : archive ? (archiveTarget ? 'Archive paper' : 'Unarchive paper') : 'Remove paper';
-  const verb = editing ? 'Save' : archive ? (archiveTarget ? 'Archive' : 'Unarchive') : 'Remove';
+  const label = moving ? 'Move to catalog' : editing ? 'Edit tags' : archive ? (archiveTarget ? 'Archive paper' : 'Unarchive paper') : 'Remove paper';
+  const verb = moving ? 'Move' : editing ? 'Save' : archive ? (archiveTarget ? 'Archive' : 'Unarchive') : 'Remove';
   const own = useMemo(() => ownTagsInLibrary(library.entries, baseline.id), [library.entries, baseline.id]);
   const suggestions = useMemo(() => tagSuggestions(baseline.tags ?? [], baseline.metadata?.categories ?? [], tags, own, draft).filter(t=>allowedKeyword(t.name)), [baseline, tags, own, draft]);
   const typed = normalizeTag(draft), ownCount = tags.filter(tag => !containsTag(baseline.tags ?? [], tag)).length;
@@ -195,8 +199,8 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     if (response?.result.status === 'revision_conflict') {
       setConflict(true);
       setIssue(editing ? conflictMessage : 'This paper changed since you opened it. Reload the current paper before trying again.');
-    } else actions.close(selection, editing ? 'Tags saved.' : archive ? (archiveTarget ? 'Paper archived.' : 'Paper unarchived.') : 'Paper removed from your library.');
-  }, [actions.close, selection, editing, archive, archiveTarget]);
+    } else actions.close(selection, moving ? 'Paper moved.' : editing ? 'Tags saved.' : archive ? (archiveTarget ? 'Paper archived.' : 'Paper unarchived.') : 'Paper removed from your library.');
+  }, [actions.close, selection, editing, archive, archiveTarget, moving]);
 
   useEffect(() => {
     // useLibrary clears this key only after a complete observation covers the saved receipt.
@@ -228,7 +232,10 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     if (submitted.current || busy || conflict || !available || library.state !== 'ready' || (editing && (!changed || draft.trim() || invalidTags))) return;
     submitted.current = true; setSending(true); setIssue(null); setGuard(false);
     try {
-      observed(await (editing ? library.setTags(baseline, tags) : archive ? library.archive(baseline, archiveTarget) : library.removePaper(baseline)));
+      if (moving) {
+        if (!library.catalogs?.ready || !library.catalogs.currentState().catalogs.some(c => c.id === destination)) throw new BackendError('item_unavailable');
+        await library.catalogs.assign(entryCatalogKey(baseline), destination); observed(null);
+      } else observed(await (editing ? library.setTags(baseline, tags) : archive ? library.archive(baseline, archiveTarget) : library.removePaper(baseline)));
     } catch (error) {
       if (!alive.current) return;
       if (error instanceof CommandRefreshError) { setAwaiting(error.response); setIssue(waitingMessage); }
@@ -248,7 +255,9 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     onClick={event => { if (event.target === ref.current) close(false); }}>
     <div className="dialog-body">
       <h2>{label}</h2><p className="fine paper-action-title">{title(baseline)}</p>
-      {editing ? <>
+      {moving ? <label>Catalog<select aria-label="Catalog" value={destination} onChange={e => setDestination(e.target.value)} disabled={busy}>
+        {library.catalogs?.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select></label> : editing ? <>
         <div className="editable-tags" aria-label="Selected tags">
           {tags.length ? tags.map(tag => <button key={tag} type="button" className="editable-tag" disabled={busy || conflict} aria-label={`Remove tag ${tag}`}
             onClick={() => { setTags(previous => previous.filter(t => t !== tag)); setIssue(null); setGuard(false); }}>{tag}<span aria-hidden="true">×</span></button>) : <span className="muted">No tags</span>}

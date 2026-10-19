@@ -57,6 +57,7 @@ final class LibraryV5FixtureServer: @unchecked Sendable {
     static let shared = LibraryV5FixtureServer()
     private let lock = NSLock()
     private var keyState: [String: Any] = [:]
+    private var privateEvents: [[String: Any]] = []
     private var cursor = 1
     private var current: [String: [String: Any]] = [:]
     private var journal: [(Int, [[String: Any]])] = []
@@ -76,7 +77,7 @@ final class LibraryV5FixtureServer: @unchecked Sendable {
 
     func reset(keyState: [String: Any]) {
         lock.withLock {
-            self.keyState = keyState; cursor = 1; journal = []; receipts = [:]
+            self.keyState = keyState; cursor = 1; journal = []; receipts = [:]; privateEvents = []
             let item: [String: Any] = ["kind": "item", "id": ids.item.wire, "document_id": ids.document.wire, "created_seq": 1, "state_seq": 1,
                 "membership_revision": 1, "visible": true, "added_at": "2026-10-07T10:00:00Z", "last_remove_seq": 0,
                 "approval_id": ids.approval.wire, "version_id": ids.version.wire, "metadata_id": ids.metadata.wire, "source": "arxiv",
@@ -101,7 +102,18 @@ final class LibraryV5FixtureServer: @unchecked Sendable {
             switch String(path.dropFirst("/rest/v1/rpc/".count)) {
             case "v1_key_state": return (200, keyState)
             case "v3_pull_events":
-                return (200, ["events": [Any](), "next_cursor": input["p_after"] as? Int ?? 0, "has_more": false])
+                let after = input["p_after"] as? Int ?? 0
+                let events = privateEvents.filter { ($0["cursor"] as? Int ?? 0) > after }
+                return (200, ["events": events, "next_cursor": events.last?["cursor"] ?? after, "has_more": false])
+            case "v1_append_event":
+                guard let id = input["p_id"] as? String, let device = input["p_device_id"] as? String,
+                      let ciphertext = input["p_ciphertext"] as? String, let bytes = try? DeviceKeys.bytea(ciphertext) else { return (400, ["code": "invalid_event"]) }
+                if let prior = privateEvents.first(where: { $0["id"] as? String == id }) { return (200, prior["cursor"]!) }
+                let seq = privateEvents.count + 1
+                privateEvents.append(["id": id, "device_id": device, "ciphertext": ciphertext, "cursor": seq,
+                                      "epoch": input["p_epoch"] ?? 1, "format": input["p_format"] ?? 1,
+                                      "ciphertext_sha256": DeviceKeys.hex(Data(SHA256.hash(data: bytes)))])
+                return (200, seq)
             case "v1_acknowledge_cursor": return (204, NSNull())
             case "v1_reader_capabilities":
                 return (200, ["format": 1, "account_id": LibraryV5Fixture.accountID.wire,
@@ -186,7 +198,7 @@ private final class LibraryV5FixtureProtocol: URLProtocol, @unchecked Sendable {
               components.scheme == "https", components.host == LibraryV5Fixture.host,
               request.value(forHTTPHeaderField: "Authorization") == "Bearer \(LibraryV5Fixture.accessToken)",
               let answer = LibraryV5FixtureServer.shared.respond(path: components.path, query: components.query, body: Self.body(request)),
-              let data = answer.object is NSNull ? Data() : try? JSONSerialization.data(withJSONObject: answer.object, options: [.sortedKeys]),
+              let data = answer.object is NSNull ? Data() : try? JSONSerialization.data(withJSONObject: answer.object, options: [.sortedKeys, .fragmentsAllowed]),
               let response = HTTPURLResponse(url: url, statusCode: answer.status, httpVersion: "HTTP/1.1",
                                              headerFields: ["Content-Type": "application/json", "Content-Length": String(data.count)])
         else {

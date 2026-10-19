@@ -33,6 +33,7 @@
 		0E22D6BCD41CA2D67468C92A /* DownloadedPapers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFCFF8C58911524EDBD780E9 /* DownloadedPapers.swift */; };
 		0E3141986A83FA8413E82487 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 08F459BCA3533E8A78699331 /* PrivacyInfo.xcprivacy */; };
 		0E33D12C235E344D6D428738 /* AuthenticationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CCA6B141496516544EC2620 /* AuthenticationView.swift */; };
+		0EAFB5B76555C5C0B3533FEA /* LibraryCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A6B1A1F8242C01BAF00A77 /* LibraryCatalogTests.swift */; };
 		0F79BA1BC1A1F56B6368049D /* MacDeviceApproval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5F4E6CBB5AD352295A3CB7 /* MacDeviceApproval.swift */; };
 		0FF52448F68EF1CC81050327 /* MacSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 375FD1473246AC2160E94BA2 /* MacSupport.swift */; };
 		1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46DD9E9113B03CAE53BF0271 /* Assets.xcassets */; };
@@ -47,6 +48,7 @@
 		185468D0FAF718CB9CB69211 /* NativeAuthenticationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E072DDE973F6D2C53EE77686 /* NativeAuthenticationPresenter.swift */; };
 		1905A9A122A45D5D6979982D /* DevicePDFFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034A41C47C7F9BD10076A3D1 /* DevicePDFFetcher.swift */; };
 		19D21897B7DE8D3A6CE01371 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */; };
+		1A191D7ECB27D4F95AB1B07D /* LibraryCatalogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24DA980AD0527150C82536A4 /* LibraryCatalogsView.swift */; };
 		1A9941D0A685F1B35B31202F /* StudyMapViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BED4F114BFBFFDA47C676BD /* StudyMapViews.swift */; };
 		1BF0A0B7076E7ADDD5ACC744 /* LocalAIController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A337A053CFEF4CD75A4FCD /* LocalAIController.swift */; };
 		1C180A65DF0E213EAE48A8B4 /* NativeGoogleAuthenticationButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA80067653668118DFE957C2 /* NativeGoogleAuthenticationButton.swift */; };
@@ -138,6 +140,7 @@
 		5A6586B219A3FD3351E21639 /* PaperTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476DCA22DDC90DE260EE7C31 /* PaperTable.swift */; };
 		5A93DAE1144E242B2ECA45DC /* StorePurchases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7A0A6B096E56AED84CEFEF /* StorePurchases.swift */; };
 		5AC46CBA3E638BD1C2234BD8 /* LegacyArxivReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3E206FF5F5511CA45F2719 /* LegacyArxivReaderTests.swift */; };
+		5ACC738A744A2CCB5A479A06 /* LibraryCatalogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24DA980AD0527150C82536A4 /* LibraryCatalogsView.swift */; };
 		5AE74985BDEA1A0E8EAFF2F0 /* PodcastGenerateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 360FE736A7A357FBB6F38B18 /* PodcastGenerateSheet.swift */; };
 		5BED8DF9722A6A401C2F0DB5 /* AddPaperFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52B3DA4E0DBA9C37FD845B3F /* AddPaperFlowTests.swift */; };
 		5E34F54C8D91D6A0EACB9286 /* DurableDraftIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */; };
@@ -425,6 +428,7 @@
 		1F249B343F642651AA0DADE9 /* PodcastPlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastPlayerViews.swift; sourceTree = "<group>"; };
 		20E275FA0B3BB94B8A0DDCC3 /* ChatProfileControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatProfileControls.swift; sourceTree = "<group>"; };
 		217F3A9C7AD8E72195BBD32B /* SettingsPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPages.swift; sourceTree = "<group>"; };
+		24DA980AD0527150C82536A4 /* LibraryCatalogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogsView.swift; sourceTree = "<group>"; };
 		25E2DC7BACDEE17ACC7F182A /* MacWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWindowTests.swift; sourceTree = "<group>"; };
 		2673CB0144CC1585AD755137 /* ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsView.swift; sourceTree = "<group>"; };
 		26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryChangesView.swift; sourceTree = "<group>"; };
@@ -599,6 +603,7 @@
 		E5FA8F3CB6F8807D5768936D /* AdvancedPaperSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedPaperSearch.swift; sourceTree = "<group>"; };
 		E617F5CD2460736D3FF9755B /* ImportProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgressTests.swift; sourceTree = "<group>"; };
 		E61EED8F75AB3E87D3E66455 /* ReaderMenuSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMenuSupport.swift; sourceTree = "<group>"; };
+		E8A6B1A1F8242C01BAF00A77 /* LibraryCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCatalogTests.swift; sourceTree = "<group>"; };
 		E8BF1134D558E9ADE7645070 /* ReadingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingMode.swift; sourceTree = "<group>"; };
 		E979FBCA88803BD6673C9BF8 /* DeviceModelJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceModelJourneyTests.swift; sourceTree = "<group>"; };
 		EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GoogleSans-OFL.txt"; sourceTree = "<group>"; };
@@ -911,6 +916,7 @@
 				6D29BADE9106F66029DCE9EC /* FigurePartsView.swift */,
 				59CC84EF0734AAAD333D116D /* ImportProgressView.swift */,
 				594020BA22F0A8FC3B37B2E7 /* KeptExplanationsView.swift */,
+				24DA980AD0527150C82536A4 /* LibraryCatalogsView.swift */,
 				26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */,
 				50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */,
 				C78074324405596C300892BD /* NativeAuthenticationControls.swift */,
@@ -966,6 +972,7 @@
 				40026E90A8626177EF4C3A30 /* ExplanationAssetsTests.swift */,
 				F60D2CEC5B419128B7FBB58B /* FeedForYouTests.swift */,
 				6983A7B1D969CB0852D743B6 /* FigureViewJourneyTests.swift */,
+				E8A6B1A1F8242C01BAF00A77 /* LibraryCatalogTests.swift */,
 				6ABCE7C29BC217A615B98397 /* LibraryLayoutTests.swift */,
 				8AD4A50DF52EC7728E0DEEA1 /* LibraryWritesTests.swift */,
 				615E3C9E9D39D5691D583C2E /* LiveJourneyTests.swift */,
@@ -1282,6 +1289,7 @@
 				E98136122C1A1C624B2FC731 /* ImportProgressView.swift in Sources */,
 				AAB0DADFEC9416937DB60C62 /* KeptExplanationsView.swift in Sources */,
 				968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */,
+				5ACC738A744A2CCB5A479A06 /* LibraryCatalogsView.swift in Sources */,
 				0C73CA7BC6EBEA6ADFA6948B /* LibraryChangesView.swift in Sources */,
 				3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */,
 				5308EDFADB8ED35DE33DF84B /* LibraryCommandTransport.swift in Sources */,
@@ -1443,6 +1451,7 @@
 				F14B7BC5A4030B8C5BE5A84D /* ExplanationAssetsTests.swift in Sources */,
 				D81A5014EAE6E713C8BEB762 /* FeedForYouTests.swift in Sources */,
 				EB14C32D4B698D3F9B2D0F06 /* FigureViewJourneyTests.swift in Sources */,
+				0EAFB5B76555C5C0B3533FEA /* LibraryCatalogTests.swift in Sources */,
 				DF2B8A487D1BD5BA8D99BC4C /* LibraryLayoutTests.swift in Sources */,
 				45987379D3FEE85E2B58AB30 /* LibraryWritesTests.swift in Sources */,
 				E922ADCA741286C9EF031C9C /* LiveJourneyTests.swift in Sources */,
@@ -1522,6 +1531,7 @@
 				DE68ADA4AF263020D08BD3A3 /* ImportProgressView.swift in Sources */,
 				0C3F55CAE13273FD9E0B6952 /* KeptExplanationsView.swift in Sources */,
 				23B5FCFE02BDEF37DE27E94E /* KeychainVault.swift in Sources */,
+				1A191D7ECB27D4F95AB1B07D /* LibraryCatalogsView.swift in Sources */,
 				E9E92198C022480EAA270FB1 /* LibraryChangesView.swift in Sources */,
 				16FED8D8994DFA9F0D621F87 /* LibraryCommandCoordinator.swift in Sources */,
 				4227B858FEF35F678A195784 /* LibraryCommandTransport.swift in Sources */,

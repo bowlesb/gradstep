@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest';
+import { PrivateState, decodeEvent, encodeEvent, type AppliedEvent } from '../src/lib/events';
+import { CATALOG_ENTITY, INITIAL_CATALOG, LibraryCatalogs, arxivCatalogKey, catalogEvent, catalogName, type CatalogOperation } from '../src/lib/library-catalogs';
+
+const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const key = 'arxiv:2305.18290', other = id(90), destination = id(91);
+function record(n: number, operations: CatalogOperation[], parents: string[] = []): AppliedEvent {
+  return { id: id(n), deviceID: id(99), payload: { ...catalogEvent(new PrivateState(), operations, id(n)), parents } };
+}
+function state(...events: AppliedEvent[]) { const s = new PrivateState(); s.applyBatch(events); return s; }
+
+describe('encrypted library catalogs', () => {
+  it('choosing a default leaves existing papers in the original catalog', () => {
+    const s = new LibraryCatalogs(state(record(1, [{ action: 'create', catalogID: other, name: 'Research' }, { action: 'makeDefault', catalogID: other }])));
+    expect(s.defaultID).toBe(other); expect(s.catalogFor(key)).toBe(INITIAL_CATALOG);
+  });
+  it('uses causal ordering even when envelopes arrive in reverse', () => {
+    const a = record(1, [{ action: 'create', catalogID: other, name: 'First' }]);
+    const b = record(2, [{ action: 'rename', catalogID: other, name: 'Reading' }, { action: 'assign', catalogID: other, paperKey: key }], [a.id]);
+    for (const events of [[a, b], [b, a]]) {
+      const s = new LibraryCatalogs(state(...events)); expect(s.catalogFor(key)).toBe(other); expect(s.catalogs.find(c => c.id === other)?.name).toBe('Reading');
+    }
+    expect(arxivCatalogKey('https://arxiv.org/abs/2305.18290v2')).toBe(key);
+  });
+  it('defers missing parents and permits children of unknown future payloads', () => {
+    const future: AppliedEvent = { id: id(1), deviceID: id(99), payload: { kind: 'note', entityID: CATALOG_ENTITY, parents: [], text: '{"format":"library-catalog-v2"}' } };
+    const b = record(2, [{ action: 'rename', catalogID: INITIAL_CATALOG, name: 'Reading' }], [future.id]);
+    const s = state(b); expect(new LibraryCatalogs(s).catalogs[0].name).toBe('Default');
+    s.apply(future); expect(new LibraryCatalogs(s).catalogs[0].name).toBe('Reading');
+  });
+  it('key rotation does not change the winner of concurrent renames', () => {
+    const a = record(1, [{ action: 'rename', catalogID: INITIAL_CATALOG, name: 'First' }]);
+    const b = record(2, [{ action: 'rename', catalogID: INITIAL_CATALOG, name: 'Chosen' }]);
+    const s = state(b, a), before = new LibraryCatalogs(s);
+    s.apply({ ...a, id: id(5) }); s.apply({ ...b, id: id(4) });
+    s.applyLocalReplacements(new Map([[a.id, id(5)], [b.id, id(4)]]));
+    expect(new LibraryCatalogs(s)).toEqual(before); expect(before.catalogs[0].name).toBe('Chosen');
+  });
+  it('redirects assignments made concurrently with catalog deletion', () => {
+    const a = record(1, [{ action: 'create', catalogID: other, name: 'Old' }, { action: 'create', catalogID: destination, name: 'Keep' }]);
+    const b = record(2, [{ action: 'retire', catalogID: other, destinationID: destination }], [a.id]);
+    const c = record(3, [{ action: 'assign', catalogID: other, paperKey: key }], [a.id]);
+    for (const events of [[a, b, c], [c, b, a]]) expect(new LibraryCatalogs(state(...events)).catalogFor(key)).toBe(destination);
+  });
+  it('concurrent deletion cycles always leave a visible recovery catalog', () => {
+    const a = record(1, [{ action: 'create', catalogID: other, name: 'Other' }, { action: 'assign', catalogID: other, paperKey: key }]);
+    const b = record(2, [{ action: 'retire', catalogID: INITIAL_CATALOG, destinationID: other }], [a.id]);
+    const c = record(3, [{ action: 'retire', catalogID: other, destinationID: INITIAL_CATALOG }], [a.id]);
+    const s = new LibraryCatalogs(state(c, b, a));
+    expect(s.catalogs).toHaveLength(1); expect(s.catalogs[0].id).toBe(s.catalogFor(key));
+  });
+  it('reads Swift uppercase UUIDs and remains an ordinary backward-compatible note', () => {
+    const e = record(1, [{ action: 'rename', catalogID: INITIAL_CATALOG.toUpperCase(), name: 'Research' }]);
+    const decoded = decodeEvent(encodeEvent(e.payload));
+    expect(decoded.kind).toBe('note'); expect(decoded.conversationID).toBeUndefined();
+    expect(new LibraryCatalogs(state({ ...e, payload: decoded })).catalogs[0].name).toBe('Research');
+    expect(catalogName('  Reading  ')).toBe('Reading'); expect(catalogName('a'.repeat(81))).toBeNull();
+    expect(catalogName('a\nb')).toBeNull(); expect(catalogName('a\u202eb')).toBeNull();
+    expect(() => catalogEvent(new PrivateState(), [{ action: 'assign', catalogID: other, paperKey: 'private-url' }])).toThrow();
+  });
+});

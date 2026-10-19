@@ -1,4 +1,6 @@
 import type { DevicePDFs } from './useDevicePDFs';
+import { CatalogsDialog } from './Catalogs';
+import { entryCatalogKey, arxivCatalogKey } from '../lib/library-catalogs';
 import { compactAuthors, firstAuthorLine } from '../lib/authors';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
@@ -75,7 +77,7 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
   if (visible) seen.current = current;
   const activity = seen.current;
   const [rowCache] = useState(() => new WeakMap<ClientEntry, Row>());
-  const all = useMemo(() => buildRows(library.entries, rowCache), [library.entries, rowCache]);
+  const all = useMemo(() => buildRows(library.entries.filter(e => !library.catalogs || library.catalogs.state.catalogFor(entryCatalogKey(e)) === library.catalogs.currentID), rowCache), [library.entries, rowCache, library.catalogs?.state, library.catalogs?.currentID]);
   const counts = useMemo(() => {
     const live = all.filter(r => !r.archived);
     return {
@@ -264,6 +266,10 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
   const [choosingColumns, setChoosingColumns] = useState(false);
+  const [showCatalogs, setShowCatalogs] = useState(false);
+  const selectedCatalog = library.catalogs?.currentID;
+  const lastCatalog = useRef(selectedCatalog);
+  useEffect(() => { if (lastCatalog.current !== selectedCatalog) { lastCatalog.current = selectedCatalog; setView(q => ({ ...q, query: '', tag: '' })); } }, [selectedCatalog, setView]);
   const showAll = useCallback(() => model.setWindowed(false), [model.setWindowed]);
   const rowCommands = useRef<LibraryRowsCommands | null>(null);
   const prepareMenuTab = useCallback(() => rowCommands.current?.beforeSequentialNavigation(), []);
@@ -311,11 +317,15 @@ export function LibraryView({ library, model, activity, view, setView, showChips
         </span>
         {(describe.length > 0) && <button className="link small-link" onClick={() => setView(q => ({ ...q, filter: 'all', tag: '', query: '' }))}>Clear filters</button>}
         <div className="library-table-tools">
+          <button className="secondary small" onClick={() => setShowCatalogs(true)} aria-haspopup="dialog">Catalogs</button>
           <ColumnScrollControls scroller={scroller} available={all.length > 0} />
           <button className="secondary small columns-button" aria-haspopup="dialog" aria-expanded={choosingColumns} onClick={() => setChoosingColumns(true)}>Columns</button>
         </div>
         {sortedHidden && <span className="fine library-sort-note">Sorted by {LIBRARY_COLUMNS.find(c => c.key === view.sort.key)?.label} {view.sort.descending ? '↓' : '↑'}</span>}
       </div>
+      <CatalogsDialog open={showCatalogs} onClose={() => setShowCatalogs(false)} library={library} />
+      {library.catalogs && (library.catalogs.state.catalogs.length > 1 || library.catalogs.state.catalogs[0].name !== 'Default') && <label className="catalog-switch">Catalog <select aria-label="Current catalog" value={library.catalogs.currentID} onChange={e => library.catalogs?.select(e.target.value)}>
+        {library.catalogs.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
       <Dialog open={choosingColumns} onClose={() => setChoosingColumns(false)} title="Library columns">
         <h2>Library columns</h2>
         <p className="fine">Title stays pinned as you scroll.</p>
@@ -553,8 +563,12 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
     }
     const controller = new AbortController();
     request.current = controller;
+    const destination = library.catalogs?.currentID;
     try {
-      const result = addOutcome(await addPaper(account, value, controller.signal));
+      const raw = await addPaper(account, value, controller.signal);
+      const key = raw.paper?.source_id && arxivCatalogKey(raw.paper.source_id);
+      if (raw.status === 'added' && key && destination) await library.catalogs?.assign(key, destination);
+      const result = addOutcome(raw);
       if (controller.signal.aborted) return;
       if (result.finished) { library.refresh().catch(() => {}); setText(''); }
       setOutcome(result);

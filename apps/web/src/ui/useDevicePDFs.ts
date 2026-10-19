@@ -1,5 +1,7 @@
 import {useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import type {ChatSession} from '../lib/chat-session';
+import type {CatalogController} from './useCatalogs';
+import {catalogEvent,documentCatalogKey} from '../lib/library-catalogs';
 import {localPDFMembership,type LocalPDFMembership,type PrivateEvent} from '../lib/events';
 import {readPDF,titleForPDF} from '../lib/pdf-upload';
 import type {LocalPDFPaper} from '../lib/device-pdf';
@@ -14,7 +16,7 @@ async function inspect(file:File,signal:AbortSignal):Promise<number>{
   worker.postMessage(bytes.buffer,[bytes.buffer]);
  });}finally{worker.terminate();}
 }
-export function useDevicePDFs(chat:ChatSession|null){
+export function useDevicePDFs(chat:ChatSession|null,catalogs?:CatalogController){
  const version=useSyncExternalStore(chat?.history.subscribe??(()=>()=>{}),chat?.history.getVersion??(()=>0));
  const pendingBytes=useRef(0);
  const files=useRef(new Map<string,{file:File;url:string}>()),[generation,changed]=useState(0);
@@ -32,6 +34,7 @@ export function useDevicePDFs(chat:ChatSession|null){
   if(!chat||chat.signal.aborted)throw Error('Sign in to add this PDF.');
   const retained=[...files.current.values()].reduce((n,f)=>n+f.file.size,0);
   if(files.current.size>=128 && !existing || retained+pendingBytes.current+file.size>268435456)throw Error('This tab has reached its local PDF limit. Remove a local copy or reopen the tab before adding another PDF.');
+  const destination=catalogs?.currentID;
   pendingBytes.current+=file.size;
   try {
   const pages=await inspect(file,chat.signal);chat.signal.throwIfAborted();
@@ -39,7 +42,9 @@ export function useDevicePDFs(chat:ChatSession|null){
   if(existing && pages!==existing.page_count)throw Error('This PDF has a different page count. Choose the original file or add it as a new paper.');
   if(!existing){
    const member:LocalPDFMembership={format:'device-pdf-membership-v1',title:titleForPDF(file).display_name,pageCount:pages,createdAt:Date.now(),archived:false,tags:[]};
-   await chat.history.commit([{id:crypto.randomUUID(),event:{kind:'local_paper',entityID:id,parents:[],text:JSON.stringify(member),createdAt:member.createdAt}}]);
+   const events:{id:string;event:PrivateEvent}[]=[{id:crypto.randomUUID(),event:{kind:'local_paper',entityID:id,parents:[],text:JSON.stringify(member),createdAt:member.createdAt}}];
+   if(destination&&catalogs?.currentState().catalogFor(documentCatalogKey(id))!==destination)events.push({id:crypto.randomUUID(),event:catalogEvent(chat.history.state,[{action:'assign',catalogID:destination,paperKey:documentCatalogKey(id)}])});
+   await chat.history.commit(events);
   }
   chat.signal.throwIfAborted();const old=files.current.get(id);if(old)URL.revokeObjectURL(old.url);
   files.current.set(id,{file,url:URL.createObjectURL(file)});changed(v=>v+1);void chat.history.sync().catch(()=>{});return id;

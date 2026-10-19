@@ -240,7 +240,8 @@ private final class LibraryModelServer: @unchecked Sendable {
                     "source_url": "https://arxiv.org/abs/\(reference)", "document_id": NSNull(), "library_item_id": NSNull(),
                     "error_code": NSNull(), "retryable": false]
             case "v2_cancel_import":
-                guard let id = input["p_import_id"] as? String, var row = changedEntries[id],
+                guard let id = input["p_import_id"] as? String,
+                      var row = changedEntries[id] ?? (id == importID.wire ? pending() : nil),
                       row["intent_revision"] as? Int == input["p_expected_revision"] as? Int else {
                     request.respond(Data("{}".utf8), status: 409); return
                 }
@@ -426,6 +427,90 @@ final class LibraryModelTests: XCTestCase {
             window.isHidden = true; window.rootViewController = nil; previous?.makeKey()
         }
         return window
+    }
+
+    func testCatalogNamesDefaultsMovesAndRelaunchKeepTheSamePapers() async throws {
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        await model.start()
+        let paper = try XCTUnwrap(model.papers.first), original = model.currentCatalog.id
+        let research = try await model.createCatalog("Research")
+        try await model.renameCatalog(original, name: "Reading")
+        try await model.movePaper(paper, toCatalog: research)
+        try await model.makeDefaultCatalog(research)
+        XCTAssertEqual(model.catalogCount(research), 1)
+        model.selectCatalog(original); await model.waitForLibrarySearch()
+        XCTAssertFalse(model.libraryRows.contains { $0.id == "paper/\(paper.id.wire)" })
+        try await fixture.relaunch()
+        let reopened = fixture.model
+        XCTAssertEqual(reopened.currentCatalog.id, research)
+        XCTAssertEqual(reopened.libraryCatalogs.catalog(original)?.name, "Reading")
+        XCTAssertEqual(reopened.libraryCatalogs.catalogID(for: reopened.catalogKey(paper)), research)
+        XCTAssertTrue(reopened.papers.contains { $0.id == paper.id })
+        try await reopened.retireCatalog(research, movingTo: original, newName: nil)
+        XCTAssertEqual(reopened.currentCatalog.id, original)
+        XCTAssertEqual(reopened.libraryCatalogs.catalogID(for: reopened.catalogKey(paper)), original)
+        XCTAssertTrue(server.commands().isEmpty, "Moving a catalog never removes or reimports its papers")
+    }
+
+    func testCatalogDeletionToANewNamePreservesPapersAndCanRemoveEmptyFinalCatalog() async throws {
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        await model.start()
+        let old = model.currentCatalog.id, before = model.papers.map(\.id)
+        try await model.retireCatalog(old, movingTo: nil, newName: "All research")
+        XCTAssertEqual(model.libraryCatalogs.catalogs.count, 1)
+        XCTAssertEqual(model.currentCatalog.name, "All research")
+        XCTAssertEqual(model.papers.map(\.id), before)
+        let empty = try await model.createCatalog("Temporary")
+        try await model.deleteCatalogAndPapers(empty)
+        XCTAssertNil(model.libraryCatalogs.catalog(empty))
+        XCTAssertEqual(model.papers.map(\.id), before)
+    }
+
+    func testCatalogImportKeepsItsAssignmentAfterSelectionChangesAndDuplicateAdd() async throws {
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        model.importPollDelay = { _ in 3600 }; await model.start()
+        let catalog = try await model.createCatalog("New work")
+        try await model.importPaper("1706.03762v7")
+        model.selectCatalog(LibraryCatalogBatch.initialCatalogID)
+        try await observe("Import catches up") { !model.libraryCommands.contains(where: \.isUnfinished) }
+        XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:1706.03762"), catalog)
+        try await model.importPaper("1706.03762v7")
+        XCTAssertEqual(model.libraryCatalogs.catalogID(for: "arxiv:1706.03762"), catalog, "Adding an existing paper never moves it")
+    }
+
+    func testCatalogPaperDeletionWaitsForActualRemovalAndKeepsCatalogAfterRefusal() async throws {
+        let server = LibraryModelServer(activated: true, uploadEpoch: UUID()), fixture = try fixture(server), model = fixture.model
+        model.importPollDelay = { _ in 3600 }; await model.start()
+        let paper = try XCTUnwrap(model.papers.first), catalog = try await model.createCatalog("Remove these")
+        try await model.movePaper(paper, toCatalog: catalog)
+        server.setV5CommandsAvailable(false)
+        do { try await model.deleteCatalogAndPapers(catalog); XCTFail("A refused removal must leave its catalog") }
+        catch { XCTAssertEqual(error as? LibraryCatalogError, .pendingChanges) }
+        XCTAssertNotNil(model.libraryCatalogs.catalog(catalog)); XCTAssertTrue(model.papers.contains { $0.id == paper.id })
+        let before = try XCTUnwrap(server.commands().last).body
+        server.setV5CommandsAvailable(true)
+        try await model.deleteCatalogAndPapers(catalog)
+        XCTAssertNil(model.libraryCatalogs.catalog(catalog)); XCTAssertFalse(model.papers.contains { $0.id == paper.id })
+        XCTAssertEqual(server.commands().filter { $0.endpoint == "v5_set_library_item" }.last?.body, before, "Retry the original durable removal, not a new operation")
+    }
+
+    func testCatalogDeletionKeepsAPaperAddedAfterConfirmation() async throws {
+        let server = LibraryModelServer(activated: true), fixture = try fixture(server), model = fixture.model
+        model.importPollDelay = { _ in 3600 }; await model.start()
+        let paper = try XCTUnwrap(model.papers.first), catalog = try await model.createCatalog("Review")
+        try await model.movePaper(paper, toCatalog: catalog)
+        let received = expectation(description: "Removal is in flight")
+        server.enqueueCommand(.hold(received))
+        let task = Task { try await model.deleteCatalogAndPapers(catalog) }
+        await fulfillment(of: [received], timeout: 5)
+        model.openSample()
+        let added = try XCTUnwrap(model.papers.first(where: \.isSample))
+        try await model.movePaper(added, toCatalog: catalog)
+        server.releaseCommand()
+        do { try await task.value; XCTFail("The newly added paper was not authorized for deletion") }
+        catch { XCTAssertEqual(error as? LibraryCatalogError, .changedDuringDeletion) }
+        XCTAssertNotNil(model.libraryCatalogs.catalog(catalog))
+        XCTAssertTrue(model.papers.contains { $0.id == added.id })
     }
 
     func testPendingAndSourceOnlyPresentation() async throws {
@@ -1350,6 +1435,17 @@ final class LibraryModelTests: XCTestCase {
             let settings = URLSessionConfiguration.ephemeral; settings.protocolClasses = [StubProtocol.self]
             let configuration = BackendConfiguration(url: URL(string: "https://\(host)")!, anonKey: "fixture", environment: environment)
             ownedModel = ReaderModel(configuration: configuration, client: try BackendClient(configuration: configuration, network: URLSession(configuration: settings)))
+        }
+        func relaunch() async throws {
+            await retireModel()
+            let session = AuthSession(access_token: "fixture-library-model", refresh_token: "fixture-refresh",
+                expires_at: Date().timeIntervalSince1970 + 3600, user: .init(id: account, email: "fixture@example.invalid"))
+            try KeychainVault.write(ReaderCrypto.encode(session), name: environment + ".auth-session")
+            if let device = server.device { try KeychainVault.write(ReaderCrypto.encode(device), name: "\(environment).\(account.wire).device-keys") }
+            let settings = URLSessionConfiguration.ephemeral; settings.protocolClasses = [StubProtocol.self]
+            let configuration = BackendConfiguration(url: URL(string: "https://\(host)")!, anonKey: "fixture", environment: environment)
+            ownedModel = ReaderModel(configuration: configuration, client: try BackendClient(configuration: configuration, network: URLSession(configuration: settings)))
+            await model.start()
         }
         func savedCommandCount() throws -> Int {
             var database: OpaquePointer?, statement: OpaquePointer?

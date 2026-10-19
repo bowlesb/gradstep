@@ -458,6 +458,17 @@ struct LibraryRowActions: View {
                 }
             }
             if !paper.isSample {
+                Menu("Move to catalog", systemImage: "folder") {
+                    ForEach(model.libraryCatalogs.catalogs) { catalog in
+                        Button(catalog.name) {
+                            let scope = model.catalogScope
+                            Task {
+                                do { try await model.movePaper(paper, toCatalog: catalog.id) }
+                                catch { if model.catalogScope == scope { model.error = (error as? LibraryCatalogError)?.errorDescription ?? "Couldn’t move this paper. Try again." } }
+                            }
+                        }.disabled(model.libraryCatalogs.catalogID(for: model.catalogKey(paper)) == catalog.id)
+                    }
+                }.disabled(!model.canManageCatalogs)
                 Button("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
                     .disabled(!model.canChangeLibrary)
                 let archived = model.isArchived(paper)

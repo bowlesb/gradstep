@@ -49,6 +49,7 @@ import { ReportDialog, ReportsDialog } from './SupportReports';
 import { HowGradstepWorks } from './HowGradstepWorks';
 import { PrivacyData } from './PrivacyData';
 import { useLibrary } from './useLibrary';
+import { useCatalogs } from './useCatalogs';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
 
@@ -116,8 +117,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // What this browser reads about a paper it prepares goes to the server only while it asks (ARXIV_DEVICE_ONLY.md §5.3).
   useEffect(() => observeArxivSources(sourceMetadataReporter(account)), [account]);
   const chat = useChat(account, ready);
-  const devicePDFs=useDevicePDFs(chat);
-  const library = useLibrary(account,devicePDFs);
+  const catalogs = useCatalogs(chat);
+  const devicePDFs=useDevicePDFs(chat, catalogs);
+  const library = useLibrary(account,devicePDFs,catalogs);
   // The reader has the same paper action surface as Library. Keeping a separate owner avoids
   // two portals competing when a library menu is still closing during navigation.
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.

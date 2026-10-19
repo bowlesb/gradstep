@@ -1,6 +1,6 @@
 # Named library catalogs
 
-Design, October 19, before implementation. Owner request: Library's top-right menu contains **Catalogs**;
+Designed October 19 before implementation. Native and browser implementation is under verification; not yet released. Owner request: Library's top-right menu contains **Catalogs**;
 rename the existing catalog, create, switch, choose a default, and delete with a choice to delete its papers or
 move them to an existing/new named catalog. Keep the current Library arrangement, paper identities and chats.
 
@@ -58,7 +58,9 @@ assignment in one private-event batch where possible. All writes use the current
 A destructive catalog removal captures the papers the reader confirmed and their actual revision preconditions.
 Keep the catalog visible while its removals are pending; wait for normal confirmed library catch-up, and do not
 replace uncertain operation IDs or rebase conflicting revisions. If a removal fails, show progress and keep the
-remaining catalog/papers available for review. A crash/relaunch must retain the ordinary durable commands. Papers
+remaining catalog/papers available for review. The native client retains its ordinary durable commands across a crash/relaunch. The browser uses its existing
+session-memory command/receipt queue: after reopening, it loads the current server state and the reader can
+confirm the remaining papers; a whole catalog-deletion batch is not automatically resumed. Papers
 added concurrently after confirmation are not authorized for deletion: leave the catalog available until the
 reader explicitly resolves them. Do not claim atomic server removal of multiple papers.
 
@@ -70,3 +72,20 @@ and browser journeys cover create/rename/switch/default/relaunch, adding into a 
 disposition. Failure/cancellation preserves undeleted papers and their catalog. Verify account isolation and old
 event decoder compatibility. Run the required import gate for the changed ReaderModel/Library views before upload.
 No provider calls are required for this feature or its verification.
+
+
+## Implementation checkpoint — October 19 UTC
+
+The native and browser implementations share the encrypted note schema and causal reduction. Seven Core and
+seven browser unit cases cover projection and key replacement. The native model/PDF checks pass 11 cases,
+including actual encrypted-store reopening, import assignment, the same durable removal request after failure,
+and keeping a paper added after confirmation. One real-PDF corpus case is opt-in and is covered separately by
+the mandatory import gate. Screen journeys and final import acceptance remain pending at this checkpoint.
+
+The deletion regression exposed a saved membership and pending source intent sharing one paper key. Removal
+must plan both physical records, skipping the second only if a grouped server transition already hid it. Logical
+paper-key deduplication is appropriate for counts, not for deleting the underlying records. The fixture's cancel
+handler now supports its baseline imports too. Its encrypted event stub accepts numeric JSON receipts.
+
+No hosted schema, server PDF processing or paid model call is added. Names and associations use the existing
+account-bound encrypted journal; library removal keeps its existing data-retention policy.

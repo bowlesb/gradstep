@@ -177,6 +177,7 @@ struct PDFUploadStore: Sendable {
 /// The app's uploads: what the Library and Add sheet show, and the worker that sends them.
 @MainActor @Observable
 final class PDFUploadCenter {
+    typealias LocalInstaller = @MainActor (URL, CheckedPDF, PDFUploadTarget) async throws -> Void
     struct Context {
         let service: any PaperAddingService
         let accountID: UUID
@@ -186,7 +187,9 @@ final class PDFUploadCenter {
         /// A paper reached the library (refresh it).
         let added: @MainActor () -> Void
         /// Device-only sink. No upload transport is used by a production client.
-        var installLocal: (@MainActor (URL, CheckedPDF, PDFUploadTarget) async throws -> Void)? = nil
+        var installLocal: LocalInstaller? = nil
+        /// Captures the selected catalog before file checking or downloading suspends.
+        var captureLocalInstall: (@MainActor () -> LocalInstaller)? = nil
     }
 
     /// Legacy queued uploads found on this device, oldest first (every one is stopped).
@@ -260,6 +263,7 @@ final class PDFUploadCenter {
     func downloadOnDevice(links: [URL], title: String?, target: PDFUploadTarget) async {
         guard let account = context?.accountID, !links.isEmpty else { return }
         let activation = activationID
+        let installer = context?.captureLocalInstall?() ?? context?.installLocal
         let fetch = DeviceFetch(id: UUID(), title: title ?? links[0].host() ?? "the paper", progress: 0, issue: nil, page: links.last, target: target)
         fetches.append(fetch)
         do {
@@ -271,7 +275,7 @@ final class PDFUploadCenter {
             }
             defer { try? FileManager.default.removeItem(at: pdf.file) }
             guard context?.accountID == account, activationID == activation else { return }
-            try await add(file: pdf.file, title: title ?? pdf.title, target: target)
+            try await add(file: pdf.file, title: title ?? pdf.title, target: target, capturedInstaller: installer)
             fetches.removeAll { $0.id == fetch.id }
         } catch is CancellationError {
             fetches.removeAll { $0.id == fetch.id }
@@ -286,12 +290,13 @@ final class PDFUploadCenter {
 
     /// Checks a PDF from Files, a drop, the share inbox or a device download and saves it on this device.
     @discardableResult
-    func add(file: URL, title: String? = nil, fallbackTitle: String? = nil, target: PDFUploadTarget) async throws -> PDFUploadJob {
+    func add(file: URL, title: String? = nil, fallbackTitle: String? = nil, target: PDFUploadTarget, capturedInstaller: LocalInstaller? = nil) async throws -> PDFUploadJob {
         guard let context else { throw BackendError.signInRequired }
         let activation = activationID
+        let installer = capturedInstaller ?? context.captureLocalInstall?() ?? context.installLocal
         let checked = try await Task.detached(priority: .userInitiated) { try PDFFileCheck.check(file, title: title, fallback: fallbackTitle) }.value
         guard self.context?.accountID == context.accountID, activationID == activation else { throw CancellationError() }
-        guard let install = context.installLocal else { throw BackendError.rejected("pdf_device_only") }
+        guard let install = installer else { throw BackendError.rejected("pdf_device_only") }
         try await install(file, checked, target)
         guard self.context?.accountID == context.accountID, activationID == activation else { throw CancellationError() }
         notice = "Saved “\(checked.title)” on this device."

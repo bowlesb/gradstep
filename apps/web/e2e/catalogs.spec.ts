@@ -1,0 +1,81 @@
+import { expect, test, type Page } from '@playwright/test';
+import { RECOVERY_CODE } from './fixture-keys.mjs';
+import { durableKeys } from './key-capability';
+import { fixtureOrigin as FIXTURE } from './environment';
+
+const dialog = (page: Page) => page.getByRole('dialog', { name: 'Catalogs', exact: true });
+async function signIn(page: Page) {
+  await page.goto('/');
+  await page.getByTestId('email').fill('returning@example.test'); await page.getByTestId('send-code').click();
+  await page.getByTestId('code').fill('123456'); await page.getByTestId('verify').click();
+  await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();
+  await expect(page.getByTestId('library-table')).toBeVisible();
+}
+async function open(page: Page) { await page.getByRole('button', { name: 'Catalogs', exact: true }).click(); await expect(dialog(page)).toBeVisible(); }
+test.beforeEach(async ({ page, request }) => {
+  test.skip(!await durableKeys(page), 'Safari durable-key acceptance is separate.'); await request.post(`${FIXTURE}/__reset`);
+});
+
+test('rename, create, default, restart and both move destinations preserve the library', async ({ page }) => {
+  await signIn(page); const initial = await page.getByTestId('paper-row').count(); await open(page);
+  await dialog(page).getByRole('button', { name: 'Rename Default', exact: true }).click();
+  await dialog(page).getByLabel('Catalog name', { exact: true }).fill('Reading'); await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'New catalog', exact: true }).click();
+  await dialog(page).getByLabel('Catalog name', { exact: true }).fill('Research'); await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Make Research default' }).click();
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('paper-row')).toHaveCount(0);
+  await page.reload(); await expect(page.getByLabel('Current catalog')).toHaveValue(/.+/); await expect(page.getByTestId('paper-row')).toHaveCount(0);
+  await open(page); await dialog(page).getByRole('button', { name: 'Delete Reading', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Move papers and delete catalog' }).click();
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click(); await expect(page.getByTestId('paper-row')).toHaveCount(initial);
+  await open(page); await dialog(page).getByRole('button', { name: 'Delete Research', exact: true }).click();
+  await dialog(page).getByLabel('What happens to its papers?').selectOption('new');
+  await dialog(page).getByLabel('New catalog name').fill('Scientific papers');
+  await dialog(page).getByRole('button', { name: 'Move papers and delete catalog' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Rename Scientific papers', exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('catalogs.png') });
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click(); await expect(page.getByTestId('paper-row')).toHaveCount(initial);
+  await page.reload(); await expect(page.getByTestId('paper-row')).toHaveCount(initial); await expect(page.getByLabel('Current catalog')).toContainText('Scientific papers');
+});
+
+test('a refused paper deletion keeps the catalog; a confirmed retry removes actual entries', async ({ page, request }) => {
+  await signIn(page); await open(page);
+  await page.route('**/rpc/v2_set_library_item', route => route.fulfill({ status: 403, json: { code: 'forbidden' } }));
+  await dialog(page).getByRole('button', { name: 'Delete Default', exact: true }).click();
+  await dialog(page).getByLabel('What happens to its papers?').selectOption('delete');
+  await dialog(page).getByRole('button', { name: 'Continue', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Delete catalog and papers', exact: true }).click();
+  await expect(dialog(page).getByRole('alert')).toBeVisible();
+  await expect(dialog(page)).toContainText('Default contains');
+  await page.unroute('**/rpc/v2_set_library_item');
+  await dialog(page).getByRole('button', { name: 'Delete catalog and papers', exact: true }).click();
+  await expect(dialog(page).getByRole('button', { name: 'New catalog', exact: true })).toBeVisible();
+  const evidence = await (await request.get(`${FIXTURE}/__library-action-evidence`)).json();
+  expect(evidence.entries.filter((e: { visible: boolean }) => e.visible)).toHaveLength(0);
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click(); await expect(page.getByTestId('paper-row')).toHaveCount(0);
+});
+
+
+test('new additions stay in the chosen catalog and an individual paper can move without removal', async ({ page, request }) => {
+  await signIn(page); await open(page);
+  await dialog(page).getByRole('button', { name: 'New catalog', exact: true }).click();
+  await dialog(page).getByLabel('Catalog name', { exact: true }).fill('Research'); await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByTestId('add-paper').click();
+  await page.getByTestId('arxiv-input').fill('1901.00001');
+  await page.getByRole('dialog', { name: 'Add paper', exact: true }).getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByTestId('paper-row')).toHaveCount(1);
+  await page.getByLabel('Current catalog').selectOption({ label: 'Default' });
+  const paper = page.getByTestId('paper-row').filter({ hasText: 'Direct Preference Optimization' });
+  await paper.getByRole('button', { name: /^Actions for/ }).click();
+  await page.getByRole('menuitem', { name: 'Move to catalog…' }).click();
+  const moving = page.getByRole('dialog', { name: 'Move to catalog', exact: true });
+  await moving.getByRole('combobox', { name: 'Catalog', exact: true }).selectOption({ label: 'Research' });
+  await moving.getByRole('button', { name: 'Move', exact: true }).click();
+  await expect(moving).toHaveCount(0); await expect(paper).toHaveCount(0);
+  await page.getByLabel('Current catalog').selectOption({ label: 'Research' });
+  await expect(paper).toHaveCount(1); await expect(page.getByTestId('paper-row')).toHaveCount(2);
+  const evidence = await (await request.get(`${FIXTURE}/__library-action-evidence`)).json();
+  expect(evidence.entries.find((e: { metadata?: { title?: string } }) => e.metadata?.title?.includes('Direct Preference Optimization'))?.visible).toBe(true);
+});

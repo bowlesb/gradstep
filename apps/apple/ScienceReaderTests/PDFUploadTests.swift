@@ -67,6 +67,24 @@ final class PDFUploadTests: XCTestCase {
         for _ in 0..<200 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
+    func testLocalInstallerCapturesCatalogBeforeFileCheckingSuspends() async throws {
+        let center = center(PDFUploadStore(root: directory)), file = try makePDF()
+        var selected = UUID(), captured: UUID?, installed: UUID?
+        let original = selected, chose = expectation(description: "Catalog captured at Add")
+        var ctx = context(FakeService(), account: UUID())
+        ctx.captureLocalInstall = {
+            let destination = selected; captured = destination; chose.fulfill()
+            return { _, _, _ in installed = destination }
+        }
+        center.activate(ctx)
+        let task = Task { try await center.add(file: file, target: .newPaper) }
+        await fulfillment(of: [chose], timeout: 3)
+        selected = UUID()
+        _ = try await task.value
+        XCTAssertEqual(captured, original); XCTAssertEqual(installed, original)
+        XCTAssertNotEqual(installed, selected)
+    }
+
     func testChosenPDFCommitsOnlyToDeviceSink() async throws {
         let disk = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
         let local = try DevicePaperStore(directory: directory.appendingPathComponent("encrypted"), accountID: account, localKey: ReaderCrypto.randomKey())

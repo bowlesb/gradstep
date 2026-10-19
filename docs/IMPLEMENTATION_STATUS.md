@@ -31,6 +31,16 @@ required native gate now includes that path and visible Apple/Google refusal han
 passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs remain the next implementation
 task, implemented in an isolated checkout; no catalog feature is released yet.
 
+## Named Library catalogs — October 19 UTC (implementation, not yet released)
+
+Native and browser Catalogs offer create, rename, switch, default selection and explicit deletion dispositions:
+move to another catalog, move to a named new catalog, or remove the papers through existing library commands.
+New arXiv and local-PDF additions capture the selected catalog; existing paper/chat identities remain intact.
+Catalog metadata uses existing encrypted notes, without a new backend schema. Seven Core and seven browser
+projection cases pass. Eleven native model/PDF cases pass (one optional corpus check skipped); the final native
+screen journey and mandatory 15-case import gate are still pending. The browser's first four journeys pass;
+expanded individual-move/addition journeys are being verified. No paid model calls.
+
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 
 Fine-tuning experiments ran in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real

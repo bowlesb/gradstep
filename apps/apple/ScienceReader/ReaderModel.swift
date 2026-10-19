@@ -321,6 +321,184 @@ final class ReaderModel {
     }
     private(set) var libraryCommandIssue: String?
     var showLibraryChanges = false
+    var showCatalogs = false
+    private(set) var libraryCatalogs = LibraryCatalogState()
+    private var selectedCatalogID: UUID?
+    @ObservationIgnored private var catalogWriteTail: Task<Void, Never>?
+    var catalogBusy = false
+    var catalogDeletionProgress: String?
+    var catalogScope: UUID { sessionID }
+    var currentCatalog: LibraryCatalog {
+        libraryCatalogs.catalog(libraryCatalogs.resolved(selectedCatalogID ?? libraryCatalogs.defaultID))!
+    }
+    var canManageCatalogs: Bool {
+        accountID != nil && device?.accountID == accountID && localPersistence.store != nil &&
+        !workOwnership.isActivating && !needsRecovery
+    }
+    func catalogKey(_ paper: Paper) -> String {
+        paper.sourceID.flatMap(LibraryCatalogBatch.arxivKey) ?? LibraryCatalogBatch.documentKey(paper.id)
+    }
+    func catalogKey(_ item: LibraryImportRecord) -> String {
+        item.sourceID.flatMap(LibraryCatalogBatch.arxivKey) ?? LibraryCatalogBatch.documentKey(item.documentID ?? item.id)
+    }
+    func catalogContains(_ key: String) -> Bool { libraryCatalogs.catalogID(for: key) == currentCatalog.id }
+    func catalogCount(_ id: UUID) -> Int {
+        var keys = Set(papers.map(catalogKey) + libraryImports.map(catalogKey))
+        for command in libraryCommands where command.isUnfinished {
+            if case .beginImport(let source, _, _) = command.mutation, let key = LibraryCatalogBatch.arxivKey(source) { keys.insert(key) }
+        }
+        return keys.filter { libraryCatalogs.catalogID(for: $0) == id }.count
+    }
+    func selectCatalog(_ id: UUID) {
+        selectedCatalogID = libraryCatalogs.resolved(id)
+        libraryTagFilter = nil; libraryQuery = ""; librarySearchSourceChanged()
+    }
+    private func writeCatalog(_ operations: [LibraryCatalogBatch.Operation]) async throws {
+        let previous = catalogWriteTail, scope = sessionID
+        let work = Task { [weak self] in
+            await previous?.value
+            guard let self, self.sessionID == scope else { throw CancellationError() }
+            try await self.persistCatalog(operations)
+        }
+        catalogWriteTail = Task { _ = try? await work.value }
+        try await work.value
+    }
+    private func persistCatalog(_ operations: [LibraryCatalogBatch.Operation]) async throws {
+        guard canManageCatalogs, let device, let store else { throw LibraryCatalogError.unavailable }
+        let scope = sessionID, persistence = localPersistence
+        let event = try LibraryCatalogBatch(operations: operations).event(in: privateState)
+        _ = try await persistence.acceptWrite { try await $0.append(event, deviceID: device.deviceID) }.value
+        let snapshot = await store.snapshot()
+        guard sessionID == scope else { throw CancellationError() }
+        publish(snapshot)
+        Task { [weak self] in guard let self, self.sessionID == scope else { return }; await self.synchronize() }
+    }
+    private func catalogName(_ raw: String, excluding: UUID? = nil) throws -> String {
+        guard let name = LibraryCatalogBatch.normalizedName(raw),
+              !libraryCatalogs.catalogs.contains(where: { $0.id != excluding && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw LibraryCatalogError.invalidName
+        }
+        return name
+    }
+    @discardableResult
+    func createCatalog(_ name: String) async throws -> UUID {
+        let id = UUID()
+        try await writeCatalog([.init(.create, catalogID: id, name: catalogName(name))])
+        selectCatalog(id); return id
+    }
+    func renameCatalog(_ id: UUID, name: String) async throws {
+        guard libraryCatalogs.catalog(id) != nil else { throw LibraryCatalogError.unavailable }
+        try await writeCatalog([.init(.rename, catalogID: id, name: catalogName(name, excluding: id))])
+    }
+    func makeDefaultCatalog(_ id: UUID) async throws {
+        guard libraryCatalogs.catalog(id) != nil else { throw LibraryCatalogError.unavailable }
+        if selectedCatalogID == nil { selectedCatalogID = currentCatalog.id }
+        try await writeCatalog([.init(.makeDefault, catalogID: id)])
+    }
+    func movePaper(_ paper: Paper, toCatalog id: UUID) async throws {
+        guard libraryCatalogs.catalog(id) != nil else { throw LibraryCatalogError.unavailable }
+        try await writeCatalog([.init(.assign, catalogID: id, paperKey: catalogKey(paper))])
+    }
+    func retireCatalog(_ id: UUID, movingTo destination: UUID?, newName: String?) async throws {
+        guard libraryCatalogs.catalog(id) != nil else { throw LibraryCatalogError.unavailable }
+        var operations: [LibraryCatalogBatch.Operation] = []
+        let target: UUID
+        if let newName {
+            target = UUID(); operations.append(.init(.create, catalogID: target, name: try catalogName(newName, excluding: id)))
+        } else {
+            guard let destination, destination != id, libraryCatalogs.catalog(destination) != nil else { throw LibraryCatalogError.unavailable }
+            target = destination
+        }
+        operations.append(.init(.retire, catalogID: id, destinationID: target))
+        try await writeCatalog(operations)
+    }
+    /// Captures exactly the papers/revisions confirmed by the reader. The catalog remains visible until
+    /// ordinary removal/cancel receipts have caught up. A failure never hides remaining articles.
+    func deleteCatalogAndPapers(_ id: UUID) async throws {
+        guard canManageCatalogs, libraryCatalogs.catalog(id) != nil else { throw LibraryCatalogError.unavailable }
+        let scope = sessionID
+        enum Removal {
+            case sample(UUID)
+            case local(Paper)
+            case command(LibraryMutation, LibraryReadContext, String, String)
+            case queued(LocalLibraryCommand)
+        }
+        var plan: [Removal] = [], seen = Set<String>(), capturedImports = Set<UUID>()
+        let captured = completeLibrary
+        for paper in papers where libraryCatalogs.catalogID(for: catalogKey(paper)) == id {
+            let key = catalogKey(paper); seen.insert(key)
+            if paper.isSample { plan.append(.sample(paper.id)); continue }
+            if paper.isLocalPDF { plan.append(.local(paper)); continue }
+            guard canChangeLibrary, let captured else { throw LibraryCatalogError.unavailable }
+            if let source = paper.sourceMembership, let item = captured.imports.first(where: { $0.id == source.membershipID && $0.visible }) {
+                capturedImports.insert(item.id)
+                plan.append(.command(.cancelImport(importID: item.id, expectedRevision: item.intentRevision), captured.observation.readContext, paper.title, key))
+            } else if let item = captured.items.first(where: { $0.documentID == paper.id && $0.visible }) {
+                plan.append(.command(.setMembership(documentID: item.documentID, present: false, expectedRevision: item.membershipRevision,
+                    approvalID: item.approvalID), captured.observation.readContext, paper.title, key))
+            } else { throw LibraryCatalogError.unavailable }
+        }
+        for item in libraryImports where libraryCatalogs.catalogID(for: catalogKey(item)) == id {
+            let key = catalogKey(item); seen.insert(key)
+            guard capturedImports.insert(item.id).inserted else { continue }
+            guard canChangeLibrary, let captured else { throw LibraryCatalogError.unavailable }
+            plan.append(.command(.cancelImport(importID: item.id, expectedRevision: item.intentRevision), captured.observation.readContext,
+                item.metadata?.title ?? "Paper", key))
+        }
+        for command in libraryCommands where command.isUnfinished {
+            guard case .beginImport(let source, _, _) = command.mutation, let key = LibraryCatalogBatch.arxivKey(source),
+                  libraryCatalogs.catalogID(for: key) == id, seen.insert(key).inserted else { continue }
+            plan.append(.queued(command))
+        }
+        defer { if sessionID == scope { catalogDeletionProgress = nil } }
+        for (index, removal) in plan.enumerated() {
+            guard sessionID == scope else { throw CancellationError() }
+            catalogDeletionProgress = "Deleting paper \(index + 1) of \(plan.count)…"
+            switch removal {
+            case .sample(let paperID): papers.removeAll { $0.id == paperID && $0.isSample }
+            case .local(let paper):
+                guard libraryCatalogs.catalogID(for: catalogKey(paper)) == id else { continue }
+                try await persistLocalPDFEdit(paper, remove: true)
+            case .queued(let command):
+                guard let commands = libraryCommandCoordinator else { throw LibraryCatalogError.unavailable }
+                try await commands.cancel(command); await commands.waitUntilIdle()
+                guard sessionID == scope else { throw CancellationError() }
+                if libraryCommands.contains(where: { $0.handle == command.handle && $0.isUnfinished }) { throw LibraryCatalogError.pendingChanges }
+            case .command(let mutation, let context, let title, let key):
+                guard libraryCatalogs.catalogID(for: key) == id else { continue }
+                // A grouped removal may already hide the related source intent. Do not submit its old revision.
+                if let importID = mutation.sourceImportID, completeLibrary?.imports.contains(where: { $0.id == importID && $0.visible }) != true { continue }
+                if let documentID = mutation.itemDocument, completeLibrary?.items.contains(where: { $0.documentID == documentID && $0.visible }) != true { continue }
+                guard let commands = libraryCommandCoordinator else { throw LibraryCatalogError.unavailable }
+                // An uncertain removal must replay its existing request, never acquire a fresh operation ID.
+                let active = libraryCommands.first { command in
+                    guard command.isUnfinished, let other = command.mutation else { return false }
+                    if let document = mutation.itemDocument { return other.itemDocument == document }
+                    return mutation.sourceImportID != nil && other.sourceImportID == mutation.sourceImportID
+                }
+                let handle: LocalLibraryCommandHandle
+                if let active {
+                    switch (mutation, active.mutation) {
+                    case (.cancelImport, .cancelImport), (.setMembership(_, false, _, _), .setMembership(_, false, _, _)): break
+                    default: throw LibraryCatalogError.pendingChanges
+                    }
+                    handle = active.handle; await commands.retry()
+                } else {
+                    handle = try await commands.enqueue(mutation, display: String(title.prefix(200)), observedIn: context)
+                }
+                await commands.waitUntilIdle()
+                guard sessionID == scope else { throw CancellationError() }
+                if libraryCommands.contains(where: { $0.handle == handle && $0.isUnfinished }) { throw LibraryCatalogError.pendingChanges }
+            }
+        }
+        guard sessionID == scope else { throw CancellationError() }
+        guard catalogCount(id) == 0 else { throw LibraryCatalogError.changedDuringDeletion }
+        if let destination = libraryCatalogs.catalogs.first(where: { $0.id != id })?.id {
+            try await retireCatalog(id, movingTo: destination, newName: nil)
+        } else {
+            try await retireCatalog(id, movingTo: nil, newName: "Default")
+        }
+    }
     /// The Edit tags sheet (paper options, the library row's long-press menu, the reader's tag chips).
     var tagEditor: TagEditorRequest?
     var librarySignInRequired: Bool { accountID == nil }
@@ -611,6 +789,12 @@ final class ReaderModel {
     var chatWasDeleted: Bool { activeConversation.map { privateState.isDeleted($0) } ?? false }
     var privateState = PrivateState() {
         didSet {
+            let catalogs = LibraryCatalogState(privateState)
+            if catalogs != libraryCatalogs {
+                libraryCatalogs = catalogs
+                if let selectedCatalogID { self.selectedCatalogID = catalogs.resolved(selectedCatalogID) }
+                librarySearchSourceChanged()
+            }
             branchSelections.reconcile(with: privateState, observing: activeConversation)
             chatWorkspace.setDeletedConversations(Set(privateState.events.values.lazy
                 .filter { $0.payload.kind == .tombstone }.map { $0.payload.entityID }))
@@ -759,7 +943,10 @@ final class ReaderModel {
     private var started = false
     private var workOwnership = ReaderWorkOwnership()
     var sessionID: UUID { workOwnership.accountSessionID }
-    private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged(); podcasts.accountChanged() } } }
+    private var accountID: UUID? { didSet { if accountID != oldValue {
+        selectedCatalogID = nil; catalogWriteTail = nil; showCatalogs = false; catalogBusy = false; catalogDeletionProgress = nil
+        librarySearchSourceChanged(); podcasts.accountChanged()
+    } } }
     private var publishedGeneration: Int64 = -1
     /// Encrypted changes on this device not yet synced (the Account page says how many).
     private(set) var publishedPendingCount = 0
@@ -1009,7 +1196,7 @@ final class ReaderModel {
             if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
         }
         var counts: [LibraryFilter: Int] = [:], tagRows: [[String]] = []
-        for paper in papers {
+        for paper in papers where catalogContains(catalogKey(paper)) {
             let activity = readingActivity[paper.id], tags = LibraryTags.tags(for: paper)
             for filter in LibraryFilter.allCases where filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived,
                                                                           opened: activity?.openedAt, progress: activity?.progress) {
@@ -1017,7 +1204,7 @@ final class ReaderModel {
                 if filter == libraryFilter { tagRows.append(tags) }
             }
         }
-        for item in libraryImports {
+        for item in libraryImports where catalogContains(catalogKey(item)) {
             for filter in LibraryFilter.allCases where filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically) {
                 counts[filter, default: 0] += 1
                 if filter == libraryFilter { tagRows.append(LibraryTags.tags(for: item)) }
@@ -1045,7 +1232,7 @@ final class ReaderModel {
         // The quick filter and tag filter decide which rows are candidates; search and sort then run over them.
         let filter = libraryFilter, tagFilter = libraryTagFilter
         func tagged(_ tags: [String]) -> Bool { tagFilter.map(tags.contains) ?? true }
-        for paper in papers {
+        for paper in papers where catalogContains(catalogKey(paper)) {
             let activity = readingActivity[paper.id]
             let tags = LibraryTags.tags(for: paper)
             guard filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived, opened: activity?.openedAt,
@@ -1057,7 +1244,7 @@ final class ReaderModel {
             append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags + (deviceTextIndex.entries[paper.id]?.terms ?? []),
                    sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
         }
-        for item in libraryImports {
+        for item in libraryImports where catalogContains(catalogKey(item)) {
             let tags = LibraryTags.tags(for: item)
             guard filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), tagged(tags) else { continue }
             let reference = (item.sourceID ?? "") + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
@@ -1071,7 +1258,8 @@ final class ReaderModel {
             // Cached mappings suppress duplicate presentation only; they do
             // not resolve the durable command or authorize a mutation.
             guard case .beginImport(let source, let revision, _) = command.mutation,
-                  command.isUnfinished, !presentedImportIDs.contains(command.id) else { continue }
+                  command.isUnfinished, !presentedImportIDs.contains(command.id),
+                  LibraryCatalogBatch.arxivKey(source).map(catalogContains) == true else { continue }
             append(.queued(command), fields: [command.display ?? "", source + (revision.map { "v\($0)" } ?? "")],
                    sequence: Int64.max)
         }
@@ -2248,6 +2436,16 @@ final class ReaderModel {
         let reference = try ArxivReference(input)
         guard canBeginImport, let snapshot = completeLibrary, let commands = libraryCommandCoordinator else { throw ReaderError.storageUnavailable }
         let scope = sessionID
+        let key = LibraryCatalogBatch.arxivKey(reference.sourceID)!
+        let alreadyPresent = papers.contains { catalogKey($0) == key } || libraryImports.contains { catalogKey($0) == key }
+            || libraryCommands.contains { command in
+                guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
+                return LibraryCatalogBatch.arxivKey(source) == key
+            }
+        if !alreadyPresent && libraryCatalogs.catalogID(for: key) != currentCatalog.id {
+            try await writeCatalog([.init(.assign, catalogID: currentCatalog.id, paperKey: key)])
+        }
+        guard sessionID == scope else { throw CancellationError() }
         _ = try await commands.enqueue(.beginImport(sourceID: reference.sourceID, requestedRevision: reference.revision,
                                                     observedCursor: snapshot.committedCursor), display: "arXiv \(reference.identifier)",
                                        observedIn: snapshot.observation.readContext)
@@ -2372,22 +2570,26 @@ final class ReaderModel {
     }
 
     private func editLocalPDF(_ paper: Paper, remove: Bool = false, archived: Bool? = nil, tags: [String]? = nil) async {
+        let scope = sessionID
+        do { try await persistLocalPDFEdit(paper, remove: remove, archived: archived, tags: tags); await synchronize() }
+        catch { if sessionID == scope { show(error) } }
+    }
+
+    private func persistLocalPDFEdit(_ paper: Paper, remove: Bool = false, archived: Bool? = nil, tags: [String]? = nil) async throws {
         guard let device, let store, let prior = privateState.revisions(for: paper.id).first,
-              var membership = try? LocalPDFMembership.decode(prior.payload) else { return }
+              var membership = try? LocalPDFMembership.decode(prior.payload) else { throw LibraryCatalogError.unavailable }
         let scope = sessionID, persistence = localPersistence
         if let archived { membership.archived = archived }
         if let tags { membership.tags = tags }
-        do {
-            let event = PrivateEvent(kind: remove ? .tombstone : .localPaper, entityID: paper.id, parents: [prior.id],
-                text: remove ? nil : try membership.text(), createdAt: PrivateEvent.timestamp(Date()))
-            _ = try await persistence.acceptWrite { try await $0.appendBatch([(id: UUID(), event: event)], deviceID: device.deviceID) }.value
-            if remove, let record = localPaperRecords.first(where: { $0.identity.sourceID == paper.sourceID }) {
-                _ = try await persistence.acceptLocalPaperWrite { try await $0.remove(record.identity) }.value
-            }
-            let snapshot = await store.snapshot()
-            guard sessionID == scope else { return }
-            publish(snapshot); await refreshLocalPaperRecords(); await synchronize()
-        } catch { if sessionID == scope { show(error) } }
+        let event = PrivateEvent(kind: remove ? .tombstone : .localPaper, entityID: paper.id, parents: [prior.id],
+            text: remove ? nil : try membership.text(), createdAt: PrivateEvent.timestamp(Date()))
+        _ = try await persistence.acceptWrite { try await $0.appendBatch([(id: UUID(), event: event)], deviceID: device.deviceID) }.value
+        if remove, let record = localPaperRecords.first(where: { $0.identity.sourceID == paper.sourceID }) {
+            _ = try await persistence.acceptLocalPaperWrite { try await $0.remove(record.identity) }.value
+        }
+        let snapshot = await store.snapshot()
+        guard sessionID == scope else { throw CancellationError() }
+        publish(snapshot); await refreshLocalPaperRecords()
     }
 
     /// Retry and Remove on an import can run (the row's buttons and menu).
@@ -3209,8 +3411,13 @@ final class ReaderModel {
     /// banner; "Papers in this answer" shows it on the row). Nil when signed out.
     func referenceOutcome(_ text: String) async -> ReferenceNotice? {
         guard let backend, let accountID else { return nil }
+        let scope = sessionID, destination = currentCatalog.id
         do {
             let result = try await backend.addReference(text, accountID: accountID)
+            guard sessionID == scope else { return nil }
+            if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
+                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
+            }
             let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
             let source = result.paper?.source_id
             if result.status == "added" { Task { await refreshLibrary() } }
@@ -3242,14 +3449,17 @@ final class ReaderModel {
                 return self.completeLibrary?.committedCursor
             },
             added: { [weak self] in Task { await self?.refreshLibrary() } },
-            installLocal: { [weak self] file, checked, target in
-                guard let self, self.sessionID == scope else { throw CancellationError() }
-                try await self.installLocalPDF(file, checked: checked, target: target)
+            captureLocalInstall: { [weak self] in
+                let selected = self?.currentCatalog.id
+                return { [weak self] file, checked, target in
+                    guard let self, self.sessionID == scope else { throw CancellationError() }
+                    try await self.installLocalPDF(file, checked: checked, target: target, catalogID: selected)
+                }
             }))
         importSharedItems()
     }
 
-    private func installLocalPDF(_ file: URL, checked: CheckedPDF, target: PDFUploadTarget) async throws {
+    private func installLocalPDF(_ file: URL, checked: CheckedPDF, target: PDFUploadTarget, catalogID: UUID?) async throws {
         guard let device, let store else { throw ReaderError.storageUnavailable }
         let scope = sessionID, id = UUID(), persistence = localPersistence
         if case .localPaper(let paperID) = target {
@@ -3283,7 +3493,16 @@ final class ReaderModel {
         guard sessionID == scope else { throw CancellationError() }
         do {
             let event = PrivateEvent(kind: .localPaper, entityID: id, text: try membership.text(), createdAt: membership.createdAt)
-            let saved = try persistence.acceptWrite { try await $0.appendBatch([(id: UUID(), event: event)], deviceID: device.deviceID) }
+            var events = [(id: UUID(), event: event)]
+            let key = LibraryCatalogBatch.documentKey(id)
+            let destination = libraryCatalogs.resolved(catalogID ?? libraryCatalogs.defaultID)
+            if libraryCatalogs.catalogID(for: key) != destination {
+                let assignment = try LibraryCatalogBatch(operations: [.init(.assign, catalogID: destination, paperKey: key)])
+                    .event(in: privateState)
+                events.append((id: UUID(), event: assignment))
+            }
+            let batch = events
+            let saved = try persistence.acceptWrite { try await $0.appendBatch(batch, deviceID: device.deviceID) }
             _ = try await saved.value
             guard sessionID == scope else { return }
             localPaperRecords = await persistence.localPaperStore?.records() ?? []
@@ -3324,10 +3543,13 @@ final class ReaderModel {
     /// this account's import, or says what to do next. Nil when signed out or after an account change.
     func addPaperOutcome(_ query: String) async -> AddOutcome? {
         guard let service = addingService else { return nil }
-        let scope = sessionID
+        let scope = sessionID, destination = currentCatalog.id
         do {
             let result = try await service.addPaper(query)
             guard sessionID == scope else { return nil }
+            if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
+                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
+            }
             if result.status == "added" { Task { await refreshLibrary() } }
             return AddOutcome.from(result)
         } catch {
