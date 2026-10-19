@@ -21,6 +21,12 @@ and admits 35 reviewed figure images from 15 papers. Preparation and bounded com
 still add **$0 provider spend, $0 reservations and $0 fixed service commitments**. No paid annotation API,
 dataset purchase, rental or budget increase. Further paid-service forecast remains $0; electricity is unknown.
 
+The targeted continuation copies 38 disjoint training-paper packages (248.50 MiB, 190 existing files) and admits
+41 reviewed figures from 34 papers, including native figure PDFs rendered only on the Mac. Only 15.52 MB of PNGs
+plus annotation/provenance records transfer into the training workspace. Actual provider spend, new reservations,
+fixed commitments and further paid-service forecast remain **$0**. The owned-GPU run records its elapsed time and
+power/temperature samples; electricity remains unpriced. This does not release any earlier cloud-call liability.
+
 ## OpenRouter consolidation and Mac evaluation — 2026-10-18
 
 Live verification recorded **$0.403296** in newly attributed hosted attempts: paper chat/title/suggestions

@@ -418,3 +418,181 @@ Final comparisons and exact provenance: GPU `runs/source-v14-laststage/cohort-co
 `.artifacts/subfigure-training/source-comparisons/source-v14-laststage/`. Source/identity/geometry regression
 checks total **35 passing on both the Mac and GPU host**. No paid provider spend, new reservation or service
 commitment; local electricity remains unpriced.
+
+## Targeted heatmaps, shared context and complete diagrams — 2026-10-19 UTC
+
+The next sample targets caption mentions of heatmaps, legends and diagrams, excluding all earlier sampled paper
+families and using the same training-only split rule. Three bounded passes admit **38 paper packages / 190 files /
+248.50 MiB** from the existing read-only corpus. Language papers are explicitly included. Caption selection is
+neither representative sampling nor automatic panel annotation. Source files/services remain unchanged; there
+are no remote PDF acquisitions or Science Reader PDF processing jobs.
+
+The embedded-raster method recovers 18 candidates. Many remaining HTML PNG paths actually refer to previews of
+native source figure PDFs. `source_native.py` recovers 25 more candidates by requiring a unique archive PDF,
+an explicit TeX `includegraphics` reference and a unique caption page in the compiled paper. It reads bounded
+archive members as data, executes no TeX and renders PDFs only on this Mac. Each one-page asset was visually
+compared with its paper-page render. This is reviewed source correspondence, **not** the full pixel-identity
+proof used for embedded raster images. The curation gate binds that review to the exact parent-render hash.
+
+Of 43 candidates, two remain deferred: an ambiguous attention-transition sequence and overlapping chart/axis
+labels that need a more careful multi-region interpretation. The admitted **41 figures / 34 papers / 67 panels**
+include 24 native assets and 17 embedded raster crops: 12 language, 11 computer vision, 10 ML and eight AI figures.
+Fourteen compound figures and 27 single figures/connected diagrams provide both positive and negative examples.
+The 14 explicit context regions are three legends, five titles, two X axes and four Y axes, with **40 required
+links**. Examples include three clinical heatmaps sharing a colorbar/method axis; three scatter plots with a
+legend only in the last plot; six correlation matrices sharing visit identities; and complete workflows with
+their final output preserved. Native assets containing several plots are manually subdivided.
+
+Final overlays were reviewed before training. One vertical MSE-axis annotation was expanded after the first
+overlay revealed clipping. Draft annotations/curation were never trained or scored. These remain **Codex
+development annotations**, not independently human-reviewed ground truth. License/first-last-author/image
+checks found no exclusions; they do not establish all-author/lab/template independence or resolve older rights.
+
+The **`targeted-v2`** dataset has **1,804 training images**: 1,314 original real figures, 384 generated plots and
+106 arXiv figures from 56 papers across the additions. Both held-out files remain byte-identical: **313 validation
+figures** and **235 final-test figures**. No final-test inference or visual inspection was performed. New records
+retain sampling weight 8; with compound weight 3, total arXiv expected draws rise from 25.10% to **33.40%**.
+Thus data and sampling mix change together; this is not an isolated causal estimate of any one annotation choice.
+
+Manifest SHA-256: `00f4f091406a36bcc77f05ba5f7d06bb7a1c74060945c5133c98b9a3d153100c`.
+Annotation SHA-256: `e3a4c47bd1e065402a5724396d4666349031b1efc9f742a024529ee6f518e6df`.
+Labels: `scripts/subfigure-training/annotations/targeted-panels-v2.json`.
+Local evidence: `.artifacts/subfigure-training/mathpix-source/targeted-final-v1.json`, `targeted-tools-v3/`,
+`targeted-review-v2/`, `targeted-curated-v2/`, and the native-source paired page sheets. Only 41 reviewed PNGs
+(15,521,867 bytes) and annotation/provenance files went to GPU `data/reviewed/targeted-v2/` and
+`data/manifests/targeted-v2/`. **40 regression tests pass on both machines.** New provider/service spend is $0.
+
+`targeted-v15-gentle` uses v13's v7 initialization, frozen backbone, LR .00002, seed 20261018, batch 8,
+compound weight 3, spatial jitter, epoch cap 40 and patience 8. It compares the expanded data on the same
+validation set and fixed operating points. Measured outcomes follow; no candidate is qualified by the
+expanded dataset alone.
+
+The run completed at **02:06:04 UTC**, **9 epochs / 255.88 s / 2.98 GB peak allocated VRAM**, best epoch 0.
+At the fixed .6 panel threshold / .75 IoU (context .25), the result is:
+
+| Cohort | v13 TP / FP / FN | Targeted v15 TP / FP / FN | v15 retained context |
+|---|---|---|---|
+| Original 297 | 482 / 36 / 23 | **473 / 40 / 32** | 45/75 |
+| New 16 arXiv | 31 / 6 / 7 | **33 / 4 / 5** | 15/45 |
+| Combined 313 | 513 / 42 / 30 | **506 / 44 / 37** | **60/120** |
+
+Combined compound results are 301 TP / 14 FP / 26 FN. The small new cohort improves panel matching, but the
+overall result regresses against v13 and is **not accepted**. Visual review confirms substantial errors rather
+than just score fluctuations: five separately labeled chemistry routes merge into one; a photograph loses its
+left edge; a single plot loses the upper axis/tick. The newer line-plot pair separates correctly again, while
+the paired heatmap still has an overbroad second box and incomplete context detection. No validation labels changed.
+
+A hash-bound diagnostic reproduces the existing context scorer and attributes v15's 60 missing required links:
+**45 have no eligible same-class context box at IoU .5, six have a detected but clipped context box, and nine are
+on missed panels**. Of the 45, 36 are titles/headings. The corresponding v13 counts are 38 / 9 / 9 (56 missing).
+This identifies the recorded failure stage; it is not proof of why learning failed, nor a semantic association
+test. Contexts available as separate crops remain an optimistic geometry measurement. Evidence:
+`source-comparisons/targeted-v15-gentle/{cohort-comparison,context-failure-audit}.json`, `v15-changed-images.json`,
+`v15-review-*.jpg`, and `targeted-tools-v3/context-failure-audit.py`.
+
+The next single-factor check reduces only the latest 41 records' sampling weight from 8 to 2; all 1,804 images,
+labels, held-out records, initialization and optimization settings are unchanged. Earlier arXiv examples retain
+weight 8, so total expected arXiv draws become **27.36%**, close to v13's 25.10%. This tests whether oversampling
+contributes to regression; it does not assume that explanation is correct. Immutable data revision
+`targeted-balanced-v1`, manifest SHA `5241c35dec350fb3db703977be7327139d5c24a06bb1695c57ff179add53e625`;
+run `targeted-v16-balanced`. No paid spend or release.
+
+The sampling comparison completed at **02:13:30 UTC**, **9 epochs / 256.03 s / 2.98 GB peak allocated VRAM**,
+best epoch 0. Original figures score **479 TP / 48 FP / 26 FN**; newer figures **31 / 7 / 7**; combined
+**510 / 55 / 33**, with compound counts **305 / 17 / 22**. Context retention falls to **53/120** (46/75 original,
+7/45 newer), and 16 single figures are falsely split. Reducing the latest examples' weight recovers some v15
+misses but worsens false crops and context; it does not establish oversampling as the cause or qualify a model.
+The context audit attributes 67 missing links to 52 unavailable boxes, five clipped boxes and ten missed panels.
+Visual replay confirms the incomplete photograph, a split chart/key, disconnected diagram pieces and an inset
+separated from its parent microscopy panel. No validation labels changed. Evidence:
+`source-comparisons/targeted-v16-balanced/`, `v16-changed-images.json` and `v16-review-*.jpg`.
+
+Both gentle runs select epoch 0. The declared comparison, `targeted-v17-fresh`, therefore uses the exact v7
+fresh-training recipe (original COCO initialization, LR .0002, freeze three epochs then last backbone stage,
+60-epoch cap, patience 12, compound weight 3 and spatial jitter) on `targeted-balanced-v1`. This compares learning
+the expanded examples from the start with continued fine-tuning. It changes the training recipe as a bundle;
+it is not an isolated causal estimate of initialization alone. Validation/final-test boundaries remain fixed.
+
+The fresh run completed at **02:31:08 UTC**, **25 epochs / 737.44 s / 3.11 GB peak allocated VRAM**, best epoch 12.
+At the same fixed .6 operating point:
+
+| Cohort | v13 TP / FP / FN | Fresh v17 TP / FP / FN | v17 retained context |
+|---|---|---|---|
+| Original 297 | 482 / 36 / 23 | **475 / 51 / 30** | 21/75 |
+| New 16 arXiv | 31 / 6 / 7 | **32 / 6 / 6** | 10/45 |
+| Combined 313 | 513 / 42 / 30 | **507 / 57 / 36** | **31/120** |
+
+Combined compound counts are **299 / 18 / 28**; 19 single figures are falsely split. The 89 missing context
+links comprise 63 without usable context boxes, five with clipped boxes and 21 on missed panels. Only three of
+48 unique context regions are retained for every linked panel. The final epoch has worse title AP50 than the
+selected checkpoint (.086 vs .108), but higher legend AP50 (.313 vs .279); its full fixed-threshold crop replay
+has not been run. Visual replay of the selected checkpoint confirms merged chemical routes, missing map
+margins, a dropped chart key and an extra crop of a
+connected workflow's output. Some individual figures improve, including a timeline, but the overall result is
+**not accepted**. Evidence: `source-comparisons/targeted-v17-fresh/`, `v17-changed-images.json`, `v17-review-*.jpg`.
+
+Best checkpoint hashes, kept on the GPU host (no model binary copied to the nearly full Mac):
+
+| Run | SHA-256 |
+|---|---|
+| v15 | `fa1c8ff16a0388b751e94b9c588a4a94111a12fa2b3995d71e63b2f93930afdb` |
+| v16 | `71144ff9a0b64f48888c896cd36c1a50e4b2cb7392df379de76ed1f1313a4aaa` |
+| v17 | `61a0c7514f26f7724bc9aafeac40abeef2586f8fa28b136c8cfb7e693a0ba8f3` |
+
+Each run retains an `evidence-hashes.json` binding checkpoint, predictions, metrics, source, sampling, resources
+and completion record. The copied v17 evidence hashes were verified locally. These three comparisons are
+complete; no GPU training process remains running. Adding this targeted data has **not** produced an overall
+improvement over v13. It remains a research reference, not a qualified model. No app/catalogue/deployment change.
+
+### Offline OCR replay and context limits
+
+The unchanged Mac Vision OCR tool now covers the remaining 16 validation figures: 374 text lines, with a summed
+Vision-request duration of 1.6811 s (not total wall time or cold-start latency). Execution denied all networking.
+Combining those records with the earlier 297 gives 313 hash/dimension-verified OCR records; final-test figures
+remain excluded. OS 26.3.1(a), Vision revision 3. Combined OCR SHA-256:
+`b9dc25a25868a865095917a38541fa44a3fbbe9629dc2b0c42a50054c63a377c`.
+Evidence: `.artifacts/subfigure-training/combined-validation-ocr-provenance.json` and the bound input/output files.
+
+Replaying the two existing OCR crop policies, with duplicate suppression at .4, panel confidence .6 and context
+confidence .25, does **not** qualify either checkpoint. These measurements include suppression and margin changes;
+they are not an isolated estimate of OCR's causal effect. Report actual delivered rectangles separately:
+
+| Checkpoint / existing margin policy | Deduplicated detector TP / FP / FN | Delivered crop TP / FP / FN | Retained context on delivered matched panels, of 120 |
+|---|---|---|---|
+| v13 / bounded | 510 / 33 / 33 | **500 / 43 / 43** | **32** |
+| v13 / 2% whole-image | 510 / 33 / 33 | **479 / 64 / 64** | **16** |
+| v15 / bounded | 504 / 38 / 39 | **496 / 46 / 47** | **34** |
+| v15 / 2% whole-image | 504 / 38 / 39 | **478 / 64 / 65** | **17** |
+
+The standard margin keeps more context on originally matched detections but makes rectangles too broad for the
+localization test. The bounded policy preserves more localized rectangles while leaving more context outside.
+Neither resolves missing separate headings/legends. Reports are `ocr-313.json` and `ocr-bounded-313.json` under
+each local run directory. No new crop policy or app behavior is selected.
+
+The 120 required panel-context links refer to **48 unique context regions**: 36 titles/headings, six legends,
+four Y axes and two X axes. Several panels share a region, so link counts are not 120 independent examples.
+Ten validation figures have missing context in each of v13/v15/v16. Among their unique regions, 15/16/12,
+respectively, are retained for every linked panel. Current training has 108 real title regions and 384 generated
+ones, but only 66 real legends; these counts motivate wider real-context coverage rather than claiming the
+dataset already represents the problem well. The fixed validation set is repeatedly used development evidence.
+
+The attribution is now a reusable `scripts/subfigure-training/context_report.py` command, with image/split
+identity checks and explicit reconciliation against the existing crop scorer. Four geometry/identity
+regressions cover shared-region denominators, missed panels, missing versus clipped context, and context already
+inside a panel. The complete research suite is **44 passing on both Mac and GPU host**; the project's `npm test`
+fast tier also passes. New `context-report.json` artifacts reproduce the earlier v13/v15/v16 attribution counts.
+
+Raw context-class detection is also weak: v13/v15/v16 title AP50 is .177/.188/.170 and legend AP50 is
+.274/.303/.352; shared-axis AP50 stays at or below .011. These are small validation populations (36 titles, six
+legends, three X-axis boxes, four Y-axis boxes, including one axis without a required panel link). They do not
+support a general accuracy claim, but they do rule out presenting strong panel AP as strong context detection.
+
+A saved-proposal diagnostic further separates low confidence from missing geometry. Of v13's 25 unique regions
+with no usable context box at .25, 17 have a same-class proposal at IoU .5 below that cutoff; eight have no
+localized saved proposal. Only each query's top class at score >= .03 is saved, so this cannot characterize
+unretained logits. Lowering the cutoff alone is not established as a fix: across all 49 annotated context boxes,
+v13 at .25 has **19 matches / 164 unmatched proposals / 30 misses**; at .1, **29 / 871 / 20**; at .03,
+**40 / 5,514 / 9**. These are raw proposals without suppression or semantic association; unmatched proposals can
+also include ordinary internal text outside the shared-context annotation policy. The check exposes the cost of
+simple threshold lowering, not final user-visible false crops. No threshold is changed. Reproducible evidence:
+`targeted-tools-v3/context-{proposal,threshold}-probe.py` and corresponding per-run JSON reports.

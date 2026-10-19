@@ -43,6 +43,19 @@ versus the baseline but loses two original-domain panels. Neither run is accepte
 active after 01:03:15 UTC. The Mathpix project remains read-only, PDF processing stays on the Mac, and paid spend
 is $0. These are measured validation tradeoffs, not a qualified model or release.
 
+A targeted continuation adds **41 training figures / 34 papers / 67 panels / 40 required-context links**, including
+24 native source figure PDFs rendered and reviewed only on the Mac. Combined training is 1,804 images; both
+held-out sets are unchanged. `targeted-v15-gentle` completed at 02:06:04 UTC: **506 matched panels / 44 false crops /
+37 missed**, context **60/120**. It improves the small new cohort but loses nine original-cohort matches versus
+v13 and is not accepted. Visual review confirms merged chemistry panels and clipped image/axis edges. Most
+missing context comes from absent/mislocalized heading detections, not a small edge-margin defect.
+`targeted-v16-balanced` also fails: 510 matched / 55 false / 33 missed, with context 53/120. Fresh-training v17
+finishes at 02:31:08 UTC: 507 matched / 57 false / 36 missed, context 31/120. None improves overall on v13.
+All three comparisons are complete, and no GPU training job remains running. The new context-failure report
+reconciles its counts with the crop scorer; OCR/margin and confidence diagnostics do not establish a fix.
+Forty-four regression checks pass on Mac and GPU host; `npm test` passes. No paid model calls, Mathpix writes
+or release. Qualification remains open.
+
 
 ## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed
 

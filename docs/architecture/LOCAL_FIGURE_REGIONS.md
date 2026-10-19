@@ -10,8 +10,18 @@ six-panel annotation. The source-assisted workflow now adds 35 reviewed training
 the 313 validation / 235 final-test records remain fixed. The gentle run reduces combined false crops from 61 to 42
 but finds one fewer panel; required-context retention remains inadequate. The last-backbone-stage comparison is
 also complete, with a different tradeoff (513 matched panels / 51 false crops / 30 missed; context 57/120).
-Neither run is accepted and no GPU job remains active. These are validation tradeoffs; the new labels are
+Neither run is accepted. These are validation tradeoffs; the new labels are
 Codex development review, not independent human review.
+
+Targeted source recovery adds 41 more training figures from 34 papers, with shared heatmap/scatter context and
+complete diagrams. Native figure PDFs are rendered only on the Mac and visually matched to their paper pages;
+they are not automatically admitted by basename matching. The 1,804-image training revision keeps both held-out
+files fixed. v15 improves the small new cohort but regresses overall (506 matched / 44 false / 37 missed;
+context 60/120) and is rejected. Reduced-sampling v16 also fails (510 matched / 55 false / 33 missed;
+context 53/120). Fresh-training v17 also regresses (507 matched / 57 false / 36 missed; context 31/120).
+All three comparisons are complete; no model is qualified. The reproducible failure report separates missed
+panels, absent context detections and clipped context. Existing OCR/margin policies and simple confidence
+reduction do not establish a solution; these models remain excluded from the app.
 
 ## Authorized training workspace — 2026-10-18
 
@@ -50,7 +60,7 @@ The explainer and Chat retain one composer, selected model and conversation. Ful
 
 Do not modify a verified reader bundle. Cache accepted geometry as an account-isolated encrypted sidecar using the existing local encrypted-storage conventions. Cache key includes image hash, detector hash and preprocessing revision. Derived image crops need not be persisted: reproduce them from the original image. Clear sidecars and in-memory regions with paper-content removal and account removal. No server schema, uploaded PDFs or plaintext persistent search index is needed.
 
-Before admitting a region, validate finite coordinates, positive extent, bounds, minimum rendered detail, image identity and transform. Detect duplicate/near-identical and crossing boxes; preserve legitimate insets separately. Check that axes, tick labels, panel labels and legends needed to interpret the plot are included. Offline Mac OCR and an experimental containment policy have been measured on the 297 real validation figures, but are not yet qualified or integrated. A confidence threshold is insufficient: the tested heatmap lost labels at 0.92 confidence. When checks disagree, retain the whole figure and permit answering from it.
+Before admitting a region, validate finite coordinates, positive extent, bounds, minimum rendered detail, image identity and transform. Detect duplicate/near-identical and crossing boxes; preserve legitimate insets separately. Check that axes, tick labels, panel labels and legends needed to interpret the plot are included. Offline Mac OCR and an experimental containment policy have been measured on all 313 real validation figures, but are not yet qualified or integrated. A confidence threshold is insufficient: the tested heatmap lost labels at 0.92 confidence. When checks disagree, retain the whole figure and permit answering from it.
 
 Bound image dimensions, concurrent work (one detector run), result count and cache size. Run inference outside the UI thread, cancel on paper/account change, and allow memory pressure to discard model/results. Model installation must use a pinned manifest/hash and verified license. Reuse the app's Local models download/error conventions if a separate download is needed. Never download another chat model merely to crop a figure.
 
