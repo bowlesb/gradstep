@@ -32,6 +32,12 @@ Source archives also preserve original figure images: eight PCBWorld assets matc
 and a source-pixel/PDF-text recovery proof reconstructs all six panels of a previously truncated figure with
 their labels. This improves the next annotation workflow, not the detector's measured accuracy.
 
+Source-assisted expansion now adds **35 reviewed training figures from 15 further papers**, with 113 panels and
+54 required-context links. Full decoded source-image/PDF identity and printed subcaptions guide the annotations;
+shared headings and contaminated margins required visual corrections. The combined set has 1,763 training images,
+with the 313 validation and 235 final-test files unchanged. `source-v13-gentle` is running the controlled comparison;
+results are pending. The Mathpix project remains read-only, PDFs are processed only on the Mac, and paid spend is $0.
+
 
 ## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed
 

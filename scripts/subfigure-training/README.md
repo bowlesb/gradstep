@@ -43,6 +43,19 @@ Run one GPU job at a time. No PDFs, private reader data or production credential
 - `test_curate.py`: crop-coordinate, required-context and duplicate/author-identity admission cases.
 - `cohort_report.py`: fixed-threshold comparisons from saved validation predictions, separated into original
   and new arXiv cohorts. Counts required context on missed panels explicitly; never reads/scans the final test.
+- `source_sample.py`, `source_html.py`: a separate, bounded, read-only **training-only** sample of saved source
+  archives and exact HTML/PDF pairs. No source-project code runs, and no validation/reserved-test HTML is inspected.
+- `source_figures.py`: Mac-only source-assisted review candidates. Read bounded archive members without extracting
+  or executing them; match full decoded RGB SHA-256 to a unique PDF occurrence and recover printed subcaptions.
+  Full-width figure captions fence the text search before filtering by panel column. These are review candidates,
+  not automatic annotations: source assets may contain multiple plots, page screenshots, or omit outside headings.
+- `annotations/source-panels-v2.json`: 35 additional visually reviewed training figures from 15 papers, 113 panel
+  boxes and 54 required-context links. Shared headings, source-internal plots and contaminated margins required
+  explicit corrections. Codex review is not independent human ground truth. `curate_mathpix.py --training-only`
+  retains validation **and** final-test bytes and checks author/image conflicts against the existing cohorts.
+- `test_source.py`: source/path/decoded-pixel identity, archive ambiguity, complete subcaptions and full-width
+  caption-contamination regressions. PDF-dependent preparation stays Mac-only; these pure-data tests also run
+  on the GPU host without a PDF processing dependency.
 
 ## Run and inspect
 
@@ -77,6 +90,13 @@ The sampler multiplies that by the existing compound weight and records expected
 validation figures from separate papers, with an 8x source weight (9.59% expected training draws after the
 compound weighting). The 1,728-image training set still contains the original 384 generated plots. These small,
 visually selected development cohorts do not establish broad domain accuracy or replace the final test.
+
+`source-v2` expands that frozen base to **1,763 training images**, adding 35 source-assisted figures. Its 313
+validation / 235 final-test files are byte-identical to `mathpix-v2`. The 65 total new arXiv training figures
+have 8x source weight: together they account for 25.10% expected draws with compound weight 3. This changes the
+training distribution; it is not an unbiased sample of all archived PDFs. Keep the 384 generated examples
+distinct from real papers when reporting counts. The first comparison uses v12's gentle settings and v7 start;
+report the fixed .6 operating point on both original and new validation cohorts before deciding whether it helps.
 
 The 235-image real final test remains unscored. Freeze model hash, preprocessing, threshold and crop policy before
 using its explicit CLI acknowledgement. Do not tune to final-test errors and continue to call it untouched.

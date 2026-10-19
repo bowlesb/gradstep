@@ -313,3 +313,56 @@ This work uses the owner's existing machine. New model API spend, GPU rental, da
 commitments and provider reservations are all **$0**. Electricity cost is unknown; no zero-total-cost claim is
 made. The $100/month service budget is unchanged. The trained scientific detector has a numerical export proof,
 but has not passed crop-quality, distribution or full app-runtime qualification.
+
+## Source-assisted training expansion — 2026-10-19 UTC
+
+The owner asked to continue after the six-panel source-recovery proof. `source_sample.py` reads only the
+authorized Mathpix corpus and selects **training-family papers only**, using the existing split seed. Its bounded
+sample copies **24 papers / 239.6 MiB** of saved HTML, abstract metadata, source archives, recompiled PDFs and layout
+checks to this Mac. Selection favors explicit HTML subfigure groups and raster assets; it is not representative
+of the archive. The budget filled across ML, computer vision and AI before admitting language papers. The source
+project, its services and its files remain unchanged; no archive code was executed or new PDF acquired remotely.
+
+`source_figures.py` reads bounded archive members without extraction, verifies full decoded RGB SHA-256 against
+embedded PDF images, and requires unambiguous same-page geometry. It refuses missing, duplicated, transformed or
+unmatched assets. PDF work occurs only on the Mac. The final candidate pass has **36 figures from 15 papers**;
+34 candidates lack an unambiguous original asset and four fail exact pixel matching. Two initially considered
+HTML groups actually contain separately numbered figures and were excluded. No detector prediction authored
+these annotations. Source selection and matching failures remain in the manifest rather than silently becoming
+single-panel labels.
+
+Visual inspection exposed two further preparation defects before training: image identity alone omits external
+subcaptions, and filtering text by panel column can incorrectly append the right half of a full-width Figure
+caption. The tool now recovers multiline subcaptions and fences them using complete PDF lines before column
+filtering. Independent synthetic regressions cover both cases. Automatic bounds still require review: one
+18-panel histogram figure needed its two source-identified column headings recovered above the image bounds;
+three final crop edges needed explicit correction to exclude neighboring caption/article ink. A source asset
+that was itself a page screenshot remains deferred. Candidate/annotation drafts were **never trained or scored**.
+
+The admitted **`source-v2`** addition is **35 training figures / 15 papers / 30 compound figures / 113 panels**,
+with 14 context regions (10 titles, three Y axes, one color legend) and 54 explicit required-context links.
+Single-image assets containing several plots were manually subdivided; connected workflows and their legends
+remain whole. All final crops/overlays were visually reviewed, including corrected letters, column headings and
+multiline subcaptions. These are **Codex development annotations, not independent human ground truth**.
+Article abstract pages confirm the catalog licenses; first/last-author and exact/perceptual cross-split checks
+found no conflicts. This does not establish all-coauthor/lab/template independence or resolve older corpus rights.
+
+Combined training now has **1,763 images**, including the original 384 generated plots and 65 new arXiv figures
+from 22 papers across both additions. Do not count synthetic identifiers as real papers. The **313 validation**
+and **235 final-test** records are byte-for-byte unchanged from `mathpix-v2`; no final-test inference was run.
+New-source records retain weight 8 and compound weight 3, giving **25.10% expected arXiv draws**. This changes
+the sampling mix as well as adding examples; any result is not an isolated causal estimate of annotation quality.
+
+Dataset manifest SHA-256: `69d600ce65ddab0612b75389003f9680a92e7e38e470775dda9be39a37cdcdc5`.
+Committed labels: `scripts/subfigure-training/annotations/source-panels-v2.json`.
+Local source/candidate/correction evidence: `.artifacts/subfigure-training/mathpix-source/source-sample-v1.json`,
+`source-tools-v3/`, `source-figures-v4/` and `source-curated-v2/`. The correction script preserves the preceding
+candidate-manifest hash and the changed PDF crop transform. Only reviewed PNGs/annotations/provenance were copied
+to GPU `data/reviewed/source-v2/` and `data/manifests/source-v2/`; no PDFs or source archives entered that workspace.
+
+The first comparison, `source-v13-gentle`, starts from the same v7 checkpoint with v12's frozen backbone,
+LR .00002, compound weighting, spatial augmentation, seed and early-stopping settings. Its results are pending
+at this data-preparation checkpoint. Compare at the fixed .6 confidence / .75 IoU operating point, with original
+and new validation cohorts and required-context misses reported separately. No model is accepted or released.
+Source/identity/geometry regression checks now total **35 passing on the GPU host**. No paid provider spend,
+new reservation or service commitment; local electricity remains unpriced.

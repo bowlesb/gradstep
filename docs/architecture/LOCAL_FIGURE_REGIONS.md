@@ -6,8 +6,9 @@ qualified or bundled with the app. See [training/data evidence](../reviews/SUBFI
 [earlier Mac export results](../reviews/LOCAL_FIGURE_REGIONS_20261018.md). No physical iPhone measurements.
 The new 46-figure arXiv development addition exposed further failures; neither of its first two training runs
 is accepted. Original source assets plus PDF image/text identity successfully recover one previously malformed
-six-panel annotation. This is data preparation evidence, not improved detector accuracy. No GPU run remains active
-at the latest recorded checkpoint.
+six-panel annotation. The source-assisted workflow now adds 35 reviewed training figures from 15 further papers;
+the 313 validation / 235 final-test records remain fixed. A gentle comparison is running. This is data preparation
+evidence, not yet improved detector accuracy; the new labels are Codex development review, not independent human review.
 
 ## Authorized training workspace — 2026-10-18
 

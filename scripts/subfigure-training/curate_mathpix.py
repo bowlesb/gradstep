@@ -94,6 +94,7 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--image-prefix', default='data/reviewed/mathpix-v1/images')
     p.add_argument('--sampling-weight', type=float, default=8.)
+    p.add_argument('--training-only', action='store_true', help='Require new rows to be training-only and preserve both held-out files byte-for-byte')
     args = p.parse_args()
     if args.out.exists():
         raise ValueError('Immutable revision already exists')
@@ -132,7 +133,8 @@ def main():
     base_authors = collections.defaultdict(set)
     for split, rows in base.items():
         for r in rows:
-            people = attribution.get(r['paper'], {}).get('author') or []
+            entry = attribution.get(r['paper'], attribution.get(r['paper'].removeprefix('arxiv:'), {}))
+            people = entry.get('author') or [{'name': name} for name in entry.get('authors', [])]
             for person in people[:1]+people[-1:]:
                 key = author_key(person['name'])
                 if key:
@@ -143,6 +145,8 @@ def main():
         c = candidates[spec['id']]
         if c['split'] not in ('train', 'validation'):
             raise ValueError('Reserved test is not available for development')
+        if args.training_only and c['split'] != 'train':
+            raise ValueError('Training-only expansion cannot alter validation')
         source = (args.candidates.parent/c['image']).resolve()
         if not source.is_relative_to(args.candidates.parent.resolve()) or sha(source) != spec['candidate_sha256'] or sha(source) != c['sha256']:
             raise ValueError('Changed/external candidate image')
@@ -177,11 +181,16 @@ def main():
                'independent_human_review': False, 'review_note': spec['review_note'],
                'source': 'owner Mathpix-replacement research corpus; public arXiv figure',
                'source_url': c['source_url'], 'license': c['license'], 'source_pdf_sha256': c['source_pdf_sha256'],
-               'source_labels_sha256': c['source_labels_sha256'], 'source_candidate_sha256': c['sha256'],
+               'source_candidate_sha256': c['sha256'],
                'source_page_zero_based': c['page_zero_based'], 'source_page_pixel_crop': c['page_pixel_crop'],
                'candidate_pixel_crop': spec['crop'], 'source_dpi': c['dpi'],
                'annotation_sha256': hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest(),
                'caption': c['caption'], 'sampling_weight': args.sampling_weight}
+        for key in ('source_labels_sha256', 'source_archive_sha256', 'source_html_sha256'):
+            if key in c:
+                row[key] = c[key]
+        if 'source_archive_sha256' in c:
+            row['source_asset_geometry'] = c['panels']
         # Byte hash below must match the exact encoded file later transferred.
         import io
         encoded = io.BytesIO()
@@ -218,13 +227,14 @@ def main():
     (args.out/'images').mkdir()
     for row in admitted:
         (args.out/'images'/Path(row['image']).name).write_bytes(images[row['id']])
-    manifest = {'version': 11, 'classes': CLASSES, 'distribution_allowed': False,
-                'source': 'base plots-v7 plus visually annotated public arXiv development figures',
+    manifest = {'version': 12, 'classes': CLASSES, 'distribution_allowed': False,
+                'source': 'frozen base plus visually annotated public arXiv development figures',
                 'base_manifest_sha256': sha(args.base/'manifest.json'),
                 'base_fingerprints_sha256': sha(args.base_fingerprints),
                 'annotations_sha256': sha(args.annotations), 'candidates_sha256': sha(args.candidates),
                 'source_copy_manifest_sha256': sha(args.sample),
                 'script_sha256': sha(__file__), 'sampling_weight_for_new_training_examples': args.sampling_weight,
+                'training_only_expansion': args.training_only,
                 'split_method': 'preassigned paper hash; quarantine first/last-author and exact/pHash cross-split conflicts',
                 'review_limit': 'Codex visual review only; no independent human annotation or final-test qualification',
                 'pdf_boundary': 'Only local Mac processing; only extracted images/annotations transferred for training',
@@ -232,8 +242,8 @@ def main():
     for split in base:
         added = [r for r in admitted if r['split'] == split]
         path = args.out/f'{split}.jsonl'
-        if split == 'test':
-            path.write_bytes((args.base/'test.jsonl').read_bytes())
+        if split == 'test' or args.training_only and split == 'validation':
+            path.write_bytes((args.base/f'{split}.jsonl').read_bytes())
         else:
             path.write_text(''.join(json.dumps(r, sort_keys=True)+'\n' for r in base[split]+added))
         manifest['files'][path.name] = sha(path)

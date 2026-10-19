@@ -16,6 +16,11 @@ No acquisition/processing service in that project was changed, and no new hosted
 Only extracted public images/annotations went into the training workspace. The forecast, reservations and
 electricity caveat above remain unchanged.
 
+The subsequent source-assisted expansion copies 24 additional training-paper packages (239.6 MiB) to the Mac
+and admits 35 reviewed figure images from 15 papers. Preparation and bounded comparison on the same owned GPU
+still add **$0 provider spend, $0 reservations and $0 fixed service commitments**. No paid annotation API,
+dataset purchase, rental or budget increase. Further paid-service forecast remains $0; electricity is unknown.
+
 ## OpenRouter consolidation and Mac evaluation — 2026-10-18
 
 Live verification recorded **$0.403296** in newly attributed hosted attempts: paper chat/title/suggestions
