@@ -1327,7 +1327,7 @@ struct SettingsView: View {
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
                         if let balance = model.creditBalance {
-                            LabeledContent { Text("\(balance.available.formatted()) credits") } label: {
+                            LabeledContent { Text(balance.availableLabel) } label: {
                                 LabelWithInfo(title: "Available", info: "Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.",
                                               identifier: "settings.credits.info")
                             }

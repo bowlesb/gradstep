@@ -12,6 +12,9 @@ describe('AI credits and Subscription plan', () => {
       expect(parseBalance(bad)).toBeUndefined();
     expect(creditsLabel({ available: 1240, reserved: 0 }, 'en-US')).toBe('1,240');
     expect(creditsLabel(undefined)).toBe('—');
+    expect(parseBalance({ available: 100000, reserved: 0, unlimited_testing: true })).toEqual({ available: 100000, reserved: 0, unlimited_testing: true });
+    expect(creditsLabel({ available: 100000, reserved: 0, unlimited_testing: true })).toBe('Unlimited testing');
+    expect(parseBalance({ available: 100000, reserved: 0, unlimited_testing: 'true' })).toBeUndefined();
     expect(parsePlan({ plan: null, product_id: null })).toBeNull();
     expect(parsePlan({ plan: 'pro', product_id: 'x', expires_at: '2026-11-01T00:00:00Z' })).toBe('pro');
     for (const bad of [null, {}, { plan: 3 }, { plan: '<b>' }]) expect(parsePlan(bad)).toBeUndefined();

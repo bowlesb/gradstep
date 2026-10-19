@@ -1,5 +1,23 @@
 # Spending controls and investigation
 
+## Unlimited owner testing
+
+Design, 2026-10-19: one service-only, audited policy per current account points to a dedicated adjustment bucket.
+Enabling creates 100,000 real ledger credits; before each new operation the server restores that bucket's
+available amount to at least 100,000 or the requested hold, whichever is larger. Each refill is an append-only
+adjustment keyed by the operation identity. This is an authorized operator-funded testing allowance, never a
+purchase, subscription or fabricated balance. The numeric balance remains compatible with installed clients;
+new clients display the accompanying `unlimited_testing` flag as **Unlimited testing**.
+
+Refill and reservation are one transaction with the existing budget → account → bucket lock order. Exact
+operation replay never refills; failed admission rolls back the refill. A suspended/closed account cannot
+refill. Provider/platform spending is still reserved and settled normally. A service-only change records its
+request identity, target, reason and authorization; replay cannot undo a later revocation. Disabling revokes
+unused testing credits, preserves in-flight allocations for settlement, and never removes purchased credits.
+Deletion forfeits the bucket through the existing account-closure flow; a new UUID receives no policy.
+
+Migration 094 implements this design. No normal product, purchase price, Sandbox cap or global budget changes.
+
 Status, 2026-10-08 UTC: **migrations 034–038 and their provider/worker controls are deployed on staging**;
 039 upload accounting is also applied. Read-only takeover evidence at
 `.artifacts/takeover-20261008/spending-policies.json` records provider admission enabled with coverage beginning

@@ -21,6 +21,9 @@ struct CreditsStoreView: View {
                     signedOut
                 } else if !model.canPurchase {
                     deviceNotReady
+                } else if model.creditBalance?.unlimitedTesting == true {
+                    ContentUnavailableView("Unlimited testing", systemImage: "infinity",
+                                           description: Text("You don’t need to buy credits for this account. Your testing allowance replenishes automatically."))
                 } else if model.storeOwnershipKnown {
                     StoreView(ids: model.planOwnedElsewhere ? [StoreProducts.pack] : StoreProducts.all) { product in
                         Image(systemName: product.id == StoreProducts.pack ? "plus.circle" : product.id == StoreProducts.pro ? "sparkles" : "star")
@@ -87,10 +90,12 @@ struct CreditsStoreView: View {
         let episode = episodeCapacity ?? "less than one five-minute private episode"
         return VStack(alignment: .leading, spacing: 6) {
             if let balance = model.creditBalance {
-                Text("\(balance.available.formatted()) credits available").font(.headline)
+                Text(balance.unlimitedTesting == true ? "Unlimited testing" : "\(balance.available.formatted()) credits available").font(.headline)
                     .accessibilityIdentifier("store.balance")
-                Text("At this balance: \(chat) or \(episode) if you used credits for one kind of work. Reading papers is free; these uses share the same balance.")
-                    .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if balance.unlimitedTesting != true {
+                    Text("At this balance: \(chat) or \(episode) if you used credits for one kind of work. Reading papers is free; these uses share the same balance.")
+                        .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             if model.planOwnedElsewhere {
                 Text("The plan on this Apple Account belongs to another account. Credit packs can still be bought here.")
@@ -103,7 +108,7 @@ struct CreditsStoreView: View {
                     Button("Manage") { manageSubscriptions = true }.font(.subheadline)
                 }
             }
-            Text("Credits pay for paper conversion and AI answers. Usage depends on paper length and the answer.")
+            Text("Credits pay for AI answers, searches and podcast generation. Reading papers is free.")
                 .font(.footnote).foregroundStyle(.secondary)
             NavigationLink {
                 CreditUsageView()

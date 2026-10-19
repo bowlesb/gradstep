@@ -2,6 +2,18 @@
 
 Last updated: 2026-10-19 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Owner testing allowance and $5 usage pricing (2026-10-19; implementation underway)
+
+Owner requests unlimited testing for the current account and pricing based on $5 of OpenRouter usage.
+Unlimited means an explicitly authorized, automatically replenished **testing adjustment**, not an App Store
+purchase or unlimited provider funding. Keep all existing provider attempts, account attribution, operation
+ceilings, concurrency limits and the $100/month operating budget. It belongs to the current UUID and does not
+transfer after deletion. [Accounting design](architecture/SPENDING_CONTROLS.md#unlimited-owner-testing).
+
+The $5 purchase interval (nonexpiring top-up versus monthly allowance) is being clarified before changing
+published purchase terms. Existing credits round per answer, so they must not be presented as an exact dollar
+wallet without changing settlement as well.
+
 ## Returning beta testers and named catalogs (owner, October 19 UTC; implementation in progress)
 
 Account deletion must not revoke a tester's invitation. The October 17 manual re-admission repaired one login but

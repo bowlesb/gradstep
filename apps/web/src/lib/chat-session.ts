@@ -122,7 +122,7 @@ export class ChatSession {
   }
   readonly composers = new Map<string, Composer>();
   readonly selected = new Map<string, string>();
-  balance: { available: number; reserved: number } | null = null;
+  balance: { available: number; reserved: number; unlimited_testing?: boolean } | null = null;
   journalState: JournalState;
   private listeners = new Set<() => void>();
   private version = 0;
@@ -563,7 +563,7 @@ export class ChatSession {
   balanceStale = false;
   async refreshBalance() {
     try {
-      const balance = await rpc<{ available: number; reserved: number }>('v1_credit_balance', {}, { account: this.account, signal: this.signal });
+      const balance = await rpc<{ available: number; reserved: number; unlimited_testing?: boolean }>('v1_credit_balance', {}, { account: this.account, signal: this.signal });
       if (this.signal.aborted) return;
       if (Number.isSafeInteger(balance?.available) && balance.available >= 0 && Number.isSafeInteger(balance.reserved) && balance.reserved >= 0) {
         this.balance = balance; this.balanceAt = Date.now(); this.balanceStale = false; this.publish();

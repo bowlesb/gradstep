@@ -3,7 +3,7 @@
 // the Gradstep app on iPhone, iPad or Mac, so nothing here grants, spends or estimates credits.
 import { rpc } from './backend';
 
-export interface CreditBalance { available: number; reserved: number }
+export interface CreditBalance { available: number; reserved: number; unlimited_testing?: boolean }
 /** `undefined` while unknown (loading or a failed read: the menu shows a dash, never a made-up value). */
 export interface AccountSummary { balance: CreditBalance | undefined; plan: string | null | undefined }
 
@@ -11,7 +11,8 @@ export interface AccountSummary { balance: CreditBalance | undefined; plan: stri
 export function parseBalance(value: unknown): CreditBalance | undefined {
   const b = value as Partial<CreditBalance> | null;
   return b && Number.isSafeInteger(b.available) && b.available! >= 0 && Number.isSafeInteger(b.reserved) && b.reserved! >= 0
-    ? { available: b.available!, reserved: b.reserved! } : undefined;
+    && (b.unlimited_testing === undefined || typeof b.unlimited_testing === 'boolean')
+    ? { available: b.available!, reserved: b.reserved!, ...(b.unlimited_testing === undefined ? {} : { unlimited_testing: b.unlimited_testing }) } : undefined;
 }
 
 /** The active subscription's plan (`standard`, `pro`), null with none, undefined when the answer isn't a summary. */
@@ -30,7 +31,7 @@ export function planLabel(plan: string | null | undefined): string {
 }
 
 export function creditsLabel(balance: CreditBalance | undefined, locale?: string): string {
-  return balance ? balance.available.toLocaleString(locale) : '—';
+  return balance?.unlimited_testing ? 'Unlimited testing' : balance ? balance.available.toLocaleString(locale) : '—';
 }
 
 /** Both reads at once; one failing leaves only its own value unknown. */

@@ -289,7 +289,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           : chat.durable ? (c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
             : c.draft && c.revision > c.savedRevision ? 'Saving draft on this device…' : '')
           : 'Unsent drafts stay in this tab only and aren’t kept after a reload.';
-        const balance = chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : null;
+        const balance = chat.balance ? `${chat.balance.unlimited_testing ? 'Unlimited testing' : `${chat.balance.available} credits`}${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}${chat.balanceStale && chat.balanceAt ? ` · as of ${asOf(chat.balanceAt)}` : ''}` : null;
         return <div className="composer-status">
           {hint && <p className="fine draft-hint" data-testid="draft-status">{hint}</p>}
           {balance && <p className="fine draft-hint composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{balance}</p>}

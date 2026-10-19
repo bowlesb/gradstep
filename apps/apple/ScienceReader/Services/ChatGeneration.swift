@@ -72,6 +72,16 @@ enum ChatTransportError: Error, Equatable {
 struct CreditBalance: Decodable, Equatable, Sendable {
     let available: Int64
     let reserved: Int64
+    let unlimitedTesting: Bool?
+
+    init(available: Int64, reserved: Int64, unlimitedTesting: Bool? = nil) {
+        self.available = available; self.reserved = reserved; self.unlimitedTesting = unlimitedTesting
+    }
+    enum CodingKeys: String, CodingKey {
+        case available, reserved
+        case unlimitedTesting = "unlimited_testing"
+    }
+    var availableLabel: String { unlimitedTesting == true ? "Unlimited testing" : "\(available.formatted()) credits" }
 }
 
 /// Per-account cloud-AI consent, kept in the device Keychain (not in chat

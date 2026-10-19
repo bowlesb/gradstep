@@ -122,6 +122,17 @@ final class ChatGenerationOutcomeTests: XCTestCase {
 final class ChatGenerationTests: XCTestCase {
     private let sampleID = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!
 
+    func testTestingAllowanceDecodesAlongsideLegacyBalances() throws {
+        let decoder = JSONDecoder()
+        let legacy = try decoder.decode(CreditBalance.self, from: Data(#"{"available":400,"reserved":2}"#.utf8))
+        XCTAssertNil(legacy.unlimitedTesting)
+        XCTAssertEqual(legacy.available, 400)
+        let unlimited = try decoder.decode(CreditBalance.self, from: Data(#"{"available":100000,"reserved":50,"unlimited_testing":true}"#.utf8))
+        XCTAssertEqual(unlimited.availableLabel, "Unlimited testing")
+        XCTAssertEqual(unlimited.reserved, 50)
+        XCTAssertThrowsError(try decoder.decode(CreditBalance.self, from: Data(#"{"available":100000,"reserved":0,"unlimited_testing":"true"}"#.utf8)))
+    }
+
     #if targetEnvironment(macCatalyst)
     func testLocalAnswerNeedsNoCloudConsentOrCreditsAndIsSealed() async throws {
         let (model, cloud) = try await makeModel(consented: false)
