@@ -14,7 +14,8 @@ is not claimed. Details: [Native authentication](architecture/NATIVE_AUTHENTICAT
 The browser now shows invitation refusals instead of treating `access_denied` as silent cancellation; desktop/phone
 OAuth journeys pass **8/8**, and Pages **e8aa027f** is deployed with served assets checked. Native auth unit checks
 pass **45/45**, Core callback checks **5/5**. iPhone/iPad TestFlight **74** is **VALID / IN_BETA_TESTING**,
-with release notes read back. Mac 74 uploaded at **05:20:40 UTC** and is processing. Both archives use **028a7f6**;
+with release notes read back. Mac 74 uploaded at **05:20:40 UTC** and is also **VALID / IN_BETA_TESTING** (read back **05:24 UTC**),
+with its release notes verified. Both archives use **028a7f6**;
 the required native acceptance gate passes **15/15**, none skipped. Binary hashes and the exact gate are in
 `release-74-provenance.json`. Actual interactive Apple/Google provider and physical-phone acceptance remain
 unverified. No physical iPhone was accessed.
