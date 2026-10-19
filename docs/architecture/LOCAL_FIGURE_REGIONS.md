@@ -1,9 +1,13 @@
 # Local figure regions
 
-Status, 2026-10-18: iterative scientific-panel fine-tuning is running on the owner's GPU machine. The real corpus
+Status, updated 2026-10-19 UTC: iterative scientific-panel fine-tuning has run on the owner's GPU machine. The real corpus
 has 1,846 figures from 398 papers; 235 figures from 60 papers are reserved for the final test. No detector is
 qualified or bundled with the app. See [training/data evidence](../reviews/SUBFIGURE_TRAINING_20261018.md) and
 [earlier Mac export results](../reviews/LOCAL_FIGURE_REGIONS_20261018.md). No physical iPhone measurements.
+The new 46-figure arXiv development addition exposed further failures; neither of its first two training runs
+is accepted. Original source assets plus PDF image/text identity successfully recover one previously malformed
+six-panel annotation. This is data preparation evidence, not improved detector accuracy. No GPU run remains active
+at the latest recorded checkpoint.
 
 ## Authorized training workspace — 2026-10-18
 

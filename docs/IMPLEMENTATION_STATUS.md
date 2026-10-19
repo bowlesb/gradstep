@@ -2,7 +2,7 @@
 
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 
-Fine-tuning is running in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real
+Fine-tuning experiments ran in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real
 corpus contains 1,846 figures from 398 papers, with 235 figures/60 papers reserved for an unscored final test.
 The fresh-start/spatial-variation run finds 284/297 panels on 89 compound validation figures at IoU .75, with
 8 false crops (95.62% recall, 97.26% precision). Across all 297 validation figures, precision is only 89.76%
@@ -25,9 +25,12 @@ GPU workspace. The original 235-image final test remains byte-identical and unsc
 
 The prior model gets only 32/38 panels with 6 false crops on these new validation papers at threshold .6; shared
 context remains poor. `mathpix-v11-fresh` completed on the combined 1,728-image dataset but regressed: 29/38 new
-panels with 8 false crops, and worse original-cohort results. It is rejected. `mathpix-v12-gentle` is a bounded,
-lower-learning-rate adaptation of the earlier best checkpoint with a frozen backbone. The same validation
-cohorts/annotations remain fixed. No new provider/API spend.
+panels with 8 false crops, and worse original-cohort results. It is rejected. The completed `mathpix-v12-gentle`
+adaptation gives 31/38 new panels with 6 false crops and lower original-cohort recall; it is also not accepted.
+The same validation cohorts/annotations remain fixed. No GPU job remains running at 00:35:35 UTC; no new API spend.
+Source archives also preserve original figure images: eight PCBWorld assets match the exact original archive,
+and a source-pixel/PDF-text recovery proof reconstructs all six panels of a previously truncated figure with
+their labels. This improves the next annotation workflow, not the detector's measured accuracy.
 
 
 ## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed

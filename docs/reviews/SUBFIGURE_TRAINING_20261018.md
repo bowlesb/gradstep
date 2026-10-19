@@ -101,7 +101,7 @@ Later runs record GPU temperature/power/memory and stop at 85 C. No model API pa
 | `composites-v9-fresh` | 2,082 images from `composites-v10`, fresh COCO start | Compound: 272/297 found, 13 false crops at .6 (91.58% recall, 95.44% precision); no improvement | 570.4 s / 3.11 GB |
 | `real-v10-fresh-balanced` | 1,314 real, natural sampling distribution, fresh COCO; select on all figures | At .7: all 475/505 found, 31 false (94.06% / 93.87%); compound 271/297, 11 false (91.25% / 96.10%). Lower recall; not accepted | 308.3 s / 3.11 GB |
 | `mathpix-v11-fresh` | 1,314 real + 384 generated + 30 new arXiv figures, explicit source weighting | At .6, original cohort 460 TP / 111 FP / 45 FN; new cohort 29 / 8 / 9. Regression in both cohorts; rejected | 430.0 s / 3.11 GB |
-| `mathpix-v12-gentle` | Same data, start from v7, backbone frozen, LR .00002 | Running; compare against both baseline and fresh-start regression | Pending |
+| `mathpix-v12-gentle` | Same data, start from v7, backbone frozen, LR .00002 | At .6, original cohort 478 TP / 49 FP / 27 FN; new cohort 31 / 6 / 7. Slightly fewer old false crops but lower recall; not accepted | 281.4 s / 2.98 GB |
 
 All detection counts above require IoU at least .75. An oversized whole-figure box cannot match multiple panels;
 duplicates count as false crops. AP and point-threshold precision/recall are distinct. Validation is used for
@@ -220,7 +220,7 @@ Before retraining, the existing v7 checkpoint was evaluated on exactly that vali
 
 On the new cohort, 33 of 39 required-context links on matched panels are missing/clipped; another 6 links belong
 to missed panels. These small, selected development examples expose a domain/context gap; they are not an
-unbiased estimate for all 17,000 papers. The next run starts from the same official COCO checkpoint with v7's
+unbiased estimate for all 17,000 papers. The fresh-start comparison uses the same official COCO checkpoint with v7's
 last-stage/augmentation settings, trains with the added examples and reports original/new cohorts separately.
 This comparison uses no paid API. Labels are agent-authored from visual inspection, not human ground truth;
 the detector's predictions were not used to author them. No strong-performance or release claim follows.
@@ -234,6 +234,36 @@ particular data/training change did not improve the measured task. `mathpix-v12-
 best checkpoint at LR .00002 with the backbone frozen, keeping the same new data and validation set.
 Saved fixed-threshold comparisons: `runs/mathpix-v11-fresh/cohort-comparison.json` and the local
 `.artifacts/subfigure-training/mathpix-comparisons/v11.json`.
+
+The gentle run completed **10 epochs / 281.43 s**, best epoch 1, at **2026-10-19 00:35:35 UTC**. At .6 it gives
+original-cohort **478 TP / 49 FP / 27 FN** (94.65% recall, 90.70% precision) and new-cohort **31 / 6 / 7**
+(81.58% / 83.78%). It reduces some old false splits but misses more panels. New shared-context retention improves
+from 6 to 11 of the 45 annotated links, counting links on missed panels as missing; this is still inadequate.
+Neither new checkpoint is accepted. The previous v7 checkpoint remains the comparison baseline, itself
+unqualified. No GPU training remains running at this checkpoint. Evidence: `runs/mathpix-v12-gentle/` and local
+`mathpix-comparisons/v12.json`. Next data work should broaden verified source figures and resolve annotation
+boundaries before repeating small-batch parameter trials; more PDF volume alone has not improved this detector.
+
+Further source inspection found original image assets under `build/src/` and the matching saved
+`source.archive`. For PCBWorld (`2607.05915v4`), the official HTML explicitly names six subfigures in `S4.F5`,
+whereas the automatic PDF root crop was incomplete. All six native board images exist, along with two other
+framework illustrations. A read-only **954,256-byte** asset copy and the **3,832,400-byte** source archive were
+verified locally: the archive SHA matches the frozen catalog, and all eight copied PNG hashes match their exact
+original archive entries. No archive code was executed and no files were extracted into the source project.
+The six images were visually inspected; they preserve complete boards that the PDF candidate lost.
+This provides a better source for the next annotation batch, including explicit HTML subfigure identities;
+these assets have **not** yet been admitted for training. Evidence:
+`.artifacts/subfigure-training/mathpix-source/native-assets-v1-verification.json` and `pcbworld-native-subfigures.jpg`.
+
+A full-page Poppler review confirmed the exact silver-label failure: the supposed Figure 5 root spanned the
+top of both columns, mixing two of its panels with the neighboring Figure 6 and excluding its lower four panels.
+On the Mac, each of the six original PNGs was matched to its PDF image occurrence by dimensions/fingerprint,
+then confirmed with the full decoded RGB **SHA-256**. Exact PDF text identifies the corresponding `(a)`–`(f)`
+labels. Nominal text bounds clipped some rendered descenders in the first proof; a bounded raster-ink check plus
+outward padding corrected those before admission. All six corrected panels/labels were visually reviewed in
+`pcbworld-recovered-figure5-v2-review.png`; the source/geometry/hash record and executed proof script are alongside it.
+This is a verified source-assisted annotation recovery example, **not** detector inference or measured model
+improvement, and is not inserted into the frozen dataset. The Mathpix source project remains untouched.
 
 Inference-only resolution ablations on the earlier checkpoint also failed: at threshold .7 compound recall /
 precision fell from .9394/.9588 at 640 to .7811/.8467 at 960 and .3805/.7386 at 1280. Larger inputs need their own
