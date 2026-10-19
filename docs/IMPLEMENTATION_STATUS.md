@@ -1,5 +1,21 @@
 # Implementation status
 
+## Unlimited owner testing — October 19 UTC (server/browser live)
+
+Migration 094 is applied and verified. The freshly signed-in owner account has an audited testing policy that
+replenishes its dedicated real credit bucket before each new operation. Initial readback: 100,000 available,
+zero reserved, one grant and one audit. Installed build 75 works with this balance immediately; its number
+replenishes automatically. Purchased credits, actual provider charges and platform spending controls remain
+separate. The new native **Unlimited testing** label is implemented and Simulator-tested, but not yet released.
+Browser Pages **a19c9248**, source **c461f6b**, includes the new label.
+
+The affected database suite passes, including OpenRouter accounting and account lifecycle, plus eight concurrent
+replay contenders and three independent refill contenders. `npm test`, the browser production build and native
+balance decoding pass. Backup `20261019T173906Z-1cb0404ffc5d` restores 211 tables / 15 objects locally. No physical
+iPhone or paid model call was used. Evidence: `.artifacts/testing-allowance-*` and the private grant readback under
+`.artifacts/credits/owner-unlimited-20261019/`. The separate $5 offer awaits the purchase interval clarification;
+normal plans and prices remain unchanged. Subfigure training status below is unchanged; no new run was started.
+
 ## Account deletion / return and stuck keyword edits — October 19 UTC
 
 The owner's repeated OAuth lockout was the unchanged global signup block after deletion erased the precreated

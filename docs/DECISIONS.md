@@ -2,13 +2,17 @@
 
 Last updated: 2026-10-19 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Owner testing allowance and $5 usage pricing (2026-10-19; implementation underway)
+## Owner testing allowance and $5 usage pricing (2026-10-19; testing allowance deployed)
 
 Owner requests unlimited testing for the current account and pricing based on $5 of OpenRouter usage.
 Unlimited means an explicitly authorized, automatically replenished **testing adjustment**, not an App Store
 purchase or unlimited provider funding. Keep all existing provider attempts, account attribution, operation
 ceilings, concurrency limits and the $100/month operating budget. It belongs to the current UUID and does not
 transfer after deletion. [Accounting design](architecture/SPENDING_CONTROLS.md#unlimited-owner-testing).
+
+Migration 094 is deployed and the freshly verified owner UUID has this allowance. One audited enable created
+100,000 available testing credits and zero reserved. Installed clients work immediately with that real balance;
+new native wording is implemented/tested but not yet in TestFlight. Browser wording is deployed.
 
 The $5 purchase interval (nonexpiring top-up versus monthly allowance) is being clarified before changing
 published purchase terms. Existing credits round per answer, so they must not be presented as an exact dollar

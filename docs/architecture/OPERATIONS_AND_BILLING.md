@@ -1,5 +1,25 @@
 # Infrastructure, spending, and recovery
 
+## Unlimited owner testing — 2026-10-19
+
+The owner's new account is verified against the retained exact-address beta admission from the prior deleted
+account. Migration 094 and one explicit service-operator enable provide an automatically replenished testing
+adjustment; readback shows **100,000 available / zero reserved**, one grant and one audit. This is neither a
+purchase nor restored deleted credit. Existing installed clients can use it immediately. The account UUID,
+request identity, audit and grant evidence are in `.artifacts/credits/owner-unlimited-20261019/verified.json`.
+
+At enablement, October's provider budget is unchanged: **$40 allocated, $29.904080 spent, $0.000138 unresolved**,
+work enabled. OpenRouter's read-only credits endpoint reports **$20 purchased, $10.927454704 used,
+$9.072545296 remaining**. That account-wide usage includes the earlier research; do not add it to the staging
+ledger as a separate expense. Unlimited testing does not replenish the OpenRouter balance or raise either
+provider/global budget. Every model call continues to use its attributed attempt and actual-cost record.
+
+This change: **$0 new paid inference, $0 provider reservations, $0 fixed commitments, $0 further paid-check
+forecast**. The existing $100/month operating ceiling is unchanged. Encrypted pre-deploy checkpoint
+`20261019T173906Z-1cb0404ffc5d` restores 211 tables and 15 objects into an isolated local database. Hosted recovery
+is not claimed. The requested $5 usage offer awaits top-up versus monthly clarification; no purchase terms,
+App Store price, product allowance or settlement conversion were changed.
+
 ## October 19 account lifecycle and native library repair
 
 Auth admission configuration, migrations 091–093, admin/browser deployment, synthetic account lifecycle checks,

@@ -16,7 +16,16 @@ request identity, target, reason and authorization; replay cannot undo a later r
 unused testing credits, preserves in-flight allocations for settlement, and never removes purchased credits.
 Deletion forfeits the bucket through the existing account-closure flow; a new UUID receives no policy.
 
-Migration 094 implements this design. No normal product, purchase price, Sandbox cap or global budget changes.
+Migration 094 is applied and hash-verified on staging. Normal reservations prioritize the dedicated testing
+bucket, preserving purchased/plan credits. The current owner account has one enable audit and one initial
+100,000-credit grant, with zero reserved. No normal product, purchase price, Sandbox cap or global budget changes.
+
+Verification: real PostgreSQL reservation/settlement, replay/conflict boundaries, disable with held work, budget
+refusal, suspension, account isolation and deletion/recreation all pass. Eight concurrent exact retries admit
+once; three concurrent independent requests refill and reconcile with the ledger. The OpenRouter accounting
+and beta-return fixtures also pass, plus `npm test` and native balance decoding on iPhone Simulator. Evidence:
+`.artifacts/testing-allowance-*.log`, `.artifacts/testing-allowance-native.xcresult`, and private grant readback
+`.artifacts/credits/owner-unlimited-20261019/verified.json`. No paid model request was used.
 
 Status, 2026-10-08 UTC: **migrations 034–038 and their provider/worker controls are deployed on staging**;
 039 upload accounting is also applied. Read-only takeover evidence at
