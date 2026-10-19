@@ -37,7 +37,7 @@ seven decoded images, preserved selection and no horizontal overflow. The actual
 Search tests inspect field-constrained requests (AND semantics), installed/missing public-link destinations and
 no automatic import. Device index tests cover bounded terms and per-paper removal; native Library tests cover
 customized/cleared keyword metadata and account retirement. `npm test` remains the routine tier. Run the exact
-13-case `npm run test:imports` gate with current source before every native upload; these UI/figure checks do not
+15-case `npm run test:imports` gate with current source before every native upload; these UI/figure checks do not
 replace import acceptance. Simulator/local fixtures do not verify physical-phone resource behavior or live model
 quality. The one paid FDE-Gym Flash check is separately recorded; the local panel detector used no paid API.
 

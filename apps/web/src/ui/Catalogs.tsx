@@ -3,6 +3,8 @@ import type { Library } from './Library';
 import { Dialog } from './common';
 import type { Catalog } from '../lib/library-catalogs';
 
+const paperCount = (count: number) => `${count} ${count === 1 ? 'paper' : 'papers'}`;
+
 export function CatalogsDialog({ open, onClose, library }: { open: boolean; onClose: () => void; library: Library }) {
   const catalogs = library.catalogs;
   const [editing, setEditing] = useState<Catalog | 'new' | null>(null), [name, setName] = useState('');
@@ -31,7 +33,7 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
         <label>Catalog name<input autoFocus value={name} maxLength={160} onChange={e => setName(e.target.value)} /></label>
         <div className="row-actions"><button type="button" className="secondary" onClick={reset}>Cancel</button><button className="primary">Save</button></div>
       </form> : deleting ? <>
-        <p>{deleting.name} contains {library.catalogEntries(deleting.id).length} papers.</p>
+        <p>{deleting.name} contains {paperCount(library.catalogEntries(deleting.id).length)}.</p>
         {!confirm ? <>
           <label>What happens to its papers?<select value={mode} onChange={e => setMode(e.target.value)}>
             {others.length > 0 && <option value="existing">Move to another catalog</option>}
@@ -47,7 +49,7 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
       </> : <>
         <ul className="catalog-list">{catalogs?.state.catalogs.map(c => <li key={c.id}>
           <button className="catalog-select" aria-pressed={c.id === catalogs.currentID} onClick={() => catalogs.select(c.id)}>
-            <strong>{c.name}{c.id === catalogs.currentID ? ' ✓' : ''}</strong><span className="fine">{library.catalogEntries(c.id).length} papers{c.id === catalogs.state.defaultID ? ' · Default' : ''}</span>
+            <strong>{c.name}{c.id === catalogs.currentID ? ' ✓' : ''}</strong><span className="fine">{paperCount(library.catalogEntries(c.id).length)}{c.id === catalogs.state.defaultID ? ' · Default' : ''}</span>
           </button>
           <div className="row-actions">
             <button className="link" aria-label={`Rename ${c.name}`} onClick={() => { setEditing(c); setName(c.name); }}>Rename</button>

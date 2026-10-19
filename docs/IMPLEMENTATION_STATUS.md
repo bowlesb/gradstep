@@ -28,8 +28,8 @@ bounds/receipt checks pass **4/4**. The full Core run passes all behavior checks
 label expectation; correcting that test to the already shipped “Google Vertex through OpenRouter” passes the
 affected **12/12** profile cases. The
 required native gate now includes that path and visible Apple/Google refusal handling (**15 cases**). `npm test`
-passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs remain the next implementation
-task, implemented in an isolated checkout; no catalog feature is released yet.
+passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs are now merged into main;
+no catalog feature is released yet.
 
 ## Named Library catalogs — October 19 UTC (implementation, not yet released)
 
@@ -37,9 +37,11 @@ Native and browser Catalogs offer create, rename, switch, default selection and 
 move to another catalog, move to a named new catalog, or remove the papers through existing library commands.
 New arXiv and local-PDF additions capture the selected catalog; existing paper/chat identities remain intact.
 Catalog metadata uses existing encrypted notes, without a new backend schema. Seven Core and seven browser
-projection cases pass. Eleven native model/PDF cases pass (one optional corpus check skipped); the final native
-screen journey and mandatory 15-case import gate are still pending. The browser's first four journeys pass;
-expanded individual-move/addition journeys are being verified. No paid model calls.
+projection cases pass. Eleven native model/PDF cases pass (one optional corpus check skipped); the iPhone catalog
+screen journey passes, as do all six desktop/phone browser journeys. The mandatory import gate passes 15/15,
+none skipped, including the real-paper corpus, at 05:39 UTC. Screenshot review found a singular-count copy issue,
+now corrected; release acceptance is being refreshed for that final source. An additional iPad journey is pending.
+No paid model calls.
 
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 

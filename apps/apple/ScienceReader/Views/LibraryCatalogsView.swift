@@ -1,6 +1,10 @@
 import SwiftUI
 import ScienceReaderCore
 
+private func catalogPaperCount(_ count: Int) -> String {
+    "\(count) \(count == 1 ? "paper" : "papers")"
+}
+
 struct LibraryCatalogsView: View {
     @Bindable var model: ReaderModel
     @Environment(\.dismiss) private var dismiss
@@ -26,7 +30,7 @@ struct LibraryCatalogsView: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(catalog.name).foregroundStyle(.primary)
-                                        Text("\(model.catalogCount(catalog.id)) papers" +
+                                        Text(catalogPaperCount(model.catalogCount(catalog.id)) +
                                              (catalog.id == model.libraryCatalogs.defaultID ? " · Default" : ""))
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
@@ -117,7 +121,7 @@ private struct LibraryCatalogDeletionView: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("\(catalog.name) contains \(model.catalogCount(catalog.id)) papers.")
+                    Text("\(catalog.name) contains \(catalogPaperCount(model.catalogCount(catalog.id))).")
                     Picker("What happens to its papers?", selection: $disposition) {
                         if !others.isEmpty { Text("Move to another catalog").tag(Disposition.existing) }
                         Text("Move to a new catalog").tag(Disposition.new)
@@ -148,7 +152,7 @@ private struct LibraryCatalogDeletionView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(model.catalogBusy) }
                 }
-                .confirmationDialog("Delete \(catalog.name) and its \(model.catalogCount(catalog.id)) papers?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                .confirmationDialog("Delete \(catalog.name) and its \(catalogPaperCount(model.catalogCount(catalog.id)))?", isPresented: $confirmDelete, titleVisibility: .visible) {
                     Button("Delete catalog and papers", role: .destructive) { remove() }
                     Button("Cancel", role: .cancel) { }
                 }

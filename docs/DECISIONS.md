@@ -15,9 +15,10 @@ block; this does not authorize public signup. See NATIVE_AUTHENTICATION.md for t
 The owner also requests Library → top-right menu → Catalogs: rename the existing catalog, create/switch named
 catalogs, select a default, and delete with an explicit choice to delete its papers or move them to an existing
 or newly named catalog. Preserve the Library's layout and paper/chat identities. One catalog per paper; additions
-belong to the currently selected catalog. Catalogs are implemented in an isolated checkout after the authentication and queued-change repairs, using
-bounded metadata in existing encrypted note events. No new schema is required; final native/browser acceptance
-and release are pending. See [named catalogs](architecture/LIBRARY_CATALOGS.md).
+belong to the currently selected catalog. Catalogs are merged into main after the authentication and queued-change
+repairs, using bounded metadata in existing encrypted note events. No new schema is required. Core/native data
+checks, the iPhone catalog journey, six browser journeys and the 15-case import gate pass; final release checks
+and publication are pending. See [named catalogs](architecture/LIBRARY_CATALOGS.md).
 
 ## Existing Mathpix-replacement research collection (owner, October 18 local / October 19 UTC)
 

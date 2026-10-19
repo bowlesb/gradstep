@@ -80,7 +80,10 @@ The native and browser implementations share the encrypted note schema and causa
 seven browser unit cases cover projection and key replacement. The native model/PDF checks pass 11 cases,
 including actual encrypted-store reopening, import assignment, the same durable removal request after failure,
 and keeping a paper added after confirmation. One real-PDF corpus case is opt-in and is covered separately by
-the mandatory import gate. Screen journeys and final import acceptance remain pending at this checkpoint.
+the mandatory import gate. The iPhone screen journey and six desktop/phone browser journeys pass, including
+selected-catalog additions and individual paper moves. The 15-case mandatory gate passes with no skips at
+05:39 UTC. Final release acceptance is being refreshed after a singular-count copy correction found during
+screenshot review. An additional iPad journey is pending.
 
 The deletion regression exposed a saved membership and pending source intent sharing one paper key. Removal
 must plan both physical records, skipping the second only if a grouped server transition already hid it. Logical
