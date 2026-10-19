@@ -13,8 +13,11 @@ is not claimed. Details: [Native authentication](architecture/NATIVE_AUTHENTICAT
 
 The browser now shows invitation refusals instead of treating `access_denied` as silent cancellation; desktop/phone
 OAuth journeys pass **8/8**, and Pages **e8aa027f** is deployed with served assets checked. Native auth unit checks
-pass **45/45**, Core callback checks **5/5**. Native release and actual Apple/Google provider/phone acceptance remain
-pending at this checkpoint. No physical iPhone was accessed.
+pass **45/45**, Core callback checks **5/5**. iPhone/iPad TestFlight **74** is **VALID / IN_BETA_TESTING**,
+with release notes read back. Mac 74 uploaded at **05:20:40 UTC** and is processing. Both archives use **028a7f6**;
+the required native acceptance gate passes **15/15**, none skipped. Binary hashes and the exact gate are in
+`release-74-provenance.json`. Actual interactive Apple/Google provider and physical-phone acceptance remain
+unverified. No physical iPhone was accessed.
 
 The Library refresh banner has a separate proven cause: the native transport rejects valid `v5_set_source_details`
 requests before HTTP. Its allowlist and source-edit byte bound are corrected; the regression first fails with
@@ -25,7 +28,7 @@ label expectation; correcting that test to the already shipped “Google Vertex 
 affected **12/12** profile cases. The
 required native gate now includes that path and visible Apple/Google refusal handling (**15 cases**). `npm test`
 passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs remain the next implementation
-task; no catalog feature is released yet.
+task, implemented in an isolated checkout; no catalog feature is released yet.
 
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 

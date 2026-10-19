@@ -65,7 +65,8 @@ SMTP to the fixture's reserved `.invalid` address; this does not test real mail 
 The local SQL lifecycle/ACL/revocation tests pass; both stale admin replay orderings are covered. Native auth
 backend/coordinator/safety tests pass **45/45** under release optimization, Core callback checks pass **5/5**,
 and browser callback journeys pass **8/8** across desktop and phone. Browser Pages **e8aa027f** is deployed
-and its served assets verified (`1c3e3716` was the assets-only phase). Native release is pending at this checkpoint.
+and its served assets verified (`1c3e3716` was the assets-only phase). iOS/iPadOS TestFlight 74 is VALID / IN_BETA_TESTING, with release notes read back.
+Mac 74 uploaded at 05:20:40 UTC; processing is pending. Source 028a7f6, required native gate 15/15 (no skips).
 Evidence: `.artifacts/feedback/catalogs-20261019/`. Actual Apple/Google provider completion and physical-phone
 acceptance remain unverified; the hosted test proves admission and account lifecycle, not those provider UIs.
 
