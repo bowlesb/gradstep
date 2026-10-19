@@ -361,8 +361,60 @@ candidate-manifest hash and the changed PDF crop transform. Only reviewed PNGs/a
 to GPU `data/reviewed/source-v2/` and `data/manifests/source-v2/`; no PDFs or source archives entered that workspace.
 
 The first comparison, `source-v13-gentle`, starts from the same v7 checkpoint with v12's frozen backbone,
-LR .00002, compound weighting, spatial augmentation, seed and early-stopping settings. Its results are pending
-at this data-preparation checkpoint. Compare at the fixed .6 confidence / .75 IoU operating point, with original
-and new validation cohorts and required-context misses reported separately. No model is accepted or released.
-Source/identity/geometry regression checks now total **35 passing on the GPU host**. No paid provider spend,
-new reservation or service commitment; local electricity remains unpriced.
+LR .00002, compound weighting, spatial augmentation, seed and early-stopping settings. It finished at
+**00:58:30 UTC**, **10 epochs / 278.80 s / 2.98 GB peak allocated VRAM**, with best epoch 1. At the same .6 panel
+confidence / .75 IoU operating point (existing context threshold .25), it produces:
+
+| Validation cohort | Baseline TP / FP / FN | Source v13 TP / FP / FN | v13 recall / precision |
+|---|---|---|---|
+| Original 297 figures | 482 / 55 / 23 | **482 / 36 / 23** | 95.45% / 93.05% |
+| New 16 arXiv figures | 32 / 6 / 6 | **31 / 6 / 7** | 81.58% / 83.78% |
+| Combined 313 figures | 514 / 61 / 29 | **513 / 42 / 30** | 94.48% / 92.43% |
+
+This is an observed reduction in false detections, **not an across-the-board improvement**. Original compound
+recall falls from 284/297 to 280/297; combined compound recall falls from 310/327 to 305/327. On the newer cohort,
+required-context links retained rise from **6/45 to 18/45**, but original links fall from 50/75 to 46/75. Combined
+retention is **64/120**, versus 56/120 before, counting links on missed panels as missing. This is far below the
+quality gate. No checkpoint is accepted for deployment.
+
+The four changed new-cohort images were visually reviewed. One four-plot figure gains a correctly bounded panel;
+a two-heatmap figure is wrongly merged; a line plot's legend becomes entangled with panel detection. Removing an
+extra detection from a connected workflow also leaves part of that workflow outside the remaining box. The last
+case illustrates why fewer false positives alone cannot qualify a crop or replace complete-content inspection.
+No validation annotation was changed in response to these predictions.
+
+A paired 10,000-resample paper-group diagnostic estimates combined precision change at +0.73 to +5.77 percentage
+points, but recall change at -1.76 to +1.32 points (95% percentile intervals). These are descriptive intervals on
+selected, repeatedly used validation data, **not independent-test evidence or adjustment for checkpoint selection**.
+Only four papers comprise the new cohort; its intervals are much wider. Evidence: GPU
+`runs/source-v13-gentle/cohort-comparison.json`; local `source-comparisons/source-v13-gentle/`,
+`v13-paired-review.json`, `v13-new-validation-changes.jpg`. A separate Poppler full-page render confirms the two
+recovered histogram column headings against the original page layout.
+
+Replaying the previously explored duplicate-suppression policy (.6 panel threshold, .4 overlap) also fails the
+gate. On v13 it reduces false crops to 33 but loses three more matched panels (510 TP / 33 FP / 33 FN); the
+baseline under that same policy is 512 / 51 / 31. Its delivered rectangles with the existing 2% whole-image
+margin score worse still. This is another measured tradeoff, not a reason to substitute the more flattering
+raw-detector score for actual crop quality. Reports: `source-comparisons/baseline-deduplicate.json` and
+`source-comparisons/source-v13-gentle/deduplicate.json`. No new policy is selected.
+
+The follow-up `source-v14-laststage` keeps the dataset, initialization, LR, seed and comparison fixed while
+allowing the last backbone stage to adapt (backbone LR .000002). It finished at **01:03:15 UTC**, **9 epochs /
+259.36 s / 3.11 GB peak allocated VRAM**, with best epoch 0. At .6, original figures give **480 TP / 46 FP / 25 FN**;
+new arXiv figures give **33 / 5 / 5**; combined **513 / 51 / 30** (94.48% recall, 90.96% precision). Combined
+compound counts are **308 / 15 / 19**. It finds more new-domain panels than either v7 or v13 but loses two original
+panels versus v7, and its context retention is only **57/120** (46/75 original, 11/45 new). It does not recover the
+required combination of panel recall, low false crops and complete context. It is **not accepted**.
+
+Both comparisons are complete and **no GPU training job remains running**. v13 has the stronger reduction in
+false crops; v14 has slightly better panel matching on the small new cohort. Neither dominates all requirements,
+and neither is a replacement model. The original v7 remains an unqualified comparison baseline; no app catalogue,
+backend, release or physical-device state changed. The next data priorities are independently reviewed shared
+legends/axes, multi-plot heatmaps and connected-diagram negatives, with broader paper/domain coverage. Source-asset
+matching helps produce reviewable labels, but it does not solve grouping within a single asset or establish
+independent accuracy. Preserve the fixed validation/final-test boundary during that work.
+
+Final comparisons and exact provenance: GPU `runs/source-v14-laststage/cohort-comparison.json`; local
+`.artifacts/subfigure-training/source-comparisons/source-v14-laststage/`. Source/identity/geometry regression
+checks total **35 passing on both the Mac and GPU host**. No paid provider spend, new reservation or service
+commitment; local electricity remains unpriced.

@@ -7,8 +7,11 @@ qualified or bundled with the app. See [training/data evidence](../reviews/SUBFI
 The new 46-figure arXiv development addition exposed further failures; neither of its first two training runs
 is accepted. Original source assets plus PDF image/text identity successfully recover one previously malformed
 six-panel annotation. The source-assisted workflow now adds 35 reviewed training figures from 15 further papers;
-the 313 validation / 235 final-test records remain fixed. A gentle comparison is running. This is data preparation
-evidence, not yet improved detector accuracy; the new labels are Codex development review, not independent human review.
+the 313 validation / 235 final-test records remain fixed. The gentle run reduces combined false crops from 61 to 42
+but finds one fewer panel; required-context retention remains inadequate. The last-backbone-stage comparison is
+also complete, with a different tradeoff (513 matched panels / 51 false crops / 30 missed; context 57/120).
+Neither run is accepted and no GPU job remains active. These are validation tradeoffs; the new labels are
+Codex development review, not independent human review.
 
 ## Authorized training workspace — 2026-10-18
 

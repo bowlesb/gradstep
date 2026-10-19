@@ -35,8 +35,13 @@ their labels. This improves the next annotation workflow, not the detector's mea
 Source-assisted expansion now adds **35 reviewed training figures from 15 further papers**, with 113 panels and
 54 required-context links. Full decoded source-image/PDF identity and printed subcaptions guide the annotations;
 shared headings and contaminated margins required visual corrections. The combined set has 1,763 training images,
-with the 313 validation and 235 final-test files unchanged. `source-v13-gentle` is running the controlled comparison;
-results are pending. The Mathpix project remains read-only, PDFs are processed only on the Mac, and paid spend is $0.
+with the 313 validation and 235 final-test files unchanged. `source-v13-gentle` completed: combined false crops
+fall from 61 to 42, but found panels fall from 514 to 513, with compound recall also lower. Required-context links
+retained rise from 56/120 to 64/120; this remains far below acceptance. `source-v14-laststage` also completed:
+513 matched panels / 51 false crops / 30 missed, with context only 57/120. It gains one matched new-domain panel
+versus the baseline but loses two original-domain panels. Neither run is accepted. No GPU training job remains
+active after 01:03:15 UTC. The Mathpix project remains read-only, PDF processing stays on the Mac, and paid spend
+is $0. These are measured validation tradeoffs, not a qualified model or release.
 
 
 ## Later October 18 feedback — TestFlight 73 on iPhone/iPad and Mac; browser deployed
