@@ -10,9 +10,52 @@ import unittest
 from PIL import Image, ImageDraw
 from source_html import Figures, source_path
 from source_figures import archive_assets, select_group, subcaption_bounds
+from source_sample import candidate_ids
+from source_native import native_assets, caption_pages
 
 
 class SourceTests(unittest.TestCase):
+    def test_native_asset_requires_unique_pdf_and_explicit_tex_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'source.tar'
+            with tarfile.open(path, 'w') as archive:
+                for name, raw in [('figs/a.pdf', b'%PDF-test'), ('figs/b.pdf', b'%PDF-test'),
+                                  ('one/c.pdf', b'%PDF-test'), ('two/c.pdf', b'%PDF-test'),
+                                  ('../escape.pdf', b'%PDF-test'),
+                                  ('main.tex', b'\\includegraphics[width=.5\\linewidth]{figs/a.pdf}\n'
+                                               b'\\includegraphics{c}\n\\includegraphics{../escape.pdf}')]:
+                    entry = tarfile.TarInfo(name); entry.size = len(raw)
+                    archive.addfile(entry, io.BytesIO(raw))
+                link = tarfile.TarInfo('figs/linked.pdf'); link.type = tarfile.SYMTYPE; link.linkname = '/tmp/elsewhere'
+                archive.addfile(link)
+            assets = native_assets(path, {'a', 'b', 'c', 'escape', 'linked'})
+            self.assertEqual(set(assets), {'a'})
+            self.assertEqual(assets['a']['references'][0]['line'], 1)
+
+    def test_native_caption_page_uses_content_and_does_not_guess_between_duplicates(self):
+        caption = 'Figure 3: Linear CKA between layers of the base and adapted model.'
+        pages = ['Figure 3: Unrelated graph', caption, 'Different paper text']
+        self.assertEqual(caption_pages(caption, pages), [1])
+        self.assertEqual(caption_pages(caption, pages+[caption]), [1, 3])
+        self.assertEqual(caption_pages('Figure 3', pages), [])
+
+    def test_targeted_queue_can_admit_single_asset_heatmap_without_inventing_panels(self):
+        parser = Figures('2601.01234v2')
+        parser.feed('<figure id="F1"><img src="heat.png"><figcaption>Figure 1: Two heatmaps</figcaption></figure>'
+                    '<figure id="F2"><img src="plain.png"><figcaption>Figure 2: Test accuracy</figcaption></figure>'
+                    '<figure id="F3"><img src="vector.svg"><figcaption>Figure 3: Overview</figcaption></figure>'
+                    '<figure id="F4"><img src="https://example.com/a.png"><figcaption>Pipeline</figcaption></figure>')
+        self.assertEqual(candidate_ids(parser), ([], None))
+        self.assertEqual(candidate_ids(parser, targeted=True), ([], ['F1']))
+        self.assertEqual(candidate_ids(parser, targeted=True, topics=['diagram']), ([], []))
+        self.assertEqual(parser.roots[0]['children'], [])
+
+    def test_targeted_group_uses_child_caption_and_caps_review_queue(self):
+        parser = Figures('2601.01234v2')
+        parser.feed(''.join('<figure id="F%d"><figure><img src="a.png"><figcaption>(a) Heatmap</figcaption>'
+                           '</figure><figure><img src="b.png"></figure></figure>' % i for i in range(6)))
+        self.assertEqual(candidate_ids(parser, targeted=True), (['F0', 'F1', 'F2', 'F3'], []))
+
     def test_source_path_is_exact_relative_paper_identity(self):
         self.assertEqual(source_path('2601.01234v2/figs/a.png', '2601.01234v2'), 'figs/a.png')
         for path in ('https://example.com/a.png', '//example.com/a.png', '../a.png',

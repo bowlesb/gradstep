@@ -1,9 +1,24 @@
 """Known coordinates and identity cases for admitting PDF-derived research data."""
 import unittest
-from curate_mathpix import annotation_boxes, author_key, near
+import hashlib
+from pathlib import Path
+import tempfile
+from curate_mathpix import annotation_boxes, author_key, near, verify_native_review
 
 
 class CurateTests(unittest.TestCase):
+    def test_native_admission_binds_review_to_exact_parent_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);page=root/'page.png';page.write_bytes(b'reviewed page')
+            digest=hashlib.sha256(page.read_bytes()).hexdigest()
+            c={'source_pdf_kind':'native_single_figure_asset','parent_page_review_image':'page.png',
+               'parent_page_review_sha256':digest}
+            with self.assertRaises(ValueError):verify_native_review({},c,root)
+            spec={'parent_page_visual_match_sha256':digest}
+            verify_native_review(spec,c,root)
+            page.write_bytes(b'different page')
+            with self.assertRaises(ValueError):verify_native_review(spec,c,root)
+
     def test_crop_translates_panels_and_shared_context_without_clipping(self):
         spec={'crop':[10,20,110,100],
               'panels':[{'box':[12,23,80,80],'required':['key']}],

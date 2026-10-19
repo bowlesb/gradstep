@@ -1,0 +1,1431 @@
+{
+  "version": 1,
+  "candidate_manifest_sha256": "f35eb05cf92e9beb01341170ba747718481a6dca42683599f3f22a8b505b1da6",
+  "annotator": "Codex visual review, 2026-10-19 UTC",
+  "independent_human_review": false,
+  "status": "Development annotations, not independently reviewed ground truth",
+  "coordinate_system": "candidate raster xyxy pixels",
+  "policy": "Independent labeled comparison panels split; continuous workflows and single plots whole. Shared context explicitly linked. Native source PDFs visually matched to rendered parent pages. No detector predictions used.",
+  "records": [
+    {
+      "id": "2605.22544v2-S1.F1",
+      "candidate_sha256": "19020d178f77e8743070867a59c0388b7a19002f3b9f875e2adb59a513b2302f",
+      "crop": [
+        36,
+        36,
+        698,
+        512
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            698,
+            512
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.16554v2-S3.F2",
+      "candidate_sha256": "9469e5f9f5b3ff777104b53bfcc7e0f31a65347e86cf4f64809faf77b9471898",
+      "crop": [
+        36,
+        36,
+        1500,
+        508
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1500,
+            508
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.06506v1-S0.F2",
+      "candidate_sha256": "2cdb59b257424f4e0dbe1c2024119a0530ab2540e0b9b0a434dc75611a25ddc0",
+      "crop": [
+        36,
+        36,
+        1190,
+        426
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1190,
+            426
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.18085v1-S1.F1",
+      "candidate_sha256": "f0e2e82aeb0c06dff8871f0dcc9da58f93fdb4114bd3b929ec274ad99d1ecd6f",
+      "crop": [
+        36,
+        36,
+        1404,
+        729
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1404,
+            729
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2609.37923v1-S2.F1",
+      "candidate_sha256": "842715dcb62b18e98fd3061a9fade6f1708fa11e49003577b5a5c140a16ad764",
+      "crop": [
+        36,
+        36,
+        1231,
+        617
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1231,
+            617
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2609.27913v1-S1.F1",
+      "candidate_sha256": "369462f1c3f9abf898dd2347588011133288ffb793d221508f1e7aa1801fd0de",
+      "crop": [
+        36,
+        36,
+        1080,
+        369
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1080,
+            369
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.22332v1-S3.F1",
+      "candidate_sha256": "d56c2c482c8b1c93a9adf78ba2c633ff31a95f1d8ef4331a2eba448bb9663e52",
+      "crop": [
+        36,
+        36,
+        1447,
+        980
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1447,
+            980
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.25759v1-A2.F2",
+      "candidate_sha256": "5e3602c919af551097eb162c9dae4e14fada5019eea7164d56d34f436bdf9b10",
+      "crop": [
+        36,
+        36,
+        1166,
+        1108
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1166,
+            1108
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.25759v1-A2.F3",
+      "candidate_sha256": "c1f6dda1332204e9c24742fbc581e00d05ff898cba87bcf0511ba706b545b0d5",
+      "crop": [
+        36,
+        36,
+        1166,
+        1185
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1166,
+            1185
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2610.06439v1-S6.F7",
+      "candidate_sha256": "c32744ef954a448d1ed21f676bb1c320f225c901e7ce8b7184a80af59034c92f",
+      "crop": [
+        36,
+        36,
+        745,
+        434
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            745,
+            434
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.12368v1-S4.F2",
+      "candidate_sha256": "5c8cded7f809333f25fb7b400e6e7d744c181bd6a1f49142760b8cd27c313881",
+      "crop": [
+        36,
+        36,
+        1254,
+        675
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1254,
+            675
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2610.03458v1-S6.F2",
+      "candidate_sha256": "a3803bc1566fe37ab2b5a44af8cf3a371a51aefd550d1d8b4127710b61d39bec",
+      "crop": [
+        36,
+        36,
+        898,
+        653
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            898,
+            653
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.16554v2-S1.F1",
+      "candidate_sha256": "1744e1cfee278969a0d9781f118638b9531d1cab156a2228391806be90749508",
+      "crop": [
+        0,
+        0,
+        2000,
+        1444
+      ],
+      "panels": [
+        {
+          "box": [
+            3,
+            0,
+            1000,
+            710
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            1000,
+            0,
+            2000,
+            722
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            4,
+            722,
+            1000,
+            1431
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            1000,
+            722,
+            2000,
+            1444
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Four independent explanatory comparison tiles; all local titles, questions, paths and outcomes retained; native/parent match reviewed.",
+      "parent_page_visual_match_sha256": "cf66b4672eacdbbfeda03734e6e0da4b79879632b711af820eda6744dc30de48"
+    },
+    {
+      "id": "2608.09435v1-Sx3.F2",
+      "candidate_sha256": "229ad295920166f1e899b1f4638d0ba13b8926a4468a8371fc4996e7ec1565a8",
+      "crop": [
+        6,
+        10,
+        1998,
+        792
+      ],
+      "panels": [
+        {
+          "box": [
+            9,
+            13,
+            1995,
+            789
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "156e0287d7a63df9ffdce5211e9a4cabba2f22c2a116e8f3e2e846e5d34bc5b6"
+    },
+    {
+      "id": "2504.09772v4-S3.F3",
+      "candidate_sha256": "f68e792a78d5df73f9c3be0060a3d0e43b17d60adbd65ec0f1359889e5a5074c",
+      "crop": [
+        0,
+        0,
+        1890,
+        834
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            1890,
+            834
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "eedbe501f847fb01caf37fff020fb143828e8814de1932cd986e7e4d09e0cfbd"
+    },
+    {
+      "id": "2610.18684v1-S1.F1",
+      "candidate_sha256": "5b47363b9ad873ca5896bd38fecfdd3dcc3d5a2d42113ef002fd3245c8d1de87",
+      "crop": [
+        14,
+        47,
+        1997,
+        1113
+      ],
+      "panels": [
+        {
+          "box": [
+            17,
+            50,
+            1994,
+            1110
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "e3c3f045dd6ea1d96bda9112288110acb1aeb9971e9036e033dc96eb8e38586f"
+    },
+    {
+      "id": "2604.16299v2-S1.F2",
+      "candidate_sha256": "7379c5e14ca76fc4e0df8803c5f29a0938d6527d7a5bee659f429e12eac52366",
+      "crop": [
+        0,
+        0,
+        1451,
+        1582
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            689,
+            1579
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            743,
+            18,
+            1451,
+            1578
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two independent side-by-side method pipelines; each keeps its text, arrows, generated scene and results.",
+      "parent_page_visual_match_sha256": "053f7fad5e4761f49a0679db2c51c20cb1c7265b061ea93894ade11e4fd833f0"
+    },
+    {
+      "id": "2604.16299v2-S2.F3",
+      "candidate_sha256": "521b7dc7ec18c97102b99bb42608d536e0ad06e6ad9d0750c6f0e24477d7921c",
+      "crop": [
+        0,
+        0,
+        2000,
+        626
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            3,
+            1473,
+            626
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            1499,
+            0,
+            2000,
+            626
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two explicitly lettered method panels (a)/(b), divided by the printed separator; complete subcaptions and output retained.",
+      "parent_page_visual_match_sha256": "3563b49d02c9bebc950705f819af8a26999a2f804ada902fac5f3dc498c71f75"
+    },
+    {
+      "id": "2604.16299v2-S3.F4",
+      "candidate_sha256": "12564b5b7e12f89d95e80bf14e2cf56298edfd2053238ab51754fd089d336680",
+      "crop": [
+        0,
+        0,
+        1100,
+        666
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            1,
+            1100,
+            666
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "5c6ac12061b5f29109202c6a693ff7ed3f9ddf53d010ab7992458793a9aa9b84"
+    },
+    {
+      "id": "2604.16299v2-S4.F6",
+      "candidate_sha256": "d104e14315332ad5aeb2890f27007fe3e39ecab9231f0b18a9caf34112b8369a",
+      "crop": [
+        0,
+        0,
+        2000,
+        562
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            49,
+            1020,
+            309
+          ],
+          "required": [
+            "left-columns"
+          ]
+        },
+        {
+          "box": [
+            1039,
+            92,
+            2000,
+            309
+          ],
+          "required": [
+            "right-columns"
+          ]
+        },
+        {
+          "box": [
+            26,
+            328,
+            932,
+            562
+          ],
+          "required": [
+            "left-columns"
+          ]
+        },
+        {
+          "box": [
+            1043,
+            335,
+            1983,
+            559
+          ],
+          "required": [
+            "right-columns"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "left-columns",
+          "class": 1,
+          "box": [
+            90,
+            0,
+            927,
+            37
+          ]
+        },
+        {
+          "id": "right-columns",
+          "class": 1,
+          "box": [
+            1110,
+            0,
+            1930,
+            37
+          ]
+        }
+      ],
+      "review_note": "Four independent editing examples, each keeps input/object/output, zoom inset and instruction. Shared column headings linked to both rows.",
+      "parent_page_visual_match_sha256": "ae37b512f9909f4b724f3c790d2dabdda07cc983f0ca892267a897c6b050598f"
+    },
+    {
+      "id": "2609.18058v1-S1.F1",
+      "candidate_sha256": "d4b56d88f3f91e85b36863e3c9f57792cf6fdb9cbb2ad8bc3b0e5127c3256bda",
+      "crop": [
+        5,
+        20,
+        1959,
+        990
+      ],
+      "panels": [
+        {
+          "box": [
+            8,
+            23,
+            1956,
+            987
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "76481d7367fc6eb0d4ae2b48c1fe95c668d514de742ed281d3fd953e34954b35"
+    },
+    {
+      "id": "2609.18058v1-A2.F5",
+      "candidate_sha256": "bbae7ed870101a14f11f2feee92a03ee6b3694f4333d58a38c6f09960ecabcfa",
+      "crop": [
+        73,
+        62,
+        1991,
+        655
+      ],
+      "panels": [
+        {
+          "box": [
+            76,
+            76,
+            961,
+            641
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            1043,
+            65,
+            1988,
+            652
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two independent ring charts; each retains its entire category legend and center counts. Legend entries are not panels.",
+      "parent_page_visual_match_sha256": "b528e652b91372fb0028268a53c90a17addbbcc336760c12905b3374b98ea27e"
+    },
+    {
+      "id": "2608.03047v1-S1.F2",
+      "candidate_sha256": "e9afeeb1f51bd8533415b8290b41340d04712d289a8f1f785f1d8ab6c356afc7",
+      "crop": [
+        15,
+        30,
+        1985,
+        916
+      ],
+      "panels": [
+        {
+          "box": [
+            18,
+            33,
+            1982,
+            913
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "d48337c62c7500d3d1ec1bc8213be500c81d5cca146683be84b15cfa0ba7bbf0"
+    },
+    {
+      "id": "2609.12584v1-S3.F3",
+      "candidate_sha256": "4d39cca73f4541a44cea8d221282ea90b4c38e2c14697782ed199edad8b7f9d8",
+      "crop": [
+        4,
+        0,
+        1591,
+        462
+      ],
+      "panels": [
+        {
+          "box": [
+            7,
+            0,
+            1588,
+            459
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "b05bb2a184d95d73bea91773a82196cb6d6b046d06d72e3c2f8dd092a50da754"
+    },
+    {
+      "id": "2607.03651v3-S1.F1",
+      "candidate_sha256": "6765d9488f2576cb03ccf0345119f95e5755f1ef6be6ca5099a31c70d8e529e1",
+      "crop": [
+        19,
+        26,
+        1990,
+        686
+      ],
+      "panels": [
+        {
+          "box": [
+            22,
+            29,
+            1987,
+            686
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "e9cd5df9e89134f3fbada52c52f05f721afaca0b38914a434d1e81f36d3ad97b"
+    },
+    {
+      "id": "2608.28405v2-A15.F33",
+      "candidate_sha256": "e7dac5f2ac31301738e88c1d6a7fa6d7a5976aa6f503578661dccc72d52d2366",
+      "crop": [
+        16,
+        15,
+        1978,
+        1154
+      ],
+      "panels": [
+        {
+          "box": [
+            19,
+            18,
+            1975,
+            1151
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "0fc543406753f6dd2223ae0140c5dcbc68764b494d1cb1f8489cfc76acdd7ef8"
+    },
+    {
+      "id": "2608.28405v2-A15.F40",
+      "candidate_sha256": "37cd6eb483882daea2781a9c5b4f343f656624cd72cfce5d143952a28882512e",
+      "crop": [
+        17,
+        15,
+        1984,
+        1259
+      ],
+      "panels": [
+        {
+          "box": [
+            20,
+            18,
+            1981,
+            1256
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "2cc792c4f6ecd2dbfdb04e3f3084126a53d9e65dbbfd343ecfcb7f129702b860"
+    },
+    {
+      "id": "2606.00755v2-S4.F3",
+      "candidate_sha256": "22bef300cfe0685831ebf617a601981a566335007dcd1d8eaecbcfd83431c23b",
+      "crop": [
+        4,
+        6,
+        1169,
+        993
+      ],
+      "panels": [
+        {
+          "box": [
+            7,
+            9,
+            1166,
+            990
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "ba22844ee021103e34d1b20031ca2f1a81508218bf7c72e45cb017e3e2aa031f"
+    },
+    {
+      "id": "2511.08500v1-S3.F3",
+      "candidate_sha256": "7a5ed7d75d88929aaa4359c92546554b68600b1c0a1b8dd6a355409cc1800e9e",
+      "crop": [
+        15,
+        17,
+        1225,
+        1218
+      ],
+      "panels": [
+        {
+          "box": [
+            18,
+            20,
+            1222,
+            1215
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "91e2fbd838cfc28366c292d05ea5b79f010ad220f5aae64d539311ad77b0badc"
+    },
+    {
+      "id": "2604.07557v2-Sx4.F3",
+      "candidate_sha256": "af9746198ee73fc71f60ad748956e0ac492184797e4073dc5fcae2ae8f3f6298",
+      "crop": [
+        10,
+        0,
+        1994,
+        1181
+      ],
+      "panels": [
+        {
+          "box": [
+            15,
+            0,
+            658,
+            547
+          ],
+          "required": [
+            "visit-x",
+            "visit-y"
+          ]
+        },
+        {
+          "box": [
+            691,
+            0,
+            1324,
+            535
+          ],
+          "required": [
+            "visit-x",
+            "visit-y"
+          ]
+        },
+        {
+          "box": [
+            1358,
+            1,
+            1991,
+            535
+          ],
+          "required": [
+            "visit-x",
+            "visit-y"
+          ]
+        },
+        {
+          "box": [
+            25,
+            643,
+            658,
+            1178
+          ],
+          "required": [
+            "visit-x",
+            "visit-y"
+          ]
+        },
+        {
+          "box": [
+            691,
+            643,
+            1324,
+            1178
+          ],
+          "required": [
+            "visit-x",
+            "visit-y"
+          ]
+        },
+        {
+          "box": [
+            1358,
+            643,
+            1991,
+            1178
+          ],
+          "required": [
+            "visit-x",
+            "visit-y"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "visit-x",
+          "class": 2,
+          "box": [
+            90,
+            520,
+            375,
+            553
+          ]
+        },
+        {
+          "id": "visit-y",
+          "class": 3,
+          "box": [
+            13,
+            191,
+            47,
+            474
+          ]
+        }
+      ],
+      "review_note": "Six correlation heatmaps; each keeps its title and own colorbar. V1/V2/V3 tick identities printed only on first plot are required context for every matrix.",
+      "parent_page_visual_match_sha256": "aeed39bd22aa97e7a5e7bea0865c130945d12d54da7aeb91ba26407ff63c259c"
+    },
+    {
+      "id": "2602.12498v2-S4.F5",
+      "candidate_sha256": "854881045ae149b880cc343c1209d4d4f162e76c4419086148f6696dfdcf30da",
+      "crop": [
+        12,
+        7,
+        1996,
+        1561
+      ],
+      "panels": [
+        {
+          "box": [
+            15,
+            134,
+            1993,
+            1077
+          ],
+          "required": [
+            "global-title",
+            "layer-axis"
+          ]
+        },
+        {
+          "box": [
+            122,
+            1210,
+            1785,
+            1462
+          ],
+          "required": [
+            "global-title",
+            "layer-axis"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "global-title",
+          "class": 1,
+          "box": [
+            510,
+            10,
+            1640,
+            64
+          ]
+        },
+        {
+          "id": "layer-axis",
+          "class": 2,
+          "box": [
+            367,
+            1464,
+            1690,
+            1558
+          ]
+        }
+      ],
+      "review_note": "Heatmap and mean-effect bar chart share Layer category identities and global CTE title. Top retains token labels/colorbar; bottom retains Average CTE axis.",
+      "parent_page_visual_match_sha256": "e8a4916de252bf4a8ee88b73fac02c7427aed478164b2d90a6b4053e8484eebe"
+    },
+    {
+      "id": "2609.21521v2-S4.F11",
+      "candidate_sha256": "a768dd38c2f100e677f3a743cc23b843424d0d2083c5cadd3c90c3570defd38c",
+      "crop": [
+        40,
+        38,
+        1554,
+        982
+      ],
+      "panels": [
+        {
+          "box": [
+            43,
+            41,
+            1551,
+            979
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "0d73be5937dfe1d7e430705126384e743c2f9874c3ff9b807f288f3653bf883b"
+    },
+    {
+      "id": "2608.25386v1-S1.F3",
+      "candidate_sha256": "380963fd9554c44683f5a2731cb52ca0dab9f1201976b8a4c202d30e53b45a01",
+      "crop": [
+        6,
+        3,
+        1984,
+        681
+      ],
+      "panels": [
+        {
+          "box": [
+            9,
+            11,
+            1375,
+            679
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            1408,
+            6,
+            1981,
+            680
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Explicit (a)/(b) method panels separated by a dashed divider; keep all arrows and contrastive legend within each.",
+      "parent_page_visual_match_sha256": "44059ac7cd1f076a15c5f5868615c4b5cbf93187147d96b219488f5505c8ed95"
+    },
+    {
+      "id": "2606.09898v2-S5.F3",
+      "candidate_sha256": "80a7e0ad98642746f4992764571c2b467e49d1345bba0de74dff75de6b2e8f91",
+      "crop": [
+        37,
+        39,
+        758,
+        303
+      ],
+      "panels": [
+        {
+          "box": [
+            40,
+            42,
+            279,
+            300
+          ],
+          "required": [
+            "scale",
+            "methods"
+          ]
+        },
+        {
+          "box": [
+            297,
+            42,
+            489,
+            300
+          ],
+          "required": [
+            "scale",
+            "methods"
+          ]
+        },
+        {
+          "box": [
+            508,
+            42,
+            700,
+            300
+          ],
+          "required": [
+            "scale",
+            "methods"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "scale",
+          "class": 0,
+          "box": [
+            704,
+            55,
+            755,
+            268
+          ]
+        },
+        {
+          "id": "methods",
+          "class": 3,
+          "box": [
+            43,
+            83,
+            100,
+            239
+          ]
+        }
+      ],
+      "review_note": "Three independently titled clinical heatmaps share Mean test AUROC colorbar and BINN/GraphPath/PATH row identities. Surrounding article text excluded."
+    },
+    {
+      "id": "2609.33205v1-S5.F3",
+      "candidate_sha256": "b68ca1bd6b1be40953a1db33c3480d83728079c0f804130c7a4ad1b0b222faf3",
+      "crop": [
+        82,
+        47,
+        1446,
+        613
+      ],
+      "panels": [
+        {
+          "box": [
+            85,
+            50,
+            649,
+            590
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            660,
+            50,
+            1443,
+            613
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two lettered comparison panels: failure matrix with its hatch legend and numerical-sensitivity plot with full configuration legend; external caption omitted. Expanded right panel left edge to preserve the complete vertical MSE label after overlay review."
+    },
+    {
+      "id": "2609.20827v2-A1.F24",
+      "candidate_sha256": "7b0d10a791eb623f062e0fe51c98e75cf9ab2ae7056d07a557f4bef7bc8674a9",
+      "crop": [
+        36,
+        36,
+        1404,
+        778
+      ],
+      "panels": [
+        {
+          "box": [
+            36,
+            36,
+            1404,
+            778
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Exact source-raster/PDF identity visually reviewed. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels."
+    },
+    {
+      "id": "2608.03297v1-S4.F2",
+      "candidate_sha256": "5818d72582d7f885e321290372831973eed79de703e69d0bfbbd2f6df2f233d5",
+      "crop": [
+        39,
+        40,
+        1370,
+        622
+      ],
+      "panels": [
+        {
+          "box": [
+            42,
+            127,
+            733,
+            619
+          ],
+          "required": [
+            "global-title",
+            "shared-y"
+          ]
+        },
+        {
+          "box": [
+            748,
+            127,
+            1367,
+            619
+          ],
+          "required": [
+            "global-title",
+            "shared-y"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "global-title",
+          "class": 1,
+          "box": [
+            544,
+            43,
+            869,
+            78
+          ]
+        },
+        {
+          "id": "shared-y",
+          "class": 3,
+          "box": [
+            43,
+            158,
+            125,
+            563
+          ]
+        }
+      ],
+      "review_note": "Two line plots with own legends and x axes, shared set-F1 scale and global task title; shared Y context includes tick values."
+    },
+    {
+      "id": "2608.15687v1-A1.F6",
+      "candidate_sha256": "0f676d693bbb5bdbef6c14b8373cc3f8b0cd4633323de85e8850cad5a0f821cd",
+      "crop": [
+        36,
+        37,
+        1545,
+        569
+      ],
+      "panels": [
+        {
+          "box": [
+            39,
+            89,
+            565,
+            566
+          ],
+          "required": [
+            "global-title",
+            "shared-y",
+            "shared-key"
+          ]
+        },
+        {
+          "box": [
+            574,
+            89,
+            1054,
+            566
+          ],
+          "required": [
+            "global-title",
+            "shared-y",
+            "shared-key"
+          ]
+        },
+        {
+          "box": [
+            1064,
+            89,
+            1542,
+            566
+          ],
+          "required": [
+            "global-title",
+            "shared-y",
+            "shared-key"
+          ]
+        }
+      ],
+      "contexts": [
+        {
+          "id": "global-title",
+          "class": 1,
+          "box": [
+            711,
+            40,
+            880,
+            66
+          ]
+        },
+        {
+          "id": "shared-y",
+          "class": 3,
+          "box": [
+            40,
+            111,
+            98,
+            523
+          ]
+        },
+        {
+          "id": "shared-key",
+          "class": 0,
+          "box": [
+            1076,
+            459,
+            1350,
+            524
+          ]
+        }
+      ],
+      "review_note": "Three model scatter plots share GSM8K scale, title and symbol legend printed inside last plot; preserve every marker, model heading and local x axis."
+    },
+    {
+      "id": "2605.08098v2-S3.F4",
+      "candidate_sha256": "f032ef6beb165fc2b9139815368efe437d57d5529e2b29c1c85e2cf8ec595133",
+      "crop": [
+        0,
+        0,
+        1593,
+        1629
+      ],
+      "panels": [
+        {
+          "box": [
+            7,
+            0,
+            1078,
+            797
+          ],
+          "required": [
+            "shape-groups"
+          ]
+        },
+        {
+          "box": [
+            1135,
+            0,
+            1583,
+            796
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            0,
+            800,
+            817,
+            1626
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            844,
+            800,
+            1590,
+            1626
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [
+        {
+          "id": "shape-groups",
+          "class": 0,
+          "box": [
+            104,
+            1455,
+            402,
+            1527
+          ]
+        }
+      ],
+      "review_note": "Four explicit panels (a)-(d), not individual shape cells/insets. Group colors in (a) require the legend in (c); both scatter plots retain local legends and all axes.",
+      "parent_page_visual_match_sha256": "71c1d24ab45e03753060fa0e7ef089efab36155496ba6e5565555c8c7af6ff51"
+    },
+    {
+      "id": "2605.27984v2-S1.F1",
+      "candidate_sha256": "8d27fa91bad899a00ed69a748379a5872ce007e8d0eb61f0256802aa72f52292",
+      "crop": [
+        0,
+        0,
+        1870,
+        658
+      ],
+      "panels": [
+        {
+          "box": [
+            0,
+            0,
+            1870,
+            658
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Native PDF asset visually matches the parent paper page. Single chart retains its complete axes/legend; connected diagram retains all stages and output. Internal cells/icons are not separate panels.",
+      "parent_page_visual_match_sha256": "323fead978c9d898ee0dfae0f287c7b99a7e1cb1eadc4f0d49ba34855f624c13"
+    },
+    {
+      "id": "2610.21767v1-S3.F3",
+      "candidate_sha256": "340dd9486fcf248b0b038b807345b155fd4d134d7ec24683f93ef6f8b50cdc8a",
+      "crop": [
+        20,
+        13,
+        1529,
+        1089
+      ],
+      "panels": [
+        {
+          "box": [
+            23,
+            16,
+            1526,
+            540
+          ],
+          "required": []
+        },
+        {
+          "box": [
+            23,
+            559,
+            1525,
+            1086
+          ],
+          "required": []
+        }
+      ],
+      "contexts": [],
+      "review_note": "Two explicitly lettered charts; A includes model-order legend and values, B includes outcome legend and full multiline model labels.",
+      "parent_page_visual_match_sha256": "0dc6b119d99ec56705764d5dbf67a2908cb3d8854bf75d096fae9d1a4acc908f"
+    }
+  ],
+  "deferred": [
+    {
+      "id": "2608.04385v1-S1.F1",
+      "reason": "Ambiguous connected attention-transition sequence versus separate comparison panels; independent semantic review needed."
+    },
+    {
+      "id": "2609.21521v2-S4.F12",
+      "reason": "Overlapping caption-source label and neighboring plot bounds need a separately reviewed multi-region interpretation."
+    }
+  ],
+  "revision_note": "Exact native parent-page visual review hashes added; one clipped vertical axis annotation corrected before any training."
+}

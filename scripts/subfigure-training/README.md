@@ -43,12 +43,21 @@ Run one GPU job at a time. No PDFs, private reader data or production credential
 - `test_curate.py`: crop-coordinate, required-context and duplicate/author-identity admission cases.
 - `cohort_report.py`: fixed-threshold comparisons from saved validation predictions, separated into original
   and new arXiv cohorts. Counts required context on missed panels explicitly; never reads/scans the final test.
+- `context_report.py`: hash-bound failure attribution at fixed thresholds, reconciled with the crop scorer.
+  Separates missed panels, missing context detections and clipped context; counts unique shared regions as well
+  as panel-context links. This uses ground truth for scoring and is not an inference-time association policy.
 - `source_sample.py`, `source_html.py`: a separate, bounded, read-only **training-only** sample of saved source
   archives and exact HTML/PDF pairs. No source-project code runs, and no validation/reserved-test HTML is inspected.
+  Optional `--targeted --topic heatmap|context|diagram`, ordered `--category` and `--exclude-sample` narrow the
+  review queue without deriving labels from captions. Single-asset figures may contain many semantic panels.
 - `source_figures.py`: Mac-only source-assisted review candidates. Read bounded archive members without extracting
   or executing them; match full decoded RGB SHA-256 to a unique PDF occurrence and recover printed subcaptions.
   Full-width figure captions fence the text search before filtering by panel column. These are review candidates,
   not automatic annotations: source assets may contain multiple plots, page screenshots, or omit outside headings.
+- `source_native.py`: Mac-only recovery when an HTML PNG preview corresponds to a native figure PDF. Require a
+  unique source-archive PDF, an explicit TeX image reference and a unique caption page in the compiled paper.
+  Render the one-page asset and parent page for visual comparison; never execute TeX or claim pixel identity.
+  Admission binds the annotation to the exact visually reviewed parent-page render hash. Ambiguity stays deferred.
 - `annotations/source-panels-v2.json`: 35 additional visually reviewed training figures from 15 papers, 113 panel
   boxes and 54 required-context links. Shared headings, source-internal plots and contaminated margins required
   explicit corrections. Codex review is not independent human ground truth. `curate_mathpix.py --training-only`
@@ -56,6 +65,9 @@ Run one GPU job at a time. No PDFs, private reader data or production credential
 - `test_source.py`: source/path/decoded-pixel identity, archive ambiguity, complete subcaptions and full-width
   caption-contamination regressions. PDF-dependent preparation stays Mac-only; these pure-data tests also run
   on the GPU host without a PDF processing dependency.
+- `annotations/targeted-panels-v2.json`: 41 further training figures from 34 papers, 67 panels and 40 required
+  context links. Adds heatmaps/shared axes/legends and complete connected diagrams; two ambiguous figures remain
+  deferred. Native figure assets were visually compared with their paper pages. Still Codex development review.
 
 ## Run and inspect
 
@@ -97,6 +109,12 @@ have 8x source weight: together they account for 25.10% expected draws with comp
 training distribution; it is not an unbiased sample of all archived PDFs. Keep the 384 generated examples
 distinct from real papers when reporting counts. The first comparison uses v12's gentle settings and v7 start;
 report the fixed .6 operating point on both original and new validation cohorts before deciding whether it helps.
+
+`targeted-v2` adds the 41 reviewed figures to `source-v2`: **1,804 training images**, including 384 generated
+plots and 106 arXiv figures from 56 papers. Validation/final-test bytes stay fixed. Its first comparison retains
+v13's v7 initialization, frozen backbone, seed, learning rate and early stopping; the new data and resulting
+sampling mix are the changed factors. Source PDFs/archives stay on the Mac; only 15.52 MB of reviewed PNGs and
+annotation/provenance records went to the GPU workspace. Exact run outcomes belong in the training review.
 
 The 235-image real final test remains unscored. Freeze model hash, preprocessing, threshold and crop policy before
 using its explicit CLI acknowledgement. Do not tune to final-test errors and continue to call it untouched.

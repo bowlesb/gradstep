@@ -75,6 +75,16 @@ def near(a, b):
             and bin(int(a['phash'], 16) ^ int(b['phash'], 16)).count('1') <= 4)
 
 
+def verify_native_review(spec, candidate, root):
+    if candidate.get('source_pdf_kind') != 'native_single_figure_asset':
+        return
+    digest = candidate['parent_page_review_sha256']
+    path = root/candidate['parent_page_review_image']
+    if (spec.get('parent_page_visual_match_sha256') != digest or path.is_symlink()
+            or not path.resolve().is_relative_to(root.resolve()) or sha(path) != digest):
+        raise ValueError('Native source requires a recorded review of the exact parent-page render')
+
+
 def counts(rows):
     return {'images': len(rows), 'papers': len({r['paper'] for r in rows}),
             'compound_images': sum(sum(b['class'] == 4 for b in r['boxes']) > 1 for r in rows),
@@ -143,6 +153,7 @@ def main():
     planned, images = [], {}
     for spec in annotation['records']:
         c = candidates[spec['id']]
+        verify_native_review(spec, c, args.candidates.parent)
         if c['split'] not in ('train', 'validation'):
             raise ValueError('Reserved test is not available for development')
         if args.training_only and c['split'] != 'train':
@@ -186,7 +197,8 @@ def main():
                'candidate_pixel_crop': spec['crop'], 'source_dpi': c['dpi'],
                'annotation_sha256': hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest(),
                'caption': c['caption'], 'sampling_weight': args.sampling_weight}
-        for key in ('source_labels_sha256', 'source_archive_sha256', 'source_html_sha256'):
+        for key in ('source_labels_sha256', 'source_archive_sha256', 'source_html_sha256',
+                    'source_pdf_kind', 'parent_pdf_sha256', 'parent_page_zero_based', 'parent_page_review_sha256'):
             if key in c:
                 row[key] = c[key]
         if 'source_archive_sha256' in c:

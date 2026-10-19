@@ -230,7 +230,9 @@ def main():
         groups = [g for g in parser.groups() if g['id'] in paper['candidate_groups']
                   and not any(re.match(r'^(Figure|Fig\.)\s+\d', c['caption'].strip()) for c in g['children'])]
         # Single-asset figures are also only candidates: one asset may contain many plots.
-        singles = [g for g in parser.roots if g['id'] and not g['children'] and len(g['images']) == 1 and g['images'][0]['path']][:2]
+        singles = [g for g in parser.roots if g['id'] and not g['children'] and len(g['images']) == 1 and g['images'][0]['path']]
+        singles = ([g for g in singles if g['id'] in paper['candidate_singles']]
+                   if 'candidate_singles' in paper else singles[:2])
         wanted = {c['images'][0]['path'] for g in groups for c in g['children']}
         wanted.update(g['images'][0]['path'] for g in singles)
         try:
