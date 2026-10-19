@@ -5,14 +5,13 @@
 The repeated delete → Apple/Google return failure has a deployed lifecycle repair, not another one-time Auth-user
 recreation. Durable beta admission survives deletion; unknown addresses remain denied. Two real hosted synthetic
 delete/public-signup/verify/RPC cycles pass. Browser refusal copy is live in Pages **e8aa027f**. Native callback
-handling is tested in code and the Simulator. iOS/iPadOS TestFlight 74 is VALID / IN_BETA_TESTING; Mac 74 uploaded
-and is processing. Interactive provider UI acceptance remains unverified. See NATIVE_AUTHENTICATION.md.
+handling is tested in code and the Simulator. iOS/iPadOS TestFlight 74 is VALID / IN_BETA_TESTING; Mac 74 is also VALID / IN_BETA_TESTING with release notes verified. Interactive provider UI acceptance remains unverified. See NATIVE_AUTHENTICATION.md.
 
 Five later screenshots are retained under `.artifacts/feedback/catalogs-20261019/`:
 
 | Report | Finding / remaining work |
 |---|---|
-| `AMZ1EYpp-g46Tu85tdnKziA` | Real native transport omitted `v5_set_source_details`; a valid-edit regression reproduces `invalidMutation` before HTTP. The fix and full-list bound alignment pass 23 native queue/transport checks, including persisted-edit recovery. Included in iOS/iPadOS TestFlight 74; Mac 74 uploaded, processing. |
+| `AMZ1EYpp-g46Tu85tdnKziA` | Real native transport omitted `v5_set_source_details`; a valid-edit regression reproduces `invalidMutation` before HTTP. The fix and full-list bound alignment pass 23 native queue/transport checks, including persisted-edit recovery. Included in iOS/iPadOS TestFlight 74; Mac 74 also VALID / IN_BETA_TESTING. |
 | `ACN1pum4v1-mJuwgU22J7Ys` | Search ML papers at the top of the keyword menu; downloaded, not yet addressed. |
 | `ACxnS6bB8Ga4qBTzECN3xrk` | Clipped subfigure; downloaded, investigation remains open. |
 | `AHYZJO6d0-mkFRFYd-j1H_4` | Back to chat returns to the wrong place; downloaded, investigation remains open. |
