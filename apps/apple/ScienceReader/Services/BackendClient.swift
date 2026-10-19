@@ -489,8 +489,12 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let request = attempt.request
         let commands = ["begin_import", "set_library_item", "cancel_import", "retry_import", "set_item_archived", "set_item_tags"]
         let family = attempt.readContext.datasetEpoch == nil ? "v2_" : "v5_"
-        guard commands.map({ family + $0 }).contains(request.endpoint),
-              !request.body.isEmpty, request.body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
+        // Device-read papers have source membership rather than a server document. Their
+        // keyword/archive edit (058) is v5-only and allows up to 32 bounded keywords.
+        let sourceDetails = family == "v5_" && request.endpoint == "v5_set_source_details"
+        guard sourceDetails || commands.map({ family + $0 }).contains(request.endpoint),
+              !request.body.isEmpty, request.body.count <= (sourceDetails ? 8_192 : 2_048)
+        else { throw LibraryCommandError.invalidMutation }
         // The frozen body must name exactly the attempt's dataset (or none for v2).
         let epoch = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any])?["p_dataset_epoch"] as? String
         guard epoch == attempt.readContext.datasetEpoch?.wire else { throw LibraryCommandError.contextMismatch }
@@ -1026,11 +1030,13 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         struct Failure: Decodable {
             let code: String?
             let errorCode: String?
-            enum CodingKeys: String, CodingKey { case code; case errorCode = "error_code" }
+            let message: String?
+            enum CodingKeys: String, CodingKey { case code, message, msg; case errorCode = "error_code" }
             init(from decoder: any Decoder) throws {
                 let c = try decoder.container(keyedBy: CodingKeys.self)
                 code = try? c.decode(String.self, forKey: .code)
                 errorCode = try? c.decode(String.self, forKey: .errorCode)
+                message = (try? c.decode(String.self, forKey: .message)) ?? (try? c.decode(String.self, forKey: .msg))
             }
         }
         let failure = try? JSONDecoder().decode(Failure.self, from: data)
@@ -1047,7 +1053,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             }
             return .rateLimited(retryAfterSeconds: retry)
         }
-        if codes.contains("signup_disabled") { return .noAccount }
+        if codes.contains("signup_disabled") || failure?.message == "beta_invitation_required" { return .noAccount }
         if case .token(.refreshToken) = route, [400, 401, 403].contains(response.statusCode),
            codes.contains(where: { ["refresh_token_not_found", "refresh_token_already_used", "session_not_found",
                                    "session_expired", "user_not_found", "user_banned"].contains($0) }) {

@@ -53,7 +53,7 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
         case .cancelImport(_, let revision), .retryImport(_, let revision), .setArchived(_, _, let revision):
             guard revision > 0, revision < Int64.max else { throw LibraryCommandError.invalidMutation }
         case .setSourceDetails(_, _, let tags, let revision):
-            guard revision > 0, revision < Int64.max, PaperTags.isValid(tags, limit: PaperTags.maximumOwnTags) else { throw LibraryCommandError.invalidMutation }
+            guard revision > 0, revision < Int64.max, PaperTags.isValid(tags, limit: PaperTags.maximumSourceTags) else { throw LibraryCommandError.invalidMutation }
         case .setTags(_, let tags, let hidden, let revision):
             guard revision > 0, revision < Int64.max, PaperTags.isValid(tags, limit: PaperTags.maximumOwnTags),
                   PaperTags.isValid(hidden, limit: PaperTags.maximumHiddenTags) else { throw LibraryCommandError.invalidMutation }

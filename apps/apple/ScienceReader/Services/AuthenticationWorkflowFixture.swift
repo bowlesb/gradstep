@@ -128,6 +128,10 @@ private final class AuthenticationWorkflowProtocol: URLProtocol, @unchecked Send
                           let nonce = object["nonce"] as? String, !nonce.isEmpty else {
                         throw AuthenticationWorkflowFixture.Failure.invalidRequest
                     }
+                    if ProcessInfo.processInfo.arguments.contains("--authentication-invitation-refused") {
+                        try respond(["code": "hook_error", "msg": "beta_invitation_required"], status: 403)
+                        return
+                    }
                 case "refresh_token":
                     guard object["refresh_token"] as? String == "authentication-fixture-refresh" else {
                         throw AuthenticationWorkflowFixture.Failure.invalidRequest
@@ -244,6 +248,10 @@ private final class AuthenticationWorkflowPresenter: AuthenticationPresenting {
         }
         try await outcome(for: "google")
         var callback = URLComponents(url: authorization.callbackURL, resolvingAgainstBaseURL: false)!
+        if ProcessInfo.processInfo.arguments.contains("--authentication-invitation-refused") {
+            callback.fragment = "error=access_denied&error_code=signup_disabled&error_description=Signup%20disabled"
+            return callback.url!
+        }
         callback.queryItems = [URLQueryItem(name: "code", value: "authentication-fixture-code")]
         return callback.url!
     }

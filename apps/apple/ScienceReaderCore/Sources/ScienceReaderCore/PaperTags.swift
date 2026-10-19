@@ -11,6 +11,8 @@ public enum PaperTags {
     public static let maximumBytes = 120
     public static let maximumOwnTags = 12
     public static let maximumHiddenTags = 8
+    /// Device-read source membership stores the full edited list (migration 058), including catalog keywords.
+    public static let maximumSourceTags = 32
 
     /// Tag text as stored: whitespace collapsed to single spaces and trimmed, control characters
     /// removed; nil when empty or too long.

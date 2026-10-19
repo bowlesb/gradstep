@@ -1776,7 +1776,7 @@ struct DeleteAccountView: View {
                 Section {
                     Text("Unused credits are forfeited. Records of credits, AI usage and which papers were converted for you are kept without your email or name, for accounting.")
                     Text("An App Store subscription isn’t cancelled by deleting your account; manage it in Settings › Apple Account › Subscriptions.")
-                    Text("During the private beta, you’ll need a new invitation to sign in again after deletion. It creates a new account; your deleted library and conversations won’t return.")
+                    Text("Your beta invitation remains valid. Signing in again creates a new account; your deleted library, conversations and credits won’t return.")
                 }.font(.footnote).foregroundStyle(.secondary)
                 Section("Type DELETE to confirm") {
                     TextField("DELETE", text: $confirmation).textInputAutocapitalization(.characters).autocorrectionDisabled()

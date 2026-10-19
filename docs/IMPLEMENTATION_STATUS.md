@@ -1,5 +1,32 @@
 # Implementation status
 
+## Account deletion / return and stuck keyword edits — October 19 UTC
+
+The owner's repeated OAuth lockout was the unchanged global signup block after deletion erased the precreated
+Auth login. Staging now keeps exact verified-address beta admission independently of the account. Migrations
+091–093 and the Auth hook are applied/verified; unknown public signup is denied. Two synthetic delete → public
+self-creation → verified login/account-RPC cycles pass, with fresh UUIDs and old tokens rejected. The prior owner
+address is admitted without recreating or impersonating the owner. Deleted content, roles and credits stay deleted.
+The local SQL suite covers revocation, ACLs and stale admin-command replays. The final encrypted checkpoint
+`20261019T044047Z-2362347ee4c9` restores **211 tables / 15 objects** into an isolated local database; hosted recovery
+is not claimed. Details: [Native authentication](architecture/NATIVE_AUTHENTICATION.md).
+
+The browser now shows invitation refusals instead of treating `access_denied` as silent cancellation; desktop/phone
+OAuth journeys pass **8/8**, and Pages **e8aa027f** is deployed with served assets checked. Native auth unit checks
+pass **45/45**, Core callback checks **5/5**. Native release and actual Apple/Google provider/phone acceptance remain
+pending at this checkpoint. No physical iPhone was accessed.
+
+The Library refresh banner has a separate proven cause: the native transport rejects valid `v5_set_source_details`
+requests before HTTP. Its allowlist and source-edit byte bound are corrected; the regression first fails with
+`invalidMutation` with a valid small edit. Recovery of the same persisted operation through real transport now
+passes for small and full-size edits; all **23** affected transport/coordinator cases pass. Core source-keyword
+bounds/receipt checks pass **4/4**. The full Core run passes all behavior checks except an outdated Google processor
+label expectation; correcting that test to the already shipped “Google Vertex through OpenRouter” passes the
+affected **12/12** profile cases. The
+required native gate now includes that path and visible Apple/Google refusal handling (**15 cases**). `npm test`
+passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs remain the next implementation
+task; no catalog feature is released yet.
+
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 
 Fine-tuning experiments ran in an isolated workspace on the explicitly authorized RTX 3090 host. The selected real

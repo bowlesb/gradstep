@@ -184,6 +184,10 @@ def restore(checkpoint, environment, fixture=None):
                     sql(f'create role "{role}" nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;',database='postgres'); roles.append(role)
             run('createdb',[db]); created = True
             sql('drop schema public;')  # Empty template schema in this newly created local DB only.
+            # --schema backups omit extension objects/schema. Library query indexes (032) still
+            # depend on pg_trgm; install that known local prerequisite before restoring their DDL.
+            # This disposable DB has no hosted credentials, scheduler or provider transport.
+            sql('create schema extensions; create extension pg_trgm with schema extensions;')
             run('pg_restore',['--exit-on-error','--single-transaction','--no-owner','--dbname',db,str(work/'database.dump')])
             restored_migrations = json.loads(sql("select coalesce(jsonb_object_agg(version,sha256),'{}') from science_reader_migrations.versions;"))
             if restored_migrations != manifest['migrations']:

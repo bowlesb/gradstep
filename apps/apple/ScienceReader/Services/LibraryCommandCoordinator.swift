@@ -236,7 +236,7 @@ final class LibraryCommandCoordinator {
             if error as? ReaderError != nil || error is LibraryQueueStorageFailure {
                 pauseForStorageFailure()
             } else {
-                report("Your change is saved on this device. Refresh to finish updating the library.")
+                report("Your edit is saved. The library will sync automatically when the app is active.")
             }
         }
     }
@@ -363,7 +363,9 @@ final class LibraryCommandCoordinator {
         case .capacity: "The library limit has been reached. Your change is saved on this device."
         case .operationConflict: "This library change needs review. Refresh your library before trying again."
         case .datasetChanged: "Your library was updated on the server. Review your saved change before trying it again."
-        default: "Your change is saved on this device. Refresh to try sending it again."
+        case .connection: "Library sync is temporarily unavailable. Your saved change will retry when the app is active."
+        case .invalidResponse: "Couldn’t confirm this library update. Your saved change will retry when the app is active."
+        default: "Couldn’t sync this library change. Your saved edit is available in Review."
         }
     }
 }

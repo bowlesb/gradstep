@@ -23,7 +23,7 @@ final class AuthenticationCoordinator {
         var message: String {
             switch self {
             case .configuration: "This sign-in method isn’t available yet. Try another."
-            case .noAccount: "This beta is by invitation. Use your invited sign-in address. If you deleted your account, you need a new invitation."
+            case .noAccount: "This sign-in address isn’t invited to the beta. Use the address on your invitation; Apple’s Hide My Email address may be different."
             case .presentation: "Couldn’t open sign-in. Please try again."
             case .invalidEmail: "Enter a valid email address."
             case .invalidCode: "That code wasn’t accepted. Check it or request a new one."
@@ -404,7 +404,13 @@ final class AuthenticationCoordinator {
             case .rejected, .sessionExpired: .rejected
             }
         }
-        if error is OAuthFlowError { return .invalidResponse }
+        if let error = error as? OAuthFlowError {
+            return switch error {
+            case .invitationRequired: .noAccount
+            case .providerDenied: .rejected
+            default: .invalidResponse
+            }
+        }
         if let error = error as? AuthenticationPresentationError {
             return error == .invalidCredential ? .invalidResponse : .presentation
         }

@@ -1,5 +1,24 @@
 # Owner feedback log
 
+## October 18 late screenshots / October 19 account deletion (in progress)
+
+The repeated delete → Apple/Google return failure has a deployed lifecycle repair, not another one-time Auth-user
+recreation. Durable beta admission survives deletion; unknown addresses remain denied. Two real hosted synthetic
+delete/public-signup/verify/RPC cycles pass. Browser refusal copy is live in Pages **e8aa027f**. Native callback
+handling is tested in code; native release/provider UI acceptance are still pending. See NATIVE_AUTHENTICATION.md.
+
+Five later screenshots are retained under `.artifacts/feedback/catalogs-20261019/`:
+
+| Report | Finding / remaining work |
+|---|---|
+| `AMZ1EYpp-g46Tu85tdnKziA` | Real native transport omitted `v5_set_source_details`; a valid-edit regression reproduces `invalidMutation` before HTTP. The fix and full-list bound alignment pass 23 native queue/transport checks, including persisted-edit recovery. Native upload pending. |
+| `ACN1pum4v1-mJuwgU22J7Ys` | Search ML papers at the top of the keyword menu; downloaded, not yet addressed. |
+| `ACxnS6bB8Ga4qBTzECN3xrk` | Clipped subfigure; downloaded, investigation remains open. |
+| `AHYZJO6d0-mkFRFYd-j1H_4` | Back to chat returns to the wrong place; downloaded, investigation remains open. |
+| `AL-V0yuPVLvTrmalbO5c9yQ` | Double-tap figure zoom; downloaded, not yet addressed. |
+
+The separately requested named-catalog management is recorded in DECISIONS.md and follows the urgent access fix.
+
 ## Further screenshot feedback — 2026-10-18, 20:45–20:56 UTC (TestFlight 73 and browser deployed)
 
 All six screenshots were downloaded and inspected in `.artifacts/feedback/build71-20261018/`.

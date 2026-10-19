@@ -280,7 +280,12 @@ export const auth = {
     const error = query.get('error') ?? fragment.get('error');
     // Remove one-time credentials before network work. The app always returns to the sign-in route on failure.
     window.history.replaceState(null, '', '/');
-    if (error) throw oauthError(error);
+    if (error) {
+      const reason = query.get('error_code') ?? fragment.get('error_code');
+      const description = query.get('error_description') ?? fragment.get('error_description');
+      if (reason === 'signup_disabled' || description === 'beta_invitation_required') throw new AuthError('no_account');
+      throw oauthError(error);
+    }
     if (!pending || !code || !/^[A-Za-z0-9._~-]{8,4096}$/.test(code) || !clientState || clientState !== pending.state) throw new AuthError('oauth_invalid');
     let reply;
     try {
@@ -380,12 +385,13 @@ function decodeSession(body: Uint8Array, lifetime: string = crypto.randomUUID())
 
 function authFailure(status: number, body: Uint8Array, headers: Headers, verifying: boolean): AuthError {
   if (status >= 500) return new AuthError('connection');
-  const v = parse(body) as { code?: unknown; error_code?: unknown } | null;
+  const v = parse(body) as { code?: unknown; error_code?: unknown; msg?: unknown; message?: unknown } | null;
   const codes = [v?.code, v?.error_code].filter((c): c is string => typeof c === 'string');
   if (status === 429 || codes.some(c => ['over_email_send_rate_limit', 'over_request_rate_limit', 'over_send_rate_limit'].includes(c))) {
     const retry = headers.get('retry-after');
     return new AuthError('rate_limited', retry && /^[0-9]{1,5}$/.test(retry) ? Number(retry) : undefined);
   }
+  if (v?.msg === 'beta_invitation_required' || v?.message === 'beta_invitation_required') return new AuthError('no_account');
   if (codes.some(c => ['signup_disabled', 'otp_disabled', 'user_not_found'].includes(c))) return new AuthError(verifying ? 'invalid_code' : 'no_account');
   if (codes.includes('email_address_invalid')) return new AuthError('invalid_email');
   if (codes.some(c => ['provider_disabled', 'email_provider_disabled'].includes(c))) return new AuthError('configuration');

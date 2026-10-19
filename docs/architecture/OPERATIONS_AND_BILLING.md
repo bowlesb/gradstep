@@ -1,5 +1,14 @@
 # Infrastructure, spending, and recovery
 
+## October 19 account lifecycle and native library repair
+
+Auth admission configuration, migrations 091–093, admin/browser deployment, synthetic account lifecycle checks,
+local database/Simulator/browser tests and encrypted backup/restore use the existing infrastructure. New fixed
+commitments **$0**; paid model usage **$0**; new provider reservations **$0**; further paid verification forecast
+**$0**. The $100/month budget is unchanged. This does not reconcile or release earlier unresolved provider holds.
+Backup/restore evidence: `.artifacts/feedback/catalogs-20261019/`; final checkpoint
+`20261019T044047Z-2362347ee4c9`, 7,713,084 database bytes and 15 objects. No GPU training was started in this repair.
+
 ## Owner GPU subfigure training — 2026-10-18
 
 The owner authorized iterative training on the existing RTX 3090 at `192.168.1.32`. New provider API spend,

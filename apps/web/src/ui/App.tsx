@@ -705,7 +705,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <Dialog open={deletingAccount} onClose={() => { if (!deleteBusy) setDeletingAccount(false); }} title="Delete account" className="delete-account">
         <h2>Delete account</h2>
         <p>This permanently deletes your account:</p>
-        <p>During the private beta, you’ll need a new invitation to sign in again after deletion. It creates a new account; your deleted library and conversations won’t return.</p>
+        <p>Your beta invitation remains valid. Signing in again creates a new account; your deleted library, conversations and credits won’t return.</p>
         <ul className="delete-list">
           <li>Your library, conversations, notes and diagrams, and your private podcast episodes</li>
           <li>Your support reports and screenshots</li>

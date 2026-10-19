@@ -53,3 +53,12 @@ test('an OAuth callback without the matching browser state is rejected before an
   await expect(page.getByRole('alert')).toHaveText('That sign-in link has expired or was already used. Start again.');
   expect(new URL(page.url()).pathname).toBe('/');
 });
+
+test('a beta admission refusal is explained instead of treated as a silent cancellation', async ({ page }) => {
+  await page.goto('/auth/callback#error=access_denied&error_code=signup_disabled');
+  await expect(page.getByTestId('oauth-google')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('isn’t invited to the beta');
+  expect(new URL(page.url()).hash).toBe('');
+  await page.goto('/auth/callback#error=access_denied&error_description=beta_invitation_required');
+  await expect(page.getByRole('alert')).toContainText('isn’t invited to the beta');
+});

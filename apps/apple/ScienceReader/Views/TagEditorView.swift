@@ -54,6 +54,10 @@ struct TagEditorView: View {
         if PaperTags.contains(tags, text) { return }
         // Use the vocabulary's spelling when it is a vocabulary tag.
         let name = TagVocabulary.tag(named: text)?.name ?? text
+        if paper.sourceMembership != nil && tags.count >= PaperTags.maximumSourceTags {
+            issue = "A paper can have up to \(PaperTags.maximumSourceTags) keywords."
+            return
+        }
         if !PaperTags.contains(paper.catalogTags, name) && ownCount >= PaperTags.maximumOwnTags {
             issue = "A paper can have up to \(PaperTags.maximumOwnTags) tags of your own."
             return

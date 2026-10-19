@@ -15,7 +15,7 @@ import Testing
         #expect(table.requested(table.defaultChoice).id == "gemini-auto-standard")
         #expect(table.requested(.standard).id == "sonnet-auto-standard", "explicit Sonnet remains Sonnet")
         #expect(table.offeredModels.contains(.gemini))
-        #expect(ChatProfileChoice.Model.gemini.processor == "Google through OpenRouter")
+        #expect(ChatProfileChoice.Model.gemini.processor == "Google Vertex through OpenRouter")
         var models = try #require(json["models"] as? [[String: Any]])
         let index = try #require(models.firstIndex { ($0["id"] as? String) == "gemini" })
         models[index]["consent_version"] = "cloud-ai-v6"

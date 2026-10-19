@@ -23,13 +23,15 @@ const cases=[...[
  'ScienceReaderTests/AuthenticationModelTests/testRemoteDeletionRetiresVisibleAccountAndPreservesLocalFilesAndKeys',
  'ScienceReaderTests/ChatTransportTests/testRejectedChatSessionClearsAuthorityBeforeTheReaderCanTryAnotherCloudAction',
  'ScienceReaderUITests/AuthenticationWorkflowTests/testDeletedSessionAtLaunchReturnsToSignInAndStaysSignedOutAfterRestart',
+ 'ScienceReaderUITests/AuthenticationWorkflowTests/testAppleAndGoogleInvitationRefusalsStayVisibleAfterReturning',
+ 'ScienceReaderTests/LibraryTransportTests/testSourceKeywordEditSurvivesRestartAndUsesTheRealV5Transport',
 ];
 function fingerprint(){
  const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{encoding:'utf8'}).split('\0')
   .filter(p=>p&&(/^(supabase\/functions\/_shared\/reader\/|tests\/fixtures\/reader|apps\/apple\/ScienceReaderCore\/Sources\/|apps\/apple\/ScienceReader\/Resources\/arxiv-|apps\/apple\/ScienceReader\/Services\/(Arxiv|DevicePDF|PaperAdding|PDFUpload|Library|SourceMetadata)|apps\/apple\/ScienceReader\/Views\/(Library|Import|PaperTable)|apps\/apple\/ScienceReaderTests\/LibraryModelTests.swift)/.test(p)
    ||['apps/apple/ScienceReader/ReaderModel.swift','apps/apple/ScienceReader/Views/RootView.swift','apps/apple/project.yml','scripts/test-imports.mjs','scripts/build-arxiv-compiler.mjs','tests/corpus/import-regressions.json','package-lock.json'].includes(p)
    ||/^apps\/apple\/ScienceReader\/Services\/(BackendClient|AuthenticationBackend|AuthenticationCoordinator|AuthenticationWorkflowFixture)\.swift$/.test(p)
-   ||/^apps\/apple\/ScienceReader(?:UI)?Tests\/(AuthenticationBackendTests|AuthenticationModelTests|AuthenticationWorkflowTests|ChatTransportTests)\.swift$/.test(p)))
+   ||/^apps\/apple\/ScienceReader(?:UI)?Tests\/(AuthenticationBackendTests|AuthenticationModelTests|AuthenticationWorkflowTests|ChatTransportTests|LibraryServiceTests)\.swift$/.test(p)))
   .filter(p=>existsSync(p)&&statSync(p).isFile()).sort();
  const hash=createHash('sha256');
  hash.update(execFileSync('xcodebuild',['-version']));

@@ -4,6 +4,73 @@ Status, 2026-10-04: **native implementation, independent source reviews and five
 
 ## Private-beta return after account deletion
 
+### Durable admission correction — October 19, designed before migration 091
+
+The owner reproduced the lockout after deleting the October 17 replacement UUID at 04:17 UTC. Readback confirms
+`disable_signup=true` and no before-user-created hook. The previous one-time re-admission is not a lifecycle fix.
+
+Add `app_private.beta_admissions`, keyed by SHA-256 of the lowercased, trimmed exact email, with allowed/revoked
+state, timestamps, an authority account UUID and a bounded reason. Do not retain the address in this table or
+expose it to client roles. Hashes remain personal access-control metadata, not anonymous data. Invitations survive
+account deletion until the beta ends or an operator revokes them; deletion still erases private account data,
+credentials and provider identities. No membership/content/role/credit restoration or legacy-data migration.
+
+Seed only existing confirmed Auth addresses and verified linked identity addresses. An Auth BEFORE DELETE trigger
+retains those same verified addresses before identity cascades, preserving a prior revocation. The owner/admin
+admission path records permission before creating the login. Disabling sign-in also revokes future admission;
+re-enabling restores it. Never derive admission from editable user metadata, callback parameters or an unverified
+email. Linked provider addresses are admitted separately; this does not link or merge separate accounts.
+
+Admin command replays must derive admission from the returned **current** disabled state, not the historical
+request's boolean. Migration 093 corrects that wrapper after 091: replaying an old enable after a later disable
+cannot reopen admission, and an old disable cannot undo a later enable. Both orderings require SQL regressions.
+
+`public.hook_beta_before_user_created(jsonb)` executes only as `supabase_auth_admin`, returns success solely for
+an allowed exact-email hash and denies malformed/missing/unknown/revoked addresses. Clients cannot query the table,
+invoke the hook or grant admission. The existing service-role admin RPC checks the owner before granting. New
+users still undergo Supabase's provider verification/email confirmation. Auth creates a fresh account UUID with
+zero carried-over entitlements. No automatic invitation email or paid request.
+
+Rollout: test SQL ACLs/admission/deletion/revocation; encrypted backup; immutable migration 091; verify hook under
+the Auth role; enable the hook while signups remain blocked; confirm readback, then allow signup with that hook
+mandatory. Unknown signups must be rejected live. If verification fails, restore the global signup block before
+any further action. Exercise repeated synthetic deletion → self-creation → verified account RPC, not Admin
+`createUser` as a substitute for returning-user acceptance. Interactive Apple/Google completion is a separate
+acceptance boundary; do not claim the paused physical phone was tested.
+
+The pre-091 restore drill also exposed two existing recovery gaps: schema-filtered dumps omit `pg_trgm` in
+`extensions`, and four private tables lack the RLS flag required by the restore verifier. Install only that known
+extension in the disposable restore target. Add migration 092 enabling RLS on `arxiv_categories`, `arxiv_licenses`,
+`catalog_metadata_provenance` and `podcast_device_sources`; add no customer policies or grants. Existing security-
+definer/service-role paths retain access. This enforces the existing private-table boundary, not a data migration.
+
+Native Google must recognize bounded provider-error callbacks in the query or fragment after validating the
+exact destination, without accepting token fragments, ambiguous mixed code/error parameters or untrusted copy.
+The known invitation refusal becomes an actionable inline error; cancellation remains distinct. Old clients can
+benefit from server admission independently of a later native release.
+
+Verified rollout, October 19: migrations **091–093** are applied with matching hashes; the hook is enabled and
+email confirmation remains required. A live unknown public signup returns **403 `beta_invitation_required`**.
+`scripts/configure-beta-admission.py` waits for Auth configuration propagation only on the previous
+`signup_disabled` response; any other verification failure restores the global block. No public admission is enabled.
+The owner's prior verified sign-in address has durable admission, recovered from recorded Auth evidence, without
+creating a login or restoring their deleted account. No owner sign-in was impersonated.
+
+`scripts/smoke-beta-return.mjs` passes **two** actual account-delete → public `/signup` → code verification →
+authenticated `v1_key_state` cycles, each with a fresh UUID and rejected old token. Only initial fixture setup
+uses Admin `createUser`; returning-user creation does not. The final synthetic login is deleted. Signup may attempt
+SMTP to the fixture's reserved `.invalid` address; this does not test real mail delivery. Evidence:
+`.artifacts/auth-lifecycle/2026-10-19T04-30-38-750Z-beta-return.json`.
+
+The local SQL lifecycle/ACL/revocation tests pass; both stale admin replay orderings are covered. Native auth
+backend/coordinator/safety tests pass **45/45** under release optimization, Core callback checks pass **5/5**,
+and browser callback journeys pass **8/8** across desktop and phone. Browser Pages **e8aa027f** is deployed
+and its served assets verified (`1c3e3716` was the assets-only phase). Native release is pending at this checkpoint.
+Evidence: `.artifacts/feedback/catalogs-20261019/`. Actual Apple/Google provider completion and physical-phone
+acceptance remain unverified; the hosted test proves admission and account lifecycle, not those provider UIs.
+
+### Historical October 17 one-time repair (superseded by durable admission)
+
 2026-10-17 UTC: the owner deleted their account and OAuth then said they were not invited. Hosted evidence shows
 the account closed at 04:48:45 UTC and its Auth user removed. Apple and Google remain enabled, but
 `disable_signup` is true. Beta admission currently pre-creates a confirmed Auth login; it is not a separate durable

@@ -3,6 +3,7 @@ do $$ begin
  if not exists(select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
  if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
  if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
+ if not exists(select 1 from pg_roles where rolname='supabase_auth_admin') then create role supabase_auth_admin nologin; end if;
 end $$;
 create schema auth;
 create table auth.users(id uuid primary key);
@@ -10,6 +11,9 @@ create table auth.users(id uuid primary key);
 -- fixtures can keep inserting bare IDs.
 alter table auth.users add column email varchar(255), add column created_at timestamptz default now(),
  add column last_sign_in_at timestamptz, add column banned_until timestamptz, add column raw_app_meta_data jsonb;
+alter table auth.users add column email_confirmed_at timestamptz;
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,
+ provider text not null,identity_data jsonb not null);
 create function auth.uid() returns uuid language sql stable as $$
  select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
 $$;

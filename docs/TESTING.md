@@ -216,6 +216,14 @@ gate. Matching covered files reuse their evidence; changes outside those files d
 The shared `RootView.swift` is covered because it contains the Library view. Results and
 screenshots live under `.artifacts/import-acceptance/`. This does not certify a physical phone or an untested OS.
 
+October 19 expands this gate to **15 required checks**: both Apple/Google invitation refusals must remain visible
+after returning to the app, and a previously failed source-paper keyword edit must reopen and complete through
+the real native transport. The earlier 13-case gate missed that transport's absent `v5_set_source_details` entry.
+Hosted returning-user acceptance is now `node scripts/smoke-beta-return.mjs`: two deletion/public-self-creation
+cycles through the durable admission hook, verified login/account RPC and rejection of old tokens. It never
+re-admits the returning fixture through Admin `createUser`. It may attempt mail to a reserved `.invalid` address;
+it makes no paid AI calls and does not exercise interactive Apple/Google or the physical phone.
+
 The public papers' source responses are cached only on this development device, under `.artifacts/import-corpus/`.
 To populate a missing cache, run `node scripts/fetch-import-regressions.mjs --on-this-device`. Every response has a
 pinned byte count and SHA-256; changed source needs review rather than silently replacing a regression. No server

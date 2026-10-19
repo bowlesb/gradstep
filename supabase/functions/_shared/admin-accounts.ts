@@ -125,6 +125,7 @@ const DATABASE_ERRORS: Record<string, [number, string]> = {
   owner_cannot_be_disabled: [409, 'owner_cannot_be_disabled'], request_id_conflict: [409, 'request_id_conflict'], grant_id_conflict: [409, 'request_id_conflict'],
   invalid_email: [400, 'invalid_email'], invalid_reason: [400, 'invalid_reason'], invalid_grant: [400, 'invalid_credits'],
   invalid_tester: [400, 'invalid_credits'], invalid_sign_in_change: [400, 'invalid_request'],
+  account_disabled: [409, 'account_disabled'],
 };
 export function databaseError(error: { message: string }): PublicError {
   const known = DATABASE_ERRORS[error.message];
@@ -150,6 +151,8 @@ type Login = { account_id: string; closed: boolean } | null;
 async function addTester(service: AdminService, actor: string, request: Extract<AdminAction, { action: 'add_tester' }>) {
   const find = () => call<Login>(service, 'worker_admin_find_login', { p_email: request.email });
   let login = await find(), created = false;
+  if (login?.closed) throw new PublicError(409, 'account_closed');
+  await call(service, 'worker_admin_admit_email', { p_actor_id: actor, p_email: request.email });
   if (!login) {
     // No password and no invitation: the login exists with its email confirmed, and the tester
     // signs in with an email code (or Apple/Google with the same address).

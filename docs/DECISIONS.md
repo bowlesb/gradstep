@@ -2,6 +2,22 @@
 
 Last updated: 2026-10-19 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Returning beta testers and named catalogs (owner, October 19 UTC; implementation in progress)
+
+Account deletion must not revoke a tester's invitation. The October 17 manual re-admission repaired one login but
+left the cause intact; the owner reproduced it after another deletion on October 19. Separate durable beta
+admission from the deletable Auth user. Permit creation only through an exact-email allowlist enforced by the
+Auth before-user-created hook, retain explicit revocation, and preserve verified linked-provider addresses.
+Returning users get a new UUID with no restored content, roles, keys or credits. Never infer identity from
+TestFlight contact information. Configure and verify the deny-by-default hook before lifting the global signup
+block; this does not authorize public signup. See NATIVE_AUTHENTICATION.md for the rollout and retention contract.
+
+The owner also requests Library → top-right menu → Catalogs: rename the existing catalog, create/switch named
+catalogs, select a default, and delete with an explicit choice to delete its papers or move them to an existing
+or newly named catalog. Preserve the Library's layout and paper/chat identities. One catalog per paper; additions
+belong to the currently selected catalog. Catalog implementation follows the authentication repair and queued
+library-change investigation. No catalog schema or release is yet claimed.
+
 ## Existing Mathpix-replacement research collection (owner, October 18 local / October 19 UTC)
 
 The owner asks us to locate the PDF-saving service in the `mathpix` project and use its existing papers to improve

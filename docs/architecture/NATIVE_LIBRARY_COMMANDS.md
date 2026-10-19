@@ -1,5 +1,30 @@
 # Native durable library commands
 
+## October 19: source-paper keyword edits rejected before HTTP
+
+Feedback `AMZ1EYpp-g46Tu85tdnKziA` showed “Your change is saved on this device. Refresh to try sending it again.”
+The device-read paper editor queues `v5_set_source_details` (058), but `BackendClient.libraryCommand` omitted
+that endpoint from its allowlist and retained the older 2 KiB cap. Every refresh rejected the same valid request
+locally. Queue/model mocks bypassed this transport, so their passing tests did not establish delivery.
+
+Admit only that additional v5 endpoint, with the Core contract's 8 KiB bound; retain account, origin and dataset
+checks and all other endpoint/body limits. Never replace an existing operation or rebase its revision. The new
+`LibraryTransportTests.testSourceKeywordEditSurvivesRestartAndUsesTheRealV5Transport` reopens an encrypted failed
+edit, uses the actual BackendClient/URLSession boundary with both two and 32 keywords, verifies identical request bytes, persists
+the receipt and requires complete catch-up before clearing it. Before the fix it fails with `invalidMutation`.
+It is part of the required native release gate, not only the fake-transport coordinator suite.
+
+The full source list also had the older `maximumOwnTags` (12) bound in its native queue and decoder, despite
+migration 058 accepting 32 combined keywords. Both now use `maximumSourceTags` (32); legacy personal-tag writes
+retain their 12-tag bound. Character/byte/uniqueness checks remain. The editor prevents a source list exceeding
+32. Core checks cover a >2 KiB valid UTF-8 request/receipt and reject a 33rd keyword. The initial large-list
+transport fixture failed this earlier validation and did not establish the allowlist reproduction; the corrected
+small-list reproduction is recorded separately as `keywords-valid-reproduction.xcresult`.
+
+The ReaderModel's existing foreground minute scheduler retries unfinished commands. Transient messages now
+describe that automatic behavior instead of telling the reader to refresh. The coordinator itself still has no
+timer; account retirement, suspension, conflicts and dataset changes retain their explicit handling.
+
 Status, 2026-10-03: **Core encrypted queue and native integration implemented and verified with deterministic fixtures**. Twenty-one focused Core queue cases pass; the complete package passes 98 Swift Testing cases plus four XCTest cases. The signed native suite passes 114 cases with three live/device checks skipped, including eleven coordinator schedules, eight transport checks, eleven library-service schedules and five model journeys. Two existing search/navigation journeys also pass. New Add/Pending screens were captured and inspected on iPad. These are local storage and simulated-HTTP workflow checks; live populated native mutation/acquisition remains unverified. Migration 010 is applied and immutable; this change needs no server migration and does not enable acquisition or paid processing. It builds on [the library contract](DATA_MODEL.md#migration-010--applied-and-verified-in-staging) and [local encrypted storage](PRIVACY_AND_SYNC.md#local-encrypted-event-journal).
 
 Update 2026-10-07: item commands also include `setArchived` (migration 020) and `setTags` (migration 030, [Topic

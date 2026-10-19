@@ -236,6 +236,24 @@ final class AuthenticationWorkflowTests: XCTestCase {
         capture("Closing returns to the original offline sample")
     }
 
+    func testAppleAndGoogleInvitationRefusalsStayVisibleAfterReturning() {
+        let app = launch(["--authentication-invitation-refused"])
+        defer { app.terminate() }
+        openFromSettings(app)
+        for provider in ["apple", "google"] {
+            app.buttons["auth.\(provider)"].tap()
+            let issue = app.staticTexts["auth.issue"]
+            XCTAssertTrue(issue.waitForExistence(timeout: 5))
+            XCTAssertTrue(issue.label.contains("isn’t invited"), issue.label)
+            XCTAssertTrue(app.buttons["auth.apple"].isEnabled && app.buttons["auth.google"].isEnabled)
+            XCTAssertTrue(app.buttons["auth.emailMethod"].isHittable)
+            capture("\(provider) invitation refusal stays visible")
+        }
+        app.buttons["auth.close"].tap()
+        XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["account.signOut"].exists)
+    }
+
     func testProviderCancellationAndFailureReturnToMethodChoices() {
         let app = launch(["--authentication-apple-cancel", "--authentication-google-fail"])
         defer { app.terminate() }

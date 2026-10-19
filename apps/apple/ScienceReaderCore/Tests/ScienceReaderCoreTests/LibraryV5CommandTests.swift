@@ -76,6 +76,35 @@ import Testing
             #"{"p_observed_cursor":91,"p_operation_id":"\#(operation.wire)","p_requested_revision":3,"p_source_id":"2601.00001"}"#)
     }
 
+    @Test func sourceKeywordsUseTheServerFullListLimitAndRoundTripInReceipts() throws {
+        let scope = try LibraryCommandScope(accountID: UUID(), deploymentID: "https://v5-commands.supabase.co")
+        let importedID = UUID(), epoch = UUID()
+        let tags = (0..<32).map { String(format: "%02d ", $0) + String(repeating: "数", count: 35) }
+        let mutation = LibraryMutation.setSourceDetails(importID: importedID, archived: false, tags: tags, expectedRevision: 1)
+        let request = try mutation.request(operationID: UUID(), scope: scope, readContext: .uploadFull5(datasetEpoch: epoch))
+        #expect(request.body.count > 2_048 && request.body.count <= 8_192)
+        var row = imported(importedID, state: 8)
+        row["intent_revision"] = 2; row["user_tags"] = tags
+        let response = try LibraryWire.decodeCommand(json(["result": ["status": "applied", "kind": "import",
+            "id": importedID.wire, "seq": 8, "revision": 2], "entry": row, "replayed": false, "dataset_epoch": epoch.wire]))
+        guard case .import(let entry) = response.entry else { Issue.record("Expected source membership receipt"); return }
+        #expect(entry.userTags == tags)
+        let tooMany = tags + ["Extra"]
+        #expect(throws: LibraryCommandError.invalidMutation) {
+            try LibraryMutation.setSourceDetails(importID: importedID, archived: false, tags: tooMany, expectedRevision: 1)
+                .request(operationID: UUID(), scope: scope, readContext: .uploadFull5(datasetEpoch: epoch))
+        }
+        row["user_tags"] = tooMany
+        #expect(throws: LibraryProtocolError.invalidEntry) {
+            try LibraryWire.decodeCommand(json(["result": ["status": "applied", "kind": "import", "id": importedID.wire,
+                "seq": 8, "revision": 2], "entry": row, "replayed": false, "dataset_epoch": epoch.wire]))
+        }
+        #expect(throws: LibraryCommandError.invalidMutation) {
+            try LibraryMutation.setTags(documentID: UUID(), tags: tags, hiddenTags: [], expectedRevision: 1)
+                .request(operationID: UUID(), scope: scope)
+        }
+    }
+
     @Test func v5CommandFreezesItsEpochAndAcceptsOnlyAReceiptFromThatDataset() async throws {
         let f = try Fixture(); defer { try? FileManager.default.removeItem(at: f.directory) }
         let epoch = UUID(), context = LibraryReadContext.uploadFull5(datasetEpoch: epoch)

@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 public enum OAuthFlowError: Error, Equatable, Sendable {
-    case invalidConfiguration, invalidCallback, providerDenied
+    case invalidConfiguration, invalidCallback, providerDenied, invitationRequired
 }
 
 /// Per-attempt PKCE material, deliberately not Codable or persisted. The owner
@@ -51,10 +51,25 @@ public struct OAuthPKCEAttempt: Sendable {
               received.scheme?.lowercased() == expected.scheme?.lowercased(),
               received.host?.lowercased() == expected.host?.lowercased(),
               received.percentEncodedPath == expected.percentEncodedPath,
-              received.user == nil, received.password == nil, received.port == nil,
-              received.fragment == nil else { throw OAuthFlowError.invalidCallback }
-        let items = received.queryItems ?? []
+              received.user == nil, received.password == nil, received.port == nil else { throw OAuthFlowError.invalidCallback }
+        // Auth can return provider errors in a fragment even for a PKCE attempt. Only an error is
+        // accepted there: implicit tokens, mixed query/fragment credentials and codes remain invalid.
+        let items: [URLQueryItem]
+        if let fragment = received.percentEncodedFragment {
+            guard received.query == nil, let parts = URLComponents(string: "?" + fragment),
+                  parts.fragment == nil, let values = parts.queryItems, !values.isEmpty,
+                  values.allSatisfy({ ["error", "error_code", "error_description"].contains($0.name) }) else {
+                throw OAuthFlowError.invalidCallback
+            }
+            items = values
+        } else { items = received.queryItems ?? [] }
         if items.contains(where: { ["error", "error_code", "error_description"].contains($0.name) }) {
+            guard !items.contains(where: { ["code", "access_token", "refresh_token", "id_token"].contains($0.name) }),
+                  Set(items.map(\.name)).count == items.count else { throw OAuthFlowError.invalidCallback }
+            if items.contains(where: { $0.name == "error_code" && $0.value == "signup_disabled" }) ||
+                items.contains(where: { $0.name == "error_description" && $0.value == "beta_invitation_required" }) {
+                throw OAuthFlowError.invitationRequired
+            }
             throw OAuthFlowError.providerDenied
         }
         // Token-fragment/implicit callbacks must not accidentally become an

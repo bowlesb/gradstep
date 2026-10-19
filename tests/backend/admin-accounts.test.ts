@@ -31,6 +31,7 @@ function harness(options: Options = {}) {
       switch (name) {
         case 'worker_consume_request': return { data: null, error: null };
         case 'worker_admin_find_login': return { data: logins.get(params.p_email as string) ?? null, error: null };
+        case 'worker_admin_admit_email': return { data: null, error: null };
         case 'worker_admin_add_tester': return { data: { account_id: params.p_account_id, status: 'active', starting_credits: params.p_credits, starting_granted: (params.p_credits as number) > 0 }, error: null };
         case 'worker_admin_grant_credits': return { data: { bucket_id: 'b1', credits: params.p_credits, replayed: false }, error: null };
         case 'worker_admin_set_sign_in': return { data: { auth_user_id: params.p_account_id, disabled: params.p_disabled, replayed: false }, error: null };
@@ -74,6 +75,13 @@ async function send(h: ReturnType<typeof harness>, body: unknown, init?: Paramet
 }
 const grant = (extra: Record<string, unknown> = {}) => ({ action: 'grant_credits', request_id: REQUEST, account_id: TESTER, credits: 300, reason: 'Beta top-up', ...extra });
 const signIn = (extra: Record<string, unknown> = {}) => ({ action: 'set_sign_in', request_id: REQUEST, account_id: TESTER, disabled: true, reason: 'Left the beta', ...extra });
+
+test('admission failure stops before creating or funding a login', async () => {
+  const h = harness({ rpcErrors: { worker_admin_admit_email: 'account_disabled' } });
+  const r = await send(h, { action: 'add_tester', email: 'blocked@example.org', credits: 100 });
+  assert.equal(r.status, 409); assert.equal(r.json.code, 'account_disabled');
+  assert.equal(h.calls.some(c => c.name === 'createUser' || c.name === 'worker_admin_add_tester'), false);
+});
 
 test('emails: trimmed, lowercased ASCII addresses only', () => {
   assert.equal(normalizeEmail('  Alice.Chen+beta@Example.ORG '), 'alice.chen+beta@example.org');
@@ -163,7 +171,7 @@ test('add tester: a confirmed login without a password, then the audited startin
   const create = h.calls.find(c => c.name === 'createUser')!;
   assert.deepEqual(create.params, { email: 'new.tester@example.org', email_confirm: true }, 'no password, no invitation email');
   assert.deepEqual(h.calls.filter(c => c.who !== 'user').map(c => c.name),
-    ['worker_consume_request', 'worker_admin_find_login', 'createUser', 'worker_admin_find_login', 'worker_admin_add_tester']);
+    ['worker_consume_request', 'worker_admin_find_login', 'worker_admin_admit_email', 'createUser', 'worker_admin_find_login', 'worker_admin_add_tester']);
   assert.deepEqual(h.calls.at(-1)!.params, { p_actor_id: OWNER, p_account_id: TESTER, p_created: true, p_credits: 1000 });
 });
 

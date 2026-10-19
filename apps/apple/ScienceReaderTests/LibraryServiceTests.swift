@@ -621,6 +621,67 @@ final class LibraryTransportTests: XCTestCase {
         XCTAssertEqual(frozen["p_operation_id"] as? String, id.wire)
     }
 
+    func testSourceKeywordEditSurvivesRestartAndUsesTheRealV5Transport() async throws {
+        try await checkSourceKeywordEdit(tags: ["Numerical methods", "Graph neural networks"])
+        // Source membership stores the complete keyword list, not only the 12 personal tags.
+        try await checkSourceKeywordEdit(tags: (0..<32).map { String(format: "%02d ", $0) + String(repeating: "数", count: 35) })
+    }
+
+    private func checkSourceKeywordEdit(tags: [String]) async throws {
+        let account = UUID(), imported = UUID(), epoch = UUID(), f = LibraryFixture(accountID: account)
+        let server = LibraryHTTPServer(account: account)
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().wire)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("queue.sqlite"), key = ReaderCrypto.randomKey()
+        let keys = KeyBundle.generate(accountID: account)
+        let store = try EncryptedStore(url: url, accountID: account, localKey: key, keys: keys)
+        let scope = try LibraryCommandScope(accountID: account, deploymentID: "https://\(host)")
+        let context = LibraryReadContext.uploadFull5(datasetEpoch: epoch)
+        func observation(_ rows: [[String: Any]], cursor: Int64) throws -> LibraryCompleteObservation {
+            var reconciler = LibraryReconciler(accountID: account, readContext: context)
+            let next: Any = rows.last.map { ["format": 2, "account_id": account.wire, "through": cursor,
+                "created_seq": $0["created_seq"]!, "id": $0["id"]!, "kind": $0["kind"]!,
+                "read_level": 4, "dataset_epoch": epoch.wire] as [String: Any] } ?? NSNull()
+            try reconciler.accept(LibraryWire.decodeBaseline(f.bytes(["format": 2, "account_id": account.wire,
+                "baseline_cursor": cursor, "retained_after": 0, "entries": rows, "next_cursor": next,
+                "has_more": false, "dataset_epoch": epoch.wire])), for: reconciler.nextRequest())
+            try reconciler.accept(LibraryWire.decodeChanges(f.bytes(["format": 2, "account_id": account.wire,
+                "through": cursor, "retained_after": 0, "changes": [], "next_cursor": cursor,
+                "has_more": false, "dataset_epoch": epoch.wire])), for: reconciler.nextRequest())
+            return try reconciler.completeObservation()
+        }
+        try await store.saveLibraryPresentation(observation([f.row(imported, created: 7)], cursor: 7), scope: scope)
+        let handle = try await store.enqueueLibraryCommand(scope: scope,
+            mutation: .setSourceDetails(importID: imported, archived: false, tags: tags, expectedRevision: 1),
+            readContext: context)
+        let original = try await store.beginLibraryAttempt(handle, scope: scope, readContext: context)
+        _ = try await store.recordLibraryFailure(.invalidResponse, for: original)
+        let reopened = try EncryptedStore(url: url, accountID: account, localKey: key, keys: keys)
+        let retry = try await reopened.beginLibraryAttempt(handle, scope: scope, readContext: context)
+        XCTAssertEqual(retry.request, original.request, "An already queued edit keeps its operation and bytes")
+        if tags.count == 32 { XCTAssertGreaterThan(retry.request.body.count, 2_048) }
+        var entry = f.row(imported, created: 7, state: 8)
+        entry["intent_revision"] = 2; entry["user_tags"] = tags; entry["archived"] = false
+        server.append([.init(data: f.bytes(["result": ["status": "applied", "kind": "import", "id": imported.wire,
+            "seq": 8, "revision": 2], "replayed": false, "entry": entry, "dataset_epoch": epoch.wire]))])
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        let delivery = try await client.libraryCommand(retry)
+        let accepted = try await reopened.recordLibraryReceipt(delivery.response, for: retry)
+        XCTAssertEqual(accepted.commands.first?.phase, .receiptAwaitingCatchup)
+        let request = try XCTUnwrap(server.requests().first)
+        XCTAssertEqual(server.requests().count, 1)
+        XCTAssertEqual(request.url?.path, "/rest/v1/rpc/v5_set_source_details")
+        XCTAssertEqual(bodyData(request), original.request.body)
+        XCTAssertEqual(try body(request)["p_dataset_epoch"] as? String, epoch.wire)
+        XCTAssertEqual(try body(request)["p_tags"] as? [String], tags)
+        let receipt = try XCTUnwrap(accepted.commands.first?.receipt)
+        let finished = try await reopened.reconcileLibraryCommands([.init(handle: handle, receiptID: receipt.id)],
+            observation: observation([entry], cursor: 8), scope: scope)
+        XCTAssertEqual(finished.commands.first?.phase, .finished, "Only confirmed catch-up clears the pending edit")
+    }
+
     func testCommandErrorsRequireExactWhitelistedSQLAndHTTPStatus() async throws {
         let account = UUID(), f = LibraryFixture(accountID: account)
         let cases: [(LibraryHTTPServer.Reply, String)] = [
@@ -647,8 +708,9 @@ final class LibraryTransportTests: XCTestCase {
             catch BackendError.throttled { XCTAssertEqual("throttled", expected) }
         }
         do { _ = try await client.libraryCommand(attempt); XCTFail("Expired auth must pause") }
-        catch BackendError.signInRequired { }
+        catch AuthenticationError.sessionExpired { }
         XCTAssertEqual(server.requests().count, cases.count + 1)
+        let current = await client.currentUser(); XCTAssertNil(current)
     }
 
     func testCommandScopeFencesNetworkAndLateSuccessBelongsToOldAuthGeneration() async throws {

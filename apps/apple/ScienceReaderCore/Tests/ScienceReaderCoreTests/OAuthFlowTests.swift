@@ -49,6 +49,27 @@ final class OAuthFlowTests: XCTestCase {
         XCTAssertEqual(apple.hashed.utf8.count, 64)
     }
 
+    func testDeletedAccountInvitationRefusalIsRecognizedWithoutAcceptingFragmentCredentials() throws {
+        let attempt = try OAuthPKCEAttempt(callbackURL: callback)
+        for suffix in ["?error=access_denied&error_code=signup_disabled",
+                       "#error=access_denied&error_code=signup_disabled&error_description=Signups+not+allowed",
+                       "#error=access_denied&error_description=beta_invitation_required"] {
+            XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: callback.absoluteString + suffix)!)) {
+                XCTAssertEqual($0 as? OAuthFlowError, .invitationRequired)
+            }
+        }
+        for suffix in ["?code=abc#error=access_denied&error_code=signup_disabled",
+                       "#access_token=secret&error_code=signup_disabled", "#code=abc",
+                       "?code=abc&error_code=signup_disabled", "?error_code=signup_disabled&error_code=other"] {
+            XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: callback.absoluteString + suffix)!)) {
+                XCTAssertEqual($0 as? OAuthFlowError, .invalidCallback)
+            }
+        }
+        XCTAssertThrowsError(try attempt.authorizationCode(from: URL(string: "evil://auth#Error=access_denied&error_code=signup_disabled")!)) {
+            XCTAssertEqual($0 as? OAuthFlowError, .invalidCallback)
+        }
+    }
+
     func testOnlyConfiguredSecureAuthorizationOriginIsAccepted() throws {
         let attempt = try OAuthPKCEAttempt(callbackURL: callback)
         for value in ["http://fixture.supabase.co", "https://user@fixture.supabase.co", "https://fixture.supabase.co/extra", "https://fixture.supabase.co?override=true"] {

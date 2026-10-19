@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import ScienceReaderCore
 @testable import ScienceReader
 
 /// Held operations intentionally ignore task cancellation so that these tests
@@ -119,6 +120,26 @@ private final class AuthenticationOwnerFixture {
 
 @MainActor
 final class AuthenticationCoordinatorTests: XCTestCase {
+    func testProviderRefusalReturnsToVisibleChoicesWithAnIssueAndCanRetry() async throws {
+        for method in [AuthenticationCoordinator.Method.google, .apple] {
+            let fixture = AuthenticationOwnerFixture(); defer { fixture.close() }
+            fixture.backend.holdExchanges = true
+            fixture.coordinator.open(readerSessionID: UUID())
+            if method == .google { fixture.coordinator.startGoogle(presenter: AuthenticationOwnerPresenter()) }
+            else { fixture.coordinator.startApple(presenter: AuthenticationOwnerPresenter()) }
+            await eventually("provider exchange started") { fixture.backend.begins.last.map { fixture.backend.hasExchange($0.1) } ?? false }
+            let id = try XCTUnwrap(fixture.backend.begins.last?.1)
+            let refusal: any Error = method == .google ? OAuthFlowError.invitationRequired : AuthenticationError.noAccount
+            fixture.backend.releaseExchange(id, result: .failure(refusal))
+            await eventually("invitation refusal is visible") { fixture.coordinator.phase == .choices(.noAccount) }
+            XCTAssertTrue(fixture.accepted.isEmpty)
+            fixture.backend.holdExchanges = false
+            if method == .google { fixture.coordinator.startGoogle(presenter: AuthenticationOwnerPresenter()) }
+            else { fixture.coordinator.startApple(presenter: AuthenticationOwnerPresenter()) }
+            await eventually("fresh attempt accepted after admission") { fixture.accepted.count == 1 }
+        }
+    }
+
     private func eventually(_ description: String,
                             file: StaticString = #filePath, line: UInt = #line,
                             _ predicate: @MainActor () -> Bool) async {

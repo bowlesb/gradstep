@@ -576,7 +576,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
             guard versionID != nil, sourceRevision != nil, metadata != nil, metadataRecordedAt != nil,
                   requestedRevision == nil || requestedRevision == sourceRevision else { throw LibraryProtocolError.invalidEntry }
         }
-        guard userTags.map({ PaperTags.isValid($0, limit: PaperTags.maximumOwnTags) }) ?? true else { throw LibraryProtocolError.invalidEntry }
+        guard userTags.map({ PaperTags.isValid($0, limit: PaperTags.maximumSourceTags) }) ?? true else { throw LibraryProtocolError.invalidEntry }
         try metadata?.validate()
     }
     var omitsTombstoneSource: Bool { !visible && source == nil && sourceID == nil }

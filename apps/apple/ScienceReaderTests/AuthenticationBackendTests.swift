@@ -388,6 +388,14 @@ final class AuthenticationBackendTests: XCTestCase {
         await error(.configuration) { _ = try await fixture.client.sendEmailCode(id: disabled.id) }
     }
 
+    func testAppleAdmissionHookRefusalHasAnActionableCategory() async throws {
+        let fixture = try AuthenticationFixture([
+            .ok(Data(#"{"code":403,"error_code":"hook_error","msg":"beta_invitation_required"}"#.utf8), status: 403)])
+        defer { fixture.close() }
+        let request = try await fixture.client.beginAppleSignIn()
+        await error(.noAccount) { _ = try await fixture.client.finishAppleSignIn(id: request.id, identityToken: "fixture.identity.token") }
+    }
+
     func testReplacementCancelsTheOldSendAndCannotVerifyOrCancelNewAuthority() async throws {
         let account = UUID(), fixture = try AuthenticationFixture([.hold, .ok(), .ok(AuthenticationFixture.session())])
         defer { fixture.close() }
