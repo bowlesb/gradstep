@@ -28,20 +28,28 @@ bounds/receipt checks pass **4/4**. The full Core run passes all behavior checks
 label expectation; correcting that test to the already shipped “Google Vertex through OpenRouter” passes the
 affected **12/12** profile cases. The
 required native gate now includes that path and visible Apple/Google refusal handling (**15 cases**). `npm test`
-passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs are now merged into main;
-no catalog feature is released yet.
+passes. Evidence is under `.artifacts/feedback/catalogs-20261019/`. Named catalogs are now available in the browser
+and iPhone/iPad/Mac build 75, which also includes these access and queued-edit repairs.
 
-## Named Library catalogs — October 19 UTC (implementation, not yet released)
+## Named Library catalogs — October 19 UTC (browser and TestFlight 75 live)
 
 Native and browser Catalogs offer create, rename, switch, default selection and explicit deletion dispositions:
 move to another catalog, move to a named new catalog, or remove the papers through existing library commands.
 New arXiv and local-PDF additions capture the selected catalog; existing paper/chat identities remain intact.
 Catalog metadata uses existing encrypted notes, without a new backend schema. Seven Core and seven browser
-projection cases pass. Eleven native model/PDF cases pass (one optional corpus check skipped); the iPhone catalog
-screen journey passes, as do all six desktop/phone browser journeys. The mandatory import gate passes 15/15,
-none skipped, including the real-paper corpus, at 05:39 UTC. Screenshot review found a singular-count copy issue,
-now corrected; release acceptance is being refreshed for that final source. An additional iPad journey is pending.
-No paid model calls.
+projection cases pass. Eleven native model/PDF cases pass (one optional corpus check skipped); iPhone and iPad
+catalog screen journeys pass, as do all six desktop/phone browser journeys. The final mandatory import gate
+passes 15/15, none skipped, including the real-paper corpus, at **05:49:03 UTC**. `npm test` passes; native and
+browser screenshots were reviewed. The iPad's first attempt never started an app test: its CoreSimulator launch
+stalled; the stack/log are retained, and the restarted Simulator completed the flow. The earlier numeric-receipt
+fixture crash is fixed and verified by both screen journeys.
+
+Browser Pages **3f363fda** is deployed from **0344e4d**, with live entry assets and app association verified.
+iPhone/iPad **75** uploaded at **05:56:04 UTC** and is **VALID / IN_BETA_TESTING**, with release notes verified.
+Mac 75 uploaded at **06:04:04 UTC** and is also **VALID / IN_BETA_TESTING**, with release notes verified.
+Both platform states were read back at **06:07:35 UTC**. Evidence and exact counts are in
+`catalog-release-verification.json`; archive hashes and acceptance identity are in `release-75-provenance.json`.
+No physical iPhone or paid model call was used.
 
 ## Owner GPU subfigure training — updated 2026-10-19 UTC (research; not released)
 

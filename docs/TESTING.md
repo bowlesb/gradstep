@@ -1,5 +1,22 @@
 # Fast and slow tests
 
+## Named catalogs and repeated account return — October 19 UTC
+
+Catalog verification covers causal encrypted-note reduction (seven Core and seven browser cases), eleven native
+model/PDF cases, iPhone/iPad screen journeys and six desktop/phone browser journeys. It checks relaunch, selection
+at import start, existing/new deletion destinations, actual record removal, refusal/replay, and a new paper added
+after deletion was confirmed. Saved membership and pending intent can share a logical paper key; deletion must
+handle both records. The first native UI attempt exposed the fixture's missing JSON `fragmentsAllowed` for numeric
+RPC receipts; the corrected fixture passes both device layouts. A separate iPad startup stall happened before any
+app test ran; its CoreSimulator stack/log are retained, and restarting the Simulator completes the same journey.
+
+The release-optimized import gate passes **15/15, zero skips**, at **2026-10-19T05:49:03.355Z**, including real-paper
+imports, stale/deleted-session retirement, visible Apple/Google invitation refusals and persisted source-keyword
+edits through the real native transport. Hosted auth separately passes two synthetic delete → self-create →
+verified-login cycles. Interactive Apple/Google provider acceptance on a physical phone remains unverified.
+Evidence: `.artifacts/feedback/catalogs-20261019/`, including `catalog-release-verification.json` and the failed
+attempts. No paid model call or physical-phone access was needed.
+
 ## Later October 18 navigation and column acceptance
 
 Tests separately cover heading and citation jumps with Reduce Motion disabled, including immediate position and

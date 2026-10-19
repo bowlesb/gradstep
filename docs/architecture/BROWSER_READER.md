@@ -1,5 +1,16 @@
 # Browser reader
 
+## Named catalogs and account-return errors — October 19 UTC
+
+Pages **3f363fda**, source **0344e4d**, is deployed with served assets and app association verified. Library's
+top-right **Catalogs** control supports rename/create/switch/default, and deletion with a choice to move papers
+to an existing/new catalog or remove them through the normal library commands. New additions capture the selected
+catalog; moving preserves paper/chat identity. Names and associations use existing encrypted note events, with
+no server schema change. Seven browser unit cases and six desktop/phone journeys pass; screenshot review is
+recorded in `.artifacts/feedback/catalogs-20261019/`. See [catalogs](LIBRARY_CATALOGS.md) for persistence and
+deletion limits. This includes the earlier OAuth refusal repair: invitation denial is visible rather than treated
+as cancellation. Actual interactive provider acceptance is not established by the fixture journeys.
+
 ## Build 70 feedback parity (2026-10-18; deployed, Pages 13724098)
 
 The shared reader bridge now owns Find highlights/matches for both apps and browser; the browser toolbar adds

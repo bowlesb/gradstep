@@ -17,8 +17,10 @@ catalogs, select a default, and delete with an explicit choice to delete its pap
 or newly named catalog. Preserve the Library's layout and paper/chat identities. One catalog per paper; additions
 belong to the currently selected catalog. Catalogs are merged into main after the authentication and queued-change
 repairs, using bounded metadata in existing encrypted note events. No new schema is required. Core/native data
-checks, the iPhone catalog journey, six browser journeys and the 15-case import gate pass; final release checks
-and publication are pending. See [named catalogs](architecture/LIBRARY_CATALOGS.md).
+checks, iPhone/iPad catalog journeys, six browser journeys and the 15-case import gate pass. Browser Pages
+`3f363fda` is deployed with live assets verified; iPhone/iPad and Mac TestFlight 75 are VALID / IN_BETA_TESTING
+with release notes verified. Both archives use the same tested `0344e4d` source.
+See [named catalogs](architecture/LIBRARY_CATALOGS.md).
 
 ## Existing Mathpix-replacement research collection (owner, October 18 local / October 19 UTC)
 

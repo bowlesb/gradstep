@@ -1,6 +1,7 @@
 # Named library catalogs
 
-Designed October 19 before implementation. Native and browser implementation is under verification; not yet released. Owner request: Library's top-right menu contains **Catalogs**;
+Designed October 19 before implementation. Browser Pages `3f363fda` and iPhone/iPad/Mac TestFlight 75 are available.
+Owner request: Library's top-right menu contains **Catalogs**;
 rename the existing catalog, create, switch, choose a default, and delete with a choice to delete its papers or
 move them to an existing/new named catalog. Keep the current Library arrangement, paper identities and chats.
 
@@ -80,10 +81,12 @@ The native and browser implementations share the encrypted note schema and causa
 seven browser unit cases cover projection and key replacement. The native model/PDF checks pass 11 cases,
 including actual encrypted-store reopening, import assignment, the same durable removal request after failure,
 and keeping a paper added after confirmation. One real-PDF corpus case is opt-in and is covered separately by
-the mandatory import gate. The iPhone screen journey and six desktop/phone browser journeys pass, including
-selected-catalog additions and individual paper moves. The 15-case mandatory gate passes with no skips at
-05:39 UTC. Final release acceptance is being refreshed after a singular-count copy correction found during
-screenshot review. An additional iPad journey is pending.
+the mandatory import gate. iPhone/iPad screen journeys and six desktop/phone browser journeys pass, including
+selected-catalog additions and individual paper moves. The final 15-case mandatory gate passes with no skips
+at 05:49:03 UTC. Native/browser screenshots were reviewed, and `npm test` passes. The first iPad attempt stalled
+before the app test runner launched; its stack/log remain beside the successful restarted run. Browser Pages
+`3f363fda` is deployed with live assets verified. iPhone/iPad and Mac TestFlight 75 are VALID / IN_BETA_TESTING
+with release notes verified (both platform states read back at 06:07:35 UTC), from the same `0344e4d` source.
 
 The deletion regression exposed a saved membership and pending source intent sharing one paper key. Removal
 must plan both physical records, skipping the second only if a grouped server transition already hid it. Logical

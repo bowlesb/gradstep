@@ -4,8 +4,10 @@
 
 The repeated delete → Apple/Google return failure has a deployed lifecycle repair, not another one-time Auth-user
 recreation. Durable beta admission survives deletion; unknown addresses remain denied. Two real hosted synthetic
-delete/public-signup/verify/RPC cycles pass. Browser refusal copy is live in Pages **e8aa027f**. Native callback
-handling is tested in code and the Simulator. iOS/iPadOS TestFlight 74 is VALID / IN_BETA_TESTING; Mac 74 is also VALID / IN_BETA_TESTING with release notes verified. Interactive provider UI acceptance remains unverified. See NATIVE_AUTHENTICATION.md.
+delete/public-signup/verify/RPC cycles pass. Browser refusal copy first shipped in Pages **e8aa027f** and remains
+in **3f363fda**. Native callback handling is tested in code and the Simulator. The repair shipped in iPhone/iPad
+and Mac TestFlight 74 and remains in **75**, now VALID / IN_BETA_TESTING on both platforms with notes verified.
+Interactive provider UI acceptance remains unverified. See NATIVE_AUTHENTICATION.md.
 
 Five later screenshots are retained under `.artifacts/feedback/catalogs-20261019/`:
 
@@ -17,7 +19,10 @@ Five later screenshots are retained under `.artifacts/feedback/catalogs-20261019
 | `AHYZJO6d0-mkFRFYd-j1H_4` | Back to chat returns to the wrong place; downloaded, investigation remains open. |
 | `AL-V0yuPVLvTrmalbO5c9yQ` | Double-tap figure zoom; downloaded, not yet addressed. |
 
-The separately requested named-catalog management is recorded in DECISIONS.md and follows the urgent access fix.
+The separately requested named-catalog management is available in iPhone/iPad/Mac TestFlight **75** and browser
+Pages **3f363fda**. Library → top-right menu → Catalogs supports rename/create/switch/default and deletion with
+existing/new destination or paper removal. Core/native data checks, iPhone/iPad screen journeys, six browser
+journeys and the 15-case import gate pass. See LIBRARY_CATALOGS.md. The four screenshot items above remain open.
 
 ## Further screenshot feedback — 2026-10-18, 20:45–20:56 UTC (TestFlight 73 and browser deployed)
 
