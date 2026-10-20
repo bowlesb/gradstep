@@ -5,6 +5,71 @@ import UIKit
 final class WorkflowJourneyTests: XCTestCase {
     private let sampleID = "paper.aaaaaaaa-0000-0000-0000-000000000001"
 
+    func testChatScrollAuditAtRest() throws { try chatScrollAudit(streaming: false) }
+    func testChatScrollAuditWhileStreaming() throws { try chatScrollAudit(streaming: true) }
+    func testChatScrollAuditWithinGrowingAnswer() throws { try chatScrollAudit(streaming: true, growingRow: true) }
+    func testChatScrollAuditDetectsLegacyJitter() throws { try chatScrollAudit(streaming: false, legacy: true) }
+
+    private func chatScrollAudit(streaming: Bool, legacy: Bool = false, growingRow: Bool = false) throws {
+        XCUIDevice.shared.portraitWhereSupported()
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture",
+                               "--chat-scroll-audit=\(streaming ? "stream" : "static")"]
+        if legacy { app.launchArguments.append("--chat-scroll-audit-legacy-rows") }
+        if growingRow { app.launchArguments.append("--chat-scroll-audit-growing-row") }
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
+        app.show("chat")
+        let transcript = app.tables["chat.transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 10))
+        if streaming {
+            let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+            input.tap(); input.typeText("Continue with more detail")
+            if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+            app.buttons["chat.send"].tap()
+            XCTAssertTrue(app.buttons["chat.stop"].waitForExistence(timeout: 5))
+            if growingRow {
+                let answer = transcript.descendants(matching: .any).matching(NSPredicate(format:
+                    "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", "Growing answer")).firstMatch
+                XCTAssertTrue(answer.waitForExistence(timeout: 15))
+            } else {
+                // Read completed messages while the answer continues below the viewport.
+                transcript.swipeDown(velocity: .fast)
+                transcript.swipeDown(velocity: .fast)
+            }
+        }
+        // Real touch drags in both directions, crossing tall self-sizing rows.
+        let frame = transcript.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        for direction in [1.0, 1.0, 1.0, -1.0, -1.0, 1.0] {
+            let a = origin.withOffset(CGVector(dx: frame.minX + frame.width * 0.55, dy: frame.minY + frame.height * (direction > 0 ? 0.25 : 0.7)))
+            let b = origin.withOffset(CGVector(dx: frame.minX + frame.width * 0.55, dy: frame.minY + frame.height * (direction > 0 ? 0.7 : 0.25)))
+            a.press(forDuration: 0.05, thenDragTo: b, withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        for _ in 0..<3 { transcript.swipeDown(velocity: .fast); transcript.swipeUp(velocity: .fast) }
+        capture(app, streaming ? "Streaming scroll audit" : "Completed scroll audit")
+        let metrics = try XCTUnwrap(transcript.value as? String).data(using: .utf8).map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let audit = try XCTUnwrap(metrics ?? nil)
+        XCTAssertGreaterThan(try XCTUnwrap(audit["dragFrames"] as? Int), 150, "The check must sample actual dragging")
+        XCTAssertGreaterThan(try XCTUnwrap(audit["trackingSamples"] as? Int), 150)
+        if legacy {
+            XCTAssertGreaterThan(try XCTUnwrap(audit["maxStableHeightChange"] as? Double), 10,
+                                 "The negative control must detect the original height feedback: \(audit)")
+            XCTAssertGreaterThan(try XCTUnwrap(audit["maxTrackingError"] as? Double), 10,
+                                 "The negative control must detect text losing the finger: \(audit)")
+            return
+        }
+        XCTAssertEqual(audit["reverseJumps"] as? Int, 0, "Text moved against the finger: \(audit)")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(audit["maxTrackingError"] as? Double), 3,
+                                "Text lost the finger during a drag: \(audit)")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(audit["maxStableHeightChange"] as? Double), 1,
+                                "An unchanged message resized while scrolling: \(audit)")
+        XCTAssertGreaterThan(try XCTUnwrap(audit["idleReadSamples"] as? Int), 30)
+        if growingRow { XCTAssertGreaterThan(try XCTUnwrap(audit["growingIdleReadSamples"] as? Int), 30) }
+        XCTAssertLessThanOrEqual(try XCTUnwrap(audit["maxIdleShift"] as? Double), 3,
+                                "The passage moved after the reader stopped scrolling: \(audit)")
+    }
+
     private func launch(additionalArguments: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
@@ -1037,7 +1102,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         assertFinalReplyAtBottom(app)
         input.tap(); input.typeText("First line")
-        XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
+        XCTAssertTrue(chatKeyboardDismissButton(in: app).waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep a usable reading area above the keyboard")
         assertFinalReplyAtBottom(app)
         let singleLineHeight = input.frame.height
@@ -1047,8 +1112,14 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep a usable reading area above the growing composer")
         assertFinalReplyAtBottom(app)
         capture(app, "Latest reply remains visible above multiline composer")
-        app.buttons["chat.dismissKeyboard"].tap()
+        chatKeyboardDismissButton(in: app).tap()
         assertFinalReplyAtBottom(app)
+    }
+
+    private func chatKeyboardDismissButton(in app: XCUIApplication) -> XCUIElement {
+        // The composer has its own dismiss control on iPhone; iPad keeps the keyboard's system key.
+        UIDevice.current.userInterfaceIdiom == .pad
+            ? app.keyboards.buttons["Hide keyboard"].firstMatch : app.buttons["chat.dismissKeyboard"]
     }
 
     func testChatPreservesScrollbackThroughKeyboardAndComposerResize() throws {
@@ -1141,13 +1212,13 @@ final class WorkflowJourneyTests: XCTestCase {
         let readingOffset = olderReply.frame.minY - transcript.frame.minY
         XCTAssertTrue(app.buttons["chat.latest"].isHittable, "Reader deliberately left the latest message")
         input.tap(); input.typeText("A draft while reading")
-        XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
+        XCTAssertTrue(chatKeyboardDismissButton(in: app).waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep the older passage readable while composing")
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
         input.typeText("\nSecond line\nThird line")
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
         capture(app, "Earlier passage stays put while composing")
-        app.buttons["chat.dismissKeyboard"].tap()
+        chatKeyboardDismissButton(in: app).tap()
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
         app.buttons["chat.latest"].tap()
         assertFinalReplyAtBottom(app)
@@ -1162,10 +1233,10 @@ final class WorkflowJourneyTests: XCTestCase {
         }
         assertFinalReplyAtBottom(app)
         input.tap()
-        XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
+        XCTAssertTrue(chatKeyboardDismissButton(in: app).waitForExistence(timeout: 5))
         assertFinalReplyAtBottom(app)
         capture(app, "Natural return to latest resumes keyboard following")
-        app.buttons["chat.dismissKeyboard"].tap()
+        chatKeyboardDismissButton(in: app).tap()
         assertFinalReplyAtBottom(app)
     }
 

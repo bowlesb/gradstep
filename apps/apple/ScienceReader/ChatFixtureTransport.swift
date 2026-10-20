@@ -190,9 +190,15 @@ struct ChatFixtureTransport: ChatTransport {
                         try await Task.sleep(for: .milliseconds(300))
                         // A numbered (device-prepared) paper gets a cited answer, as the live server writes one.
                         let cited = request.localContext != nil
-                        let text = mode == .research ? Self.research : mode == .sources ? Self.answer + Self.sources : cited ? Self.citedAnswer : Self.answer
+                        let scrollAudit = ProcessInfo.processInfo.arguments.contains("--chat-scroll-audit=stream")
+                        if scrollAudit, ProcessInfo.processInfo.arguments.contains("--chat-scroll-audit-growing-row") {
+                            // Start with enough of the current answer to read above its still-growing tail.
+                            continuation.yield(.delta("## Growing answer\n\n" + String(repeating: Self.answer + "\n\n", count: 8)))
+                        }
+                        let text = scrollAudit ? String(repeating: Self.answer + "\n\n", count: 20)
+                            : mode == .research ? Self.research : mode == .sources ? Self.answer + Self.sources : cited ? Self.citedAnswer : Self.answer
                         let pieces = Self.pieces(of: text, size: 14)
-                        let delay: Duration = mode == .slow ? .milliseconds(250) : .milliseconds(30)
+                        let delay: Duration = scrollAudit ? .milliseconds(90) : mode == .slow ? .milliseconds(250) : .milliseconds(30)
                         // research: a search before the first text, and another one mid-answer (status events).
                         let secondSearch = mode == .research ? Self.pieces(of: Self.research.components(separatedBy: "Papers to read next")[0], size: 14).count : -1
                         if mode == .research { try await Self.search("direct preference optimization follow-ups", continuation) }

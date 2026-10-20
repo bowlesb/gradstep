@@ -4933,9 +4933,12 @@ final class ReaderModel {
             try configureChatPaperNavigationFixture(pending: kind.hasSuffix("=pending"))
         }
         if Self.chatHistoryFixtureEnabled { try await installChatHistoryFixture(into: local, deviceID: fixtureDevice.deviceID) }
+        let scrollAuditConversation = ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--chat-scroll-audit=") })
+            ? try await installScrollAuditFixture(into: local, deviceID: fixtureDevice.deviceID) : nil
         let snapshot = await local.snapshot()
         prepareDrafts(snapshot: snapshot, scope: sessionID)
         publish(snapshot)
+        if let scrollAuditConversation { activeConversation = scrollAuditConversation }
         checkpointAllDrafts()
         tab = .library; wideMode = .library
     }

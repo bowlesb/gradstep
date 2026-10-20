@@ -1,5 +1,19 @@
 # Implementation status
 
+## Native chat scrolling — October 20 UTC (local repair; not released)
+
+The reported vibration reproduces offline: unchanged messages change height as the old hosted rows cross screen
+edges. The fixture-only old-renderer control measures 116 pt height drift and 113.67 pt movement beyond the finger.
+The replacement keeps the same table and interaction, uses contained hosting controllers with row safe areas
+disabled, resolves stale reused heights before measurement, and retains measured estimates. Streaming presentation
+waits through dragging/coasting; unrealized offscreen updates no longer reapply the whole table snapshot. The
+static and streaming checks pass, including reading within the growing answer. Final iPhone checks pass 3/3;
+iPad motion has zero measured tracking error across 9,370 comparisons, and both split-layout keyboard journeys
+have passing runs. Light/dark rendering and selection/formula actions were checked. The fast suite passes.
+Architecture and evidence: [Chat](architecture/CHAT.md#native-transcript-sizing-audit--2026-10-20-utc)
+and [Testing](TESTING.md#native-chat-motion-audit--october-20-utc-local-not-released). No native upload, browser
+deployment, physical-phone access or paid model call is part of this audit.
+
 ## Unlimited owner testing — October 19 UTC (server/browser live)
 
 Migration 094 is applied and verified. The freshly signed-in owner account has an audited testing policy that

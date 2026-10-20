@@ -305,7 +305,7 @@ private struct TranscriptMessage: View {
     }
 }
 
-private struct TranscriptTable: UIViewRepresentable {
+private struct TranscriptTable: UIViewControllerRepresentable {
     let messages: [AppliedEvent]
     let streamingID: UUID?
     let progress: ChatProgress?
@@ -323,28 +323,34 @@ private struct TranscriptTable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> TranscriptTableView {
-        let table = TranscriptTableView(frame: .zero, style: .plain)
+    func makeUIViewController(context: Context) -> TranscriptTableController {
+        let controller = TranscriptTableController()
+        let table = controller.table
         table.backgroundColor = .clear
         table.separatorStyle = .none
         table.contentInsetAdjustmentBehavior = .never
         table.keyboardDismissMode = .interactive
         table.rowHeight = UITableView.automaticDimension
         table.estimatedRowHeight = 240
+        table.selfSizingInvalidation = .enabledIncludingConstraints
         table.sectionHeaderHeight = 0; table.sectionFooterHeight = 0
         table.sectionHeaderTopPadding = 0
         table.accessibilityIdentifier = "chat.transcript"
-        table.register(UITableViewCell.self, forCellReuseIdentifier: "message")
-        context.coordinator.attach(table)
-        return table
+        table.register(TranscriptHostingCell.self, forCellReuseIdentifier: "message")
+        #if DEBUG && FIXTURE_HOST
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "scroll-audit-legacy")
+        #endif
+        context.coordinator.attach(table, controller: controller)
+        return controller
     }
 
-    func updateUIView(_ table: TranscriptTableView, context: Context) {
-        context.coordinator.receive(self, table: table)
+    func updateUIViewController(_ controller: TranscriptTableController, context: Context) {
+        context.coordinator.receive(self, table: controller.table)
     }
 
-    static func dismantleUIView(_ table: TranscriptTableView, coordinator: Coordinator) {
-        coordinator.retire(table)
+    static func dismantleUIViewController(_ controller: TranscriptTableController, coordinator: Coordinator) {
+        coordinator.retire(controller.table)
+        controller.retireMessages()
     }
 
     @MainActor final class Coordinator: NSObject, UITableViewDelegate {
@@ -376,13 +382,14 @@ private struct TranscriptTable: UIViewRepresentable {
         private var realizingAnchor: UUID?
         private var lastContentSize = CGSize.zero
         private var lastViewportSize = CGSize.zero
+        private var measuredHeights: [UUID: CGFloat] = [:]
 
         private struct RowAnchor {
             let id: UUID
             let relativeY: CGFloat
         }
 
-        func attach(_ table: TranscriptTableView) {
+        func attach(_ table: TranscriptTableView, controller: TranscriptTableController) {
             table.delegate = self
             table.willResize = { [weak self, weak table] in
                 guard let self, let table, !self.retired, self.owner?.isCurrent() == true else { return }
@@ -396,20 +403,29 @@ private struct TranscriptTable: UIViewRepresentable {
                 self.finishLayout(table)
                 self.layoutDepth -= 1
             }
-            source = UITableViewDiffableDataSource<Int, UUID>(tableView: table) { [weak self] table, indexPath, id in
-                guard let self, !self.retired, self.owner?.isCurrent() == true,
+            source = UITableViewDiffableDataSource<Int, UUID>(tableView: table) { [weak self, weak controller] table, indexPath, id in
+                guard let self, let controller, !self.retired, self.owner?.isCurrent() == true,
                       let index = self.displayed.firstIndex(where: { $0.id == id }) else { return UITableViewCell() }
-                let cell = table.dequeueReusableCell(withIdentifier: "message", for: indexPath)
-                cell.selectionStyle = .none
-                cell.backgroundConfiguration = .clear()
-                cell.isAccessibilityElement = false
-                cell.contentConfiguration = UIHostingConfiguration {
-                    TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID,
+                let content = TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID,
                         progress: id == self.displayedStreamingID ? self.displayedProgress : nil, fontSize: self.displayedFont,
                         diagram: self.displayedDiagrams[self.displayed[index].payload.entityID], openDiagram: { [weak self] id in self?.owner?.openDiagram(id) },
                         papers: self.owner?.papers, followUps: index == self.displayed.count - 1 ? self.displayedFollowUps : [],
                         first: index == 0, last: index == self.displayed.count - 1)
-                }.margins(.all, 0).minSize(width: 0, height: 0)
+                #if DEBUG && FIXTURE_HOST
+                // A negative control for the motion probe: the original renderer must still exhibit
+                // the measured defect. Never available in a shipped app.
+                if ProcessInfo.processInfo.arguments.contains("--chat-scroll-audit-legacy-rows") {
+                    let cell = table.dequeueReusableCell(withIdentifier: "scroll-audit-legacy", for: indexPath)
+                    cell.selectionStyle = .none; cell.backgroundConfiguration = .clear(); cell.isAccessibilityElement = false
+                    cell.contentConfiguration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
+                    return cell
+                }
+                #endif
+                let cell = table.dequeueReusableCell(withIdentifier: "message", for: indexPath) as! TranscriptHostingCell
+                cell.selectionStyle = .none
+                cell.backgroundConfiguration = .clear()
+                cell.isAccessibilityElement = false
+                cell.configure(parent: controller, id: id, content: content.id(id))
                 return cell
             }
         }
@@ -445,7 +461,11 @@ private struct TranscriptTable: UIViewRepresentable {
         }
 
         private func applyPending(_ table: TranscriptTableView) {
-            guard !applying, !retired, let update = pending, update.isCurrent(), let source else { return }
+            // Streaming still advances in the model. Coalesce its presentation while the reader is
+            // dragging or coasting: reconfiguring a tall row during the gesture interrupts UIKit's
+            // scroll physics and can replace its measured height with an estimate mid-frame.
+            guard !applying, !userScrolling, !table.isDragging, !table.isDecelerating,
+                  !retired, let update = pending, update.isCurrent(), let source else { return }
             pending = nil
             if !following && anchors.isEmpty && !userScrolling { anchors = readAnchors(table) }
             let old = Dictionary(uniqueKeysWithValues: displayed.map { ($0.id, $0) })
@@ -453,15 +473,24 @@ private struct TranscriptTable: UIViewRepresentable {
             let oldFollowUps = displayedFollowUps
             let oldFirst = displayed.first?.id
             let oldLast = displayed.last?.id
+            if displayedFont != update.fontSize { measuredHeights.removeAll() }
             displayed = update.messages; displayedFont = update.fontSize; displayedStreamingID = update.streamingID
             displayedProgress = update.progress
             displayedDiagrams = update.diagrams
             displayedFollowUps = update.followUps
+            let ids = Set(displayed.map(\.id))
+            measuredHeights = measuredHeights.filter { ids.contains($0.key) }
             var snapshot = NSDiffableDataSourceSnapshot<Int, UUID>()
             snapshot.appendSections([0]); snapshot.appendItems(displayed.map(\.id))
-            let existing = Set(source.snapshot().itemIdentifiers)
-            snapshot.reconfigureItems(displayed.compactMap { item in
-                guard existing.contains(item.id) else { return nil }
+            let currentIDs = source.snapshot().itemIdentifiers
+            let existing = Set(currentIDs)
+            let reconfigured: [UUID] = displayed.compactMap { item in
+                // An offscreen answer can stream without changing the table. Reapplying the whole
+                // snapshot for it makes UIKit compensate estimated heights, then our anchor moves
+                // the passage back on the next layout. Keep prepared/prefetched cells current too;
+                // cellForRow returns those even when they are not yet visible (iOS 15 and later).
+                guard existing.contains(item.id), let path = source.indexPath(for: item.id),
+                      table.cellForRow(at: path) != nil else { return nil }
                 let edgeChanged = (item.id == oldFirst) != (item.id == displayed.first?.id)
                     || (item.id == oldLast) != (item.id == displayed.last?.id)
                 let streamingChanged = (item.id == oldStreaming) != (item.id == displayedStreamingID)
@@ -469,12 +498,23 @@ private struct TranscriptTable: UIViewRepresentable {
                 let diagramChanged = oldDiagrams[item.payload.entityID] != displayedDiagrams[item.payload.entityID]
                 let followUpsChanged = (item.id == oldLast || item.id == displayed.last?.id) && oldFollowUps != displayedFollowUps
                 return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged || diagramChanged || followUpsChanged ? item.id : nil
-            })
+            }
+            snapshot.reconfigureItems(reconfigured)
+            guard currentIDs != snapshot.itemIdentifiers || !reconfigured.isEmpty else {
+                if settleAfterApply { settleUserScroll(table) }
+                return
+            }
             applying = true
+            table.auditScroll("applySnapshot")
             let revision = generation
             source.apply(snapshot, animatingDifferences: false) { [weak self, weak table] in
                 guard let self, let table, !self.retired, self.owner?.isCurrent() == true else { return }
                 self.applying = false
+                table.auditScroll("appliedSnapshot")
+                // A newer coalesced update can now be a no-op. The finished snapshot still owes
+                // its anchor restore, even when that update does not create another completion.
+                self.needsRestore = true
+                table.setNeedsLayout()
                 if self.pending != nil { self.applyPending(table); return }
                 guard revision == self.generation else { return }
                 if self.settleAfterApply { self.settleUserScroll(table); return }
@@ -497,13 +537,21 @@ private struct TranscriptTable: UIViewRepresentable {
         private func finishLayout(_ table: TranscriptTableView) {
             guard !retired, owner?.isCurrent() == true, !applying, !updating, !restoring,
                   table.bounds.height > 0, table.bounds.width > 0 else { return }
+            if pending != nil { applyPending(table); if applying { return } }
             let contentChanged = lastContentSize != table.contentSize
             let resized = lastViewportSize != table.bounds.size
+            if lastViewportSize.width != table.bounds.width { measuredHeights.removeAll() }
+            for path in table.indexPathsForVisibleRows ?? [] {
+                if let id = source?.itemIdentifier(for: path), let cell = table.cellForRow(at: path), cell.bounds.height > 0 {
+                    measuredHeights[id] = cell.bounds.height
+                }
+            }
             lastContentSize = table.contentSize
             lastViewportSize = table.bounds.size
             if !userScrolling && !table.isDragging && !table.isDecelerating && !animating && (needsRestore || contentChanged || resized) {
                 restoring = true
                 if following, !displayed.isEmpty {
+                    table.auditScroll("restoreLatest", following: true)
                     let path = IndexPath(row: displayed.count - 1, section: 0)
                     if table.cellForRow(at: path) == nil { table.scrollToRow(at: path, at: .bottom, animated: false) }
                     let target = clampedY(table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom, table)
@@ -513,6 +561,7 @@ private struct TranscriptTable: UIViewRepresentable {
                         table.setContentOffset(CGPoint(x: 0, y: target), animated: shouldAnimate)
                     }
                 } else if let anchor = anchors.first(where: { source?.indexPath(for: $0.id) != nil }), let path = source?.indexPath(for: anchor.id) {
+                    table.auditScroll("restoreAnchor", following: false)
                     // Realize one saved row, then restore from its measured layout.
                     // No recursive layout or eager measurement of the history.
                     if table.cellForRow(at: path) == nil && realizingAnchor != anchor.id {
@@ -557,12 +606,19 @@ private struct TranscriptTable: UIViewRepresentable {
         }
         static let gestureTolerance: CGFloat = 2
 
+        func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+            guard let id = source?.itemIdentifier(for: indexPath) else { return 240 }
+            return measuredHeights[id] ?? 240
+        }
+
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            (scrollView as? TranscriptTableView)?.auditScroll("beginDrag", following: false)
             guard !retired, owner?.isCurrent() == true else { return }
             userScrolling = true; following = false; anchors = []; realizingAnchor = nil; needsRestore = false; animating = false
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            (scrollView as? TranscriptTableView)?.auditScroll("scroll")
             guard let table = scrollView as? TranscriptTableView, !retired, owner?.isCurrent() == true,
                   !applying, !updating, layoutDepth == 0, !restoring, !animating, (!needsRestore || userScrolling) else { return }
             following = isAtEnd(table, tolerance: userScrolling ? Self.gestureTolerance : 80)
@@ -593,17 +649,78 @@ private struct TranscriptTable: UIViewRepresentable {
             following = isAtEnd(table, tolerance: Self.gestureTolerance)
             anchors = following ? [] : readAnchors(table)
             realizingAnchor = nil; needsRestore = true
+            table.auditScroll("endDrag", following: following)
+            applyPending(table)
             table.setNeedsLayout()
         }
 
         func retire(_ table: TranscriptTableView) {
             retired = true; generation += 1
             pending = nil; owner = nil; displayed = []; anchors = []
+            measuredHeights.removeAll()
             table.willResize = nil; table.beforeLayout = nil; table.afterLayout = nil
             for cell in table.visibleCells { cell.contentConfiguration = nil }
             table.delegate = nil; table.dataSource = nil; table.reloadData()
             source = nil
         }
+    }
+}
+
+/// The table owns the safe-area/chrome/keyboard insets. UIHostingConfiguration inherits the window's
+/// safe area into each row: scrolling the row across an edge then changes its intrinsic height. Hosting
+/// controllers let us disable those regions at the boundary, before SwiftUI measures the message.
+private final class TranscriptTableController: UIViewController {
+    let table = TranscriptTableView(frame: .zero, style: .plain)
+    override func loadView() { view = table }
+
+    func retireMessages() {
+        for child in children {
+            child.willMove(toParent: nil)
+            (child as? UIHostingController<AnyView>)?.rootView = AnyView(EmptyView())
+            child.view.removeFromSuperview()
+            child.removeFromParent()
+        }
+    }
+}
+
+private final class TranscriptHostingCell: UITableViewCell {
+    private let host = UIHostingController(rootView: AnyView(EmptyView()))
+    private var messageID: UUID?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        host.safeAreaRegions = []
+        host.sizingOptions = .intrinsicContentSize
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(parent: UIViewController, id: UUID, content: some View) {
+        if host.parent == nil {
+            parent.addChild(host)
+            contentView.addSubview(host.view)
+            NSLayoutConstraint.activate([
+                host.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                host.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                host.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+                host.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            ])
+            host.didMove(toParent: parent)
+        }
+        let reused = messageID != id
+        messageID = id
+        host.rootView = AnyView(content)
+        // Reuse may replace a short question with a tall answer. Resolve that SwiftUI update before
+        // UITableView asks for this cell's size, otherwise it briefly receives the previous message's
+        // intrinsic height and moves every visible row below it twice.
+        host.view.invalidateIntrinsicContentSize()
+        if reused {
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+        }
+        contentView.invalidateIntrinsicContentSize()
     }
 }
 
@@ -624,5 +741,161 @@ private final class TranscriptTableView: UITableView {
         beforeLayout?()
         super.layoutSubviews()
         afterLayout?()
+        auditScroll("layout")
+    }
+
+    #if DEBUG && FIXTURE_HOST
+    private var scrollAudit: [[String: Any]] = []
+    private var auditDisplayLink: CADisplayLink?
+    private var auditFollowing = true
+    private var auditObserver: CFRunLoopObserver?
+    private var auditFramePending = false
+    private var auditGesture = 0
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        auditDisplayLink?.invalidate(); auditDisplayLink = nil
+        if let auditObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), auditObserver, .commonModes) }
+        auditObserver = nil; auditFramePending = false
+        if window != nil, ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--chat-scroll-audit=") }) {
+            let link = CADisplayLink(target: self, selector: #selector(auditFrame))
+            link.add(to: .main, forMode: .common)
+            auditDisplayLink = link
+            // A display-link callback precedes UIKit's layout/commit. Observe the completed run-loop
+            // pass instead; sampling in the callback mistakes intermediate height compensation for
+            // a frame the reader saw. This observer never forces or changes layout.
+            let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.auditFramePending else { return }
+                    self.auditFramePending = false
+                    self.auditScroll("frame")
+                }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+            auditObserver = observer
+        }
+    }
+
+    @objc private func auditFrame() { auditFramePending = true }
+
+    private func auditTextPositions() -> [[String: Any]] {
+        var result: [[String: Any]] = []
+        for path in (indexPathsForVisibleRows ?? []).sorted() {
+            guard let cell = cellForRow(at: path) else { continue }
+            var ordinal = 0
+            func visit(_ view: UIView) {
+                if let text = view as? UITextView {
+                    let rect = text.convert(text.bounds, to: self)
+                    result.append(["id": "\(path.row).\(ordinal)", "y": rect.minY - contentOffset.y,
+                        "h": rect.height, "w": rect.width, "offset": text.contentOffset.y,
+                        "size": text.contentSize.height, "cellH": cell.bounds.height,
+                        "safeTop": cell.safeAreaInsets.top, "safeBottom": cell.safeAreaInsets.bottom,
+                        "last": path.row == numberOfRows(inSection: 0) - 1])
+                    ordinal += 1
+                } else { view.subviews.forEach(visit) }
+            }
+            visit(cell)
+        }
+        return result
+    }
+
+    private func auditSummary() -> [String: Any] {
+        func n(_ sample: [String: Any], _ key: String) -> Double { (sample[key] as? NSNumber)?.doubleValue ?? 0 }
+        let frames = scrollAudit.filter { $0["event"] as? String == "frame" }
+        var dragFrames = 0, reversals = 0, idleReadFrames = 0, growingIdleReadFrames = 0
+        var worst = 0.0
+        var maxIdleShift = 0.0
+        var trackingSamples = 0, maxTrackingError = 0.0
+        var heights: [String: Double] = [:], maxHeightChange = 0.0
+        let streaming = ProcessInfo.processInfo.arguments.contains("--chat-scroll-audit=stream")
+        for frame in frames {
+            for text in frame["text"] as? [[String: Any]] ?? [] {
+                guard let id = text["id"] as? String, !(streaming && text["last"] as? Bool == true),
+                      n(text, "y") + n(text, "h") > 150, n(text, "y") < n(frame, "viewport") - 150 else { continue }
+                let key = "\(id):\(n(text, "w"))"
+                if let height = heights[key] { maxHeightChange = max(maxHeightChange, abs(n(text, "cellH") - height)) }
+                else { heights[key] = n(text, "cellH") }
+            }
+        }
+        for (previous, current) in zip(frames, frames.dropFirst()) {
+            // Include long frames: a layout stall is precisely where the text can lose the finger.
+            // Exclude rubber-banding at the ends and inertia after the finger has lifted.
+            if [previous, current].allSatisfy({ $0["tracking"] as? Bool == true && $0["dragging"] as? Bool == true && n($0, "edgeDistance") > 30 }),
+               n(previous, "gesture") == n(current, "gesture") {
+                let before = Dictionary(uniqueKeysWithValues: (previous["text"] as? [[String: Any]] ?? []).map { ($0["id"] as! String, $0) })
+                for text in current["text"] as? [[String: Any]] ?? [] {
+                    guard let id = text["id"] as? String, let old = before[id],
+                          n(old, "w") == n(text, "w"), n(old, "h") == n(text, "h"),
+                          n(old, "y") + n(old, "h") > 150, n(old, "y") < n(previous, "viewport") - 150,
+                          n(text, "y") + n(text, "h") > 150, n(text, "y") < n(current, "viewport") - 150 else { continue }
+                    trackingSamples += 1
+                    maxTrackingError = max(maxTrackingError, abs(n(text, "y") - n(old, "y") - n(current, "panY") + n(previous, "panY")))
+                }
+            }
+            let idle = [previous, current].allSatisfy { sample in
+                ["following", "tracking", "dragging", "decelerating"].allSatisfy { sample[$0] as? Bool == false }
+            }
+            if idle, n(current, "t") - n(previous, "t") < 0.15, n(current, "viewport") == n(previous, "viewport") {
+                let before = Dictionary(uniqueKeysWithValues: (previous["text"] as? [[String: Any]] ?? []).map { ($0["id"] as! String, $0) })
+                for text in current["text"] as? [[String: Any]] ?? [] {
+                    guard let id = text["id"] as? String, let old = before[id],
+                          n(old, "w") == n(text, "w"), n(old, "h") == n(text, "h"),
+                          n(old, "y") + n(old, "h") > 150, n(old, "y") < n(previous, "viewport") - 150,
+                          n(text, "y") + n(text, "h") > 150, n(text, "y") < n(current, "viewport") - 150 else { continue }
+                    idleReadFrames += 1
+                    if streaming, text["last"] as? Bool == true { growingIdleReadFrames += 1 }
+                    maxIdleShift = max(maxIdleShift, abs(n(text, "y") - n(old, "y")))
+                }
+            }
+            guard previous["dragging"] as? Bool == true, current["dragging"] as? Bool == true,
+                  n(current, "t") - n(previous, "t") < 0.15 else { continue }
+            dragFrames += 1
+            let pan = n(current, "panY") - n(previous, "panY")
+            let before = Dictionary(uniqueKeysWithValues: (previous["text"] as? [[String: Any]] ?? []).map { ($0["id"] as! String, $0) })
+            var reverse = 0.0
+            for text in current["text"] as? [[String: Any]] ?? [] {
+                guard let id = text["id"] as? String, let old = before[id],
+                      n(old, "w") == n(text, "w"), n(old, "h") == n(text, "h"),
+                      n(old, "y") + n(old, "h") > 150, n(old, "y") < n(previous, "viewport") - 150,
+                      n(text, "y") + n(text, "h") > 150, n(text, "y") < n(current, "viewport") - 150 else { continue }
+                let movement = n(text, "y") - n(old, "y")
+                if (pan > 1 && movement < -8) || (pan < -1 && movement > 8) { reverse = max(reverse, abs(movement)) }
+            }
+            if reverse > 0 { reversals += 1; worst = max(worst, reverse) }
+        }
+        return ["samples": scrollAudit.count, "dragFrames": dragFrames, "reverseJumps": reversals,
+                "maxReverseJump": worst, "maxStableHeightChange": maxHeightChange,
+                "idleReadSamples": idleReadFrames, "growingIdleReadSamples": growingIdleReadFrames, "maxIdleShift": maxIdleShift,
+                "trackingSamples": trackingSamples, "maxTrackingError": maxTrackingError]
+    }
+    #endif
+    /// Numeric geometry only, opt-in synthetic Simulator fixtures; excluded from shipped builds.
+    func auditScroll(_ event: String, following: Bool? = nil) {
+        #if DEBUG && FIXTURE_HOST
+        if let following { auditFollowing = following }
+        if event == "beginDrag" { auditGesture += 1 }
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--chat-scroll-audit=") }) else { return }
+        let name = String(argument.dropFirst("--chat-scroll-audit=".count))
+        guard ["static", "stream"].contains(name), scrollAudit.count < 30000 else { return }
+        let row = indexPathsForVisibleRows?.sorted().first
+        let item: [String: Any] = ["t": CACurrentMediaTime(), "event": event, "y": contentOffset.y,
+            "height": contentSize.height, "viewport": bounds.height, "width": bounds.width,
+            "row": row?.row ?? -1, "rowY": row.map { rectForRow(at: $0).minY - contentOffset.y } ?? 0,
+            "panY": panGestureRecognizer.translation(in: self).y,
+            "tracking": isTracking, "dragging": isDragging, "decelerating": isDecelerating,
+            "following": auditFollowing,
+            "gesture": auditGesture,
+            "edgeDistance": min(contentOffset.y + adjustedContentInset.top,
+                                contentSize.height - bounds.height + adjustedContentInset.bottom - contentOffset.y),
+            "text": event == "frame" ? auditTextPositions() : []]
+        scrollAudit.append(item)
+        if event == "endDrag", let data = try? JSONSerialization.data(withJSONObject: scrollAudit) {
+            let suffix = ProcessInfo.processInfo.arguments.contains("--chat-scroll-audit-legacy-rows") ? "-legacy" : ""
+            try? data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("chat-scroll-\(name)\(suffix).json"), options: .atomic)
+            if let summary = try? JSONSerialization.data(withJSONObject: auditSummary(), options: .sortedKeys) {
+                accessibilityValue = String(data: summary, encoding: .utf8)
+            }
+        }
+        #endif
     }
 }

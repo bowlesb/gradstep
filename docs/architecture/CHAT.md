@@ -518,6 +518,45 @@ before; Rename writes `renamed` (≤ 80 characters; an empty name is ignored).
   as the reader's (web `programmatic`; native ignores layout restores while `userScrolling`). Layout and chrome
   changes keep their 80 pt slack natively, because a keyboard or banner moving the readable area is not a choice.
 
+### Native transcript sizing audit — 2026-10-20 UTC
+
+Local repair, not released. Motion is verified with iPhone and iPad Simulator fixtures; physical-phone feel is unverified.
+
+The owner's back-and-forth shaking reproduces with completed, synthetic messages and no network. Restoring the
+old row renderer as a fixture-only negative control produces 116 pt of height variation in unchanged messages
+and 113.67 pt of visible-text displacement beyond the finger's movement, measured after layout. The earlier
+keyboard/scrollback journeys checked the final reading position and missed intermediate motion. Table offset
+alone also missed it: estimated-height corrections can preserve the row origin while the rendered text moves.
+
+`UIHostingConfiguration` propagated changing window safe-area insets into the self-sizing messages. The trial
+using only `.ignoresSafeArea()` still failed the real-drag regression. The replacement keeps the same table,
+virtualization, message views and follow/anchor policy, with contained, reusable `UIHostingController` rows whose
+`safeAreaRegions` is empty. The table owns chrome and keyboard insets. This is the custom scroll-container use
+described by [Apple's safe-area API](https://developer.apple.com/documentation/swiftui/uihostingcontroller/safearearegions).
+Intrinsic sizing tracks message changes; reuse resolves the new SwiftUI content before the table measures it,
+and retirement removes child controllers and their message content.
+
+Streaming snapshots are coalesced during dragging and deceleration, then applied at the final reading anchor.
+The transport and saved answer continue advancing throughout. Measured row heights are reused as estimates by
+message identity (invalidated for width/font changes), so a text update does not replace known geometry with the
+generic 240 pt estimate. A message's own dynamic content still resizes through intrinsic-size invalidation.
+An update to an unrealized offscreen answer updates the stored row data without reapplying an identical table
+snapshot. Reapplying that snapshot was observed moving the visible passage 213.67 pt before anchor restoration
+on the next layout pass. Prepared/prefetched cells still reconfigure; newly realized cells use the latest data.
+
+The opt-in `--chat-scroll-audit=static|stream` fixtures use 24 alternating short questions and tall scientific
+answers through the encrypted fixture store. Simulator journeys drag in both directions and flick across rows,
+with an additional growing answer for `stream`. `--chat-scroll-audit-growing-row` starts that answer with a long
+prefix, so the reader also drags and rests within the answer that is still arriving. DEBUG + FIXTURE_HOST records numeric geometry only, never chat
+text, after layout at the end of each sampled main-run-loop pass. The initial display-link callback probe sampled
+before layout and included intermediate compensation; those diagnostic traces are not accepted display evidence.
+Assertions require text to track the finger within 3 pt, unchanged completed-message heights within 1 pt at the
+same width, and a stable passage within 3 pt while idle in scrollback. A fixture-only switch restores the old row
+renderer so the probe must also detect the known defect. The trace is written in the Simulator's temporary
+directory; the probe and negative control do not exist in shipped builds.
+The old-renderer control detects the defect and the repaired motion checks pass; exact counts, retained failures,
+keyboard/selection coverage and limitations are recorded in [Testing](../TESTING.md#native-chat-motion-audit--october-20-utc-local-not-released).
+
 ### Deploy order
 
 1. Apply migration `202610080047_chat_profiles.sql` (additive): `python3 scripts/migrate-supabase.py staging`.

@@ -1,5 +1,48 @@
 # Fast and slow tests
 
+## Native chat motion audit — October 20 UTC (local; not released)
+
+`WorkflowJourneyTests/testChatScrollAuditAtRest`, `testChatScrollAuditWhileStreaming`, and
+`testChatScrollAuditWithinGrowingAnswer` exercise real touch drags and flicks over 24 synthetic questions/answers,
+both with completed content and with a long response arriving through the fixture transport. The growing-answer
+variant requires samples from an idle passage inside the current answer, in addition to the older-message case.
+The fixture uses the real encrypted store and native renderer, with no provider call.
+
+The opt-in DEBUG + FIXTURE_HOST probe measures visible paragraph geometry after layout, at the end of the sampled
+run-loop pass. It requires >150 drag frames and >150 direct finger-tracking comparisons, ≤3 pt tracking error,
+≤1 pt completed-row height variation, and ≤3 pt idle passage displacement. The fixture-only legacy-row switch
+must detect the old defect: the completed-layout negative control records **116 pt** height variation in unchanged
+messages and **113.67 pt** tracking error. The repaired static test records zero height/idle change and tracking
+error below 0.001 pt. These two cases pass in `chat-scroll-phone-final.xcresult`; that run also retains the
+streaming failure (213.67 pt idle shift) that exposed needless offscreen snapshot updates. After that repair,
+`chat-scroll-offscreen-update.xcresult` passes the streaming journey with no idle shift and tracking error below
+0.001 pt. Final iPhone verification in `chat-scroll-stream-final.xcresult` passes **3/3, no skips**: offscreen
+streaming, reading within the growing answer, and keyboard/composer scrollback. The two motion cases contain
+4,871 and 5,183 direct tracking comparisons respectively, each with error below 0.001 pt and zero sampled idle
+shift; 2,412 idle comparisons are inside the growing answer. The iPad motion test in
+`chat-scroll-ipad-serial.xcresult` also passes: 9,370 tracking comparisons, zero height drift and zero idle shift.
+
+Five functional iPhone regressions pass in `chat-scroll-phone-regressions.xcresult`: latest-answer visibility,
+keyboard/composer scrollback, interactive keyboard dismissal, text selection/Copy, and text/formula chat actions.
+Its earlier streaming failure is retained. The iPad keyboard helpers previously looked for the iPhone-only
+composer dismiss button. They now use iPad's system Hide keyboard key; all viewport and passage-position
+assertions remain. The latest-answer journey passes in `chat-scroll-ipad-keyboard.xcresult`; the complete
+scrollback/return-to-latest journey passes in `chat-scroll-ipad-scrollback.xcresult`. The earlier failures remain
+in their result bundles, including the second obsolete dismiss-button query at the end of the latter helper.
+Diagnostic trials also retain the ineffective `.ignoresSafeArea()`
+change and stale reused-cell sizing failure. Early display-link samples were taken before layout; the accepted
+probe samples after layout and is checked against the old renderer, so intermediate compensation is not treated
+as proof of displayed jitter. Numeric traces, final source hashes, screenshots and summaries are under
+`.artifacts/chat-scroll-audit/`. The light iPhone growing-answer and keyboard/composer screenshots, iPad transcript,
+and an app-rendered dark iPhone conversation capture were inspected. No colors or page arrangement were changed.
+
+`npm test` passes in `chat-scroll-fast-final.log`. The first fast run hit the existing pathological-line timing
+limit while native builds/Simulators were busy; its isolated rerun and the complete quiet rerun pass unchanged.
+Simulator startup stalls occurred before any app test, with launch stack samples retained; they are not app
+acceptance. These checks do not measure physical-phone frame rate, qualify figure/equation contextual chat or
+browser scrolling, or replace the mandatory fresh import gate before a native upload. No physical phone was
+accessed and no build was released for this audit.
+
 ## Named catalogs and repeated account return — October 19 UTC
 
 Catalog verification covers causal encrypted-note reduction (seven Core and seven browser cases), eleven native

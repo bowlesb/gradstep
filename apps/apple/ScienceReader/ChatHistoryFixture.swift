@@ -9,6 +9,28 @@ import ScienceReaderCore
 /// no longer in the library. Five begin with a reader selection action's prompt (equations as Mathpix writes them, a
 /// reference), as real history does. Compiled out of device and release builds.
 extension ReaderModel {
+    func installScrollAuditFixture(into store: EncryptedStore, deviceID: UUID) async throws -> UUID {
+        let conversation = UUID(uuidString: "94000000-1111-4000-8000-000000000001")!
+        let sample = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!
+        if !(await store.state().revisions(for: conversation)).isEmpty { return conversation }
+        let root = UUID()
+        var batch: [(id: UUID, event: PrivateEvent)] = [(root, PrivateEvent(kind: .conversation, entityID: conversation,
+            documentID: sample, text: "Scrolling audit"))]
+        var parent = root
+        for turn in 1...12 {
+            for role in [PrivateEvent.Role.user, .assistant] {
+                let id = UUID()
+                let text = role == .user ? "Question \(turn): explain the scientific result."
+                    : "## Result \(turn)\n\n" + String(repeating: ChatFixtureTransport.answer + "\n\n", count: 1 + turn % 3)
+                batch.append((id, PrivateEvent(kind: .message, entityID: id, parents: [parent], conversationID: conversation,
+                    documentID: sample, text: text, role: role, status: .complete)))
+                parent = id
+            }
+        }
+        _ = try await store.appendBatch(batch, deviceID: deviceID)
+        return conversation
+    }
+
     static var chatHistoryFixtureEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--chat-history-fixture") }
 
     /// Conversation `n` of the fixture (stable, so UI tests can find rows).
