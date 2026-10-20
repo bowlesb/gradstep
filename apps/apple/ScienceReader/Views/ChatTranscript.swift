@@ -778,6 +778,22 @@ private final class TranscriptTableView: UITableView {
 
     @objc private func auditFrame() { auditFramePending = true }
 
+    override var accessibilityValue: String? {
+        get {
+            guard ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--chat-scroll-audit=") }) else {
+                return super.accessibilityValue
+            }
+            var value = super.accessibilityValue?.data(using: .utf8)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            // Read-only current geometry also supports Catalyst wheel tests, which need not produce a touch endDrag.
+            value["visibleText"] = auditTextPositions()
+            value["scrollY"] = contentOffset.y; value["viewport"] = bounds.height
+            return (try? JSONSerialization.data(withJSONObject: value, options: .sortedKeys))
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
+        set { super.accessibilityValue = newValue }
+    }
+
     private func auditTextPositions() -> [[String: Any]] {
         var result: [[String: Any]] = []
         for path in (indexPathsForVisibleRows ?? []).sorted() {

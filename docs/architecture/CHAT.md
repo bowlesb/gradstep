@@ -1,6 +1,8 @@
 # Paid AI chat
 
-Native Local AI prototype (2026-10-17, TestFlight 68 on iOS and Mac): the composer offers Cloud AI or an explicitly downloaded local MLX model. Local requests use bounded device context, never the cloud transport or credits; model choice is captured with each turn. Structured Study and cloud search tools are not supported locally. See [LOCAL_AI.md](LOCAL_AI.md) for the tested limits and accuracy failures.
+Current local-answering policy: iPhone/iPad exclude the answering models and MLX runtime. Mac replacement models remain unqualified and its model catalog is empty; see [Local AI](LOCAL_AI.md). Every cloud route uses the shared OpenRouter backend.
+
+Historical Local AI prototype (2026-10-17, TestFlight 68 on iOS and Mac): the composer offers Cloud AI or an explicitly downloaded local MLX model. Local requests use bounded device context, never the cloud transport or credits; model choice is captured with each turn. Structured Study and cloud search tools are not supported locally. See [LOCAL_AI.md](LOCAL_AI.md) for the tested limits and accuracy failures.
 
 2026-10-16 owner decision after the comparison: **Gemini 3.8 Flash is selected as the next default**. The
 [OpenRouter → Google integration](GEMINI_FLASH_CHAT.md) is **enabled as of 2026-10-17 19:54 UTC**: the live table

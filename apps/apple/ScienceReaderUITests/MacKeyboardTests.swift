@@ -103,5 +103,55 @@ final class MacKeyboardTests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.exists)
         XCTAssertTrue(search.exists)
     }
+
+    func testChatWheelScrollAndStreamingKeepTheReadersPlace() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture",
+                               "--chat-scroll-audit=stream"]
+        app.launch(); app.show("chat")
+        let transcript = app.tables["chat.transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 10))
+        struct Position: Decodable { let id: String; let y: Double; let h: Double }
+        struct Geometry: Decodable { let scrollY: Double; let viewport: Double; let visibleText: [Position] }
+        func geometry() throws -> Geometry {
+            let data = try XCTUnwrap((transcript.value as? String)?.data(using: .utf8))
+            return try JSONDecoder().decode(Geometry.self, from: data)
+        }
+        func anchor(_ state: Geometry) throws -> Position {
+            try XCTUnwrap(state.visibleText.first { $0.y > -80 && $0.y < state.viewport - 80 })
+        }
+        let input = app.descendants(matching: .any)["chat.composer"].firstMatch
+        input.click(); input.typeText("Continue with more detail"); app.buttons["chat.send"].click()
+        XCTAssertTrue(app.buttons["chat.stop"].waitForExistence(timeout: 5))
+        // Actual Catalyst wheel events, first away from the end and then in both directions.
+        for _ in 0..<4 { transcript.scroll(byDeltaX: 0, deltaY: 240) }
+        let start = try anchor(geometry())
+        let wait = expectation(description: "Incoming answer while reading earlier text")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { wait.fulfill() }
+        waitForExpectations(timeout: 2)
+        let saved = try XCTUnwrap(geometry().visibleText.first { $0.id == start.id })
+        XCTAssertEqual(saved.y, start.y, accuracy: 2, "Streaming must not pull wheel scrollback to the end")
+        XCTAssertEqual(saved.h, start.h, accuracy: 1)
+        var directions = Set<Int>()
+        for delta in [90.0, 90.0, -90.0, -90.0] {
+            let before = try anchor(geometry())
+            transcript.scroll(byDeltaX: 0, deltaY: delta)
+            if let text = try geometry().visibleText.first(where: { $0.id == before.id }) {
+                let movement = text.y - before.y
+                XCTAssertEqual(text.h, before.h, accuracy: 1, "Wheel scrolling cannot resize an unchanged row")
+                if abs(movement) > 1 { directions.insert(movement > 0 ? 1 : -1) }
+            }
+        }
+        XCTAssertEqual(directions, [-1, 1], "Both wheel directions must actually move visible text")
+        if app.buttons["chat.stop"].exists { app.buttons["chat.stop"].click() }
+        let stopped = try anchor(geometry())
+        let rest = expectation(description: "Completed transcript at rest")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { rest.fulfill() }
+        waitForExpectations(timeout: 2)
+        let still = try XCTUnwrap(geometry().visibleText.first { $0.id == stopped.id })
+        XCTAssertEqual(still.y, stopped.y, accuracy: 2)
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot()); shot.name = "Mac wheel scrollback during a streamed answer"
+        shot.lifetime = .keepAlways; add(shot)
+    }
 }
 #endif

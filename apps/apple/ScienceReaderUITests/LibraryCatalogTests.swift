@@ -7,34 +7,57 @@ final class LibraryCatalogTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--library-v5-fixture"]
         app.launch(); app.show("library")
-        let options = app.buttons["Library options"]
+        func menu(_ label: String) -> XCUIElement {
+            #if targetEnvironment(macCatalyst)
+            return app.popUpButtons[label]
+            #else
+            return app.buttons[label]
+            #endif
+        }
+        func command(_ label: String) -> XCUIElement {
+            #if targetEnvironment(macCatalyst)
+            return app.editMenuItem(label)
+            #else
+            return app.buttons[label]
+            #endif
+        }
+        let options = menu("Library options")
         XCTAssertTrue(options.waitForExistence(timeout: 15)); options.tap()
-        app.buttons["Catalogs"].tap()
+        command("Catalogs").tap()
         XCTAssertTrue(app.buttons["catalog.create"].waitForExistence(timeout: 8))
-        app.buttons["Options for Default"].tap(); app.buttons["Rename"].tap()
-        let field = app.alerts.textFields.firstMatch
+        menu("Options for Default").tap(); command("Rename").tap()
+        // Catalyst presents the prompt as a sheet; iOS exposes an alert. Its field has the same placeholder.
+        let field = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Catalog name")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 3)); field.tap()
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 9))
         XCTAssertTrue((field.value as? String) == "" || field.value as? String == field.placeholderValue)
         field.typeText("Reading")
-        app.alerts.buttons["Save"].tap()
-        XCTAssertTrue(app.buttons["Options for Reading"].waitForExistence(timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(menu("Options for Reading").waitForExistence(timeout: 5))
         app.buttons["catalog.create"].tap()
-        XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 3))
-        app.alerts.textFields.firstMatch.typeText("Research"); app.alerts.buttons["Save"].tap()
-        XCTAssertTrue(app.buttons["Options for Research"].waitForExistence(timeout: 5))
-        app.buttons["Options for Research"].tap(); app.buttons["Make default"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        field.typeText("Research"); app.buttons["Save"].tap()
+        XCTAssertTrue(menu("Options for Research").waitForExistence(timeout: 5))
+        menu("Options for Research").tap(); command("Make default").tap()
         app.buttons["Close catalogs"].tap()
-        XCTAssertTrue(app.buttons["library.catalog"].waitForExistence(timeout: 5))
+        XCTAssertTrue(menu("library.catalog").waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Attention Is All You Need"].exists)
-        options.tap(); app.buttons["Catalogs"].tap()
-        app.buttons["Options for Reading"].tap(); app.buttons["Delete catalog…"].tap()
+        options.tap(); command("Catalogs").tap()
+        menu("Options for Reading").tap(); command("Delete catalog…").tap()
+        #if targetEnvironment(macCatalyst)
+        // Catalyst's compact form lazily creates rows below the destination picker.
+        let forms = app.collectionViews
+        XCTAssertGreaterThan(forms.count, 0)
+        let form = forms.element(boundBy: forms.count - 1)
+        XCTAssertTrue(form.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !app.buttons["catalog.deleteConfirm"].exists { form.scroll(byDeltaX: 0, deltaY: -220) }
+        #endif
         XCTAssertTrue(app.buttons["catalog.deleteConfirm"].waitForExistence(timeout: 5))
         app.buttons["catalog.deleteConfirm"].tap()
         XCTAssertTrue(app.buttons["Close catalogs"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Options for Reading"].exists)
-        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Named catalogs after moving papers"; shot.lifetime = .keepAlways; add(shot)
+        XCTAssertFalse(menu("Options for Reading").exists)
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot()); shot.name = "Named catalogs after moving papers"; shot.lifetime = .keepAlways; add(shot)
         app.buttons["Close catalogs"].tap()
         XCTAssertTrue(app.staticTexts["Attention Is All You Need"].waitForExistence(timeout: 5))
     }

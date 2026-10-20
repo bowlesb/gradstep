@@ -1,5 +1,17 @@
 # Browser reader
 
+## October 20 navigation and scrolling parity (verified locally; release pending)
+
+The account-owned chat controller captures drafts before navigation and finishes encryption/storage after the
+route changes. Storage failure remains visible against that account, while sign-out/deletion retain their write
+barriers. This removes the reproduced navigation stall without allowing late saves to install old destinations
+or passages. Paper and contextual chat give touch, wheel and keyboard input ownership of scrollback before the
+next streaming update. Figure/equation promotion focuses the retained composer after closing its dialog.
+
+Four-size browser journeys and the old-code negative controls are recorded in the
+[platform parity review](../reviews/PLATFORM_PARITY_20261020.md). The existing WebKit durable-key limitation remains;
+tablet-width Chromium evidence does not establish Safari support.
+
 ## Named catalogs and account-return errors — October 19 UTC
 
 Pages **3f363fda**, source **0344e4d**, is deployed with served assets and app association verified. Library's

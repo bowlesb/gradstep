@@ -1032,7 +1032,13 @@ struct ChatView: View {
             TextField(prompt, text: $model.chatInput, axis: .vertical)
                 .focused($composerFocused).accessibilityIdentifier("chat.composer")
                 .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true }
-                .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
+                .task {
+                    if model.takeComposerFocusRequest() {
+                        // Let the field mount, without imposing a fixed delay on every new chat destination.
+                        await Task.yield()
+                        if !Task.isCancelled { composerFocused = true }
+                    }
+                }
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
             HStack(spacing: 4) {

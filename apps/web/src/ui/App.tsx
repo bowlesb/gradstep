@@ -137,15 +137,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const navigationIntent = useRef(0);
   const navigate = useCallback(async (next: string, arriving?: () => void): Promise<boolean> => {
     const intent = ++navigationIntent.current, owner = auth.snapshot();
-    let failed = false;
-    try { await chat?.flushCheckpoints(); } catch { failed = true; }
-    if (owner.signal.aborted || navigationIntent.current !== intent) return false;
-    // Install a passage only when this navigation wins. A later click, Back or sign-out cannot
-    // leave a deferred passage behind to jump during an unrelated future paper open.
+    if (owner.signal.aborted) return false;
+    // Capture and queue the draft now, but let its account-owned controller finish encryption/storage
+    // after the route changes. Mounting another destination cannot retire that controller or lose the draft.
+    const checkpoint = chat?.flushCheckpoints();
     arriving?.();
-    // A failed local save stays in the account-owned controller and All chats; navigation still
-    // honors the click. A later click or sign-out supersedes this continuation.
-    setNavigationIssue(failed); moveTo(next); return true;
+    moveTo(next);
+    // Completion never navigates or installs a passage. Even an earlier navigation's failed save must
+    // stay discoverable while this account is current. A successful drain checks every unsaved draft.
+    void checkpoint?.then(() => {
+      if (!owner.signal.aborted && navigationIntent.current === intent) setNavigationIssue(false);
+    }, () => { if (!owner.signal.aborted) setNavigationIssue(true); });
+    return true;
   }, [chat, moveTo]);
   useEffect(() => {
     const pop = () => {

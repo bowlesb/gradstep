@@ -152,8 +152,12 @@ final class FigureViewJourneyTests: XCTestCase {
         let composerBounds = app.descendants(matching: .any)["contextChat.composer"]
         for _ in 0..<6 where !(extractedCrop.isHittable && extractedCrop.frame.maxY < composerBounds.frame.minY) { app.swipeUp() }
         let beforeZoom = extractedCrop.value as? String
-        extractedCrop.pinch(withScale: 2, velocity: 1)
+        // The small iPad crop makes XCTest's 2× pinch move each finger only ~11 points.
+        // Use enough actual travel for the system gesture recognizer; still require a changed zoom value.
+        extractedCrop.pinch(withScale: 4, velocity: 1)
         XCTAssertTrue(wait { (extractedCrop.value as? String) != beforeZoom }, "The extracted crop actually zooms")
+        let zoomEvidence = XCTAttachment(string: "Crop \(extractedCrop.frame): zoom \(beforeZoom ?? "nil") → \(extractedCrop.value as? String ?? "nil")")
+        zoomEvidence.name = "Extracted crop pinch"; zoomEvidence.lifetime = .keepAlways; add(zoomEvidence)
         #endif
         capture(app, "A part extracted, up close")
         let third = partMenu(app, 3)
@@ -210,6 +214,9 @@ final class FigureViewJourneyTests: XCTestCase {
         let promotedComposer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(promotedComposer.waitForExistence(timeout: 5))
         XCTAssertTrue((promotedComposer.value as? String ?? "").contains("Left half"), "Promotion preserves the draft")
+        // No tap: the newly opened destination must accept typing as soon as its sheet closes.
+        app.typeText(" Follow-up")
+        XCTAssertTrue((promotedComposer.value as? String ?? "").hasSuffix(" Follow-up"), "Promotion focuses the retained composer")
         capture(app, "Continue the same figure conversation in Chat")
     }
 

@@ -2,6 +2,24 @@
 
 Last updated: 2026-10-20 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Responsiveness, dollar balances and platform parity (October 20; release checks in progress)
+
+The owner wants faster response to navigation, a dollar balance with each user's OpenRouter spending and
+category totals, and the same recent updates on iPad, browser and Mac. The owner explicitly confirms **no markup
+for now**. Exact provider cost must replace per-answer credit rounding before the UI calls its balance dollars.
+Keep provider expense, customer debits, unresolved receipts and the authorized unlimited testing allowance distinct.
+Do not present the organization's OpenRouter funding as an individual reader's balance.
+
+Navigation should acknowledge the selected destination without waiting for unrelated storage or network work.
+Accepted drafts remain owned by the account controller while device persistence completes; storage failures stay
+visible and recoverable, and sign-out/deletion retain their durable-write barriers. Do not retain unbounded decoded
+papers or hide loading failures to make navigation appear faster. Preserve the native scrolling repair.
+The platform audit records existing release evidence, missing behavior and new verification separately:
+[October 20 parity review](reviews/PLATFORM_PARITY_20261020.md).
+The new native/browser responsiveness and parity changes are locally verified; release checks remain in progress.
+Dollar settlement and its three client screens are still design only, specified in
+[Dollar balance](architecture/DOLLAR_BALANCE.md); this parity release does not rename rounded credits as dollars.
+
 ## Native chat scrolling (owner, October 19 local / October 20 UTC)
 
 The owner reports chat vibrating against a drag during both completed and streaming answers. Preserve the existing

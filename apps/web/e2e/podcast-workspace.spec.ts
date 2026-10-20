@@ -151,7 +151,7 @@ test('a missing evidence paper requires explicit Add with separate source revisi
   expect(f.calls.filter(c => c.action === 'start')).toHaveLength(0);
 });
 
-test('superseded evidence navigation preserves the transcript and cannot leave a later passage jump', async ({ page }) => {
+test('later navigation wins during draft persistence and cannot leave a deferred passage jump', async ({ page }) => {
   await fixture(page);
   await page.addInitScript(() => { (window as any).passages = []; window.addEventListener('message', e => {
     if (e.data?.gradstep === 'reader' && e.data.value?.type === 'passage') (window as any).passages.push(e.data.value.found);
@@ -175,15 +175,18 @@ test('superseded evidence navigation preserves the transcript and cannot leave a
   await message(page).fill('Hold this draft while I change my navigation choice'); await closeDrawer(page);
   await page.getByTestId('podcast-expand').click(); await page.getByTestId('podcast-evidence').click();
   await expect.poll(() => page.evaluate(() => (window as any).checkpointWaiting)).toBe(true);
-  await page.getByTestId('back-to-library').click();
+  // Evidence navigation responds before encryption completes; it closes the transcript as on any successful open.
+  await expect(page).toHaveURL(new RegExp(`/paper/${dpoID}$`));
+  await expect(page.getByTestId('podcast-expand')).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('link', { name: 'Library', exact: true }).click();
+  const passagesBeforeRelease = await page.evaluate(() => [...(window as any).passages]);
   await page.evaluate(() => (window as any).releaseCheckpoint());
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId('podcast-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('podcast-expand')).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByRole('button', { name: 'Add to library', exact: true })).toHaveCount(0);
-  await page.getByTestId('podcast-expand').click();
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click();
   await expect(page.getByTestId('reader-frame')).toBeVisible();
-  expect(await page.evaluate(() => (window as any).passages)).toEqual([]);
+  expect(await page.evaluate(() => (window as any).passages)).toEqual(passagesBeforeRelease);
 });
 
 test('paper generation is one explicit action; undeployed podcasts never offer a paid action', async ({ page }) => {

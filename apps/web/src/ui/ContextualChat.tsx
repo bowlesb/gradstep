@@ -23,4 +23,12 @@ export function promoteContextual(context:ReturnType<typeof useContextualChat>,e
   if (!context) return;
   context.host.chat.promoteContextual(context.composer,{anchor:context.anchor,label:context.label,quote:context.quote,explanation:[...explanation].slice(0,12000).join(''),image});
   context.host.onPromote?.();
+  // The native dialog must release its focus trap before the promoted composer takes focus. Bind to this
+  // exact composer and account so a later navigation or sign-out cannot focus an unrelated conversation.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (context.host.chat.signal.aborted || context.host.chat.storageRetired) return;
+    const field = document.querySelector<HTMLTextAreaElement>(`.pane-right textarea[data-composer-id="${context.composer.id}"]`);
+    field?.focus();
+    if (field) field.setSelectionRange(field.value.length, field.value.length);
+  }));
 }

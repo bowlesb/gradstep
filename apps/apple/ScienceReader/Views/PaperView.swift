@@ -848,6 +848,20 @@ struct PaperView: View {
 }
 
 struct PaperWebView: UIViewRepresentable {
+    /// Encode the verified index and bridge identity together. Opening a paper/figure used to encode the
+    /// complete index, decode it into Foundation objects, then encode those objects again on the main actor.
+    struct BridgeConfiguration: Encodable {
+        let index: ReaderBundleIndex
+        let manifestSHA256: String
+        let figureID: String?
+        enum CodingKeys: String, CodingKey { case manifestSHA256 = "manifest_sha256", figureID = "figure_id" }
+        func encode(to encoder: Encoder) throws {
+            try index.encode(to: encoder)
+            var identity = encoder.container(keyedBy: CodingKeys.self)
+            try identity.encode(manifestSHA256, forKey: .manifestSHA256)
+            try identity.encodeIfPresent(figureID, forKey: .figureID)
+        }
+    }
     let url: URL
     var bundle: VerifiedReaderBundle? = nil
     var figureID: String? = nil
@@ -945,13 +959,9 @@ struct PaperWebView: UIViewRepresentable {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         if let bundle { configuration.setURLSchemeHandler(ReaderBundleSchemeHandler(bundle: bundle), forURLScheme: "reader-bundle") }
         let script = Self.bridgeScript
-        var info: [String: Any] = [:]
-        if let bundle, let indexData = try? JSONEncoder().encode(bundle.index),
-           let index = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any] {
-            info = index; info["manifest_sha256"] = bundle.manifestSHA256
-            if let figureID { info["figure_id"] = figureID }
-        }
-        let json = (try? JSONSerialization.data(withJSONObject: info)) ?? Data("{}".utf8)
+        let json = bundle.flatMap {
+            try? JSONEncoder().encode(BridgeConfiguration(index: $0.index, manifestSHA256: $0.manifestSHA256, figureID: figureID))
+        } ?? Data("{}".utf8)
         // The line is placed before the first layout, so restoring a position never shifts.
         let line = figureID == nil ? paperLine.flatMap { try? JSONEncoder().encode($0) } : nil
         context.coordinator.appliedPaperLine = line == nil ? nil : paperLine

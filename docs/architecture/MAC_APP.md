@@ -1,5 +1,16 @@
 # Mac app
 
+## October 20 parity follow-up (verified locally; release pending)
+
+The native recent-change audit now exercises Mac wheel scrolling directly. During incoming text and after Stop,
+the chosen visible paragraph stays within 2 pt, its height within 1 pt, and actual wheel events move it in both
+directions. Catalog create/rename/default/switch/move-delete passes through Catalyst menus and sheets. Existing
+keyboard shortcuts and instant Contents jumps pass. Paper bridge configuration is semantically unchanged with
+one JSON encoding pass, and chat opening no longer imposes a fixed 300 ms focus delay.
+The full figure journey passes, including viewer bounds, keyboard dismissal and typing directly into the
+promoted main-chat composer; its rendered screenshot was reviewed.
+See the [platform parity review](../reviews/PLATFORM_PARITY_20261020.md) for exact artifacts and remaining checks.
+
 ## Chat scrolling release — 2026-10-20 (TestFlight 76 available)
 
 Mac **76**, source `365aeaa`, is **VALID / IN_BETA_TESTING**, with state and release notes read back at

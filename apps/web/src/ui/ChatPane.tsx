@@ -2,8 +2,8 @@ import {readVisualAnswers} from '../lib/chat-session';
 import { decodeStoredFigureParts, hasPartMarkers, partSegments, storedPaths, stripPartMarkers } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { transcriptFollows } from '../lib/chat-follow';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { TranscriptFollow } from '../lib/chat-follow';
 import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
 import { ChatSession, composerBusy, type Composer } from '../lib/chat-session';
@@ -89,16 +89,13 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const [renaming, setRenaming] = useState(false);
   useEffect(() => setRenaming(false), [c.id, c.conversationID]);
   const table = chat.profileTable, choice = chat.profileFor(c);
-  const viewport = useRef<HTMLDivElement>(null), bottom = useRef<HTMLDivElement>(null), follow = useRef(true);
-  // The transcript's own scrolls (following a streaming answer, "Latest message") are not the reader's: the next
-  // scroll event they raise leaves `follow` alone, so only the reader's wheel, touch or keyboard changes it.
-  const programmatic = useRef(false);
+  const viewport = useRef<HTMLDivElement>(null), bottom = useRef<HTMLDivElement>(null), follow = useRef(new TranscriptFollow());
   const [away, setAway] = useState(false);
   const showLatest = useCallback(() => {
     const el = viewport.current; if (!el) return;
     const top = el.scrollHeight - el.clientHeight;
     if (Math.abs(el.scrollTop - top) <= 1) return;
-    programmatic.current = true; el.scrollTop = top;
+    follow.current.programmatic(top); el.scrollTop = top;
   }, []);
   const field = useRef<HTMLTextAreaElement>(null);
   const [displayText, setDisplayText] = useState(c.liveText);
@@ -110,7 +107,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
     const t = setInterval(() => setDisplayText(latestText.current), 80);
     return () => clearInterval(t);
   }, [c.id, c.phase]);
-  useEffect(() => { follow.current = true; setAway(false); }, [c.id]);
+  useLayoutEffect(() => { follow.current.reset(); setAway(false); }, [c.id]);
   // Seconds spent waiting for the first text: a long think shows its length instead of a frozen "Thinking…".
   const [waited, setWaited] = useState(0);
   useEffect(() => {
@@ -124,7 +121,23 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
     if (!control || !documentID || !Number.isInteger(marker) || marker < 1) return false;
     onPassage(documentID, citationAnchor(marker)); return true;
   };
-  useEffect(() => { if (follow.current) showLatest(); }, [branch?.head, branch?.messages.length, displayText, c.phase, c.id, showLatest]);
+  useLayoutEffect(() => { if (follow.current.mayFollow) showLatest(); }, [branch?.head, branch?.messages.length, displayText, c.phase, c.id, showLatest]);
+  const endScrollInput = () => {
+    const el = viewport.current; if (!el) return;
+    setAway(!follow.current.endInput(el.scrollTop, el.scrollHeight - el.clientHeight));
+  };
+  useEffect(() => {
+    const end = (event: PointerEvent) => {
+      // Touch scrolling cancels its pointer when the browser takes over the pan, before the finger lifts.
+      // The touchend/touchcancel path owns release for that gesture.
+      if (event.pointerType === 'touch') return;
+      const el = viewport.current;
+      if (el && follow.current.isHolding) setAway(!follow.current.endInput(el.scrollTop, el.scrollHeight - el.clientHeight));
+    };
+    window.addEventListener('pointerup', end, { passive: true });
+    window.addEventListener('pointercancel', end, { passive: true });
+    return () => { window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
+  }, []);
   const messages = branch?.messages ?? [];
   const savedLive = messages.some(m => m.payload.entityID === c.liveID);
   const titleText = summary ? summaryTitle(summary) || 'Chat' : mode === 'paper' ? 'Ask about this paper' : 'General chat';
@@ -211,11 +224,25 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         : chat.journalState === 'unsupported' ? 'This browser can’t keep chats between visits: they stay for this session and sync while this tab is open.' : 'Saving encrypted history… Keep this tab open.')}
       {chat.history.issue && <button className="link" onClick={() => void chat.history.sync().catch(() => {})}>Retry sync</button>}
     </div>}
-    <div ref={viewport} className="chat-transcript" role="region" aria-label="Conversation" tabIndex={0} onScroll={() => {
-      if (programmatic.current) { programmatic.current = false; return; }
-      // The reader's own scroll (owner report, build 35: scrolling up while an answer streams snapped back down):
-      // following resumes only once they are at the end again, and stops the moment they leave it.
-      const el = viewport.current!; follow.current = transcriptFollows(el.scrollHeight - el.scrollTop - el.clientHeight); setAway(!follow.current);
+    <div ref={viewport} className="chat-transcript" role="region" aria-label="Conversation" tabIndex={0}
+    onWheelCapture={e => {
+      const el = viewport.current!;
+      if (e.deltaY !== 0 && (e.deltaY < 0 || el.scrollHeight - el.scrollTop - el.clientHeight > 2)) follow.current.input();
+    }}
+    onPointerDownCapture={() => follow.current.input(true)}
+    onPointerUpCapture={e => { if (e.pointerType !== 'touch') endScrollInput(); }}
+    onPointerCancelCapture={e => { if (e.pointerType !== 'touch') endScrollInput(); }}
+    onTouchStartCapture={() => follow.current.input(true)}
+    onTouchEndCapture={e => { if (!e.touches.length) endScrollInput(); }}
+    onTouchCancelCapture={e => { if (!e.touches.length) endScrollInput(); }}
+    onKeyDownCapture={e => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) follow.current.input(); }}
+    onKeyUpCapture={() => {
+      const el = viewport.current!;
+      setAway(!follow.current.scrolled(el.scrollTop, el.scrollHeight - el.clientHeight));
+    }}
+    onScroll={() => {
+      const el = viewport.current!;
+      setAway(!follow.current.scrolled(el.scrollTop, el.scrollHeight - el.clientHeight));
     }} onClick={e => {
       if (cite(e.target as Element)) { e.preventDefault(); return; }
       const a = (e.target as Element).closest('a[href]'); if (!a) return;
@@ -264,7 +291,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       {canAnswer && (c.issue || last?.payload.role === 'user') && <p className="fine" data-testid="retry-profile">This question: {profileSummary(chat.retryProfile(c), table)}</p>}
       {c.credits !== null && <p className="fine answer-cost">{c.credits === 0 && c.issue ? 'No credits used' : `${c.credits} ${c.credits === 1 ? 'credit' : 'credits'} used`}</p>}
       {deleted && <p className="issue">This conversation was deleted. Your draft is still here to copy.</p>}
-      {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); showLatest(); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
+      {away && <button className="jump-latest secondary small" onClick={() => { follow.current.reset(); setAway(false); showLatest(); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
       <div ref={bottom} />
     </div>
     {c.study && <StudyPanel map={c.study} busy={composerBusy(c) || !!c.answer} onEnd={() => chat.endStudy(c)}
@@ -322,9 +349,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   </div>;
 }
 const RichAnswer = lazy(() => import('./Answer'));
-function Answer({ text, streaming = false }: { text: string; streaming?: boolean }) {
+const Answer = memo(function Answer({ text, streaming = false }: { text: string; streaming?: boolean }) {
   return <Suspense fallback={<div className="question-text">{text}</div>}><RichAnswer text={text} streaming={streaming} /></Suspense>;
-}
+});
 
 export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOpen }: {
   chat: ChatSession | null; open: boolean; onClose: () => void; papers: Map<string, string>; currentDocument: string | null;

@@ -1,5 +1,27 @@
 # Fast and slow tests
 
+## October 20 platform parity
+
+The focused record is [the platform parity review](reviews/PLATFORM_PARITY_20261020.md). Browser catalog, draft
+navigation/persistence and figure-promotion journeys now run at both tablet sizes as well as desktop and phone.
+`chat-motion.spec.ts` adds actual touch injection during streaming, wheel scrollback, stopped-content stability
+and Latest message on paper and contextual figure chats. The old ChatPane fails with 1,541 px movement under a
+held finger; the current implementation passes with at most 1 px. This measures the displayed DOM, not just a
+mock follow state. A separate blocked-encryption negative control reproduces navigation waiting for storage.
+The final eight motion cases also move the touch enough to trigger the browser's `pointercancel`, require that
+event, then verify that incoming text still cannot take ownership before `touchend`. This reproduced a second
+1,541 px jump in the intermediate implementation; touch release now follows the touch lifecycle.
+
+Mac verification uses actual Catalyst wheel events plus a DEBUG/FIXTURE_HOST-only geometry readout, checking
+paragraph position and height during streaming, both wheel directions, and idle after Stop. The probe adds no
+release code. Catalog tests use Catalyst menus and scroll its compact deletion form to the final action.
+The complete Mac and iPad figure journeys type into the promoted composer without tapping it first. iPad's
+full-height Contents/discovery/relaunch and equation-tile journeys pass with explicit page presentation sizing;
+the prior short centered form failed the height assertion. A wider synthetic crop pinch reaches 170% from 100%;
+the earlier gesture moved each finger only 11.1 pt and did not recognize. The zoom implementation is unchanged.
+Existing slow evidence is reused for unchanged behavior. Playwright WebKit's durable-key skips remain explicit
+and do not count as Safari acceptance. No physical iPhone or paid provider request is needed for these checks.
+
 ## Native chat motion audit — October 20 UTC
 
 `WorkflowJourneyTests/testChatScrollAuditAtRest`, `testChatScrollAuditWhileStreaming`, and

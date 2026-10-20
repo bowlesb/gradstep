@@ -7,6 +7,35 @@ import ScienceReaderCore
 
 @MainActor
 final class PaperWebViewTests: XCTestCase {
+    func testBridgeConfigurationKeepsTheVerifiedIndexWithoutFoundationRoundTrips() throws {
+        let bundle = try OfflineReaderFixture.reader(variant: .mathpix)
+        for figureID in [nil, bundle.index.figures.first?.id] {
+            var original = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(bundle.index)) as? [String: Any])
+            original["manifest_sha256"] = bundle.manifestSHA256
+            if let figureID { original["figure_id"] = figureID }
+            let encoded = try JSONEncoder().encode(PaperWebView.BridgeConfiguration(
+                index: bundle.index, manifestSHA256: bundle.manifestSHA256, figureID: figureID))
+            let current = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+            XCTAssertEqual(NSDictionary(dictionary: current), NSDictionary(dictionary: original))
+        }
+        // The real fixture's opening work, without WebKit startup or disk acquisition obscuring serialization.
+        let count = 40
+        let before = ContinuousClock.now
+        for _ in 0..<count {
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(bundle.index)) as? [String: Any])
+            object["manifest_sha256"] = bundle.manifestSHA256
+            _ = try JSONSerialization.data(withJSONObject: object)
+        }
+        let originalTime = ContinuousClock.now - before, after = ContinuousClock.now
+        for _ in 0..<count {
+            _ = try JSONEncoder().encode(PaperWebView.BridgeConfiguration(
+                index: bundle.index, manifestSHA256: bundle.manifestSHA256, figureID: nil))
+        }
+        let currentTime = ContinuousClock.now - after
+        let report = XCTAttachment(string: "DPO bridge configuration, \(count) repetitions: original \(originalTime), current \(currentTime)")
+        report.name = "Navigation serialization measurement"; report.lifetime = .keepAlways; add(report)
+    }
+
     func testContentsJumpLandsImmediatelyWithReduceMotionOff() async throws {
         let harness = try Harness(document: "<h2 id='first'>First section</h2><p>Intro</p><div style='height:2400px'></div><h2 id='last'>Last section</h2><p style='height:1400px'>End</p>")
         defer { harness.close() }

@@ -1,5 +1,29 @@
 # Implementation status
 
+## Recent-change parity and responsiveness — October 20 UTC (locally verified; release pending)
+
+The iPad/browser/Mac audit covers named catalogs, account-return handling, queued keyword recovery, OpenRouter
+routing and attribution, owner testing allowance, explainers and chat navigation. Existing release evidence is
+kept separate from the new checks in the [platform review](reviews/PLATFORM_PARITY_20261020.md).
+
+New repairs: iPad Contents uses page sizing after the height test reproduced the short centered form; the browser
+routes immediately while the account-owned draft finishes saving; browser transcript following respects the whole
+touch gesture, including the pointer cancellation when a pan starts; promoted figure/equation chat focuses its
+retained composer. Native paper configuration uses one equivalent JSON encoding pass and composer focus no longer
+waits a fixed 300 ms. The native build-76 scrolling repair remains intact.
+
+Catalog, draft/navigation, paper/figure motion and contextual-chat promotion pass at four browser sizes. The final
+eight motion cases pass after negative controls reproduce 1,541 px jumps. Mac wheel/stream/idle geometry, catalog
+management and the full figure/focus journey pass; iPad catalogs, split-chat keyboard, equation tiles and full-height
+Contents/discovery/relaunch pass. Native screenshots were reviewed. The routine suite and final 495 browser unit
+checks pass. The release import/session gate and signed archives are still pending. Playwright WebKit's eight
+durable-key capability skips are not Safari acceptance; physical iPhone access remains paused.
+
+The requested no-markup USD balance, per-request spend log and category view remain **design only**, documented
+in [Dollar balance](architecture/DOLLAR_BALANCE.md). No fractional settlement prototype is included in this release.
+Replacement local models remain unqualified and the Mac catalog remains empty. No paid model calls, backend
+migrations or additional infrastructure commitment are part of this parity work.
+
 ## Native chat scrolling — October 20 UTC (TestFlight 76 on iPhone/iPad and Mac)
 
 The reported vibration reproduces offline: unchanged messages change height as the old hosted rows cross screen

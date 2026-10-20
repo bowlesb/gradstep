@@ -93,6 +93,7 @@ struct PaperContentsSheet: View {
             }
         }
         .presentationDetents([.large])
+        .modifier(ContentsPresentationSize())
     }
 
     @ViewBuilder private var list: some View {
@@ -186,6 +187,19 @@ struct PaperContentsSheet: View {
             if let current { result[block.id] = current }
         }
         return result
+    }
+}
+
+/// iPad's automatic form sizing can ignore the large detent and open a short centered sheet.
+/// A page presentation gives Contents the available reading height, preserving the same sheet and dismissal.
+private struct ContentsPresentationSize: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        #if targetEnvironment(macCatalyst)
+        content
+        #else
+        if #available(iOS 18.0, *) { content.presentationSizing(.page) }
+        else { content }
+        #endif
     }
 }
 

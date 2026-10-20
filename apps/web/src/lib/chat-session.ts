@@ -473,7 +473,8 @@ export class ChatSession {
       this.publish();
     });
   }
-  /** Commits every scheduled draft checkpoint and waits for accepted device writes (before sign-out or navigation). */
+  /** Captures scheduled drafts immediately and drains device writes. Sign-out awaits this; in-app navigation
+   * continues while the account-owned session persists the captured drafts and reports any failure. */
   async flushCheckpoints(): Promise<void> {
     const due = [...this.checkpoints.keys()].map(id => this.composers.get(id)).filter((c): c is Composer => !!c);
     await Promise.allSettled(due.map(c => this.checkpoint(c)));

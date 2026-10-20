@@ -328,7 +328,7 @@ createServer(async (request, response) => {
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     // midstream: the provider fails after the first text; nothing is charged (2026-10-16, CHAT.md "When an answer stops early").
-    if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
+    if (['answer', 'slow', 'steady', 'scrolling', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'midstream', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
@@ -601,9 +601,11 @@ createServer(async (request, response) => {
     event('status', { kind: body.action === 'related' ? 'searching' : 'reading', query: body.action === 'related' ? 'DPO related work' : undefined });
     const plain = 'The **objective** compares preferences [¶2].\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
     // A question with a figure attached: the answer marks where each part goes (2026-10-15), as the live model writes it.
-    const text = body.figures?.length && (body.capabilities ?? []).includes('visual_answers')
+    const text = mode === 'scrolling' ? Array.from({ length: 90 }, (_, i) =>
+      `Paragraph ${i + 1}. The preference objective compares the chosen response with the rejected response. The reference policy provides the baseline for this comparison, with beta controlling its scale [¶2].`).join('\n\n')
+      : body.figures?.length && (body.capabilities ?? []).includes('visual_answers')
       ? 'Figure 1 has two halves.\n\n[[part 1]]\nThe left half of the figure sets up the question.\n\n[[part 2]]\nThe right half shows the result.' : plain;
-    const chunks = text.match(mode === 'steady' ? /[\s\S]/g : /[\s\S]{1,24}/g);
+    const chunks = text.match(mode === 'steady' ? /[\s\S]/g : mode === 'scrolling' ? /[\s\S]{1,80}/g : /[\s\S]{1,24}/g);
     let index = 0;
     const tick = () => {
       if (response.destroyed) return;
