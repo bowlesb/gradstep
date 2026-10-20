@@ -1,6 +1,6 @@
 # Implementation status
 
-## Recent-change parity and responsiveness — October 20 UTC (locally verified; release pending)
+## Recent-change parity and responsiveness — October 20 UTC (TestFlight 77 and browser live)
 
 The iPad/browser/Mac audit covers named catalogs, account-return handling, queued keyword recovery, OpenRouter
 routing and attribution, owner testing allowance, explainers and chat navigation. Existing release evidence is
@@ -15,9 +15,21 @@ waits a fixed 300 ms. The native build-76 scrolling repair remains intact.
 Catalog, draft/navigation, paper/figure motion and contextual-chat promotion pass at four browser sizes. The final
 eight motion cases pass after negative controls reproduce 1,541 px jumps. Mac wheel/stream/idle geometry, catalog
 management and the full figure/focus journey pass; iPad catalogs, split-chat keyboard, equation tiles and full-height
-Contents/discovery/relaunch pass. Native screenshots were reviewed. The routine suite and final 495 browser unit
-checks pass. The release import/session gate and signed archives are still pending. Playwright WebKit's eight
-durable-key capability skips are not Safari acceptance; physical iPhone access remains paused.
+Contents/discovery/relaunch pass; the shared Contents change also passes on iPhone Simulator. Native screenshots
+were reviewed. The routine suite and final 495 browser unit checks pass. Playwright WebKit's eight durable-key
+capability skips are not Safari acceptance; physical iPhone access remains paused.
+
+iPhone/iPad and Mac TestFlight **77**, source **562ba8b**, are **VALID / IN_BETA_TESTING**, with both platform
+states and release notes read back at **15:55:20 UTC**. ASC IDs: iOS `599071dc-b0dd-4c98-af29-ab116161a20e`;
+Mac `5ebff063-3045-4837-a00c-a58adf3cb7ee`. The fresh optimized import/session gate passes **15/15, zero skips**
+at **15:23:10 UTC**. Both signed archives pass executable/dSYM identity and test-probe exclusion checks;
+iOS includes iPhone/iPad and excludes local answering runtimes/models, while Mac includes arm64/x86_64 and an
+empty model catalog. The first Mac archive failed its final packaging step; the unchanged-source retry completed
+cleanly. Its original error and undiagnosed cause are retained in the review, not relabeled as a product fix.
+
+Browser Pages **27c45ca0** uses the same **562ba8b** source. At **15:22:21 UTC**, the live domain's three entry
+scripts/styles and Apple app association match the release byte for byte. Release readbacks, signed archive
+identities and the import gate are under `.artifacts/releases/77/`.
 
 The requested no-markup USD balance, per-request spend log and category view remain **design only**, documented
 in [Dollar balance](architecture/DOLLAR_BALANCE.md). No fractional settlement prototype is included in this release.

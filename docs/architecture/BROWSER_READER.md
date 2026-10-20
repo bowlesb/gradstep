@@ -1,6 +1,6 @@
 # Browser reader
 
-## October 20 navigation and scrolling parity (verified locally; release pending)
+## October 20 navigation and scrolling parity (deployed, Pages 27c45ca0)
 
 The account-owned chat controller captures drafts before navigation and finishes encryption/storage after the
 route changes. Storage failure remains visible against that account, while sign-out/deletion retain their write
@@ -11,6 +11,9 @@ next streaming update. Figure/equation promotion focuses the retained composer a
 Four-size browser journeys and the old-code negative controls are recorded in the
 [platform parity review](../reviews/PLATFORM_PARITY_20261020.md). The existing WebKit durable-key limitation remains;
 tablet-width Chromium evidence does not establish Safari support.
+Pages **27c45ca0** contains source **562ba8b**. At **15:22:21 UTC**, the live domain's three entry scripts/styles
+and Apple app association match the release byte for byte. Deployment and readback evidence are under
+`.artifacts/releases/77/`. The dollar balance and spending-log UI remain unimplemented.
 
 ## Named catalogs and account-return errors — October 19 UTC
 

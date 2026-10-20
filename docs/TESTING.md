@@ -22,6 +22,17 @@ the earlier gesture moved each finger only 11.1 pt and did not recognize. The zo
 Existing slow evidence is reused for unchanged behavior. Playwright WebKit's durable-key skips remain explicit
 and do not count as Safari acceptance. No physical iPhone or paid provider request is needed for these checks.
 
+The final shared Contents height/discovery/relaunch journey also passes on iPhone 17 Pro Simulator
+(`phone-contents-final.xcresult`), with its screenshot reviewed. The build-77 optimized import/session gate passes
+**15/15, zero skips**, at **2026-10-20T15:23:10.082Z**; fingerprint
+`c11f9fd489f5722f64f4755379b0ebec7d19a2739422735250e5533c6e49761a`.
+Result: `.artifacts/import-acceptance/2026-10-20T15-15-12-188Z.xcresult`. Both signed build-77 archives from
+**562ba8b** pass signature and executable/dSYM identity checks at **15:50:20 UTC**. iOS includes iPhone/iPad and
+excludes local answering runtimes/models; Mac is arm64/x86_64 with an empty model catalog. Both binaries exclude
+the fixture motion probe and old-renderer control. Exact identities are in
+`.artifacts/releases/77/release-77-provenance.json`. The first Mac packaging failure and clean unchanged-source
+retry remain documented in the platform review; a diagnosed cause is not claimed.
+
 ## Native chat motion audit — October 20 UTC
 
 `WorkflowJourneyTests/testChatScrollAuditAtRest`, `testChatScrollAuditWhileStreaming`, and

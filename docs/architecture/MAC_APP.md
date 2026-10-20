@@ -1,6 +1,6 @@
 # Mac app
 
-## October 20 parity follow-up (verified locally; release pending)
+## October 20 parity follow-up (TestFlight 77 available)
 
 The native recent-change audit now exercises Mac wheel scrolling directly. During incoming text and after Stop,
 the chosen visible paragraph stays within 2 pt, its height within 1 pt, and actual wheel events move it in both
@@ -9,7 +9,11 @@ keyboard shortcuts and instant Contents jumps pass. Paper bridge configuration i
 one JSON encoding pass, and chat opening no longer imposes a fixed 300 ms focus delay.
 The full figure journey passes, including viewer bounds, keyboard dismissal and typing directly into the
 promoted main-chat composer; its rendered screenshot was reviewed.
-See the [platform parity review](../reviews/PLATFORM_PARITY_20261020.md) for exact artifacts and remaining checks.
+Mac **77**, source **562ba8b**, is **VALID / IN_BETA_TESTING** (ASC `5ebff063-3045-4837-a00c-a58adf3cb7ee`),
+with release notes read back at **15:55:16 UTC**. The signed universal archive passes arm64/x86_64 dSYM identity,
+empty model-catalog and test-probe exclusion checks. The import/session gate passes **15/15, zero skips**.
+The first archive's final packaging failure is retained; its unchanged-source retry completed cleanly.
+See the [platform parity review](../reviews/PLATFORM_PARITY_20261020.md) for exact artifacts and limitations.
 
 ## Chat scrolling release — 2026-10-20 (TestFlight 76 available)
 

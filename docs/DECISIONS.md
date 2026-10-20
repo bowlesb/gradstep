@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-20 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
-## Responsiveness, dollar balances and platform parity (October 20; release checks in progress)
+## Responsiveness, dollar balances and platform parity (October 20; parity released, dollars design only)
 
 The owner wants faster response to navigation, a dollar balance with each user's OpenRouter spending and
 category totals, and the same recent updates on iPad, browser and Mac. The owner explicitly confirms **no markup
@@ -16,7 +16,10 @@ visible and recoverable, and sign-out/deletion retain their durable-write barrie
 papers or hide loading failures to make navigation appear faster. Preserve the native scrolling repair.
 The platform audit records existing release evidence, missing behavior and new verification separately:
 [October 20 parity review](reviews/PLATFORM_PARITY_20261020.md).
-The new native/browser responsiveness and parity changes are locally verified; release checks remain in progress.
+The native/browser responsiveness and parity changes are released: iPhone/iPad and Mac TestFlight **77** are
+VALID / IN_BETA_TESTING, with notes read back at **15:55:20 UTC**; browser Pages **27c45ca0** has matching live
+assets and app association. All three use source **562ba8b**. The import/session gate passes **15/15, zero skips**,
+and both signed archives pass platform, symbol and test-probe exclusion checks.
 Dollar settlement and its three client screens are still design only, specified in
 [Dollar balance](architecture/DOLLAR_BALANCE.md); this parity release does not rename rounded credits as dollars.
 

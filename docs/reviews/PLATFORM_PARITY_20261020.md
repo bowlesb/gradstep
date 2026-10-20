@@ -1,6 +1,6 @@
 # Recent changes across iPad, browser and Mac
 
-Status: implementation and verification in progress; not yet released. Owner request, October 20: take recent
+Status: browser and iPhone/iPad/Mac TestFlight 77 released and verified. Owner request, October 20: take recent
 changes to iPad, web and macOS as well. The responsiveness repairs are included. The no-markup dollar-balance
 request remains a separate, unfinished accounting change, with its shared-client contract in
 [Dollar balance](../architecture/DOLLAR_BALANCE.md); it is not relabeled as a completed port.
@@ -34,7 +34,7 @@ The full-height/discovery/relaunch and equation-tile journeys pass after the cha
 [presentation sizing contract](https://developer.apple.com/documentation/swiftui/view/presentationsizing(_:))
 was checked before implementation; screenshot inspection confirms the actual displayed height.
 
-## Navigation and scrolling changes under review
+## Navigation and scrolling changes
 
 The browser's app-level navigation used to await `ChatSession.flushCheckpoints()`. This drained asynchronous
 encryption, IndexedDB and earlier accepted writes before applying the route. The session already owns the draft
@@ -96,10 +96,30 @@ Artifacts live under `.artifacts/parity-20261020/`:
   `ipad-contents-figure.xcresult` passes all three affected journeys after the page-sizing repair and a wider test
   pinch; the actual crop changes from **100% to 170%**. The zoom implementation is unchanged.
   The full figure journey also verifies typing into the promoted composer without first tapping it.
+- `phone-contents-final.xcresult`: the shared page-sizing change also passes the full-height/discovery/relaunch
+  journey on iPhone 17 Pro Simulator, with its screenshot reviewed. No physical phone was accessed.
 - `fast.log`: the complete routine tier passes; the final changed browser units also pass **495/495** in
-  `web-units-final.log`. `web-build.log` records the earlier production build and deployment-output checks;
-  the final build is recorded separately in `web-build-final.log`.
+  `web-units-final.log`. The production build and deployment-output checks pass in `web-build-final.log`.
+- The optimized import/session release gate passes **15/15, zero skips** at **15:23:10 UTC**, including the real
+  reported-paper corpus, keyword transport, rejected sessions and visible Apple/Google admission refusals.
+  Exact result: `.artifacts/import-acceptance/2026-10-20T15-15-12-188Z.xcresult`.
 
-Release checks and deployment identities will be recorded as they finish. Existing unchanged behavior
-retains its evidence in TESTING.md, IMPLEMENTATION_STATUS.md and release 76. Physical iPhone access remains paused.
+Browser Pages **27c45ca0**, source **562ba8b**, is deployed. The live domain's three entry scripts/styles and Apple
+app association match the release byte for byte, checked at **15:22:21 UTC**. Evidence:
+`.artifacts/releases/77/web-provenance.json`.
+
+iPhone/iPad and Mac TestFlight **77** use the same **562ba8b** source and are **VALID / IN_BETA_TESTING**,
+with both release notes read back at **15:55:20 UTC**. ASC IDs: iOS `599071dc-b0dd-4c98-af29-ab116161a20e`;
+Mac `5ebff063-3045-4837-a00c-a58adf3cb7ee`. Exact state, note and archive readbacks are under
+`.artifacts/releases/77/`.
+Existing unchanged behavior retains its evidence in TESTING.md, IMPLEMENTATION_STATUS.md and release 76.
 These checks use local synthetic answers and make no paid provider requests.
+
+The first Mac archive compiled and produced a signature-valid app, then Xcode failed its final archive step with
+“ScienceReader couldn’t be removed” / “Operation not permitted.” The retained intermediate directory is owned by
+the current user, has no immutable flags, and permits creating/removing a probe file; the error bundle supplies
+no underlying path or permission cause. The failed archive and logs are retained in `.artifacts/releases/77/`.
+No product-code repair is claimed for this packaging failure. The unchanged-source retry into a fresh archive
+destination reports **ARCHIVE SUCCEEDED**. Both signed build-77 archives pass signature, dSYM identity, platform
+and test-probe exclusion checks at **15:50:20 UTC** (`release-77-provenance.json`); Mac includes both architectures
+and an empty model catalog, while iOS includes iPhone/iPad and excludes local answering runtimes and models.
