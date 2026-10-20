@@ -1,5 +1,15 @@
 # Owner feedback log
 
+## Chat shaking while dragging — October 20 UTC (iPhone/iPad and Mac TestFlight 76)
+
+The reported motion reproduces offline with completed messages. The old renderer's negative control shows
+116 pt row-height variation and 113.67 pt movement beyond the finger. The repaired renderer and streaming
+snapshot handling pass real-drag tests, including reading within a growing answer, plus keyboard and selection
+regressions. The fresh import/session gate passes 15/15. iPhone/iPad and Mac **76** are VALID / IN_BETA_TESTING with
+notes verified. Physical-phone feel remains unverified under the existing pause.
+See [Chat](architecture/CHAT.md#native-transcript-sizing-audit--2026-10-20-utc) and [Testing](TESTING.md#native-chat-motion-audit--october-20-utc).
+The four screenshot items listed below retain their separate open status.
+
 ## October 18 late screenshots / October 19 account deletion (in progress)
 
 The repeated delete → Apple/Google return failure has a deployed lifecycle repair, not another one-time Auth-user

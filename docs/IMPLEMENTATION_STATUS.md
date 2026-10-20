@@ -1,6 +1,6 @@
 # Implementation status
 
-## Native chat scrolling — October 20 UTC (local repair; not released)
+## Native chat scrolling — October 20 UTC (TestFlight 76 on iPhone/iPad and Mac)
 
 The reported vibration reproduces offline: unchanged messages change height as the old hosted rows cross screen
 edges. The fixture-only old-renderer control measures 116 pt height drift and 113.67 pt movement beyond the finger.
@@ -11,8 +11,17 @@ static and streaming checks pass, including reading within the growing answer. F
 iPad motion has zero measured tracking error across 9,370 comparisons, and both split-layout keyboard journeys
 have passing runs. Light/dark rendering and selection/formula actions were checked. The fast suite passes.
 Architecture and evidence: [Chat](architecture/CHAT.md#native-transcript-sizing-audit--2026-10-20-utc)
-and [Testing](TESTING.md#native-chat-motion-audit--october-20-utc-local-not-released). No native upload, browser
-deployment, physical-phone access or paid model call is part of this audit.
+and [Testing](TESTING.md#native-chat-motion-audit--october-20-utc).
+
+iPhone/iPad and Mac TestFlight **76**, source **365aeaa**, are **VALID / IN_BETA_TESTING**, with both platform states
+and release notes read back at **05:51:31 UTC**. ASC IDs: iOS `d452b1d6-d795-45de-892e-ac37b11c80da`;
+Mac `9a358dae-92ec-4197-8f74-150b2d68174b`. The fresh optimized import/session gate passes
+**15/15, zero skips**, at **05:26:18 UTC**; the Mac chat show/hide and Settings-return journey passes **1/1**.
+The signed iOS archive passes signature, dSYM identity and local-answering-runtime exclusion checks; the motion
+probe and old-renderer control are absent from both release binaries. Mac 76 uploaded at **05:48:37 UTC** from
+the same source; its signed universal archive, both architecture dSYMs and empty local-model catalog pass verification.
+Evidence: `.artifacts/releases/76/`, including `release-76-provenance.json`. No browser deployment, physical-phone
+access or paid model call was needed for this repair/release.
 
 ## Unlimited owner testing — October 19 UTC (server/browser live)
 
@@ -20,7 +29,7 @@ Migration 094 is applied and verified. The freshly signed-in owner account has a
 replenishes its dedicated real credit bucket before each new operation. Initial readback: 100,000 available,
 zero reserved, one grant and one audit. Installed build 75 works with this balance immediately; its number
 replenishes automatically. Purchased credits, actual provider charges and platform spending controls remain
-separate. The new native **Unlimited testing** label is implemented and Simulator-tested, but not yet released.
+separate. The native **Unlimited testing** label is included in iPhone/iPad and Mac TestFlight **76**.
 Browser Pages **a19c9248**, source **c461f6b**, includes the new label.
 
 The affected database suite passes, including OpenRouter accounting and account lifecycle, plus eight concurrent

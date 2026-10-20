@@ -520,7 +520,8 @@ before; Rename writes `renamed` (≤ 80 characters; an empty name is ignored).
 
 ### Native transcript sizing audit — 2026-10-20 UTC
 
-Local repair, not released. Motion is verified with iPhone and iPad Simulator fixtures; physical-phone feel is unverified.
+iPhone/iPad and Mac TestFlight 76 include this repair; both are VALID / IN_BETA_TESTING with notes verified.
+Motion is verified with iPhone and iPad Simulator fixtures; physical-phone feel is unverified.
 
 The owner's back-and-forth shaking reproduces with completed, synthetic messages and no network. Restoring the
 old row renderer as a fixture-only negative control produces 116 pt of height variation in unchanged messages
@@ -555,7 +556,7 @@ same width, and a stable passage within 3 pt while idle in scrollback. A fixture
 renderer so the probe must also detect the known defect. The trace is written in the Simulator's temporary
 directory; the probe and negative control do not exist in shipped builds.
 The old-renderer control detects the defect and the repaired motion checks pass; exact counts, retained failures,
-keyboard/selection coverage and limitations are recorded in [Testing](../TESTING.md#native-chat-motion-audit--october-20-utc-local-not-released).
+keyboard/selection coverage and limitations are recorded in [Testing](../TESTING.md#native-chat-motion-audit--october-20-utc).
 
 ### Deploy order
 

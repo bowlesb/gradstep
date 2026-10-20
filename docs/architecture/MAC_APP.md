@@ -1,5 +1,19 @@
 # Mac app
 
+## Chat scrolling release — 2026-10-20 (TestFlight 76 available)
+
+Mac **76**, source `365aeaa`, is **VALID / IN_BETA_TESTING**, with state and release notes read back at
+**05:51:31 UTC** (ASC `9a358dae-92ec-4197-8f74-150b2d68174b`). Its universal archive passes signature and
+arm64/x86_64 dSYM identity checks; the local-answering model catalog remains empty. The diagnostic motion probe
+and old-renderer control are absent from the released binary. The shared transcript repair and native
+**Unlimited testing** label are included.
+
+The focused chat show/hide and Settings-return journey passes **1/1**, with its screenshot reviewed; this
+establishes window/navigation behavior, not Mac scroll-wheel motion. The shared renderer's measured motion
+acceptance is on iPhone/iPad Simulators. The fresh optimized import/session gate passes **15/15, zero skips**.
+Exact artifacts and source/binary identities are under `.artifacts/releases/76/`; see
+[Chat](CHAT.md#native-transcript-sizing-audit--2026-10-20-utc) and [Testing](../TESTING.md#native-chat-motion-audit--october-20-utc).
+
 ## Build 71 figure fullscreen correction — 2026-10-18 (TestFlight 71 available)
 
 Mac build **71**, source `927cbe9`, is **VALID / IN_BETA_TESTING** at **2026-10-18T18:02:37.560Z**

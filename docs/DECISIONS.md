@@ -1,6 +1,17 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-19 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-20 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Native chat scrolling (owner, October 19 local / October 20 UTC)
+
+The owner reports chat vibrating against a drag during both completed and streaming answers. Preserve the existing
+arrangement, selection, keyboard and follow/scrollback behavior. The offline negative control reproduces changing
+row heights at screen edges; streaming also exposes an unnecessary offscreen snapshot update. Contained hosting
+rows, stable measured estimates and deferred presentation during gestures address these measured causes.
+Motion/keyboard/selection checks and the fresh 15-case import gate pass. iPhone/iPad and Mac TestFlight **76** are
+VALID / IN_BETA_TESTING with notes verified; both archives use the same **365aeaa** source.
+This does not establish physical-phone acceptance or qualify browser/contextual-chat scrolling.
+See [Chat](architecture/CHAT.md#native-transcript-sizing-audit--2026-10-20-utc).
 
 ## Owner testing allowance and $5 usage pricing (2026-10-19; testing allowance deployed)
 
@@ -12,7 +23,7 @@ transfer after deletion. [Accounting design](architecture/SPENDING_CONTROLS.md#u
 
 Migration 094 is deployed and the freshly verified owner UUID has this allowance. One audited enable created
 100,000 available testing credits and zero reserved. Installed clients work immediately with that real balance;
-new native wording is implemented/tested but not yet in TestFlight. Browser wording is deployed.
+new native wording is in iPhone/iPad and Mac TestFlight 76. Browser wording is deployed.
 
 The $5 purchase interval (nonexpiring top-up versus monthly allowance) is being clarified before changing
 published purchase terms. Existing credits round per answer, so they must not be presented as an exact dollar

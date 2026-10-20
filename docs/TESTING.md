@@ -1,6 +1,6 @@
 # Fast and slow tests
 
-## Native chat motion audit — October 20 UTC (local; not released)
+## Native chat motion audit — October 20 UTC
 
 `WorkflowJourneyTests/testChatScrollAuditAtRest`, `testChatScrollAuditWhileStreaming`, and
 `testChatScrollAuditWithinGrowingAnswer` exercise real touch drags and flicks over 24 synthetic questions/answers,
@@ -40,8 +40,16 @@ and an app-rendered dark iPhone conversation capture were inspected. No colors o
 limit while native builds/Simulators were busy; its isolated rerun and the complete quiet rerun pass unchanged.
 Simulator startup stalls occurred before any app test, with launch stack samples retained; they are not app
 acceptance. These checks do not measure physical-phone frame rate, qualify figure/equation contextual chat or
-browser scrolling, or replace the mandatory fresh import gate before a native upload. No physical phone was
-accessed and no build was released for this audit.
+browser scrolling, or replace the mandatory fresh import gate before a native upload. No physical phone was accessed.
+
+The subsequent build-76 release gate passes **15/15, zero failures/skips**, with `-O` and whole-module compilation
+at **2026-10-20T05:26:18.203Z**, fingerprint `5c9d61c47f393104f3588632ac12bf65e304beaaaca19ff1cce059118dc70b1f`.
+Result: `.artifacts/import-acceptance/2026-10-20T05-19-44-822Z.xcresult`. The focused Mac
+`MacKeyboardTests/testChatColumnShortcutAndSettingsReturnKeepThePaper` passes **1/1**, with its screenshot reviewed;
+this verifies window/navigation behavior, not Mac scroll-wheel motion. Its result and the signed-archive/source
+provenance are under `.artifacts/releases/76/`. Both released binaries contain no scroll probe or legacy row switch
+and pass signature/dSYM checks. The iPhone/iPad binary passes local-answering-model exclusion; the Mac catalog
+remains empty. Both platforms are VALID / IN_BETA_TESTING, with notes read back at **05:51:31 UTC**.
 
 ## Named catalogs and repeated account return — October 19 UTC
 
