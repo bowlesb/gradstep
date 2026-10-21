@@ -114,7 +114,8 @@ def deploy(args):
     # Upload ingress uses immutable private 4 MiB octet-stream chunks. Only
     # provision its bucket when that reviewed function is selected for deploy.
     bucket_keys = ['paper_bucket'] + (['upload_bucket'] if 'upload-pdf' in selected_functions else []) \
-        + (['podcast_bucket', 'podcast_source_bucket'] if {'podcast', 'podcast-member'} & set(selected_functions) else [])
+        + (['podcast_bucket', 'podcast_source_bucket'] if {'podcast', 'podcast-member'} & set(selected_functions) else []) \
+        + (['note_bucket'] if 'note-assets' in selected_functions else [])
     for key in bucket_keys:
         expected = config[key]
         bucket = request(bucket_url + '/' + expected['id'], storage_headers, allow_missing=True)
