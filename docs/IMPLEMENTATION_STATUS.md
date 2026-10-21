@@ -55,7 +55,8 @@ paper. `ChatControlsTests` fails 3 on main's own stale tests: a removed `chat.pr
 and New chat under main's new Settings sheet (8143fd7). Mac `MacKeyboardTests` pass 5/5. iPad: two of three reading-mode
 journeys pass; the dark one timed out at the self-hiding bar under load, and it passed on the fresh iPad before the
 merge. The iPad ⌘F step of `testTabletReaderHidesAndResizesTheChatColumn` fails on this branch and also on main
-(`9ee4884`, built separately, 2 of 2) on the same Simulator.
+(`9ee4884`, built separately, 2 of 2) on the same Simulator. After a second merge of main (`c82a377`, no `apps/apple`
+changes), `npm test` passes in full (backend 686, browser units 553 in 61 files) and browser `tsc` is clean.
 
 ## Browser review fixes — October 21 UTC (local; not deployed)
 
