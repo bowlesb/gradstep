@@ -256,7 +256,9 @@ conversion's `raw/<sha>/` and `reader/<sha>/` (validated shapes only) — marks 
 (`worker_delete_account_finish`) and deletes the login; the app erases this device's account folder and Keychain
 items. A repeat call authenticates with the login alone and resumes, and the paper worker sweeps unfinished or
 raced deletions every minute (`worker_account_deletions_pending`); `worker_account_deletion_status` and
-`node scripts/finish-account-deletion.mjs ACCOUNT` are the operator views.
+`node scripts/finish-account-deletion.mjs ACCOUNT --confirm=ACCOUNT` are the operator views. The script (since
+2026-10-21, review A10) only continues a deletion that already began: it refuses an account that is not closed, a
+target other than the recorded staging project, and a missing or different `--confirm` UUID, before any write.
 
 Kept under the account's random ID, which no longer maps to an email once the login is gone (owner decision):
 credit, usage, operation, subscription and audit records, and the records of which papers were converted privately
