@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Renders the cached public DPO artifact saved by reader-cutover-canary. No
+// Renders the cached public DPO artifact saved by reader-cutover-canary (retired 2026-10-21). No
 // credentials, live endpoints or downloads; only an ephemeral loopback server.
 import { createHash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';

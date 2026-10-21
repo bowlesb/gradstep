@@ -18,11 +18,15 @@ import time
 from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT.parent / 'textbrain'
+# Science Reader's dedicated App Store Connect key (AGENTS.md: dedicated credentials), as scripts/asc.mjs reads it:
+# .env.appstore names the key; the .p8 stays under secrets/. Never TextBrain's key or files.
+APPSTORE_ENV = ROOT / '.env.appstore'
+APPSTORE_KEYS = ROOT / 'secrets'
 PROJECT = 'coxhjvqpflgxkleydati'
 ORGANIZATION = 'mhiweqpcwyqtyorgqhla'
 TEAM = '3BJ33TT599'
 BUNDLE = 'com.sciencereader.ios'
+# A same-team bundle read only to confirm the key's team (Apple bundle IDs are team-scoped); never modified.
 REFERENCE_BUNDLE = 'com.textbrain.ios'
 CALLBACK = 'sciencereader://auth/callback'
 MANAGEMENT = 'api.supabase.com'
@@ -173,7 +177,7 @@ def credentials():
     require(keychain.returncode == 0 and keychain.stdout.strip(), 'management_credential_unavailable')
     names = {'ASC_KEY_ID', 'ASC_ISSUER_ID', 'ASC_KEY_PATH'}
     locators = {}
-    for line in bounded_file(REFERENCE / '.env', 1048576).decode().splitlines():
+    for line in bounded_file(APPSTORE_ENV, 1048576).decode().splitlines():
         match = re.fullmatch(r'\s*(?:export\s+)?(ASC_KEY_ID|ASC_ISSUER_ID|ASC_KEY_PATH)\s*=\s*(.*?)\s*', line)
         if match:
             value = match[2]
@@ -183,8 +187,8 @@ def credentials():
             locators[match[1]] = value
     require(set(locators) == names and re.fullmatch(r'[A-Z0-9]{10}', locators['ASC_KEY_ID'])
             and re.fullmatch(r'[0-9a-fA-F-]{36}', locators['ASC_ISSUER_ID']), 'asc_locator_invalid')
-    key = (REFERENCE / locators['ASC_KEY_PATH']).resolve(strict=True)
-    require(key.is_relative_to(REFERENCE.resolve()) and key.is_file() and key.stat().st_size <= 16384,
+    key = (ROOT / locators['ASC_KEY_PATH']).resolve(strict=True)
+    require(key.is_relative_to(APPSTORE_KEYS.resolve()) and key.is_file() and key.stat().st_size <= 16384,
             'asc_key_location_refused')
     node = shutil.which('node')
     require(node is not None, 'node_required_for_asc_signing')

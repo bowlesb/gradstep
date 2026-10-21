@@ -6,9 +6,12 @@ import subprocess
 import uuid
 import importlib.util
 import argparse
+from pg_tools import pg_bin  # SCIENCE_READER_PG_BIN, PATH, or the documented local tools
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BIN = pathlib.Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
+BIN = pg_bin()
+# The fixture modules (tests/database/*.py) read the same directory.
+os.environ['SCIENCE_READER_PG_BIN'] = str(BIN)
 BASE = ['-h', '127.0.0.1', '-p', '55431']
 # Every operation targets the disposable loopback fixture. Inherited libpq
 # services/options/users must not redirect or alter that authority.

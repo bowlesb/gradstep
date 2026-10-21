@@ -14,7 +14,7 @@ import subprocess
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
-BIN = Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
+BIN = Path(os.environ['SCIENCE_READER_PG_BIN'])
 BASE = ['-h', '127.0.0.1', '-p', '55431']
 MIGRATION = ROOT / 'supabase/migrations/202610080044_subscription_upgrade_credits.sql'
 ENV = {key: value for key, value in os.environ.items() if not key.startswith('PG')}

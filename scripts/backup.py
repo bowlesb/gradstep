@@ -23,9 +23,10 @@ import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from migration_ledger import source_ledger, verify_applied_prefix
+from pg_tools import pg_bin  # SCIENCE_READER_PG_BIN, PATH, or the documented local tools
 
 ROOT = Path(__file__).resolve().parents[1]
-PG_BIN = Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
+PG_BIN = pg_bin()
 SCHEMAS = ['app_private', 'public', 'auth', 'storage', 'science_reader_migrations']
 MAX_BYTES = 2 * 1024**3
 
