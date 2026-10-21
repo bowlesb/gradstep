@@ -121,7 +121,7 @@ private final class ReportHostingController: UIHostingController<AnyView> {
 final class ScreenshotReportPrompt {
     static let shared = ScreenshotReportPrompt()
     static let enabledKey = "report.screenshotPrompt"
-    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? false }
+    static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
     private weak var model: ReaderModel?
     private var observer: NSObjectProtocol?
     private var window: UIWindow?

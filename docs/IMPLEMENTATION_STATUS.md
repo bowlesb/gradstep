@@ -29,7 +29,7 @@ Owner feedback 14:35–15:14 UTC ([log](OWNER_FEEDBACK.md)), one commit per item
 merged with main (Snippets rename, 2176da36). Changes: keyword chip → Edit tags with its two searches on top (native,
 browser); Contents/gallery/Go to figure jump at the tap (native; the browser already did); "Manage catalogs"; figure,
 table and equation pages' top row = Snippet, Chat, AI Explainer in words, no ⋯/Report/X on touch screens (Mac and
-browser keep the X), after-screenshot report offer off by default; paper chat prepares its paper on the device
+browser keep the X), after-screenshot report offer on by default (owner reconsidered the build-78 note); paper chat prepares its paper on the device
 (`readerBundleForChat`) and names a failure's reason (native `reader_unprepared`, browser `reader_no_html` /
 `reader_retrieval` / `reader_unprepared`); keyword fallback to narrower arXiv subjects plus a visible Add keywords chip
 (Swift/server lists compared by `tests/backend/tags.test.ts`; `arxiv-source-metadata.js` rebuilt, reader compiler and
