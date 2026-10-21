@@ -27,7 +27,7 @@ Gates: ≥ 95% panel recall and < 2% wrong crops. All development uses the 238-f
   candidate (test 2: 73.3% fully right, 18.8% harmful, 84% recall) remains the best system. Test 2 is spent; a
   fresh test-3 candidate set (227 figures from unused author families) and an independent-review packet are
   ready, not yet labelled.
-- Cost: $0 paid API; RTX 3090 ≈ 3 GPU-hours (VLM 1.5 h, detector fine-tunes 1 h, predictions) plus CPU.
+- Cost: $0 paid API; RTX 3090 ≈ 2 GPU-hours (VLM ≈ 1 h, two detector fine-tunes ≈ 40 min, predictions) plus CPU; electricity not priced.
 
 ## 1. Structure first: how often the HTML already splits a figure
 
