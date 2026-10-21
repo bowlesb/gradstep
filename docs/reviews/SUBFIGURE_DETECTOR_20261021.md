@@ -195,6 +195,13 @@ r5 e07, 6 epochs) did **not** help: 72.3% arXiv / 94.6% frozen at its best epoch
 real compounds but differ from the single-image figures the app sends (wider gutters, paper fonts, subcaptions
 in body type), and the fine-tune slightly over-split singles (9.7% false splits).
 
+**Frozen system (12:41 UTC, before any final-test prediction):** r4-r50m-pseudo EMA epoch 4 (RT-DETRv2-M,
+R50; SHA `f7736570…a167`) + completion + caption-constrained decoding + two-view agreement, threshold .5
+(system file SHA `17520d8b…ebe3`, policy.py `3fe5b49b…697f`). Its validation results: arXiv 75.6% (95% CI
+69.8–81.0), harmful 13.4%, single false splits 4.8%, compound perfect 68.8%, crop precision 87.9%;
+frozen 96.2% (93.8–98.2), harmful 1.6%. Declared test comparators: the rights-clean r3 e05 with the same
+policy, and v13 raw / v13 + completion.
+
 **Ensembles did not help.** Weighted box fusion of r1+r2+r5 (or r2+r5) reaches 73.5% / 72.7% on arXiv
 validation with the full policy — no better than r2 alone — and 97.1% on frozen validation. The models make
 correlated errors; the limit is the training data for non-plot compounds, not variance.
