@@ -64,7 +64,8 @@ test('chosen columns persist, scroll within the center and keep titles and keybo
   await page.getByRole('button', { name: 'Scroll columns left' }).click();
   await expect.poll(() => scroll.evaluate(e => e.scrollLeft)).toBe(0);
   await scroll.focus();
-  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
+  // To the end with the keyboard (more columns since B9: a phone needs more steps than six).
+  for (let i = 0; i < 40 && await scroll.evaluate(e => e.scrollLeft + e.clientWidth < e.scrollWidth - 1); i++) await page.keyboard.press('ArrowRight');
   expect(await scroll.evaluate(e => e.scrollLeft)).toBeGreaterThan(0);
   expect((await pinned.boundingBox())!.x).toBeCloseTo(origin.x, 0);
   const scrollerBox = (await scroll.boundingBox())!;
