@@ -30,6 +30,9 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--threshold', type=float, default=.5)
     ap.add_argument('--onnx', action='store_true')
+    ap.add_argument('--precision', choices=['fp32', 'fp16'], default='fp32')
+    ap.add_argument('--use-package', help='replay an existing (e.g. weight-compressed) package instead of converting')
+    ap.add_argument('--compute-units', choices=['ALL', 'CPU_ONLY', 'CPU_AND_GPU', 'CPU_AND_NE'], default='ALL')
     args = ap.parse_args()
     repo, out = pathlib.Path(args.repo), pathlib.Path(args.out)
     rev = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
@@ -98,15 +101,24 @@ def main():
     with torch.inference_mode():
         traced = torch.jit.trace(model, torch.from_numpy(first), strict=True)
     report['trace_seconds'] = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    ml = ct.convert(traced, source='pytorch', convert_to='mlprogram',
-                    inputs=[ct.TensorType(name='images', shape=(1, 3, 640, 640), dtype=np.float32)],
-                    outputs=[ct.TensorType(name='logits'), ct.TensorType(name='boxes')],
-                    minimum_deployment_target=ct.target.macOS14, compute_precision=ct.precision.FLOAT32, compute_units=ct.ComputeUnit.ALL)
-    report['conversion_seconds'] = time.perf_counter() - t0
-    pkg = out / f'panel-detector-{args.arch}-fp32.mlpackage'
-    ml.save(str(pkg))
-    report['package_bytes'] = sum(p.stat().st_size for p in pkg.rglob('*') if p.is_file())
+    if args.use_package:
+        ml = ct.models.MLModel(args.use_package, compute_units=getattr(ct.ComputeUnit, args.compute_units))
+        pkg = pathlib.Path(args.use_package)
+        report['conversion_seconds'] = None
+        report['package_bytes'] = sum(p.stat().st_size for p in pkg.rglob('*') if p.is_file())
+        report['precision'] = 'from-package:' + pkg.name; report['compute_units'] = args.compute_units
+    else:
+        t0 = time.perf_counter()
+        ml = ct.convert(traced, source='pytorch', convert_to='mlprogram',
+                        inputs=[ct.TensorType(name='images', shape=(1, 3, 640, 640), dtype=np.float32)],
+                        outputs=[ct.TensorType(name='logits'), ct.TensorType(name='boxes')],
+                        minimum_deployment_target=ct.target.macOS14, compute_precision=ct.precision.FLOAT32 if args.precision == 'fp32' else ct.precision.FLOAT16,
+                        compute_units=getattr(ct.ComputeUnit, args.compute_units))
+        report['conversion_seconds'] = time.perf_counter() - t0
+        pkg = out / f'panel-detector-{args.arch}-{args.precision}.mlpackage'
+        ml.save(str(pkg))
+        report['package_bytes'] = sum(p.stat().st_size for p in pkg.rglob('*') if p.is_file())
+        report['precision'] = args.precision; report['compute_units'] = args.compute_units
     sess = None
     if args.onnx:
         onnx_path = out / f'panel-detector-{args.arch}.onnx'

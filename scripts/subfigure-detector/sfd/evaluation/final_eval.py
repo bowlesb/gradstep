@@ -21,6 +21,8 @@ def main():
     ap.add_argument('--out', type=Path, required=True)
     ap.add_argument('--acknowledge-final-test', action='store_true')
     ap.add_argument('--bootstrap', type=int, default=5000)
+    ap.add_argument('--ocr', type=Path, help='OCR text lines per figure (needed when the system uses letter_group)')
+    ap.add_argument('--classes', type=Path, help='optional {figure_id: failure class} map')
     args = ap.parse_args()
     system = json.loads(args.system.read_text())
     gts, cache = SW.load_set(args.gt, '.')
@@ -34,7 +36,7 @@ def main():
     cfg = dict(system['policy'])
     if system.get('agree_iou'):
         cfg['agree_iou'] = system['agree_iou']
-    rows = SW.run(gts, cache, preds, cfg, None, preds_b if system.get('agree_iou') else None)
+    rows = SW.run(gts, cache, preds, cfg, None, preds_b if system.get('agree_iou') else None, SW.load_ocr(args.ocr))
     summary = E.aggregate(rows)
     summary['ci95'] = E.bootstrap(rows, E.KEYS + ['full_coverage_rate_when_split'], args.bootstrap)
     for stratum in sorted({g.get('stratum') or 'none' for g in gts}):
@@ -50,6 +52,12 @@ def main():
         for v in sorted({fn(g) for g in gts}):
             sub = [r for r, g in zip(rows, gts) if fn(g) == v]
             summary.setdefault(key, {})[v] = E.aggregate(sub)
+    from sfd.annotate import classes as CL
+    cls = json.loads(args.classes.read_text()) if args.classes else {g['id']: CL.tag(g) for g in gts}
+    for v in sorted(set(cls.values())):
+        sub = [r for r, g in zip(rows, gts) if cls.get(g['id']) == v]
+        if sub:
+            summary.setdefault('by_class', {})[v] = E.aggregate(sub)
     for method in sorted({g.get('label_method') or 'n/a' for g in gts}):
         sub = [r for r, g in zip(rows, gts) if (g.get('label_method') or 'n/a') == method]
         summary.setdefault('by_label_method', {})[method] = E.aggregate(sub)

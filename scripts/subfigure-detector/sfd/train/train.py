@@ -221,6 +221,16 @@ def main():
     ap.add_argument('--max-hours', type=float, default=3)
     ap.add_argument('--patience', type=int, default=5)
     ap.add_argument('--init', type=Path, help='optional fine-tuned checkpoint of the same architecture')
+    ap.add_argument('--config', type=Path, help='JSON run config (configs/runs/*.json); explicit flags override it')
+    pre_ap = argparse.ArgumentParser(add_help=False)
+    pre_ap.add_argument('--config', type=Path)
+    pre, _ = pre_ap.parse_known_args()
+    if pre.config:
+        cfgj = json.loads(pre.config.read_text())
+        ap.set_defaults(**{k: (Path(v) if k in ('weights', 'sources') else v) for k, v in cfgj.items() if not k.endswith('_note')})
+        for a in ap._actions:
+            if a.dest in cfgj:
+                a.required = False
     args = ap.parse_args()
     if args.out.exists():
         raise ValueError('Run directory exists')

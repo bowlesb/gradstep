@@ -1,0 +1,19 @@
+[
+ {"name": "vector-compound", "path": "data/train-v1/vector-compound.jsonl", "weight": 1.0},
+ {"name": "vector-single", "path": "data/train-v1/vector-single.jsonl", "weight": 0.5},
+ {"name": "vector-grouped", "path": "data/train-v3/vector-grouped.jsonl", "weight": 0.5},
+ {"name": "vector-letter-groups", "path": "data/train-v4/vector-letter-groups.jsonl", "weight": 2.0},
+ {"name": "xycut-compound-verified", "path": "data/train-v2/xycut-compound-verified.jsonl", "weight": 2.0},
+ {"name": "xycut-compound", "path": "data/train-v2/xycut-compound.jsonl", "weight": 1.5},
+ {"name": "xycut-single", "path": "data/train-v2/xycut-single.jsonl", "weight": 0.5},
+ {"name": "synthetic-compound", "path": "data/train-v2/synthetic-compound.jsonl", "weight": 0.6},
+ {"name": "synthetic-negative", "path": "data/train-v2/synthetic-negative.jsonl", "weight": 0.4},
+ {"name": "synthetic-groups", "path": "data/synth-cls-groups/rows.jsonl", "weight": 1.0},
+ {"name": "synthetic-framed", "path": "data/synth-cls-framed/rows.jsonl", "weight": 1.0},
+ {"name": "synthetic-touching", "path": "data/synth-cls-touching/rows.jsonl", "weight": 1.0},
+ {"name": "synthetic-many", "path": "data/synth-cls-many/rows.jsonl", "weight": 0.8},
+ {"name": "pseudo-compound-clean", "path": "data/pseudo-v2/pseudo-compound.jsonl", "weight": 1.5},
+ {"name": "pseudo-single-clean", "path": "data/pseudo-v2/pseudo-single.jsonl", "weight": 0.5},
+ {"name": "arxiv-reviewed-1018", "path": "data/train-v1/old-arxiv-reviewed.jsonl", "weight": 3.0},
+ {"name": "generated-plots-1018", "path": "data/train-v1/old-generated.jsonl", "weight": 0.3}
+]

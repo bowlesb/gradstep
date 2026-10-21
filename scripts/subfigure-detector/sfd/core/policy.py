@@ -261,6 +261,83 @@ def caption_decode(pred, L, img, cfg, min_score=0.15):
 
 POLICY_REVISION = 'sfd-policy-2026-10-22'
 
+LETTER_LINE = __import__('re').compile(r'^\(?([a-lA-L])\)(?:\s|$)|^\(?([a-lA-L])\)?[.:]?$')
+
+
+def letters_from_text(lines, wanted):
+    """Panel letters from OCR/PDF text lines [{'text', 'box'}]: '(a)', '(a) Title', 'a)', 'a'. Returns
+    [(char, box)] only when every wanted letter occurs exactly once; the letter's box is the line's first
+    characters. None otherwise (the caller then ignores letters)."""
+    found = {}
+    for ln in lines:
+        t = ln['text'].strip()
+        m = LETTER_LINE.match(t)
+        if not m:
+            continue
+        ch = (m.group(1) or m.group(2)).lower()
+        if ch not in wanted:
+            continue
+        x0, y0, x1, y1 = ln['box']
+        w = (x1 - x0) * min(1.0, 3.0 / max(1, len(t)))
+        found.setdefault(ch, []).append([x0, y0, x0 + w, y1])
+    if sorted(found) != sorted(wanted) or any(len(v) != 1 for v in found.values()):
+        return None
+    return [(c, found[c][0]) for c in sorted(found)]
+
+
+def cx(b):
+    return (b[0] + b[2]) / 2
+
+
+def cy(b):
+    return (b[1] + b[3]) / 2
+
+
+def group_by_letters(cores, panel_boxes, letters):
+    """cores/panel_boxes: per plotting area; letters: list of (char, box). Returns group boxes or (None, why)."""
+    L = len(letters)
+    votes = 0
+    for _, lb in letters:
+        j = min(range(len(cores)), key=lambda k: gap(lb, cores[k]))
+        votes += 1 if cy(lb) <= cores[j][1] + 0.25 * (cores[j][3] - cores[j][1]) else -1
+    mode = 'top' if votes >= 0 else 'bottom'
+    assign = []
+    for c in cores:
+        best, bd = None, 1e18
+        for k, (_, lb) in enumerate(letters):
+            if mode == 'top':
+                ok = cy(lb) <= c[1] + 0.25 * (c[3] - c[1]) and cx(lb) <= c[2]
+                d = ((cx(lb) - c[0]) ** 2 + (cy(lb) - c[1]) ** 2) ** .5
+            else:
+                ok = cy(lb) >= c[3] - 0.25 * (c[3] - c[1]) and min(lb[2], c[2]) - max(lb[0], c[0]) > -0.5 * (c[2] - c[0])
+                d = ((cx(lb) - cx(c)) ** 2 + (cy(lb) - c[3]) ** 2) ** .5
+            if ok and d < bd:
+                best, bd = k, d
+        if best is None:
+            return None, 'unassigned_area'
+        assign.append(best)
+    if set(assign) != set(range(L)):
+        return None, 'letter_without_area'
+    groups = []
+    for k in range(L):
+        u = list(letters[k][1])
+        for j, a in enumerate(assign):
+            if a == k:
+                u = union(u, panel_boxes[j])
+        groups.append(u)
+    for a in range(L):
+        for b in range(a + 1, L):
+            if area(inter(groups[a], groups[b])) > 0.03 * min(area(groups[a]), area(groups[b])):
+                return None, 'group_overlap'
+    for k in range(L):
+        for j, a in enumerate(assign):
+            if a != k and area(inter(groups[k], cores[j])) > 0.05 * area(cores[j]):
+                return None, 'group_contains_other_area'
+    return (groups, mode), 'ok'
+
+
+
+
 
 def agree(a, b, thr=.7):
     """Two views agree when they give the same number of crops and the crops pair up at IoU >= thr."""
@@ -291,7 +368,24 @@ def _score_of(crop, pred, cls):
     return best
 
 
-def decide(pred_a, img, cfg, pred_b=None, caption_letters=(), mask=None, comps=None):
+def letter_regroup(pred, img, letters, c):
+    """Group detected plotting areas under printed letters (lettered parts made of several plots)."""
+    H, W = img.shape[:2]
+    raw = [p for p in pred if p['class'] == c.get('panel_class', 0) and p['score'] >= c.get('threshold', .5)]
+    raw = [b['box'] for b in suppress(raw, c.get('nms_iou', .5), c.get('contain', .85)) if area(b['box']) < .85 * W * H]
+    if len(raw) <= len(letters):
+        return None
+    res, _ = group_by_letters(raw, raw, letters)
+    if res is None:
+        return None
+    groups, _ = res
+    crops = complete(groups, c['_mask'], c.get('_comps'))
+    if any(area(x) >= .92 * W * H for x in crops):
+        return None
+    return crops
+
+
+def decide(pred_a, img, cfg, pred_b=None, caption_letters=(), mask=None, comps=None, text_lines=None):
     """The complete on-device decision for one figure image (reference implementation for the apps).
 
     pred_a / pred_b: decoded detections ({'class', 'score', 'box'} in image pixels) for the 1.0 and 0.75
@@ -305,6 +399,14 @@ def decide(pred_a, img, cfg, pred_b=None, caption_letters=(), mask=None, comps=N
     use_b = pred_b is not None and cfg.get('agree_iou')
     thr = cfg.get('agree_iou', .7)
     crops, reason = None, None
+    if cfg.get('letter_group') and L >= 2 and text_lines:
+        letters = letters_from_text(text_lines, sorted(set(caption_letters)))
+        if letters:
+            g = letter_regroup(pred_a, img, letters, c)
+            if g:
+                parts = [{'id': f'P{k + 1}', 'box': [float(v) for v in b], 'score': round(_score_of(b, pred_a, cfg.get('panel_class', 0)), 4)}
+                         for k, b in enumerate(reading_order(g))]
+                return {'status': 'split', 'reason': 'letter-grouped', 'parts': parts}
     if cfg.get('caption_decode') and L >= 2:
         crops = caption_decode(pred_a, L, img, c, cfg.get('decode_min_score', .15)) or []
         reason = 'caption-decoded'
@@ -325,3 +427,42 @@ def decide(pred_a, img, cfg, pred_b=None, caption_letters=(), mask=None, comps=N
     parts = [{'id': f'P{k + 1}', 'box': [float(v) for v in b], 'score': round(_score_of(b, pred_a, cls), 4)}
              for k, b in enumerate(reading_order(crops))]
     return {'status': 'split', 'reason': reason, 'parts': parts}
+
+
+def caption_letters(caption):
+    """Distinct panel letters a caption names: '(a)', 'a)' followed by space, '\\textbf{(a)}' (as in corpus_index)."""
+    import re
+    letters = set()
+    for m in re.finditer(r'\(([a-hA-H])\)', caption):
+        letters.add(m.group(1).lower())
+    for m in re.finditer(r'(?<![\w\\])([a-h])\)\s', caption):
+        letters.add(m.group(1))
+    for m in re.finditer(r'\\textbf\{\s*\(?([a-hA-H])\)?\s*[\.:]?\s*\}', caption):
+        letters.add(m.group(1).lower())
+    return sorted(letters)
+
+
+def letterbox_transform(width, height, size=640, zoom=1.0):
+    """The model input placement: aspect fit * zoom, centred, white padding. Returns (sx, sy, left, top, rw, rh)."""
+    s = min(size / width, size / height) * zoom
+    rw, rh = max(1, round(width * s)), max(1, round(height * s))
+    left, top = int((size - rw) * .5), int((size - rh) * .5)
+    return rw / width, rh / height, left, top, rw, rh
+
+
+def decode_outputs(logits, boxes, width, height, size=640, zoom=1.0, min_score=.03):
+    """Raw model outputs (logits [Q, C], normalized cx,cy,w,h boxes [Q, 4] in the letterbox) -> detections
+    {'class', 'score', 'box': [x0, y0, x1, y1] in original image pixels}."""
+    sx, sy, left, top, _, _ = letterbox_transform(width, height, size, zoom)
+    prob = 1 / (1 + np.exp(-np.clip(np.asarray(logits, dtype=np.float64), -80, 80)))
+    out = []
+    for p, b in zip(prob, np.asarray(boxes, dtype=np.float64)):
+        k = int(p.argmax()); s = float(p[k])
+        if s < min_score:
+            continue
+        cx, cy, bw, bh = b * size
+        bb = [max(0., (cx - bw / 2 - left) / sx), max(0., (cy - bh / 2 - top) / sy),
+              min(float(width), (cx + bw / 2 - left) / sx), min(float(height), (cy + bh / 2 - top) / sy)]
+        if bb[2] > bb[0] and bb[3] > bb[1]:
+            out.append({'class': k, 'score': s, 'box': bb})
+    return out

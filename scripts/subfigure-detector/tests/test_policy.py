@@ -118,3 +118,20 @@ def test_decide_single_figure():
     img, _ = two_panel()
     d = P.decide([{'class': 0, 'score': .9, 'box': [0, 0, 400, 200]}], img, DECODE, pred_b=[], caption_letters=[])
     assert d['status'] == 'whole'
+
+
+def test_caption_letters_parser():
+    assert P.caption_letters('Results. (a) Loss; (b) accuracy and (c) time.') == ['a', 'b', 'c']
+    assert P.caption_letters('Left: a) first b) second') == ['a', 'b']
+    assert P.caption_letters('No panels here (see Eq. 3).') == []
+
+
+def test_letterbox_and_decode_roundtrip():
+    W, H = 1000, 500
+    sx, sy, left, top, rw, rh = P.letterbox_transform(W, H)
+    assert (rw, rh, left, top) == (640, 320, 0, 160)
+    # A box covering the right half of the image, expressed in letterbox-normalized cx,cy,w,h.
+    x0, y0, x1, y1 = 500 * sx + left, 0 * sy + top, 1000 * sx + left, 500 * sy + top
+    b = [(x0 + x1) / 2 / 640, (y0 + y1) / 2 / 640, (x1 - x0) / 640, (y1 - y0) / 640]
+    det = P.decode_outputs(np.array([[3.0, -3.0]]), np.array([b]), W, H)
+    assert det[0]['class'] == 0 and abs(det[0]['box'][0] - 500) < 1e-6 and abs(det[0]['box'][3] - 500) < 1e-6

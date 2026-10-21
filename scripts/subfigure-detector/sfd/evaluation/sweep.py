@@ -29,7 +29,7 @@ def load_set(gt_path, root):
 agree = P.agree
 
 
-def run(gts, cache, preds, cfg, gates=None, preds_b=None):
+def run(gts, cache, preds, cfg, gates=None, preds_b=None, ocr=None):
     rows = []
     for g, (img, m, comps) in zip(gts, cache):
         c = dict(cfg, _mask=m, _comps=comps)
@@ -39,7 +39,8 @@ def run(gts, cache, preds, cfg, gates=None, preds_b=None):
         L = len(g.get('caption_letters') or [])
         if cfg.get('caption_decode'):
             d = P.decide(preds.get(g['id'], []), img, dict(cfg, agree_iou=cfg.get('agree_iou', .7) if preds_b is not None else None),
-                         preds_b.get(g['id'], []) if preds_b is not None else None, g.get('caption_letters') or [], m, comps)
+                         preds_b.get(g['id'], []) if preds_b is not None else None, g.get('caption_letters') or [], m, comps,
+                         (ocr or {}).get(g['id']))
             crops = [p['box'] for p in d['parts']]
             r = E.evaluate_figure(g, crops, mask=m); r['crops'] = crops; r['reason'] = d['reason']; rows.append(r)
             continue
@@ -83,6 +84,17 @@ def run(gts, cache, preds, cfg, gates=None, preds_b=None):
     return rows
 
 
+def load_ocr(path):
+    if not path:
+        return None
+    out = {}
+    for l in Path(path).read_text().splitlines():
+        if l.strip():
+            r = json.loads(l)
+            out[r['id']] = r['text']
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--set', nargs=3, action='append', metavar=('NAME', 'GT', 'PRED'), required=True)
@@ -96,6 +108,8 @@ def main():
     ap.add_argument('--bootstrap', type=int, default=0)
     ap.add_argument('--caption-count', action='store_true', help='use caption letter counts as an on-device gate')
     ap.add_argument('--caption-decode', action='store_true', help='caption-constrained decoding of exactly L boxes')
+    ap.add_argument('--letter-group', action='store_true', help='group plotting areas under OCR letters (needs --ocr)')
+    ap.add_argument('--ocr', type=Path, help='JSONL of {id, text:[{text, box}]} (Mac Vision OCR)')
     ap.add_argument('--no-decode-agree', action='store_true', help='skip two-view agreement for caption-decoded figures')
     ap.add_argument('--decode-min-score', type=float, default=.15)
     ap.add_argument('--decode-min-cover', type=float, default=.7)
@@ -112,10 +126,10 @@ def main():
         gts_list = [None] + [float(x) for x in args.gate_thresholds.split(',') if x]
         for t, comp, gt_thr in itertools.product([float(x) for x in args.thresholds.split(',')], [c == '1' for c in args.complete.split(',')], gts_list):
             cfg = {'threshold': t, 'panel_class': args.panel_class, 'complete': comp, 'caption_count': args.caption_count or args.caption_decode, 'caption_decode': args.caption_decode, 'caption_fallback': args.caption_fallback,
-                   'decode_agree': not args.no_decode_agree, 'decode_min_score': args.decode_min_score, 'decode_min_cover': args.decode_min_cover}
+                   'decode_agree': not args.no_decode_agree, 'letter_group': args.letter_group, 'decode_min_score': args.decode_min_score, 'decode_min_cover': args.decode_min_cover}
             if gt_thr is not None:
                 cfg['gate_threshold'] = gt_thr
-            rows = run(gts, cache, preds, cfg, gates.get(name) if gt_thr is not None else None, preds_b)
+            rows = run(gts, cache, preds, cfg, gates.get(name) if gt_thr is not None else None, preds_b, load_ocr(args.ocr))
             a = E.aggregate(rows)
             if args.bootstrap:
                 a['ci95'] = E.bootstrap(rows, E.KEYS, args.bootstrap)

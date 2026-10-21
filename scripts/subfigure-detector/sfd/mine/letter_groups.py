@@ -50,55 +50,7 @@ def pdf_letters(pdf, W):
     return out
 
 
-def cx(b):
-    return (b[0] + b[2]) / 2
-
-
-def cy(b):
-    return (b[1] + b[3]) / 2
-
-
-def group_by_letters(cores, panel_boxes, letters):
-    """cores/panel_boxes: per plotting area; letters: list of (char, box). Returns group boxes or (None, why)."""
-    L = len(letters)
-    votes = 0
-    for _, lb in letters:
-        j = min(range(len(cores)), key=lambda k: P.gap(lb, cores[k]))
-        votes += 1 if cy(lb) <= cores[j][1] + 0.25 * (cores[j][3] - cores[j][1]) else -1
-    mode = 'top' if votes >= 0 else 'bottom'
-    assign = []
-    for c in cores:
-        best, bd = None, 1e18
-        for k, (_, lb) in enumerate(letters):
-            if mode == 'top':
-                ok = cy(lb) <= c[1] + 0.25 * (c[3] - c[1]) and cx(lb) <= c[2]
-                d = ((cx(lb) - c[0]) ** 2 + (cy(lb) - c[1]) ** 2) ** .5
-            else:
-                ok = cy(lb) >= c[3] - 0.25 * (c[3] - c[1]) and min(lb[2], c[2]) - max(lb[0], c[0]) > -0.5 * (c[2] - c[0])
-                d = ((cx(lb) - cx(c)) ** 2 + (cy(lb) - c[3]) ** 2) ** .5
-            if ok and d < bd:
-                best, bd = k, d
-        if best is None:
-            return None, 'unassigned_area'
-        assign.append(best)
-    if set(assign) != set(range(L)):
-        return None, 'letter_without_area'
-    groups = []
-    for k in range(L):
-        u = list(letters[k][1])
-        for j, a in enumerate(assign):
-            if a == k:
-                u = P.union(u, panel_boxes[j])
-        groups.append(u)
-    for a in range(L):
-        for b in range(a + 1, L):
-            if P.area(P.inter(groups[a], groups[b])) > 0.03 * min(P.area(groups[a]), P.area(groups[b])):
-                return None, 'group_overlap'
-    for k in range(L):
-        for j, a in enumerate(assign):
-            if a != k and P.area(P.inter(groups[k], cores[j])) > 0.05 * P.area(cores[j]):
-                return None, 'group_contains_other_area'
-    return (groups, mode), 'ok'
+group_by_letters = P.group_by_letters
 
 
 def main():
