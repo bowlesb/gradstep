@@ -1,5 +1,29 @@
 # Implementation status
 
+## On-device PDF route: faster, steadier, measured against arXiv HTML — 2026-10-21 (local source; not released)
+
+Owner, 2026-10-21: keep developing the on-device model (too slow, not accurate enough); Mathpix is not built
+([DECISIONS](DECISIONS.md#pdfs-without-arxiv-html-keep-developing-the-on-device-model-no-mathpix-owner-2026-10-21)).
+Full measurements and before/after: [review](reviews/DEVICE_PDF_ROUTE_20261021.md); design: [DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md#development-after-the-port-kit--port-revision-5-2026-10-21).
+
+- **Recogniser**: the same weights (texteller-ft-v4) exported as one multifunction package (`prefill`/`step` sharing one
+  state, batch 8, int8; `scripts/device-pdf-models/export_texteller.py`; lock updated) — same tokens as before, per-crop
+  GPU cost about a fifth.
+- **Host**: pages read ahead, recognition in the background in batches (converter port revision 5: `submit`/`collect`),
+  a reading shown before its formulas are read (`onPreview`; the app keeps the reading place when the finished reading
+  replaces it), and determinism restored (tagger and recogniser never predict at once; same PDF → same bundle under load).
+- **Converter rules** on in the app (each kept only when it measured better on two separate 32-paper sets): simple
+  inline formulas from the text layer (58 % of formulas never reach the recogniser), font-found math, tidied LaTeX,
+  title page by metadata, no duplicate headings or contents lists, reference entries split, line ownership.
+- **Results on 32 fresh papers (this Mac)**: TIMING-STATUS; headings 0.905/0.725 → 0.920/0.765 (recall/precision), whole
+  blocks 0.59 → 0.72, inline formula images halved, displays typeset 0.37 → 0.41; text F1 0.854 → 0.856. Display
+  formulas (still mostly images) and tagger boundaries are the open accuracy problems; the renderer is not one.
+- **Evaluation tooling**: `scripts/device-route-accuracy.mjs` (fresh arXiv papers scored against the app's own arXiv
+  HTML reading), `scripts/device-route-replay.mjs` (converter rules re-run on recorded model outputs in Node),
+  `DevicePDFRouteTool --bench-steps / --bench-recogniser / --check-determinism / --replay-converter / --record / --rules`.
+- Evidence: TESTS-STATUS. Not verified: any iPhone (paused; the iPhone figures in the review are estimates), the
+  recogniser in the iOS Simulator (it never loads there; the route degrades to images, as before).
+
 ## Complete figure crops and presentation margins — 2026-10-21 (local source; not released, not deployed)
 
 Owner-approved quick win from the [subfigure detector review](reviews/SUBFIGURE_DETECTOR_20261021.md) (integration

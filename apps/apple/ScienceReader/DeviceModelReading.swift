@@ -75,7 +75,11 @@ enum DeviceModelEngine {
     static var compilerURL: URL? { Bundle.main.url(forResource: "device-pdf-reader", withExtension: "js") }
     /// The converter rules beyond the port kit, each turned on after it was measured against the arXiv HTML of real
     /// papers (docs/reviews/DEVICE_PDF_ROUTE_20261021.md; DevicePDFRoute.Options.rules).
-    static let rules: Set<String> = []
+    /// On (2026-10-21): simple inline formulas from the text layer (`transcribe`) and math the tagger missed found by its
+    /// fonts (`fontMath`); LaTeXML-style rows tidied for Temml (`tidy`); the title page by the library's metadata
+    /// (`frontMatter`); no heading twice (`headingDupes`); reference entries split (`splitReferences`); a line's run read
+    /// by one region (`lineOwners`). Off, because they measured worse: `extendSpans`.
+    static let rules: Set<String> = ["transcribe", "fontMath", "tidy", "frontMatter", "headingDupes", "splitReferences", "lineOwners"]
     /// The models and the converter are in this build and the system can run the stateful recogniser.
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }
