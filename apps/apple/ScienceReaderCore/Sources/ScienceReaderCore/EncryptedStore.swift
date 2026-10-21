@@ -17,10 +17,25 @@ public struct LocalStoreSnapshot: Equatable, Sendable {
     public let generation: Int64
     public let pendingCount: Int
     public let drafts: [LocalDraft]
-    public init(state: PrivateState, generation: Int64, pendingCount: Int, drafts: [LocalDraft] = []) {
+    /// Events on this device not yet acknowledged by the server (presentation: "Waiting to sync").
+    public let pendingEventIDs: Set<UUID>
+    /// Snippet blobs not yet acknowledged `ready` by the server.
+    public let pendingNoteBlobs: Set<UUID>
+    /// The note this device last saved to.
+    public let noteDestination: UUID?
+    public init(state: PrivateState, generation: Int64, pendingCount: Int, drafts: [LocalDraft] = [],
+                pendingEventIDs: Set<UUID> = [], pendingNoteBlobs: Set<UUID> = [], noteDestination: UUID? = nil) {
         self.state = state; self.generation = generation; self.pendingCount = pendingCount
-        self.drafts = drafts
+        self.drafts = drafts; self.pendingEventIDs = pendingEventIDs; self.pendingNoteBlobs = pendingNoteBlobs
+        self.noteDestination = noteDestination
     }
+}
+
+/// One snippet blob a Notes save commits: the stored blob (nonce ‖ ciphertext ‖ tag under the blob's own key).
+public struct NoteBlobWrite: Equatable, Sendable {
+    public let blobID: UUID
+    public let blob: Data
+    public init(blobID: UUID, blob: Data) { self.blobID = blobID; self.blob = blob }
 }
 
 private struct LocalMetadata: Codable, Equatable {
@@ -38,9 +53,16 @@ private struct LocalMetadata: Codable, Equatable {
     var libraryCommandSequence: Int64?
     var libraryCommandScope: LibraryCommandScope?
     var offlineCache: OfflineCacheRoots?
+    // Format 7 (Notes, docs/architecture/NOTES_AND_SNIPPETS.md): snippet blobs not yet acknowledged `ready` by the
+    // server, by blob ID, with the digest of their sealed row; the entry events waiting for them; and the note this
+    // device last saved to (an account-scoped encrypted preference).
+    var noteUploads: [String: Data]?
+    var noteHolds: [String: [UUID]]?
+    var noteDestination: UUID?
     init(accountID: UUID) {
-        self.format = 6; self.accountID = accountID; self.drafts = [:]
+        self.format = 7; self.accountID = accountID; self.drafts = [:]
         self.libraryCommands = [:]; self.libraryCommandSequence = 0; self.offlineCache = .init()
+        self.noteUploads = [:]; self.noteHolds = [:]
     }
 }
 
@@ -97,6 +119,8 @@ public actor EncryptedStore {
     private let libraryWriterID = UUID()
     private var readerInstallTicket: ReaderInstallTicket?
     private var needsReopen = false
+    /// Sealed sizes of the snippet blobs still waiting for the server (local capacity for unsent images).
+    private var noteUploadBytes: [UUID: Int] = [:]
     private static let maximumPending = 1_000
     private static let maximumPendingBytes = 16 * 1024 * 1024
     private static let maximumDraftRows = 1_024
@@ -136,9 +160,10 @@ public actor EncryptedStore {
         database = try SQLiteConnection(url: url)
         try database.execute("PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128;")
         if !exists {
-            try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=5;")
+            try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=6;")
             do {
                 try database.execute(OfflineCacheStorage.createTables)
+                try database.execute(Self.createNoteBlobs)
                 let sealed = try Self.sealMetadata(LocalMetadata(accountID: accountID), key: symmetricKey)
                 try database.update("INSERT INTO metadata(id,sealed) VALUES(1,?)", values: [.blob(sealed)])
                 try database.execute("COMMIT")
@@ -146,12 +171,12 @@ public actor EncryptedStore {
         }
         try database.execute("BEGIN")
         var loaded = try Self.readMetadata(database, key: symmetricKey, accountID: accountID)
-        guard [2, 3, 4, 5, 6].contains(loaded.format) else { throw ReaderError.unsupportedFormat }
+        guard [2, 3, 4, 5, 6, 7].contains(loaded.format) else { throw ReaderError.unsupportedFormat }
         let schemaVersion = try database.statement("PRAGMA user_version") { statement -> Int32 in
             guard sqlite3_step(statement) == SQLITE_ROW else { throw ReaderError.corruptData }
             return sqlite3_column_int(statement, 0)
         }
-        guard schemaVersion == (loaded.format == 6 ? 5 : loaded.format == 5 ? 4 : loaded.format == 4 ? 3 : 2) else { throw ReaderError.unsupportedFormat }
+        guard schemaVersion == (loaded.format == 7 ? 6 : loaded.format == 6 ? 5 : loaded.format == 5 ? 4 : loaded.format == 4 ? 3 : 2) else { throw ReaderError.unsupportedFormat }
         guard loaded.cursor >= 0, loaded.count >= 0, loaded.generation >= 0, loaded.chain.count == 32,
               loaded.outbox.count <= Self.maximumPending, Set(loaded.outbox).count == loaded.outbox.count else { throw ReaderError.corruptData }
         var count: Int64 = 0; var chain = Data(repeating: 0, count: 32)
@@ -232,7 +257,25 @@ public actor EncryptedStore {
             guard loaded.libraryCommands == nil, loaded.libraryCommandSequence == nil,
                   loaded.libraryCommandScope == nil else { throw ReaderError.corruptData }
         }
-        if loaded.format == 6 {
+        var uploadSizes: [UUID: Int] = [:]
+        if loaded.format == 7 {
+            // Every unacknowledged snippet blob is present and unchanged; every held entry is still unsent and waits only
+            // for such blobs. Cached downloads are not listed: each row is authenticated by its own AAD and digest.
+            guard let uploads = loaded.noteUploads, let holds = loaded.noteHolds, uploads.count <= Self.maximumNoteUploads,
+                  holds.count <= Self.maximumPending else { throw ReaderError.corruptData }
+            for (name, digest) in uploads {
+                guard let id = UUID(uuidString: name), id.wire == name,
+                      let sealed = try Self.noteBlobRow(database, id: id), Data(SHA256.hash(data: sealed)) == digest else { throw ReaderError.corruptData }
+                uploadSizes[id] = sealed.count
+            }
+            for (name, blobs) in holds {
+                guard let id = UUID(uuidString: name), id.wire == name, outbox.contains(id), !blobs.isEmpty,
+                      blobs.allSatisfy({ uploads[$0.wire] != nil }) else { throw ReaderError.corruptData }
+            }
+        } else {
+            guard loaded.noteUploads == nil, loaded.noteHolds == nil, loaded.noteDestination == nil else { throw ReaderError.corruptData }
+        }
+        if loaded.format >= 6 {
             guard let roots = loaded.offlineCache else { throw ReaderError.corruptData }
             try roots.validate(accountID: accountID)
             if let scope = roots.scope, let commands = loaded.libraryCommandScope {
@@ -263,6 +306,10 @@ public actor EncryptedStore {
                     try database.execute(OfflineCacheStorage.createTables)
                     migrated.offlineCache = .init()
                 }
+                if loaded.format < 7 {
+                    try database.execute(Self.createNoteBlobs)
+                    migrated.noteUploads = [:]; migrated.noteHolds = [:]
+                }
                 let previousCommands = commands
                 try commands.reopen()
                 for row in commands.rows.values where previousCommands.rows[row.id] != row {
@@ -274,8 +321,8 @@ public actor EncryptedStore {
                     try database.update("DELETE FROM local_drafts WHERE id=?", values: [.text(id.wire)])
                     migrated.drafts?.removeValue(forKey: id.wire)
                 }
-                migrated.format = 6; migrated.generation += 1
-                try database.execute("PRAGMA user_version=5")
+                migrated.format = 7; migrated.generation += 1
+                try database.execute("PRAGMA user_version=6")
                 try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(migrated, key: symmetricKey))])
                 try database.execute("COMMIT")
             } catch { if database.inTransaction { try? database.execute("ROLLBACK") }; throw error }
@@ -285,16 +332,36 @@ public actor EncryptedStore {
         metadata = loaded; pendingEnvelopes = pending; reduced = state
         localDrafts = drafts; draftBytes = sizes
         libraryJournal = commands
+        noteUploadBytes = uploadSizes
     }
 
     public func state() -> PrivateState { reduced }
     public func cursor() -> Int64 { metadata.cursor }
-    public func pending() -> [EventEnvelope] { metadata.outbox.compactMap { pendingEnvelopes[$0] } }
+    /// The events the server may receive now, in outbox order. A Notes entry waits for its snippet blobs to be `ready`
+    /// (contract: "an entry event is uploaded only after its blobs return ready"), and so does every later unsent event
+    /// that depends on it (a comment edit of that entry). Unrelated chats and catalogs are never held back.
+    public func pending() -> [EventEnvelope] {
+        let holds = metadata.noteHolds ?? [:]
+        guard !holds.isEmpty else { return metadata.outbox.compactMap { pendingEnvelopes[$0] } }
+        var blocked = Set(holds.keys.compactMap { UUID(uuidString: $0) })
+        var result: [EventEnvelope] = []
+        for id in metadata.outbox {
+            if blocked.contains(id) { continue }
+            if let parents = reduced.events[id]?.payload.parents, parents.contains(where: { blocked.contains($0) }) {
+                blocked.insert(id); continue
+            }
+            if let envelope = pendingEnvelopes[id] { result.append(envelope) }
+        }
+        return result
+    }
     public func snapshot() -> LocalStoreSnapshot {
         let drafts = localDrafts.values.filter { !$0.discarded && !$0.draft.text.isEmpty }
             .map { canonicalDraft($0.draft) }
             .sorted { $0.editedAt == $1.editedAt ? $0.id.wire < $1.id.wire : $0.editedAt > $1.editedAt }
-        return LocalStoreSnapshot(state: reduced, generation: metadata.generation, pendingCount: metadata.outbox.count, drafts: drafts)
+        return LocalStoreSnapshot(state: reduced, generation: metadata.generation, pendingCount: metadata.outbox.count, drafts: drafts,
+                                  pendingEventIDs: Set(metadata.outbox),
+                                  pendingNoteBlobs: Set((metadata.noteUploads ?? [:]).keys.compactMap { UUID(uuidString: $0) }),
+                                  noteDestination: metadata.noteDestination)
     }
 
     public func libraryCommandSnapshot(scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
@@ -767,6 +834,7 @@ public actor EncryptedStore {
         guard try lookup(envelope.id) == envelope else { throw ReaderError.eventConflict }
         guard metadata.outbox.contains(envelope.id) else { return }
         var next = metadata; next.outbox.removeAll { $0 == envelope.id }
+        next.noteHolds?.removeValue(forKey: envelope.id.wire)
         try commit(records: [], next: &next)
         metadata = next; pendingEnvelopes.removeValue(forKey: envelope.id)
     }
@@ -790,6 +858,7 @@ public actor EncryptedStore {
             catch { throw ReaderError.invalidEvent }
             try state.apply(AppliedEvent(id: envelope.id, deviceID: envelope.deviceID, payload: payload))
             next.outbox.removeAll { $0 == envelope.id }; next.cursor = remote.cursor
+            next.noteHolds?.removeValue(forKey: envelope.id.wire)
         }
         try commit(records: additions, next: &next)
         metadata = next; reduced = state
@@ -830,6 +899,12 @@ public actor EncryptedStore {
         }
         try state.applyLocalReplacements(mapping)
         var next = metadata; next.outbox = next.outbox.map { mapping[$0] ?? $0 }
+        // A held Notes entry keeps waiting for its blobs under its new envelope ID; the media descriptor is unchanged.
+        if let holds = next.noteHolds, !holds.isEmpty {
+            next.noteHolds = Dictionary(uniqueKeysWithValues: holds.map { key, blobs in
+                (UUID(uuidString: key).flatMap { mapping[$0] }?.wire ?? key, blobs)
+            })
+        }
         try commit(records: replacements, next: &next, replacement: ReplacementMarker(epoch: verifiedEpoch, cursor: cursor, mapping: mapping))
         metadata = next; reduced = state
         for id in affected { pendingEnvelopes.removeValue(forKey: id) }
@@ -1012,11 +1087,18 @@ public actor EncryptedStore {
     private func commit(records: [EventEnvelope], next: inout LocalMetadata, replacement: ReplacementMarker? = nil,
                         draft: (row: StoredDraft, sealed: Data)? = nil,
                         library: (journal: LibraryCommandJournal, sealed: [UUID: Data])? = nil,
-                        cache: OfflineCacheMutation? = nil) throws {
+                        cache: OfflineCacheMutation? = nil,
+                        noteRows: [(id: UUID, sealed: Data)] = [], deleteNoteRows: [UUID] = []) throws {
         guard !needsReopen, metadata.generation < Int64.max else { throw ReaderError.storageUnavailable }
         try database.execute("BEGIN IMMEDIATE")
         do {
             guard try Self.readMetadata(database, key: localKey, accountID: accountID) == metadata else { throw ReaderError.storeChanged }
+            // Snippet blobs first, so an entry is never committed without the image it names.
+            for id in deleteNoteRows { try database.update("DELETE FROM local_note_blobs WHERE id=?", values: [.text(id.wire)]) }
+            for row in noteRows {
+                try database.update("INSERT INTO local_note_blobs(id,ordinal,sealed) VALUES(?,(SELECT COALESCE(MAX(ordinal),0)+1 FROM local_note_blobs),?)",
+                                    values: [.text(row.id.wire), .blob(row.sealed)])
+            }
             for envelope in records {
                 try insertRecord(ReaderCrypto.encode(envelope), id: envelope.id, next: &next)
             }
@@ -1044,7 +1126,7 @@ public actor EncryptedStore {
                 try OfflineCacheStorage(database: database, key: localKey, scope: scope).apply(cache)
                 next.offlineCache = cache.roots
             }
-            next.format = 6
+            next.format = 7
             next.generation += 1
             try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(next, key: localKey))])
             try database.execute("COMMIT")
@@ -1115,5 +1197,158 @@ public actor EncryptedStore {
         let envelope = try JSONDecoder().decode(EventEnvelope.self, from: bytes)
         guard envelope.id == id else { throw ReaderError.corruptData }
         return .event(envelope)
+    }
+}
+
+// MARK: - Notes (store format 7; docs/architecture/NOTES_AND_SNIPPETS.md "Local durability")
+
+extension EncryptedStore {
+    static let createNoteBlobs = "CREATE TABLE local_note_blobs(id TEXT PRIMARY KEY NOT NULL, ordinal INTEGER NOT NULL, sealed BLOB NOT NULL)"
+    /// Unsent snippet images: enough for a long offline reading session, bounded so a full disk is reported, not hit.
+    static let maximumNoteUploads = 512
+    static let maximumNoteUploadBytes = 96 * 1024 * 1024
+    /// Images already on the server, kept to show again without a download; the oldest go first.
+    static let maximumNoteCacheBytes = 192 * 1024 * 1024
+    static let maximumNoteCacheRows = 4_000
+    private static let maximumNoteBlobBytes = NotesFormat.maximumFullImageBytes + NotesFormat.blobOverhead
+
+    private static func noteBlobAAD(accountID: UUID, id: UUID) -> Data {
+        Data("science-reader/local-note-blob/v1\n\(accountID.wire)\n\(id.wire)\n".utf8)
+    }
+
+    static func noteBlobRow(_ database: SQLiteConnection, id: UUID) throws -> Data? {
+        try database.statement("SELECT sealed FROM local_note_blobs WHERE id=?", values: [.text(id.wire)]) { statement in
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { return nil }
+            guard result == SQLITE_ROW else { throw DatabaseFailure(code: result) }
+            return try SQLiteConnection.blob(statement, 0, maximumBytes: maximumNoteBlobBytes + 64)
+        }
+    }
+
+    private func sealNoteBlob(_ blob: Data, id: UUID) throws -> Data {
+        guard blob.count > NotesFormat.blobOverhead, blob.count <= Self.maximumNoteBlobBytes,
+              let sealed = try AES.GCM.seal(blob, using: localKey, authenticating: Self.noteBlobAAD(accountID: accountID, id: id)).combined
+        else { throw ReaderError.localCapacityExceeded }
+        return sealed
+    }
+
+    /// The stored blob (still encrypted under its own key) when this device has it: an unsent capture or a cached download.
+    public func noteBlob(_ id: UUID) throws -> Data? {
+        guard !needsReopen else { throw ReaderError.storageUnavailable }
+        guard let sealed = try Self.noteBlobRow(database, id: id) else { return nil }
+        if let digest = metadata.noteUploads?[id.wire], Data(SHA256.hash(data: sealed)) != digest { throw ReaderError.corruptData }
+        return try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: localKey,
+                                authenticating: Self.noteBlobAAD(accountID: accountID, id: id))
+    }
+
+    /// Blobs waiting for the server, oldest capture first.
+    public func pendingNoteUploads() throws -> [UUID] {
+        let pending = Set((metadata.noteUploads ?? [:]).keys.compactMap { UUID(uuidString: $0) })
+        guard !pending.isEmpty else { return [] }
+        return try database.statement("SELECT id FROM local_note_blobs ORDER BY ordinal") { statement in
+            var ids: [UUID] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let id = UUID(uuidString: try SQLiteConnection.text(statement, 0)), pending.contains(id) { ids.append(id) }
+            }
+            return ids
+        }
+    }
+
+    /// Entry events waiting for their blobs, by event ID.
+    public func heldNoteEvents() -> [UUID: [UUID]] {
+        Dictionary(uniqueKeysWithValues: (metadata.noteHolds ?? [:]).compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
+    }
+
+    /// One local transaction (contract "Local durability"): the capture's stored blobs, a new note when needed and the
+    /// entry, the entry's hold until those blobs are `ready`, and this device's destination. An exact retry (same event
+    /// IDs, payloads and blob bytes) returns the original envelopes and changes nothing; different bytes for a known ID
+    /// are a conflict. Events are ordered parents first; a text entry passes no blobs.
+    @discardableResult
+    public func saveNoteEntry(_ events: [(id: UUID, event: PrivateEvent)], blobs: [NoteBlobWrite], deviceID: UUID,
+                              destination: UUID? = nil) throws -> [EventEnvelope] {
+        guard blobs.count <= 4, Set(blobs.map(\.blobID)).count == blobs.count else { throw ReaderError.invalidEvent }
+        var prepared = try prepareAppend(events, deviceID: deviceID)
+        var next = prepared.metadata
+        var rows: [(id: UUID, sealed: Data)] = []
+        var uploads = next.noteUploads ?? [:], sizes = noteUploadBytes
+        for write in blobs {
+            if let existing = try noteBlob(write.blobID) {
+                guard existing == write.blob else { throw ReaderError.eventConflict }
+                continue
+            }
+            let sealed = try sealNoteBlob(write.blob, id: write.blobID)
+            rows.append((write.blobID, sealed))
+            uploads[write.blobID.wire] = Data(SHA256.hash(data: sealed)); sizes[write.blobID] = sealed.count
+        }
+        guard uploads.count <= Self.maximumNoteUploads, sizes.values.reduce(0, +) <= Self.maximumNoteUploadBytes else {
+            throw ReaderError.localCapacityExceeded
+        }
+        // Each new event naming an unsent blob waits for it.
+        var holds = next.noteHolds ?? [:]
+        for envelope in prepared.additions {
+            guard let payload = prepared.state.events[envelope.id]?.payload,
+                  case .record(.entry(let entry)) = NotesRecord.decode(payload), let media = entry.media else { continue }
+            let waiting = media.all.map(\.blobID).filter { uploads[$0.wire] != nil }
+            if !waiting.isEmpty { holds[envelope.id.wire] = waiting }
+        }
+        next.noteUploads = uploads; next.noteHolds = holds
+        if let destination { next.noteDestination = destination }
+        guard !prepared.additions.isEmpty || !rows.isEmpty || next != metadata else { return prepared.results }
+        try commit(records: prepared.additions, next: &next, noteRows: rows)
+        prepared.metadata = next
+        publish(prepared)
+        noteUploadBytes = sizes
+        return prepared.results
+    }
+
+    /// The server stored these blobs (`ready`): their entries may now upload. The rows stay as this device's cached copy.
+    public func markNoteBlobsReady(_ ids: [UUID]) throws {
+        let ready = Set(ids.map(\.wire))
+        guard !ready.isDisjoint(with: (metadata.noteUploads ?? [:]).keys) else { return }
+        var next = metadata
+        next.noteUploads = (next.noteUploads ?? [:]).filter { !ready.contains($0.key) }
+        var holds: [String: [UUID]] = [:]
+        for (event, blobs) in next.noteHolds ?? [:] {
+            let waiting = blobs.filter { !ready.contains($0.wire) }
+            if !waiting.isEmpty { holds[event] = waiting }
+        }
+        next.noteHolds = holds
+        try commit(records: [], next: &next)
+        metadata = next
+        for id in ids { noteUploadBytes.removeValue(forKey: id) }
+    }
+
+    /// Keeps a downloaded stored blob (verified by the caller against its descriptor) for showing again, and lets the
+    /// oldest cached images go past the cache bounds. Unsent captures are never evicted.
+    public func cacheNoteBlob(_ id: UUID, blob: Data) throws {
+        if let existing = try noteBlob(id) {
+            guard existing == blob else { throw ReaderError.eventConflict }
+            return
+        }
+        let sealed = try sealNoteBlob(blob, id: id)
+        let protected = Set((metadata.noteUploads ?? [:]).keys)
+        let cached = try database.statement("SELECT id,length(sealed) FROM local_note_blobs ORDER BY ordinal") { statement in
+            var rows: [(UUID, Int)] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let name = try SQLiteConnection.text(statement, 0)
+                if !protected.contains(name), let id = UUID(uuidString: name) { rows.append((id, Int(sqlite3_column_int64(statement, 1)))) }
+            }
+            return rows
+        }
+        var bytes = cached.reduce(sealed.count) { $0 + $1.1 }, count = cached.count + 1, evicted: [UUID] = []
+        for (old, size) in cached where bytes > Self.maximumNoteCacheBytes || count > Self.maximumNoteCacheRows {
+            evicted.append(old); bytes -= size; count -= 1
+        }
+        var next = metadata
+        try commit(records: [], next: &next, noteRows: [(id, sealed)], deleteNoteRows: evicted)
+        metadata = next
+    }
+
+    /// The note this device last saved to (Add to note preselects it).
+    public func setNoteDestination(_ id: UUID?) throws {
+        guard metadata.noteDestination != id else { return }
+        var next = metadata; next.noteDestination = id
+        try commit(records: [], next: &next)
+        metadata = next
     }
 }

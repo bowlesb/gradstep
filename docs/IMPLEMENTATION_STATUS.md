@@ -1,5 +1,55 @@
 # Implementation status
 
+## Notes and snippets, native — October 21 UTC (local; not released)
+
+The iPhone, iPad and Mac client of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc)
+is implemented on branch `worktree-agent-a59beff74b009e4ac` (codec `443f04d`, store/transport `6aa4cc4`, iPhone UI
+`8143fd7`, iPad/Mac `7e9857a`, browser-interop alignment `8ccf4f7` and follow-ups). **Not in TestFlight**; clients
+remain build 77. All Simulator work used two devices created for this run (iPhone 17 Pro, iPad Pro 13-inch M5, iOS 26.4)
+and the Mac (Catalyst), then deleted; the physical iPhone stayed paused.
+
+- **Core** (`swift test`, ScienceReaderCore): **383 tests pass** (50 suites). New: `NotesTests` (15) — the six fixture
+  records re-encode byte for byte, the five invalid records fail with their stated reasons, the future record is kept,
+  the encryption vector matches (blob hex, SHA-256, AAD, descriptor), tamper/account/type checks, reducer ordering,
+  versions and their resolution, immutable fields, tombstones, incomplete entries, catalogs ignored both ways, format-1
+  envelopes; `NoteStoreTests` (9) — atomic save and its failure, holds and release, dependent edits, key-rotation
+  rebasing, idempotent uploads with quota/timeout/conflict, verified on-demand downloads into the encrypted cache,
+  format 6→7 migration, a missing unsent blob refused, cache eviction; `NotesInteropTests` (2) — see below. Four older
+  legacy-format tests now strip the new metadata keys; one migration test expects schema 6.
+- **Cross-client records** (`tests/fixtures/notes/cross-client-v1.json`): the browser codec (`apps/web/src/lib/notes.ts`,
+  bundled by a scratch script) read **6/6** Swift-written edge-case records and re-encoded each byte for byte; Swift
+  reads, validates and re-encodes the **6/6** browser-written ones. Swift's validators were aligned to the browser's
+  bounds first (offsets ±1,440, 80-scalar titles, revision ≥ 1, block IDs `[0-9A-Za-z_-]`, nullable anchor identity).
+- **Staging** (opt-in `NotesLiveAssetsTests`, 2026-10-21 08:33:59 UTC, project `coxhjvqpflgxkleydati`): a disposable
+  `@example.invalid` account; the app's own `BackendNoteAssets` uploaded a real capture's PNG (11,122 B stored) and JPEG
+  thumbnail (8,062 B) from an `EncryptedStore`, which then released the held entry; a repeat PUT was 200; a second
+  store downloaded, verified, decrypted and cached both; a different digest was 409 and an unknown ID 404. The account
+  was deleted through `account-delete` (`{deleted:true, complete:true}`). No paid calls.
+- **App tests** (`NotesAppTests`, 7/7): every deployed note-assets status and body, `X-Content-SHA256` checked; text crops
+  stay PNG at full size with no camera/place/time metadata; large and photographic crops fit the limits (JPEG fallback);
+  PDF regions render exactly the chosen part, rotated pages included; model writes through the encrypted fixture store
+  (create, trimmed titles, capture with sealed images, exact retry, text, comment, rename, new note with its first
+  entry, search, delete, reopen); Settings presentation rules.
+- **UI journeys** (`NotesJourneyTests`): iPhone — Draw snippet → Save to a new note → Open note → full size → Edit comment →
+  Rename → Add text → Delete (with name and count); selection › Add to note; a figure page's Add to note with the whole
+  figure preselected; Settings from the Library, Feed, Paper, Chat, Notes and note menus returning to each (Report this
+  screen just above it); light and dark — **all pass**. Wide layout — Notes beside Feed/Library/Reader/Browse/General
+  Chat, list beside the note, capture beside the chat column, Settings round trip: **passes on iPad (light and dark) and
+  on the Mac (light and dark)** (menu-bar Draw Snippet; Escape cancels drawing). `SettingsTests` 6/6 with the new navigation.
+- **Regression context**: the full app unit bundle (510 tests) has failures unrelated to Notes — four
+  `PaperWebViewTests` Contents cases fail identically on the base commit `82c8656`; two podcast tests follow main's
+  podcast-script change; one needs the local import corpus; three timed out only while other suites shared the machine
+  and pass alone. A stale Simulator stalled WebKit loading until rebooted (as recorded before).
+- **`npm test`**: its first step fails — `arxiv-reader.js` is stale against shared server modules changed on main after
+  the last compiler build (no compiler input changed here; rebuilding the shipped reader is left to its owner). The
+  remaining fast-tier steps pass when run individually: backend 697, operations 24, Python operations 124, arXiv egress
+  scan, Edge type check, admin type check, browser units 519/520 — the one failure was the Swift interop executable's cold
+  `swift run` build inside its test window, and `tests/interop.test.ts` passes 5/5 once built.
+
+Not done natively (also listed in the architecture document): encrypted composer/comment drafts, "Keep both", a New
+snippets jump, two-tap corners and richer VoiceOver capture announcements, Open in paper for local PDF sources,
+adjusting an equation-page capture, and an end-to-end native ↔ browser sync through staging.
+
 ## Builds 66–76 open feedback — October 21 UTC (feedback branch; not merged, not released)
 
 Implemented on branch `worktree-agent-a9ba7e1c4135d32c0` from `641541c`, then merged with `main` at `fa1f69f` (browser

@@ -10,7 +10,9 @@ struct RootView: View {
     var body: some View {
         GeometryReader { geometry in
             // The Mac window is always the wide layout (its minimum width fits the panes).
-            if geometry.size.width >= 850 || Platform.isMac {
+            let wide = geometry.size.width >= 850 || Platform.isMac
+            Group {
+            if wide {
                 wideLayout(width: geometry.size.width).environment(\.figureViewerWindowSize, geometry.size)
             }
             else {
@@ -25,7 +27,9 @@ struct RootView: View {
                     .environment(\.tabBarReserve, softwareKeyboardShown ? 0
                                  : ChromeMetrics.tabBarReserve(safeBottom: safeBottom) + (miniPlayer ? PodcastMiniPlayer.height : 0))
                     .overlay(alignment: .bottom) {
-                        if !softwareKeyboardShown {
+                        // Drawing a snippet takes the bottom of the screen for its own controls; the reserve stays, so
+                        // the page never moves under the box being drawn.
+                        if !softwareKeyboardShown && model.notes.capturing == nil {
                             VStack(spacing: 6) {
                                 if miniPlayer { PodcastMiniPlayer(model: model) }
                                 tabBar
@@ -40,6 +44,9 @@ struct RootView: View {
                         if model.tab == .chat { model.wideMode = general ? .chat : .reader }
                     }
             }
+            }
+            .onAppear { model.compactLayout = !wide }
+            .onChange(of: wide) { _, now in model.compactLayout = !now }
         }
         // Visual checks pin the appearance (`--appearance=`); nil follows the system.
         .preferredColorScheme(Platform.fixtureAppearance)
@@ -72,26 +79,21 @@ struct RootView: View {
                 }.allowsHitTesting(false).accessibilityHidden(true)
             }
         }
-        .sheet(isPresented: signInPresentation, onDismiss: { model.authenticationSheetDismissed() }) {
-            if let presentationID = model.signInPresentationID {
-                AuthenticationView(model: model, presentationID: presentationID).id(presentationID).macSheetKeys()
-            }
-        }
+        // Sign-in, recovery, chats, diagrams, credits, reports and errors: presented here, or over Settings while it is
+        // open over the screen (SettingsPresentation.swift).
+        .sharedPresentations(model, host: .root)
         .infoBubbleDimming()
-        .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled().macSheetKeys(enabled: false) }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
-        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID, startsOnPaper: model.allChatsStartsOnPaper).macSheetKeys() }
-        .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         .sheet(isPresented: $model.showAnswerOptions) { AnswerOptionsSheet(model: model).macSheetKeys() }
         .sheet(item: $model.localPaperPresentation) { presentation in
-            LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } })
+            LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } },
+                               model: model)
                 .macSheetKeys()
         }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
             Text("Your account and its data were deleted from our servers and this device.")
         }
-        .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .modifier(PodcastPresenter(model: model))
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .modifier(PDFUploadPresenter(model: model))
@@ -99,20 +101,12 @@ struct RootView: View {
         .sheet(item: $model.tagEditor) { request in
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
         }
-        .sheet(item: $model.presentedDiagram) { presented in
-            if let diagram = model.diagram(presented.id) {
-                DiagramSheet(diagram: diagram).macSheetKeys()
-                    .environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
-            }
+        // Settings over the current screen (phone width): the last section of every top-right menu; Done returns here.
+        .sheet(isPresented: $model.settingsPresented) {
+            SettingsView(model: model, dismissSettings: { model.closeSettings() })
+                .sharedPresentations(model, host: .settings)
+                .macSheetKeys()
         }
-        .sheet(isPresented: $model.showReport, onDismiss: {
-            model.reportScreenshot = nil
-            if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
-        }) { ReportComposer(model: model) }
-        .sheet(isPresented: $model.showReports) { if let service = model.support { ReportsView(service: service).macSheetKeys() } }
-        .alert("Gradstep", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
-        } message: { Text(model.error ?? "") }
         #if INTERNAL
         .modifier(SessionCaptureHooks(model: model))
         #endif
@@ -141,8 +135,11 @@ struct RootView: View {
     /// The tab bar: one glass capsule floating over the screen (2026-10-07).
     private var tabBar: some View {
         HStack(spacing: 0) {
-            ForEach(ReaderTab.allCases) { tab in
+            // Feed · Library · Paper · Chat · Notes (owner, 2026-10-20): Settings is the last section of every ⋯ menu.
+            ForEach(ReaderTab.phoneTabs) { tab in
                 Button {
+                    // A second tap on Notes goes back to its list, as a system tab bar does.
+                    if tab == .notes && model.tab == .notes { model.notes.openNoteID = nil }
                     model.tab = tab
                     // Keep the selected destination when an iPad
                     // rotates from tabs into the wider layout.
@@ -151,6 +148,7 @@ struct RootView: View {
                     case .library: model.wideMode = .library
                     case .paper: model.wideMode = .reader
                     case .chat: model.wideMode = model.generalChat ? .chat : .reader
+                    case .notes: model.wideMode = .notes
                     case .settings: break
                     }
                 } label: { TabBarItem(tab: tab, selected: model.tab == tab) }
@@ -165,16 +163,6 @@ struct RootView: View {
         .padding(4)
         .frame(maxWidth: ChromeMetrics.tabBarMaxWidth)
         .chromeSurface(Capsule(), interactive: true)
-    }
-
-    private var signInPresentation: Binding<Bool> {
-        // SwiftUI may deliver the dismissal after this body has changed. Keep
-        // the ID that this binding actually presented, rather than cancelling
-        // whichever attempt happens to be current when the callback arrives.
-        let presentationID = model.signInPresentationID
-        return Binding(get: { model.showSignIn }, set: { presented in
-            if !presented, let presentationID { model.closeSignIn(presentationID: presentationID) }
-        })
     }
 
     /// A system dismissal counts as declining that captured question only.
@@ -194,7 +182,9 @@ struct RootView: View {
             #endif
         case .paper: PaperView(model: model)
         case .chat: ChatView(model: model)
-        case .settings: SettingsView(model: model)
+        case .notes: NotesView(model: model)
+        // Only after a wide window narrows with Settings showing; Done returns to where it was opened from.
+        case .settings: SettingsView(model: model, dismissSettings: { model.closeSettings() })
             #if OFFLINE_RESOURCE_MEASUREMENTS
             .onAppear { OfflineResourceProbe.shared.destinationAppearance(.settings, appeared: true) }
             .onDisappear { OfflineResourceProbe.shared.destinationAppearance(.settings, appeared: false) }
@@ -228,7 +218,8 @@ struct RootView: View {
                 Divider()
             }
             if model.tab == .settings {
-                SettingsView(model: model, dismissSettings: { model.tab = .library })
+                // Done returns to the view Settings was opened from.
+                SettingsView(model: model, dismissSettings: { model.closeSettings() })
             } else {
                 switch model.wideMode {
                 case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
@@ -237,6 +228,8 @@ struct RootView: View {
                 case .browse:
                     HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)
+                // Notes as list + detail; it never replaces the reader's chat pane.
+                case .notes: NotesView(model: model, wide: true)
                 }
             }
             // The podcast player docks along the bottom, below every pane (none of their controls go under it).
@@ -528,6 +521,7 @@ struct LibraryView: View {
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+                SettingsMenuSection(model: model)
             }
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Library options")
@@ -917,6 +911,7 @@ struct FeedView: View {
                     MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
                 }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
+                SettingsMenuSection(model: model)
             } label: { HeaderButtonLabel(systemImage: "ellipsis") }
             .buttonStyle(.plain).accessibilityLabel("Feed options")
         }
@@ -1269,6 +1264,7 @@ struct ChatView: View {
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
+                SettingsMenuSection(model: model) { composerFocused = false }
             }
         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Chat options")
     }

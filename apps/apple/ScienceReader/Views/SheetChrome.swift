@@ -60,14 +60,17 @@ private struct SheetTopRowModifier: ViewModifier {
                         ToolbarItem(placement: .principal) { actions.padding(.horizontal, report == nil ? 0 : 12) }
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 16) {
-                        if let openChat {
-                            Button(action: openChat.action) { Image(systemName: "bubble.left.and.text.bubble.right") }
-                                .accessibilityLabel("Open in Chat").accessibilityHint(openChat.hint).accessibilityIdentifier(openChat.identifier)
+                // Nothing on the right (a page drawing a snippet has its own Cancel): no empty glass button there.
+                if openChat != nil || report != nil || close != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HStack(spacing: 16) {
+                            if let openChat {
+                                Button(action: openChat.action) { Image(systemName: "bubble.left.and.text.bubble.right") }
+                                    .accessibilityLabel("Open in Chat").accessibilityHint(openChat.hint).accessibilityIdentifier(openChat.identifier)
+                            }
+                            if let report { SheetOptionsMenu(report: report) }
+                            if let close { SheetCloseButton(action: close) }
                         }
-                        if let report { SheetOptionsMenu(report: report) }
-                        if let close { SheetCloseButton(action: close) }
                     }
                 }
             }
