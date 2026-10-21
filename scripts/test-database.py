@@ -102,4 +102,4 @@ phase([*all_migrations, ROOT / 'tests/database/openrouter_all_inference.sql', RO
 
 # Review 2026-10-21 (A8/A16/A17/A21/A22): podcast device sources leave with the account, podcast source reservation,
 # beta-admission revocation, and the account-deletion sweep's back-off and stall alert; after every migration.
-phase([*all_migrations, ROOT / 'tests/database/podcast_device_source_deletion.sql'], [])
+phase([*all_migrations, ROOT / 'tests/database/podcast_device_source_deletion.sql', ROOT / 'tests/database/podcast_source_reservation.sql'], [])

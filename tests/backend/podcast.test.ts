@@ -15,6 +15,7 @@ import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parse
 import { podcastAudioBounds, podcastCheckerBounds, runPodcast, sweepPodcastSources, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { handlePodcast, podcastError, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
+import { PublicError } from '../../supabase/functions/_shared/http.ts';
 import { ffmetadata, ffmpegArguments, ffmpegEncoder, verifyProbe } from '../../services/pipeline-worker/podcast-encode.ts';
 import { createHandler } from '../../services/pipeline-worker/server.ts';
 
@@ -1434,6 +1435,10 @@ test('device sources (066, 076): each upload has its own path and the quote name
   assert.deepEqual({ ...uploads[0], path: '' }, { bucket: 'private-content', path: '', bytes: body.source.bytes, mediaType: 'text/plain' });
   const register = h.calls.find(c => c.name === 'worker_podcast_source_register');
   assert.deepEqual(register?.params, { p_account: ACCOUNT, p_sha256: digest, p_bytes: body.source.bytes, p_path: uploads[0].path });
+  // Reserved (quota, limit, switch, pending row) for the same path before the upload, then confirmed (migration 126).
+  const reserve = h.calls.find(c => c.name === 'worker_podcast_source_reserve');
+  assert.deepEqual(reserve?.params, register?.params);
+  assert.deepEqual(h.calls.filter(c => c.name.startsWith('worker_podcast_source')).map(c => c.name), ['worker_podcast_source_reserve', 'worker_podcast_source_register']);
   // The response names the digest only: never the path, never the text.
   assert.ok(!JSON.stringify(body).includes('podcast-sources') && !JSON.stringify(body).includes('second paragraph'));
   // The quote carries the descriptor (identity and digest), never the text.
@@ -1453,6 +1458,24 @@ test('device sources (066, 076): each upload has its own path and the quote name
     ...h.deps, service: async <T,>(name: string, params: Record<string, unknown>) => { h.calls.push({ kind: 'service', name, params }); return { bytes: params.p_bytes } as T; } }, headers);
   assert.equal(uploads.length, 2);
   assert.notEqual(uploads[1].path, uploads[0].path);
+});
+
+test('device source text is reserved before it is written (126): a refused reservation stores nothing; a failed upload is never confirmed', async () => {
+  const text = '¶1 Reserved before written.';
+  for (const refusal of ['storage_full', 'podcast_unavailable', 'request_rate_limit', 'spending_suspended']) {
+    const uploads: string[] = [], names: string[] = [];
+    const h = api({ upload: async (_bucket, path) => { uploads.push(path); } });
+    await assert.rejects(handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'paper-context-v2', text }) }), {
+      ...h.deps, service: async <T,>(name: string) => { names.push(name); if (name === 'worker_podcast_source_reserve') throw podcastError(refusal); return {} as T; } }, headers),
+      (error: unknown) => error instanceof PublicError && error.code === refusal);
+    assert.deepEqual(uploads, [], `${refusal}: nothing is written`);
+    assert.deepEqual(names, ['worker_podcast_source_reserve'], `${refusal}: nothing is registered`);
+  }
+  const names: string[] = [];
+  const h = api({ upload: async () => { throw new PublicError(503, 'service_unavailable'); } });
+  await assert.rejects(handlePodcast(req('?action=source', { method: 'POST', body: JSON.stringify({ format: 'paper-context-v2', text }) }), {
+    ...h.deps, service: async <T,>(name: string, params: Record<string, unknown>) => { names.push(name); return { bytes: params.p_bytes } as T; } }, headers), /service_unavailable/);
+  assert.deepEqual(names, ['worker_podcast_source_reserve'], 'a failed upload leaves only the pending reservation (swept a day later)');
 });
 
 test('finished episodes\' paper text is deleted after the run (076); a failed sweep never changes the outcome', async () => {

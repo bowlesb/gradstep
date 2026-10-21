@@ -78,6 +78,10 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
       if (bytes.byteLength > 409_600) throw new PublicError(413, 'source_too_large');
       const digest = await sha256(bytes);
       const path = `podcast-sources/${session.accountID}/${digest}/${crypto.randomUUID()}.txt`;
+      // Reserved before it is written (migration 126, review A17): the account, the podcast switch, a request limit and
+      // both storage quotas are checked and the object gets its (pending) storage row first. A failed upload or
+      // confirmation leaves only that pending row, which the day-old sweep deletes; nothing is stored untracked.
+      await deps.service('worker_podcast_source_reserve', { p_account: session.accountID, p_sha256: digest, p_bytes: bytes.byteLength, p_path: path });
       await deps.upload('private-content', path, bytes, 'text/plain');
       const registered = await deps.service<{ bytes?: unknown }>('worker_podcast_source_register',
         { p_account: session.accountID, p_sha256: digest, p_bytes: bytes.byteLength, p_path: path });
