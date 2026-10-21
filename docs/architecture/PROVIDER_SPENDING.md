@@ -74,6 +74,129 @@ Pause/drain old worker work during cutover. No historical charge is rewritten an
 Official API references checked: [attribution](https://openrouter.ai/docs/guides/features/broadcast/overview),
 [speech](https://openrouter.ai/docs/guides/overview/multimodal/tts).
 
+## Review fixes — 2026-10-21 (design and local evidence; not deployed)
+
+Findings from [the 2026-10-21 review](../reviews/WEB_SERVER_REVIEW_20261021.md). Nothing here raises the $100/month
+operating budget, a platform limit or a per-account limit; every change keeps the ledger authoritative and additive.
+
+### Stopped answers and unresolved attempts (A1, A6)
+
+OpenRouter reports usage only in the final stream chunk, so a stream the reader stops (or that breaks) ends without a
+bill. Before the switch, the direct Anthropic adapter charged a Stop from `message_start`'s exact input plus the output
+seen so far (max(visible characters / 3, 100 tokens per second since the start), capped at `max_tokens`). The OpenRouter
+adapter replaced that with a whole-ceiling estimate (every input byte as a token plus the whole output allowance),
+which chat then charged to the reader: a Stop a few sentences into a 150 KB paper cost ≈89 credits for 1–3 credits of
+work.
+
+- **Platform liability and the reader's bill are separate numbers.** An attempt cut short carries `readerMicrousd`:
+  the part that was written. Chat charges only that (`readerPriceAttempts`), never an estimate. An estimate with no
+  observation of what was written charges the reader nothing; it is the platform's liability only.
+- **OpenRouter's generation record is the bill.** After a stream is cut short, the adapter reads
+  `GET /api/v1/generation?id=` (the same record speech already uses; a GET cannot buy another generation), at most six
+  reads within 7 s, while the reader is already gone. The record must name the same generation, account (`user`) and
+  operation (`session_id`), and the requested model (a dated suffix allowed). With it, the attempt settles **exact**
+  (`succeeded`, actual = the record's `total_cost`), the receipt is recorded, and nothing is left to reconcile.
+- **The reader's part of a recorded bill:** its input cost (at the route's card, at most the whole bill) plus its
+  output cost in proportion to the output observed before the Stop (characters of text, tool arguments and reasoning
+  / 3, or 100 tokens per second since the first chunk — the pre-switch rule). OpenRouter stops billing on cancel only
+  for some upstreams; Google Vertex keeps generating, so the record may bill the whole answer. That remainder is
+  Gradstep's and is recorded as absorbed, never hidden.
+- **Without a record** (not written in time, unreadable, or failing a check): the reader pays the observed output at
+  the route's output rate and no input; the attempt stays `unknown` with its whole ceiling reserved, for the
+  reconciler below.
+- **Nothing reached us:** a Stop before any text or tool call costs the reader nothing, with or without a record.
+
+Automatic reconciliation (A6) is described with its migration below.
+
+### Attempt capacity in a rolling window (A2, migration 0100)
+
+`worker_provider_attempt_begin` refused once `count(*)` over every `provider_attempts` row ever stored (refused rows
+included, nothing pruned) reached 100,000 for the platform or 20,000 for one account, and the check constraints
+forbade raising either without a migration. A chat answer with a title and suggestions uses about three attempts, so
+the owner's testing account would have been refused permanently after about 6,600 answers; each admission also counted
+the whole table under the global locks. The 80% warning was computed but never shown.
+
+- **Counter rows, not table scans.** `app_private.provider_attempt_hours(scope_id, hour, attempts)`: one row per
+  account and UTC hour, plus the platform (the nil UUID). A granted attempt increments both inside the admission
+  transaction (which already holds the policy lock, so counts are serial). Refused attempts never count.
+- **Window.** `attempt_window_hours` (default 24, at most 168). `attempt_limit` and `account_attempt_limit` now mean
+  "granted attempts per window": 50,000 for the platform and 10,000 for one account, raisable by a policy update up to
+  1,000,000 / 200,000 (no migration). The per-operation bound (64) is unchanged.
+- **Retention.** Counter rows older than 8 days are deleted when the account's or platform's next hour begins; the
+  migration backfills the last 8 days from `provider_attempts`.
+- **Visibility.** `v1_admin_spending.attempt_capacity` (platform and busiest-account use against their limits) and
+  `anomalies.attempt_capacity_eighty_percent`, computed from the window; Admin › Spending shows a warning at 80%;
+  `worker_budget_health.attempt_capacity_eighty_percent` lets the scheduled budget check alert.
+- Money is unaffected: the monthly budget, operation holds and per-account limits still decide what may be spent. The
+  OpenRouter tariff date moved behind `app_private.openrouter_tariff_expires(model)` in the same migration so the
+  next one (A4) can make it renewable without another copy of the admission function.
+
+### Tariff validity (A4, migration 0101)
+
+Every reviewed OpenRouter price card was valid until 2027-01-01, a literal in nine copies of the admission function and
+four TypeScript constants (`openrouter-chat.ts` even checked DeepSeek against Gemini's). At that instant every chat,
+tag and podcast call would be refused as `tariff_expired` while chat kept publishing the models, so readers' holds were
+placed, refused as `service_unavailable` with `retry_after: 10` and retried in a loop. Nothing warned beforehand.
+
+- **One table** `app_private.openrouter_tariffs(model, tariff, valid_until, evidence_reference)`: one row per admitted
+  model, seeded with the same date (no price changes). Admission and every pricing snapshot read it through
+  `openrouter_tariff_expires(model)`; a model without a row fails closed. The TypeScript constants are removed; the
+  per-request `max_price` caps still reject a provider price increase.
+- **Renewal without an emergency.** `worker_openrouter_tariff_renew(actor, request, model, valid_until, evidence,
+  reason)` — owner only, at most 183 days ahead, evidence and reason required, audited in `admin_audit_events`
+  (`openrouter_tariff`), replay-safe. It confirms that the reviewed card still holds; a changed price or a new model is
+  a migration and code change. Operator command: `scripts/pipeline-ops.py tariff-renew MODEL --until DATE --actor OWNER
+  --evidence REF --reason TEXT` (`tariffs` lists them).
+- **Stop offering before, not failing after.** The chat function reads the table with its existing policy read
+  (`worker_provider_spending_policy.openrouter_tariffs`): the profile table drops a model whose card lapses within 24
+  hours (and stops recommending Gemini then); a request whose model lapses within 10 minutes is `model_unavailable`
+  before any hold (no `retry_after`); a lapsed side-request model (Haiku) skips the title, suggestions and map. A card
+  that lapses between that check and admission is reported as `model_unavailable` too. Podcast quotes are refused
+  (`podcast_unavailable`) when the script or speech card lapses within a day; reuse of a made episode is unaffected.
+- **Warning six weeks ahead (A4).** `v1_admin_health.tariffs` (Health › Attention names each card, the date and the
+  command) and `worker_budget_health.tariffs_expiring_within_42d` / `soonest_tariff_expiry` for the scheduled check.
+
+### Automatic reconciliation (A6, migration 0102)
+
+Every Stop, mid-stream 5xx, timeout or dropped stream that the chat adapter could not settle exactly (A1's bounded
+receipt read missed) kept its whole ceiling reserved against the month until an owner ran
+`scripts/pipeline-ops.py reconcile` by hand. An outage or many Stops could reach `platform_budget_exhausted` and pause AI
+for every tester. DECISIONS.md (2026-10-18) requires actual-cost reconciliation.
+
+- **Who and when.** The Cloud Run pipeline worker, already run every minute by pg_cron, claims at most 10 attempts per
+  run (`worker_openrouter_reconcile_claim`): OpenRouter, dispatched, with a generation id, `unknown` (or `admitted` and
+  abandoned for an hour), older than 2 minutes (never one still streaming) and at most 30 days old. It reads each
+  record with one GET (`lookupGeneration`, the same checks as A1: generation, account, operation, model) within a
+  30-second run budget.
+- **What it writes.** `worker_openrouter_reconcile` records the receipt (the dispatch-time model check), then settles the
+  attempt exactly like an owner's reconciliation: `provider_attempt_apply(..., 'reconciled', cost)` (the ceiling is
+  released, the cost spent, an overrun recorded as an anomaly), a `provider_attempt_adjustments` row with no actor and
+  evidence `openrouter-generation:<id>`, the usage reconciliation row and a `reconciled` event marked `automatic`.
+- **Bounded.** `openrouter_reconcile_queue` backs each attempt off (5 minutes doubling to a day) and gives up after 12
+  tries. Nothing is released without a matching record.
+- **What stays manual, and is named.** Attempts given up, OpenRouter attempts lost before the response named the
+  generation (no id to look up), and older attempts of retired direct providers (for example the 2026-10-17
+  direct-Anthropic attempt with $0.000138 reserved) keep their ceilings and are listed in Health › Attention and
+  `worker_budget_health.reconciliation` (counts and the reserved amount) until an owner reconciles them with evidence.
+- Key: the reconciler reads records with the key that created them (one chat key today; per-feature keys, A13, map by
+  the attempt's recorded `feature`).
+
+### One round trip to admit and dispatch (C6, migration 0107)
+
+Before the first token a chat made, in sequence: Auth's token check, the account read, the rate limit, the context
+read, the hold, the attempt's admission, its dispatch record, then the POST; afterwards the receipt was awaited before
+the outcome returned. Now:
+
+- The token check and the account read run together (`userClient`), the account answer used only after Auth accepted
+  the same token and named the same user.
+- `worker_openrouter_admit` runs `worker_provider_attempt_begin` and `worker_openrouter_dispatch` in one transaction with
+  their unchanged checks and closed metadata (transport model and pinned endpoint from `openRouterTransportFor`, the one
+  source the request body also uses). A refused admission dispatches nothing; a dispatch that fails its checks rolls the
+  admission back. The adapter then sends only if the request's own metadata is exactly what was recorded; anything else
+  asks the database, which refuses a second dispatch — the one-shot contract is unchanged.
+- The receipt is written while the attempt's finish is recorded (both awaited together), not before the outcome returns.
+- Deploy migration 0107 before the chat function (until then every OpenRouter admission would be refused).
+
 ## Service RPC contract
 
 `worker_provider_attempt_begin` takes `p_account_id`, `p_operation_id`, `p_attempt_id` (UUIDs),

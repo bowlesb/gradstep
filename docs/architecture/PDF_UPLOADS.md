@@ -57,6 +57,22 @@ pipeline:
 App: `AddInput` (arXiv stays local), `AddOutcome.from` (the reader's words and next steps), `ImportPaperView` in
 `Views/AddPaperView.swift`. A queued paper closes the sheet; anything else stays with its message and buttons.
 
+**Since 2026-10-21 (reviews A15 and A24, not yet deployed).** OpenAlex is asked only while the owner's `openalex_enabled`
+switch is on; it is off, so a DOI is named by Crossref and a title by DataCite (ARXIV_DEVICE_ONLY.md §6.0.4).
+Bounds: the add-paper and add-reference request bodies are read to at most 16 KiB before parsing, with or without a
+declared length (413 `invalid_request` above it); OpenAlex and Crossref answers are read to at most 2 MiB (4 MiB for a
+full Crossref work) and DNS-over-HTTPS answers to 64 KiB, so a misbehaving third party cannot exhaust the function's
+memory; the podcast API's bodies are bounded the same way when no length is declared.
+
+*Residual risk: DNS rebinding.* Every hop's name is resolved and must be public before the request, and, since A24,
+resolved again after the response arrives: unless every address is still public, the hop is refused before its body,
+headers or redirect are used. Deno's `fetch` resolves the name itself and offers no way to pin the connected address,
+so a name that answers public to both of our lookups but private to `fetch`'s (strict alternation, or a separate
+resolver cache) is not caught. What could leak is what this function echoes from a page: its title, `citation_doi` and
+declared PDF link (each bounded). Whether the Edge network can reach private addresses at all is not established
+here. The complete fix is to let the reader's device probe links (it already downloads `link_only` PDFs), a client
+change not made in this review.
+
 ## 2. Upload sessions (migration 039, `upload-pdf`)
 
 The session keeps the import identity from [DATA_MODEL](DATA_MODEL.md#import-identity-and-membership), with

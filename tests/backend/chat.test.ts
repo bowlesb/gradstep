@@ -324,6 +324,9 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   assert.deepEqual(invalid.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'invalid_input' }]);
   const recorded = invalid.calls.find(c => c.name === 'worker_record_provider_usage' && c.params.p_provider === 'ingest')!;
   assert.equal((recorded.params.p_units as { result: string }).result, 'invalid_input');
+  // A23: the immutable ledger keeps how many keys the model sent, never the model-chosen names.
+  assert.equal((recorded.params.p_units as { key_count: number }).key_count, 1);
+  assert.ok(!('keys' in (recorded.params.p_units as object)));
 
   // A tool call on an ordinary question (no tools were offered) is ignored.
   const ordinary = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
@@ -658,7 +661,7 @@ test('a build without stop_signal closing the stream aborts the provider and is 
     assert.ok(stream.signal.aborted, 'provider signal follows the client');
     stream.onText('late text');
     return { status: 'failed', failure: 'aborted', messageID: 'msg_02', model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null,
-      attempts: [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 100 } }], exact: false };
+      attempts: [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 100 }, readerMicrousd: 3_000 }], exact: false };
   } });
   await runChat(h.deps, paperBody(), h.emit, client.signal);
   assert.deepEqual(h.events, [{ event: 'delta', data: { text: 'partial ' } }]);
@@ -688,11 +691,12 @@ test('a provider error mid-stream settles once, charges nothing (Gradstep absorb
     p_actual_microusd: 1_500, p_action: 'answer', p_ending: 'provider', p_absorbed_microusd: 1_500 });
 });
 
-test('provider billing refusal settles without charge and offers model choice instead of a futile retry', async () => {
+test('A13: a provider billing refusal (402) settles without charge and blames the service, not the chosen model', async () => {
   const h = harness({ generate: async () => ({ status: 'failed', failure: 'provider_billing', messageID: null,
     model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null, attempts: [], exact: true }) });
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'model_unavailable', credits: 0, charged: false, reason: 'provider' } }]);
+  assert.deepEqual(h.events, [{ event: 'error', data: { code: 'service_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 300 } }]);
+  assert.deepEqual(h.logs, [{ event: 'chat_provider_billing', operation_id: operation, provider: 'anthropic' }]);
   const settlements = h.calls.filter(c => c.name === 'worker_settle_chat');
   assert.equal(settlements.length, 1);
   assert.equal(settlements[0].params.p_actual_credits, 0);
@@ -793,6 +797,27 @@ test('settlement retries only ambiguous transport failures with identical amount
   await runChat(rejected.deps, generalBody(), rejected.emit, new AbortController().signal);
   assert.equal(rejected.calls.filter(c => c.name === 'worker_settle_chat').length, 1);
   assert.deepEqual(rejected.logs, [{ event: 'chat_settle_failed', operation_id: operation, reason: 'rejected' }]);
+});
+
+test('A23: done reports what the settlement recorded, not what it tried', async () => {
+  const doneOf = (h: ReturnType<typeof harness>) => h.events.at(-1)!.data as { credits: number; charged: boolean; reason?: string };
+  // Refused by the database (here unreadable afterwards): the stale sweep settles it as our server's ending, charging nothing.
+  const rejected = harness({ script: { worker_settle_chat: () => { throw new RpcFailure('invalid_settlement'); } } });
+  await runChat(rejected.deps, generalBody(), rejected.emit, new AbortController().signal);
+  assert.deepEqual([doneOf(rejected).credits, doneOf(rejected).charged, doneOf(rejected).reason], [0, false, 'server']);
+  assert.ok(names(rejected.calls).includes('worker_operation_outcome'), 'a conflict may mean another settlement exists: read it');
+  // No acknowledgement after the retries: the recorded outcome is read back.
+  for (const [state, credits, charged] of [['settled', 1, true], ['reserved', 0, false]] as const) {
+    const unknown = harness({ script: { worker_settle_chat: () => { throw new Error('transport'); },
+      worker_operation_outcome: () => ({ state, actual_credits: state === 'settled' ? 1 : null, charged: state === 'settled' ? true : null }) } });
+    await runChat(unknown.deps, generalBody(), unknown.emit, new AbortController().signal);
+    assert.equal(doneOf(unknown).credits, credits, state); assert.equal(doneOf(unknown).charged, charged, state);
+    assert.equal(unknown.answers[0].settlement, 'unknown');
+  }
+  // A settled answer is unchanged (and its log line has no settlement field).
+  const ok = harness();
+  await runChat(ok.deps, generalBody(), ok.emit, new AbortController().signal);
+  assert.equal(doneOf(ok).charged, true); assert.ok(!('settlement' in ok.answers[0]));
 });
 
 test('the server deadline aborts generation, charges nothing (our limit) and reports provider_unavailable', async () => {
@@ -2672,7 +2697,9 @@ test('DeepSeek searches only through our Tavily tool, and never fails over to An
 const settledWith = (h: ReturnType<typeof harness>) => h.calls.find(c => c.name === 'worker_settle_chat')!.params;
 const aborted = (usage: { input: number; output: number }, messageID: string | null = 'msg_stop'): ProviderOutcome => ({ status: 'failed', failure: 'aborted',
   messageID, model: messageID ? 'claude-sonnet-5-5' : null, stopReason: null, refusalCategory: null,
-  attempts: [{ model: messageID ? 'claude-sonnet-5-5' : null, estimated: true, usage: { cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, ...usage } }], exact: false });
+  attempts: [{ model: messageID ? 'claude-sonnet-5-5' : null, estimated: true, usage: { cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, ...usage },
+    // The adapter's observation of what was written (here priced like the usage: 1,000 input at $2 + 100 output at $10).
+    readerMicrousd: messageID ? usage.input * 2 + usage.output * 10 : 0 }], exact: false });
 
 test('stop_signal is a known capability; builds that send it are told apart from those that do not', () => {
   assert.deepEqual(validateChatRequest(paperBody({ capabilities: ['stop_signal', 'visual_answers'] })).capabilities, ['stop_signal', 'visual_answers']);
@@ -2750,6 +2777,36 @@ test('a completed answer pays for itself and what was relayed; a failed title is
   assert.equal((h.events.at(-1)!.data as { charged: boolean }).charged, true);
 });
 
+test('A12: a finished answer stays charged when the connection drops during its suggestions; the unrelayed suggestions are Gradstep\'s', async () => {
+  const client = new AbortController();
+  let stopLooks = 0;
+  const h = harness({ script: { worker_chat_stop_requested: () => { stopLooks++; return false; } },
+    generate: async (params, stream) => {
+      if (params.tools?.some(tool => 'name' in tool && tool.name === 'suggest_follow_ups')) {
+        client.abort(); // the reader's connection drops after the whole answer arrived, before `done`
+        return followUpOutcome(['Why is the reference model frozen?', 'What breaks without the KL term?']);
+      }
+      stream.onText('The answer.'); return completeOutcome();
+    } });
+  await runChat(h.deps, paperBody({ capabilities: ['stop_signal'], follow_ups: true }), h.emit, client.signal);
+  // The answer's 4,800 micro-USD are charged (1 credit); the suggestions' 80 were never relayed and are absorbed.
+  assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 4_880,
+    p_action: 'answer', p_ending: 'completed', p_absorbed_microusd: 80 });
+  assert.equal(stopLooks, 0, 'a finished answer needs no Stop lookup');
+  assert.deepEqual(h.events.map(e => e.event), ['delta'], 'nothing is sent after the reader left');
+});
+
+test('A12: a reader who leaves during the title grace after a finished answer still pays for it', async () => {
+  const client = new AbortController();
+  const h = harness({ generate: async (params, stream) => {
+    if (params.max_tokens === 40) { await new Promise(resolve => setTimeout(resolve, 5)); client.abort(); return titleOutcome(); }
+    stream.onText('The answer.'); return completeOutcome();
+  } });
+  await runChat(h.deps, paperBody({ capabilities: ['stop_signal'], topic_title: true }), h.emit, client.signal);
+  const settle = settledWith(h);
+  assert.equal(settle.p_ending, 'completed'); assert.equal(settle.p_actual_credits, 1);
+});
+
 test('a finished turn with nothing to show charges nothing (the provider\'s)', async () => {
   const h = harness({ generate: async () => completeOutcome() });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
@@ -2811,4 +2868,16 @@ test('figure card kinds are additive; concept and related-work cards cannot masq
   assert.equal(figureDetail({sections:[{...row,kind:'concept'}]},3),null);
   const many = figureWalkthrough({sections:Array.from({length:15},()=>row)},3)!;
   assert.equal(many.sections.length,12); assert.equal(many.sections.filter(s=>s.box).length,12);
+});
+
+test('A1: an estimate without an observation of what was written is never billed to the reader (platform liability only)', async () => {
+  const client = new AbortController();
+  const h = harness({ script: { worker_chat_stop_requested: () => true },
+    generate: async (_params, stream) => { stream.onText('partial '); client.abort();
+      return { ...aborted({ input: 150_000, output: 8_000 }), attempts: [{ model: 'claude-sonnet-5-5', estimated: true,
+        usage: { input: 150_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8_000 } }] }; } });
+  await runChat(h.deps, paperBody({ capabilities: ['stop_signal'] }), h.emit, client.signal);
+  const settle = settledWith(h);
+  assert.equal(settle.p_ending, 'stopped'); assert.equal(settle.p_actual_credits, 0);
+  assert.equal(settle.p_absorbed_microusd, settle.p_actual_microusd);
 });

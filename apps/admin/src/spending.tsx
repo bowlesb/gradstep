@@ -22,7 +22,11 @@ export interface SpendingSummary {
   anomalies: { budget_paused: boolean; budget_eighty_percent: boolean; forecast_incomplete: boolean; funded_plan_over_budget: boolean; tavily_unverified: boolean; native_search_gated: boolean; attempt_capacity_eighty_percent: boolean };
   /** Encrypted note images (migration 095); absent before it. */
   note_assets?: NoteAssetUsage;
+  /** Granted provider attempts in the rolling window (migration 0100, review A2); absent before it. */
+  attempt_capacity?: AttemptCapacity;
 }
+export interface AttemptCapacity { window_hours: number; platform_used: number; platform_limit: number; account_limit: number;
+  busiest_account_id: string | null; busiest_account_used: number; eighty_percent: boolean }
 export interface NoteAssetUsage {
   period: string;
   limits: { max_blob_bytes: number; account_bytes: number; account_objects: number; environment_bytes: number; account_download_bytes_month: number;
@@ -67,6 +71,16 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const recordNames: Record<RecordKind, string> = { events: 'Attempt history', credits: 'Customer credits', adjustments: 'Reconciliation', legacy_usage: 'Earlier usage records' };
 const errorText = (e: unknown) => e instanceof Error ? e.message : 'Spending records could not be loaded.';
 
+/** Review A2: provider attempts are limited per rolling window; at 80% new AI work is close to being refused. */
+function AttemptCapacityNotice({ capacity }: { capacity: AttemptCapacity }) {
+  const window = `${capacity.window_hours} hours`;
+  return <div className="notice" role="alert">
+    {capacity.platform_used >= capacity.platform_limit * 0.8 && <>Provider attempts in the last {window}: {capacity.platform_used.toLocaleString()} of {capacity.platform_limit.toLocaleString()} for the whole service. </>}
+    {capacity.busiest_account_id && capacity.busiest_account_used >= capacity.account_limit * 0.8 && <>Account {short(capacity.busiest_account_id)} used {capacity.busiest_account_used.toLocaleString()} of its {capacity.account_limit.toLocaleString()} attempts in the last {window}. </>}
+    At the limit, new AI work is refused until older attempts leave the window.
+  </div>;
+}
+
 export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ownerID: string; api?: SpendingApi; reloadKey?: number }) {
   const [days, setDays] = useState(30), [account, setAccount] = useState<string | null>(null), [draft, setDraft] = useState('');
   const [summary, setSummary] = useState<SpendingSummary | null>(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
@@ -97,6 +111,7 @@ export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ow
         {summary.anomalies.budget_paused ? 'New provider spending is paused. ' : summary.anomalies.budget_eighty_percent ? 'At least 80% of the provider budget is used or held. ' : ''}
         {summary.unresolved.aged_over_hour > 0 && `${summary.unresolved.aged_over_hour} unresolved attempts are more than an hour old.`}
       </div>}
+      {summary.attempt_capacity?.eighty_percent && <AttemptCapacityNotice capacity={summary.attempt_capacity} />}
       <section className="panel"><div className="section-heading"><h2>Provider attempts</h2><small className="muted">Requests started since {new Date(summary.since).toLocaleDateString()}</small></div>
         <div className="table-scroll"><table><thead><tr><th>Provider / model</th><th>Feature</th><th className="num">Attempts</th><th className="num">Reported</th><th className="num">Estimated</th><th className="num">Held</th><th className="num">Prepaid units</th></tr></thead><tbody>
           {summary.providers.map(row => <tr key={[row.provider, row.model, row.route].join(':')}><td>{row.provider}<small>{row.model}</small></td><td>{name(row.route)}</td><td className="num">{row.attempts}</td><td className="num">{money(row.reported_microusd)}</td><td className="num">{money(row.estimated_microusd)}</td><td className="num">{money(row.held_microusd)}</td><td className="num">{row.provider === 'tavily' ? `${row.prepaid_used} used · ${row.prepaid_held} held` : '—'}</td></tr>)}

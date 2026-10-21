@@ -4,7 +4,7 @@ import { clientClaudeModel, isRouterClaude, routedClaudeModel, ROUTER_CLAUDE_TAR
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
-  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION,
+  ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION, readerPriceAttempts,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
   webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF, DEEPSEEK_TARIFF,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
@@ -457,7 +457,8 @@ async function runIngest(deps: ChatDependencies, request: ChatRequest, outcome: 
     // Never end silently: say why nothing was added, and record it.
     const result = call ? 'invalid_input' as const : 'no_call' as const;
     deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
-    await record({ result, stop_reason: outcome.stopReason, keys: call && call.input && typeof call.input === 'object' ? Object.keys(call.input).slice(0, 8).join(',') : null });
+    // Counts only (A23): the model chose these key names, so the immutable ledger keeps how many there were, not the names.
+    await record({ result, stop_reason: outcome.stopReason, key_count: call && call.input && typeof call.input === 'object' ? Math.min(Object.keys(call.input).length, 64) : null });
     return { result, report: call ? '\n\nI couldn’t read the paper’s details, so it wasn’t added. Try Add paper again. Not charged.' : '\n\nNot charged.' };
   }
   if (!deps.findPaper || !deps.importPaper || signal.aborted) return { result: 'stopped', report: null };
@@ -537,6 +538,9 @@ export interface ChatDependencies {
   deepseek?: boolean;
   gemini?: boolean;
   claudeOpenRouter?: boolean;
+  /** Whether an admitted model's reviewed price card stays valid for this answer (A4, migration 0101: the chat function
+   * reads app_private.openrouter_tariffs). Absent: every model is open and admission alone decides. */
+  modelAvailable?: (apiModel: string) => Promise<boolean>;
   sha256Hex(bytes: Uint8Array): Promise<string>;
   log(entry: LogEntry): void;
   now?: () => number;
@@ -567,6 +571,8 @@ export interface ChatDependencies {
 
 const RESERVE_ERRORS: Record<string, ChatErrorCode> = {
   insufficient_credits: 'insufficient_credits', platform_budget_exhausted: 'platform_budget_exhausted',
+  // Review A9 (migration 0105): an account's testing allowance reached its monthly provider-cost cap.
+  testing_cap_reached: 'insufficient_credits',
   too_many_active_operations: 'rate_limited', operation_id_conflict: 'invalid_request',
   account_unavailable: 'service_unavailable', invalid_reservation: 'invalid_request',
 };
@@ -628,6 +634,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A model the server does not offer here (DeepSeek switched off or without a key) is not a choice it accepts.
   if (profile.model === 'gemini' && deps.gemini !== true) throw new ChatFailure('invalid_request');
   if (profile.model === 'deepseek' && deps.deepseek !== true) throw new ChatFailure('invalid_request');
+  // A4: a model whose price card lapses before this answer could finish is unavailable (no hold, no retry loop); the
+  // title, suggestions and map run only while their own model's card holds.
+  if (deps.modelAvailable && !await deps.modelAvailable(profile.apiModel)) throw new ChatFailure('model_unavailable');
+  const sidesAvailable = !deps.modelAvailable || await deps.modelAvailable(routeAux({ model: TITLE_MODEL } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming).model);
   const tavily = await tavilyReady === true;
   // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
   const nativeSearch = search && deps.nativeSearch === true && profile.provider === 'anthropic';
@@ -712,14 +722,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
   }
   // The topic title is a second, small request in the same operation: its whole ceiling is held too.
-  const titleParams = request.topicTitle ? routeAux(titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null })) : null;
+  const titleParams = request.topicTitle && sidesAvailable ? routeAux(titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null })) : null;
   const titleHold = titleParams ? holdForParams(titleParams) : null;
   if (titleHold) hold.microusd += titleHold.microusd;
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
-  const followUpHold = request.followUps && !repair && request.action !== 'ingest' ? holdForParams(routeAux(FOLLOW_UP_HOLD_PARAMS)) : null;
+  const followUpHold = request.followUps && sidesAvailable && !repair && request.action !== 'ingest' ? holdForParams(routeAux(FOLLOW_UP_HOLD_PARAMS)) : null;
   if (followUpHold) hold.microusd += followUpHold.microusd;
   // Study: the knowledge-map request after the answer is held at its largest (a full map, both excerpts at their limits).
-  const studyHold = study ? holdForParams(routeAux(STUDY_HOLD_PARAMS)) : null;
+  const studyHold = study && sidesAvailable ? holdForParams(routeAux(STUDY_HOLD_PARAMS)) : null;
   if (studyHold) hold.microusd += studyHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
@@ -765,6 +775,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   deadline.signal.addEventListener('abort', stopTitle, { once: true });
   const titling = titleParams && titleHold ? writeTitle(deps.generate, titleParams, titleHold.inputTokens, titleStop.signal, now) : null;
   let title: TitleResult | null = null;
+  // Whether the reader had left when the answer itself ended (A12): leaving later, during the title's grace, the
+  // suggestions or the map, does not turn a finished answer into an unpaid one.
+  let leftDuringAnswer = false;
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
@@ -773,6 +786,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
     }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
+    leftDuringAnswer = signal.aborted;
     if (titling) {
       // A title still being written gets a short grace period; abandoning it still settles its attempt.
       const grace = setTimeout(stopTitle, outcome.status === 'complete' && !signal.aborted ? TITLE_GRACE_MS : 0);
@@ -832,7 +846,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
   const showsWork = symbolsOnly ? !!described || !!symbolWords : walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
     : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
-  const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: showsWork });
+  const ending = await answerEnding(deps, request, answer, { readerLeft: leftDuringAnswer, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
   // Provider spend (the platform budget): tokens and Anthropic's per-search fee, whoever pays for them. Tavily
@@ -841,8 +855,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const actual = Math.ceil(tokens + anthropicFees);
   // What reached the reader: the answer's own rounds and, with a completed answer, the title, suggestions and map that
   // were relayed. A side request that failed, came back unusable or too late is Gradstep's cost.
-  const sides = ending === 'completed' ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
-  const delivered = priceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? priceAttempts(part.attempts) : 0), 0);
+  // Side requests are relayed only to a reader still connected (every emit below checks); one who left gets none of them.
+  const sides = ending === 'completed' && !signal.aborted ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
+  const delivered = readerPriceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? readerPriceAttempts(part.attempts) : 0), 0);
   const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
   // Ingest: at most one add per request, only of a strictly matched arXiv paper, only when the turn ended in the tool
   // call (not cut off). It runs before the settlement (import takes no hold) so an add that doesn't happen costs the
@@ -852,20 +867,25 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     ? await runIngest(deps, request, outcome, signal, status) : null;
   const notAdded = ingest !== null && INGEST_NOT_ADDED.includes(ingest.result);
   // The customer is never charged above the hold, but the platform budget records the true provider cost (an overrun
-  // is recorded and alerted, migration 079). A request the provider never started (no message_start) charges the
-  // reader nothing even when they stopped it; the attempt keeps the platform's liability until it is resolved.
+  // is recorded and alerted, migration 079). A stopped answer charges only what was written (`readerMicrousd`: from
+  // OpenRouter's generation record when it could be read, else the streamed output), nothing when no text or tool call
+  // arrived; the conservative estimate stays the platform's liability until it is resolved (A1, 2026-10-21).
   const credits = charged && !notAdded && (answer.status === 'complete' || answer.messageID) ? Math.min(creditsFor(priced), hold.credits) : 0;
   // Gradstep pays the rest: everything for an uncharged ending, the undelivered side requests otherwise.
   const absorbed = credits > 0 ? Math.max(0, actual - Math.ceil(delivered)) : actual;
   if (credits > 0 && priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
   else if (credits > 0 && creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
-  await settle(deps, request.operationID, { credits, microusd: actual, action: request.action ?? 'answer', ending, absorbed });
+  const settledAs = await settle(deps, request.operationID, { credits, microusd: actual, action: request.action ?? 'answer', ending, absorbed });
+  // A23: the reader is told what was recorded. A settlement the database refused, or one that could not be confirmed and
+  // reads back unsettled, is settled later by the stale sweep as our server's ending, charging nothing.
+  const reported = settledAs === 'settled' ? { credits, charged } : await settlementReadback(deps, request.operationID);
   await recordUsage(deps, request.operationID, outcome, actual, providerForModel(params.model));
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
   if (outcome.rejectionReason) deps.log({ event: 'chat_provider_rejected', operation_id: request.operationID,
     provider: profile.provider, status: outcome.httpStatus ?? null, reason: outcome.rejectionReason });
-  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending, charged, credits,
+  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending,
+    charged: reported.charged, credits: reported.credits, ...(settledAs === 'settled' ? {} : { settlement: settledAs }),
     web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
     failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
@@ -881,7 +901,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
   if (signal.aborted) return;
   // Every event after the hold says whether the reader paid; when not, why (a machine-readable reason for the clients).
-  const billing = charged ? { charged: true } : { charged: false, reason: ending as UnchargedReason };
+  const billing = reported.charged ? { charged: true }
+    : { charged: false, reason: (charged ? 'server' : ending) as UnchargedReason };
+  const reportedCredits = reported.credits;
   if (outcome.status === 'complete') {
     if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused', credits: 0, charged: false, reason: 'refusal' } }); return; }
     // Ingest's report, after the settlement it decided (run before it, below).
@@ -979,27 +1001,37 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     // Which model answered (the serving model of the last attempt, a fallback when one ran) and with which profile.
     const served = answeringModel(outcome);
     // `profile` is the resolved profile; `effort` (2026-10-16) names the effort the server picked when the request said `auto`.
-    emit({ event: 'done', data: { stop_reason: stopReason, credits, usage, ...(served ? { model: served } : {}),
+    emit({ event: 'done', data: { stop_reason: stopReason, credits: reportedCredits, usage, ...(served ? { model: served } : {}),
       profile: repair ? 'diagram_fix' : profile.id, ...(request.choice?.effort === 'auto' ? { effort: profile.effort } : {}), ...billing } });
     return;
   }
-  // An unfunded provider cannot recover by retrying the same request. Keep the operator's billing detail private,
-  // but let the reader choose another model instead of repeatedly suggesting a retry. Settlement above is unchanged.
+  // A4: a card that lapsed between the check above and admission: the model is unavailable, not a fault to retry.
+  if (outcome.rejectionReason === 'tariff_expired') {
+    emit({ event: 'error', data: { code: 'model_unavailable', credits: reportedCredits, ...billing } });
+    return;
+  }
+  // A13: an unfunded OpenRouter account (402) fails every model alike: it is the service's, not the chosen model's.
+  // Keep the operator's billing detail private and ask the reader to come back later instead of switching models;
+  // a quick retry cannot help. Settlement above is unchanged.
   if (ending === 'provider' && outcome.failure === 'provider_billing') {
-    emit({ event: 'error', data: { code: 'model_unavailable', credits, ...billing } });
+    deps.log({ event: 'chat_provider_billing', operation_id: request.operationID, provider: profile.provider });
+    emit({ event: 'error', data: { code: 'service_unavailable', credits: reportedCredits, ...billing, retry_after: PROVIDER_BILLING_RETRY_SECONDS } });
     return;
   }
   const code: ChatErrorCode = ending === 'server' ? 'service_unavailable' : 'provider_unavailable';
   const retryAfter = ending === 'provider' && outcome.retryAfterMs != null ? Math.min(3600, Math.max(1, Math.ceil(outcome.retryAfterMs / 1000))) : RETRY_AFTER_SECONDS[code]!;
-  emit({ event: 'error', data: { code, credits, ...billing, retry_after: retryAfter } });
+  emit({ event: 'error', data: { code, credits: reportedCredits, ...billing, retry_after: retryAfter } });
 }
 
-/** How a held answer ended (see ChatEnding). A refusal stays a refusal; then the reader leaving (their Stop, recorded by
- * v1_chat_stop, or a dropped connection; builds without `stop_signal` can't say which), then an answer cut short by our
- * time limit, our server or the provider, a length limit, and a finished turn with nothing to show (the provider's). */
+/** How a held answer ended (see ChatEnding). A refusal stays a refusal; a finished turn with something to show is
+ * completed even if the reader left as it finished or afterwards (A12: the answer was written; CHAT.md "charged as
+ * finished"); then the reader leaving while it was written (their Stop, recorded by v1_chat_stop, or a dropped
+ * connection; builds without `stop_signal` can't say which), then an answer cut short by our time limit, our server or
+ * the provider, a length limit, and a finished turn with nothing to show (the provider's). */
 async function answerEnding(deps: ChatDependencies, request: ChatRequest, answer: ProviderOutcome,
   state: { readerLeft: boolean; timedOut: boolean; delivered: boolean }): Promise<ChatEnding> {
   if (answer.status === 'complete' && answer.stopReason === 'refusal') return 'refusal';
+  if (answer.status === 'complete' && !LIMIT_STOP_REASONS.includes(answer.stopReason ?? '') && state.delivered) return 'completed';
   if (state.readerLeft) {
     if (!request.capabilities.includes('stop_signal')) return 'left';
     return await stopRequested(deps, request.operationID) ? 'stopped' : 'connection';
@@ -1023,6 +1055,8 @@ async function stopRequested(deps: ChatDependencies, operationID: string): Promi
   return false;
 }
 
+/** How long to wait after the model gateway refused for its account's balance (A13): an operator must top it up. */
+export const PROVIDER_BILLING_RETRY_SECONDS = 300;
 /** Seconds a client should wait before asking again, by error (Resilience, fix 6); absent where waiting won't help. */
 export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rate_limited: 60, provider_unavailable: 10, service_unavailable: 10 };
 
@@ -1240,7 +1274,9 @@ function marked(extra: MessageParam[]): MessageParam[] {
 /** One settlement: the credits the reader pays, the provider spend for the budget, and how the answer ended with the
  * provider cost Gradstep absorbs (migration 079, worker_settle_chat: settled and recorded in one transaction). */
 interface Settlement { credits: number; microusd: number; action: ChatAction | 'answer'; ending: ChatEnding; absorbed: number }
-async function settle(deps: ChatDependencies, operationID: string, settlement: Settlement) {
+/** `settled`: acknowledged. `rejected`: the database refused it (nothing recorded). `unknown`: no acknowledgement after
+ * the retries (it may have committed). */
+async function settle(deps: ChatDependencies, operationID: string, settlement: Settlement): Promise<'settled' | 'rejected' | 'unknown'> {
   const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
   // Settlement is idempotent for identical amounts, so a lost acknowledgement
   // may be retried. It is never repeated with different amounts.
@@ -1248,16 +1284,30 @@ async function settle(deps: ChatDependencies, operationID: string, settlement: S
     try {
       await deps.rpc('worker_settle_chat', { p_account_id: deps.accountID, p_id: operationID, p_actual_credits: settlement.credits,
         p_actual_microusd: settlement.microusd, p_action: settlement.action, p_ending: settlement.ending, p_absorbed_microusd: settlement.absorbed });
-      return;
+      return 'settled';
     } catch (error) {
       const failure = reason(error);
       if (failure !== 'transport' || attempt === 3) {
         deps.log({ event: 'chat_settle_failed', operation_id: operationID, reason: failure === 'transport' ? 'transport' : 'rejected' });
-        return;
+        return failure === 'transport' ? 'unknown' : 'rejected';
       }
       await sleep(250 * attempt);
     }
   }
+  return 'unknown';
+}
+
+/** What an unconfirmed settlement recorded (worker_operation_outcome): its credits and whether the reader paid; an
+ * operation still open (or unreadable) charges nothing, as the stale sweep will settle it. */
+async function settlementReadback(deps: ChatDependencies, operationID: string): Promise<{ credits: number; charged: boolean }> {
+  try {
+    const outcome = await deps.rpc('worker_operation_outcome', { p_account_id: deps.accountID, p_operation_id: operationID }) as
+      { state?: unknown; actual_credits?: unknown; charged?: unknown } | null;
+    if (outcome?.state === 'settled' && Number.isSafeInteger(outcome.actual_credits)) {
+      return { credits: outcome.actual_credits as number, charged: outcome.charged === true };
+    }
+  } catch { /* unreadable: as unsettled */ }
+  return { credits: 0, charged: false };
 }
 
 /** Tavily searches for this answer: counts only. No provider spend while they are within

@@ -19,7 +19,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name, fallback) => { const hit = process.argv.find(a => a === `--${name}` || a.startsWith(`--${name}=`)); return hit ? (hit.includes('=') ? hit.slice(name.length + 3) : 'true') : fallback; };
 const RECENT = Number(arg('recent', '0')), CATS = arg('cats', 'cs.LG,cs.CL,cs.CV,cs.AI').split(',').filter(Boolean);
 const IDS = arg('ids', '').split(',').map(s => s.trim()).filter(Boolean), STAGING = Number(arg('from-staging', '0'));
-const UA = 'Gradstep reader sweep (research paper reader; mailto:ben.bowles@gmail.com)';
+const UA = 'Gradstep reader sweep (research paper reader; +https://gradstep.ai; mailto:hello@gradstep.ai)';
 const DIR = join(ROOT, '.artifacts/reader-sweep'), SOURCES = join(DIR, 'sources');
 mkdirSync(SOURCES, { recursive: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));

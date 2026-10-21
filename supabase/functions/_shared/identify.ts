@@ -1,8 +1,8 @@
 // Add a paper by any identifier or link (owner, 2026-10-07: "adding a pdf needs to be absolutely
 // bullet proof"). The Add sheet sends what the reader typed or pasted: an arXiv ID or link, a DOI,
 // any web link (a landing page or a PDF), or a reference. This module says which paper it names and
-// where an open copy is, without a model: arXiv by ID, a DOI through OpenAlex (Crossref for DOIs
-// OpenAlex doesn't know), a link through the DOI or arXiv ID in it, known proceedings hosts, and
+// where an open copy is, without a model: arXiv by ID, a DOI through Crossref (OpenAlex first only while the owner's
+// `openalex_enabled` switch is on; off since migration 075), a link through the DOI or arXiv ID in it, known proceedings hosts, and
 // the page's own citation tags. Every fetch of a reader-supplied link uses the web import's checks
 // (https on a public name, every redirect hop re-resolved, private addresses refused, bounded).
 // When the paper can't be fetched by our servers the result says what the reader's own device
@@ -12,6 +12,7 @@ import { arxivReference } from './arxiv.ts';
 import { isArxivHost } from './egress.ts';
 import { openAlexCandidates, type OpenAlexCandidate } from './discover.ts';
 import { checkHost, declaredURL, landingPagePDF, publicHTTPS, refusal, WEB_USER_AGENT, type ResolveHost } from './web-source.ts';
+import { readJSONCapped } from './bounded-json.ts';
 
 const MAILTO = 'hello@gradstep.ai';
 /** What a reader may type: bounded like a reference. */
@@ -175,6 +176,12 @@ export async function probeLink(fetcher: typeof fetch, start: URL, resolve: Reso
       return { kind: 'refused', url: current, code: 'source_unavailable' };
     }
     const drop = () => void response.body?.cancel().catch(() => {});
+    // DNS rebinding (review A24): fetch resolves the name again, and the runtime offers no way to pin the address it
+    // connects to. Resolve once more now that the answer has arrived; unless every address is still public, the hop is
+    // refused before its body, headers or redirect are used. This narrows the window (a name that turned private after
+    // our first check) but cannot prove where fetch connected (docs/architecture/PDF_UPLOADS.md §1, residual risk).
+    try { await checkHost(current, resolve); }
+    catch { drop(); return { kind: 'refused', url: current, code: 'download_failed' }; }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location'); drop();
       current = location ? declaredURL(location, current, false, 4096) : null; continue;
@@ -235,7 +242,8 @@ export interface IdentifyDeps {
   fetch: typeof fetch;
   resolveHost?: ResolveHost;
   findPaper: (wanted: PaperRequest, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
-  /** `pipeline_policy.openalex_enabled` (migration 072; default true). Off, a DOI is named by Crossref alone. */
+  /** `pipeline_policy.openalex_enabled` (migration 072; off since 075). Only an explicit `true` asks OpenAlex; absent or
+   * unreadable is off, and a DOI is named by Crossref alone (fail closed, review A15). */
   openAlex?: boolean;
 }
 
@@ -244,7 +252,8 @@ async function getJSON(fetcher: typeof fetch, url: string, signal: AbortSignal):
   try {
     const response = await fetcher(url, { headers: JSON_HEADERS, redirect: 'follow', signal: AbortSignal.any([signal, AbortSignal.timeout(8_000)]) });
     if (!response.ok) { void response.body?.cancel().catch(() => {}); return { ok: false, missing: response.status === 404 }; }
-    return { ok: true, json: await response.json() };
+    // A full Crossref work (its reference list included) can reach a few hundred kilobytes; 4 MiB bounds it (review A24).
+    return { ok: true, json: await readJSONCapped(response, 4 * 1024 * 1024) };
   } catch { return { ok: false, missing: false }; }
 }
 
@@ -262,12 +271,12 @@ function fromCandidate(candidate: OpenAlexCandidate, web: boolean): FindResult {
   return open ? { status: web ? 'found' : 'needs_update', paper } : { status: 'closed', paper };
 }
 
-/** A DOI: OpenAlex's work (arXiv copy, open copy or closed); a DOI OpenAlex doesn't know is named by
- * Crossref and searched by title (preprints often have no DOI link); else closed under its DOI. With OpenAlex
- * switched off (`deps.openAlex === false`), every DOI takes the Crossref path. */
+/** A DOI: with OpenAlex on (`deps.openAlex === true`), OpenAlex's work (arXiv copy, open copy or closed); otherwise, and
+ * for a DOI OpenAlex doesn't know, Crossref names it and the finder searches by title (preprints often have no DOI
+ * link); else closed under its DOI. */
 export async function resolveDOI(deps: IdentifyDeps, doi: string, web: boolean, signal: AbortSignal): Promise<FindResult> {
   const select = 'id,doi,title,publication_year,authorships,locations,best_oa_location';
-  const work: Awaited<ReturnType<typeof getJSON>> = deps.openAlex === false ? { ok: false, missing: true }
+  const work: Awaited<ReturnType<typeof getJSON>> = deps.openAlex !== true ? { ok: false, missing: true }
     : await getJSON(deps.fetch, `https://api.openalex.org/works/doi:${encodeURIComponent(doi)}?select=${select}&mailto=${MAILTO}`, signal);
   if (work.ok) {
     let candidate: OpenAlexCandidate | undefined;

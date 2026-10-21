@@ -10,6 +10,7 @@ import { pipelineService, rpcAdapter, runtimeEnv } from '../../supabase/function
 import { boundedStorageDownload } from '../../supabase/functions/_shared/reader-delivery.ts';
 import { openRouterScriptProvider } from '../../supabase/functions/_shared/openrouter-script.ts';
 import { openRouterSpeechProvider } from '../../supabase/functions/_shared/openrouter-speech.ts';
+import { routerKey } from '../../supabase/functions/_shared/openrouter-keys.ts';
 import { runPodcast, type PodcastDeps, type PodcastRunResult } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { ffmpegEncoder } from './podcast-encode.ts';
 // No request from this thread (its own realm and fetch) may reach arXiv (docs/architecture/ARXIV_DEVICE_ONLY.md); such requests are refused (EGRESS_ARXIV=block, the default).
@@ -29,9 +30,10 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
   let owner: string | null = null;
   const providerFetch = accountProviderFetch('pipeline-worker/podcast', () => owner, () => service);
   if (!url || !key) throw new Error('service_unavailable');
-  const routerKey = runtimeEnv('OPENROUTER_CHAT_API_KEY');
-  const script = routerKey ? openRouterScriptProvider({ apiKey: routerKey, fetch: providerFetch }) : null;
-  const speech = routerKey ? openRouterSpeechProvider({ apiKey: routerKey, fetch: providerFetch }) : null;
+  // Its own key with its own OpenRouter limit when provisioned (review A13); otherwise the chat key, as before.
+  const podcastKey = routerKey('podcast', runtimeEnv);
+  const script = podcastKey ? openRouterScriptProvider({ apiKey: podcastKey, fetch: providerFetch }) : null;
+  const speech = podcastKey ? openRouterSpeechProvider({ apiKey: podcastKey, fetch: providerFetch }) : null;
   return {
     generated: !!(script && speech),
     rpc: rpcAdapter(service),

@@ -257,13 +257,32 @@ conversion's `raw/<sha>/` and `reader/<sha>/` (validated shapes only) — marks 
 (`worker_delete_account_finish`) and deletes the login; the app erases this device's account folder and Keychain
 items. A repeat call authenticates with the login alone and resumes, and the paper worker sweeps unfinished or
 raced deletions every minute (`worker_account_deletions_pending`); `worker_account_deletion_status` and
-`node scripts/finish-account-deletion.mjs ACCOUNT` are the operator views.
+`node scripts/finish-account-deletion.mjs ACCOUNT --confirm=ACCOUNT` are the operator views. The script (since
+2026-10-21, review A10) only continues a deletion that already began: it refuses an account that is not closed, a
+target other than the recorded staging project, and a missing or different `--confirm` UUID, before any write.
 
 Kept under the account's random ID, which no longer maps to an email once the login is gone (owner decision):
 credit, usage, operation, subscription and audit records, and the records of which papers were converted privately
 for the account (pipeline papers, owner-private documents and their immutable approvals) without their files.
 Append-only receipts, key transitions and report status history can be deleted only by that transaction for that
 account.
+
+**The sweep retries with back-off and says when a deletion stalls (review A22, 2026-10-21; migration 128).** The
+sweep took the three oldest pending accounts by `closed_at` on every run. An account that cannot finish (more than
+20,000 objects to list, an unresolved `asset_write_uncertain`) kept its slot on every run and starved the accounts
+behind it, and `worker_account_deletions_pending` silently stopped listing an account 30 days after it closed, still
+holding personal rows or files. Now:
+- `app_private.account_deletion_sweeps` keeps per account the attempts, the last attempt and step/code, and the next
+  allowed attempt. The sweep reports every outcome with `worker_account_deletion_attempt(account, complete, step,
+  code)`: a failure waits 5 minutes × 2^attempts, at most a day; a completed deletion clears the row.
+- `worker_account_deletions_pending` lists closed accounts that still have personal rows, a linked login or
+  unfinished files (`app_private.account_deletion_unfinished`, which covers every earlier condition, the derived
+  library rows, encrypted note images (migration 095) and podcast device sources), whose back-off has passed, never-tried accounts first and then the least
+  recently tried; there is no 30-day cut-off. The earlier function's list is still included, so a condition added by
+  another wrapper is not lost; new conditions belong in `account_deletion_unfinished`.
+- `v1_admin_health.account_deletions` gives the owner `unfinished`, `retrying` and `stalled` (unfinished more than 30
+  days after closing) counts with the oldest closing date and the most common last failure code; Health › Attention
+  names a stall. Counts and codes only, never an account's content.
 
 Before public release: Sign in with Apple token revocation on deletion (App Review 5.1.1(v)), and releasing an
 active App Store subscription's binding so it can attach to a new account; backup expiry of deleted data.

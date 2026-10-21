@@ -19,8 +19,8 @@ export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 export const RATE_VERSION = 'beta-credits-v1';
 // beta-credits-v1: one credit is $0.01 charged at twice provider cost.
 export const MICROUSD_PER_CREDIT = 5_000;
-// Upper bound used only when a stream ends without final usage (abort/error).
-const ESTIMATED_OUTPUT_TOKENS_PER_SECOND = 100;
+// Output observed before a stream ended without final usage (abort/error): at least this many tokens per second.
+export const ESTIMATED_OUTPUT_TOKENS_PER_SECOND = 100;
 
 /** Provider prices in micro-USD per token. */
 /** How long the paper block stays in Anthropic's prompt cache. */
@@ -77,9 +77,25 @@ export interface ProviderAttempt {
   billedMicrousd?: number;
   /** Google cache storage creation overlaps input/read tokens; keep it out of the disjoint token counts above. */
   cacheStorageTokens?: number;
+  /** An attempt cut short (a Stop, a dropped stream): the micro-USD of the part that was written, which is all a reader
+   * can be charged for it (PROVIDER_SPENDING.md "Stopped answers and unresolved attempts"). Absent on a finished attempt,
+   * whose whole price reached the reader. */
+  readerMicrousd?: number;
 }
 
 export function emptyUsage(): TokenUsage { return { input: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 }; }
+
+/** What a reader can be charged for these attempts (micro-USD, possibly fractional): a cut-short attempt's written part,
+ * a finished attempt's price, and nothing for an estimate without an observation of what was written (an estimate is
+ * the platform's liability, never the reader's bill). */
+export function readerPriceAttempts(attempts: readonly ProviderAttempt[]): number {
+  let total = 0;
+  for (const attempt of attempts) {
+    if (typeof attempt.readerMicrousd === 'number' && Number.isFinite(attempt.readerMicrousd) && attempt.readerMicrousd >= 0) total += attempt.readerMicrousd;
+    else if (!attempt.estimated) total += priceAttempts([attempt]);
+  }
+  return total;
+}
 
 /** Exact micro-USD (possibly fractional) for the attempts; callers round up once. */
 export function priceAttempts(attempts: readonly ProviderAttempt[]): number {
@@ -379,7 +395,7 @@ export interface ProviderOutcome {
   /** The HTTP status of a provider error response (429, 529…), and its Retry-After: what a retry or the reader waits. */
   httpStatus?: number | null;
   /** Fixed diagnostic category only; never the provider's raw error text or submitted content. */
-  rejectionReason?: 'privacy_zdr' | 'privacy_policy' | 'route_unavailable' | 'authentication' | 'balance' | 'request_parameters' | 'unknown';
+  rejectionReason?: 'privacy_zdr' | 'privacy_policy' | 'route_unavailable' | 'authentication' | 'balance' | 'request_parameters' | 'tariff_expired' | 'unknown';
   retryAfterMs?: number | null;
   /** Provider transport request ID for support/reconciliation; never content. */
   requestID?: string | null;
@@ -401,6 +417,8 @@ export interface ProviderOutcome {
    * early"): `server`, our own server (an admission it could not grant or record, a fault in our code); `limit`, our own
    * bound (the next round no longer fits the hold or the search allowance). Absent: the provider failed. */
   cause?: 'server' | 'limit';
+  /** The generation receipt still being written (C6): awaited with the attempt's finish, never before the outcome returns. */
+  receipt?: Promise<boolean>;
 }
 
 /**
