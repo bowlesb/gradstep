@@ -67,7 +67,8 @@ public struct ArxivReference: Equatable, Hashable, Sendable {
     }
 
     private static func match(_ pattern: String, _ value: String, insensitive: Bool = false) -> [String?]? {
-        let expression = try! NSRegularExpression(pattern: pattern, options: insensitive ? [.caseInsensitive] : [])
+        // Compiled once: library rebuilds parse every paper's catalog key (NATIVE_REVIEW_20261021 C4).
+        let expression = CompiledPatterns.shared.expression(pattern, options: insensitive ? [.caseInsensitive] : [])
         guard let match = expression.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) else { return nil }
         return (0..<match.numberOfRanges).map { index in Range(match.range(at: index), in: value).map { String(value[$0]) } }
     }
@@ -76,4 +77,21 @@ public struct ArxivReference: Equatable, Hashable, Sendable {
     // stripping C1 control characters such as U+0085 before validation.
     private static let trimCharacters = CharacterSet(charactersIn:
         "\u{0009}\u{000A}\u{000B}\u{000C}\u{000D}\u{0020}\u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}")
+}
+
+/// Fixed regular expressions, compiled once per pattern and options (a compiled `NSRegularExpression` is immutable and
+/// safe to share between threads). Only literal patterns from this module go in, so the set stays small.
+final class CompiledPatterns: @unchecked Sendable {
+    static let shared = CompiledPatterns()
+    private let lock = NSLock()
+    private var compiled: [String: NSRegularExpression] = [:]
+    func expression(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
+        let key = "\(options.rawValue)|\(pattern)"
+        return lock.withLock {
+            if let known = compiled[key] { return known }
+            let expression = try! NSRegularExpression(pattern: pattern, options: options)
+            compiled[key] = expression
+            return expression
+        }
+    }
 }

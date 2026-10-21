@@ -225,8 +225,9 @@ public enum ChatRichText {
         else { return nil }
         let lines = text[marker.upperBound...].split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard (1...8).contains(lines.count),
-              let pattern = try? NSRegularExpression(pattern: #"^\d{1,2}\. (?:(.{1,300}) — )?(https://[^\s]{1,500})$"#) else { return nil }
+        // Patterns compiled once (every render of every answer asked; NATIVE_REVIEW_20261021 C12).
+        guard (1...8).contains(lines.count) else { return nil }
+        let pattern = CompiledPatterns.shared.expression(#"^\d{1,2}\. (?:(.{1,300}) — )?(https://[^\s]{1,500})$"#)
         var sources: [ChatSource] = []
         for line in lines {
             guard let match = pattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
@@ -356,12 +357,10 @@ public enum ChatRichText {
     public static func inertLinks(_ text: String) -> String {
         guard text.contains("](") || text.contains("<http") else { return text }
         var result = text
-        if let markdown = try? NSRegularExpression(pattern: #"\[([^\]\n]{0,500})\]\(([^)\s]{1,2000})\)"#) {
-            result = markdown.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1 ($2)")
-        }
-        if let angle = try? NSRegularExpression(pattern: #"<(https?://[^>\s]{1,2000})>"#) {
-            result = angle.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
-        }
+        let markdown = CompiledPatterns.shared.expression(#"\[([^\]\n]{0,500})\]\(([^)\s]{1,2000})\)"#)
+        result = markdown.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1 ($2)")
+        let angle = CompiledPatterns.shared.expression(#"<(https?://[^>\s]{1,2000})>"#)
+        result = angle.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
         return result
     }
 
