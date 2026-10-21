@@ -10,7 +10,7 @@ import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer } from '..
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
-import { AnswerOptionsDialog } from './ChatProfile';
+import { AnswerOptionsDialog, ExplainerModelDialog } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate, MenuButton } from './common';
 import { CopyButton } from './CopyButton';
@@ -179,7 +179,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const startStudy = () => { if (!disabled) void chat.startStudy(c); };
   const choiceBusy = retired || composerBusy(c) || !!c.answer;
   const [answerOptions, setAnswerOptions] = useState(false);
-  useEffect(() => setAnswerOptions(false), [c.id]);
+  // The model under the field asks Default or Choose model (B7, the apps' AISelectionButton); Length stays in ⋯ › Answer options.
+  const [modelChoice, setModelChoice] = useState(false);
+  useEffect(() => { setAnswerOptions(false); setModelChoice(false); }, [c.id]);
   // The main chat's text size; an equation or figure thread keeps the standard size, as on iPhone.
   const [textSize, setTextSize] = useStored<number | null>(CHAT_TEXT_KEY, null, validChatText);
   const layoutText = useMedia('(max-width: 600px)') ? 15 : 14, chatText = textSize ?? layoutText;
@@ -345,7 +347,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           title="Enter sends; Shift+Enter starts a new line"
           onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
-        <button type="button" className="link composer-model" disabled={choiceBusy} onClick={() => setAnswerOptions(true)} aria-label="Answer options" data-testid="composer-model">{modelOption(table, choice.model).label} <Icon name="sliders" size={14} /></button>
+        <button type="button" className="link composer-model" disabled={choiceBusy} onClick={() => setModelChoice(true)} aria-label={`Model: ${modelOption(table, choice.model).label}`} data-testid="composer-model">{modelOption(table, choice.model).label} <Icon name="sliders" size={14} /></button>
         {c.phase === 'streaming' ? <button type="button" className="composer-send stop" aria-label="Stop" title="Stop" onClick={() => chat.stop(c)}><Icon name="stop" size={16} /></button>
           : <button type="submit" className="composer-send" aria-label={c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'} title="Send (Enter)"
             disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}><Icon name="arrowUp" size={17} /></button>}
@@ -368,6 +370,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       activity={AI_USE_CASE_TITLES[chat.activityFor(c)].toLowerCase()}
       onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultFor(c,next)} onRetry={() => chat.reloadProfiles()}
       onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
+    <ExplainerModelDialog open={modelChoice} table={table} defaultChoice={chat.defaultFor(c)} onClose={() => setModelChoice(false)}
+      onRetry={() => chat.reloadProfiles()} onUse={next => { setModelChoice(false); chat.setProfile(c, next); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       {/* Consent cloud-ai-v5 (CHAT.md, 2026-10-16), worded as on iPhone, iPad and Mac. */}
       <h2>Cloud AI answers</h2><p>All cloud answers use OpenRouter. Gemini Flash and Claude run on Google Vertex; DeepSeek runs on DeepInfra. To answer, Gradstep sends:</p>

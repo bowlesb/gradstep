@@ -57,9 +57,11 @@ test('equation explanation, model choice and follow-up remain together with encr
  await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();
  const chats=async()=>(await(await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests;
  expect(await chats()).toHaveLength(0);
+ // The model under the field asks Default or Choose model (B7, AISelectionButton); Use Haiku sets this thread's model.
  await context.getByTestId('composer-model').click();
- const options=page.getByRole('dialog',{name:'Answer options',exact:true});
- await options.getByRole('radio',{name:'Haiku',exact:true}).click(); await options.getByRole('button',{name:'Close',exact:true}).click();
+ const options=page.getByRole('dialog',{name:'AI model',exact:true}); await options.getByTestId('explainer-choose').click();
+ await options.getByRole('radio',{name:'Haiku',exact:true}).click(); await options.getByTestId('explainer-use').click(); await expect(options).toBeHidden();
+ await expect(context.getByTestId('composer-model')).toHaveAccessibleName('Model: Haiku');
  // AI Explainer asks which model first (B7): Default is this equation's chat choice, Haiku.
  await view.getByTestId('equation-explain').click();await expect(page.getByTestId('explainer-default')).toHaveText('Default (Haiku)');await page.getByTestId('explainer-default').click();
  await view.getByRole('button',{name:'Allow and explain'}).click();
