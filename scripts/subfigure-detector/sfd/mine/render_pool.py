@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-import eval_candidates as C
+from sfd.annotate import candidates as C
 
 
 def job(t):

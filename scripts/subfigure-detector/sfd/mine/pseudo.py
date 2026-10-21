@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image
 from scipy.optimize import linear_sum_assignment
 
-import policy as P
+from sfd.core import policy as P
 
 Image.MAX_IMAGE_PIXELS = 200_000_000
 

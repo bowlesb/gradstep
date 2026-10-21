@@ -14,9 +14,8 @@ from PIL import Image, ImageEnhance
 import torch
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import evaluate as E
-import policy as P
+from sfd.core import evaluate as E
+from sfd.core import policy as P
 
 Image.MAX_IMAGE_PIXELS = 200_000_000
 REPO_REVISION = 'df2a96c8c3a098567a1149bf0248da6efe6d495d'
@@ -257,7 +256,7 @@ def main():
     write_json(args.out / 'provenance.json', meta)
     (args.out / 'training-source.py').write_bytes(Path(__file__).read_bytes())
     for dep in ('policy.py', 'evaluate.py'):
-        (args.out / dep).write_bytes((Path(__file__).parent / dep).read_bytes())
+        (args.out / dep).write_bytes((Path(__file__).resolve().parents[1] / 'core' / dep).read_bytes())
     train = Rows(train_rows, augment=True, size=args.size, jitter=args.jitter)
     gen = torch.Generator().manual_seed(args.seed)
     sampler = WeightedRandomSampler([r['_weight'] for r in train_rows], args.draws, replacement=True, generator=gen)

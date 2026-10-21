@@ -11,9 +11,9 @@ import argparse, json, random
 
 import numpy as np
 
-import evaluate as E
-import policy as P
-import sweep as SW
+from sfd.core import evaluate as E
+from sfd.core import policy as P
+from sfd.evaluation import sweep as SW
 
 
 def perturb(b, W, H, rng, inward, outward):

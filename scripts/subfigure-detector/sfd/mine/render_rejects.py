@@ -4,7 +4,7 @@ layout, dense background): the hard unlabeled pool for teacher pseudo-labels. Re
 import json, multiprocessing as mp, sys
 from pathlib import Path
 from PIL import Image
-import eval_candidates as C
+from sfd.annotate import candidates as C
 
 CORPUS = Path('/home/ben/mathpix/data/arxiv')
 

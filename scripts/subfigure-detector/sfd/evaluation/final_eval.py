@@ -8,8 +8,8 @@ split == "test" requires --acknowledge-final-test, and the result is written onc
 import argparse, json
 from pathlib import Path
 
-import evaluate as E
-import sweep as SW
+from sfd.core import evaluate as E
+from sfd.evaluation import sweep as SW
 
 
 def main():

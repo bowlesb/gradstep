@@ -4,8 +4,8 @@ shared context (blue) and the delivered crops as displayed (red, 2% margin)."""
 import argparse, collections, json
 from pathlib import Path
 
-import sheet as S
-import policy as P
+from sfd.annotate import sheet as S
+from sfd.core import policy as P
 from PIL import Image
 
 

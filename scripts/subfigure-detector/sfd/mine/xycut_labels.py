@@ -15,8 +15,8 @@ import numpy as np
 import pymupdf
 from PIL import Image
 
-import eval_candidates as C
-import vector_labels as V
+from sfd.annotate import candidates as C
+from sfd.mine import vector_labels as V
 
 LETTER = re.compile(r'^\(?([a-l])\)?[.:]?$')
 VERSION = 'xycut-labels-v2'

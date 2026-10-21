@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-import evaluate as E
-import policy as P
+from sfd.core import evaluate as E
+from sfd.core import policy as P
 
 Image.MAX_IMAGE_PIXELS = 200_000_000
 
@@ -26,16 +26,7 @@ def load_set(gt_path, root):
     return gts, cache
 
 
-def agree(a, b, iou=.7):
-    """Two views agree when they give the same number of crops and the crops pair up at IoU >= iou."""
-    if len(a) != len(b):
-        return False
-    if not a:
-        return True
-    from scipy.optimize import linear_sum_assignment
-    M = np.array([[P.iou(x, y) for y in b] for x in a])
-    i, j = linear_sum_assignment(-M)
-    return bool((M[i, j] >= iou).all())
+agree = P.agree
 
 
 def run(gts, cache, preds, cfg, gates=None, preds_b=None):
@@ -46,6 +37,12 @@ def run(gts, cache, preds, cfg, gates=None, preds_b=None):
             c['gate'] = gates.get(g['id'])
         crops = P.final_crops(preds.get(g['id'], []), img, c)
         L = len(g.get('caption_letters') or [])
+        if cfg.get('caption_decode'):
+            d = P.decide(preds.get(g['id'], []), img, dict(cfg, agree_iou=cfg.get('agree_iou', .7) if preds_b is not None else None),
+                         preds_b.get(g['id'], []) if preds_b is not None else None, g.get('caption_letters') or [], m, comps)
+            crops = [p['box'] for p in d['parts']]
+            r = E.evaluate_figure(g, crops, mask=m); r['crops'] = crops; r['reason'] = d['reason']; rows.append(r)
+            continue
         if cfg.get('caption_count') and L >= 2:
             # The caption names L parts: use the highest confidence threshold that yields exactly L crops;
             # if none does, keep the whole figure (count disagreement = uncertainty).

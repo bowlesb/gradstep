@@ -14,7 +14,7 @@ import numpy as np
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
-import vector_labels as V
+from sfd.mine import vector_labels as V
 
 Image.MAX_IMAGE_PIXELS = 200_000_000
 
@@ -106,8 +106,10 @@ def main():
     ap.add_argument('--n', type=int, default=240)
     ap.add_argument('--out', type=Path, required=True)
     ap.add_argument('--seed', type=int, default=20261021)
+    ap.add_argument('--allow', type=Path, help='optional paper allow-list (one id per line)')
     args = ap.parse_args()
     split = json.loads(args.split.read_text())['split']
+    allow = set(args.allow.read_text().split()) if args.allow else None
     vec = {}
     for line in args.vector.open():
         r = json.loads(line)
@@ -116,6 +118,8 @@ def main():
     for line in args.figures.open():
         f = json.loads(line)
         if split.get(f['paper']) != args.which or f['n_includes'] != 1 or not f['includes'][0]['file']:
+            continue
+        if allow is not None and f['paper'] not in allow:
             continue
         if not f['includes'][0]['file'].lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')):
             continue

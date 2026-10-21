@@ -11,8 +11,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import train2 as T
+from sfd.train import train as T
 
 
 class Placed(T.Rows):

@@ -257,3 +257,71 @@ def caption_decode(pred, L, img, cfg, min_score=0.15):
     if any(area(c) >= 0.92 * W * H for c in crops):
         return None
     return crops
+
+
+POLICY_REVISION = 'sfd-policy-2026-10-22'
+
+
+def agree(a, b, thr=.7):
+    """Two views agree when they give the same number of crops and the crops pair up at IoU >= thr."""
+    if len(a) != len(b):
+        return False
+    if not a:
+        return True
+    from scipy.optimize import linear_sum_assignment
+    M = np.array([[iou(x, y) for y in b] for x in a])
+    i, j = linear_sum_assignment(-M)
+    return bool((M[i, j] >= thr).all())
+
+
+def reading_order(crops):
+    """Rows top to bottom (crops whose vertical extents overlap by > 50% share a row), left to right."""
+    if not crops:
+        return []
+    bands = _bands(crops, 1)
+    bands.sort(key=lambda b: min(crops[k][1] for k in b))
+    return [crops[k] for b in bands for k in sorted(b, key=lambda k: crops[k][0])]
+
+
+def _score_of(crop, pred, cls):
+    best = 0.0
+    for p in pred:
+        if p['class'] == cls and iou(p['box'], crop) >= 0.3:
+            best = max(best, p['score'])
+    return best
+
+
+def decide(pred_a, img, cfg, pred_b=None, caption_letters=(), mask=None, comps=None):
+    """The complete on-device decision for one figure image (reference implementation for the apps).
+
+    pred_a / pred_b: decoded detections ({'class', 'score', 'box'} in image pixels) for the 1.0 and 0.75
+    placements; caption_letters: distinct panel letters named by the caption. Returns
+    {'status': 'split'|'whole', 'reason': str, 'parts': [{'id': 'P1', 'box': [x0,y0,x1,y1], 'score': s}]}.
+    'whole' means: show and send the whole figure (single figure, or the system is unsure).
+    """
+    m = mask if mask is not None else ink_mask(img)
+    c = dict(cfg, _mask=m, _comps=comps if comps is not None else ink_components(m))
+    L = len(caption_letters or [])
+    use_b = pred_b is not None and cfg.get('agree_iou')
+    thr = cfg.get('agree_iou', .7)
+    crops, reason = None, None
+    if cfg.get('caption_decode') and L >= 2:
+        crops = caption_decode(pred_a, L, img, c, cfg.get('decode_min_score', .15)) or []
+        reason = 'caption-decoded'
+        if not crops and cfg.get('caption_fallback', 'whole') == 'plain':
+            crops, reason = final_crops(pred_a, img, c), 'caption-mismatch-detector-fallback'
+        if use_b and crops and cfg.get('decode_agree', True):
+            cb = caption_decode(pred_b, L, img, dict(c)) or final_crops(pred_b, img, dict(c))
+            if not agree(crops, cb, thr):
+                crops, reason = [], 'views-disagree'
+    else:
+        crops, reason = final_crops(pred_a, img, c), 'detector'
+        if use_b:
+            if not agree(crops, final_crops(pred_b, img, dict(c)), thr):
+                crops, reason = [], 'views-disagree'
+    if len(crops) < 2:
+        return {'status': 'whole', 'reason': reason if reason == 'views-disagree' else 'single-or-unsure', 'parts': []}
+    cls = cfg.get('panel_class', 0)
+    parts = [{'id': f'P{k + 1}', 'box': [float(v) for v in b], 'score': round(_score_of(b, pred_a, cls), 4)}
+             for k, b in enumerate(reading_order(crops))]
+    return {'status': 'split', 'reason': reason, 'parts': parts}

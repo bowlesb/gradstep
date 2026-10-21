@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-import policy as P
+from sfd.core import policy as P
 
 Image.MAX_IMAGE_PIXELS = 200_000_000
 

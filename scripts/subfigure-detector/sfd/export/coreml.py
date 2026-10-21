@@ -40,8 +40,8 @@ def main():
     import numpy as np, torch, coremltools as ct
     from PIL import Image
     from scipy.optimize import linear_sum_assignment
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-    import policy as P
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+    from sfd.core import policy as P
     torch.set_num_threads(4)
     sys.path.insert(0, str(repo.resolve() / 'rtdetrv2_pytorch'))
     from src.core import YAMLConfig

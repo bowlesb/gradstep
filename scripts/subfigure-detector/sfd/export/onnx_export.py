@@ -10,7 +10,7 @@ from PIL import Image
 from scipy.optimize import linear_sum_assignment
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import train2 as T
+from sfd.train import train as T
 
 
 def digest(p):

@@ -5,8 +5,7 @@ Row: {id, image, width, height, paper, source, boxes:[{box:[x1,y1,x2,y2], class}
 panel, class 1 = shared context. Only papers assigned `train` by split.py enter training rows.
 """
 import argparse, collections, json, re, sys
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
-import policy as P
+from sfd.core import policy as P
 from pathlib import Path
 
 PAREN = re.compile(r'^\(([a-h])\)$|^([a-h])\)$')
