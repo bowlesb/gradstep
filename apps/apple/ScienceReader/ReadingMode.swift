@@ -151,12 +151,6 @@ extension EnvironmentValues {
     var readingChatInset: CGFloat { get { self[ReadingChatInsetKey.self] } set { self[ReadingChatInsetKey.self] = newValue } }
 }
 
-/// ⇧⌘R on an iPad's keyboard; the Mac's View menu has its own.
-struct ReadingModeShortcut: ViewModifier {
-    func body(content: Content) -> some View {
-        if Platform.isMac { content } else { content.keyboardShortcut("r", modifiers: [.command, .shift]) }
-    }
-}
 
 /// Line width: a menu of the three measures, beside A− / A+.
 struct LineWidthMenu: View {
@@ -194,6 +188,7 @@ struct ReadingModeView: View {
                     .environment(\.readingChatInset, model.readingChatShown ? chatWidth : 0)
                 if model.readingChatShown {
                     ChatView(model: model)
+                        .environment(\.chatBesidePaper, true)
                         .frame(width: chatWidth)
                         .background(Color(uiColor: .systemBackground))
                         .overlay(alignment: .leading) { Divider() }

@@ -2361,6 +2361,11 @@ final class ReaderModel {
 
     /// ML paper search (arXiv's papers) for the current discovery query. The latest query owns
     /// the results; failures are shown as failures, never as empty results.
+    /// "Find papers by <author>" from a paper's author list: ML paper search for that author, shown in the Library on
+    /// every layout (the wide layout shows the pane `wideMode` names, not `tab`).
+    func searchAuthor(_ name: String) {
+        discoveryQuery = "author:" + name; searchExternal = true; showLibrary(); runDiscovery()
+    }
     func findSimilarPapers(_ paper: Paper) {
         let tags = LibraryTags.tags(for: paper).prefix(3)
         discoveryQuery = tags.isEmpty ? paper.title : tags.joined(separator: " ")

@@ -12,6 +12,10 @@ struct PaperMenuActions {
     var selection: ((SelectionAction) -> Void)?
     /// The open paper's figure gallery; unavailable for a paper without figures.
     var figures: (() -> Void)? = nil
+    /// Find in the paper (clears a selection first, as the on-screen Find does); nil while it can't be searched.
+    var find: (() -> Void)? = nil
+    /// The paper's "…" › Reader version details (an arXiv HTML reading only).
+    var readerVersion: (() -> Void)? = nil
 }
 
 private struct PaperMenuActionsKey: FocusedValueKey { typealias Value = PaperMenuActions }
@@ -24,19 +28,13 @@ extension FocusedValues {
 }
 
 extension View {
-    /// Mac: offers the paper's actions to the menu bar (Paper menu). No effect on iPhone and iPad.
-    @ViewBuilder func macPaperMenu(_ actions: PaperMenuActions) -> some View {
-        #if targetEnvironment(macCatalyst)
-        focusedSceneValue(\.paperMenuActions, actions)
-        #else
-        self
-        #endif
-    }
+    /// Offers the paper's actions to the commands: the Mac menu bar's Paper menu and an iPad keyboard's.
+    func macPaperMenu(_ actions: PaperMenuActions) -> some View { focusedSceneValue(\.paperMenuActions, actions) }
 }
 
-#if targetEnvironment(macCatalyst)
-/// The Mac menu bar. It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons,
-/// so every action has one place on screen and one in the menus; nothing here is Mac-only behavior.
+/// The Mac menu bar, and the same commands for an iPad's hardware keyboard (shown when ⌘ is held, and in the iPadOS
+/// menu bar). It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons, so every action has
+/// one place on screen and one in the menus; only Settings… and Help are Mac-only.
 struct GradstepCommands: Commands {
     @Bindable var model: ReaderModel
     @FocusedValue(\.paperMenuActions) private var paper
@@ -44,9 +42,11 @@ struct GradstepCommands: Commands {
     static let privacyURL = URL(string: "https://gradstep.ai/privacy/")!
 
     var body: some Commands {
+        #if targetEnvironment(macCatalyst)
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { model.tab = .settings }.keyboardShortcut(",")
         }
+        #endif
 
         // File
         // After, not replacing: the replaced New group never reached the Mac's File menu (⌘N did nothing, found 2026-10-16).
@@ -62,7 +62,7 @@ struct GradstepCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Section {
                 if findsInPaper {
-                    Button("Find in Paper…") { ReaderWebView.paper?.showFind() }.keyboardShortcut("f")
+                    Button("Find in Paper…") { paper?.find?() }.keyboardShortcut("f").disabled(paper?.find == nil)
                     Button("Find Next") { ReaderWebView.paper?.findNext(backwards: false) }.keyboardShortcut("g")
                     Button("Find Previous") { ReaderWebView.paper?.findNext(backwards: true) }.keyboardShortcut("g", modifiers: [.command, .shift])
                     Button("Search Library") { search(arXiv: false) }.keyboardShortcut("f", modifiers: [.command, .option])
@@ -108,9 +108,16 @@ struct GradstepCommands: Commands {
                 Picker("Library As", selection: $model.libraryLayout) {
                     ForEach(LibraryLayout.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
+                // As the Library's "…" menu: catalogs first, and the List offers only the fields it shows.
+                Picker("Catalog", selection: Binding(get: { model.currentCatalog.id }, set: { model.selectCatalog($0) })) {
+                    ForEach(model.libraryCatalogs.catalogs) { Text($0.name).tag($0.id) }
+                }
+                Button("Manage Catalogs…") { model.showCatalogs = true }
                 Picker("Sort Library By", selection: Binding(get: { model.librarySort.field },
                                                              set: { model.librarySort = LibrarySearchSort(field: $0) })) {
-                    ForEach(LibrarySearchSort.Field.allCases, id: \.self) { Text($0.label).tag($0) }
+                    ForEach(LibrarySearchSort.Field.allCases.filter {
+                        !$0.isTableOnly || model.libraryLayout == .table || model.librarySort.field == $0
+                    }, id: \.self) { Text($0.label).tag($0) }
                 }
                 Picker("Filter Library", selection: $model.libraryFilter) {
                     ForEach(LibraryFilter.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -122,6 +129,14 @@ struct GradstepCommands: Commands {
                 Picker("Feed As", selection: $model.feedLayout) {
                     ForEach(FeedLayout.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
+                if model.feedLayout == .table {
+                    Picker("Sort Feed By", selection: Binding(get: { model.feedSort.key }, set: { key in
+                        model.feedSort = PaperTableSort(key: key, ascending: key.ascendingFirst)
+                    })) {
+                        ForEach(FeedSortKey.offered(personal: model.currentFeedSelection.isPersonal), id: \.self) { Text($0.label).tag($0) }
+                    }
+                }
+                Toggle("Hide Papers in Your Library", isOn: $model.feedHidesLibrary)
             }
             Section {
                 Button("Larger Paper Text") { model.paperFontSize = min(26, model.paperFontSize + 1) }
@@ -167,10 +182,13 @@ struct GradstepCommands: Commands {
             // The paper's "…" menu, item for item (PaperView), so nothing on screen is missing from the menu bar.
             Button("Listen") { if let paper = model.selectedPaper { model.podcasts.listen(to: paper) } }
                 .disabled(model.selectedPaper.map { !model.podcasts.canListen(to: $0) } ?? true)
+            Button("Find Similar Papers") { if let paper = model.selectedPaper { model.findSimilarPapers(paper) } }
+                .disabled(model.selectedPaper == nil)
             Button("Chats About This Paper") { if let paper = model.selectedPaper { model.openAllChats(paper: paper.id, thisPaper: true) } }
                 .disabled(model.selectedPaper.map { (model.paperChatCounts[$0.id] ?? 0) == 0 } ?? true)
             Button("Edit Tags…") { if let paper = model.selectedPaper { model.editTags(for: paper) } }
                 .disabled(model.selectedPaper.map(\.isSample) ?? true)
+            Button("Reader Version Details…") { paper?.readerVersion?() }.disabled(paper?.readerVersion == nil)
             if let paper = model.selectedPaper, model.deviceModelAvailable, model.hasDeviceModelPDF(paper) {
                 Divider()
                 if model.isModelReading(paper) {
@@ -182,12 +200,14 @@ struct GradstepCommands: Commands {
             }
         }
 
+        #if targetEnvironment(macCatalyst)
         CommandGroup(replacing: .help) {
             Button("Report This Screen…") { model.beginReport(afterMenu: true) }
             Button("My Reports") { model.showReports = true }.disabled(model.support == nil)
             Divider()
             Button("Privacy & Data") { UIApplication.shared.open(Self.privacyURL) }
         }
+        #endif
     }
 
     /// Both Reader and Browse show the paper; option-command-F always targets the library.
@@ -218,4 +238,3 @@ struct GradstepCommands: Commands {
         else { Task { await model.refreshLibrary() } }
     }
 }
-#endif

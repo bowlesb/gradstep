@@ -3,10 +3,18 @@ import SwiftUI
 /// True for the paper inside the wide Reader (beside its chat column): its options offer Hide/Show chat.
 private struct ReaderChatColumnKey: EnvironmentKey { static let defaultValue = false }
 
+/// True for the chat in the wide Reader's column: its paper is visible beside it (whatever `tab` says), so the chat
+/// offers no way back to it.
+private struct ChatBesidePaperKey: EnvironmentKey { static let defaultValue = false }
+
 extension EnvironmentValues {
     var readerChatColumn: Bool {
         get { self[ReaderChatColumnKey.self] }
         set { self[ReaderChatColumnKey.self] = newValue }
+    }
+    var chatBesidePaper: Bool {
+        get { self[ChatBesidePaperKey.self] }
+        set { self[ChatBesidePaperKey.self] = newValue }
     }
 }
 
@@ -44,6 +52,7 @@ struct ReaderSplit: View {
             if !model.readerChatHidden {
                 divider
                 ChatView(model: model).frame(width: chatWidth)
+                    .environment(\.chatBesidePaper, true)
                     .transition(.move(edge: .trailing))
             }
         }

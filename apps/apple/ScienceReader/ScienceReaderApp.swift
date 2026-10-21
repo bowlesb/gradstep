@@ -26,9 +26,9 @@ struct ScienceReaderApp: App {
                     PaperWebView.prewarm()
                 }
         }
-        #if targetEnvironment(macCatalyst)
+        // One command list for the Mac menu bar and an iPad's hardware keyboard (the ⌘-hold overlay and the iPadOS
+        // menu bar); Settings and Help stay Mac-only.
         .commands { GradstepCommands(model: model) }
-        #endif
     }
 }
 

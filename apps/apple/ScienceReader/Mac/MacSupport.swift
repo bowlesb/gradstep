@@ -94,15 +94,6 @@ extension View {
         #endif
     }
 
-    /// Mac: a keyboard shortcut that only the Mac shows (menu-bar conventions such as ⌘Return to send).
-    @ViewBuilder func macKeyboardShortcut(_ key: KeyEquivalent, modifiers: EventModifiers = .command) -> some View {
-        #if targetEnvironment(macCatalyst)
-        keyboardShortcut(key, modifiers: modifiers)
-        #else
-        self
-        #endif
-    }
-
     /// Mac: ⌘W (File › Close) closes this sheet, like Escape (which Mac Catalyst sheets already handle). Apply to the
     /// sheet's content (inside `.sheet { }`); pass `false` while the sheet must stay (work in progress, a choice the
     /// reader must make).

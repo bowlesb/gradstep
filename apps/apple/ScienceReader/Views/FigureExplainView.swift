@@ -510,7 +510,7 @@ struct FullscreenFigureImage: View {
                 }
                 Button(action: close) { Image(systemName: "xmark").frame(width: 44, height: 44) }
                     .accessibilityLabel("Close fullscreen image").accessibilityIdentifier("figureView.fullscreen.close")
-                    .macKeyboardShortcut(.escape, modifiers: [])
+                    .keyboardShortcut(.escape, modifiers: [])
             }.padding(.horizontal, 16)
             ZoomableFigureImage(image: whole ? image.whole ?? image.image : image.image)
                 .id(whole).accessibilityIdentifier("figureView.fullscreen.image")

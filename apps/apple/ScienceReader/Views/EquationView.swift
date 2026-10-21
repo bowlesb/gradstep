@@ -657,32 +657,21 @@ struct ContextualChatThread: View {
     let token: UUID?
     let onCite: ChatCiteHandler
     @ScaledMetric(relativeTo: .body) private var size = 17.0
+    @State private var paperActions = ChatPaperActions()
     var body: some View {
         if (token == nil ? model.promotedChatContext != nil : model.ownsContextualChat(token)) {
-            let messages = model.chatTranscriptMessages
+            let messages = model.chatTranscriptMessages, streamingID = model.chatStreamingMessageID
+            let followUps = model.chatFollowUpQuestions, last = messages.last?.id
             if !messages.isEmpty { Divider().padding(.vertical, 8) }
+            // Chat's own message row (NATIVE_REVIEW_20261021 B2): sources, papers named, follow-ups, interruption notes,
+            // figure-part crops, quote actions and diagrams (by the answer's entity) as in the Chat tab.
             ForEach(messages, id: \.id) { message in
-                VStack(alignment: .leading, spacing: 8) {
-                    let streaming = model.chatStreamingMessageID == message.id
-                    if streaming && (message.payload.text ?? "").isEmpty {
-                        HStack { ProgressView(); Text(model.chatStreamingProgress?.text ?? "Thinking…").foregroundStyle(.secondary) }
-                    } else {
-                        ChatMessageText(source: message.payload.text ?? "", fontSize: size, streaming: streaming,
-                            speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "contextChat.message.\(message.id.wire)",
-                            assistant: message.payload.role == .assistant, onCite: streaming ? nil : onCite)
-                    }
-                    if message.payload.status == .interrupted { Text("Response interrupted").font(.caption).foregroundStyle(.secondary) }
-                    if !streaming, message.payload.role == .assistant,
-                       let name = ChatProfileText.answeredBy(model: message.payload.model, profile: message.payload.profile) {
-                        Text(name).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let diagram = model.chatDiagrams[message.id] {
-                        Button("View diagram") { model.openDiagram(diagram.id) }
-                    }
-                }
-                .padding(message.payload.role == .user ? 12 : 0)
-                .frame(maxWidth: .infinity, alignment: message.payload.role == .user ? .trailing : .leading)
-                .background(message.payload.role == .user ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 14))
+                TranscriptMessage(message: message, streaming: message.id == streamingID,
+                                  progress: message.id == streamingID ? model.chatStreamingProgress : nil, fontSize: size,
+                                  diagram: model.chatDiagrams[message.payload.entityID], openDiagram: { model.openDiagram($0) },
+                                  papers: ChatPaperContext(model: model, actions: paperActions),
+                                  followUps: message.id == last ? followUps : [], first: false, last: false,
+                                  textIdentifier: "contextChat.message.\(message.id.wire)", cite: onCite, horizontalInset: 0)
             }
         }
     }
@@ -721,11 +710,10 @@ struct ContextualChatComposer: View {
                         Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
                             .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("contextChat.stop")
                     } else {
-                        Button {
-                            guard let token else { return }
-                            Task { await model.sendContextualMessage(token, explanation: explanation) }
-                        } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: canSend) }
+                        Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: canSend) }
                             .disabled(!canSend).accessibilityLabel("Send").accessibilityIdentifier("contextChat.send")
+                            // As in Chat: ⌘Return sends (Mac and an iPad keyboard); Return starts a new line.
+                            .keyboardShortcut(.return, modifiers: .command)
                     }
                 }.padding(.leading, 14).padding(.trailing, 3).padding(.bottom, 3)
             }
@@ -742,6 +730,18 @@ struct ContextualChatComposer: View {
         .sheet(item: Binding(get: { model.ownsContextualChat(token) ? model.chatConsentPrompt : nil }, set: { next in
             if model.ownsContextualChat(token), next == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
         })) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
+    }
+    private func send() {
+        guard let token else { return }
+        // Mac (⌘Return), as Chat's composer: the field ends editing first so it can't write the sent text back, then
+        // takes the focus again for the next question.
+        guard Platform.isMac, focused else { Task { await model.sendContextualMessage(token, explanation: explanation) }; return }
+        focused = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(60))
+            await model.sendContextualMessage(token, explanation: explanation)
+            focused = true
+        }
     }
     private var canSend: Bool {
         model.ownsContextualChat(token) && !busy && !model.isGenerating && !model.isDiscardingDraft && model.chatContextComplete

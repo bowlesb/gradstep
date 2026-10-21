@@ -1064,8 +1064,8 @@ struct ChatView: View {
         }
     }
 
-    /// iPad Reader layout: the paper is already open beside the chat.
-    private var besidePaper: Bool { Platform.isLargeScreen && model.wideMode == .reader && model.tab != .chat }
+    /// iPad/Mac Reader layout: the paper is already open beside the chat (set by ReaderSplit for its chat column).
+    @Environment(\.chatBesidePaper) private var besidePaper
 
     /// A custom principal view can report its ideal width beyond the space
     /// UIKit leaves between toolbar buttons. Use their measured positions,
