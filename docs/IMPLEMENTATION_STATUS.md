@@ -42,7 +42,7 @@ Ask in chat (rerun) and chat default options; two `ChatControlsTests` fail on st
 (the keyboard-dismiss button's position, and a helper that looks for a removed model segmented control). Mac
 `LocalAIJourneyTests` local-model cases could not run: the fixture model was disabled by the memory-admission check
 ("1 GB free app memory required") on the saturated machine. Screenshots of the iPhone and Mac message box were
-reviewed (unchanged appearance). Results: `.artifacts/results/`.
+reviewed (unchanged appearance). Logs: the worktree's `.artifacts/*.log` (result bundles and derived data pruned after review).
 
 After merging main (`66bb4c6`: Notes, the single model control, catalog adds, keyword specificity): ScienceReaderCore
 388 tests in 51 suites pass. `npm test` passes in full, including compiler freshness (main's 5ef1bce fixed it):
