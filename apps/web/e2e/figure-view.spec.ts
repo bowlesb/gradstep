@@ -176,6 +176,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer).toBeHidden();
 
  // Reopened: the walkthrough and the simpler part come back without a new request.
+ await expect(page.getByTestId('explainer-return')).toHaveText('Back to Figure Explainer');
  await page.getByTestId('explainer-return').click();
  viewer=page.getByRole('dialog',{name:'Figures'});
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);

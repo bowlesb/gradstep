@@ -16,7 +16,7 @@ import type { Episode, Evidence } from '../lib/podcast';
 import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
-import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
+import { ChatHistory, ChatPane, type PaperContext, summaryTitle, useChatUpdates } from './ChatPane';
 import { ChatOptionsDialog, type ChatOptionsView } from './ChatProfile';
 import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
 import type { ChatSession, Explanation, AIUseCase } from '../lib/chat-session';
@@ -35,7 +35,9 @@ import { KeySetup } from './Keys';
 import { RegionBoundary } from './ErrorBoundary';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
-import { readStored, type Route, type Theme, useTheme, writeStored } from './prefs';
+import { readStored, type Route, type Theme, useStored, useTheme, writeStored } from './prefs';
+/** Underline passages with chats (the apps' Settings › Reading; per browser, on unless turned off). */
+const PASSAGE_MARKS_KEY = 'gradstep.reader.passageMarks';
 /** The Library's status filter, remembered between visits (per browser, a convenience only). The tag isn't: every visit
  * starts with all tags, as the apps do (B3; owner: an old tag filter came back and the library looked empty). */
 const LIBRARY_FILTER_KEY = 'gradstep.library.filter', OLD_LIBRARY_TAG_KEY = 'gradstep.library.tag';
@@ -562,7 +564,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     saved: (manifest, figureID, action, part, choice) => chat.savedFigure(manifest, figureID, action, part, choice),
     run: (input, action, update, signal, choice) => chat.figure(equationDocument, input, action, update, signal, choice),
   } : undefined, [chat, equationDocument]);
-  const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined)]);
+  // Passages with chats are underlined unless the reader turned that off (Settings › Reading on the apps; B10).
+  const [passageMarks, setPassageMarks] = useStored<boolean>(PASSAGE_MARKS_KEY, true, v => typeof v === 'boolean');
+  const marks = useMemo(() => !passageMarks ? [] : chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor)
+    .map(c => ({ id: c.id, anchor: c.anchor!, title: summaryTitle(c) || undefined, lastUsedAt: c.lastUsedAt })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined), passageMarks]);
 
   const openPodcastEvidence = async (episode: Episode, evidence: Evidence): Promise<boolean | null> => {
     const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === episode.documentID);
@@ -679,7 +684,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onExplanations={chat ? setExplanationsOpen : null} />
+            onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -787,8 +792,9 @@ function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view
   return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.scenarioProfile(scenario)} onChange={next => chat.setScenarioProfile(scenario,next)} scenarioControl={<label>Activity <select value={scenario} onChange={e=>setScenario(e.target.value as AIUseCase)}><option value="general">General chat</option><option value="paper">Paper chat</option><option value="equations">Equation explanations</option><option value="figures">Figures and tables</option></select></label>} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null }) {
+function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
+  passageMarks: boolean; onPassageMarks: (on: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
   // AI credits and Subscription plan, read again each time the menu opens (native Settings › AI credits); the last values
@@ -848,6 +854,8 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivac
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
+          <button role="menuitemcheckbox" aria-checked={passageMarks} className="menu-item menu-check" onClick={() => onPassageMarks(!passageMarks)} data-testid="passage-marks">
+            <span className="menu-check-mark" aria-hidden="true">{passageMarks ? '✓' : ''}</span>Underline passages with chats</button>
           <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> AI chat options…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
           {/* About, with Report and My reports beside it, for everyone (owner, build 58). */}

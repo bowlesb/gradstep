@@ -111,6 +111,8 @@ export const browserLocks: Locks = {
 };
 
 export type AIUseCase = 'general' | 'paper' | 'equations' | 'figures';
+/** Each activity's title, as AI chat options and the apps (AIScenarioDefaults.swift) name it. */
+export const AI_USE_CASE_TITLES: Record<AIUseCase, string> = { general: 'General chat', paper: 'Paper chat', equations: 'Equation explanations', figures: 'Figures and tables' };
 const contextualKey = (documentID: string, anchor: TextAnchor) => JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
 const scenarioKey = 'gradstep.ai.scenarios.v1';
 function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
@@ -280,7 +282,9 @@ export class ChatSession {
   private scenarioChoices = scenarioDefaults();
   private contextualKinds = new Map<string,AIUseCase>();
   readonly promotedContexts = new Map<string,{quote:string;label:string;anchor:TextAnchor;explanation?:string;image?:string}>();
-  defaultFor(c:Composer):ProfileChoice { return this.scenarioProfile(this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general')); }
+  defaultFor(c:Composer):ProfileChoice { return this.scenarioProfile(this.activityFor(c)); }
+  /** Which activity's default a composer follows (AI chat options' Activity). */
+  activityFor(c:Composer):AIUseCase { return this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general'); }
   setDefaultFor(c:Composer,choice:ProfileChoice) { this.setScenarioProfile(this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general'),choice); }
   scenarioProfile(kind:AIUseCase):ProfileChoice { const saved=this.scenarioChoices[kind]; return saved && this.profileTable && available(this.profileTable,saved) ? saved : this.defaultProfile; }
   setScenarioProfile(kind:AIUseCase,choice:ProfileChoice) {

@@ -50,7 +50,7 @@ for (const scheme of ['light', 'dark'] as const) test(`choose model and length; 
   await expect(dialog.getByRole('radiogroup')).toHaveCount(2);
   await expect(dialog.getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus', 'DeepSeek', 'Brief', 'Standard', 'Detailed']);
   await expect(dialog).not.toContainText('credits'); await expect(dialog).not.toContainText('Effort');
-  await expect(dialog.getByRole('button', { name: 'Reset default settings', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: /^Use for new (paper|general) chat$/ })).toBeDisabled();
   await expect(dialog.getByRole('radio', { name: 'Sonnet', exact: true })).toBeFocused();
   await expect(dialog.getByTestId('default-note')).toContainText('New chats currently start with');
   await dialog.getByRole('radio', { name: 'Opus', exact: true }).click();

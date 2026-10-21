@@ -90,7 +90,8 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   // The ⋯ menu: Answer options… with the current choice, and Study mode; arrow keys move, Esc closes and returns focus.
   await page.getByTestId('chat-menu').click();
   const menu = page.getByRole('menu', { name: 'Chat menu' });
-  await expect(menu.getByRole('menuitem')).toHaveText([/^Answer options…\s*Sonnet · Standard$/, 'Study mode']);
+  // Smaller / Larger text last (B8; the apps keep them in this menu too).
+  await expect(menu.getByRole('menuitem')).toHaveText([/^Answer options…\s*Sonnet · Standard$/, 'Study mode', /Smaller text$/, /Larger text$/]);
   await expect(menu.getByTestId('answer-options-item')).toBeFocused();
   await page.keyboard.press('ArrowDown'); await expect(menu.getByRole('menuitem', { name: 'Study mode' })).toBeFocused();
   await page.keyboard.press('Escape'); await expect(menu).toHaveCount(0); await expect(page.getByTestId('chat-menu')).toBeFocused();
@@ -102,7 +103,7 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   await expect(options.getByRole('button', { name: 'About AI chat options' })).toBeVisible();
   await expect(options).not.toContainText(/credit|Effort|Reset/);
   await options.getByRole('radio', { name: 'DeepSeek', exact: true }).click();
-  await expect(options.getByRole('button', { name: 'Use for new chats' })).toBeVisible();
+  await expect(options.getByRole('button', { name: /^Use for new (paper|general) chat$/ })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-answer-options.png` });
   await page.keyboard.press('Escape'); await expect(options).toBeHidden();
 

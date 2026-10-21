@@ -59,8 +59,10 @@ export function ChoicePicker({ table, choice, onChange, autoFocus = false }: {
 }
 
 /** The chat's ⋯ › Answer options: Model, Length, Use for new chats and the link to About AI chat options. Nothing else. */
-export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoice, onChange, onMakeDefault, onRetry, onAbout, reason }: {
+export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoice, onChange, onMakeDefault, onRetry, onAbout, reason, activity = 'chats' }: {
   open: boolean; onClose: () => void; table: ProfileTable | null; choice: ProfileChoice; defaultChoice: ProfileChoice; reason?:string;
+  /** The activity whose default the button sets, lower case ("paper chat"), as the apps word it (B10). */
+  activity?: string;
   onChange: (choice: ProfileChoice) => void; onMakeDefault: (choice: ProfileChoice) => void; onRetry: () => Promise<void>; onAbout: () => void;
 }) {
   return <Dialog open={open} onClose={onClose} title="Answer options" className="answer-options">
@@ -73,7 +75,7 @@ export function AnswerOptionsDialog({ open, onClose, table, choice, defaultChoic
       <div className="answer-options-actions">
         <span className="fine" data-testid="default-note">New chats currently start with {profileSummary(defaultChoice, table)}.</span>
         <button type="button" className="secondary small" disabled={!table || sameChoice(choice, defaultChoice)} onClick={() => onMakeDefault(choice)}
-          title="Uses the selected model and length for new chats" data-testid="use-for-new-chats">Reset default settings</button>
+          title={`Uses the selected model and length for new ${activity}`} data-testid="use-for-new-chats">Use for new {activity}</button>
         <button type="button" className="link small" onClick={onAbout} data-testid="about-chat-options">About AI chat options</button>
       </div>
     </div>

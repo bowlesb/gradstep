@@ -6,7 +6,7 @@ import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLa
 import { TranscriptFollow } from '../lib/chat-follow';
 import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
-import { ChatSession, composerBusy, type Composer } from '../lib/chat-session';
+import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer } from '../lib/chat-session';
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
@@ -213,6 +213,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           onClick={() => { close(); startStudy(); }}><Icon name="book" size={14} /> Study mode</button>}
         {c.study && <button type="button" role="menuitem" className="menu-item" data-testid="study-end-menu" disabled={composerBusy(c) || !!c.answer}
           onClick={() => { close(); chat.endStudy(c); }}><Icon name="book" size={14} /> End study mode</button>}
+        {summary?.anchor && summary.documentID && !deleted && <button type="button" role="menuitem" className="menu-item" data-testid="chat-menu-passage"
+          onClick={() => { close(); onPassage(summary.documentID!, summary.anchor!); }}><Icon name="list" size={14} /> Go to passage</button>}
         <div className="menu-row chat-text-size" role="group" aria-label="Chat text size">
           <button type="button" role="menuitem" className="seg" disabled={chatText <= CHAT_TEXT_MIN} onClick={() => setTextSize(Math.max(CHAT_TEXT_MIN, chatText - 1))}
             data-testid="chat-text-smaller"><span className="a-small" aria-hidden="true">A</span> Smaller text</button>
@@ -338,6 +340,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       })()}
     </form>
     <AnswerOptionsDialog open={answerOptions} onClose={() => setAnswerOptions(false)} table={table} choice={choice} defaultChoice={chat.defaultFor(c)} reason={chat.profileReason(c)}
+      activity={AI_USE_CASE_TITLES[chat.activityFor(c)].toLowerCase()}
       onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultFor(c,next)} onRetry={() => chat.reloadProfiles()}
       onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
@@ -369,7 +372,7 @@ const Answer = memo(function Answer({ text, streaming = false }: { text: string;
 
 export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOpen }: {
   chat: ChatSession | null; open: boolean; onClose: () => void; papers: Map<string, string>; currentDocument: string | null;
-  onOpen: (documentID: string | null) => void;
+  onOpen: (documentID: string | null, anchor?: TextAnchor) => void;
 }) {
   return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} /> : <p>Loading chats…</p>}</Dialog>;
 }
@@ -387,7 +390,7 @@ function useNarrow() {
   }, []);
   return narrow;
 }
-function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null) => void }) {
+function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null, anchor?: TextAnchor) => void }) {
   const historyVersion = useChatUpdates(chat);
   // All first and chosen (owner, build 57: "You can put All to the left and make that the default").
   const [search, setSearch] = useState(''), [filter, setFilter] = useState('all');
@@ -458,7 +461,9 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
         {shown.messages && <td className="fine history-count">{c.messageCount}</td>}
         {shown.started && <td className="fine">{formatDate(c.startedAt)}</td>}
         <td className="fine">{formatDate(c.lastUsedAt)}</td>
-        <td className="history-row-actions"><button className="link" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button>
+        <td className="history-row-actions">{c.anchor && c.documentID && papers.has(c.documentID) && <button className="link" aria-label={`Go to the passage of ${summaryTitle(c) || 'chat'}`}
+          onClick={() => { chat.open(c.id); onOpen(c.documentID!, c.anchor); onClose(); }}>Go to passage</button>}
+          <button className="link" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button>
           <button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
     </table></div>
     {!rows.length && <p className="muted">{search ? 'No matching chats.' : 'Your saved conversations will appear here.'}</p>}

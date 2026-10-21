@@ -15,6 +15,8 @@ import { contentsEquations, contentsFigures, contentsTables, type ContentsEquati
 import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
+import { figureName } from '../lib/figure-view';
+import { formatDate } from './common';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
 import { EquationTiles } from './EquationTiles';
 import { FigureViewer } from './Figures';
@@ -73,7 +75,7 @@ function failure(error: unknown): string {
 
 type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: ReaderPaper; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
-  marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
+  marks: { id: string; anchor: TextAnchor; title?: string; lastUsedAt?: number }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   /** A kept explanation reopened from Your assets: its equation view or figure page, once the paper is ready. */
   explainer?: { id: string; kind: 'equation' | 'figure'; targetID: string; at: number } | null; onExplainerHandled?: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => void; onMarkedChat: (id: string) => void;
@@ -313,6 +315,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
   }, []);
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
+  // Several chats on one passage are listed by title; a title shared by two names when each was last read (PaperPassages).
+  const markTitle = (id: string) => {
+    const mark = marks.find(m => m.id === id), title = mark?.title || 'Untitled conversation';
+    const shared = markedChats.some(other => other !== id && (marks.find(m => m.id === other)?.title || 'Untitled conversation') === title);
+    return shared && mark?.lastUsedAt ? `${title} · ${formatDate(mark.lastUsedAt)}` : title;
+  };
 
   const marksJSON = useMemo(() => JSON.stringify(marks.slice(0, 500).map(m => bridgeAnchor(m.id, m.anchor, item.artifact_id ?? undefined, bundle?.manifestSHA256))), [marks, item.artifact_id, bundle?.manifestSHA256]);
   useEffect(() => { if (bridgeReady) command('setMarks', JSON.parse(marksJSON)); }, [bridgeReady, command, marksJSON]);
@@ -472,7 +480,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
             data-testid="ask" title="Chat ( ] )"><Icon name="chat" /><span>Chat</span></button>
         </div>
       </header>
-      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='figure')setFigure({id:explainerReturn.id,open:true});else setEquation(equationTarget(explainerReturn.id));setExplainerReturn(null);}}>Back to {explainerReturn.kind==='figure'?'Figure':'Equation'} Explainer</button>}
+      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='figure')setFigure({id:explainerReturn.id,open:true});else setEquation(equationTarget(explainerReturn.id));setExplainerReturn(null);}}>Back to {explainerReturn.kind==='equation'?'Equation':bundle&&figureName(bundle,explainerReturn.id).startsWith('Table')?'Table':'Figure'} Explainer</button>}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -533,9 +541,13 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
               <button key="equation" className="secondary small" data-testid="equation-open" onClick={() => {
                 const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
                 setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: true }); setSelection(null); command('clearSelection');
-              }}>AI Explainer</button>] : [])])}
+              }}>AI Explainer</button>,
+              // The raw formula, as the apps' Copy as Text on a tapped equation copies it.
+              <button key="copy" className="secondary small" data-testid="equation-copy" onClick={() => {
+                void navigator.clipboard.writeText(quote).then(() => setNotice('Copied.'), () => setNotice('Couldn’t copy the equation.'));
+              }}>Copy as Text</button>] : [])])}
         </div>}
-        {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
+        {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage" data-testid="passage-chats">{markedChats.map(id => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>{markTitle(id)}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Cancel</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
         {referenceNotice && <div className="reader-reference-notice" role="status" data-testid="reference-notice">
           <span>{referenceNotice.message}</span>

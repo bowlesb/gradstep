@@ -103,6 +103,11 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
  await expect(display).toBeVisible({timeout:20000});
  const chats=async()=>(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests as Record<string,unknown>[];
 
+ // A tapped equation also offers Copy as Text: the formula as the paper writes it (B10, the apps' equation menu).
+ if(test.info().project.name!=='webkit')await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+ await display.click();await page.getByTestId('equation-copy').click();
+ await expect(page.locator('.toast')).toHaveText('Copied.');
+ if(test.info().project.name!=='webkit')expect(await page.evaluate(()=>navigator.clipboard.readText())).toMatch(/\\\[|\\\(|\\begin/);
  // An equation explained (AI Explainer from its menu, after the consent), then a figure.
  await display.click();await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
