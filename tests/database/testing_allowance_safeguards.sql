@@ -66,4 +66,19 @@ select test.assert((select (x->>'monthly_cap_microusd')::bigint=10000 and (x->>'
  from jsonb_array_elements(public.v1_admin_accounts(null,'created',false,50)->'testing_allowances') x where x->>'account_id'=:'TST'),
  'Accounts shows the allowance');
 reset role;
+-- An allowance without a cap (the owner's own, authorized as unlimited on 2026-10-19 and created before 0105) keeps
+-- NULL: only the platform budget applies, and turning it on again without a cap keeps it uncapped.
+set role service_role;
+select public.worker_set_testing_allowance(:'OWN','10500000-0000-4000-8009-0000000000f0',:'OWN',true,'Owner testing');
+reset role;
+update app_private.testing_allowances set monthly_cap_microusd=null where account_id=:'OWN';  -- as the 0105 migration leaves 094's row
+create or replace function test.not_capped(sql text) returns void language plpgsql as $$
+begin execute sql; exception when others then
+ if sqlerrm like '%testing_cap_reached%' then raise exception 'ASSERTION FAILED: an uncapped allowance was capped'; end if; end $$;
+select test.not_capped(format('select public.worker_reserve_operation(%L,%L,%L,sha256(%L),%L,10,9000000)',
+ :'OWN','10500000-0000-4000-8001-0000000000f1','chat','big','beta-credits-v1'));
+set role service_role;
+select test.assert(public.worker_set_testing_allowance(:'OWN','10500000-0000-4000-8009-0000000000f2',:'OWN',true,'Still testing')->'monthly_cap_microusd'='null'::jsonb,
+ 'keeping an uncapped allowance on leaves it uncapped');
+reset role;
 rollback;

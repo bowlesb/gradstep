@@ -12,8 +12,12 @@
 begin;
 set local lock_timeout='15s';
 
-alter table app_private.testing_allowances add column monthly_cap_microusd bigint not null default 25000000
- check(monthly_cap_microusd between 0 and 50000000);
+-- NULL = no per-account cap (the platform budget still applies). The owner asked for unlimited testing on their own
+-- account (DECISIONS.md, 2026-10-19), so allowances that exist before this migration keep NULL; allowances turned on
+-- from now on default to $25 unless the owner sets another cap.
+alter table app_private.testing_allowances add column monthly_cap_microusd bigint
+ check(monthly_cap_microusd is null or monthly_cap_microusd between 0 and 50000000);
+alter table app_private.testing_allowances alter column monthly_cap_microusd set default 25000000;
 
 drop function public.worker_set_testing_allowance(uuid,uuid,boolean,text);
 
@@ -45,7 +49,9 @@ begin
   if not found then raise exception 'account_unavailable'; end if;
  end if;
  bucket:=policy.bucket_id;
- cap:=coalesce(p_monthly_cap_microusd,policy.monthly_cap_microusd,25000000);
+ -- An explicit cap wins; otherwise an existing allowance keeps its cap (NULL stays uncapped); a new one gets $25.
+ cap:=case when p_monthly_cap_microusd is not null then p_monthly_cap_microusd
+  when policy.account_id is not null then policy.monthly_cap_microusd else 25000000 end;
  if p_enabled and not coalesce(policy.enabled,false) then
   bucket:=public.worker_grant_credits(p_account_id,'adjustment','unlimited-testing:'||p_request_id,
    100000,now(),null,'Owner-authorized unlimited testing: '||btrim(p_reason));
@@ -115,7 +121,7 @@ begin
  perform 1 from app_private.accounts where id=p_account_id for update;
  select * into t from app_private.testing_allowances where account_id=p_account_id and enabled;
  if found and coalesce(p_microusd,0)>0 and not exists(select 1 from app_private.metered_operations where account_id=p_account_id and id=p_id)
-  and app_private.account_month_spend(p_account_id)+p_microusd>t.monthly_cap_microusd then
+  and t.monthly_cap_microusd is not null and app_private.account_month_spend(p_account_id)+p_microusd>t.monthly_cap_microusd then
   raise exception 'testing_cap_reached';
  end if;
  return app_private.reserve_operation_before_0105(p_account_id,p_id,p_kind,p_request_sha256,p_rate_version,p_credits,p_microusd);

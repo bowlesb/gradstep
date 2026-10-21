@@ -11,7 +11,7 @@ export interface AdminAccount {
   credits: { available: number; reserved: number }; library_items: number;
 }
 /** Migration 0105 (review A9): an owner-authorized testing allowance, its monthly provider-cost cap and this month's spend. */
-export interface TestingAllowance { account_id: string; enabled: boolean; monthly_cap_microusd: number; month_spend_microusd: number; updated_at: string }
+export interface TestingAllowance { account_id: string; enabled: boolean; monthly_cap_microusd: number | null; month_spend_microusd: number; updated_at: string }
 export interface AccountList { generated_at: string; total: number; matched: number; accounts: AdminAccount[]; testing_allowances?: TestingAllowance[] }
 export type AccountSort = 'created' | 'last_sign_in';
 export interface AddTesterResult { account_id: string; email: string; created: boolean; status: AccountStatus; starting_credits: number; starting_granted: boolean }
@@ -109,7 +109,7 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
           <tbody>{list?.accounts.map(account => <tr key={account.id} className={account.synthetic ? 'synthetic' : undefined}>
             <th scope="row"><span className={account.email ? 'email' : 'email muted'}>{label(account)}</span>
               {(account.roles.includes('owner') || account.synthetic || testing.get(account.id)?.enabled) && <span className="tags">{account.roles.includes('owner') && <span className="badge plain">Owner</span>}{account.synthetic && <span className="badge plain test" title="Synthetic login used by automated checks (@example.invalid)">Test</span>}
-                {testing.get(account.id)?.enabled && <span className="badge plain" title="Owner-authorized testing allowance: credits refill automatically; the provider cost this month is capped">Unlimited testing · {usd(testing.get(account.id)!.month_spend_microusd)} of {usd(testing.get(account.id)!.monthly_cap_microusd)} this month</span>}</span>}</th>
+                {testing.get(account.id)?.enabled && <span className="badge plain" title="Owner-authorized testing allowance: credits refill automatically; the provider cost this month is capped">Unlimited testing · {usd(testing.get(account.id)!.month_spend_microusd)}{testing.get(account.id)!.monthly_cap_microusd == null ? ' this month, no account cap' : <> of {usd(testing.get(account.id)!.monthly_cap_microusd!)} this month</>}</span>}</span>}</th>
             <td><span className={'badge ' + STATUS[account.status][1]}>{STATUS[account.status][0]}</span></td>
             <td>{account.plan ? <>{account.plan.plan[0].toUpperCase() + account.plan.plan.slice(1)}{account.plan.environment === 'Sandbox' && <small>Sandbox</small>}</> : <span className="muted">—</span>}</td>
             <td className="num">{account.credits.available.toLocaleString()}{account.credits.reserved > 0 && <small>{account.credits.reserved.toLocaleString()} held</small>}</td>

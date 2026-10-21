@@ -37,11 +37,14 @@ had no per-account cap inside the shared budget, and had no control or marker in
   account (`require_owner_account`) and is the audit row's actor; the target must be an owner or tester (`app_roles`) or
   a synthetic test account. Enabling needs an open, unsuspended account; disabling works in any state. The admin site's
   Accounts tab calls it through `admin-accounts` (`set_testing_allowance`) with the signed-in owner (MFA) as actor.
-- **Monthly cap.** Each allowance carries `monthly_cap_microusd` (default **$25**, at most $50, the whole month's schema
-  ceiling). A new paid operation of that account is refused (`testing_cap_reached`; chat reports `insufficient_credits`)
-  when the account's provider cost this month (settled cost and liability plus open holds) plus its hold would pass the
-  cap; it is checked under the same budget → account locks as the reservation. Deploying 0105 gives the owner's current
-  allowance the $25 default; the owner can change it in Accounts. The $100/month budget and platform limit are unchanged.
+- **Monthly cap.** Each allowance carries `monthly_cap_microusd` (default **$25** for allowances turned on after 0105,
+  at most $50, the whole month's schema ceiling; NULL = no per-account cap). A new paid operation of that account is
+  refused (`testing_cap_reached`; chat reports `insufficient_credits`) when the account's provider cost this month
+  (settled cost and liability plus open holds) plus its hold would pass the cap; it is checked under the same budget →
+  account locks as the reservation. The owner asked for unlimited testing on their own account (DECISIONS.md,
+  2026-10-19), so the allowance that exists when 0105 is deployed keeps NULL (only the platform budget applies);
+  turning an allowance on again without naming a cap keeps its current cap. The $100/month budget and platform limit
+  are unchanged.
 - **Suspension ends it.** Disabling sign-in (`worker_admin_set_sign_in`) also ends the allowance, audited to the same
   owner; re-enabling sign-in does not bring it back.
 - Admin › Accounts marks accounts with the allowance (this month's spend against the cap) and offers the control.

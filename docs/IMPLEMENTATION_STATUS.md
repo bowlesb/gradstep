@@ -36,7 +36,8 @@ name.
 - **Live checks (unpaid unless marked):** read-only SQL — `provider_spending_policy` shows 50,000/10,000 per 24 h and
   `provider_attempt_hours` has rows (A2); `openrouter_tariffs` has 7 rows valid to 2027-01-01 and
   `scripts/pipeline-ops.py tariffs` lists them (A4); both budget months have the same switch (A7); the owner's
-  `testing_allowances.monthly_cap_microusd` is 25,000,000 (A9; raise it in Accounts if needed); `provider_breakers` has a
+  `testing_allowances.monthly_cap_microusd` is NULL — uncapped, as the owner authorized on 2026-10-19 (A9: only
+  allowances turned on later default to $25); `provider_breakers` has a
   `scope` column (A13); `stale_sweep_failures` is empty or named in the budget check (C7). Admin: Overview shows this
   month's spend and the right Pause/Resume (A3); Spending shows `attempt_capacity`; Accounts marks the owner's
   allowance; Support pages and closes (D10). Drill (`FAULT_INJECTION=on`, test account, no real provider):
