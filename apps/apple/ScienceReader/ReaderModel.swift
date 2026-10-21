@@ -3214,10 +3214,15 @@ final class ReaderModel {
               let bundle = papers.first(where: { $0.readerBundle?.manifestSHA256 == stored.manifestSHA256 })?.readerBundle else { return nil }
         figurePartCropWork.insert(key)
         let asset = stored.paths.count == 1 ? bundle.data(for: stored.paths[0]) : nil, figure = FigurePartCrop.Unchecked(image: image)
-        // The figure's caption: its panel letters cap the parts shown (FIGURE_VIEW.md "Parts as viewports").
-        let caption = bundle.index.figures.first { $0.blockID == stored.blockID || $0.id == stored.blockID }?.caption ?? ""
+        // The figure's caption: its panel letters cap the parts shown (FIGURE_VIEW.md "Parts as viewports"); its own
+        // sub-figures, when the parts' image is their composite, are exact parts ("Structure first").
+        let found = bundle.index.figures.first { $0.blockID == stored.blockID || $0.id == stored.blockID }
+        let caption = found?.caption ?? ""
         Task { [weak self] in
-            let crops = await Task.detached(priority: .userInitiated) { FigurePartCrop.all(stored, image: figure.image, asset: asset, caption: caption) }.value
+            let crops = await Task.detached(priority: .userInitiated) { () -> [FigurePartCrop?] in
+                let structure = found.flatMap { f in Array(f.assetPaths.prefix(ChatFigureFinder.maximumPanels)) == stored.paths ? ChatFigureFinder.structure(of: f, bundle: bundle) : nil }
+                return FigurePartCrop.all(stored, image: figure.image, asset: asset, caption: caption, structure: structure)
+            }.value
             guard let self else { return }
             if figurePartCropCache.count >= 24 { figurePartCropCache.removeAll() }
             figurePartCropCache[key] = crops; figurePartCropWork.remove(key)

@@ -9,11 +9,11 @@ import { figureInk, type Rect } from '../src/lib/figure-crops';
 import { FRAMING, captionLetters, frameAspect, frameParts, framingLook, keptParts, labelLetter } from '../src/lib/figure-framing';
 
 const dir = new URL('../../../tests/fixtures/figure-crops/', import.meta.url);
-type Part = { level: string; score: number; reasons: string[]; extra: boolean; veil: number; outlined: boolean; framePixels: number[]; regionPixels: number[] };
+type Part = { level: string; score: number; reasons: string[]; extra: boolean; exact?: boolean; veil: number; outlined: boolean; framePixels: number[]; regionPixels: number[] };
 const fixture = JSON.parse(readFileSync(new URL('framing.json', dir), 'utf8')) as {
   parameters: Record<string, number>; tolerancePixels: number; toleranceScore: number;
   cases: { name: string; image: string; width: number; height: number; unchecked: boolean; boxes: Rect[]; labels: string[]; caption: string; detector: (number | null)[] | null;
-    expect: { coverage: number | null; parts: Part[] } }[];
+    exact?: (Rect | null)[] | null; structureParts?: number; expect: { coverage: number | null; parts: Part[] } }[];
   captionLetters: { caption: string; letters: string[] }[]; labelLetters: { label: string; letter: string | null }[];
 };
 
@@ -46,7 +46,8 @@ const inkFor = (name: string) => {
 };
 const framed = (c: (typeof fixture.cases)[number]) => {
   const ink = inkFor(c.image);
-  return frameParts(c.unchecked ? null : ink, { width: c.width, height: c.height }, { boxes: c.boxes, labels: c.labels, caption: c.caption, detector: c.detector ?? undefined });
+  return frameParts(c.unchecked ? null : ink, { width: c.width, height: c.height }, { boxes: c.boxes, labels: c.labels, caption: c.caption, detector: c.detector ?? undefined,
+    exact: c.exact ?? undefined, structureParts: c.structureParts ?? 0 });
 };
 const pixels = (f: Rect, W: number, H: number) => [f[0] * W, f[1] * H, f[2] * W, f[3] * H];
 
@@ -63,7 +64,7 @@ describe('figure part framing (shared fixtures)', () => {
       expect(result.parts.length).toBe(c.expect.parts.length);
       result.parts.forEach((part, k) => {
         const want = c.expect.parts[k];
-        expect([part.level, part.reasons, part.extra, part.veil, part.outlined]).toEqual([want.level, want.reasons, want.extra, want.veil, want.outlined]);
+        expect([part.level, part.reasons, part.extra, part.exact, part.veil, part.outlined]).toEqual([want.level, want.reasons, want.extra, want.exact ?? false, want.veil, want.outlined]);
         expect(Math.abs(part.score - want.score)).toBeLessThanOrEqual(fixture.toleranceScore);
         pixels(part.frame, c.width, c.height).forEach((v, j) => expect(Math.abs(v - want.framePixels[j])).toBeLessThanOrEqual(fixture.tolerancePixels));
         pixels(part.region, c.width, c.height).forEach((v, j) => expect(Math.abs(v - want.regionPixels[j])).toBeLessThanOrEqual(fixture.tolerancePixels));
@@ -114,7 +115,7 @@ if (process.env.UPDATE_FRAMING_FIXTURE) {
     for (const c of file.cases) {
       const r = framed(c), round = (v: number) => Math.round(v * 100) / 100;
       c.expect = { coverage: r.coverage === null ? null : Math.round(r.coverage * 1e6) / 1e6, parts: r.parts.map(p => ({ level: p.level, score: p.score, reasons: p.reasons,
-        extra: p.extra, veil: p.veil, outlined: p.outlined, framePixels: pixels(p.frame, c.width, c.height).map(round), regionPixels: pixels(p.region, c.width, c.height).map(round) })) };
+        extra: p.extra, exact: p.exact, veil: p.veil, outlined: p.outlined, framePixels: pixels(p.frame, c.width, c.height).map(round), regionPixels: pixels(p.region, c.width, c.height).map(round) })) };
     }
     file.captionLetters = file.captionLetters.map((x: { caption: string }) => ({ caption: x.caption, letters: captionLetters(x.caption) }));
     file.labelLetters = file.labelLetters.map((x: { label: string }) => ({ label: x.label, letter: labelLetter(x.label) }));

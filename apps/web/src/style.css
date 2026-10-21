@@ -447,7 +447,8 @@ progress.mini { height: 3px; margin-top: 4px; }
 .viewport-outline { pointer-events: none; outline: 2px solid #4f52cf; outline-offset: 1px; border-radius: 2px; }
 .viewport-outline[hidden] { display: none; }
 .zoom-crop { margin: 2px 0 12px; }
-.fullscreen-figure .figure-viewport { cursor: grab; max-height: calc(100dvh - 170px); }
+/* A tall figure (a multi-image figure's stacked images) keeps its shape: narrower, never squeezed into the height. */
+.fullscreen-figure .figure-viewport { cursor: grab; max-height: calc(100dvh - 170px); max-width: min(100%, calc((100dvh - 170px) * var(--aspect, 100))); margin-inline: auto; }
 .figure-simpler { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
 .figure-simpler-head { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 @media (max-width: 640px) { .figure-frame.compact { height: 38dvh; } }

@@ -1,5 +1,21 @@
 # Fast and slow tests
 
+## Structure first and the count check — October 21
+
+Fast: browser `tests/figure-structure.test.ts` and `tests/figure-framing.test.ts` (in `npm test`); Core
+`swift test --filter "FigureStructureTests|FigureFramingTests"` (same `tests/fixtures/figure-crops/structure.json` and
+`framing.json`; `UPDATE_STRUCTURE_FIXTURE=1` / `UPDATE_FRAMING_FIXTURE=1` rewrite them from the browser implementation;
+`python3 scripts/figure-structure-fixture.py` remakes `stacked-subfigures.png`). Opt-in, a real paper: compile
+`node scripts/reader-device-compile.mjs --ids=2610.22353v1 --out=.artifacts/figure-structure/bundles` (needs the sweep's
+cached source and assets), then `FIGURE_STRUCTURE_BUNDLE=<abs>/.artifacts/figure-structure/bundles/2610.22353v1 npx vitest
+run tests/figure-structure.test.ts` prints every multi-image figure's structure. Slow, opt-in: Playwright
+`e2e/figure-view.spec.ts -g "real multi-image"` (compiles 2610.22353v1 in the page from `.artifacts/reader-sweep/`;
+skipped without it; fixture modes `figure_subfigures`, `figure_subfigures_grouped`) and native
+`FigureViewJourneyTests/testARealMultiImageFiguresPartsAreItsOwnSubfigures` (`…Dark`,
+`testGroupedPartsOfARealMultiImageFigureShowTheWholeFigure`) with `TEST_RUNNER_FIGURE_STRUCTURE_BUNDLE=<that bundle dir>`
+(launch arguments `--figure-fixture-bundle=… --figure-fixture-subfigures [--figure-fixture-grouped]`; skipped without it).
+Screenshots under `.artifacts/figure-structure/`.
+
 ## Extract the subfigure removed — October 21
 
 Fast: browser `tests/figure-view.test.ts` (the request is no figure action, its event is ignored, kept detail answers

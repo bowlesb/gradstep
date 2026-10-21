@@ -1,6 +1,6 @@
 {
  "format": "figure-framing-fixtures-v1",
- "reference": "apps/web/src/lib/figure-framing.ts and ScienceReaderCore/FigureFraming.swift (FIGURE_VIEW.md \"Parts as viewports\"); completion as cases.json",
+ "reference": "apps/web/src/lib/figure-framing.ts and ScienceReaderCore/FigureFraming.swift (FIGURE_VIEW.md \"Parts as viewports\", \"Structure first\"); completion as cases.json; stacked-subfigures.png from scripts/figure-structure-fixture.py",
  "parameters": {
   "high": 0.75,
   "medium": 0.45,
@@ -8,6 +8,7 @@
   "growthPerUnit": 0.6,
   "growthMaxPenalty": 0.5,
   "countPenalty": 0.3,
+  "countCap": 0.3,
   "intrusionFree": 0.02,
   "intrusionBase": 0.26,
   "intrusionMaxPenalty": 0.4,
@@ -61,6 +62,7 @@
       "score": 1,
       "reasons": [],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -81,6 +83,7 @@
       "score": 1,
       "reasons": [],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -134,6 +137,7 @@
       "score": 1,
       "reasons": [],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -156,6 +160,7 @@
        "overlap"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
@@ -211,6 +216,7 @@
        "cut"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0,
       "outlined": true,
       "framePixels": [
@@ -233,6 +239,7 @@
        "overlap"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
@@ -281,6 +288,7 @@
        "cut"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0,
       "outlined": true,
       "framePixels": [
@@ -350,6 +358,7 @@
        "grew"
       ],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -372,6 +381,7 @@
        "grew"
       ],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -394,6 +404,7 @@
        "grew"
       ],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -416,6 +427,7 @@
        "grew"
       ],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -436,7 +448,7 @@
   },
   {
    "name": "more-parts-than-caption",
-   "about": "A fifth, unlettered box beyond the caption's four panels: an outline on the whole figure; the four are framed loosely.",
+   "about": "Five parts for a caption naming four panels: the extra (unlettered, last) is an outline on the whole figure; the count disagrees, so the four lettered parts show the whole figure too, outlined.",
    "image": "letters-shared-legend.png",
    "width": 990,
    "height": 726,
@@ -486,20 +498,21 @@
     "coverage": 1,
     "parts": [
      {
-      "level": "medium",
-      "score": 0.606182,
+      "level": "low",
+      "score": 0.3,
       "reasons": [
        "grew",
        "count"
       ],
       "extra": false,
-      "veil": 0.4,
+      "exact": false,
+      "veil": 0,
       "outlined": true,
       "framePixels": [
        -15,
        -15,
-       552.1,
-       375.98
+       1005,
+       741
       ],
       "regionPixels": [
        27,
@@ -509,20 +522,21 @@
       ]
      },
      {
-      "level": "medium",
-      "score": 0.619259,
+      "level": "low",
+      "score": 0.3,
       "reasons": [
        "grew",
        "count"
       ],
       "extra": false,
-      "veil": 0.4,
+      "exact": false,
+      "veil": 0,
       "outlined": true,
       "framePixels": [
-       436.9,
+       -15,
        -15,
        1005,
-       375.98
+       741
       ],
       "regionPixels": [
        517,
@@ -532,20 +546,21 @@
       ]
      },
      {
-      "level": "medium",
-      "score": 0.606182,
+      "level": "low",
+      "score": 0.3,
       "reasons": [
        "grew",
        "count"
       ],
       "extra": false,
-      "veil": 0.4,
+      "exact": false,
+      "veil": 0,
       "outlined": true,
       "framePixels": [
        -15,
-       283.02,
-       552.1,
-       705.98
+       -15,
+       1005,
+       741
       ],
       "regionPixels": [
        27,
@@ -555,20 +570,21 @@
       ]
      },
      {
-      "level": "medium",
-      "score": 0.631873,
+      "level": "low",
+      "score": 0.3,
       "reasons": [
        "grew",
        "count"
       ],
       "extra": false,
-      "veil": 0.4,
+      "exact": false,
+      "veil": 0,
       "outlined": true,
       "framePixels": [
-       436.9,
-       283.74,
+       -15,
+       -15,
        1005,
-       701.26
+       741
       ],
       "regionPixels": [
        517,
@@ -584,6 +600,7 @@
        "extra"
       ],
       "extra": true,
+      "exact": false,
       "veil": 0,
       "outlined": true,
       "framePixels": [
@@ -604,7 +621,7 @@
   },
   {
    "name": "caption-names-two",
-   "about": "The caption names (a) and (b) only: the parts labelled (c) and (d) become outlines, not crops.",
+   "about": "The caption names two panels and four parts were boxed: (c) and (d) are extras; the count disagrees, so (a) and (b) show the whole figure, outlined.",
    "image": "letters-shared-legend.png",
    "width": 990,
    "height": 726,
@@ -647,19 +664,20 @@
     "coverage": 1,
     "parts": [
      {
-      "level": "medium",
-      "score": 0.7,
+      "level": "low",
+      "score": 0.3,
       "reasons": [
        "count"
       ],
       "extra": false,
-      "veil": 0.4,
+      "exact": false,
+      "veil": 0,
       "outlined": true,
       "framePixels": [
        -15,
        -15,
-       547.42,
-       344.24
+       1005,
+       741
       ],
       "regionPixels": [
        53,
@@ -669,19 +687,20 @@
       ]
      },
      {
-      "level": "medium",
-      "score": 0.7,
+      "level": "low",
+      "score": 0.3,
       "reasons": [
        "count"
       ],
       "extra": false,
-      "veil": 0.4,
+      "exact": false,
+      "veil": 0,
       "outlined": true,
       "framePixels": [
-       467.58,
+       -15,
        -15,
        1005,
-       344.24
+       741
       ],
       "regionPixels": [
        543,
@@ -697,6 +716,7 @@
        "extra"
       ],
       "extra": true,
+      "exact": false,
       "veil": 0,
       "outlined": true,
       "framePixels": [
@@ -719,6 +739,7 @@
        "extra"
       ],
       "extra": true,
+      "exact": false,
       "veil": 0,
       "outlined": true,
       "framePixels": [
@@ -739,7 +760,7 @@
   },
   {
    "name": "letter-not-in-caption",
-   "about": "A part labelled (e) under a caption naming (a)–(d): framed loosely.",
+   "about": "The caption names (a)–(d) and four parts were boxed (the count agrees), one lettered (e): that one is outlined, the others stay tight.",
    "image": "letters-shared-legend.png",
    "width": 990,
    "height": 726,
@@ -756,57 +777,122 @@
      0.07,
      0.97,
      0.38
+    ],
+    [
+     0.1,
+     0.52,
+     0.475,
+     0.83
+    ],
+    [
+     0.59,
+     0.52,
+     0.97,
+     0.83
     ]
    ],
    "labels": [
     "(a)",
+    "(b)",
+    "(c)",
     "(e)"
    ],
    "caption": "Figure 3: (a) First. (b) Second. (c) Third. (d) Fourth.",
    "detector": null,
    "expect": {
-    "coverage": 0.426733,
+    "coverage": 0.939541,
     "parts": [
      {
       "level": "high",
-      "score": 1,
-      "reasons": [],
+      "score": 0.906182,
+      "reasons": [
+       "grew"
+      ],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
-       38,
-       13,
+       12,
+       -6,
        487,
-       311
+       335
       ],
       "regionPixels": [
-       53,
-       28,
+       27,
+       9,
        472,
-       296
+       320
+      ]
+     },
+     {
+      "level": "high",
+      "score": 0.919259,
+      "reasons": [
+       "grew"
+      ],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       502,
+       -6,
+       977,
+       335
+      ],
+      "regionPixels": [
+       517,
+       9,
+       962,
+       320
+      ]
+     },
+     {
+      "level": "high",
+      "score": 0.906182,
+      "reasons": [
+       "grew"
+      ],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       12,
+       324,
+       487,
+       665
+      ],
+      "regionPixels": [
+       27,
+       339,
+       472,
+       650
       ]
      },
      {
       "level": "medium",
-      "score": 0.7,
+      "score": 0.631873,
       "reasons": [
+       "grew",
        "letter"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
-       467.58,
-       -15,
+       436.9,
+       283.74,
        1005,
-       344.24
+       701.26
       ],
       "regionPixels": [
-       543,
-       28,
+       517,
+       339,
        962,
-       296
+       646
       ]
      }
     ]
@@ -842,6 +928,7 @@
        "sliver"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
@@ -895,6 +982,7 @@
       "score": 1,
       "reasons": [],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -915,6 +1003,7 @@
       "score": 1,
       "reasons": [],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -971,6 +1060,7 @@
       "score": 1,
       "reasons": [],
       "extra": false,
+      "exact": false,
       "veil": 1,
       "outlined": false,
       "framePixels": [
@@ -993,6 +1083,7 @@
        "detector"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
@@ -1048,6 +1139,7 @@
        "unchecked"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
@@ -1070,6 +1162,7 @@
        "unchecked"
       ],
       "extra": false,
+      "exact": false,
       "veil": 0.4,
       "outlined": true,
       "framePixels": [
@@ -1083,6 +1176,565 @@
        35.07,
        1346.4,
        430.86
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "structure-exact-subfigures",
+   "about": "A figure of three images (stacked as a request composes them), each matched to a walkthrough part: exact, tight, its band.",
+   "image": "stacked-subfigures.png",
+   "width": 1376,
+   "height": 1341,
+   "unchecked": false,
+   "boxes": [
+    [
+     0,
+     0,
+     1,
+     0.205071
+    ],
+    [
+     0,
+     0.225951,
+     1,
+     0.601044
+    ],
+    [
+     0,
+     0.621924,
+     1,
+     1
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(b)",
+    "(c)"
+   ],
+   "caption": "Figure 5: Three results. (a) The pipelines. (b) Win rates. (c) Reward against divergence.",
+   "detector": null,
+   "exact": [
+    [
+     0,
+     0,
+     1,
+     0.205071
+    ],
+    [
+     0,
+     0.225951,
+     1,
+     0.601044
+    ],
+    [
+     0,
+     0.621924,
+     1,
+     1
+    ]
+   ],
+   "structureParts": 3,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": true,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -27,
+       -27,
+       1403,
+       302
+      ],
+      "regionPixels": [
+       0,
+       0,
+       1376,
+       275
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": true,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -27,
+       276,
+       1403,
+       833
+      ],
+      "regionPixels": [
+       0,
+       303,
+       1376,
+       806
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": true,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -27,
+       807,
+       1403,
+       1368
+      ],
+      "regionPixels": [
+       0,
+       834,
+       1376,
+       1341
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "structure-detail-beside-exact",
+   "about": "Two parts are the figure's own sub-figures (exact); the third is the AI's box on one plot inside the third image: three parts for three sub-figures, so it is framed as usual.",
+   "image": "stacked-subfigures.png",
+   "width": 1376,
+   "height": 1341,
+   "unchecked": false,
+   "boxes": [
+    [
+     0,
+     0,
+     1,
+     0.205071
+    ],
+    [
+     0,
+     0.225951,
+     1,
+     0.601044
+    ],
+    [
+     0.06,
+     0.65,
+     0.48,
+     0.95
+    ]
+   ],
+   "labels": [
+    "(a)",
+    "(b)",
+    "(c) Left plot"
+   ],
+   "caption": "Figure 5: Three results. (a) The pipelines. (b) Win rates. (c) Reward against divergence.",
+   "detector": null,
+   "exact": [
+    [
+     0,
+     0,
+     1,
+     0.205071
+    ],
+    [
+     0,
+     0.225951,
+     1,
+     0.601044
+    ],
+    null
+   ],
+   "structureParts": 3,
+   "expect": {
+    "coverage": 0.919569,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": true,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -27,
+       -27,
+       1403,
+       302
+      ],
+      "regionPixels": [
+       0,
+       0,
+       1376,
+       275
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": true,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -27,
+       276,
+       1403,
+       833
+      ],
+      "regionPixels": [
+       0,
+       303,
+       1376,
+       806
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -19,
+       815,
+       707,
+       1359
+      ],
+      "regionPixels": [
+       8,
+       842,
+       680,
+       1332
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "count-disagrees-with-structure",
+   "about": "Two AI parts on a figure of three sub-figures (no caption letters): the count disagrees, both show the whole figure, outlined.",
+   "image": "stacked-subfigures.png",
+   "width": 1376,
+   "height": 1341,
+   "unchecked": false,
+   "boxes": [
+    [
+     0,
+     0,
+     1,
+     0.6
+    ],
+    [
+     0,
+     0.62,
+     1,
+     1
+    ]
+   ],
+   "labels": [
+    "Top",
+    "Bottom"
+   ],
+   "caption": "Figure 5: Three results.",
+   "detector": null,
+   "exact": null,
+   "structureParts": 3,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "low",
+      "score": 0.3,
+      "reasons": [
+       "count"
+      ],
+      "extra": false,
+      "exact": false,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -27,
+       -27,
+       1403,
+       1368
+      ],
+      "regionPixels": [
+       0,
+       0,
+       1376,
+       805
+      ]
+     },
+     {
+      "level": "low",
+      "score": 0.3,
+      "reasons": [
+       "count"
+      ],
+      "extra": false,
+      "exact": false,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -27,
+       -27,
+       1403,
+       1368
+      ],
+      "regionPixels": [
+       0,
+       831,
+       1376,
+       1341
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "count-disagrees-with-caption",
+   "about": "Two precise plots, but the caption names three lettered panels: the count disagrees, both show the whole figure, outlined (they were tight without the letters).",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.06,
+     0.07,
+     0.48,
+     0.86
+    ],
+    [
+     0.55,
+     0.07,
+     0.99,
+     0.86
+    ]
+   ],
+   "labels": [
+    "Left plot",
+    "Right plot"
+   ],
+   "caption": "Figure 2: (a) Reward. (b) Win rate. (c) Ablation.",
+   "detector": null,
+   "exact": null,
+   "structureParts": 0,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "low",
+      "score": 0.3,
+      "reasons": [
+       "count"
+      ],
+      "extra": false,
+      "exact": false,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -10,
+       -10,
+       1370,
+       511
+      ],
+      "regionPixels": [
+       8,
+       8,
+       672,
+       492
+      ]
+     },
+     {
+      "level": "low",
+      "score": 0.3,
+      "reasons": [
+       "count"
+      ],
+      "extra": false,
+      "exact": false,
+      "veil": 0,
+      "outlined": true,
+      "framePixels": [
+       -10,
+       -10,
+       1370,
+       511
+      ],
+      "regionPixels": [
+       704,
+       16,
+       1352,
+       496
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "count-agrees-with-structure",
+   "about": "Three AI parts on the three sub-figures (not matched as exact) while the caption names four panels: the count agrees with the figure's own structure, so no count penalty.",
+   "image": "stacked-subfigures.png",
+   "width": 1376,
+   "height": 1341,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.01,
+     0.01,
+     0.99,
+     0.2
+    ],
+    [
+     0.01,
+     0.23,
+     0.99,
+     0.6
+    ],
+    [
+     0.01,
+     0.63,
+     0.99,
+     0.99
+    ]
+   ],
+   "labels": [
+    "Top",
+    "Middle",
+    "Bottom"
+   ],
+   "caption": "Figure 5: (a) Pipelines. (b) Win rates. (c) Reward. (d) Temperature.",
+   "detector": null,
+   "exact": null,
+   "structureParts": 3,
+   "expect": {
+    "coverage": 1,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -23,
+       -24,
+       1401,
+       296
+      ],
+      "regionPixels": [
+       4,
+       3,
+       1374,
+       269
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -19,
+       281,
+       1397,
+       832
+      ],
+      "regionPixels": [
+       8,
+       308,
+       1370,
+       805
+      ]
+     },
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -19,
+       815,
+       1395,
+       1363
+      ],
+      "regionPixels": [
+       8,
+       842,
+       1368,
+       1336
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "single-part-no-count",
+   "about": "One part (a detail the walkthrough points at) on a figure whose caption names three panels: one part is not a split, so the count is not checked.",
+   "image": "dpo-figure-2.png",
+   "width": 1360,
+   "height": 501,
+   "unchecked": false,
+   "boxes": [
+    [
+     0.06,
+     0.07,
+     0.48,
+     0.86
+    ]
+   ],
+   "labels": [
+    "Left plot"
+   ],
+   "caption": "Figure 2: (a) Reward. (b) Win rate. (c) Ablation.",
+   "detector": null,
+   "exact": null,
+   "structureParts": 0,
+   "expect": {
+    "coverage": 0.433146,
+    "parts": [
+     {
+      "level": "high",
+      "score": 1,
+      "reasons": [],
+      "extra": false,
+      "exact": false,
+      "veil": 1,
+      "outlined": false,
+      "framePixels": [
+       -2,
+       25,
+       682,
+       502
+      ],
+      "regionPixels": [
+       8,
+       35,
+       672,
+       492
       ]
      }
     ]

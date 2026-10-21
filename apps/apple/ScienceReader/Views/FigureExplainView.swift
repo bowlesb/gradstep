@@ -366,7 +366,7 @@ struct FigureExplainView: View {
             .accessibilityLabel([section.label, section.title].filter { !$0.isEmpty }.joined(separator: ": "))
             .accessibilityHint("Options for this part")
             .accessibilityIdentifier("figureView.section.\(number).menu")
-            if section.cardKind == .panel, section.box != nil, let part = session.framed[index], let image = session.image {
+            if section.cardKind == .panel, let part = session.framed[index], let image = session.image {
                 partCard(part, image: image, label: part.level == .low ? "\(context.label), whole, for \(section.name)" : "Detail of \(context.label): \(section.name)",
                          identifier: "figureView.section.\(number).crop", maxHeight: 260, recordKey: session.recordKey(.walkthrough, index))
             }

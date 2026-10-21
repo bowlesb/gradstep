@@ -9,13 +9,13 @@ import Testing
 @Suite struct FigureFramingTests {
     struct Fixture: Decodable {
         struct Part: Decodable {
-            let level: String; let score: Double; let reasons: [String]; let extra: Bool; let veil: Double; let outlined: Bool
+            let level: String; let score: Double; let reasons: [String]; let extra: Bool; let exact: Bool?; let veil: Double; let outlined: Bool
             let framePixels: [Double]; let regionPixels: [Double]
         }
         struct Expect: Decodable { let coverage: Double?; let parts: [Part] }
         struct Case: Decodable {
             let name: String; let image: String; let width: Int; let height: Int; let unchecked: Bool; let boxes: [[Double]]; let labels: [String]
-            let caption: String; let detector: [Double?]?; let expect: Expect
+            let caption: String; let detector: [Double?]?; let exact: [[Double]?]?; let structureParts: Int?; let expect: Expect
         }
         struct Letters: Decodable { let caption: String; let letters: [String] }
         struct Label: Decodable { let label: String; let letter: String? }
@@ -27,7 +27,8 @@ import Testing
     static func framed(_ c: Fixture.Case) throws -> (parts: [FramedPart], coverage: Double?) {
         let ink = c.unchecked ? nil : try FigureCropCompletionTests.ink(c.image)
         return FigureFraming.frame(ink, width: c.width, height: c.height, boxes: c.boxes.map { CropRect($0[0], $0[1], $0[2], $0[3]) },
-                                   caption: c.caption, labels: c.labels, detector: c.detector)
+                                   caption: c.caption, labels: c.labels, detector: c.detector,
+                                   exact: c.exact?.map { $0.map { CropRect($0[0], $0[1], $0[2], $0[3]) } }, structureParts: c.structureParts ?? 0)
     }
 
     @Test func usesTheParametersTheFixtureStates() {
@@ -44,7 +45,7 @@ import Testing
         for (part, want) in zip(result.parts, c.expect.parts) {
             #expect(part.level.rawValue == want.level, "\(name)")
             #expect(part.reasons.map(\.rawValue) == want.reasons, "\(name)")
-            #expect(part.extra == want.extra && part.veil == want.veil && part.outlined == want.outlined, "\(name)")
+            #expect(part.extra == want.extra && part.exact == (want.exact ?? false) && part.veil == want.veil && part.outlined == want.outlined, "\(name)")
             #expect(abs(part.score - want.score) <= Self.fixture.toleranceScore, "\(name): \(part.score) vs \(want.score)")
             for (a, b) in zip([part.frame.x0 * W, part.frame.y0 * H, part.frame.x1 * W, part.frame.y1 * H], want.framePixels) {
                 #expect(abs(a - b) <= Self.fixture.tolerancePixels, "\(name) frame: \(part.frame) vs \(want.framePixels)")

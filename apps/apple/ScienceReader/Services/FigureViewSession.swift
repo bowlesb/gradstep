@@ -77,6 +77,9 @@ enum FigureViewOutcome {
     }
     /// The share of the figure's ink the walkthrough's crops show (nil without crops, or until worked out).
     private(set) var inkCoverage: Double?
+    /// The figure's own sub-figures in the image the request carries (FIGURE_VIEW.md "Structure first"): described to the
+    /// model after the caption, and the walkthrough's parts that show one are framed as it, exactly.
+    private(set) var structure: FigureStructure?
     @ObservationIgnored private var ink: FigureInk?
     @ObservationIgnored private var inkReady = false
     @ObservationIgnored private var cropGeneration = 0
@@ -159,7 +162,7 @@ enum FigureViewOutcome {
             guard let figure = bundle.index.figures.first(where: { $0.id == context.figureID }) else { return }
             // Up to four full-size panels and a composite of up to 40 MP: decoded once, off the main actor.
             let prepared = await Task.detached(priority: .userInitiated) { ChatFigureFinder.prepared(figure, bundle: bundle) }.value
-            image = prepared.image; sent = prepared.sent
+            image = prepared.image; sent = prepared.sent; structure = prepared.structure
         }
     }
 
@@ -177,8 +180,15 @@ enum FigureViewOutcome {
     private func refreshCrops() {
         guard inkReady, let image else { return }
         let sections = walkthrough.walkthrough?.sections ?? []
-        let boxed = sections.indices.filter { sections[$0].cardKind == .panel && sections[$0].box != nil }
-        let boxes = boxed.map { sections[$0].box!.fractions }, labels = boxed.map { sections[$0].label.isEmpty ? sections[$0].title : sections[$0].label }
+        // Structure first: a section that shows one of the figure's own sub-figures (by letter, a box on its band, or in
+        // order) is that sub-figure, exactly; the others as the AI boxed them. When the parts number neither the caption's
+        // panels nor the sub-figures, the AI's own show the whole figure (FigureFraming).
+        let structure = self.structure
+        let matched = FigureStructure.match(sections.map { FigureStructure.Section(label: $0.label, title: $0.title, kind: $0.cardKind.rawValue, box: $0.box?.fractions) }, structure)
+        let boxed = sections.indices.filter { sections[$0].cardKind == .panel && (sections[$0].box != nil || matched[$0] != nil) }
+        let exact = boxed.map { i in matched[i].flatMap { structure?.parts[$0].rect } }
+        let boxes = boxed.enumerated().map { k, i in exact[k] ?? sections[i].box!.fractions }, labels = boxed.map { sections[$0].label.isEmpty ? sections[$0].title : sections[$0].label }
+        let structureParts = structure?.parts.count ?? 0
         let ink = self.ink, caption = context.caption, width = image.width, height = image.height
         let fallback = ink == nil ? walkthrough.walkthrough?.cropCoverage(width: image.width, height: image.height) : nil
         cropGeneration += 1
@@ -186,25 +196,25 @@ enum FigureViewOutcome {
         Task { [weak self] in
             struct Made: Sendable { let framed: [Int: FramedPart]; let coverage: Double? }
             let made = await Task.detached(priority: .userInitiated) { () -> Made in
-                let all = FigureFraming.frame(ink, width: width, height: height, boxes: boxes, caption: caption, labels: labels)
+                let all = FigureFraming.frame(ink, width: width, height: height, boxes: boxes, caption: caption, labels: labels, exact: exact, structureParts: structureParts)
                 var framed: [Int: FramedPart] = [:]
                 for (k, index) in boxed.enumerated() where k < all.parts.count { framed[index] = all.parts[k] }
                 return Made(framed: framed, coverage: all.coverage)
             }.value
             guard let self, generation == cropGeneration else { return }
             framed = made.framed; inkCoverage = made.coverage ?? fallback
-            record(boxed: boxed, sections: sections)
+            record(boxed: boxed, sections: sections, boxes: boxes)
         }
     }
 
     /// The local framing record (FigureFramingRecorder): arXiv figures only, geometry only, in memory, never sent.
-    private func record(boxed: [Int], sections: [FigureWalkthrough.Section]) {
+    private func record(boxed: [Int], sections: [FigureWalkthrough.Section], boxes: [CropRect]) {
         guard let local = context.localContext else { return }
         let figure = ArxivFigure(sourceID: local.sourceID, revision: local.revision, figure: context.label)
         for (k, index) in boxed.enumerated() {
-            guard let part = framed[index], let box = sections[index].box, let key = recordKey(.walkthrough, index) else { continue }
+            guard let part = framed[index], let key = recordKey(.walkthrough, index) else { continue }
             FigureFramingRecorder.shared.shown(key, FigureFramingRecord(figure: figure, surface: .walkthrough, part: k, parts: boxed.count, level: part.level,
-                                                                        box: box.fractions, region: part.region, frame: part.frame))
+                                                                        box: sections[index].box?.fractions ?? boxes[k], region: part.region, frame: part.frame))
         }
     }
 
@@ -223,7 +233,8 @@ enum FigureViewOutcome {
         let request: ChatGenerationRequest
         do {
             let label = part.map { "\(context.label) \($0.section.name)" } ?? context.label
-            let quote = part?.section.text ?? context.caption
+            // The walkthrough's selection: the caption, then the figure's own sub-figures when it has several.
+            let quote = part?.section.text ?? FigureStructure.quote(caption: context.caption, structure)
             if localModelID != nil {
                 guard quote.unicodeScalars.count <= ChatGenerationRequest.maximumSelectionScalars else { throw LocalAIContext.Failure.mandatoryInputTooLarge }
                 request = try ChatGenerationRequest.make(operationID: UUID(), documentID: context.paperID,

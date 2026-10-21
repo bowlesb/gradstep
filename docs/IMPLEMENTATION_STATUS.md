@@ -1,5 +1,34 @@
 # Implementation status
 
+## Structure first and the count check — 2026-10-21 (local source; not released, not deployed)
+
+Subfigure round 3's integration steps 1 and 3 on iPhone/iPad/Mac (one SwiftUI path) and the browser, from one set of
+rules and shared fixtures. **Structure first:** a figure whose bundle entry has several images (15.7 % of arXiv figures)
+gets exact parts from its own markup — images, "(a) …" sub-captions (else the caption's letters when they number the
+images), each a full-width band of the unchanged composed image. The walkthrough request's selection is the caption plus
+a short description of those sub-figures and bands, so the model's sections line up; sections are matched to sub-figures
+by letter or label, by a box on one band (IoU ≥ 0.6), or in order when the counts agree, and a matched part is shown as
+its band, tight (even without a box). **Count check:** two or more parts whose number is neither the caption's lettered
+panels nor the figure's own sub-figures show the whole figure with the part outlined (score capped at 0.3); this replaces
+the old "more parts than the caption: −0.3". Chat's figure parts use the same structure and check. Browser fullscreen no
+longer squeezes a tall figure into the window height. No server, prompt, schema, storage or spend change. Design:
+[FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Structure first and the count check".
+
+Evidence (fixtures and Simulator only; no provider call, no deploy, no physical phone): `npm test` passes (backend,
+browser units incl. new `figure-structure.test.ts`, 26 cases, and `figure-framing.test.ts`, 18 cases). Core
+`swift test --filter "FigureStructureTests|FigureFramingTests|FigureCropCompletionTests"` passes: Swift reproduces every
+structure, note, quote, section match (13) and framing case (18, six new on `stacked-subfigures.png`). Real paper:
+2610.22353v1 compiled by the shipped device compiler (`reader-device-compile.mjs`, 22 images); all six multi-image figures
+get a structure (Figures 1–3, 6, 7 lettered from sub-captions, including math in sub-captions; Figure 4 six images → the
+first four, unlettered). Playwright `figure-view.spec.ts` + `arxiv-html.spec.ts`, desktop and phone: 25 passed, 1
+pre-existing desktop skip, including the new real-paper journeys (the request's quote carries the structure; (a), (b)
+boxed, (c) exact and tight at the band's aspect; grouped "(a) and (b)" + (c): the group whole and outlined, (c) exact).
+iPhone 17 Simulator (iOS 26.4), one at a time: new `testARealMultiImageFiguresPartsAreItsOwnSubfigures` light and dark,
+`testGroupedPartsOfARealMultiImageFigureShowTheWholeFigure`, and the existing walkthrough, two-plot crops and
+framed-by-confidence journeys; app units `FigureViewAppTests`, `ChatVisualTests`, `FigurePartsRenderingTests` 9/9.
+Screenshots (iPhone light/dark, browser desktop/phone light/dark, grouped, expanded): `.artifacts/figure-structure/`.
+Not verified: iPad/Mac journeys (same SwiftUI path), a live model's answer to the structure note, physical device (paused).
+
 ## Extract the subfigure removed — 2026-10-21 (local source; not released, not deployed)
 
 Owner: "Let's not do extract the subfigure … consistently create one good product experience in the AI result that comes

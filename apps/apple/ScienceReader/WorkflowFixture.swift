@@ -30,6 +30,7 @@ extension ReaderModel {
     /// Study (2026-10-14): a paper numbered on this device, so "Study this paper" is offered and the fixture transport
     /// tutors. The shared arXiv HTML fixture (tests/fixtures/reader-arxiv/package.json) as a membership of this library.
     func configureStudyFixture() throws {
+        if let real = ChatFixtureTransport.figureBundle { try configureRealPaperFixture(real); return }
         guard let resources = Bundle.main.resourceURL else { return }
         // `--figure-fixture-panels`: the same paper with a real two-plot Figure 1 (scripts/figure-panels-fixture.py), so the
         // figure view's crops are checked on a real multi-panel figure.
@@ -39,6 +40,24 @@ extension ReaderModel {
         var paper = Paper(id: reference.membershipID, title: "Authored HTML fixture", authors: "A. Author", year: 2026,
                           abstract: "A short authored paper for the HTML reader.", keywords: ["cs.LG"], fileURL: nil, artifactID: nil)
         paper.sourceID = "2601.01234"; paper.sourceRevision = 2; paper.sourceMembership = reference
+        let numbered = paper.displaying(bundle)
+        papers.append(numbered)
+        selectedPaper = numbered; chatPaperID = numbered.id; generalChat = false
+    }
+
+    /// `--figure-fixture-bundle=<dir>/<id>v<revision>`: a real arXiv paper as the device compiles it
+    /// (`node scripts/reader-device-compile.mjs --ids=<id>v<revision> --out=<dir>`), read from this Mac (Simulator and Mac
+    /// only; nothing is bundled), as the study fixture's membership, so the figure view's structure is checked on a real
+    /// multi-image arXiv figure (FIGURE_VIEW.md "Structure first").
+    func configureRealPaperFixture(_ directory: URL) throws {
+        let key = directory.lastPathComponent
+        guard let match = key.firstMatch(of: /^(.+)v(\d+)$/), let revision = Int(match.output.2) else { return }
+        let sha = try String(contentsOf: directory.appendingPathComponent("manifest.sha256"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundle = try ReaderBundleLoader.load(directory: directory, expectedSHA256: sha)
+        let reference = try SourcePaperReference(membershipID: UUID(uuidString: "58000000-0000-4000-8000-000000000003")!, sourceID: String(match.output.1), revision: revision)
+        var paper = Paper(id: reference.membershipID, title: bundle.index.title, authors: "arXiv authors", year: 2026,
+                          abstract: "A real arXiv paper compiled on this Mac for the figure view's structure.", keywords: ["cs.LG"], fileURL: nil, artifactID: nil)
+        paper.sourceID = String(match.output.1); paper.sourceRevision = revision; paper.sourceMembership = reference
         let numbered = paper.displaying(bundle)
         papers.append(numbered)
         selectedPaper = numbered; chatPaperID = numbered.id; generalChat = false

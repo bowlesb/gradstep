@@ -1,5 +1,8 @@
 import { ArxivReaderError, localChatContext } from './arxiv-reader';
 import { chatFigureImages, composeFigure, figureImage, figureLabel, storedFigurePartsText, type ChatFigureImage, type FigureParts } from './chat-figures';
+import { bundleFigureStructure, structureFits, structureQuote, type FigureStructure } from './figure-structure';
+/** What an answer's figure parts are framed with, from the paper on this device. */
+export interface FigureFacts { caption: string; structure: FigureStructure | null }
 import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
 // rebinds a task. When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md,
@@ -142,6 +145,13 @@ const scenarioKey = 'gradstep.ai.scenarios.v1';
 function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
   try { const value=JSON.parse(localStorage.getItem(scenarioKey)??'{}'); return Object.fromEntries(['general','paper','equations','figures'].flatMap(k=>isProfileChoice(value?.[k])?[[k,value[k]]]:[])); } catch { return {}; }
 }
+/** A figure's own sub-figures in the image a request carries (figure-structure.ts), when it has several and the image
+ * is their composite. */
+function sentStructure(bundle: VerifiedBundle, figure: VerifiedBundle['index']['figures'][number], image: { width: number; height: number }) {
+  const structure = bundleFigureStructure(bundle, figure);
+  return structureFits(structure, image) ? structure : null;
+}
+
 export class ChatSession {
   private sourcePapers = new Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>();
   setSourcePapers(rows:Map<string,{reference:SourcePaperReference;load:()=>Promise<VerifiedBundle>}>) { this.sourcePapers=rows; }
@@ -779,9 +789,12 @@ export class ChatSession {
     const image = figure ? await figureImage(bundle, figure) : null;
     if (!figure || !image) return finish('figure_unavailable');
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
-    result = { ...result, image: { data: image.data, width: image.width, height: image.height } }; update(result);
+    // The figure's own sub-figures (FIGURE_VIEW.md "Structure first"): described after the caption so the walkthrough's
+    // parts line up with them, and shown as exact parts.
+    const structure = sentStructure(bundle, figure, image);
+    result = { ...result, image: { data: image.data, width: image.width, height: image.height, structure } }; update(result);
     const name = figureName(bundle, figure.id);
-    const quote = action === 'figure' ? (figure.caption || figure.alt || name) : input.part!.text;
+    const quote = action === 'figure' ? structureQuote(figure.caption || figure.alt || name, structure) : input.part!.text;
     const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: figureTurn(name, action !== 'figure' ? (input.part!.label || input.part!.title) : undefined) }],
       quote, action, { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
     try { request.localContext = localChatContext(named, bundle); } catch { return finish('local_reader_unavailable'); }
@@ -818,7 +831,7 @@ export class ChatSession {
     try {
       const bundle = await local.load(), figure = bundle.index.figures.find(f => f.id === figureID);
       const image = figure ? await figureImage(bundle, figure) : null;
-      return image ? { data: image.data, width: image.width, height: image.height } : null;
+      return image ? { data: image.data, width: image.width, height: image.height, structure: sentStructure(bundle, figure!, image) } : null;
     } catch { return null; }
   }
   private track(task: Promise<void>): Promise<void> { this.tasks.add(task); void task.finally(() => this.tasks.delete(task)).catch(() => {}); return task; }
@@ -849,16 +862,19 @@ export class ChatSession {
       return composed && 'convertToBlob' in composed ? await composed.convertToBlob({ type: 'image/png' }) : null;
     } catch { return null; }
   }
-  /** The caption of a figure (by its block) in this chat's paper on this device, when its bundle is the one the parts were
-   * cut from (its panel letters cap the parts shown: FIGURE_VIEW.md "Parts as viewports"). */
-  async figureCaption(documentID: string | null, manifestSHA256: string, blockID: string): Promise<string | null> {
+  /** The caption and own structure of the figure (by its block) an answer's parts were cut from, in this chat's paper on
+   * this device when its bundle is the one the parts were cut from: the caption's panel letters and the figure's own
+   * sub-figures (when the parts' image is their composite, `paths`) frame the parts (FIGURE_VIEW.md "Structure first"). */
+  async figureFacts(documentID: string | null, manifestSHA256: string, blockID: string, paths: string[]): Promise<FigureFacts | null> {
     const local = documentID ? this.sourcePapers.get(documentID) ?? this.legacyPapers.get(documentID) : undefined;
     if (!local) return null;
     try {
       const bundle = await local.load();
       if (bundle.manifestSHA256 !== manifestSHA256) return null;
       const figure = bundle.index.figures.find(f => f.block_id === blockID || f.id === blockID);
-      return figure ? figure.caption || null : null;
+      if (!figure) return null;
+      const same = JSON.stringify(figure.asset_paths.slice(0, 4)) === JSON.stringify(paths);
+      return { caption: figure.caption, structure: same ? bundleFigureStructure(bundle, figure) : null };
     } catch { return null; }
   }
   /** Starts (or restarts) a study in this chat: an empty map and the opening turn, sent as the reader's message. */

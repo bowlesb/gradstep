@@ -12,7 +12,7 @@ import { framingChanged } from '../lib/figure-framing-record';
 import { Dialog, SheetTop } from './common';
 
 export interface FigureSource { src: string; width: number; height: number }
-type Part = Pick<FramedPart, 'frame' | 'region' | 'padX' | 'padY' | 'veil' | 'outlined' | 'level'>;
+type Part = Pick<FramedPart, 'frame' | 'region' | 'padX' | 'padY' | 'veil' | 'outlined' | 'level'> & { exact?: boolean };
 
 /** The canvas (the figure and its white margin) in pixels of the figure, its origin at (−pad, −pad). */
 const canvasOf = (part: Part, image: FigureSource) => {
@@ -134,8 +134,8 @@ export function ViewportCard({ image, part, label, testID, width, recordKey, reg
   const expand = () => { setExpanded(true); if (recordKey) framingChanged(recordKey, { expanded: true }); };
   return <>
     <div className="zoom-crop" style={{ width: width ?? '100%', maxWidth: '100%' }}>
-      <div ref={box} role="img" aria-label={label} data-testid={testID} data-scale={Math.round(zoom * 100) / 100} data-level={part.level} data-view={shown}
-        className="figure-viewport" style={{ aspectRatio: String(aspect), touchAction: revealed ? 'none' : 'pan-y' }}
+      <div ref={box} role="img" aria-label={label} data-testid={testID} data-scale={Math.round(zoom * 100) / 100} data-level={part.level} data-exact={part.exact ? "true" : undefined} data-view={shown}
+        className="figure-viewport" style={{ aspectRatio: String(aspect), '--aspect': aspect, touchAction: revealed ? 'none' : 'pan-y' } as CSSProperties}
         onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); points.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); previous.current = center(); moved.current = 0; }}
         onPointerMove={e => {
           if (!points.current.has(e.pointerId)) return;
@@ -188,7 +188,7 @@ function FullscreenViewport({ image, part, label, onClose, recordKey }: { image:
 /** Fullscreen, on the part's frame (Show part). */
 function PartView({ image, part, label }: { image: FigureSource; part: Part; label: string }) {
   const c = canvasOf(part, image), aspect = c.w / c.h, view = fitted(framePixels(part, image), aspect, part, image);
-  return <div className="zoom-crop"><div role="img" aria-label={label} data-testid="fullscreen-crop" data-view="part" className="figure-viewport" style={{ aspectRatio: String(aspect) }}>
+  return <div className="zoom-crop"><div role="img" aria-label={label} data-testid="fullscreen-crop" data-view="part" className="figure-viewport" style={{ aspectRatio: String(aspect), '--aspect': aspect } as CSSProperties}>
     <Canvas image={image} part={part} view={view} look={framingLook(part, true)} /></div></div>;
 }
 

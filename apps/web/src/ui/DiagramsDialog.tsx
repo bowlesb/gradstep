@@ -20,7 +20,7 @@ export function DiagramsDialog({ chat, open, onClose }: { chat: ChatSession; ope
       <button className="link" onClick={onClose}>Done</button>
     </div>
     {current ? <div className="diagram-detail" data-testid="diagram-detail">
-      <AnswerDiagram diagram={current} image={(manifest, paths) => chat.figureImage(current.documentID ?? null, manifest, paths)} caption={(manifest, blockID) => chat.figureCaption(current.documentID ?? null, manifest, blockID)} />
+      <AnswerDiagram diagram={current} image={(manifest, paths) => chat.figureImage(current.documentID ?? null, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(current.documentID ?? null, manifest, blockID, paths)} />
     </div>
       : diagrams.length ? <ul className="diagram-list" data-testid="diagram-list">{diagrams.map(d => <li key={d.id}>
         <button className="diagram-row" onClick={() => setSelected(d.id)} data-testid={`diagram-row-${d.id}`}>

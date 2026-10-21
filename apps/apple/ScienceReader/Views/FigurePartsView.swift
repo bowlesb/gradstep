@@ -34,11 +34,16 @@ struct FigurePartCrop: @unchecked Sendable {
 
     /// Every part of `stored`, completed and framed together on the image as the question carried it: the paper's figure
     /// prepared again exactly as it was sent (`ChatFigureFinder.prepare`, from the asset's own bytes for one image); the
-    /// caption's panel letters cap the parts. Pure; run it off the main actor.
-    static func all(_ stored: StoredFigureParts, image: CGImage, asset: Data?, caption: String = "") -> [FigurePartCrop?] {
+    /// caption's panel letters cap the parts; a part that is one of the figure's own sub-figures (`structure`) is exact, and
+    /// when the parts number neither the caption's panels nor the sub-figures the others show the whole figure. Pure; run it
+    /// off the main actor.
+    static func all(_ stored: StoredFigureParts, image: CGImage, asset: Data?, caption: String = "", structure: FigureStructure? = nil) -> [FigurePartCrop?] {
         let sent = asset.flatMap { ChatFigureFinder.prepare($0) } ?? ChatFigureFinder.prepare(image)
+        let own = structure.flatMap { $0.fits(width: image.width, height: image.height) ? $0 : nil }
+        let matched = FigureStructure.match(stored.parts.map { FigureStructure.Section(label: $0.label, title: "", box: $0.fractions) }, own)
         let framed = FigureFraming.frame(sent.flatMap { PresentedCrop.ink(of: $0.data) }, width: image.width, height: image.height,
-                                         boxes: stored.parts.map(\.fractions), caption: caption, labels: stored.parts.map(\.label)).parts
+                                         boxes: stored.parts.map(\.fractions), caption: caption, labels: stored.parts.map(\.label),
+                                         exact: matched.map { k in k.flatMap { own?.parts[$0].rect } }, structureParts: own?.parts.count ?? 0).parts
         return framed.map { part in
             // The outline about 2 pt wide where the frame shows (at most 280 pt across).
             let long = max((part.frame.x1 - part.frame.x0) * Double(image.width), (part.frame.y1 - part.frame.y0) * Double(image.height))

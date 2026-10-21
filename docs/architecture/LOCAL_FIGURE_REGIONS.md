@@ -1,8 +1,16 @@
 # Local figure regions
 
+Status, 2026-10-21 (integration, local source; not released): round 3's integration steps 1 and 3 are built on
+iPhone/iPad/Mac and the browser. **Structure first:** a figure whose bundle entry has several images gets its parts from
+its own structure (images, sub-captions, the composite's bands), described to the explainer model after the caption and
+shown exactly; the model is only needed for single-image figures. **Count check:** when the AI's parts number neither
+the caption's lettered panels nor the figure's own sub-figures, its parts show the whole figure with the part outlined.
+No detector is bundled; the detector-agreement hook is still unwired. See [FIGURE_VIEW.md](FIGURE_VIEW.md) "Structure
+first and the count check".
+
 Status, 2026-10-23: structure first (15.7% of arXiv figures already have exact per-image parts); bottom-up
 ink grouping and a local VLM judge were measured and not adopted; the 10-22 release candidate remains the best
-detector, below the gates. Count disagreement is proposed as an extra "whole figure" fallback. See
+detector, below the gates. Count disagreement is proposed as an extra "whole figure" fallback (built since: above). See
 [round 3](../reviews/SUBFIGURE_DETECTOR_20261023.md).
 
 Status, 2026-10-22: the rights-clean release candidate scores 73.3% fully right / 18.8% wrong crops / 84%

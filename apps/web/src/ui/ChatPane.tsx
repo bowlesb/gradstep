@@ -6,7 +6,8 @@ import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLa
 import { TranscriptFollow } from '../lib/chat-follow';
 import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
-import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer } from '../lib/chat-session';
+import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer, type FigureFacts } from '../lib/chat-session';
+import type { FigureStructure } from '../lib/figure-structure';
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
@@ -315,14 +316,14 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           : <Answer text={promoted.explanation ?? promoted.quote} />}</section>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`} data-answer={m.payload.role === 'assistant' ? m.payload.entityID : undefined}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
-          {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID) => chat.figureCaption(c.documentID, manifest, blockID)} />
+          {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(c.documentID, manifest, blockID, paths)} />
             : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}
           {/* A finished answer's papers (B2): never while it streams or when it was cut short. */}
           {papers && m.payload.status === 'complete' && <PapersInAnswer text={stripPartMarkers(m.payload.text ?? '')} papers={papers} />}</>}
         {/* What an early end cost, while this session lasts (2026-10-16); earlier answers keep "Answer interrupted". */}
         {m.payload.status === 'interrupted' && <span className="fine interrupted" data-testid="chat-interrupted">{chat.interruptionNote(m.payload.entityID) ?? 'Answer interrupted'}</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
-        {diagrams.has(m.payload.entityID) && !inlineParts(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID) => chat.figureCaption(c.documentID, manifest, blockID)} />}
+        {diagrams.has(m.payload.entityID) && !inlineParts(m.payload.entityID) && <AnswerDiagram diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} caption={(manifest, blockID, paths) => chat.figureFacts(c.documentID, manifest, blockID, paths)} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
         <Answer text={stripPartMarkers(displayText, true)} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : waited >= 5 ? `Thinking… ${waited} s` : 'Thinking…'}</p>}</div>}
@@ -539,38 +540,38 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen, topics }:
 /** An answer's drawing; figure parts first load their figure from this chat's paper on this device. */
 /** The caption of the figure an answer's parts were cut from (its panel letters cap the parts: FIGURE_VIEW.md "Parts as
  * viewports"), from the paper on this device. */
-type CaptionLookup = (manifest: string, blockID: string) => Promise<string | null>;
+type CaptionLookup = (manifest: string, blockID: string, paths: string[]) => Promise<FigureFacts | null>;
 export function AnswerDiagram({ diagram, image, caption }: { diagram: { title: string; source: string; format: DiagramFormat }; image: (manifest: string, paths: string[]) => Promise<Blob | null>; caption?: CaptionLookup }) {
-  const [figure, setFigure] = useState<Blob | null>(null), [named, setNamed] = useState('');
+  const [figure, setFigure] = useState<Blob | null>(null), [named, setNamed] = useState(''), [structure, setStructure] = useState<FigureStructure | null>(null);
   useEffect(() => {
     if (diagram.format !== 'figure-parts-v1') return;
     const stored = decodeStoredFigureParts(diagram.source);
     if (!stored) return;
     let live = true;
-    void caption?.(stored.manifestSHA256, stored.blockID).then(text => { if (live && text) setNamed(text); });
+    void caption?.(stored.manifestSHA256, stored.blockID, storedPaths(stored)).then(facts => { if (live && facts) { setNamed(facts.caption); setStructure(facts.structure); } });
     void image(stored.manifestSHA256, storedPaths(stored)).then(blob => { if (live) setFigure(blob); });
     return () => { live = false; };
     // The image function is recreated each render; the stored parts decide what to load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagram.format, diagram.source]);
-  return <Diagram title={diagram.title} source={diagram.source} format={diagram.format} figureImage={figure} figureCaption={named} />;
+  return <Diagram title={diagram.title} source={diagram.source} format={diagram.format} figureImage={figure} figureCaption={named} figureStructure={structure} />;
 }
 
 /** An answer whose text marks where its figure's parts go (owner, 2026-10-15: "the crops should be inline, right as the
  * chat discusses each one"): the text in pieces with each part's crop between them, and the whole figure under it. */
 function FigurePartsAnswer({ text, diagram, image, caption }: { text: string; diagram: { title: string; source: string }; image: (manifest: string, paths: string[]) => Promise<Blob | null>; caption?: CaptionLookup }) {
   const stored = decodeStoredFigureParts(diagram.source)!;
-  const [figure, setFigure] = useState<Blob | null>(null), [named, setNamed] = useState('');
+  const [figure, setFigure] = useState<Blob | null>(null), [named, setNamed] = useState(''), [structure, setStructure] = useState<FigureStructure | null>(null);
   useEffect(() => {
     let live = true;
-    void caption?.(stored.manifestSHA256, stored.blockID).then(text => { if (live && text) setNamed(text); });
+    void caption?.(stored.manifestSHA256, stored.blockID, storedPaths(stored)).then(facts => { if (live && facts) { setNamed(facts.caption); setStructure(facts.structure); } });
     void image(stored.manifestSHA256, storedPaths(stored)).then(blob => { if (live) setFigure(blob); });
     return () => { live = false; };
     // The image function is recreated each render; the stored parts decide what to load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diagram.source]);
   const { url, size } = useFigureDataURL(figure);
-  const crops = usePartCrops(stored, figure, named, size);
+  const crops = usePartCrops(stored, figure, named, size, structure);
   return <>
     <div className="answer-with-parts">{partSegments(text, stored.parts.length).map((segment, i) => segment.kind === 'text'
       ? <Answer key={i} text={segment.text} />

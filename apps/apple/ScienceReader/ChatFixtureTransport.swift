@@ -79,6 +79,32 @@ struct ChatFixtureTransport: ChatTransport {
         .init(label: "Right plot", title: "Win rate against temperature", text: "Each line is one method; the dashed line is an even match [¶6].", paragraphs: [6],
               box: rightBox),
         .init(label: "", title: "Reading it as a whole", text: "Together the plots make the figure’s single point. This is a synthetic fixture answer; no AI request was made.")]) }
+    /// `--figure-fixture-bundle=<dir>`: the study paper is a real compiled arXiv paper read from this Mac.
+    static var figureBundle: URL? {
+        ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--figure-fixture-bundle=") }.map { URL(fileURLWithPath: String($0.dropFirst("--figure-fixture-bundle=".count))) }
+    }
+    /// `--figure-fixture-subfigures`: the walkthrough of a real figure of three sub-captioned images (2610.22353v1 Figure 3),
+    /// written as a model writes it once it is told the structure (FIGURE_VIEW.md "Structure first"): a concept card, then
+    /// (a), (b) with a box on its band and (c); all three are the figure's own sub-figures, exact. With
+    /// `--figure-fixture-grouped`: (a) and (b) as one boxed part and (c): two parts for three sub-figures, so the group shows
+    /// the whole figure, outlined, while (c) stays exact.
+    static var figureSubfigures: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-subfigures") }
+    static var figureGrouped: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-grouped") }
+    static var subfiguresWalkthrough: FigureWalkthrough {
+        let concept = FigureWalkthrough.Section(label: "", title: "How to read the three plots",
+            text: "Each plot follows training on the same model with and without shared experts. This is a synthetic fixture answer; no AI request was made.", kind: .concept)
+        let c = FigureWalkthrough.Section(label: "(c)", title: "Router variance", text: "The router's own variance stays lower with shared experts [¶4].", paragraphs: [4])
+        if figureGrouped {
+            return FigureWalkthrough(summary: "Figure 3 shows that shared experts make routing less exploratory [¶4].", sections: [concept,
+                .init(label: "(a) and (b)", title: "Criticality and expert variance", text: "Both top plots fall with shared experts [¶4].", paragraphs: [4],
+                      box: .init(x: 0, y: 0, w: 1, h: 0.66)), c])
+        }
+        return FigureWalkthrough(summary: "Figure 3 shows that shared experts make routing less exploratory: three measures, one per plot [¶4].", sections: [concept,
+            .init(label: "(a)", title: "Routing criticality", text: "Routing criticality is lower with shared experts throughout training [¶4].", paragraphs: [4]),
+            .init(label: "(b)", title: "Expert variance", text: "The variance across experts shrinks once shared experts carry the common load [¶4].", paragraphs: [4],
+                  box: .init(x: 0.01, y: 0.34, w: 0.98, h: 0.32)),
+            c])
+    }
     static let figureSimpler = """
     Start with the left half: it is only the starting point, nothing more [¶4].
 
@@ -133,7 +159,7 @@ struct ChatFixtureTransport: ChatTransport {
                     }
                     if request.action == .figure {
                         try await Task.sleep(for: .milliseconds(500))
-                        continuation.yield(.figure(Self.figurePanels ? Self.panelsWalkthrough : Self.figureWalkthrough))
+                        continuation.yield(.figure(Self.figureSubfigures ? Self.subfiguresWalkthrough : Self.figurePanels ? Self.panelsWalkthrough : Self.figureWalkthrough))
                         continuation.yield(.done(stopReason: "end_turn", credits: 5, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }

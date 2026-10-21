@@ -1,0 +1,1217 @@
+{
+ "format": "figure-structure-fixtures-v1",
+ "reference": "apps/web/src/lib/figure-structure.ts and ScienceReaderCore/FigureStructure.swift (FIGURE_VIEW.md \"Structure first\"); expectations written by UPDATE_STRUCTURE_FIXTURE=1 (figure-structure.test.ts)",
+ "parameters": {
+  "maxImages": 4,
+  "boxMatch": 0.6,
+  "captionChars": 100,
+  "quoteScalars": 4000
+ },
+ "cases": [
+  {
+   "name": "interleaved-subcaptions",
+   "about": "2610.22353v1 Figure 3: each image followed by its sub-caption.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><p>(a) Routing criticality</p><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><p>(b) Expert variance</p><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/c.png\" width=\"1148\"><p>(c) Router variance</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png",
+    "assets/c.png"
+   ],
+   "sizes": [
+    {
+     "width": 1148,
+     "height": 748
+    },
+    {
+     "width": 1187,
+     "height": 748
+    },
+    {
+     "width": 1148,
+     "height": 748
+    }
+   ],
+   "caption": "Figure 3: Shared experts make MoE routing less exploratory.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": "a",
+       "caption": "Routing criticality",
+       "label": "(a)",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.33006
+       ]
+      },
+      {
+       "letter": "b",
+       "caption": "Expert variance",
+       "label": "(b)",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.340307,
+        1,
+        0.659693
+       ]
+      },
+      {
+       "letter": "c",
+       "caption": "Router variance",
+       "label": "(c)",
+       "images": [
+        2
+       ],
+       "rect": [
+        0,
+        0.66994,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 3,
+     "composed": 3,
+     "width": 1187,
+     "height": 2342
+    },
+    "note": "The image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) Routing criticality: y 0.00–0.33\n- (b) Expert variance: y 0.34–0.66\n- (c) Router variance: y 0.67–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 3: Shared experts make MoE routing less exploratory.\n\nThe image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) Routing criticality: y 0.00–0.33\n- (b) Expert variance: y 0.34–0.66\n- (c) Router variance: y 0.67–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "grid-subcaptions",
+   "about": "Images in a row, then their sub-captions in a row (a tabular layout): one per image, in order.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><p>(a) Left</p><p>(b) Right</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png"
+   ],
+   "sizes": [
+    {
+     "width": 800,
+     "height": 600
+    },
+    {
+     "width": 800,
+     "height": 600
+    }
+   ],
+   "caption": "Figure 2: Two.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": "a",
+       "caption": "Left",
+       "label": "(a)",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.493421
+       ]
+      },
+      {
+       "letter": "b",
+       "caption": "Right",
+       "label": "(b)",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.506579,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 2,
+     "composed": 2,
+     "width": 800,
+     "height": 1216
+    },
+    "note": "The image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) Left: y 0.00–0.49\n- (b) Right: y 0.51–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 2: Two.\n\nThe image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) Left: y 0.00–0.49\n- (b) Right: y 0.51–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "one-subcaption-for-two-images",
+   "about": "Two images under one sub-caption are one sub-figure (their bands together).",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><p>(a) Top pair</p><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/c.png\" width=\"1148\"><p>(b) Bottom</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png",
+    "assets/c.png"
+   ],
+   "sizes": [
+    {
+     "width": 1000,
+     "height": 300
+    },
+    {
+     "width": 1000,
+     "height": 300
+    },
+    {
+     "width": 500,
+     "height": 300
+    }
+   ],
+   "caption": "Figure 4: Pairs.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": "a",
+       "caption": "Top pair",
+       "label": "(a)",
+       "images": [
+        0,
+        1
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.5
+       ]
+      },
+      {
+       "letter": "b",
+       "caption": "Bottom",
+       "label": "(b)",
+       "images": [
+        2
+       ],
+       "rect": [
+        0,
+        0.516129,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 3,
+     "composed": 3,
+     "width": 1000,
+     "height": 1240
+    },
+    "note": "The image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) Top pair: y 0.00–0.50\n- (b) Bottom: y 0.52–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 4: Pairs.\n\nThe image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) Top pair: y 0.00–0.50\n- (b) Bottom: y 0.52–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "caption-letters-in-order",
+   "about": "No sub-captions; the caption names exactly as many lettered panels as there are images: its letters in order.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><figcaption>Figure 6: (a) Loss. (b) Accuracy.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png"
+   ],
+   "sizes": [
+    {
+     "width": 640,
+     "height": 480
+    },
+    {
+     "width": 640,
+     "height": 480
+    }
+   ],
+   "caption": "Figure 6: (a) Loss. (b) Accuracy.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": "a",
+       "caption": "",
+       "label": "(a)",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.49332
+       ]
+      },
+      {
+       "letter": "b",
+       "caption": "",
+       "label": "(b)",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.50668,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 2,
+     "composed": 2,
+     "width": 640,
+     "height": 973
+    },
+    "note": "The image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a): y 0.00–0.49\n- (b): y 0.51–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 6: (a) Loss. (b) Accuracy.\n\nThe image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a): y 0.00–0.49\n- (b): y 0.51–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "caption-letters-disagree",
+   "about": "2610.14704v1 Figure 5: three images, the caption names four panels: the images stay exact but unlettered.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/c.png\" width=\"1148\"><figcaption>Figure 5: (a) CPR. (b) Residual. (c) Profiles. (d) Sensitivity.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png",
+    "assets/c.png"
+   ],
+   "sizes": [
+    {
+     "width": 1250,
+     "height": 1311
+    },
+    {
+     "width": 1354,
+     "height": 509
+    },
+    {
+     "width": 870,
+     "height": 234
+    }
+   ],
+   "caption": "Figure 5: (a) CPR. (b) Residual. (c) Profiles. (d) Sensitivity.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 1",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.605028
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 2",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.616532,
+        1,
+        0.833404
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 3",
+       "images": [
+        2
+       ],
+       "rect": [
+        0,
+        0.844908,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 3,
+     "composed": 3,
+     "width": 1354,
+     "height": 2347
+    },
+    "note": "The image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- Image 1: y 0.00–0.61\n- Image 2: y 0.62–0.83\n- Image 3: y 0.84–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 5: (a) CPR. (b) Residual. (c) Profiles. (d) Sensitivity.\n\nThe image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- Image 1: y 0.00–0.61\n- Image 2: y 0.62–0.83\n- Image 3: y 0.84–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "more-images-than-composed",
+   "about": "2610.22353v1 Figure 4: six images, no sub-captions; the request composes the first four.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/c.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/d.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/e.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/f.png\" width=\"1148\"><figcaption>Figure 4: Preview.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png",
+    "assets/c.png",
+    "assets/d.png",
+    "assets/e.png",
+    "assets/f.png"
+   ],
+   "sizes": [
+    {
+     "width": 879,
+     "height": 648
+    },
+    {
+     "width": 843,
+     "height": 648
+    },
+    {
+     "width": 843,
+     "height": 648
+    },
+    {
+     "width": 873,
+     "height": 648
+    },
+    {
+     "width": 850,
+     "height": 648
+    },
+    {
+     "width": 874,
+     "height": 648
+    }
+   ],
+   "caption": "Figure 4: Preview.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 1",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.239468
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 2",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.24612,
+        1,
+        0.495935
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 3",
+       "images": [
+        2
+       ],
+       "rect": [
+        0,
+        0.502587,
+        1,
+        0.752402
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 4",
+       "images": [
+        3
+       ],
+       "rect": [
+        0,
+        0.759054,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 6,
+     "composed": 4,
+     "width": 879,
+     "height": 2706
+    },
+    "note": "The image stacks this figure's 4 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- Image 1: y 0.00–0.24\n- Image 2: y 0.25–0.50\n- Image 3: y 0.50–0.75\n- Image 4: y 0.76–1.00\nOnly the first 4 of its 6 images are in the image.\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 4: Preview.\n\nThe image stacks this figure's 4 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- Image 1: y 0.00–0.24\n- Image 2: y 0.25–0.50\n- Image 3: y 0.50–0.75\n- Image 4: y 0.76–1.00\nOnly the first 4 of its 6 images are in the image.\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "mismatched-subcaptions",
+   "about": "Three images then two sub-captions: which caption is whose is unknown, so the images are unlettered.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/c.png\" width=\"1148\"><p>(a) One</p><p>(b) Two</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png",
+    "assets/c.png"
+   ],
+   "sizes": [
+    {
+     "width": 500,
+     "height": 500
+    },
+    {
+     "width": 500,
+     "height": 500
+    },
+    {
+     "width": 500,
+     "height": 500
+    }
+   ],
+   "caption": "Figure 7: Mixed.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 1",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.328947
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 2",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.335526,
+        1,
+        0.664474
+       ]
+      },
+      {
+       "letter": null,
+       "caption": "",
+       "label": "Image 3",
+       "images": [
+        2
+       ],
+       "rect": [
+        0,
+        0.671053,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 3,
+     "composed": 3,
+     "width": 500,
+     "height": 1520
+    },
+    "note": "The image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- Image 1: y 0.00–0.33\n- Image 2: y 0.34–0.66\n- Image 3: y 0.67–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 7: Mixed.\n\nThe image stacks this figure's 3 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- Image 1: y 0.00–0.33\n- Image 2: y 0.34–0.66\n- Image 3: y 0.67–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "legend-paragraph-and-math",
+   "about": "A legend line between images is not a sub-caption; a sub-caption's equation reads as LaTeX; an upper-case letter is read.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><p>Blue: ours, red: baseline.</p><p>(A) <span class=\"reader-math\" data-latex=\"\\lambda=0.1\" id=\"e1\"><math><mi>λ</mi></math></span> &amp; noise</p><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><p>(B) Clean</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png"
+   ],
+   "sizes": [
+    {
+     "width": 900,
+     "height": 400
+    },
+    {
+     "width": 900,
+     "height": 500
+    }
+   ],
+   "caption": "Figure 8: Noise.",
+   "expect": {
+    "structure": {
+     "parts": [
+      {
+       "letter": "a",
+       "caption": "\\(\\lambda=0.1\\) & noise",
+       "label": "(a)",
+       "images": [
+        0
+       ],
+       "rect": [
+        0,
+        0,
+        1,
+        0.43573
+       ]
+      },
+      {
+       "letter": "b",
+       "caption": "Clean",
+       "label": "(b)",
+       "images": [
+        1
+       ],
+       "rect": [
+        0,
+        0.455338,
+        1,
+        1
+       ]
+      }
+     ],
+     "images": 2,
+     "composed": 2,
+     "width": 900,
+     "height": 918
+    },
+    "note": "The image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) \\(\\lambda=0.1\\) & noise: y 0.00–0.44\n- (b) Clean: y 0.46–1.00\nGive each its own panel card, labelled as listed, in this order.",
+    "quote": "Figure 8: Noise.\n\nThe image stacks this figure's 2 sub-figures top to bottom, each across its full width (y: fractions of the image's height):\n- (a) \\(\\lambda=0.1\\) & noise: y 0.00–0.44\n- (b) Clean: y 0.46–1.00\nGive each its own panel card, labelled as listed, in this order."
+   }
+  },
+  {
+   "name": "duplicate-image",
+   "about": "The same image twice is listed once (as the index lists it): one image, no structure.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><p>(a) One</p><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><p>(b) Again</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png"
+   ],
+   "sizes": [
+    {
+     "width": 500,
+     "height": 500
+    }
+   ],
+   "caption": "Figure 9: Twice.",
+   "expect": {
+    "structure": null,
+    "note": null,
+    "quote": "Figure 9: Twice."
+   }
+  },
+  {
+   "name": "inline-legend-symbol",
+   "about": "One panel image and a legend symbol inside words: one sub-figure, no structure.",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><p><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/s.png\" class=\"reader-inline-image\" width=\"1148\"> marks the baseline.</p><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/s.png"
+   ],
+   "sizes": [
+    {
+     "width": 900,
+     "height": 400
+    },
+    {
+     "width": 20,
+     "height": 20
+    }
+   ],
+   "caption": "Figure 10: One plot.",
+   "expect": {
+    "structure": null,
+    "note": null,
+    "quote": "Figure 10: One plot."
+   }
+  },
+  {
+   "name": "unknown-size",
+   "about": "An image without a known size: no structure (the composite's geometry can't be known).",
+   "markup": "<figure data-reader-block=\"b-1\" data-reader-figure=\"b-1\" data-reader-kind=\"figure\" id=\"b-1\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/a.png\" width=\"1148\"><img alt=\"Figure 3: x\" height=\"748\" src=\"assets/b.png\" width=\"1148\"><figcaption>Figure 3: Shared experts make MoE routing less exploratory.</figcaption></figure>",
+   "assetPaths": [
+    "assets/a.png",
+    "assets/b.png"
+   ],
+   "sizes": [
+    {
+     "width": 500,
+     "height": 500
+    },
+    null
+   ],
+   "caption": "Figure 11: Two.",
+   "expect": {
+    "structure": null,
+    "note": null,
+    "quote": "Figure 11: Two."
+   }
+  }
+ ],
+ "matches": [
+  {
+   "name": "by-letter",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "(a)",
+     "title": "Criticality",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(b)",
+     "title": "Variance",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(c)",
+     "title": "Router",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "name": "intro-and-letters",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "",
+     "title": "How to read the plots",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(c)",
+     "title": "Router",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(a)",
+     "title": "Criticality",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(b)",
+     "title": "Variance",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    null,
+    2,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "in-order-without-labels",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "",
+     "title": "First",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Second",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Third",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "name": "counts-differ-no-order",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "",
+     "title": "How to read",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "First",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Second",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Third",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "name": "by-box",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "Top",
+     "title": "Criticality",
+     "kind": null,
+     "box": [
+      0.01,
+      0,
+      0.99,
+      0.32
+     ]
+    },
+    {
+     "label": "Middle",
+     "title": "Variance",
+     "kind": null,
+     "box": [
+      0,
+      0.34,
+      1,
+      0.66
+     ]
+    },
+    {
+     "label": "Bottom",
+     "title": "Router",
+     "kind": null,
+     "box": [
+      0.02,
+      0.69,
+      0.98,
+      1
+     ]
+    }
+   ],
+   "expect": [
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "name": "detail-box-stays",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "(a)",
+     "title": "Criticality",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "Inset",
+     "title": "A detail",
+     "kind": null,
+     "box": [
+      0.5,
+      0.4,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "label": "(c)",
+     "title": "Router",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    0,
+    null,
+    2
+   ]
+  },
+  {
+   "name": "letter-beats-box",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "(b)",
+     "title": "Variance",
+     "kind": null,
+     "box": [
+      0,
+      0,
+      1,
+      0.32
+     ]
+    },
+    {
+     "label": "(a)",
+     "title": "Criticality",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    1,
+    0
+   ]
+  },
+  {
+   "name": "concept-skipped",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "",
+     "title": "Routing entropy",
+     "kind": "concept",
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "First",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Second",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Third",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    null,
+    0,
+    1,
+    2
+   ]
+  },
+  {
+   "name": "letter-outside-structure",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "(a)",
+     "title": "One",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(b)",
+     "title": "Two",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "(d)",
+     "title": "Four",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    0,
+    1,
+    null
+   ]
+  },
+  {
+   "name": "image-labels",
+   "structure": "caption-letters-disagree",
+   "sections": [
+    {
+     "label": "Image 2",
+     "title": "Residual",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "Image 1",
+     "title": "CPR",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Profiles",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    1,
+    0,
+    2
+   ]
+  },
+  {
+   "name": "title-letter",
+   "structure": "grid-subcaptions",
+   "sections": [
+    {
+     "label": "",
+     "title": "(b) Right",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "(a) Left",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    1,
+    0
+   ]
+  },
+  {
+   "name": "grouped-label",
+   "structure": "interleaved-subcaptions",
+   "sections": [
+    {
+     "label": "(a) and (b)",
+     "title": "Criticality and variance",
+     "kind": null,
+     "box": [
+      0,
+      0,
+      1,
+      0.66
+     ]
+    },
+    {
+     "label": "(c)",
+     "title": "Router",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    null,
+    2
+   ]
+  },
+  {
+   "name": "grouped-label-unboxed-in-order",
+   "structure": "grid-subcaptions",
+   "sections": [
+    {
+     "label": "Panels (a) and (b)",
+     "title": "Both",
+     "kind": null,
+     "box": null
+    },
+    {
+     "label": "",
+     "title": "Second",
+     "kind": null,
+     "box": null
+    }
+   ],
+   "expect": [
+    null,
+    null
+   ]
+  }
+ ],
+ "subcaptions": [
+  {
+   "text": "(a) Routing criticality",
+   "expect": {
+    "letter": "a",
+    "words": "Routing criticality"
+   }
+  },
+  {
+   "text": "(A) Upper",
+   "expect": {
+    "letter": "a",
+    "words": "Upper"
+   }
+  },
+  {
+   "text": "a) plain",
+   "expect": {
+    "letter": "a",
+    "words": "plain"
+   }
+  },
+  {
+   "text": "(a)",
+   "expect": {
+    "letter": "a",
+    "words": ""
+   }
+  },
+  {
+   "text": "Blue: ours",
+   "expect": null
+  },
+  {
+   "text": "(ab) no",
+   "expect": null
+  },
+  {
+   "text": "see (a) later",
+   "expect": null
+  },
+  {
+   "text": "b)  spaced",
+   "expect": {
+    "letter": "b",
+    "words": "spaced"
+   }
+  }
+ ],
+ "stackLayouts": [
+  {
+   "sizes": [
+    {
+     "width": 1376,
+     "height": 275
+    },
+    {
+     "width": 1345,
+     "height": 492
+    },
+    {
+     "width": 1360,
+     "height": 501
+    }
+   ],
+   "expect": {
+    "width": 1376,
+    "height": 1341,
+    "bands": [
+     [
+      0,
+      275
+     ],
+     [
+      303,
+      806
+     ],
+     [
+      834,
+      1341
+     ]
+    ]
+   }
+  },
+  {
+   "sizes": [
+    {
+     "width": 1,
+     "height": 1
+    },
+    {
+     "width": 3,
+     "height": 2
+    }
+   ],
+   "expect": {
+    "width": 3,
+    "height": 6,
+    "bands": [
+     [
+      0,
+      3
+     ],
+     [
+      4,
+      6
+     ]
+    ]
+   }
+  },
+  {
+   "sizes": [
+    {
+     "width": 1148,
+     "height": 748
+    },
+    {
+     "width": 1187,
+     "height": 748
+    },
+    {
+     "width": 1148,
+     "height": 748
+    }
+   ],
+   "expect": {
+    "width": 1187,
+    "height": 2342,
+    "bands": [
+     [
+      0,
+      773
+     ],
+     [
+      797,
+      1545
+     ],
+     [
+      1569,
+      2342
+     ]
+    ]
+   }
+  }
+ ]
+}
