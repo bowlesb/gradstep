@@ -141,6 +141,9 @@ which the project explicitly keeps out of research runs. Spend **$0**.
 4. **Caption count/grouping** (on-device: the caption is already sent with the figure): if the caption names
    L ≥ 2 letters, use the highest threshold yielding exactly L crops; if the detector found more plotting areas,
    merge them by rows or columns when exactly one of those gives L; otherwise fall back to step 1–3 output.
+5. **Caption-constrained decoding** (replaces 4 when selected): from every panel candidate scoring ≥ .15,
+   greedily choose exactly L mutually non-overlapping boxes by score, require them to cover ≥ 70% of the
+   figure's ink, complete them, and require the 0.75-zoom view to agree; otherwise use steps 1–3.
 
 ## Results on validation (selection only; final test not yet scored)
 
@@ -168,6 +171,21 @@ App success with 95% CI; other columns are point estimates. All new rows use com
 
 (The frozen set has no captions, so its caption step is inactive.) Selection between r2, r5 and the
 running r4/r6 is still open; differences among r1/r2/r5 with the full policy are within the intervals.
+
+**Caption-constrained decoding** (policy step 5, two-view agreement, threshold .5 / .6 for unlettered
+figures) improves every model on arXiv validation without hurting the frozen set:
+
+| Model | arXiv app success t .5 / .6 | arXiv harmful rate t .6 | Frozen app success t .5 / .6 |
+|---|---|---|---|
+| r1 vector | 74.4 / 72.7 | 14.7 | 96.2 / 95.8 |
+| **r2 all sources** | **75.2 / 75.2** | 15.5 | 95.5 / 95.5 |
+| r3 rights-clean | 72.3 / 72.3 | 15.1 | 94.2 / 94.6 |
+| r5 + pseudo-labels | 72.7 / 73.5 | 16.0 | 96.5 / 96.5 |
+
+*Harmful rate* = share of figures where the app would show wrong crops (false split, clipped, extra, merged,
+missed or wrong boxes); keeping a compound figure whole is a safe miss, because the reader still sees
+everything. v13 raw: 36.1% harmful. Of the 16 clipped figures left with r2 + caption/agreement, half lose
+≤ 2% of one panel's ink and the worst loses 9% (v13 raw: 28 clipped, worst 10%).
 
 **Ensembles did not help.** Weighted box fusion of r1+r2+r5 (or r2+r5) reaches 73.5% / 72.7% on arXiv
 validation with the full policy — no better than r2 alone — and 97.1% on frozen validation. The models make

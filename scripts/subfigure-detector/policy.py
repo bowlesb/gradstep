@@ -224,3 +224,36 @@ def group_to_count(crops, L):
             if all(area(inter(out[a], out[b])) <= 0.05 * min(area(out[a]), area(out[b])) for a in range(L) for b in range(a + 1, L)):
                 return out
     return None
+
+
+def caption_decode(pred, L, img, cfg, min_score=0.15):
+    """Caption-constrained decoding: choose exactly L mutually non-overlapping panel boxes, greedily by
+    score from all candidates above `min_score`, then complete them. None if L boxes cannot be found or the
+    chosen boxes leave most of the figure's ink uncovered (the caption's parts are not where the boxes are)."""
+    H, W = img.shape[:2]
+    cls = cfg.get('panel_class', 0)
+    cands = sorted([p for p in pred if p['class'] == cls and p['score'] >= min_score], key=lambda p: -p['score'])
+    chosen = []
+    for p in cands:
+        b = p['box']
+        if area(b) >= cfg.get('whole_area', 0.85) * W * H:
+            continue
+        if any(iou(b, c) > 0.15 or area(inter(b, c)) > 0.3 * min(area(b), area(c)) for c in chosen):
+            continue
+        chosen.append(b)
+        if len(chosen) == L:
+            break
+    if len(chosen) != L:
+        return None
+    mask = cfg['_mask'] if cfg.get('_mask') is not None else ink_mask(img)
+    ys, xs = np.nonzero(mask)
+    total = max(1, len(xs))
+    covered = np.zeros(len(xs), bool)
+    for b in chosen:
+        covered |= (xs >= b[0]) & (xs < b[2]) & (ys >= b[1]) & (ys < b[3])
+    if covered.mean() < cfg.get('decode_min_cover', 0.7):
+        return None
+    crops = complete(chosen, mask, cfg.get('_comps'))
+    if any(area(c) >= 0.92 * W * H for c in crops):
+        return None
+    return crops

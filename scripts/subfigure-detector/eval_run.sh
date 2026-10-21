@@ -25,4 +25,8 @@ for tag in "$@"; do
   env/bin/python src/sweep.py --thresholds .5,.6 --complete 1 --caption-count --caption-fallback plain \
     --set arxiv-$tag-hybrid $A $run/val-arxiv-$tag.json --set arxiv-$tag-hybrid-agree $A $run/val-arxiv-$tag.json,$run/val-arxiv-$tag-z75.json \
     --out $run/sweep-$tag-hybrid.json
+  env/bin/python src/sweep.py --thresholds .5,.6 --complete 1 --caption-decode --caption-fallback plain \
+    --set arxiv-$tag-decode-agree $A $run/val-arxiv-$tag.json,$run/val-arxiv-$tag-z75.json \
+    --set frozen-$tag-decode-agree $F $run/val-frozen-$tag.json,$run/val-frozen-$tag-z75.json \
+    --out $run/sweep-$tag-decode.json
 done

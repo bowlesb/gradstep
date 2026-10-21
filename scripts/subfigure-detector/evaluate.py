@@ -127,6 +127,10 @@ def aggregate(rows):
         'complete_given_matched': sum(r.get('complete', 0) for r in comps) / max(1, sum(r.get('matched', 0) for r in comps)),
         'crop_precision': sum(r.get('matched', 0) for r in comps) / max(1, sum(r['n_crops'] for r in comps)),
         'false_crops_total': sum(r.get('false_crops', 0) for r in rows),
+        # Delivered-but-wrong: the app would show crops that are not the figure's complete panels (a kept-whole
+        # figure is a safe miss: the reader still sees everything). Lower is better.
+        'harmful_rate': sum(r['outcome'] in ('false_split', 'clipped', 'extra_crops', 'merged_panels', 'missed_panels', 'wrong_boxes') for r in rows) / max(1, len(rows)),
+        'kept_whole_compound_rate': sum(r['outcome'] == 'not_split' for r in comps) / max(1, len(comps)),
         'full_coverage_rate_when_split': (sum(1 for r in split_comps if (r.get('coverage') or 0) >= 0.999) / max(1, len(split_comps))),
         'outcomes': dict(collections.Counter(r['outcome'] for r in rows)),
     }
@@ -148,7 +152,7 @@ def bootstrap(rows, keys, n=2000, seed=0):
     return {k: [float(np.percentile(v, 2.5)), float(np.percentile(v, 97.5))] for k, v in samples.items()}
 
 
-KEYS = ['app_success', 'single_false_split_rate', 'compound_split_rate', 'compound_perfect_rate', 'compound_count_correct',
+KEYS = ['app_success', 'harmful_rate', 'single_false_split_rate', 'compound_split_rate', 'compound_perfect_rate', 'compound_count_correct',
         'panel_recall', 'complete_panel_rate', 'crop_precision']
 
 
