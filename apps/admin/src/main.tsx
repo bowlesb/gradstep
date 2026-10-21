@@ -11,6 +11,7 @@ import { Accounts, liveAccountsApi } from './accounts';
 import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
+import { currentBudget } from './budget-period';
 import './style.css';
 
 const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
@@ -110,7 +111,7 @@ function App() {
     loading={loading} onRefresh={() => { setReloads(n => n + 1); void refresh(); }}>
       {error && <div className="error" role="alert">{error}</div>}
       {loading && !account ? <p role="status">Checking operator access…</p> : null}
-      {tab === 'Health' && owner && <Health key={account.account_id} load={loadHealth} budget={overview?.budgets[0] ?? null} reloadKey={reloads} days={healthDays} onDays={setHealthDays} />}
+      {tab === 'Health' && owner && <Health key={account.account_id} load={loadHealth} budget={currentBudget(overview?.budgets)} reloadKey={reloads} days={healthDays} onDays={setHealthDays} />}
       {tab === 'Overview' && overview && <>
         <div className="metrics"><Metric label="Accounts" value={overview.accounts} /><Metric label="Library items" value={overview.library_items} /><Metric label="Shared documents" value={overview.shared_documents} /><Metric label="Reused by multiple accounts" value={overview.shared_documents_reused} /></div>
         <BudgetPanel overview={overview} onChanged={refresh} />
@@ -217,7 +218,7 @@ function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {
 }
 
 function BudgetPanel({ overview, onChanged }: { overview: Overview; onChanged: () => Promise<void> }) {
-  const budget = overview.budgets[0]; const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const budget = currentBudget(overview.budgets); const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   return <section className="panel"><div className="section-heading"><h2>Provider spending</h2><span className={'badge ' + (budget?.work_enabled ? 'positive' : '')}>{budget?.work_enabled ? 'Enabled' : 'Paused'}</span></div>
     {!budget ? <Empty text="No provider budget is configured. Paid processing is disabled." /> : <>
       <div className="budget-values"><div><span>Incurred</span><strong>{dollars(budget.spent_microusd)}</strong></div><div><span>Reserved in flight</span><strong>{dollars(budget.reserved_microusd)}</strong></div><div><span>Environment limit</span><strong>{dollars(budget.limit_microusd)}</strong></div></div>
