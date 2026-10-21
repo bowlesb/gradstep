@@ -84,3 +84,8 @@ verify_jwt = false
 # Auth.getUser and caller-token v1_admin_actor require a real owner MFA session
 # before the append-only evidence RPC. Browser preflights carry no token.
 verify_jwt = false
+
+[functions.note-assets]
+# Encrypted note images (migration 095). Auth.getUser and the open-account check inside the handler, as
+# support-assets; browser preflights carry no token.
+verify_jwt = false

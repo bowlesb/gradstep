@@ -44,7 +44,7 @@ function equationScript(): { script: string; hash: string } {
 function headers(backend: string, auth: string, hash: string): Record<string, string> {
   const origins = [...new Set([backend, auth].filter(Boolean).map(value => new URL(value).origin))];
   return {
-    'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}' '${compilerScript().hash}' '${equationScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
+    'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}' '${compilerScript().hash}' '${equationScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data: blob:`,
       `font-src 'self'`, `media-src blob:`, `connect-src https://arxiv.org https://api.datacite.org ${origins.join(' ')}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
       `frame-ancestors 'none'`, `object-src 'none'`, `worker-src 'self'`].join('; '),
     'X-Content-Type-Options': 'nosniff',

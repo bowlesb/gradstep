@@ -23,7 +23,11 @@ export interface AppendOptions {
   draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn;
   /** Planned against the latest journal revision, so a delayed generated title cannot replace a rename. */
   title?: { id: string; conversationID: string; text: string; source: 'generated' | 'renamed' };
+  /** Snippet blobs the events need (Notes): committed in the same local transaction; requires the durable journal. */
+  blobs?: { blobID: string; stored: Bytes }[];
 }
+/** Decides, just before an authored event is sent, whether it may go now (a Notes entry waits for its blobs). */
+export type SendGate = (event: PrivateEvent) => Promise<boolean>;
 
 export type HistoryStatus = 'loading' | 'ready' | 'error';
 const refreshable = (error: unknown) => (error instanceof WireError && error.code === 'missing_key')
@@ -73,6 +77,13 @@ export class History {
   getVersion = () => this.version;
   /** Unsent work survives a reload in this browser (the encrypted journal is active). */
   get durable() { return !!this.journal; }
+  /** The encrypted local journal (snippet blobs live beside its events), when active. */
+  get localJournal(): Journal | null { return this.journal; }
+  private gate: SendGate | null = null;
+  /** Held events stay in the outbox, in order; later unrelated events are still sent (a failed upload never blocks chats). */
+  setSendGate(gate: SendGate | null) { this.gate = gate; }
+  /** Pending events the gate held back in the last send. */
+  readonly held = new Set<string>();
   get unsaved(): number { return this.pending.length; }
   isPending(id: string): boolean { const resolved = this.state.resolve(id); return this.pending.some(p => p.id === resolved); }
   /** An event ID after any local rebase. */
@@ -210,6 +221,7 @@ export class History {
           if (event) planned.push({ id, event });
         }
       }
+      if (options.blobs?.length && !this.journal) throw new BackendError('local_storage');
       if (!planned.length || planned.length > 4 || planned.some(e => !isUUID(e.id) || e.id !== e.id.toLowerCase()) || new Set(planned.map(e => e.id)).size !== planned.length) throw new BackendError('invalid_request');
       const normalized = planned.map(({ id, event }) => ({ id, event: { ...event, parents: event.parents.map(p => this.resolve(p)) } }));
       const fresh = normalized.filter(({ id, event }) => {
@@ -342,8 +354,13 @@ export class History {
   }
 
   private async push(): Promise<void> {
-    while (this.pending.length) {
-      const envelope = this.pending[0];
+    const held = new Set<string>();
+    for (const envelope of [...this.pending]) {
+      if (!this.pending.includes(envelope)) continue; // a pull already reconciled it
+      // An event waits for its blobs (the gate), and anything after it that depends on it waits too.
+      const event = this.state.events.get(envelope.id)?.payload;
+      if (event && (event.parents.some(p => held.has(p)) || (this.gate && !await this.gate(event)))) { held.add(envelope.id); continue; }
+      this.signal.throwIfAborted();
       // Each event is sent by the author device its authenticated data names.
       const cursor = await rpc<number>('v1_append_event', { p_device_id: envelope.deviceID, p_id: envelope.id, p_epoch: envelope.epoch, p_format: envelope.format,
         p_ciphertext: toBytea(envelope.ciphertext), p_management_token: toBytea(this.ring.managementToken) }, { account: this.account, signal: this.signal });
@@ -351,10 +368,10 @@ export class History {
       if (!Number.isSafeInteger(cursor) || cursor <= 0) throw new BackendError('invalid_response');
       // Losing this local acknowledgement is harmless: the next pull reconciles the same ID and bytes.
       if (this.journal) await this.journal.acknowledge([envelope.id]);
-      if (this.pending[0] === envelope) this.pending.shift();
-      else this.pending = this.pending.filter(p => p.id !== envelope.id);
+      this.pending = this.pending.filter(p => p.id !== envelope.id);
       this.publish();
     }
+    this.held.clear(); for (const id of held) this.held.add(id);
   }
 
   private async pull(): Promise<void> {

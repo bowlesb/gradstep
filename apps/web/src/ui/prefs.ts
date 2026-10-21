@@ -74,27 +74,30 @@ export function useTheme(): { theme: Theme; resolved: 'light' | 'dark'; setTheme
 
 // ---------- Panes ----------
 
-export type Route = 'library' | 'paper' | 'feed';
+export type Route = 'library' | 'paper' | 'feed' | 'notes';
 export interface PaneLayout { left: number; right: number; open: Record<Route, { left: boolean; right: boolean }> }
 export const PANE_LIMITS = { left: { min: 200, max: 460, initial: 272 }, right: { min: 300, max: 640, initial: 392 }, center: 440 };
 const LAYOUT_KEY = 'gradstep.layout.v1';
 const DEFAULT_LAYOUT: PaneLayout = {
   left: PANE_LIMITS.left.initial, right: PANE_LIMITS.right.initial,
   // The legacy app: the library alone; a paper beside its chat. Each route remembers its own choice.
-  open: { library: { left: true, right: false }, paper: { left: true, right: true }, feed: { left: true, right: false } },
+  open: { library: { left: true, right: false }, paper: { left: true, right: true }, feed: { left: true, right: false }, notes: { left: true, right: false } },
 };
 const validLayout = (v: unknown) => {
   const l = v as PaneLayout;
   return !!l && typeof l.left === 'number' && typeof l.right === 'number' && !!l.open
-    && (['library', 'paper', 'feed'] as const).every(r => typeof l.open[r]?.left === 'boolean' && typeof l.open[r]?.right === 'boolean');
+    && (['library', 'paper', 'feed'] as const).every(r => typeof l.open[r]?.left === 'boolean' && typeof l.open[r]?.right === 'boolean')
+    && (l.open.notes === undefined || (typeof l.open.notes?.left === 'boolean' && typeof l.open.notes?.right === 'boolean'));
 };
 export const clampWidth = (side: 'left' | 'right', width: number) => Math.round(Math.min(PANE_LIMITS[side].max, Math.max(PANE_LIMITS[side].min, width)));
 
 export function usePaneLayout() {
-  const [layout, setLayout] = useStored<PaneLayout>(LAYOUT_KEY, DEFAULT_LAYOUT, validLayout);
+  const [stored, setLayout] = useStored<PaneLayout>(LAYOUT_KEY, DEFAULT_LAYOUT, validLayout);
+  // A layout saved before Notes has no entry for it: Notes starts with the list beside the note.
+  const layout: PaneLayout = stored.open.notes ? stored : { ...stored, open: { ...stored.open, notes: DEFAULT_LAYOUT.open.notes } };
   const setWidth = useCallback((side: 'left' | 'right', width: number) => setLayout(l => ({ ...l, [side]: clampWidth(side, width) })), [setLayout]);
   const setOpen = useCallback((route: Route, side: 'left' | 'right', open: boolean) =>
-    setLayout(l => ({ ...l, open: { ...l.open, [route]: { ...l.open[route], [side]: open } } })), [setLayout]);
+    setLayout(l => ({ ...l, open: { ...l.open, [route]: { ...(l.open[route] ?? DEFAULT_LAYOUT.open[route]), [side]: open } } })), [setLayout]);
   const reset = useCallback((side: 'left' | 'right') => setLayout(l => ({ ...l, [side]: PANE_LIMITS[side].initial })), [setLayout]);
   return { layout, setWidth, setOpen, reset };
 }

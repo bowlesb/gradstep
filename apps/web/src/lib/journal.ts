@@ -69,8 +69,15 @@ interface Head {
   outbox: string[]; replaced: [string, string][];
   drafts: Record<string, { digest: string; bytes: number; text: number; live: boolean }>;
   turns: Record<string, { digest: string; bytes: number }>;
+  /** Notes and snippets (NOTES_AND_SNIPPETS.md): encrypted snippet blobs held here. Optional, so a release from before
+   * Notes reads and rewrites this head unchanged (its record keys are outside the journal's own range). */
+  notes?: { blobs: Record<string, NoteBlobEntry> };
 }
+/** A snippet blob kept in this browser: `local` until the server confirms it, then `ready` (also a downloaded copy). */
+export interface NoteBlobEntry { digest: string; bytes: number; state: 'local' | 'ready'; at: number }
 interface Plan { next: Head; put: [string, Bytes][]; remove: string[]; committed?: () => void }
+/** Unsynced crops are never evicted; downloaded or already uploaded copies are a bounded cache. */
+export const NOTE_BLOB_LIMITS = { count: 6_000, localBytes: 160 * 1024 * 1024, readyBytes: 96 * 1024 * 1024, recordBytes: 2 * 1024 * 1024 + 28 + 28 };
 
 export interface JournalScope { origin: string; environment: string; account: string; deviceKey: string; deviceID: string; localKey: CryptoKey; lifetime: string;
   fence: WriterFence; current: () => boolean }
@@ -95,6 +102,9 @@ const keys = (environment: string, account: string, origin: string, incarnation:
     draft: (id: string) => `${prefix}${incarnation}:d:${id}`,
     turn: (id: string) => `${prefix}${incarnation}:t:${id}`,
     events: [`${prefix}${incarnation}:e:`, `${prefix}${incarnation}:e:\uffff`] as const,
+    // Outside the journal prefix, so an older release's record count over that prefix is unchanged; still under the
+    // account's `${environment}:${account}:` range, which forgetting this browser's keys removes.
+    blob: (id: string) => `${environment}:${account}:notes:${encodeURIComponent(origin)}:${incarnation}:b:${id}`,
   };
 };
 const aad = {
@@ -102,6 +112,7 @@ const aad = {
   event: (account: string, incarnation: string, ordinal: number) => utf8(`gradstep/web-journal/v1/event\n${account}\n${incarnation}\n${ordinal}\n`),
   draft: (account: string, incarnation: string, id: string) => utf8(`gradstep/web-journal/v1/draft\n${account}\n${incarnation}\n${id}\n`),
   turn: (account: string, incarnation: string, id: string) => utf8(`gradstep/web-journal/v1/turn\n${account}\n${incarnation}\n${id}\n`),
+  blob: (account: string, incarnation: string, id: string) => utf8(`gradstep/web-journal/v1/note-blob\n${account}\n${incarnation}\n${id}\n`),
 };
 const chainStart = async (account: string, incarnation: string) => toHex(await sha256(utf8(`gradstep/web-journal/v1/chain\n${account}\n${incarnation}\n`)));
 async function chainNext(previous: string, sealed: Bytes): Promise<string> {
@@ -187,10 +198,18 @@ function validHead(h: Head, scope: JournalScope): Head {
   for (const [id, t] of Object.entries(h.turns)) if (!uuid(id) || !/^[0-9a-f]{64}$/.test(t?.digest) || !Number.isSafeInteger(t.bytes) || t.bytes < 28 || t.bytes > JOURNAL_LIMITS.recordBytes) damaged();
   const drafts = Object.values(h.drafts);
   if (drafts.filter(d => d.live).length > JOURNAL_LIMITS.nonemptyDrafts || drafts.reduce((n, d) => n + d.bytes, 0) > JOURNAL_LIMITS.draftBytes || drafts.reduce((n, d) => n + d.text, 0) > 2 * 1024 * 1024) damaged();
+  if (h.notes !== undefined) {
+    if (!h.notes || typeof h.notes !== 'object' || !h.notes.blobs || typeof h.notes.blobs !== 'object' || Array.isArray(h.notes.blobs)) damaged();
+    const blobs = Object.entries(h.notes.blobs);
+    if (blobs.length > NOTE_BLOB_LIMITS.count) damaged();
+    for (const [id, b] of blobs) if (!uuid(id) || !b || !/^[0-9a-f]{64}$/.test(b.digest) || !Number.isSafeInteger(b.bytes) || b.bytes < 28 || b.bytes > NOTE_BLOB_LIMITS.recordBytes
+      || (b.state !== 'local' && b.state !== 'ready') || !Number.isFinite(b.at)) damaged();
+  }
   return h;
 }
 const clone = (h: Head): Head => ({ ...h, outbox: [...h.outbox], replaced: h.replaced.map(p => [p[0], p[1]] as [string, string]),
-  drafts: Object.fromEntries(Object.entries(h.drafts).map(([k, v]) => [k, { ...v }])), turns: Object.fromEntries(Object.entries(h.turns).map(([k, v]) => [k, { ...v }])) });
+  drafts: Object.fromEntries(Object.entries(h.drafts).map(([k, v]) => [k, { ...v }])), turns: Object.fromEntries(Object.entries(h.turns).map(([k, v]) => [k, { ...v }])),
+  ...(h.notes ? { notes: { blobs: Object.fromEntries(Object.entries(h.notes.blobs).map(([k, v]) => [k, { ...v }])) } } : {}) });
 
 /** The number of records in a key range; an access without counting reads them. */
 function countRecords(access: JournalAccess, lower: string, upper: string): Promise<number> {
@@ -480,7 +499,9 @@ export class Journal {
   }
 
   /** Events authored here: records and outbox entries, with an optional draft receipt and turn retirement, atomically. */
-  appendLocal(envelopes: EventEnvelope[], options: { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn; expectedRevision?: number } = {}): Promise<void> {
+  appendLocal(envelopes: EventEnvelope[], options: { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn; expectedRevision?: number;
+    /** Snippet blobs the events need, committed in the same transaction (NOTES_AND_SNIPPETS.md "Local durability"). */
+    blobs?: { blobID: string; stored: Bytes }[] } = {}): Promise<void> {
     return this.commit(async head => {
       if (options.expectedRevision !== undefined && head.revision !== options.expectedRevision) throw new JournalError('journal_conflict');
       // Recovery retires only the exact checkpoint it read after acquiring ownership. Rebase or a late writer
@@ -496,8 +517,15 @@ export class Journal {
         fresh.push({ ordinal: -1, envelope, local: true });
       }
       const draft = options.draft ? await this.reconcileDraft(head, options.draft, true) : null;
-      if (!fresh.length && !draft && !(options.finishTurn && head.turns[options.finishTurn])) return null;
+      // An exact retry finds its blobs already committed; the same ID with other bytes is never replaced.
+      const blobs = (options.blobs ?? []).filter(b => {
+        const known = head.notes?.blobs[b.blobID];
+        if (known && known.bytes !== b.stored.length + 28) throw new JournalError('journal_conflict');
+        return !known;
+      });
+      if (!fresh.length && !draft && !blobs.length && !(options.finishTurn && head.turns[options.finishTurn])) return null;
       const { put, next } = await this.eventRecords(head, fresh);
+      for (const b of blobs) put.push(await this.blobRecord(next, b.blobID, b.stored, 'local'));
       next.outbox.push(...fresh.map(e => e.envelope.id));
       if (next.outbox.length > JOURNAL_LIMITS.outbox) throw new JournalError('journal_capacity');
       const byID = new Map([...this.knownIDs, ...fresh.map(e => [e.envelope.id, e] as const)]);
@@ -662,6 +690,58 @@ export class Journal {
       if (!head.turns[id]) return null;
       const next = clone(head); delete next.turns[id];
       return { next, put: [], remove: [this.k.turn(id)] };
+    });
+  }
+
+  // ---------- Snippet blobs (Notes) ----------
+
+  /** This browser's snippet blobs and their upload state, as of the latest head this tab has read. */
+  get noteBlobs(): Readonly<Record<string, NoteBlobEntry>> { return this.head.notes?.blobs ?? {}; }
+  private async blobRecord(next: Head, blobID: string, stored: Bytes, state: NoteBlobEntry['state']): Promise<[string, Bytes]> {
+    if (!uuid(blobID) || stored.length < 29) throw new JournalError('journal_conflict');
+    const sealed = await seal(this.scope.localKey, stored, aad.blob(this.scope.account, next.incarnation, blobID));
+    if (sealed.length > NOTE_BLOB_LIMITS.recordBytes) throw new JournalError('journal_capacity');
+    const blobs = { ...(next.notes?.blobs ?? {}), [blobID]: { digest: await digest(sealed), bytes: sealed.length, state, at: Date.now() } };
+    next.notes = { blobs };
+    const entries = Object.values(blobs);
+    if (entries.length > NOTE_BLOB_LIMITS.count || entries.filter(b => b.state === 'local').reduce((n, b) => n + b.bytes, 0) > NOTE_BLOB_LIMITS.localBytes) throw new JournalError('journal_capacity');
+    return [this.k.blob(blobID), sealed];
+  }
+  /** The stored (still encrypted) blob, verified against the head's digest; null when this browser doesn't hold it. */
+  readBlob(blobID: string): Promise<Bytes | null> {
+    if (this.retired) return Promise.reject(new JournalError('journal_retired'));
+    return this.deps.lock(this.lockName, async () => {
+      await this.catchUp();
+      const entry = this.head.notes?.blobs[blobID];
+      if (!entry) return null;
+      const sealed = await this.deps.access.get(this.k.blob(blobID));
+      if (!sealed || sealed.length !== entry.bytes || await digest(sealed) !== entry.digest) return null; // re-downloadable; never trusted
+      try { return await open(this.scope.localKey, sealed, aad.blob(this.scope.account, this.head.incarnation, blobID)); } catch { return null; }
+    }).catch(error => { this.fault(error); throw error; });
+  }
+  /** The server confirmed these blobs: they become evictable cache. */
+  markBlobsReady(ids: string[]): Promise<void> {
+    return this.commit(async head => {
+      const changed = ids.filter(id => head.notes?.blobs[id]?.state === 'local');
+      if (!changed.length) return null;
+      const next = clone(head);
+      for (const id of changed) next.notes!.blobs[id] = { ...next.notes!.blobs[id], state: 'ready' };
+      return { next, put: [], remove: [] };
+    });
+  }
+  /** A downloaded blob, kept encrypted. The oldest confirmed copies make room; unsynced crops are never removed. */
+  cacheBlob(blobID: string, stored: Bytes): Promise<void> {
+    return this.commit(async head => {
+      if (head.notes?.blobs[blobID]) return null;
+      const next = clone(head);
+      const put = [await this.blobRecord(next, blobID, stored, 'ready')], remove: string[] = [];
+      const ready = Object.entries(next.notes!.blobs).filter(([, b]) => b.state === 'ready').sort((a, b) => a[1].at - b[1].at);
+      let bytes = ready.reduce((n, [, b]) => n + b.bytes, 0);
+      for (const [id, b] of ready) {
+        if (bytes <= NOTE_BLOB_LIMITS.readyBytes || id === blobID) break;
+        delete next.notes!.blobs[id]; remove.push(this.k.blob(id)); bytes -= b.bytes;
+      }
+      return { next, put, remove };
     });
   }
 

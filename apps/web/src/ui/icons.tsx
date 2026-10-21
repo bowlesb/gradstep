@@ -52,6 +52,14 @@ const paths = {
   check: <polyline points="20 6 9 17 4 12" />,
   // Contents › Figures › View as tiles.
   grid: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
+  // Notes and snippets: a notebook with a pen, its one amber detail the bookmark ribbon (DESIGN.md brand glyphs).
+  notes: <><path d="M6 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z" /><line x1="9" y1="3" x2="9" y2="21" /><line x1="12" y1="8" x2="15" y2="8" /><line x1="12" y1="12" x2="15" y2="12" />
+    <path className="icon-amber" d="M19.5 3.5v6l1.5-1 1.5 1v-6" /></>,
+  pencil: <><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z" /><line x1="14.5" y1="5.5" x2="18.5" y2="9.5" /></>,
+  trash: <><polyline points="4 7 20 7" /><path d="M9 7V4h6v3" /><path d="M6 7l1 13h10l1-13" /></>,
+  // Draw snippet: a selection's four corners around a region.
+  scan: <><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" strokeDasharray="2 2" /></>,
+  paper: <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="14 3 14 9 20 9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="13" y2="17" /></>,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

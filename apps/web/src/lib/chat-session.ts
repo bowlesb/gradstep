@@ -21,6 +21,7 @@ import { cleanTopicTitle, encodeDiagram, makeDiagram, GENERATED_TITLE, RENAMED_T
 import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
+import type { NotesStore } from './notes-store';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
 import { detailQuote, figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
@@ -136,6 +137,8 @@ export class ChatSession {
     if(!documentID)return undefined;
     return this.sourcePapers.get(documentID)?.reference ?? this.history.state.paperReference(documentID);
   }
+  /** The account's notes (lib/notes-store.ts), attached before the first sync so pending snippets wait for their images. */
+  noteStore: NotesStore | null = null;
   readonly composers = new Map<string, Composer>();
   readonly selected = new Map<string, string>();
   balance: { available: number; reserved: number; unlimited_testing?: boolean } | null = null;

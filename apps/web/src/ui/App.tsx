@@ -36,7 +36,9 @@ import { KeySetup } from './Keys';
 import { RegionBoundary } from './ErrorBoundary';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
-import { readStored, type Route, type Theme, useStored, useTheme, writeStored } from './prefs';
+import { readStored, type Route, type Theme, useMedia, useStored, useTheme, writeStored } from './prefs';
+import { type ComposerDraft, NewNoteDialog, NoteComposer, NoteDetail, NotesList, useNotes } from './Notes';
+import type { EntryView } from '../lib/notes';
 /** Underline passages with chats (the apps' Settings › Reading; per browser, on unless turned off). */
 const PASSAGE_MARKS_KEY = 'gradstep.reader.passageMarks';
 /** The Library's status filter, remembered between visits (per browser, a convenience only). The tag isn't: every visit
@@ -144,14 +146,26 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   // mounts it at once: the reader and the chat's starter questions then share one arXiv request (C5).
   useEffect(() => { const t = setTimeout(() => { void loadReader().catch(() => {}); }, 0); return () => clearTimeout(t); }, []);
   const catalogs = useCatalogs(chat);
+  const notes = useNotes(chat);
+  // Add to note (a crop, a quote or text) and its "Saved to … · Open note" (NOTES_AND_SNIPPETS.md).
+  const [composer, setComposer] = useState<{ draft: ComposerDraft; adjust?: () => void } | null>(null);
+  const [savedNote, setSavedNote] = useState<{ noteID: string; title: string; offline: boolean } | null>(null);
+  useEffect(() => { if (!savedNote) return; const t = setTimeout(() => setSavedNote(null), 8000); return () => clearTimeout(t); }, [savedNote]);
+  const [newNote, setNewNote] = useState(false);
+  // Phone widths use the apps' five destinations (Feed · Library · Paper · Chat · Notes) with Settings in the top-right ⋯.
+  const phone = useMedia('(max-width: 640px)');
   const devicePDFs=useDevicePDFs(chat, catalogs);
   const library = useLibrary(account,devicePDFs,catalogs);
   // The reader has the same paper action surface as Library. Keeping a separate owner avoids
   // two portals competing when a library menu is still closing during navigation.
   // Its ⋯ also has Reader version details (READER_VERSIONS.md), for an arXiv paper the reader prepares.
   const readerCommands = useRef<ReaderCommands | null>(null);
-  const readerActions = useLibraryActions(library, undefined, useMemo(() => ({ label: 'Reader version details', testID: 'reader-version-details',
-    applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() }), []),similar);
+  const readerActions = useLibraryActions(library, undefined, useMemo(() => [
+    { label: 'Reader version details', testID: 'reader-version-details',
+      applies: (paper: LibraryPaper) => isReaderPaper(paper) && !!readingSource(paper), run: () => readerCommands.current?.versionDetails?.() },
+    // Notes: Paper ⋯ › Draw snippet (the always-available entry; NOTES_AND_SNIPPETS.md "Capture entry points"), after
+    // the existing first item.
+    { label: 'Draw snippet', testID: 'draw-snippet', applies: (paper: LibraryPaper) => isReaderPaper(paper), run: () => readerCommands.current?.drawSnippet?.() }], []),similar);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
@@ -358,9 +372,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const readSaved = useCallback((itemID: string) => activityStore.get(itemID), [activityStore]);
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
   const paperID = match?.[1] ?? null;
-  const route: Route = paperID ? 'paper' : path === '/feed' ? 'feed' : 'library';
+  const notesMatch = /^\/notes(?:\/([0-9a-f-]{36}))?$/.exec(path);
+  const noteID = notesMatch?.[1] ?? null;
+  const route: Route = paperID ? 'paper' : path === '/feed' ? 'feed' : notesMatch ? 'notes' : 'library';
   const item = paperID ? library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.id === paperID && e.visible) : undefined;
-  useEffect(() => { if (path !== '/' && path !== '/feed' && !match) navigate('/'); }, [path, match, navigate]);
+  useEffect(() => { if (path !== '/' && path !== '/feed' && !match && !notesMatch) navigate('/'); }, [path, match, notesMatch, navigate]);
   useEffect(() => { if (paperID) setLastPaper(paperID); setOrphanPaper(null); setChatMode(paperID ? 'paper' : 'general'); }, [paperID]);
 
   const ws = useWorkspace(route);
@@ -540,6 +556,23 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
     void openChatDocument(documentID, anchor);
   };
+  // A note entry's Open in paper: the same paper in this library (its membership, else the same arXiv source and
+  // revision), at the captured blocks when this copy is the one it was captured from. Never a guessed match.
+  const openSource = (entry: EntryView): string | null => {
+    const s = entry.record.source;
+    if (!s) return 'This entry isn’t from a paper.';
+    const papers = library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible);
+    const paper = papers.find(e => !!s.membershipID && e.id === s.membershipID)
+      ?? papers.find(e => s.kind === 'arxiv' && !!s.sourceID && e.source_id === s.sourceID && (!s.revision || e.source_revision === s.revision));
+    if (!paper) {
+      const other = s.kind === 'arxiv' && s.sourceID ? papers.find(e => e.source_id === s.sourceID) : undefined;
+      if (other) { void openReader(other); return null; } // another revision: opened without claiming the captured place
+      return s.kind === 'arxiv' && s.sourceID ? `This paper isn’t in your library here. Add arXiv ${s.sourceID}${s.revision ? `v${s.revision}` : ''} to open it.` : 'This paper isn’t on this device.';
+    }
+    const a = entry.record.anchor, block = a?.blockIDs[0];
+    void openReader(paper, a?.manifestSHA256 && (block || entry.record.quote) ? { manifestSHA256: a.manifestSHA256, quote: entry.record.quote ?? '', prefix: '', suffix: '', elementID: block } : undefined);
+    return null;
+  };
   const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => {
     if (!chat || chat.storageRetired || !item) return; // the storage notice explains why nothing is sent
     // The new conversation answers with the model, effort and length the chat pane shows right now.
@@ -604,6 +637,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} onSimilar={similar} query={view.query} prepared={prepared} />}
       </div>
     </>
+  ) : route === 'notes' ? (
+    <>
+      <PaneHeader title="Notes" onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
+      <div className="rail-body">{notes ? <NotesList store={notes} current={noteID} rail onOpen={id => navigate(`/notes/${id}`)} onNew={() => setNewNote(true)} />
+        : <p className="fine rail-note">Opening your notes…</p>}</div>
+    </>
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
@@ -637,9 +676,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
         onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => { setSearchExternal(true); paperSearch.setQuery('author:' + name); navigate('/'); paperSearch.run(); }}
         onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
-        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} /></Suspense>
+        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading}
+        noteCapture={notes ? { writable: notes.writable, images: notes.canSaveImages, add: (draft, adjust) => setComposer({ draft, adjust }) } : undefined} /></Suspense>
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
+  } else if (route === 'notes') {
+    const listBeside = ws.left.open && ws.left.inline;
+    center = !notes ? <div className="empty" role="status"><div className="spinner" /><p>Opening your notes…</p></div>
+      : noteID ? <NoteDetail key={noteID} store={notes} noteID={noteID} back={!listBeside} onBack={() => navigate('/notes')} onOpenSource={openSource}
+        onAddText={id => setComposer({ draft: { kind: 'text', source: null, anchor: null, capturedAt: Date.now(), destination: id } })} />
+      : listBeside ? <div className="empty notes-choose"><Icon name="notes" size={28} /><p className="muted">Choose a note, or start a new one.</p>
+        <button className="secondary" onClick={() => setNewNote(true)} disabled={!notes.writable}>New note</button></div>
+      : <NotesList store={notes} current={null} onOpen={id => navigate(`/notes/${id}`)} onNew={() => setNewNote(true)} />;
   } else if (route === 'feed') {
     center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing} onLibrary={() => navigate('/')}
       onAdded={feedAdd}
@@ -653,6 +701,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} />;
   }
 
+  // Paper (phone): the paper last open in this tab, else the one most recently opened on this device.
+  const recentPaper = useMemo(() => {
+    const visible = new Set(library.entries.filter(e => isReaderPaper(e) && e.visible).map(e => e.id));
+    if (lastPaper && visible.has(lastPaper)) return lastPaper;
+    return [...activity].filter(([id]) => visible.has(id)).sort((a, b) => (b[1].opened ?? 0) - (a[1].opened ?? 0))[0]?.[0] ?? null;
+  }, [library.entries, lastPaper, activity]);
   const nav = (to: string, label: string, icon: IconName, current: boolean, testID?: string) => (
     <a href={to} className={current ? 'nav-link on' : 'nav-link'} aria-current={current ? 'page' : undefined} data-testid={testID} title={label}
       onClick={e => { e.preventDefault(); navigate(to); }}><Icon name={icon} /><span className="nav-label">{label}</span></a>
@@ -666,11 +720,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <Icon name="sidebar" /></button>
         <a href="/" className="brand-link" onClick={e => { e.preventDefault(); navigate('/'); }}><Brand small /></a>
         <span className="environment" title="This browser reader uses the staging backend">{config.environment === 'production' ? '' : 'Beta'}</span>
-        <nav className="topnav" aria-label="Main">
+        {!phone && <nav className="topnav" aria-label="Main">
           {nav('/', 'Library', 'book', route === 'library', 'back-to-library')}
           {nav('/feed', 'Feed', 'feed', route === 'feed')}
+          {nav('/notes', 'Notes', 'notes', route === 'notes', 'nav-notes')}
           <button className="nav-link" onClick={() => setChats(true)} title="All chats"><Icon name="chats" /><span className="nav-label">Chats</span></button>
-        </nav>
+        </nav>}
         <div className="search-field">
           <Icon name="search" size={14} />
           <input ref={search} type="search" placeholder={searchExternal ? 'Search ML papers' : 'Search library'} aria-label={searchExternal ? 'ML paper search' : 'Search library'}
@@ -695,7 +750,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu compact={phone} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
             onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} />
@@ -716,16 +771,25 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <button className="icon-button" aria-label="Dismiss save notice" onClick={() => setNavigationIssue(false)}><Icon name="close" size={16} /></button>
       </div>}
       {/* Each region fails on its own (RESILIENCE.md fix 2): a malformed answer, feed row or episode never blanks the page. */}
-      <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
+      <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : route === 'notes' ? 'Notes list' : 'Library filters'} rightLabel="Chat"
         left={<RegionBoundary region="side" label="The side panel" compact resetKey={route} onReport={report}>{left}</RegionBoundary>}
-        center={<RegionBoundary region={route === 'paper' ? 'reader' : route === 'feed' ? (listening ? 'listen' : 'feed') : 'library'}
-          label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : 'The library'}
-          resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}`} onReport={report}>{center}</RegionBoundary>}
+        center={<RegionBoundary region={route === 'paper' ? 'reader' : route === 'feed' ? (listening ? 'listen' : 'feed') : route === 'notes' ? 'notes' : 'library'}
+          label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Notes' : 'The library'}
+          resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}:${noteID ?? ''}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
           <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
+      {savedNote && <div className="notes-saved" role="status" data-testid="notes-saved"><span>Saved to {savedNote.title}{savedNote.offline ? ' · Waiting to sync' : ''}</span>
+        <button className="link" onClick={() => { setSavedNote(null); void navigate(`/notes/${savedNote.noteID}`); }} data-testid="open-saved-note">Open note</button>
+        <button className="icon-button" aria-label="Dismiss" onClick={() => setSavedNote(null)}><Icon name="close" size={14} /></button></div>}
+      {phone && <PhoneTabs route={route} chatOpen={ws.right.open} lastPaper={recentPaper}
+        navigate={to => void navigate(to)} onChat={() => { if (route !== 'paper') setChatMode('general'); ws.show('right'); }} />}
+      {notes && composer && <RegionBoundary region="note-composer" label="Add to note" compact onReport={report}><NoteComposer store={notes} draft={composer.draft}
+        onAdjust={composer.adjust ? () => { const adjust = composer.adjust!; setComposer(null); adjust(); } : undefined} onClose={() => setComposer(null)}
+        onSaved={(id, title) => { const text = composer.draft.kind === 'text'; setComposer(null); if (text || route === 'notes') void navigate(`/notes/${id}`); else setSavedNote({ noteID: id, title, offline: typeof navigator !== 'undefined' && navigator.onLine === false }); }} /></RegionBoundary>}
+      {notes && newNote && <NewNoteDialog store={notes} onClose={() => setNewNote(false)} onCreated={id => { setNewNote(false); void navigate(`/notes/${id}`); }} />}
       {devicePDFs.issue && <p role="status" className="library-action-notice">{devicePDFs.issue} <button onClick={devicePDFs.clearIssue}>Dismiss</button></p>}
       <RegionBoundary region="add-paper" label="Add paper" compact resetKey={adding} onReport={report}>
         <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
@@ -806,7 +870,22 @@ function ChatDefaults({ chat, view, onView, onClose }: { chat: ChatSession; view
   return <ChatOptionsDialog open={!!view} view={view || 'defaults'} onView={onView} onClose={onClose} table={chat.profileTable} choice={chat.scenarioProfile(scenario)} onChange={next => chat.setScenarioProfile(scenario,next)} scenarioControl={<label>Activity <select value={scenario} onChange={e=>setScenario(e.target.value as AIUseCase)}><option value="general">General chat</option><option value="paper">Paper chat</option><option value="equations">Equation explanations</option><option value="figures">Figures and tables</option></select></label>} visualAnswers={visualAnswers} onVisualAnswers={on => { writeVisualAnswers(on); setVisualAnswers(on); }} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks }: { account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+/** Phone widths (owner direction for Notes, matching the apps): Feed · Library · Paper · Chat · Notes, in that order. */
+function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Route; chatOpen: boolean; lastPaper: string | null; navigate: (to: string) => void; onChat: () => void }) {
+  const current = chatOpen ? 'chat' : route;
+  const link = (to: string, label: string, icon: IconName, key: string, testID?: string) => <a href={to} className={`phone-tab${current === key ? ' on' : ''}`} aria-current={current === key ? 'page' : undefined}
+    data-testid={testID} onClick={e => { e.preventDefault(); navigate(to); }}><Icon name={icon} size={19} /><span>{label}</span></a>;
+  return <nav className="phone-tabs" aria-label="Main">
+    {link('/feed', 'Feed', 'feed', 'feed')}
+    {link('/', 'Library', 'book', 'library', 'back-to-library')}
+    {lastPaper ? link(`/paper/${lastPaper}`, 'Paper', 'paper', 'paper', 'phone-paper')
+      : <button className={`phone-tab${current === 'paper' ? ' on' : ''}`} disabled title="Open a paper from your library first" data-testid="phone-paper"><Icon name="paper" size={19} /><span>Paper</span></button>}
+    <button className={`phone-tab${current === 'chat' ? ' on' : ''}`} aria-pressed={chatOpen} onClick={onChat} data-testid="phone-chat"><Icon name="chat" size={19} /><span>Chat</span></button>
+    {link('/notes', 'Notes', 'notes', 'notes', 'nav-notes')}
+  </nav>;
+}
+
+function AccountMenu({ compact = false, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks }: { compact?: boolean; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
   passageMarks: boolean; onPassageMarks: (on: boolean) => void }) {
   const [open, setOpen] = useState(false);
@@ -840,11 +919,14 @@ function AccountMenu({ account, email, theme, setTheme, onHelp, onInfo, onPrivac
   }, [open]);
   return (
     <div className="account" ref={box}>
-      <button className="icon-button account-button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)} data-testid="account-menu" title={email ?? 'Account'}>
-        <Icon name="user" /><span className="account-email">{email ?? 'Account'}</span>
+      {/* On a phone this is each screen's top-right ⋯, with Settings in it (the apps' Notes navigation). */}
+      <button className="icon-button account-button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)} data-testid="account-menu"
+        title={compact ? 'More and Settings' : email ?? 'Account'} aria-label={compact ? 'More and Settings' : undefined}>
+        <Icon name={compact ? 'more' : 'user'} />{!compact && <span className="account-email">{email ?? 'Account'}</span>}
       </button>
       {open && (
         <div className="menu" role="menu">
+          {compact && <p className="fine menu-heading">Settings</p>}
           <p className="menu-email">{email}</p>
           <p className="fine">This browser is an approved device.</p>
           {/* Owner, build 57: "Credits -> AI credits", "Plan -> Subscription Plan"; the explanations behind ⓘ. Bought in the apps. */}

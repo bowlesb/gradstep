@@ -102,7 +102,11 @@ export type FrameMessage =
   | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
   | { type: 'key'; key: FrameKey }
   /** A link out of the paper the reader clicked (frame-shim.js): opened in a new tab, never in the frame. */
-  | { type: 'link'; url: string };
+  | { type: 'link'; url: string }
+  /** Notes: a region or element made into a PNG inside the frame (frame-shim.js). `box` is in the frame's CSS px. */
+  | { type: 'capture'; nonce: string; ok: true; png: ArrayBuffer; width: number; height: number; blocks: string[]; box: [number, number, number, number]; viewport: [number, number, number] }
+  | { type: 'capture'; nonce: string; ok: false; reason: string }
+  | { type: 'captureProbe'; nonce: string; ok: boolean };
 
 /** App shortcuts typed while the paper frame has focus (forwarded by the frame shim). */
 export type FrameKey = 'find' | 'search' | 'escape' | 'left' | 'right' | 'help' | 'reading' | 'next' | 'previous';
@@ -159,6 +163,21 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
     }
     case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
     case 'link': { const url = typeof v.url === 'string' ? outboundLink(v.url) : null; return url ? { type: 'link', url } : null; }
+    case 'captureProbe': return typeof v.nonce === 'string' && isUUID(v.nonce) && typeof v.ok === 'boolean' ? { type: 'captureProbe', nonce: v.nonce.toLowerCase(), ok: v.ok } : null;
+    case 'capture': {
+      if (typeof v.nonce !== 'string' || !isUUID(v.nonce)) return null;
+      const nonce = v.nonce.toLowerCase();
+      if (v.ok !== true) return { type: 'capture', nonce, ok: false, reason: typeof v.reason === 'string' && /^[a-z_]{1,24}$/.test(v.reason) ? v.reason : 'failed' };
+      const int = (x: unknown, hi: number) => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= hi;
+      const box = v.box, viewport = v.viewport;
+      // Bounded before anything decodes it: a PNG of at most 4,096 px a side and 6 MP (frame-shim.js), a few known blocks.
+      if (!(v.png instanceof ArrayBuffer) || v.png.byteLength < 8 || v.png.byteLength > 48 * 1024 * 1024 || !int(v.width, 4096) || !int(v.height, 4096)
+        || (v.width as number) * (v.height as number) > 6_000_000 || !Array.isArray(v.blocks) || v.blocks.length > 64 || !v.blocks.every(b => typeof b === 'string' && ID.test(b))
+        || !Array.isArray(box) || box.length !== 4 || !box.every(finite) || !Array.isArray(viewport) || viewport.length !== 3 || !viewport.every(n => finite(n) && (n as number) > 0 && (n as number) < 100_000)
+        || (bundle && v.manifest_sha256 !== bundle.manifestSHA256)) return { type: 'capture', nonce, ok: false, reason: 'invalid' };
+      return { type: 'capture', nonce, ok: true, png: v.png, width: v.width as number, height: v.height as number, blocks: v.blocks as string[],
+        box: box as [number, number, number, number], viewport: viewport as [number, number, number] };
+    }
   }
   return null;
 }
