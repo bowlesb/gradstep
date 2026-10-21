@@ -946,9 +946,9 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             let aad = Data("science-reader/local-metadata/v2/\(f.account.wire)".utf8), key = SymmetricKey(data: f.key)
             let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: raw(db, "metadata")), using: key, authenticating: aad)
             var metadata = try #require(JSONSerialization.jsonObject(with: plain) as? [String: Any])
-            metadata["format"] = 5; metadata.removeValue(forKey: "offlineCache")
+            metadata["format"] = 5; metadata.removeValue(forKey: "offlineCache"); metadata.removeValue(forKey: "noteUploads"); metadata.removeValue(forKey: "noteHolds")
             let legacy = try #require(AES.GCM.seal(json(metadata), using: key, authenticating: aad).combined)
-            try db.execute("BEGIN IMMEDIATE; DROP TABLE local_reader_bundle_members; DROP TABLE local_reader_bundle_headers; DROP TABLE local_reader_bundle_index; DROP TABLE local_library_cache_entries; DROP TABLE local_library_cache_checkpoint; PRAGMA user_version=4")
+            try db.execute("BEGIN IMMEDIATE; DROP TABLE local_note_blobs; DROP TABLE local_reader_bundle_members; DROP TABLE local_reader_bundle_headers; DROP TABLE local_reader_bundle_index; DROP TABLE local_library_cache_entries; DROP TABLE local_library_cache_checkpoint; PRAGMA user_version=4")
             try db.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(legacy)])
             try db.execute("COMMIT; CREATE TRIGGER fail_format_six BEFORE UPDATE ON metadata BEGIN SELECT RAISE(ABORT,'fixture'); END")
             #expect(throws: (any Error).self) { try f.reopen() }
@@ -965,7 +965,7 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             #expect(try await restored.cachedLibraryPresentation(scope: f.scope) == nil)
             #expect(try await restored.listInstalledReaderBundles(scope: f.scope).installations.isEmpty)
             let version = try db.statement("PRAGMA user_version") { statement in _ = sqlite3_step(statement); return sqlite3_column_int(statement, 0) }
-            #expect(version == 5)
+            #expect(version == 6)
             await #expect(throws: ReaderError.storeChanged) { try await f.store.append(.init(kind: .note, text: "Stale old owner"), deviceID: UUID()) }
         }
     }

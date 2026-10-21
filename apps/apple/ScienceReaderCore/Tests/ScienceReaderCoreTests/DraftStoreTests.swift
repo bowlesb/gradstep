@@ -55,7 +55,8 @@ import Testing
     }
 
     private func afterReopen(_ value: LocalStoreSnapshot) -> LocalStoreSnapshot {
-        .init(state: value.state, generation: value.generation + 1, pendingCount: value.pendingCount, drafts: value.drafts)
+        .init(state: value.state, generation: value.generation + 1, pendingCount: value.pendingCount, drafts: value.drafts,
+              pendingEventIDs: value.pendingEventIDs, pendingNoteBlobs: value.pendingNoteBlobs, noteDestination: value.noteDestination)
     }
 
     private func makeLegacy(_ fixture: Fixture, format: Int) throws -> Data {
@@ -71,8 +72,9 @@ import Testing
         fields["format"] = format; fields.removeValue(forKey: "drafts")
         fields.removeValue(forKey: "libraryCommands"); fields.removeValue(forKey: "libraryCommandSequence")
         fields.removeValue(forKey: "libraryCommandScope"); fields.removeValue(forKey: "offlineCache")
+        fields.removeValue(forKey: "noteUploads"); fields.removeValue(forKey: "noteHolds")
         let sealed = try #require(AES.GCM.seal(JSONSerialization.data(withJSONObject: fields), using: key, authenticating: aad).combined)
-        try database.execute("BEGIN IMMEDIATE; DROP TABLE local_reader_bundle_members; DROP TABLE local_reader_bundle_headers; DROP TABLE local_reader_bundle_index; DROP TABLE local_library_cache_entries; DROP TABLE local_library_cache_checkpoint; DROP TABLE local_drafts; DROP TABLE local_library_commands; PRAGMA user_version=2")
+        try database.execute("BEGIN IMMEDIATE; DROP TABLE local_note_blobs; DROP TABLE local_reader_bundle_members; DROP TABLE local_reader_bundle_headers; DROP TABLE local_reader_bundle_index; DROP TABLE local_library_cache_entries; DROP TABLE local_library_cache_checkpoint; DROP TABLE local_drafts; DROP TABLE local_library_commands; PRAGMA user_version=2")
         try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(sealed)])
         try database.execute("COMMIT")
         return sealed
