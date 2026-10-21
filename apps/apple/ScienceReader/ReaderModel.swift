@@ -901,6 +901,8 @@ final class ReaderModel {
     // fenced to its own account session, conversation and saved question.
     private var chatGenerations: [UUID: ChatGeneration] = [:]
     private var chatAnswerIssues: [UUID: ChatAnswerIssue] = [:]
+    /// Per composer: an answer whose local save failed, kept to show and save again (`UnsavedAnswer`).
+    private var unsavedAnswers: [UUID: UnsavedAnswer] = [:]
     /// Throttled partial text by generation ID; only the transcript reads it.
     private var chatStreamingText: [UUID: String] = [:]
     private var chatStreamProgress: [UUID: ChatProgress] = [:]
@@ -3686,7 +3688,8 @@ final class ReaderModel {
             (composerID: submission.composerID, prompt: submission.text, quote: context.quote, action: nil as ChatAction?, origin: context.origin, prefix: false)
         }
         let selection = pending?.quote
-        if pendingSelection?.composerID == submission.composerID { pendingSelection = nil }
+        let consumedSelection = pendingSelection?.composerID == submission.composerID ? pendingSelection : nil
+        if consumedSelection != nil { pendingSelection = nil }
         // While a chat is a study, every message is the reader's answer to the tutor (a selection action still acts).
         let studyMap = chatStudyMaps[submission.composerID]
         let action = pending?.action ?? (studyMap != nil ? ChatAction.study : nil)
@@ -3744,6 +3747,9 @@ final class ReaderModel {
         } catch {
             if sessionID == scope {
                 chatWorkspace.fail(submission)
+                // Not saved: the quote, its passage and the action stay with this composer's prompt, so Send again asks
+                // the same thing (an Ingest stays an Ingest).
+                if pendingSelection == nil, let consumedSelection { pendingSelection = consumedSelection }
                 if workOwnership.owns(storeScope) { show(error) }
             }
         }
@@ -4094,9 +4100,17 @@ final class ReaderModel {
     /// the identity its sealed encrypted message will use.
     var chatTranscriptMessages: [AppliedEvent] {
         let messages = chatMessages
-        guard let generation = visibleGeneration, !messages.contains(where: { $0.id == generation.assistantID }) else { return messages }
-        return messages + [AppliedEvent(id: generation.assistantID, deviceID: generation.turn.deviceID,
-                                        payload: generation.event(text: chatStreamingText[generation.id] ?? "", status: .complete))]
+        if let generation = visibleGeneration {
+            guard !messages.contains(where: { $0.id == generation.assistantID }) else { return messages }
+            return messages + [AppliedEvent(id: generation.assistantID, deviceID: generation.turn.deviceID,
+                                            payload: generation.event(text: chatStreamingText[generation.id] ?? "", status: .complete))]
+        }
+        // An answer that arrived but couldn't be saved stays readable above its Try again (which saves it).
+        if let unsaved = visibleUnsavedAnswer, !messages.contains(where: { $0.id == unsaved.generation.assistantID }) {
+            return messages + [AppliedEvent(id: unsaved.generation.assistantID, deviceID: unsaved.generation.turn.deviceID,
+                                            payload: unsaved.generation.event(text: unsaved.text, status: unsaved.status))]
+        }
+        return messages
     }
     private var chatConsent: ChatConsentLedger {
         ChatConsentLedger(environment: configuration?.environment ?? "local", store: chatConsentStore)
@@ -4144,6 +4158,12 @@ final class ReaderModel {
 
     func retryAnswer() {
         guard let issue = chatAnswerIssue, issue.retryable else { return }
+        // The answer arrived but this device couldn't save it: save that answer again. Asking again would pay twice.
+        if issue.code == "storage", let unsaved = visibleUnsavedAnswer {
+            chatAnswerIssues[issue.turn.composerID] = nil
+            resealAnswer(unsaved)
+            return
+        }
         chatAnswerIssues[issue.turn.composerID] = nil
         requestAnswer(for: issue.turn)
     }
@@ -4172,7 +4192,7 @@ final class ReaderModel {
     private(set) var chatInterruptionNotes: [UUID: String] = [:]
 
     private func startGeneration(_ turn: ChatAnswerTurn, transport: any ChatTransport, state: PrivateState) {
-        chatAnswerIssues[turn.composerID] = nil
+        chatAnswerIssues[turn.composerID] = nil; unsavedAnswers[turn.composerID] = nil
         guard !state.isDeleted(turn.conversationID),
               let branch = state.conversationBranch(turn.conversationID, through: turn.userMessageID), branch.complete,
               branch.messages.last?.payload.role == .user else {
@@ -4409,12 +4429,47 @@ final class ReaderModel {
         }
     }
 
+    /// A3: an answer that arrived (and was charged) but couldn't be saved on this device, with everything needed to
+    /// save it again. Memory only, per composer; the composer's next answer or sign-out drops it.
+    private struct UnsavedAnswer {
+        let generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus, outcome: ChatGenerationOutcome
+        let choice: ConversationBranchSelections.Choice
+        let diagram: (title: String, source: String)?, visual: (title: String, html: String)?, figureParts: ChatFigureParts?
+        let title: String?, followUps: [String]?, study: StudyMap?, failedCredits: Int?
+    }
+
+    /// Try again after a failed local save: the same answer is saved again (shown as in progress meanwhile), never
+    /// requested again.
+    private func resealAnswer(_ unsaved: UnsavedAnswer) {
+        var generation = unsaved.generation
+        let composer = generation.turn.composerID
+        guard generation.turn.sessionID == sessionID, chatGenerations[composer] == nil else { return }
+        // Nothing is on its way to the server, so a Stop meanwhile only cancels this save.
+        generation.operationID = nil; generation.stopping = false
+        chatStreamingText[generation.id] = unsaved.text
+        let pending = generation
+        generation.task = Task { [weak self] in
+            await self?.finishGeneration(pending, text: unsaved.text, outcome: unsaved.outcome, choice: unsaved.choice,
+                diagram: unsaved.diagram, visual: unsaved.visual, figureParts: unsaved.figureParts, title: unsaved.title,
+                followUps: unsaved.followUps, study: unsaved.study, failedCredits: unsaved.failedCredits, resealing: true)
+        }
+        chatGenerations[composer] = generation
+    }
+
+    private var visibleUnsavedAnswer: UnsavedAnswer? {
+        guard let issue = chatAnswerIssue, issue.code == "storage", let unsaved = unsavedAnswers[issue.turn.composerID],
+              unsaved.generation.turn.userMessageID == issue.turn.userMessageID else { return nil }
+        return unsaved
+    }
+
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
                                   choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil,
                                   visual: (title: String, html: String)? = nil, figureParts: ChatFigureParts? = nil,
-                                  title: String? = nil, followUps: [String]? = nil, study: StudyMap? = nil, failedCredits: Int? = nil) async {
+                                  title: String? = nil, followUps: [String]? = nil, study: StudyMap? = nil, failedCredits: Int? = nil,
+                                  resealing: Bool = false) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
+        var unsaved: UnsavedAnswer?
         if let status = resolution.status {
             // Show exactly the sealed text before the row changes ownership.
             chatStreamingText[generation.id] = text
@@ -4431,9 +4486,19 @@ final class ReaderModel {
                 let kept = try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn,
                                                 title: status == .complete ? title : nil)
                 if drawn != nil, !kept, issue == nil { issue = "diagram_storage" }
-            } catch { if issue == nil { issue = "storage" } }
+            } catch {
+                if issue == nil {
+                    issue = "storage"
+                    // The answer arrived (and was paid for); only this device's save failed. Keep it to show and to save
+                    // again on Try again, which never asks for it a second time.
+                    unsaved = UnsavedAnswer(generation: generation, text: text, status: status, outcome: outcome, choice: choice,
+                        diagram: diagram, visual: visual, figureParts: figureParts, title: title, followUps: followUps,
+                        study: study, failedCredits: failedCredits)
+                }
+            }
         }
         guard ownsGeneration(generation) else { return }
+        unsavedAnswers[generation.turn.composerID] = unsaved
         chatGenerations[generation.turn.composerID] = nil
         chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
         // Suggestions belong to a complete, kept answer only.
@@ -4443,6 +4508,8 @@ final class ReaderModel {
             chatStudyMaps[generation.turn.composerID] = study
         }
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue, credits: failedCredits) }
+        // A repeated save asked the server for nothing: the balance and library refreshes already ran.
+        guard !resealing else { return }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {
             guard self.sessionID == scope else { return }
@@ -4506,7 +4573,7 @@ final class ReaderModel {
     private func retireChatGenerations() {
         let retiring = Array(chatGenerations.values), buffers = chatStreamBuffer
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]; chatInterruptionNotes = [:]
-        chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
+        chatAnswerIssues = [:]; unsavedAnswers = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; operatorRoles = []; equationAnswers = [:]; equationStore = nil; figureAnswers = [:]; figureStore = nil; pendingFigureOutcome = nil; keptEquationFiles = nil; keptFigureFiles = nil; keptEquationExplanations = []; keptFigureExplanations = []; pendingExplanation = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
@@ -5197,8 +5264,15 @@ final class ReaderLocalPersistence {
     /// this writer. Once accepted, the old account's work is always drained.
     func acceptWrite<Value: Sendable>(_ operation: @escaping @Sendable (EncryptedStore) async throws -> Value) throws -> Task<Value, Error> {
         guard !isRetired, !isActivating, let store else { throw ReaderError.storageUnavailable }
+        #if DEBUG
+        if failingWritesForTesting > 0 { failingWritesForTesting -= 1; throw ReaderError.storageUnavailable }
+        #endif
         return register { try await operation(store) }
     }
+    #if DEBUG
+    /// Unit tests: this many of the next encrypted-store writes fail, as a full or failing device store would.
+    var failingWritesForTesting = 0
+    #endif
 
     /// Reading-activity saves follow the same ownership: refused once retired, drained before
     /// a replacement session or account deletion erases the folder.

@@ -573,6 +573,65 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatAnswerIssue?.code, "transport", "An empty EOF is an interrupted answer, not success")
     }
 
+    /// A3: a complete answer whose local save fails stays readable, and Try again saves that answer: it is never asked
+    /// for (and paid for) a second time.
+    func testAnAnswerThatCouldNotBeSavedStaysAndTryAgainOnlySavesIt() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "Why scale the dot products?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        await model.flushDrafts()
+        model.localPersistence.failingWritesForTesting = 1
+        transport.send(.delta("Scaling keeps logits bounded."), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("finished") { !model.isAnswering }
+        let issue = try XCTUnwrap(model.chatAnswerIssue)
+        XCTAssertEqual(issue.code, "storage"); XCTAssertTrue(issue.retryable)
+        XCTAssertEqual(model.chatMessages.map(\.payload.role), [.user], "Nothing was saved")
+        XCTAssertEqual(model.chatTranscriptMessages.map(\.payload.text), ["Why scale the dot products?", "Scaling keeps logits bounded."],
+                       "The answer that arrived stays readable")
+
+        model.retryAnswer()
+        try await waitUntil("saved") { model.chatMessages.count == 2 && !model.isAnswering }
+        XCTAssertEqual(transport.requests.count, 1, "Try again saves the same answer; nothing is requested again")
+        XCTAssertEqual(model.chatMessages.last?.payload.text, "Scaling keeps logits bounded.")
+        XCTAssertEqual(model.chatMessages.last?.payload.status, .complete)
+        XCTAssertNil(model.chatAnswerIssue)
+        XCTAssertEqual(model.chatTranscriptMessages.count, 2, "No second copy of the answer")
+
+        // A transport failure still asks again, as before.
+        model.chatInput = "And without scaling?"
+        await model.sendMessage()
+        try await waitUntil("second request") { transport.requests.count == 2 }
+        transport.send(.failure(code: "provider_unavailable"))
+        try await waitUntil("failed") { !model.isAnswering }
+        model.retryAnswer()
+        try await waitUntil("asked again") { transport.requests.count == 3 }
+        transport.send(.done(stopReason: "end_turn", credits: 0))
+        try await waitUntil("finished again") { !model.isAnswering }
+    }
+
+    /// A2: a selection action whose question couldn't be saved keeps its quote and action, so Send again asks the
+    /// same thing rather than a plain question.
+    func testASelectionActionThatCouldNotBeSavedKeepsItsQuoteAndAction() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.selectionAction(.similar, quote: "multi-head attention")
+        // The draft writes above were accepted synchronously; the next write is the question's commit.
+        model.localPersistence.failingWritesForTesting = 1
+        try await waitUntil("save failed") { model.error != nil }
+        XCTAssertTrue(model.chatMessages.isEmpty)
+        XCTAssertTrue(transport.requests.isEmpty)
+        XCTAssertEqual(model.chatInput, SelectionAction.similar.prompt("multi-head attention"), "The prompt stays in the composer")
+        model.error = nil
+
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.action, .related, "The action went with the second Send")
+        XCTAssertEqual(request.selection, "multi-head attention", "The quote went with the second Send")
+        transport.send(.done(stopReason: "end_turn", credits: 0))
+        try await waitUntil("finished") { !model.isAnswering }
+    }
+
     func testRefusalDiscardsPartialOutput() async throws {
         let (model, transport) = try await makeModel(consented: true)
         model.chatInput = "A question the provider declines"

@@ -177,7 +177,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
         case "local_reader_unavailable": "Open this paper and prepare its reader on this device, then retry your question."
         case "consent_declined": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
-        case "storage": "The answer couldn’t be saved on this device."
+        case "storage": "The answer couldn’t be saved on this device. Try again saves it; it isn’t asked for again."
         case "diagram_storage": "The answer was saved, but its diagram couldn’t be: this device’s unsynced storage is full."
         default: credits == 0 ? ChatFailureText.message(for: code) + " No credits were used." : ChatFailureText.message(for: code)
         }
