@@ -345,6 +345,39 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatFollowUpQuestions, [], "An interrupted answer offers no follow-ups")
     }
 
+    /// Build 78 ("Got this error somehow?"): asking about a paper whose reader isn't open here waits for it to be prepared
+    /// on this device, whether or not it is the paper on screen, and never tells the reader to open it first. A
+    /// preparation that fails says why, keeps the question and offers Try again.
+    func testAQuestionAboutAPaperNotOpenHereWaitsForItsPreparationAndSaysWhyItFailed() async throws {
+        // arXiv answered by a fixture (no network): this paper has no HTML version.
+        let suite = "arxiv.chat.test.\(UUID().uuidString)"
+        ArxivAPIFixture.reset([(404, ""), (404, ""), (404, ""), (404, "")])
+        ArxivHTMLReader.fixtureProtocolClasses = [ArxivAPIFixture.self]; ArxivMetadataFetcher.fixtureProtocolClasses = [ArxivAPIFixture.self]
+        ArxivHTMLReader.refusalSuite = suite
+        defer {
+            ArxivHTMLReader.fixtureProtocolClasses = nil; ArxivMetadataFetcher.fixtureProtocolClasses = nil; ArxivHTMLReader.refusalSuite = nil
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        }
+        let (model, transport) = try await makeModel(consented: true)
+        let reference = try SourcePaperReference(membershipID: UUID(), sourceID: "2601.04321", revision: 1)
+        var paper = Paper(id: reference.membershipID, title: "Benchmarking dialects", authors: "A. Author", year: 2026, abstract: "", keywords: [], fileURL: nil, artifactID: nil)
+        paper.sourceID = "2601.04321"; paper.sourceRevision = 1; paper.sourceMembership = reference
+        model.papers.append(paper); model.chatPaperID = paper.id; model.generalChat = false
+        XCTAssertNotEqual(model.selectedPaper?.id, paper.id, "not the paper on screen")
+        model.chatInput = "What assumptions does this rely on?"
+        await model.sendMessage()
+        try await waitUntil("prepared, or said why not", timeout: .seconds(20)) { !model.isAnswering && model.chatAnswerIssue != nil }
+        XCTAssertTrue(transport.requests.isEmpty, "nothing is sent without the paper's text")
+        XCTAssertTrue(ArxivAPIFixture.requests.contains { $0.url?.host == "arxiv.org" }, "this device asked arXiv for the paper's HTML")
+        let issue = try XCTUnwrap(model.chatAnswerIssue)
+        XCTAssertFalse(issue.message.contains("Open this paper"), issue.message)
+        if issue.code == "reader_unprepared" { XCTAssertNotNil(issue.detail, "the preparation's reason") }
+        XCTAssertTrue(issue.retryable)
+        let failed = ChatAnswerIssue(turn: issue.turn, code: "reader_unprepared", detail: "arXiv has no HTML version of this paper.")
+        XCTAssertEqual(failed.message, "arXiv has no HTML version of this paper. No answer was requested; your question is saved.")
+        XCTAssertTrue(failed.retryable); XCTAssertEqual(failed.actionTitle, "Try again")
+    }
+
     /// Study (experimental, 2026-10-14): a tutored chat on a paper numbered on this device. The opening turn carries
     /// an empty map; each answer sends the map back; a complete tutored answer advances it; a failed one keeps it;
     /// ending the study keeps the conversation and drops the map, which is never saved.

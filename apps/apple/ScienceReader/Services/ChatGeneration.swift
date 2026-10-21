@@ -169,14 +169,21 @@ struct ChatGeneration: Sendable {
     }
 }
 
+/// A question's paper couldn't be prepared on this device: why (ReaderModel.preparationReason).
+struct ChatPreparationFailure: Error { let reason: String }
+
 struct ChatAnswerIssue: Equatable, Sendable {
     let turn: ChatAnswerTurn
     let code: String
     /// What the failed answer cost, when the server said (0: the provider never started it; servers from 2026-10-14).
     var credits: Int? = nil
+    /// `reader_unprepared`: why the paper couldn't be prepared on this device (build 78).
+    var detail: String? = nil
     var message: String {
         switch code {
-        case "local_reader_unavailable": "Open this paper and prepare its reader on this device, then retry your question."
+        // Asking prepares the paper on this device (build 78); this is left for a paper this device can't prepare at all.
+        case "local_reader_unavailable": "This paper can’t be read on this device yet, so no answer was requested. Try again in a moment."
+        case "reader_unprepared": "\(detail ?? "This paper couldn’t be prepared on this device.") No answer was requested; your question is saved."
         case "consent_declined", "answer_withdrawn": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
         case "storage": "The answer couldn’t be saved on this device. Try again saves it; it isn’t asked for again."
@@ -187,7 +194,7 @@ struct ChatAnswerIssue: Equatable, Sendable {
     /// A kept answer whose diagram could not be stored is informational; asking
     /// again would be a new paid answer.
     var retryable: Bool {
-        code != "diagram_storage" && (["consent_declined", "answer_withdrawn", "consent_unsaved", "storage", "local_reader_unavailable"].contains(code) || ChatFailureText.isRetryable(code))
+        code != "diagram_storage" && (["consent_declined", "answer_withdrawn", "consent_unsaved", "storage", "local_reader_unavailable", "reader_unprepared"].contains(code) || ChatFailureText.isRetryable(code))
     }
     var actionTitle: String { code == "consent_declined" || code == "answer_withdrawn" ? "Get answer" : "Try again" }
 }

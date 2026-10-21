@@ -4321,20 +4321,24 @@ final class ReaderModel {
         if let reference = turn.paperReference,
            let paper = papers.first(where: { $0.sourceMembership == reference }), paper.readerBundle == nil {
             if selectedPaper?.id == paper.id { openHTMLReader(paper, userInitiated: true) }
-            // That paper's own preparation: its opening, or its background download. Another paper's never stands in.
-            let preparation: Task<Void, Never>? = localReaderOpeningID == paper.id ? localReaderTask : devicePreparationTasks[paper.id]
-            guard let preparation else { startGeneration(turn, transport: transport, state: state ?? privateState); return }
-            // The question is in flight while it waits (a thinking row, Stop, no second Send), and is asked once the
-            // paper is ready, if it is still the conversation's newest question.
+            // The question is in flight while its paper is prepared on this device — whichever paper it is, open here or
+            // not (owner, build 78: "Got this error somehow?" — a question about a paper not opened on this device was
+            // answered with "Open this paper and prepare its reader…"). It is asked once the paper is ready, if it is
+            // still the conversation's newest question; a preparation that fails says why.
             var waiting = ChatGeneration(turn: turn)
             waiting.waitingForPaper = true
             let placeholder = waiting.id
             waiting.task = Task { [weak self] in
-                await preparation.value
-                guard let self, !Task.isCancelled, self.sessionID == turn.sessionID,
+                guard let self else { return }
+                let prepared: Result<VerifiedReaderBundle, Error>
+                do { prepared = .success(try await self.readerBundleForChat(paper)) } catch { prepared = .failure(error) }
+                guard !Task.isCancelled, self.sessionID == turn.sessionID,
                       self.chatGenerations[turn.composerID]?.id == placeholder else { return }
                 self.chatGenerations[turn.composerID] = nil; self.chatStreamProgress[placeholder] = nil
-                self.startGeneration(turn, transport: transport, state: self.privateState)
+                switch prepared {
+                case .success(let bundle): self.startGeneration(turn, transport: transport, state: self.privateState, bundle: bundle)
+                case .failure(let error): self.chatAnswerIssues[turn.composerID] = Self.preparationIssue(turn: turn, error: error)
+                }
             }
             chatGenerations[turn.composerID] = waiting
             chatStreamProgress[placeholder] = ChatProgress(kind: .preparingPaper)
@@ -4402,7 +4406,54 @@ final class ReaderModel {
     /// "Stopped · charged for the part written". Earlier answers keep "Response interrupted".
     private(set) var chatInterruptionNotes: [UUID: String] = [:]
 
-    private func startGeneration(_ turn: ChatAnswerTurn, transport: any ChatTransport, state: PrivateState) {
+    /// A question's paper as this device has it: the open copy, the stored one, or prepared now from arXiv's HTML (the
+    /// device fetches it; ARXIV_DEVICE_ONLY.md). A preparation already under way for it (its opening, or a background
+    /// download) is joined, never repeated: when that one failed, its reason is the answer's.
+    private func readerBundleForChat(_ paper: Paper) async throws -> VerifiedReaderBundle {
+        func shown() -> VerifiedReaderBundle? { papers.first { $0.id == paper.id && $0.sourceMembership == paper.sourceMembership }?.readerBundle }
+        if let bundle = shown() { return bundle }
+        guard let source = paper.arxivReaderSource, let store = localPersistence.localReaderStore else {
+            throw ChatTransportError.rejected("local_reader_unavailable")
+        }
+        let joined: Task<Void, Never>? = localReaderOpeningID == paper.id ? localReaderTask : devicePreparationTasks[paper.id]
+        if let joined { await joined.value; try Task.checkCancellation() }
+        if let bundle = shown() { return bundle }
+        if let record = await store.record(sourceID: source.sourceID, revision: source.revision) {
+            let stored = try await store.read(record.identity)
+            return try await Task.detached(priority: .userInitiated) { try ReaderBundleLoader.admitImages(in: stored) }.value
+        }
+        if joined != nil {
+            // That preparation failed: say its reason rather than asking arXiv again at once.
+            let reason = selectedPaper?.id == paper.id ? readerOpenIssue : devicePreparationIssues[paper.id]
+            throw ChatPreparationFailure(reason: reason ?? "This paper couldn’t be prepared on this device.")
+        }
+        guard !workOwnership.isActivating, !libraryPublicationDeferred else { throw ChatTransportError.rejected("local_reader_unavailable") }
+        let scope = sessionID, persistence = localPersistence
+        let sink = await sourceMetadataSink(for: paper, source: source)
+        let bundle: VerifiedReaderBundle
+        do { bundle = try await ArxivHTMLReader().prepare(source, authors: paper.authorNames, title: paper.title, progress: { _ in }, onSource: sink) }
+        catch {
+            if case ArxivHTMLError.unavailable = error { reportSourceMetadataWithoutHTML(paper, source: source) }
+            SessionTimeline.shared.record("reader", ["phase": "chat-prepare-failed", "code": (error as? ArxivHTMLError)?.code ?? String(describing: type(of: error))])
+            throw ChatPreparationFailure(reason: Self.preparationReason(error))
+        }
+        try Task.checkCancellation()
+        guard sessionID == scope else { throw CancellationError() }
+        // Kept like any other preparation, so the paper opens at once here afterwards.
+        let commit = try persistence.acceptLocalReaderWrite { try await $0.install(bundle: bundle) }
+        _ = try await commit.value
+        if sessionID == scope { localReaderRecords = await store.records(); indexPaper(paper.displaying(bundle)) }
+        return bundle
+    }
+
+    /// Why a question's paper couldn't be prepared, as its answer's issue (with Try again).
+    private static func preparationIssue(turn: ChatAnswerTurn, error: Error) -> ChatAnswerIssue {
+        if case ChatTransportError.rejected(let code) = error { return ChatAnswerIssue(turn: turn, code: code) }
+        let reason = (error as? ChatPreparationFailure)?.reason ?? preparationReason(error)
+        return ChatAnswerIssue(turn: turn, code: "reader_unprepared", detail: reason)
+    }
+
+    private func startGeneration(_ turn: ChatAnswerTurn, transport: any ChatTransport, state: PrivateState, bundle prepared: VerifiedReaderBundle? = nil) {
         chatAnswerIssues[turn.composerID] = nil; unsavedAnswers[turn.composerID] = nil
         guard !state.isDeleted(turn.conversationID),
               let branch = state.conversationBranch(turn.conversationID, through: turn.userMessageID), branch.complete,
@@ -4423,7 +4474,7 @@ final class ReaderModel {
                     throw ChatTransportError.rejected("local_context_large")
                 }
                 let paper = turn.documentID.flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) }
-                let bundle = paper?.readerBundle
+                let bundle = prepared ?? paper?.readerBundle
                 if turn.documentID != nil, bundle == nil { throw ChatTransportError.rejected("local_reader_unavailable") }
                 if let bundle, let question = transcript.last?.text {
                     figures = ChatFigureFinder.images(question: question, selection: turn.selection, bundle: bundle)
@@ -4435,7 +4486,7 @@ final class ReaderModel {
             } else {
             let localContext: LocalPaperChatContext?
             if let reference = turn.paperReference {
-                guard let bundle = papers.first(where: { $0.sourceMembership == reference })?.readerBundle else {
+                guard let bundle = prepared ?? papers.first(where: { $0.sourceMembership == reference })?.readerBundle else {
                     throw ChatTransportError.rejected("local_reader_unavailable")
                 }
                 localContext = try LocalPaperChatContext(reference: reference, bundle: bundle)

@@ -1,4 +1,4 @@
-import { localChatContext } from './arxiv-reader';
+import { ArxivReaderError, localChatContext } from './arxiv-reader';
 import { chatFigureImages, composeFigure, figureImage, figureLabel, storedFigurePartsText, type FigureParts } from './chat-figures';
 import type { VerifiedBundle } from './bundle';
 // One login lifetime owns these composers and streams. Paid requests require an acknowledged question. Navigation never
@@ -1005,7 +1005,8 @@ export class ChatSession {
           const figures=await chatFigureImages(asked,question.selection,bundle);
           if(figures.length){request.figures=figures;figureManifest=bundle.manifestSHA256;}
         }
-      }catch{if(!this.signal.aborted){c.phase='idle';c.issue='local_reader_unavailable';this.publish();}return;}
+      // Why the paper couldn't be prepared in this browser, not "open it first" (owner, build 78: "Got this error somehow?").
+      }catch(error){if(!this.signal.aborted){c.phase='idle';c.issue=preparationIssue(error);this.publish();}return;}
       if(this.signal.aborted || this.retiredStorage || !this.accepting)return;
     } else if(c.documentID&&this.legacyPapers.has(c.documentID)){
       // A legacy arXiv item: the text prepared here when it can be; otherwise the document id, which the server answers
@@ -1179,4 +1180,10 @@ export class ChatSession {
     if (!c.answer) { c.liveText = ''; c.liveID = null; c.answerTitle = undefined; }
     c.phase = 'idle'; this.publish(); void this.refreshBalance();
   }
+}
+
+/** A question's paper couldn't be prepared in this browser: why, as the answer's issue code (chat.ts says it). */
+export function preparationIssue(error: unknown): string {
+  if (!(error instanceof ArxivReaderError)) return 'local_reader_unavailable';
+  return error.kind === 'no-html' ? 'reader_no_html' : error.kind === 'network' ? 'reader_retrieval' : 'reader_unprepared';
 }
