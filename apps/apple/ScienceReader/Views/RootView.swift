@@ -99,7 +99,7 @@ struct RootView: View {
         .modifier(PDFUploadPresenter(model: model))
         .modifier(DeviceApprovalBanner(model: model))
         .sheet(item: $model.tagEditor) { request in
-            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
+            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper, keyword: request.keyword) }
         }
         // Settings over the current screen (phone width): the last section of every top-right menu; Done returns here.
         .sheet(isPresented: $model.settingsPresented) {

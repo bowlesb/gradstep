@@ -175,8 +175,6 @@ struct PaperView: View {
     @State private var crashReloads = 0
     @State private var reference: ReaderReference?
     @State private var authorToSearch: String?
-    /// A keyword chip tapped in the paper (builds 73 and 75: "search ML papers based on this keyword").
-    @State private var keywordToSearch: String?
     /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
     @State private var figureReference: ReaderFigureReference?
     /// The figure reference's sheet: half height, the full height for a walkthrough.
@@ -498,21 +496,6 @@ struct PaperView: View {
                 Button("Find papers by \(name)") {
                     model.searchPapers("author:" + name); authorToSearch = nil
                 }
-            }
-        }
-            // A keyword: ML paper search for it first (owner: "right at the top"), then the Library's papers with it
-            // ("either external or internal"), then editing the keywords (tapping beside the chips still edits).
-            .confirmationDialog(keywordToSearch.map { "“\($0)”" } ?? "Keyword",
-                                isPresented: Binding(get: { keywordToSearch != nil }, set: { if !$0 { keywordToSearch = nil } }), titleVisibility: .visible) {
-            if let name = keywordToSearch {
-                Button("Search ML papers for “\(name)”") { model.searchPapers(name); keywordToSearch = nil }
-                    .accessibilityIdentifier("paper.keyword.search")
-                Button("Show library papers tagged “\(name)”") { model.showLibraryPapers(taggedWith: name); keywordToSearch = nil }
-                    .accessibilityIdentifier("paper.keyword.library")
-                Button("Edit keywords…") {
-                    keywordToSearch = nil
-                    if let paper = model.selectedPaper { model.editTags(for: paper) }
-                }.accessibilityIdentifier("paper.keyword.edit")
             }
         }
         .sheet(isPresented: $showContents, onDismiss: {
@@ -838,7 +821,10 @@ struct PaperView: View {
         hooked.citationDismissID = citationDismissID
         hooked.paperAuthors = model.selectedPaper?.authorNames ?? []
         hooked.onAuthor = { name in if model.readerDocumentScope == scope { authorToSearch = name } }
-        hooked.onTag = { name in if model.readerDocumentScope == scope { keywordToSearch = name } }
+        // A keyword chip opens the keyword editor (the build-69 UX), with that keyword's searches at its top (build 78).
+        hooked.onTag = { name in
+            if model.readerDocumentScope == scope, let paper = model.selectedPaper { model.editTags(for: paper, keyword: name) }
+        }
         hooked.onCrash = handleCrash
         hooked.onContentsGesture = {
             guard model.readerDocumentScope == scope, !showContents else { return }

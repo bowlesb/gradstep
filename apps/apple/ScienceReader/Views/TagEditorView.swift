@@ -7,6 +7,9 @@ import ScienceReaderCore
 struct TagEditorView: View {
     @Bindable var model: ReaderModel
     let paper: Paper
+    /// The keyword chip that opened the editor from the paper: its two searches come first, the editor right below
+    /// (owner, build 78: "go back to old UX but I want the new options you added, I just like the edit interface right below").
+    var keyword: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var tags: [String]
     @State private var draft = ""
@@ -15,8 +18,8 @@ struct TagEditorView: View {
     @FocusState private var fieldFocused: Bool
     @ScaledMetric(relativeTo: .subheadline) private var chipHeight = 32.0
 
-    init(model: ReaderModel, paper: Paper) {
-        self.model = model; self.paper = paper
+    init(model: ReaderModel, paper: Paper, keyword: String? = nil) {
+        self.model = model; self.paper = paper; self.keyword = keyword
         _tags = State(initialValue: LibraryTags.tags(for: paper))
     }
 
@@ -78,6 +81,20 @@ struct TagEditorView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let keyword {
+                    // Leaving for a search would drop unsaved edits, so the searches wait for Save or Cancel (dimmed, in place).
+                    Section {
+                        Button { model.tagEditor = nil; model.searchPapers(keyword) } label: {
+                            Label("Search ML papers for “\(keyword)”", systemImage: "magnifyingglass")
+                        }
+                        .accessibilityIdentifier("paper.keyword.search")
+                        Button { model.tagEditor = nil; model.showLibraryPapers(taggedWith: keyword) } label: {
+                            Label("Show library papers tagged “\(keyword)”", systemImage: "books.vertical")
+                        }
+                        .accessibilityIdentifier("paper.keyword.library")
+                    }
+                    .disabled(saving || changed)
+                }
                 Section {
                     if tags.isEmpty {
                         Text("No tags").foregroundStyle(.secondary).accessibilityIdentifier("tags.empty")

@@ -715,8 +715,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
-        onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => searchPapers('author:' + name)}
-        onTagSearch={searchPapers} onShowTagged={showTagged}
+        onEditTags={keyword => readerActions.editTags(item, keyword ? { name: keyword, search: searchPapers, showTagged } : undefined)}
+        onAuthorSearch={name => searchPapers('author:' + name)}
         onBackToChat={chatReturn && !ws.right.open ? () => { const back = chatReturn.composer; setChatReturn(null); if (back) chat?.chooseDraft(back); setChatMode('paper'); ws.show('right'); } : undefined}
         onExplainerReturn={() => setChatReturn(null)}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading}

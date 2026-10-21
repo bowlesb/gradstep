@@ -17,7 +17,9 @@ import './library-actions.css';
 
 type Library = ReturnType<typeof useLibrary>;
 type Action = 'menu' | 'tags' | 'archive' | 'remove' | 'catalog';
-interface Selection { item: LibraryPaper; trigger: HTMLElement; region: Element | null; action: Action; last: boolean }
+/** The keyword chip that opened Edit tags from the paper: its two searches sit above the editor (owner, build 78). */
+export interface KeywordSearches { name: string; search: (tag: string) => void; showTagged: (tag: string) => void }
+interface Selection { item: LibraryPaper; trigger: HTMLElement; region: Element | null; action: Action; last: boolean; keyword?: KeywordSearches }
 type OpenMenu = (item: LibraryPaper, trigger: HTMLButtonElement, last?: boolean) => void;
 const title = (item: LibraryPaper) => item.metadata?.title ?? (item.source_id ? `arXiv ${item.source_id}` : 'Untitled paper');
 
@@ -56,10 +58,10 @@ export function useLibraryActions(library: Library, beforeSequentialNavigation?:
     if (owner.trigger.isConnected && !(owner.trigger instanceof HTMLButtonElement && owner.trigger.disabled)) owner.trigger.focus();
     else if (owner.region?.isConnected) owner.region.querySelector<HTMLElement>('.table-wrap, .paper-menu-button, a.compact-link')?.focus();
   }, [selection]);
-  const editTags = (item: LibraryPaper) => {
+  const editTags = (item: LibraryPaper, keyword?: KeywordSearches) => {
     if (!item.visible || !managed(item) || latest.current.pending.has(item.id)) return;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
-    setSelection({ item, trigger, region: null, action: 'tags', last: false });
+    setSelection({ item, trigger, region: null, action: 'tags', last: false, keyword });
   };
   return { library, selection, notice, open, close, choose, editTags, beforeSequentialNavigation, extra, onSimilar, menuItemID: selection?.action === 'menu' ? selection.item.id : null };
 }
@@ -256,6 +258,11 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     onClick={event => { if (event.target === ref.current) close(false); }}>
     <div className="dialog-body">
       <h2>{label}</h2><p className="fine paper-action-title">{title(baseline)}</p>
+      {editing && selection.keyword && <div className="keyword-actions" data-testid="keyword-actions">
+        {/* Leaving would drop unsaved edits, so the searches wait for Save or Cancel. */}
+        <button type="button" className="secondary" disabled={busy || dirty} onClick={() => { const k = selection.keyword!; actions.close(selection, undefined, false); k.search(k.name); }}>Search ML papers for “{selection.keyword.name}”</button>
+        <button type="button" className="secondary" disabled={busy || dirty} onClick={() => { const k = selection.keyword!; actions.close(selection, undefined, false); k.showTagged(k.name); }}>Show library papers tagged “{selection.keyword.name}”</button>
+      </div>}
       {moving ? <label>Catalog<select aria-label="Catalog" value={destination} onChange={e => setDestination(e.target.value)} disabled={busy}>
         {library.catalogs?.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select></label> : editing ? <>

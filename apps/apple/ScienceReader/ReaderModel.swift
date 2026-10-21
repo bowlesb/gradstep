@@ -115,6 +115,9 @@ struct ReaderDocumentScope: Hashable {
 struct TagEditorRequest: Identifiable, Equatable {
     let id = UUID()
     let paperID: UUID
+    /// The keyword chip tapped in the paper, if that's how the editor opened: its searches sit at the top, the editor
+    /// right below (owner, build 78: "go back to old UX but I want the new options… I just like the edit interface right below").
+    var keyword: String? = nil
 }
 
 /// A source-only PDF decrypted only while the user is viewing it. The bytes
@@ -2658,9 +2661,9 @@ final class ReaderModel {
         }
     }
 
-    func editTags(for paper: Paper) {
+    func editTags(for paper: Paper, keyword: String? = nil) {
         guard !paper.isSample, papers.contains(where: { $0.id == paper.id }) else { return }
-        tagEditor = TagEditorRequest(paperID: paper.id)
+        tagEditor = TagEditorRequest(paperID: paper.id, keyword: keyword)
     }
 
     /// The reader's own tags on other papers, most used first (suggestions in the Edit tags sheet).
