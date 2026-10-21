@@ -272,14 +272,28 @@ final class LibraryLayoutTests: XCTestCase {
 
         // Tags: the menu lists them, most used first; choosing one narrows the table.
         tapChip("tags", in: app)
-        let alignment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Alignment")).firstMatch
-        XCTAssertTrue(alignment.waitForExistence(timeout: 5), "A paper's own tag is listed")
+        let alignment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Preference optimization")).firstMatch
+        XCTAssertTrue(alignment.waitForExistence(timeout: 5), "A paper's keyword is listed (DPO's derived keyword; its catalog tags give way to them since build 70)")
         attach(app, "Tag menu")
         alignment.tap()
         XCTAssertTrue(cell(dpo, in: app).waitForExistence(timeout: 5))
-        XCTAssertFalse(cell(attention, in: app).exists, "Only papers tagged Alignment")
-        XCTAssertEqual(filter("tags", in: app).label, "Tag: Alignment")
+        XCTAssertFalse(cell(attention, in: app).exists, "Only papers tagged Preference optimization")
+        XCTAssertEqual(filter("tags", in: app).label, "Tag: Preference optimization")
         attach(app, "Tag filter")
+        // Build 75 (AHgU): ML paper search for the chosen tag sits at the top of the Tags menu.
+        tapChip("tags", in: app)
+        XCTAssertTrue(app.buttons["library.tags.search"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["library.tags.search"].label.contains("Preference optimization"), app.buttons["library.tags.search"].label)
+        attach(app, "Tag menu with Search ML papers")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Preference optimization")).firstMatch.tap()
+        // Build 75 (AOog): a search starts from the whole library, and Cancel leaves no tag filter behind.
+        let field = app.searchFields.firstMatch.exists ? app.searchFields.firstMatch : app.textFields.firstMatch
+        field.tap()
+        XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5), "the tag filter ended when the search began")
+        app.buttons["library.search.cancel"].tap()
+        XCTAssertEqual(filter("tags", in: app).label, "Tags")
+        tapChip("tags", in: app); app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Preference optimization")).firstMatch.tap()
+        XCTAssertEqual(filter("tags", in: app).label, "Tag: Preference optimization")
 
         // Search filters the table live, within the filter.
         tapChip("tags", in: app)

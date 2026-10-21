@@ -253,7 +253,6 @@ struct LibraryTableCell: View {
                             .accessibilityLabel("Download to this device").help("Download to this device")
                     } else { symbol.accessibilityLabel(copy.label).help(copy.label) }
                 }
-                if isNew { Circle().fill(Color.accentColor).frame(width: 7, height: 7).accessibilityLabel("New") }
             }
         case .authors: Text(facts.authors ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
         case .year: PaperTableText(text: facts.year.map(String.init))
@@ -266,7 +265,7 @@ struct LibraryTableCell: View {
         // "—" for a paper never opened on this device; imports have no reading activity.
         case .opened: PaperTableDate(date: facts.opened, placeholder: facts.paper == nil ? nil : "—")
         case .chats: PaperTableText(text: String(facts.chats))
-        case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled, explain: explain)
+        case .progress: LibraryProgressCell(item: item, isNew: isNew, act: act, enabled: enabled, explain: explain)
         case nil: EmptyView()
         }
     }
@@ -277,6 +276,9 @@ struct LibraryTableCell: View {
 /// at the very least"). VoiceOver reads the full status through the row; the button is its own element.
 struct LibraryProgressCell: View {
     let item: LibraryTableItem
+    /// Added recently and not opened on this device: "New" where "—" would be (owner, build 42 asked for the signal;
+    /// build 75 found its purple dot beside the checkmark confusing).
+    var isNew = false
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
     /// "Why does this take a minute?" beside an import's progress.
@@ -323,6 +325,8 @@ struct LibraryProgressCell: View {
                         LibraryProgressBar(value: progress).frame(width: 28).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
                         Text("\(LibraryFormat.percent(progress))%").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
                     }
+                } else if isNew {
+                    PaperTableText(text: "New").accessibilityLabel("New, not opened yet")
                 } else {
                     PaperTableText(text: facts.paper == nil ? nil : "—")
                 }
@@ -586,9 +590,22 @@ struct LibraryFilterBar: View {
         }
     }
 
-    /// One chip for tags: "Tags ⌄", or the chosen tag. Most used first.
+    /// One chip for tags: "Tags ⌄", or the chosen tag. Most used first. At the top, ML paper search for the chosen tag,
+    /// or for one of them (owner, build 75: "a Search ML papers for tag at the top… either external or internal": the tag
+    /// rows below are the internal one).
     private func tagMenu(_ summary: LibraryFilterSummary) -> some View {
         Menu {
+            Section {
+                if let tag = model.libraryTagFilter {
+                    Button("Search ML papers for “\(tag)”", systemImage: "magnifyingglass") { model.searchPapers(tag) }
+                        .accessibilityIdentifier("library.tags.search")
+                } else if !summary.tags.isEmpty {
+                    Menu {
+                        ForEach(summary.tags, id: \.tag) { entry in Button(entry.tag) { model.searchPapers(entry.tag) } }
+                    } label: { Label("Search ML papers for a tag", systemImage: "magnifyingglass") }
+                        .accessibilityIdentifier("library.tags.search")
+                }
+            }
             Button { model.libraryTagFilter = nil } label: {
                 if model.libraryTagFilter == nil { Label("All tags", systemImage: "checkmark") } else { Text("All tags") }
             }

@@ -693,6 +693,8 @@ struct ChatPaperContext {
                 outcome = nil
             } catch LibraryCommandError.targetBusy {
                 outcome = .init(kind: .present, message: "This paper already has a pending change.", reference: text)
+            } catch ReaderModel.LibraryAddError.alreadyInLibrary {
+                outcome = .init(kind: .present, message: "Already in your library.", reference: text, sourceID: reference.sourceID)
             } catch {
                 outcome = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
             }

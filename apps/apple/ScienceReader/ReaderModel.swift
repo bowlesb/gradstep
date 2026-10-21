@@ -5,11 +5,13 @@ import StoreKit
 import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
-    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", settings = "Settings"
+    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Notes", settings = "Settings"
+    /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
+    static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
     var id: Self { self }
-    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .settings: "gearshape" } }
+    var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
-enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat" }
+enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Notes" }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
 enum SelectionAction: String, CaseIterable {
@@ -122,6 +124,10 @@ struct LocalPaperPresentation: Identifiable, Equatable, Sendable {
     let id: UUID
     let title: String
     let data: Data
+    /// The arXiv identity behind the saved PDF, for a snippet's source line (nil when unknown).
+    var sourceID: String? = nil
+    var revision: Int? = nil
+    var authors: [String] = []
 }
 
 struct ChatFollowRequest: Equatable {
@@ -131,7 +137,12 @@ struct ChatFollowRequest: Equatable {
 
 @MainActor @Observable
 final class ReaderModel {
-    var tab: ReaderTab = .library { didSet { if tab == .chat { returnToChatAvailable = false } } }
+    var tab: ReaderTab = .library { didSet {
+        if tab == .chat { returnToChatAvailable = false }
+        // Going somewhere from Settings (an explanation, a downloaded paper) leaves it; Done is not needed.
+        if tab != oldValue, settingsPresented { settingsPresented = false }
+        if tab != oldValue, notes.capturing != nil { notes.capturing = nil }
+    } }
     var wideMode: WideMode = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
     @ObservationIgnored private var deviceTextIndex = DevicePaperTextIndex()
@@ -293,7 +304,13 @@ final class ReaderModel {
     private var promotedChatContexts: [UUID: PromotedChatContext] = [:]
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
-    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
+    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged(); noteLibraryCommandAges() } } }
+    /// When this run first saw each unsent change, and whether one has waited long enough to mention (LibrarySyncNotice).
+    @ObservationIgnored var libraryCommandSeen: [UUID: Date] = [:]
+    @ObservationIgnored var libraryCommandAgeCheck: Task<Void, Never>?
+    var libraryCommandsOverdue = false
+    /// Storage stopped sending changes until the app reopens.
+    var libraryCommandsHalted: Bool { libraryCommandIssue != nil && (libraryCommandCoordinator == nil || libraryCommandCoordinator?.isHalted == true) }
     #if DEBUG && FIXTURE_HOST
     /// Fixture runs only: Retry and Remove on imports act locally (there is no account or server).
     @ObservationIgnored var fixtureImportChanges = false
@@ -688,7 +705,9 @@ final class ReaderModel {
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
     var chatTitle: String {
         guard !chatWasDeleted else { return "Deleted conversation" }
-        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return "New chat" }
+        // A figure, table or equation explainer continued in Chat is that item's chat until it has a title of its own
+        // (build 73: Back to chat landed on a "New chat" showing Figure 2's explainer).
+        guard let root = activeConversation.flatMap({ privateState.revisions(for: $0).first }) else { return promotedChatContext?.label ?? "New chat" }
         return ChatTitle.display(root.payload.text ?? "", source: root.payload.titleSource)
     }
     /// The visible conversation has a topic title (generated or renamed); without one, its next answer asks for one.
@@ -869,6 +888,7 @@ final class ReaderModel {
             }
             let summaries = privateState.conversationSummaries()
             if summaries != conversationSummaries { conversationSummaries = summaries }
+            notes.update(privateState)
         }
     }
     /// All chats' rows: one summary per saved conversation, computed once per history change (one pass over the
@@ -988,25 +1008,35 @@ final class ReaderModel {
     var chatConsentPrompt: ChatConsentPrompt?
     /// Paper podcasts: Listen catalog, player, downloads, private generation (Services/PodcastCenter.swift).
     let podcasts = PodcastCenter()
+    /// Notes and snippets (Services/NotesCenter.swift, ReaderModel+Notes.swift; docs/architecture/NOTES_AND_SNIPPETS.md).
+    let notes = NotesCenter()
+    /// Settings shown over the current screen on a phone-width layout: the last section of every top-right menu opens
+    /// it, and closing it returns to the same place (NOTES_AND_SNIPPETS.md "Navigation"). The wide layouts keep their
+    /// own Settings destination (`tab == .settings`, the header gear, the Mac toolbar and ⌘,).
+    var settingsPresented = false
+    /// RootView: whether the phone-width layout (the five-item tab bar) is showing.
+    @ObservationIgnored var compactLayout = true
+    /// Tests and UI fixtures: the note-assets transport; nil uses the app's network client.
+    @ObservationIgnored var notesTransportOverride: (any NoteAssetTransport)?
     private(set) var creditBalance: CreditBalance?
     private(set) var creditBalanceIssue: String?
     private let chatTransportOverride: (any ChatTransport)?
     private let chatConsentStore: any AuthenticationCredentialStore
     var isDiscardingDraft: Bool { chatWorkspace.isDiscarding(in: chatContext) }
-    private var backend: BackendClient?
+    private(set) var backend: BackendClient?
     private var keys: DeviceKeys?
-    private var device: LocalDevice?
+    private(set) var device: LocalDevice?
     private(set) var localPersistence = ReaderLocalPersistence()
     private var draftQueue: ReaderDraftQueue?
     private var pendingDraftCheckpoints: [UUID: ChatWorkspace.Checkpoint] = [:]
     private var draftsRestored = false
     private let retirementQueue = ReaderRetirementQueue()
-    private var store: EncryptedStore? { localPersistence.store }
+    var store: EncryptedStore? { localPersistence.store }
     private var sync: CloudSync?
     private var started = false
-    private var workOwnership = ReaderWorkOwnership()
+    private(set) var workOwnership = ReaderWorkOwnership()
     var sessionID: UUID { workOwnership.accountSessionID }
-    private var accountID: UUID? { didSet { if accountID != oldValue {
+    private(set) var accountID: UUID? { didSet { if accountID != oldValue {
         selectedCatalogID = nil; catalogWriteTail = nil; showCatalogs = false; catalogBusy = false; catalogDeletionProgress = nil
         librarySearchSourceChanged(); podcasts.accountChanged()
     } } }
@@ -1062,7 +1092,8 @@ final class ReaderModel {
             do {
                 let data = try await store.read(record.identity)
                 guard let self, self.readerSessionID == scope else { return }
-                self.localPaperPresentation = LocalPaperPresentation(id: record.id, title: title, data: data)
+                self.localPaperPresentation = LocalPaperPresentation(id: record.id, title: title, data: data, sourceID: sourceID, revision: revision,
+                    authors: self.papers.first { $0.sourceID == sourceID }?.authorNames ?? [])
             } catch {
                 guard let self, self.readerSessionID == scope else { return }
                 self.error = "The saved PDF could not be opened. Add or download the PDF again."
@@ -2027,7 +2058,12 @@ final class ReaderModel {
         try Task.checkCancellation()
         restoreReadingActivity(reading)
         self.device = device
-        self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local) { [weak self] updated in
+        self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local,
+                              noteAssets: notesTransportOverride ?? BackendNoteAssets(backend: backend, accountID: device.accountID),
+                              onNoteUploads: { [weak self] report in
+                                  guard let self, self.workOwnership.owns(activation), self.accountID == device.accountID else { return }
+                                  self.notes.record(report)
+                              }) { [weak self] updated in
             guard let self, self.workOwnership.owns(activation), self.accountID == updated.accountID else { return }
             self.device = updated
         }
@@ -2095,15 +2131,20 @@ final class ReaderModel {
         }
     }
 
-    func beginReport(afterMenu: Bool = false) {
+    func beginReport(afterMenu: Bool = false, sheet: String? = nil) {
         let scope = sessionID
         Task {
             if afterMenu { try? await Task.sleep(for: .milliseconds(350)) }
             guard sessionID == scope else { return }
-            reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)"
-            reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
+            captureReport(sheet: sheet)
             showReport = true
         }
+    }
+    /// The screen's name and the app's own snapshot for a report (no snapshot over the recovery code or sign-in; any
+    /// other secret on screen is covered: `hiddenFromReports`).
+    func captureReport(sheet: String?) {
+        reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)" + (sheet.map { " / \($0)" } ?? "")
+        reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
     }
 
     func signOut() async {
@@ -2208,6 +2249,7 @@ final class ReaderModel {
         generalChat = true
         email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
+        notes.reset(); settingsPresented = false
         showReportsAfterComposer = false; error = nil; sessionEndedIssue = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
     }
@@ -2359,15 +2401,20 @@ final class ReaderModel {
 
     /// ML paper search (arXiv's papers) for the current discovery query. The latest query owns
     /// the results; failures are shown as failures, never as empty results.
-    /// "Find papers by <author>" from a paper's author list: ML paper search for that author, shown in the Library on
-    /// every layout (the wide layout shows the pane `wideMode` names, not `tab`).
-    func searchAuthor(_ name: String) {
-        discoveryQuery = "author:" + name; searchExternal = true; showLibrary(); runDiscovery()
-    }
     func findSimilarPapers(_ paper: Paper) {
         let tags = LibraryTags.tags(for: paper).prefix(3)
-        discoveryQuery = tags.isEmpty ? paper.title : tags.joined(separator: " ")
-        searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+        searchPapers(tags.isEmpty ? paper.title : tags.joined(separator: " "))
+    }
+    /// ML paper search for `query`: find similar, an author, a shared link, a keyword. A Library tag filter never
+    /// carries into search (build 75: "I somehow got here, I wonder if a search was not escaped").
+    func searchPapers(_ query: String) {
+        libraryTagFilter = nil; libraryQuery = ""
+        discoveryQuery = query; searchExternal = true; tab = .library; wideMode = .library; runDiscovery()
+    }
+    /// The Library's papers with this keyword (a keyword's "Show library papers tagged").
+    func showLibraryPapers(taggedWith tag: String) {
+        searchExternal = false; libraryQuery = ""; discoveryQuery = ""; libraryFilter = .all; libraryTagFilter = tag
+        tab = .library; wideMode = .library
     }
     func runDiscovery() {
         let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2494,10 +2541,16 @@ final class ReaderModel {
         feedLoadedAt = Date(); feedStaleNote = nil
     }
 
-    /// arXiv identifiers already in the library or being added.
+    /// arXiv identifiers already in the library or being added (an Add still waiting to sync included).
     var librarySourceIDs: Set<String> {
-        Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
+        var ids = Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
+        for command in libraryCommands where command.isUnfinished {
+            if case .beginImport(let source, _, _) = command.mutation { ids.insert(source) }
+        }
+        return ids
     }
+    /// Build 75 (two "TreeCut" rows): an arXiv paper already in the library, or being added, is not added again.
+    enum LibraryAddError: Error, Equatable { case alreadyInLibrary }
 
     func addDiscovered(_ result: DiscoveryResult) async throws {
         try await importPaper(result.sourceID, stayInSearch: true)
@@ -2513,6 +2566,13 @@ final class ReaderModel {
                 guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
                 return LibraryCatalogBatch.arxivKey(source) == key
             }
+        let inLibrary = papers.contains { !$0.isSample && catalogKey($0) == key }
+            || libraryImports.contains { $0.visible && catalogKey($0) == key && ![.failed, .cancelled].contains($0.phase) }
+            || libraryCommands.contains { command in
+                guard command.isUnfinished, case .beginImport(let source, _, _) = command.mutation else { return false }
+                return LibraryCatalogBatch.arxivKey(source) == key
+            }
+        if inLibrary { throw LibraryAddError.alreadyInLibrary }
         if !alreadyPresent && libraryCatalogs.catalogID(for: key) != currentCatalog.id {
             try await writeCatalog([.init(.assign, catalogID: currentCatalog.id, paperKey: key)])
         }
@@ -5148,6 +5208,9 @@ final class ReaderModel {
     func publish(_ snapshot: LocalStoreSnapshot) -> Bool {
         guard snapshot.generation >= publishedGeneration else { return false }
         if publishedPendingCount != snapshot.pendingCount { publishedPendingCount = snapshot.pendingCount }
+        // Pending note events and uploads change without a new generation, as the pending count does (each field
+        // is written only when it changed).
+        notes.update(snapshot: snapshot)
         // Every scheduled sync and write publishes again. The same generation is the same committed history, so its
         // projections (catalogs, chat counts, diagrams, summaries) and the library rows are not rebuilt or re-rendered.
         guard snapshot.generation > publishedGeneration else { return true }
@@ -5563,6 +5626,8 @@ extension ReaderModel {
     var promotedChatContext: PromotedChatContext? { chatComposerID.flatMap { promotedChatContexts[$0] } }
 
     func rememberExplainer(paperID: UUID, manifest: String, item: String, label: String, equation: Bool) {
+        // One way back at a time: the explainer the reader just left, not an older chat (build 73).
+        returnToChatAvailable = false
         explainerReturn = ExplanationSubject(paperID: paperID, paperTitle: selectedPaper?.title ?? "",
             manifestSHA256: manifest, itemID: item, label: label, action: equation ? "equation" : "figure", savedAt: Date(), localModelID: localAIModelID)
     }

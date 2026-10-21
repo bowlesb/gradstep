@@ -15,6 +15,7 @@ import { contentsEquations, contentsFigures, contentsTables, type ContentsEquati
 import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
+import { figureName, figureNoun } from '../lib/figure-view';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
 import { EquationTiles } from './EquationTiles';
 import { FigureViewer } from './Figures';
@@ -30,7 +31,6 @@ import type { ComposerDraft } from './Notes';
 import { SnippetOverlay, type Box } from './SnippetOverlay';
 import { prepareSnippetImage, SnippetImageError } from '../lib/note-images';
 import { paperSource, snippetAnchor } from '../lib/snippet-source';
-import { figureName } from '../lib/figure-view';
 
 // The equation view brings the math typesetter: loaded only when an equation is opened (EQUATION_VIEW.md).
 const EquationView = lazy(() => import('./EquationView'));
@@ -89,11 +89,15 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   /** The equation view's requests (the chat's consent and cache); without it the view shows the equation only. */
   onEditTags?: () => void; onAuthorSearch?: (name: string) => void;
+  /** A keyword chip's choices (builds 73 and 75): ML paper search for it, or the library's papers with that tag. */
+  onTagSearch?: (tag: string) => void; onShowTagged?: (tag: string) => void;
   equations?: EquationHost;
   /** The figure view's requests (FIGURE_VIEW.md), the same way. */
   figureView?: FigureHost;
   /** After a chat citation closed the chat drawer: reopens it (PaperView's Back to chat). */
   onBackToChat?: () => void;
+  /** An explainer's citation now offers Back to its explainer: the host drops an older Back to chat (one Back at a time). */
+  onExplainerReturn?: () => void;
   /** Reading mode (READING_MODE.md): the toolbar becomes a quiet bar over the paper. */
   reading?: ReadingMode;
   /** Notes: Add to note from a selection, a figure, table or equation, and Draw snippet. */
@@ -108,7 +112,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading, noteCapture }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onTagSearch, onShowTagged, onBackToChat, onExplainerReturn, reading, noteCapture }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -124,6 +128,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [back, setBack] = useState<{ from: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [author, setAuthor] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState<string | null>(null);
   const [markedChats, setMarkedChats] = useState<string[]>([]);
   const [bridgeReady, setBridgeReady] = useState(false);
   const appliedPassage = useRef<string | null>(null);
@@ -132,7 +137,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
-  const [explainerReturn,setExplainerReturn]=useState<{kind:'equation'|'figure';id:string}|null>(null);
+  // Back to the explainer a citation left (a table's says Table, as the apps). The most recent origin wins: a chat
+  // citation's passage replaces it, and setting it drops the host's Back to chat (build 73: both Backs showed).
+  const [explainerReturn,setExplainerReturnState]=useState<{kind:'equation'|'figure'|'table';id:string}|null>(null);
+  const setExplainerReturn=(value:{kind:'equation'|'figure'|'table';id:string}|null)=>{setExplainerReturnState(value);if(value)onExplainerReturn?.();};
+  const figureReturn=(id:string)=>({kind:bundle&&figureNoun(figureName(bundle,id))==='Table'?'table' as const:'figure' as const,id});
+  useEffect(()=>{if(passage)setExplainerReturnState(null);},[passage?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tableDetail, setTableDetail] = useState<ReaderFigureReference | null>(null);
   const [referenceNotice, setReferenceNotice] = useState<{ text: string; operationID: string; message: string; kind: 'working' | 'done' | 'not_found' | 'failed' } | null>(null);
   const referenceRequest = useRef<AbortController | null>(null);
@@ -293,6 +303,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         // An older bridge never emits figureref. Keep its existing figure gallery path unchanged.
         case 'figureref': setFigureReference(message.reference); break;
         case 'tags': onEditTags?.(); break;
+        case 'tag': { const tag = effectiveTags(item).find(t => t.trim().slice(0, 60) === message.name); if (tag) setKeyword(tag); break; }
         case 'contentsGesture':
           setContentsDiscovered(true); writeStored('gradstep.contents.doubleTapDiscovered', true);
           if (!workspace?.left.open) onContents();
@@ -545,7 +556,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             data-testid="ask" title="Chat ( ] )"><Icon name="chat" /><span>Chat</span></button>
         </div>
       </header>
-      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='figure')setFigure({id:explainerReturn.id,open:true});else setEquation(equationTarget(explainerReturn.id));setExplainerReturn(null);}}>Back to {explainerReturn.kind==='figure'?'Figure':'Equation'} Explainer</button>}
+      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='equation')setEquation(equationTarget(explainerReturn.id));else setFigure({id:explainerReturn.id,open:true});setExplainerReturn(null);}}>Back to {explainerReturn.kind==='equation'?'Equation':explainerReturn.kind==='table'?'Table':'Figure'} Explainer</button>}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -646,6 +657,16 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           ? () => { setTableDetail(null); setFigure({ id: tableDetail.id, open: true, explain: true }); } : undefined} onGo={() => {
           setTableDetail(null); command('showFigure', tableDetail.id, reduced(), true); if (workspace && !workspace.left.inline) workspace.show('left', false);
         }} />}
+      {/* A keyword chip (owner, builds 73 and 75: "an option right at the top to search ML papers based on this keyword";
+          "ideally you can choose either external or internal"), the search first; editing stays one step away. */}
+      <Dialog open={!!keyword} onClose={() => setKeyword(null)} title={keyword ?? 'Keyword'}>
+        <h2>{keyword}</h2>
+        <div className="keyword-actions" data-testid="keyword-actions">
+          {onTagSearch && <button className="primary" onClick={() => { const tag = keyword; setKeyword(null); if (tag) onTagSearch(tag); }}>Search ML papers for “{keyword}”</button>}
+          {onShowTagged && <button className="secondary" onClick={() => { const tag = keyword; setKeyword(null); if (tag) onShowTagged(tag); }}>Show library papers tagged “{keyword}”</button>}
+          {onEditTags && <button className="secondary" onClick={() => { setKeyword(null); onEditTags(); }}>Edit keywords…</button>}
+        </div>
+      </Dialog>
       <Dialog open={!!author} onClose={() => setAuthor(null)} title="Author">
         <h2>{author}</h2><button className="primary" onClick={() => { if (author) onAuthorSearch?.(author); setAuthor(null); }}>Find papers by {author}</button>
       </Dialog>
@@ -660,8 +681,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} explain={figure.explain} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
           onAddToNote={noteCapture ? id => { const f = bundle.index.figures.find(x => x.id === id); void addElement(id, f?.block_id, figureName(bundle, id), () => setFigure({ id: null, open: false })); } : undefined}
-          onCite={(marker,id) => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
-          onShowInPaper={id => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
+          onCite={(marker,id) => { setExplainerReturn(figureReturn(id)); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
+          onShowInPaper={id => { setExplainerReturn(figureReturn(id)); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
     </div>
   );
@@ -793,6 +814,7 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
   const figure = bundle.index.figures.find(f => f.id === reference.id);
   const blockID = figure?.block_id ?? reference.id;
   const text = figure?.caption || bundle.index.blocks.find(b => b.id === blockID)?.text || reference.label;
+  const noun = figureNoun(figure ? figureName(bundle, figure.id) : reference.label);
   const discuss = async () => {
     if (!onDiscuss || busy) return;
     setBusy(true); setIssue(null);
@@ -804,8 +826,8 @@ function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, on
     <div className="reader-reference-detail">
       <SheetTop onClose={onClose} closeDisabled={busy} testID="figure-reference-close">
         {(onChat || onDiscuss) && <button className="sheet-action" disabled={busy} onClick={() => onChat ? onChat() : void discuss()} data-testid="figure-reference-ask"
-          title="Ask about this figure; nothing is sent"><Icon name="chat" size={15} />{busy ? 'Saving draft…' : 'Chat about Figure'}</button>}
-        {onExplain && <button className="sheet-action prominent" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
+          title={`Ask about this ${noun.toLowerCase()}; nothing is sent`}><Icon name="chat" size={15} />{busy ? 'Saving draft…' : `Chat about ${noun}`}</button>}
+        {onExplain && <button className="sheet-action" disabled={busy} onClick={onExplain} data-testid="figure-reference-explain"
           title="Walks through it part by part. Uses credits."><Icon name="sparkles" size={15} />AI Explainer</button>}
         {onAddToNote && <button className="sheet-action" disabled={busy} onClick={onAddToNote} data-testid="table-add-to-note" title="Save this in a note"><Icon name="notes" size={15} />Add to note</button>}
         {!onDiscuss && !onExplain && !onAddToNote && <h2>{reference.label}</h2>}

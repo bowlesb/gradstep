@@ -460,6 +460,7 @@ struct PodcastEvidenceElsewhereSheet: View {
                         adding = true
                         Task {
                             do { try await model.importPaper(arxiv, stayInSearch: true); outcome = "Added to your library. It opens when it’s ready." }
+                            catch ReaderModel.LibraryAddError.alreadyInLibrary { outcome = "Already in your library." }
                             catch { outcome = (error as? BackendError)?.errorDescription ?? "The paper couldn’t be added right now." }
                             adding = false
                         }

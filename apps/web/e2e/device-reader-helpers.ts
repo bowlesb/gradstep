@@ -22,8 +22,13 @@ export function guardLocalContent(page:Page) {
  }};
 }
 
+/** Add paper: the first row of the far-right menu (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
+export async function openAddPaper(page:Page) {
+ await page.getByTestId('account-menu').click();await page.getByTestId('add-paper').click();
+}
+
 export async function choosePDF(page:Page,name:string,buffer:Buffer) {
- await page.getByRole('button',{name:'Add paper',exact:true}).click();
+ await openAddPaper(page);
  const dialog=page.getByRole('dialog',{name:'Add paper'});
  await dialog.locator('input[type=file]').setInputFiles({name,mimeType:'application/pdf',buffer});
  await dialog.getByRole('button',{name:'Add PDF',exact:true}).click();

@@ -31,7 +31,7 @@ struct TagEditorView: View {
     private var suggestions: [(name: String, detail: String?)] {
         var result: [(name: String, detail: String?)] = []
         func add(_ name: String, _ detail: String?) {
-            guard PaperKeywords.allowed(name), !PaperTags.contains(tags, name), !result.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
+            guard PaperKeywords.distinctive(name), !PaperTags.contains(tags, name), !result.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
             result.append((name, detail))
         }
         let own = model.ownTagsInLibrary(excluding: paper.id)

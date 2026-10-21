@@ -2,7 +2,7 @@
 // (the chat's own, with exactly this figure), the crop arithmetic, and the session's request and cache.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SSEParser, makeRequest, requestBody, type LocalPaperContext, type StreamEvent } from '../src/lib/chat';
-import { cropRect, cropStyle, cropCoverage, cardTypeLabel, displayBox, detailQuote, figureBox, figureKey, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
+import { cropRect, cropStyle, cropCoverage, cardTypeLabel, displayBox, detailQuote, figureBox, figureKey, figureNoun, figureTurn, parseFigureDetail, parseFigureWalkthrough, sectionHeading } from '../src/lib/figure-view';
 
 const server = vi.hoisted(() => ({ requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
@@ -227,5 +227,12 @@ describe('complete-figure presentation', () => {
     expect(parsed.sections.map(cardTypeLabel)).toEqual(['Concept','Related work','Panel','Panel']);
     expect(parsed.sections.map(s => !!s.box)).toEqual([false,false,true,true]);
     expect(cropCoverage(parsed.sections,size)).toBeLessThan(1);
+  });
+});
+
+describe('the figure page names its item (build 76: a table sheet said "Chat about Figure")', () => {
+  it('says Table for tables and Figure otherwise', () => {
+    for (const label of ['Table 3', 'Table', 'TABLE IV', 'Tab. 2', 'Tables 2']) expect(figureNoun(label)).toBe('Table');
+    for (const label of ['Figure 2', 'Fig. 1', 'Algorithm 1', 'Tabular data overview', '']) expect(figureNoun(label)).toBe('Figure');
   });
 });

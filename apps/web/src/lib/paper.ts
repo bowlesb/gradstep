@@ -1,6 +1,6 @@
 import type { ClientEntry, LibraryPaper, LocalPDFPaper } from './device-pdf';
 // What the library table shows for each entry: the native LibraryRowFacts, minus chats.
-import { tagsFromCategories, TAG_VOCABULARY } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
+import { distinctiveKeyword, tagsFromCategories, TAG_VOCABULARY } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
 import { isSourcePaper, readingSource, type ReaderPaper } from './reader-paper';
 import type { Entry, Import, Item } from './library';
 import { type ImportAction, importAction, importStatus, importStep, retryingAutomatically } from './progress';
@@ -8,15 +8,19 @@ import { type ImportAction, importAction, importStatus, importStep, retryingAuto
 const lower = (list: string[]) => new Set(list.map(t => t.toLowerCase()));
 
 export const allowedKeyword=(name:string)=>!['artificial intelligence','machine learning','ai','ml','statistical ml'].includes(name.trim().toLowerCase());
+/** Specific enough to tell this paper from others (builds 70 and 75: no LLM, Large language models, Reasoning,
+ * Evaluation): derived keywords and catalog tags use it; a tag the reader typed only has to be allowed
+ * (PaperKeywords.distinctive). */
+export { distinctiveKeyword };
 export function deriveKeywords(title:string,abstract:string):string[] {
   const norm=(s:string)=>' '+s.toLowerCase().replaceAll('-',' ').split(/[^\p{L}\p{N}]+/u).filter(Boolean).join(' ')+' ';
   const heading=norm(title),summary=norm(abstract);
-  const ranked: [string,number][] = TAG_VOCABULARY.filter(t=>t.kind==='topic'&&allowedKeyword(t.name)).flatMap(t=>{
+  const ranked: [string,number][] = TAG_VOCABULARY.filter(t=>t.kind==='topic'&&distinctiveKeyword(t.name)).flatMap(t=>{
     const term=norm(t.name),singular=term.endsWith('s ')?term.slice(0,-2)+' ':term;
     const score=(heading.includes(term)||heading.includes(singular)?20:0)+(summary.includes(term)||summary.includes(singular)?8:0);
     return score?[[t.name,score] as [string,number]]:[];
   });
-  for(const word of title.split(/[^\p{L}\p{N}-]+/u))if(word.length>=3&&word.length<=32&&(word.match(/\p{Lu}/gu)?.length??0)>=2&&allowedKeyword(word))ranked.push([word,25]);
+  for(const word of title.split(/[^\p{L}\p{N}-]+/u))if(word.length>=3&&word.length<=32&&(word.match(/\p{Lu}/gu)?.length??0)>=2&&distinctiveKeyword(word))ranked.push([word,25]);
   const seen=new Set<string>();return ranked.sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).flatMap(([name])=>{const key=name.toLowerCase();if(seen.has(key))return [];seen.add(key);return [name];}).slice(0,6);
 }
 /** What the reader sees: the catalog's tags minus those they removed, then their own (PaperTags.effective). */
@@ -24,7 +28,7 @@ export function effectiveTags(item: LibraryPaper): string[] {
   if (isSourcePaper(item)) return (item.tags_customized || item.user_tags?.length ? item.user_tags ?? [] : deriveKeywords(item.metadata.title ?? '',item.metadata.abstract ?? '')).filter(allowedKeyword);
   const hidden = lower(item.hidden_tags ?? []), result: string[] = [];
   const add = (tag: string) => { if (allowedKeyword(tag) && !result.some(t => t.toLowerCase() === tag.toLowerCase())) result.push(tag); };
-  for (const tag of item.tags ?? []) if (!hidden.has(tag.toLowerCase())) add(tag);
+  for (const tag of item.tags ?? []) if (!hidden.has(tag.toLowerCase()) && distinctiveKeyword(tag)) add(tag);
   for (const tag of item.user_tags ?? []) add(tag);
   return result;
 }

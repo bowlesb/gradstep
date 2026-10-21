@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## Builds 66–76 open screenshot feedback (owner requests; 2026-10-21, implemented on a branch, not released)
+
+The owner's builds 73–76 requests are implemented as asked (see the triage report's §0). Decisions they settle:
+the Library header is an explicit owner exception to the top-bar rule (catalog left of the search field; Add paper…
+as the first row of the far-right menu, the browser's account menu); recently added unread papers keep their
+build-42 signal as the word "New" instead of an accent dot; Chat about Figure/Table and AI Explainer are drawn alike;
+an explainer continued in Chat stays (it is named for its item and Back to chat returns to it; a morph transition is
+still open). Generic keywords (LLM, Large language models, Reasoning, Evaluation, …) are hidden from derived
+keywords and catalog tags in the apps; catalog tagging and the vocabulary version are unchanged, and a tag the reader
+types stays theirs. A screenshot inside Gradstep offers Report this screen (default on, Settings can turn it off);
+in-app report snapshots cover the recovery code and other codes. The client refuses to add an arXiv paper already in
+the library; server idempotency is separate server work.
+
 ## Notes and snippets (owner, October 20 local / October 21 UTC; design and prototype)
 
 The owner requests personal encrypted notes synced through the existing Supabase/device-key machinery. A note
@@ -27,6 +40,12 @@ with Settings in the top-right ⋯ (implementation direction for this delivery).
 uses a local rasterizer inside the reader frame; it passed fidelity checks on real bundles in Playwright's Chromium,
 Firefox and WebKit, and a runtime probe disables Draw snippet with a message where it can't work. Details and limits:
 [browser client status](architecture/NOTES_AND_SNIPPETS.md#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc).
+Update 2026-10-21 UTC (iPhone, iPad and Mac, local, not in TestFlight): the iPhone tab bar is Feed · Library · Paper ·
+Chat · Notes and every top-right ⋯ ends with Settings, shown over the screen; iPad and Mac add Notes to their view
+switch and keep their own Settings control and ⌘,. Capture adds a Draw snippet entry to the selection menu beside Add
+to note and a Paper menu pair on the Mac (no shortcuts); no persistent reader shortcut was added. The native and
+browser codecs accept exactly each other's records (shared cross-client fixtures). Details and limits:
+[native client status](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc).
 
 ## Responsiveness, dollar balances and platform parity (October 20; parity released, dollars design only)
 

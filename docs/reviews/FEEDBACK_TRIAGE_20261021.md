@@ -17,6 +17,42 @@ Kind: **Bug** = wrong behavior; **Design** = requested change in how something l
 Platforms: native code is one SwiftUI target for iPhone, iPad and Mac (Catalyst). `reader-bridge.js` is shared by
 native and browser; the browser lives in `apps/web/src`.
 
+## 0. Implementation status — 2026-10-21 (on the feedback branch; not merged, not released)
+
+The open owner items below were implemented on branch `worktree-agent-a9ba7e1c4135d32c0` (from `641541c`, merged with
+`main` at `fa1f69f`). Nothing
+was uploaded to TestFlight or deployed; the physical phone was not used. "Done" means implemented with the checks
+listed in IMPLEMENTATION_STATUS.md ("Builds 66–76 open feedback"), not owner acceptance. Conflicts C1–C4 were settled
+by the owner's own requests (C1: the build-75 request is an explicit Library exception, recorded in DESIGN.md; C2: keep
+the meaning, show "New" in words; C3: promotion stays, AHYZ fixed, no morph transition yet; C4: equal capsules).
+
+| Item | Status | Native commit | Browser commit | Notes |
+|---|---|---|---|---|
+| AHYZ (73) Back to chat after an explainer | Done | 5d3d917 | 640d2c6 | Promoted chat titled by its item; one Back at a time; browser "Back to Table Explainer" too |
+| AOog (75) tag filter left on in search | Done | ed96c7d | 17e4623 | Search start/Cancel and every route into ML search clear it |
+| AExY (75) catalog rename flash | Done | 6d2b4eb | — | No inline row or disabled list; "Saving…" only after 0.5 s |
+| AMZ1 (73) orange "Refresh" banner | Done | 0bf5618 | — (no browser queue) | Quiet ≥ 30 s / 3 tries; automatic 5 s/15 s/1 min/5 min retry; titles and Try now in Pending changes |
+| AG-KC (68) endless Equations spinner | Done | 455a452 | — (browser can't hang) | Index-based list within 1.5 s, numbers fill in |
+| APZf (76) "Chat about Figure" on tables; one purple action | Done | 4c8564f | 715f3c5 | Equal glass capsules; "Chat about Table" |
+| AL-V0 (73) mirrored plot labels | Done (compiler rev 22) | 32126ff | same bundle | Cause: `svgTextLabels` double flip (pictures.ts); paper 2610.22371v1 Fig. 3; saved copies need Update this paper. Double-tap zoom in the plain figure sheet: **not done** |
+| ADtu (69) affiliations/e-mails after the abstract | Done (rev 22) | 32126ff | same bundle | Folded into the header, every address kept |
+| AIW2 (70) abstract width / h6 | Done | 4eaa957 (bridge) | shared | Runs without keywords; h1–h6 and p; list item indent reset |
+| AB5R / G3 (70) generic keywords | Done (stoplist) | 9446667 | 9446667 | Shared GENERIC_KEYWORDS; reader-typed tags kept. Library-rarity ranking: **not done** |
+| AIm3 (71) whole-name links | Done | 4eaa957 (bridge) | shared | Sec./Section/§/Appendix A/Lemma/Theorem/Alg./Fig (no dot), name in its own span |
+| AJ_g (69) two model controls in the composer | Done (native) | 1a3e8ad | no change | Browser already has one model control; its credits line kept (build-57 rule enforced by chat-controls.spec) |
+| ACN1/AHgU (73/75) Search ML papers for keyword/tag | Done | 4eaa957 + 70b422b | f29c394 | Chip dialog (search / library / edit); Tags menu first entry |
+| ACLs (75) catalog CSV | Done | 90cd5a3 | 161271d | Shared fixture `tests/fixtures/library-csv/catalog.json`; browser has no DOI data |
+| AHI8 (75) catalog left of search, + into the far-right menu | Done | 0681a4c | d148697 | Browser: Add paper… is the first row of the account menu (it has no Library "…") |
+| AK1U (75) purple dot | Done | 72ac289 | f61ab4a | "New" in Progress (native) / Opened (browser) |
+| TreeCut duplicate rows | Client check done | 4181aa4 | 8a82365 | Server-side duplicate-add idempotency is on `main` separately; merging existing duplicate rows remains open |
+| (found in testing) a DOI/reference add reported as failed | Fixed | edbd9c5 | — | Since ca5c3e1, an unsaved catalog note turned a server-successful add into "Couldn't add it right now" |
+| §1 hardening: screenshot offer, sheet reports, codes covered | Done (native) | e8ef2c7 | — | Recovery code etc. black in in-app snapshots; TestFlight/ReplayKit captures can't be redacted |
+| Stale docs (§4) | Done | docs commit | — | DESIGN.md placeholder, Sheets/X, Last read; SESSION_REVIEW Settings › Admin |
+
+Not in this pass (unchanged status below): G1 crop clipping, AKUp morph transition, the plain figure sheet's zoom
+(AL-V0 design half), G4 keyword-heading naming, browser microphone/Copy as Text/"Related papers"/two-step chooser,
+Terms of Service row, the second failure screen, recovery-code rotation, and the AA7q persisted status filter.
+
 ## 1. "Screen share feedback feature is now missing" (build 77)
 
 **Conclusion:** neither the build 75–77 app code nor any App Store Connect configuration removed or hid a feedback

@@ -30,12 +30,22 @@ import Testing
         #expect(PaperKeywords.derive(title: "A study", abstract: "A graph neural network for molecules.").contains("Graph neural networks"))
         #expect(!PaperKeywords.derive(title: "A study", abstract: "Subgraph neural networking is not the same words.").contains("Graph neural networks"))
         #expect(!PaperKeywords.derive(title: "A study", abstract: "Neural networks on a graph.").contains("Graph neural networks"))
-        let title = "Transformers beat diffusion models", abstract = "We compare state space models."
+        let title = "Mixture of experts beat diffusion models", abstract = "We compare state space models."
         let first = PaperKeywords.derive(title: title, abstract: abstract)
-        #expect(first.prefix(2).sorted() == ["Diffusion models", "Transformers"], "Title matches rank above abstract matches")
+        #expect(first.prefix(2).sorted() == ["Diffusion models", "Mixture of experts"], "Title matches rank above abstract matches")
         #expect(first.contains("State space models"))
         #expect(PaperKeywords.derive(title: title, abstract: abstract) == first)
-        #expect(PaperKeywords.derive(title: title, abstract: abstract, text: "mixture of experts appear in the body") .contains("Mixture of experts"))
+        #expect(PaperKeywords.derive(title: title, abstract: abstract, text: "world models appear in the body").contains("World models"))
+    }
+    /// Build 75: LLM, Large language models, Reasoning and Evaluation tagged most of the owner's library.
+    @Test func genericKeywordsNeverDescribeAPaper() {
+        let tags = PaperKeywords.derive(title: "Interactive Learning for LLM Reasoning with TreeCut",
+            abstract: "Large language models show strong reasoning. We evaluate mathematical reasoning and tool use on a benchmark.")
+        #expect(!tags.contains("LLM")); #expect(!tags.contains("Reasoning")); #expect(!tags.contains("Large language models"))
+        #expect(!tags.contains("Evaluation"))
+        #expect(tags.contains("TreeCut")); #expect(tags.contains("Mathematical reasoning")); #expect(tags.contains("Tool use"))
+        for name in ["LLMs", " large language models ", "Transformers", "Benchmark"] { #expect(!PaperKeywords.distinctive(name)) }
+        #expect(PaperKeywords.allowed("LLM"), "a tag the reader types stays theirs")
     }
     @Test func textIndexIsBoundedAndIndependentPapersCanBeForgotten() {
         var index = DevicePaperTextIndex(); let a = UUID(), b = UUID()

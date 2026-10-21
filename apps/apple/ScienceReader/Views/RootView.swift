@@ -10,7 +10,9 @@ struct RootView: View {
     var body: some View {
         GeometryReader { geometry in
             // The Mac window is always the wide layout (its minimum width fits the panes).
-            if geometry.size.width >= 850 || Platform.isMac {
+            let wide = geometry.size.width >= 850 || Platform.isMac
+            Group {
+            if wide {
                 wideLayout(width: geometry.size.width).environment(\.figureViewerWindowSize, geometry.size)
             }
             else {
@@ -25,7 +27,9 @@ struct RootView: View {
                     .environment(\.tabBarReserve, softwareKeyboardShown ? 0
                                  : ChromeMetrics.tabBarReserve(safeBottom: safeBottom) + (miniPlayer ? PodcastMiniPlayer.height : 0))
                     .overlay(alignment: .bottom) {
-                        if !softwareKeyboardShown {
+                        // Drawing a snippet takes the bottom of the screen for its own controls; the reserve stays, so
+                        // the page never moves under the box being drawn.
+                        if !softwareKeyboardShown && model.notes.capturing == nil {
                             VStack(spacing: 6) {
                                 if miniPlayer { PodcastMiniPlayer(model: model) }
                                 tabBar
@@ -40,6 +44,9 @@ struct RootView: View {
                         if model.tab == .chat { model.wideMode = general ? .chat : .reader }
                     }
             }
+            }
+            .onAppear { model.compactLayout = !wide }
+            .onChange(of: wide) { _, now in model.compactLayout = !now }
         }
         // Visual checks pin the appearance (`--appearance=`); nil follows the system.
         .preferredColorScheme(Platform.fixtureAppearance)
@@ -72,26 +79,21 @@ struct RootView: View {
                 }.allowsHitTesting(false).accessibilityHidden(true)
             }
         }
-        .sheet(isPresented: signInPresentation, onDismiss: { model.authenticationSheetDismissed() }) {
-            if let presentationID = model.signInPresentationID {
-                AuthenticationView(model: model, presentationID: presentationID).id(presentationID).macSheetKeys()
-            }
-        }
+        // Sign-in, recovery, chats, diagrams, credits, reports and errors: presented here, or over Settings while it is
+        // open over the screen (SettingsPresentation.swift).
+        .sharedPresentations(model, host: .root)
         .infoBubbleDimming()
-        .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled().macSheetKeys(enabled: false) }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled().macSheetKeys(enabled: false) }
-        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID, startsOnPaper: model.allChatsStartsOnPaper).macSheetKeys() }
-        .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         .sheet(isPresented: $model.showAnswerOptions) { AnswerOptionsSheet(model: model).macSheetKeys() }
         .sheet(item: $model.localPaperPresentation) { presentation in
-            LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } })
+            LocalPDFReaderView(presentation: presentation, readWithModel: model.modelReadablePaper(for: presentation).map { paper in { model.readWithDeviceModel(paper) } },
+                               model: model)
                 .macSheetKeys()
         }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
             Text("Your account and its data were deleted from our servers and this device.")
         }
-        .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .modifier(PodcastPresenter(model: model))
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .modifier(PDFUploadPresenter(model: model))
@@ -99,22 +101,18 @@ struct RootView: View {
         .sheet(item: $model.tagEditor) { request in
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
         }
-        .sheet(item: $model.presentedDiagram) { presented in
-            if let diagram = model.diagram(presented.id) {
-                DiagramSheet(diagram: diagram).macSheetKeys()
-                    .environment(\.figureImage) { manifest, paths in model.figureImage(manifest: manifest, paths: paths) }
-            }
+        // Settings over the current screen (phone width): the last section of every top-right menu; Done returns here.
+        .sheet(isPresented: $model.settingsPresented) {
+            SettingsView(model: model, dismissSettings: { model.closeSettings() })
+                .sharedPresentations(model, host: .settings)
+                .macSheetKeys()
         }
-        .sheet(isPresented: $model.showReport, onDismiss: {
-            model.reportScreenshot = nil
-            if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
-        }) { ReportComposer(model: model) }
-        .sheet(isPresented: $model.showReports) { if let service = model.support { ReportsView(service: service).macSheetKeys() } }
-        .alert("Gradstep", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
-        } message: { Text(model.error ?? "") }
         #if INTERNAL
         .modifier(SessionCaptureHooks(model: model))
+        #endif
+        #if !targetEnvironment(macCatalyst)
+        // A screenshot taken in Gradstep offers "Report this screen" (Settings can turn the offer off).
+        .task { ScreenshotReportPrompt.shared.start(model) }
         #endif
         // Scheduled sync (ReaderModel.updateSyncSchedule) follows the scene; the first sync on return is below.
         .onChange(of: scenePhase, initial: true) { _, phase in model.sceneActive = phase == .active }
@@ -137,8 +135,11 @@ struct RootView: View {
     /// The tab bar: one glass capsule floating over the screen (2026-10-07).
     private var tabBar: some View {
         HStack(spacing: 0) {
-            ForEach(ReaderTab.allCases) { tab in
+            // Feed · Library · Paper · Chat · Notes (owner, 2026-10-20): Settings is the last section of every ⋯ menu.
+            ForEach(ReaderTab.phoneTabs) { tab in
                 Button {
+                    // A second tap on Notes goes back to its list, as a system tab bar does.
+                    if tab == .notes && model.tab == .notes { model.notes.openNoteID = nil }
                     model.tab = tab
                     // Keep the selected destination when an iPad
                     // rotates from tabs into the wider layout.
@@ -147,6 +148,7 @@ struct RootView: View {
                     case .library: model.wideMode = .library
                     case .paper: model.wideMode = .reader
                     case .chat: model.wideMode = model.generalChat ? .chat : .reader
+                    case .notes: model.wideMode = .notes
                     case .settings: break
                     }
                 } label: { TabBarItem(tab: tab, selected: model.tab == tab) }
@@ -161,16 +163,6 @@ struct RootView: View {
         .padding(4)
         .frame(maxWidth: ChromeMetrics.tabBarMaxWidth)
         .chromeSurface(Capsule(), interactive: true)
-    }
-
-    private var signInPresentation: Binding<Bool> {
-        // SwiftUI may deliver the dismissal after this body has changed. Keep
-        // the ID that this binding actually presented, rather than cancelling
-        // whichever attempt happens to be current when the callback arrives.
-        let presentationID = model.signInPresentationID
-        return Binding(get: { model.showSignIn }, set: { presented in
-            if !presented, let presentationID { model.closeSignIn(presentationID: presentationID) }
-        })
     }
 
     /// A system dismissal counts as declining that captured question only.
@@ -190,7 +182,9 @@ struct RootView: View {
             #endif
         case .paper: PaperView(model: model)
         case .chat: ChatView(model: model)
-        case .settings: SettingsView(model: model)
+        case .notes: NotesView(model: model)
+        // Only after a wide window narrows with Settings showing; Done returns to where it was opened from.
+        case .settings: SettingsView(model: model, dismissSettings: { model.closeSettings() })
             #if OFFLINE_RESOURCE_MEASUREMENTS
             .onAppear { OfflineResourceProbe.shared.destinationAppearance(.settings, appeared: true) }
             .onDisappear { OfflineResourceProbe.shared.destinationAppearance(.settings, appeared: false) }
@@ -224,7 +218,8 @@ struct RootView: View {
                 Divider()
             }
             if model.tab == .settings {
-                SettingsView(model: model, dismissSettings: { model.tab = .library })
+                // Done returns to the view Settings was opened from.
+                SettingsView(model: model, dismissSettings: { model.closeSettings() })
             } else {
                 switch model.wideMode {
                 case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
@@ -233,6 +228,8 @@ struct RootView: View {
                 case .browse:
                     HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)
+                // Notes as list + detail; it never replaces the reader's chat pane.
+                case .notes: NotesView(model: model, wide: true)
                 }
             }
             // The podcast player docks along the bottom, below every pane (none of their controls go under it).
@@ -338,6 +335,9 @@ struct LibraryView: View {
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
             }
+            // A search starts from the whole library: an earlier tag filter would hide results without saying so
+            // (build 75: "I somehow got here, I wonder if a search was not escaped").
+            .onChange(of: searching) { _, now in if now { model.libraryTagFilter = nil } }
             // Mac menu bar: Edit › Search Library (⌘F) / Search ML Papers (⇧⌘F).
             .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
                 if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
@@ -361,10 +361,10 @@ struct LibraryView: View {
     @ViewBuilder private func banners(inset: Bool) -> some View {
         let signIn = !model.isSignedIn && !searching
         let issue = model.searchExternal ? nil : model.libraryIssue
-        let pending = !model.searchExternal && (!model.libraryCommands.isEmpty || model.libraryCommandIssue != nil)
+        let pending = model.searchExternal ? nil : model.librarySyncNotice
         let offline = model.searchExternal ? nil : model.offlineCacheIssue
         let uploading = !model.searchExternal && PDFUploadBanners.shows(model)
-        if signIn || issue != nil || pending || offline != nil || uploading {
+        if signIn || issue != nil || pending != nil || offline != nil || uploading {
             VStack(spacing: 8) {
                 if uploading { PDFUploadBanners(model: model) }
                 if signIn {
@@ -381,12 +381,19 @@ struct LibraryView: View {
                         Button("Retry") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
                     }.accessibilityIdentifier("library.refreshIssue")
                 }
-                if pending {
-                    StatusBanner(tone: model.libraryCommandIssue == nil ? .info : .problem, systemImage: "arrow.triangle.2.circlepath",
-                                 message: model.libraryCommandIssue ?? "\(model.libraryCommands.count) change\(model.libraryCommands.count == 1 ? "" : "s") waiting to sync") {
+                // Build 73: quiet until a change has waited or keeps failing; orange only when the reader must act.
+                if case .needsAction(let message)? = pending {
+                    StatusBanner(tone: .problem, systemImage: "exclamationmark.arrow.triangle.2.circlepath", message: message,
+                                 messageID: "library.syncNotice") {
                         if !model.libraryCommands.isEmpty {
                             Button("Review") { model.showLibraryChanges = true }.accessibilityIdentifier("library.pendingChanges")
                         }
+                    }
+                } else if case .waiting(let count)? = pending {
+                    StatusBanner(tone: .info, systemImage: "arrow.triangle.2.circlepath",
+                                 message: count == 1 ? "1 change hasn’t synced yet. Gradstep will keep trying."
+                                    : "\(count) changes haven’t synced yet. Gradstep will keep trying.", messageID: "library.syncNotice") {
+                        Button("Details") { model.showLibraryChanges = true }.accessibilityIdentifier("library.pendingChanges")
                     }
                 }
                 if let offline {
@@ -401,21 +408,27 @@ struct LibraryView: View {
     /// The selected paper is highlighted only where it is shown beside the list (iPad Browse).
     private var highlightsSelection: Bool { model.wideMode == .browse && Platform.isLargeScreen }
 
+    /// The catalog beside the search field when there is a choice of catalogs (owner, build 75: "Move the catalog to the
+    /// left of the search bar and move the + option as a new row inside the dialogue on the far right").
+    private var showsCatalog: Bool {
+        !searching && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default")
+    }
+
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
+                if showsCatalog { catalogMenu }
                 LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
                     .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
                     .chromeSurface(Capsule())
                 if searching {
                     Button("Cancel") {
-                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; searchFocused = false
+                        // Back to the whole library: no tag filter is left behind (build 75).
+                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; model.libraryTagFilter = nil
+                        searchFocused = false
                     }.accessibilityIdentifier("library.search.cancel")
                 } else {
-                    Button {
-                        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
-                    } label: { HeaderButtonLabel(systemImage: "plus") }.buttonStyle(.plain).accessibilityLabel("Add a paper")
                     optionsMenu
                 }
             }
@@ -423,25 +436,6 @@ struct LibraryView: View {
                 Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
                     .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
                 if model.searchExternal { AdvancedPaperSearch(model: model) }
-            }
-            if !model.searchExternal && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default") {
-                HStack {
-                    Menu {
-                        ForEach(model.libraryCatalogs.catalogs) { catalog in
-                            Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
-                                model.selectCatalog(catalog.id)
-                            }
-                        }
-                        Divider()
-                        Button("Manage catalogs…") { model.showCatalogs = true }
-                    } label: {
-                        HStack {
-                            Label(model.currentCatalog.name, systemImage: "folder").lineLimit(1)
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
-                    }.accessibilityIdentifier("library.catalog")
-                    Spacer()
-                }.font(.subheadline)
             }
         }
         .modifier(HeaderWidth(fullWidth: tableShown))
@@ -452,10 +446,44 @@ struct LibraryView: View {
         .animation(.snappy(duration: 0.2), value: searching)
     }
 
+    /// The current catalog as a compact glass control (its name truncates), choosing another or managing them.
+    private var catalogMenu: some View {
+        Menu {
+            ForEach(model.libraryCatalogs.catalogs) { catalog in
+                Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
+                    model.selectCatalog(catalog.id)
+                }
+            }
+            Divider()
+            Button("Manage catalogs…") { model.showCatalogs = true }
+        } label: {
+            // A long name is shortened so the search field keeps most of the row.
+            let name = model.currentCatalog.name
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                Text(name.count > 14 ? String(name.prefix(13)).trimmingCharacters(in: .whitespaces) + "…" : name).lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+            }
+            .font(.subheadline.weight(.semibold)).foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12).frame(height: DesignMetrics.headerControl)
+            .fixedSize()
+            .chromeSurface(Capsule(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Catalog: \(model.currentCatalog.name)")
+        .accessibilityIdentifier("library.catalog")
+    }
+
     /// Every Library option behind one button (design audit F3): how the list looks, as submenus that
     /// show the current choice, then where else to go, then reporting.
     private var optionsMenu: some View {
         Menu {
+            // Add is the first row here (owner, build 75), not a + beside the field.
+            Section {
+                MenuRow("Add paper…", systemImage: "plus") {
+                    if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
+                }.accessibilityIdentifier("library.add")
+            }
             Section {
                 MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
             }
@@ -493,6 +521,7 @@ struct LibraryView: View {
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+                SettingsMenuSection(model: model)
             }
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Library options")
@@ -681,8 +710,8 @@ struct ImportStatusText: View {
 }
 
 /// The List layout's row (and the only layout at accessibility text sizes). It says what the table's title cell says
-/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), the "new" dot, and a
-/// download or problem in words.
+/// (audit 2026-10-15): what this device holds (the check, or the cloud to tap to download), "New" for a recent paper not
+/// opened yet (build 75: words, not a dot), and a download or problem in words.
 struct PaperRow: View {
     let paper: Paper
     var selected = false
@@ -698,7 +727,6 @@ struct PaperRow: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                if isNew { Circle().fill(Color.accentColor).frame(width: 8, height: 8).padding(.top, 7).accessibilityLabel("New") }
                 Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 // The cloud's tap target is the list's overlay beside this row's button (a button inside a button's
@@ -717,7 +745,7 @@ struct PaperRow: View {
             }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
-            let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
+            let metadata = (isNew ? ["New"] : []) + (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
             // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
             let topics = showTopics ? (paper.tags.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: 3) : Array(paper.tags.prefix(3))) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
@@ -883,6 +911,7 @@ struct FeedView: View {
                     MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
                 }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
+                SettingsMenuSection(model: model)
             } label: { HeaderButtonLabel(systemImage: "ellipsis") }
             .buttonStyle(.plain).accessibilityLabel("Feed options")
         }
@@ -1168,6 +1197,7 @@ struct ChatView: View {
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
+                SettingsMenuSection(model: model) { composerFocused = false }
             }
         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Chat options")
     }
@@ -1221,6 +1251,7 @@ struct SettingsView: View {
     var dismissSettings: (() -> Void)? = nil
     @State private var showDeleteAccount = false
     @State private var width: CGFloat = 0
+    @AppStorage(ScreenshotReportPrompt.enabledKey) private var screenshotPrompt = true
     /// A count in Your assets: "None" when empty, as Downloaded papers.
     static func count(_ value: Int) -> String { value > 0 ? value.formatted() : "None" }
 
@@ -1358,6 +1389,9 @@ struct SettingsView: View {
                 Section {
                     Button("Report a problem") { model.beginReport() }.accessibilityIdentifier("settings.report")
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
+                    #if !targetEnvironment(macCatalyst)
+                    Toggle("Offer to report after a screenshot", isOn: $screenshotPrompt).accessibilityIdentifier("settings.screenshotPrompt")
+                    #endif
                     NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
                 }
                 // Owner, build 57: "Testing and Admin should go in a special section for Admins with Grey background".
@@ -1522,7 +1556,7 @@ struct RecoveryView: View {
                 if model.needsRecovery {
                     Section("Recovery code") {
                         TextField("Paste your recovery code", text: $input, axis: .vertical).font(.system(.body, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
-                            .textContentType(.password).accessibilityIdentifier("recovery.input")
+                            .hiddenFromReports().textContentType(.password).accessibilityIdentifier("recovery.input")
                         Button { fillFromPasswords() } label: { Label("Use code saved in Passwords", systemImage: "key.fill") }
                             .disabled(anchor == nil || passwords == .working || model.isBusy).accessibilityIdentifier("recovery.fromPasswords")
                         if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
@@ -1535,8 +1569,9 @@ struct RecoveryView: View {
                     #endif
                 } else if let code = model.recoveryCode {
                     Section {
+                        // `.privacySensitive()` doesn't redact screenshots: in-app reports cover the code (build 75).
                         Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled).privacySensitive()
-                            .accessibilityIdentifier("recovery.code")
+                            .hiddenFromReports().accessibilityIdentifier("recovery.code")
                         if passwords == .saved {
                             Label("Saved in Passwords under gradstep.ai", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                                 .accessibilityIdentifier("recovery.savedToPasswords")
@@ -1678,6 +1713,7 @@ struct DiscoveryRow: View {
                 adding = true; issue = nil
                 Task {
                     do { try await model.addDiscovered(result) }
+                    catch ReaderModel.LibraryAddError.alreadyInLibrary { issue = "“\(result.title)” is already in your library." }
                     catch { issue = "Couldn’t add “\(result.title)”. Try again." }
                     adding = false
                 }
@@ -1841,10 +1877,10 @@ private struct BannerInset: ViewModifier {
     }
 }
 
-/// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and Send (or Stop) inside at the
-/// trailing edge. While the keyboard is up on iPhone a way to put it away sits inside at the leading
-/// edge, where Gemini has its +. Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly
-/// to the right side"); Answer options are in the chat's ⋯ menu.
+/// One pill, Gemini's message box (chat redesign 2026-10-16): the question, and under it the model control, then
+/// (while the keyboard is up on iPhone) a way to put it away, dictation and Send (or Stop) at the trailing edge.
+/// Nothing beside the pill (owner, build 57: "We can't have the typing window awkwardly to the right side"); Answer
+/// options are in the chat's ⋯ menu.
 private struct ChatComposerBox: View {
     @Bindable var model: ReaderModel
     var focused: FocusState<Bool>.Binding
@@ -1867,12 +1903,10 @@ private struct ChatComposerBox: View {
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16).padding(.top, 13).padding(.bottom, 5)
             HStack(spacing: 4) {
+                // One control for the model (build 69: the model button and an options slider both chose it); its
+                // Choose model page also has the length, Use for new chats and About. Answer options stay in ⋯.
                 AISelectionButton(model: model).padding(.leading, 14)
                 Spacer(minLength: 0)
-                Button { model.showAnswerOptions = true } label: {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 18)).foregroundStyle(.secondary)
-                        .frame(width: 38, height: 40).contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("Answer options").accessibilityIdentifier("chat.composerOptions")
                 if keyboardUp {
                     Button { focused.wrappedValue = false } label: {
                         Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 16)).foregroundStyle(.secondary)

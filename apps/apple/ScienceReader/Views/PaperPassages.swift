@@ -42,7 +42,7 @@ struct PaperMark: Equatable {
 /// Go to passage, waiting for the reader like a contents jump.
 struct PaperPassageRequest: Equatable, Identifiable {
     /// What asked for the passage: a chat's Go to passage, or a podcast transcript's evidence (PodcastCenter).
-    enum Origin: Equatable { case chat, podcastEvidence }
+    enum Origin: Equatable { case chat, podcastEvidence, note }
     let id = UUID()
     let documentID: UUID
     let conversationID: UUID
@@ -157,6 +157,8 @@ extension ReaderModel {
         let anchor = TextAnchor(manifestSHA256: paper.readerBundle?.manifestSHA256 ?? String(repeating: "0", count: 64), quote: "", elementID: "¶\(marker)")
         passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: activeConversation ?? UUID(), anchor: anchor)
         returnToChatAvailable = tab == .chat
+        // From a chat, Back goes to that chat, not to an explainer left earlier (one Back at a time, build 73).
+        if returnToChatAvailable { explainerReturn = nil }
         tab = .paper
         if wideMode != .browse { wideMode = .reader }
     }
@@ -165,7 +167,9 @@ extension ReaderModel {
         guard let request = passageRequest, request.id == id else { return }
         passageRequest = nil
         if !found {
-            referenceNotice = ReferenceNotice(kind: .closed, message: request.origin == .podcastEvidence
+            referenceNotice = ReferenceNotice(kind: .closed, message: request.origin == .note
+                                              ? "Couldn’t find this snippet’s place in this copy of the paper. The paper may have changed since."
+                                              : request.origin == .podcastEvidence
                                               ? "Couldn’t find this quote in the paper. The paper may have changed since the episode was made."
                                               : PaperChatContext.citedMarker(request.anchor.elementID) != nil
                                               ? "This answer cites a passage this paper doesn’t have."

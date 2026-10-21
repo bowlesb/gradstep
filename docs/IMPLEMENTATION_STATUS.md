@@ -42,6 +42,115 @@ Ask in chat (rerun) and chat default options; two `ChatControlsTests` fail on st
 ("1 GB free app memory required") on the saturated machine. Screenshots of the iPhone and Mac message box were
 reviewed (unchanged appearance). Results: `.artifacts/results/`.
 
+## Notes and snippets, native — October 21 UTC (local; not released)
+
+The iPhone, iPad and Mac client of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc)
+is implemented on branch `worktree-agent-a59beff74b009e4ac` (codec `443f04d`, store/transport `6aa4cc4`, iPhone UI
+`8143fd7`, iPad/Mac `7e9857a`, browser-interop alignment `8ccf4f7` and follow-ups). **Not in TestFlight**; clients
+remain build 77. All Simulator work used two devices created for this run (iPhone 17 Pro, iPad Pro 13-inch M5, iOS 26.4)
+and the Mac (Catalyst), then deleted; the physical iPhone stayed paused.
+
+- **Core** (`swift test`, ScienceReaderCore): **383 tests pass** (50 suites). New: `NotesTests` (15) — the six fixture
+  records re-encode byte for byte, the five invalid records fail with their stated reasons, the future record is kept,
+  the encryption vector matches (blob hex, SHA-256, AAD, descriptor), tamper/account/type checks, reducer ordering,
+  versions and their resolution, immutable fields, tombstones, incomplete entries, catalogs ignored both ways, format-1
+  envelopes; `NoteStoreTests` (9) — atomic save and its failure, holds and release, dependent edits, key-rotation
+  rebasing, idempotent uploads with quota/timeout/conflict, verified on-demand downloads into the encrypted cache,
+  format 6→7 migration, a missing unsent blob refused, cache eviction; `NotesInteropTests` (2) — see below. Four older
+  legacy-format tests now strip the new metadata keys; one migration test expects schema 6.
+- **Cross-client records** (`tests/fixtures/notes/cross-client-v1.json`): the browser codec (`apps/web/src/lib/notes.ts`,
+  bundled by a scratch script) read **6/6** Swift-written edge-case records and re-encoded each byte for byte; Swift
+  reads, validates and re-encodes the **6/6** browser-written ones. Swift's validators were aligned to the browser's
+  bounds first (offsets ±1,440, 80-scalar titles, revision ≥ 1, block IDs `[0-9A-Za-z_-]`, nullable anchor identity).
+- **Staging** (opt-in `NotesLiveAssetsTests`, 2026-10-21 08:33:59 UTC, project `coxhjvqpflgxkleydati`): a disposable
+  `@example.invalid` account; the app's own `BackendNoteAssets` uploaded a real capture's PNG (11,122 B stored) and JPEG
+  thumbnail (8,062 B) from an `EncryptedStore`, which then released the held entry; a repeat PUT was 200; a second
+  store downloaded, verified, decrypted and cached both; a different digest was 409 and an unknown ID 404. The account
+  was deleted through `account-delete` (`{deleted:true, complete:true}`). No paid calls.
+- **App tests** (`NotesAppTests`, 7/7): every deployed note-assets status and body, `X-Content-SHA256` checked; text crops
+  stay PNG at full size with no camera/place/time metadata; large and photographic crops fit the limits (JPEG fallback);
+  PDF regions render exactly the chosen part, rotated pages included; model writes through the encrypted fixture store
+  (create, trimmed titles, capture with sealed images, exact retry, text, comment, rename, new note with its first
+  entry, search, delete, reopen); Settings presentation rules.
+- **UI journeys** (`NotesJourneyTests`): iPhone — Draw snippet → Save to a new note → Open note → full size → Edit comment →
+  Rename → Add text → Delete (with name and count); selection › Add to note; a figure page's Add to note with the whole
+  figure preselected; Settings from the Library, Feed, Paper, Chat, Notes and note menus returning to each (Report this
+  screen just above it); light and dark — **all pass**. Wide layout — Notes beside Feed/Library/Reader/Browse/General
+  Chat, list beside the note, capture beside the chat column, Settings round trip: **passes on iPad (light and dark) and
+  on the Mac (light and dark)** (menu-bar Draw Snippet; Escape cancels drawing). `SettingsTests` 6/6 with the new navigation.
+- **Regression context**: the full app unit bundle (510 tests) has failures unrelated to Notes — four
+  `PaperWebViewTests` Contents cases fail identically on the base commit `82c8656`; two podcast tests follow main's
+  podcast-script change; one needs the local import corpus; three timed out only while other suites shared the machine
+  and pass alone. A stale Simulator stalled WebKit loading until rebooted (as recorded before).
+- **`npm test`**: its first step fails — `arxiv-reader.js` is stale against shared server modules changed on main after
+  the last compiler build (no compiler input changed here; rebuilding the shipped reader is left to its owner). The
+  remaining fast-tier steps pass when run individually: backend 697, operations 24, Python operations 124, arXiv egress
+  scan, Edge type check, admin type check, browser units 519/520 — the one failure was the Swift interop executable's cold
+  `swift run` build inside its test window, and `tests/interop.test.ts` passes 5/5 once built.
+
+Not done natively (also listed in the architecture document): encrypted composer/comment drafts, "Keep both", a New
+snippets jump, two-tap corners and richer VoiceOver capture announcements, Open in paper for local PDF sources,
+adjusting an equation-page capture, and an end-to-end native ↔ browser sync through staging.
+
+## Builds 66–76 open feedback — October 21 UTC (feedback branch; not merged, not released)
+
+Implemented on branch `worktree-agent-a9ba7e1c4135d32c0` from `641541c`, then merged with `main` at `fa1f69f` (browser
+Notes client, server review fixes; conflicts kept both sides); per-item status and commits are in the
+[triage report §0](reviews/FEEDBACK_TRIAGE_20261021.md#0-implementation-status--2026-10-21-on-the-feedback-branch-not-merged-not-released).
+Current clients remain build 77 / browser `27c45ca0`: nothing was uploaded or deployed, and the physical phone was not
+used. Reader **revision 22** (plot labels upright, affiliations and contacts in the header) is built into both compiled
+copies but unreleased; saved papers need ⋯ › Update this paper once it ships.
+
+Checks run (a heavily loaded shared Mac: load average 650–950; one stalled run found its Simulator shut down):
+
+- `npm test` passes after the merge: backend 700/700, browser units 527 (57 files), compiler freshness, operations
+  (incl. Python), egress, edge and admin type checks. The first pre-merge run failed the source-metadata extractor
+  freshness gate after the vocabulary change; the extractor was rebuilt (5993578), the compiler bundle unchanged.
+- Swift Core: `PaperDiscoveryTests` (generic keywords) and `LibraryCSVTests` (shared fixture byte for byte) pass.
+- iPhone 17 Pro Simulator (iOS 26.4, Debug), unit: UnsentDraftTests, WorkflowSafetyTests, LibraryCommandCoordinatorTests,
+  PaperTableTests, LibraryMetadataTests, ContentsEquationLabelTests and the touched LibraryModelTests cases pass
+  (92 tests, `unit-2`); the two PaperWebViewTests cases (whole-name links, abstract list, keyword chips) and the
+  NativeSafetyTests report-snapshot and screenshot-offer cases pass in `unit-3` (the WebView cases had first timed out
+  loading under load, the existing named-reference case included).
+- iPhone UI journeys: FigureViewJourneyTests (all three, incl. the promoted chat's title and the new Report this
+  screen journey), LibraryCatalogTests (rename without flash, Export as CSV share sheet, catalog left of search, Add
+  paper… in ⋯), LibraryLayoutTests.testFiltersTagsAndRetryOnAFailedImport (tag search; search start/Cancel clear the
+  tag), LocalAIJourneyTests.testDictationOnlyFillsTheDraftAndModelsLiveInSettings (one composer model control) and
+  AddPaperFlowTests.testAddByDOIAndLink pass. First-run failures were investigated: a stale "Alignment" tag query
+  (catalog tags give way to derived keywords since build 70), a share sheet the test could not dismiss, an accessibility
+  server crash, and a real add bug since ca5c3e1 (a catalog write that can't be saved reported a server-successful
+  DOI add as failed; fixed in edbd9c5). `ChatControlsTests.testStartersAnswerOptionsAndTheTopicTitle` still fails on
+  pre-existing stale assertions (a DeepSeek segment and "Reset default settings" from before the build-69/71 model rows);
+  its composer-layout assertion was corrected.
+- iPad Pro 11-inch Simulator: FigureViewJourneyTests (all three), LibraryCatalogTests and
+  LibraryLayoutTests.testFiltersTagsAndRetryOnAFailedImport pass (one first-run launch timeout at 10 s passed on rerun).
+- Mac Catalyst: the app builds (Debug). Mac UI journeys were not run, and the scripted Mac screen capture could not read
+  the app's sandbox container from this session (EPERM), so no Mac screenshots were reviewed.
+- The CSV share sheet draws "Research.csv" with Save to Files after ~20 s on this loaded Simulator (two earlier
+  captures, taken sooner, showed it still blank).
+- `scripts/visual-check.mjs` light/dark on iPhone (library table and options, chat, paper, Settings end): Add paper… is
+  the first row of Library "…", no + beside Search, one model control in the composer, and the Settings toggle; contact
+  sheet `.artifacts/visual/fb21-sheet.png`.
+- Screenshots reviewed: the promoted Figure 1 chat titled "Figure 1" with one model control; the figure page with
+  equal capsules and "…"; Report this screen over Contents with the app's own snapshot; Catalogs with "…" and the share
+  sheet; the Tags menu with Search ML papers first. Evidence: `.artifacts/feedback-20261021/` in this worktree (logs and screenshots exported from the result bundles;
+  the bundles themselves were pruned for disk space).
+- After the merge, Playwright catalogs, library, paper-search, figure-view, parity, layout and notes specs pass on desktop
+  and phone, except notes-capture (it needs its own config, where it passes 2 + 2 skipped for an uncached source) and
+  a library.spec selector that the new "Search ML papers for “…”" also matched (anchored; passes).
+- Browser (from the parity sub-task, cherry-picked unchanged): `npm run test:fast --prefix apps/web` 502/502; affected
+  Playwright specs pass on desktop and phone (tablet where in the project) apart from pre-existing wording failures in
+  account-delete, reader "invite-only", arxiv-html consent v5→v6 and owner-58 privacy text; library-commands showed one
+  intermittent timeout per full run that passes alone. Light/dark screenshots of each changed screen were reviewed.
+- Compiler (from the compiler sub-task): the 123-paper cached replay has no failures and unchanged findings; device
+  compile of 2610.22371v1, 2610.22353v1, 2610.19892v1, 2201.11903v6 and 2610.15542v1 succeeds; before/after renders
+  of Gen4P Figure 3 and the 2610.22353v1 header were inspected.
+
+Not verified here: physical-phone behavior, the 15-case import gate (`npm run test:imports`; required before the next
+native upload because RootView.swift and importPaper changed), Mac Catalyst journeys and screenshots, and an actual
+screenshot gesture (the offer was exercised by posting the system notification). TestFlight's own screenshot feedback
+and ReplayKit session recordings cannot be redacted by the app.
+
 ## Server, admin and scripts review fixes — October 21 UTC (built and tested locally; not deployed)
 
 Fixes for the verified server/admin/scripts findings of the [2026-10-21 review](reviews/WEB_SERVER_REVIEW_20261021.md)

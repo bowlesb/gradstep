@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ScienceReaderCore
 
@@ -1187,4 +1188,76 @@ private final class LibraryRedirectPolicy: NSObject, URLSessionTaskDelegate, Sen
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)
     }
+}
+
+// MARK: Notes snippet blobs (functions/v1/note-assets/{blobID}; docs/architecture/NOTES_AND_SNIPPETS.md "Blob API")
+
+extension BackendClient {
+    /// One request to the note-assets function. Bodies are opaque ciphertext; nothing about the note, its title or its
+    /// paper is sent, and the session timeline records neither the path nor the blob ID.
+    func noteAsset(get blobID: UUID, accountID: UUID) async throws -> Data {
+        try await noteAssetRequest("GET", blobID: blobID, body: nil, sha256: nil, accountID: accountID)
+    }
+
+    /// Returns the byte count the server recorded as `ready`.
+    func noteAsset(put blobID: UUID, blob: Data, sha256: String, accountID: UUID) async throws -> Int {
+        let data = try await noteAssetRequest("PUT", blobID: blobID, body: blob, sha256: sha256, accountID: accountID)
+        struct Ready: Decodable { let state: String; let bytes: Int }
+        guard let ready = try? JSONDecoder().decode(Ready.self, from: data), ready.state == "ready" else { throw NoteAssetError.invalidResponse }
+        return ready.bytes
+    }
+
+    private func noteAssetRequest(_ method: String, blobID: UUID, body: Data?, sha256: String?, accountID: UUID) async throws -> Data {
+        let generation = authGeneration
+        guard let expected = session?.user.id, expected == accountID else { throw NoteAssetError.signInRequired }
+        let token = try await accessToken()
+        guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+        guard let url = URL(string: "/functions/v1/note-assets/\(blobID.wire)", relativeTo: config.url)?.absoluteURL,
+              url.host == config.url.host else { throw NoteAssetError.unavailable }
+        var request = URLRequest(url: url)
+        request.httpMethod = method; request.httpBody = body
+        request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if body != nil { request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type") }
+        if let sha256 { request.setValue(sha256, forHTTPHeaderField: "x-content-sha256") }
+        let limit = method == "GET" ? NotesFormat.maximumFullImageBytes + NotesFormat.blobOverhead : 4_096
+        let data: Data, response: URLResponse
+        do { (data, response) = try await boundedResponse(for: request, maximumBytes: limit, maximumErrorBytes: 4_096, session: rpcNetwork) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw NoteAssetError.unavailable }
+        guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+        guard let http = response as? HTTPURLResponse else { throw NoteAssetError.invalidResponse }
+        // As deployed (NOTES_AND_SNIPPETS.md "Server status"): JSON errors are `{code}`, with `retry_after` when waiting helps.
+        struct Failure: Decodable { let code: String?; let retry_after: Double? }
+        let failure = (200..<300).contains(http.statusCode) ? nil : try? JSONDecoder().decode(Failure.self, from: data)
+        switch http.statusCode {
+        case 200..<300:
+            // The server's digest of what it sent, when given, must be the bytes received (the descriptor is checked after).
+            if method == "GET", let header = http.value(forHTTPHeaderField: "X-Content-SHA256"),
+               header.lowercased() != Data(SHA256.hash(data: data)).hex { throw NoteAssetError.unavailable }
+            return data
+        case 401, 403: throw NoteAssetError.signInRequired
+        case 404: throw NoteAssetError.notFound
+        case 409: throw NoteAssetError.conflict
+        case 413: throw NoteAssetError.tooLarge
+        // digest_required, digest_mismatch, invalid_blob, invalid_id: this request can never succeed as sent.
+        case 400: throw NoteAssetError.invalidResponse
+        case 429:
+            // `quota`: stored quota (upload) or this month's allowance (download); `rate_limited`: wait a minute.
+            guard failure?.code == "quota" else { throw NoteAssetError.unavailable }
+            throw method == "GET" ? NoteAssetError.downloadLimit : NoteAssetError.quota
+        // 503 not_ready / service_unavailable / integrity_failed: repeat the same request later.
+        default: throw NoteAssetError.unavailable
+        }
+    }
+}
+
+/// The app's note-assets transport for one signed-in account (unit tests and UI fixtures use their own).
+struct BackendNoteAssets: NoteAssetTransport {
+    let backend: BackendClient
+    let accountID: UUID
+    func put(blobID: UUID, blob: Data, sha256: String) async throws -> Int {
+        try await backend.noteAsset(put: blobID, blob: blob, sha256: sha256, accountID: accountID)
+    }
+    func get(blobID: UUID) async throws -> Data { try await backend.noteAsset(get: blobID, accountID: accountID) }
 }

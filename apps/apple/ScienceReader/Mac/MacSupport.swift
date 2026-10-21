@@ -55,7 +55,7 @@ extension ReaderModel {
     /// that goes with it, and which chat it shows. Leaves Settings when it is showing.
     func showWideMode(_ mode: WideMode) {
         wideMode = mode
-        tab = mode == .feed ? .feed : (mode == .chat ? .chat : (mode == .reader ? .paper : .library))
+        tab = mode == .feed ? .feed : (mode == .chat ? .chat : (mode == .reader ? .paper : mode == .notes ? .notes : .library))
         if mode == .chat { generalChat = true }
         if mode == .reader, chatPaperID != nil { generalChat = false }
     }
@@ -257,15 +257,40 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     /// Selected text: the actions right after the system's Copy.
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)
-        guard builder.system == .context, let menuAction, hasSelection || !Platform.isMac else { return }
-        let menu = UIMenu(title: "", identifier: Self.selectionMenuID, options: .displayInline,
-                          children: Self.actions(SelectionAction.allCases, run: menuAction))
-        guard builder.menu(for: Self.selectionMenuID) == nil else { return }
-        if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, afterMenu: .standardEdit) }
-        else { builder.insertChild(menu, atStartOfMenu: .root) }
+        guard builder.system == .context else { return }
+        if let menuAction, hasSelection || !Platform.isMac, builder.menu(for: Self.selectionMenuID) == nil {
+            let menu = UIMenu(title: "", identifier: Self.selectionMenuID, options: .displayInline,
+                              children: Self.actions(SelectionAction.allCases, run: menuAction))
+            if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, afterMenu: .standardEdit) }
+            else { builder.insertChild(menu, atStartOfMenu: .root) }
+        }
+        // Notes (NOTES_AND_SNIPPETS.md): after the chat actions and separate from them (no AI, no credits). Add to note
+        // keeps the selection as a quotation; Draw snippet is the contextual way into drawing a box (on the Mac, a
+        // right-click anywhere on the page).
+        var notes: [UIMenuElement] = []
+        if let noteAction, hasSelection || !Platform.isMac {
+            notes.append(UIAction(title: "Add to note", image: UIImage(systemName: "note.text.badge.plus"),
+                                  identifier: UIAction.Identifier("reader.selection.addToNote")) { _ in noteAction() })
+        }
+        if let drawSnippet {
+            notes.append(UIAction(title: "Draw snippet", image: UIImage(systemName: "crop"),
+                                  identifier: UIAction.Identifier("reader.drawSnippet")) { _ in drawSnippet() })
+        }
+        guard !notes.isEmpty, builder.menu(for: Self.notesMenuID) == nil else { return }
+        let menu = UIMenu(title: "", identifier: Self.notesMenuID, options: .displayInline, children: notes)
+        if builder.menu(for: Self.selectionMenuID) != nil { builder.insertSibling(menu, afterMenu: Self.selectionMenuID) }
+        else if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, afterMenu: .standardEdit) }
+        else { builder.insertChild(menu, atEndOfMenu: .root) }
     }
 
     static let selectionMenuID = UIMenu.Identifier("gradstep.selection")
+    static let notesMenuID = UIMenu.Identifier("gradstep.notes")
+    /// Add to note on the selected text (the paper's own view).
+    var noteAction: (() -> Void)?
+    /// Draw snippet from the context menu (the paper's own view).
+    var drawSnippet: (() -> Void)?
+    /// Figure pages' views by figure ID, for a figure's Add to note (weak: a page that closes is gone).
+    @MainActor static let figurePages = NSMapTable<NSString, ReaderWebView>.strongToWeakObjects()
 
     static func actions(_ actions: [SelectionAction], run: @escaping (SelectionAction) -> Void) -> [UIMenuElement] {
         actions.map { action in

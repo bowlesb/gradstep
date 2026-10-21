@@ -33,6 +33,12 @@ struct ImportPaperView: View {
                 defer { saving = false }
                 do { try await model.importPaper(input); dismiss() }
                 catch is CancellationError { }
+                catch ReaderModel.LibraryAddError.alreadyInLibrary {
+                    // Open the paper that is already there instead of adding it twice (build 75).
+                    if let source = try? ArxivReference(input).sourceID, model.papers.contains(where: { $0.sourceID == source && !$0.isSample }) {
+                        dismiss(); model.openLibraryPaper(sourceID: source)
+                    } else { issue = "Already in your library. It’s still being added." }
+                }
                 catch is ArxivReferenceError { issue = "Enter a valid arXiv link or paper ID." }
                 catch LibraryCommandError.targetBusy { issue = "This paper already has a pending change." }
                 catch { issue = "Couldn’t save this import. Your link is still here." }

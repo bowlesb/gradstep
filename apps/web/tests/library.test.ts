@@ -55,7 +55,9 @@ describe('library entries', () => {
   });
   it('shows effective tags, falls back to arXiv topics, and hides imports resolved into a visible item', () => {
     const tagged = decodeEntry(item({ tags: ['Alignment', 'Large language models'], user_tags: ['Mine'], hidden_tags: ['alignment'] }));
-    expect(tagged.kind === 'item' && effectiveTags(tagged)).toEqual(['Large language models', 'Mine']);
+    expect(tagged.kind === 'item' && effectiveTags(tagged)).toEqual(['Mine']); // a generic catalog tag is left out (build 75)
+    const own = decodeEntry(item({ tags: ['Tool use'], user_tags: ['LLM'] }));
+    expect(own.kind === 'item' && effectiveTags(own)).toEqual(['Tool use', 'LLM']); // a tag the reader typed stays theirs
     const plain = decodeEntry(item());
     const resolved = decodeEntry(imported({ phase: 'ready', visible: false, document_id: plain.kind === 'item' ? plain.document_id : '', library_item_id: plain.id,
       metadata_id: 'eeeeeeee-0000-4000-8000-000000000003', version_id: 'eeeeeeee-0000-4000-8000-000000000002', source_revision: 1,

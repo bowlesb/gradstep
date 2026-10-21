@@ -20,6 +20,13 @@ final class LibraryCommandCoordinator {
     private var closed = false
     private var halted = false
     private var drainRequested = false
+    /// Owner, build 73 ("Awful. Unclear product experience"): a change that couldn't be sent is tried again by itself,
+    /// sooner at first, instead of waiting for a refresh. Consecutive temporary failures choose the wait.
+    private var retryTask: Task<Void, Never>?
+    private var temporaryFailures = 0
+    static let retryDelays: [Duration] = [.seconds(5), .seconds(15), .seconds(60), .seconds(300)]
+    /// Storage stopped dispatch until the app reopens (the reader has to act).
+    var isHalted: Bool { halted }
 
     init(scope: LibraryCommandScope, persistence: ReaderLocalPersistence, library: LibraryService,
          transport: any LibraryCommandTransport, publish: @escaping Publication,
@@ -136,13 +143,14 @@ final class LibraryCommandCoordinator {
     /// attempt while writes are still accepted, before changing its keys.
     func pause() async {
         paused = true; drainRequested = false
+        retryTask?.cancel(); retryTask = nil
         running?.task.cancel()
         if let task = running?.task { await task.value }
     }
 
     /// Account presentation clears immediately. A fresh store owner resets any
     /// unfinished attempt marker; a late callback cannot write to this account.
-    func close() { closed = true; paused = true; drainRequested = false; running?.task.cancel() }
+    func close() { closed = true; paused = true; drainRequested = false; retryTask?.cancel(); retryTask = nil; running?.task.cancel() }
     func stop() async { close(); if let task = running?.task { await task.value } }
 
     private func drain(id: UUID) async {
@@ -222,6 +230,7 @@ final class LibraryCommandCoordinator {
                 do {
                     let saved = try await persist { store in try await store.recordLibraryReceipt(delivery.response, for: attempt) }
                     guard !closed else { return }
+                    temporaryFailures = 0
                     publish(saved, nil)
                 } catch LibraryCommandError.invalidReceipt {
                     try await failure(.invalidResponse, attempt: attempt)
@@ -290,6 +299,27 @@ final class LibraryCommandCoordinator {
         guard !closed else { return }
         publish(snapshot, nil)
         if reason != .suspended { report(Self.message(reason)) }
+        if Self.temporary(reason) { scheduleRetry(after: reason) }
+    }
+
+    /// The next automatic try after a temporary failure: 5 s, 15 s, 1 min, then every 5 min (a rate limit starts at
+    /// 1 min). The foreground sync's own retry and a manual Try now still run sooner.
+    private func scheduleRetry(after reason: LibraryCommandFailure) {
+        temporaryFailures += 1
+        let steps = Self.retryDelays
+        let index = min(temporaryFailures - 1 + (reason == .rateLimited ? 2 : 0), steps.count - 1)
+        let delay = steps[index]
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.retryTask = nil
+            self.flush()
+        }
+    }
+
+    nonisolated static func temporary(_ reason: LibraryCommandFailure) -> Bool {
+        [.connection, .rateLimited, .invalidResponse].contains(reason)
     }
 
     private func snapshot() async throws -> LocalLibraryCommandSnapshot {
@@ -317,7 +347,7 @@ final class LibraryCommandCoordinator {
     private func pauseForStorageFailure() {
         halted = true
         guard !closed else { return }
-        report("Library changes are paused. Refresh to check the saved queue; reopen the app if this continues.")
+        report("Library changes are paused. Reopen Gradstep to send your saved changes.")
     }
 
     private func requireOpen() throws {
@@ -359,12 +389,12 @@ final class LibraryCommandCoordinator {
     private static func message(_ failure: LibraryCommandFailure) -> String {
         switch failure {
         case .authentication: "Sign in again to send your saved library changes."
-        case .rateLimited: "Library updates are temporarily limited. Your change is saved on this device."
+        case .rateLimited: "Gradstep is busy. Your change is saved and will be sent automatically."
         case .capacity: "The library limit has been reached. Your change is saved on this device."
-        case .operationConflict: "This library change needs review. Refresh your library before trying again."
+        case .operationConflict: "This library change needs your review before it can be sent again."
         case .datasetChanged: "Your library was updated on the server. Review your saved change before trying it again."
-        case .connection: "Library sync is temporarily unavailable. Your saved change will retry when the app is active."
-        case .invalidResponse: "Couldn’t confirm this library update. Your saved change will retry when the app is active."
+        case .connection: "Couldn’t reach Gradstep. Your change is saved and will be sent automatically."
+        case .invalidResponse: "Couldn’t confirm this change. Gradstep will try again automatically."
         default: "Couldn’t sync this library change. Your saved edit is available in Review."
         }
     }

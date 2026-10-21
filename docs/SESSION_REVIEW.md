@@ -7,12 +7,12 @@ TextBrain's attempt (its lessons are below); expect several rounds of tuning, me
 
 ## Recording (owner, on the phone)
 
-1. TestFlight build → Settings › Testing › **Record a test session** (optionally **Include my voice** first). Allow
+1. TestFlight build → Settings › Admin › **Record a test session** (optionally **Include my voice** first). Allow
    the screen-recording prompt.
 2. Use the app normally. A slim strip on the right edge shows the session is running: **⚑** marks a moment
    ("something's off here"), **■** stops. Talking is optional; the review does not depend on it.
 3. Stop. The share sheet opens with one zip: **AirDrop it to the Mac** (it lands in Downloads). Sessions stay on the
-   phone until deleted (Settings › Testing › Recorded sessions keeps the newest five) and are never uploaded.
+   phone until deleted (Settings › Admin › Recorded sessions keeps the newest five) and are never uploaded.
 
 ## What is recorded
 

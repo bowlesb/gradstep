@@ -49,6 +49,18 @@ final class UnsentDraftTests: XCTestCase {
         XCTAssertEqual(model.chatProfile, cheap)
         XCTAssertEqual(model.chatInput, "Why does the blue line fall?")
         XCTAssertTrue(model.promotedChatContext?.quote.contains("The caption") == true)
+        // Build 73 (AHYZ): the promoted chat is Figure 1's chat, not a "New chat"; a ¶ citation from it offers one
+        // Back, to this same chat, even after an explainer left a return of its own earlier.
+        XCTAssertEqual(model.chatTitle, "Figure 1")
+        model.rememberExplainer(paperID: paper.id, manifest: manifest, item: "F1", label: "Figure 1", equation: false)
+        model.tab = .chat
+        model.goToCitedBlock(1, paperID: paper.id)
+        XCTAssertTrue(model.returnToChatAvailable); XCTAssertNil(model.explainerReturn, "one Back at a time")
+        model.returnToChat()
+        XCTAssertEqual(model.tab, .chat); XCTAssertEqual(model.chatComposerID, composer); XCTAssertEqual(model.chatTitle, "Figure 1")
+        model.rememberExplainer(paperID: paper.id, manifest: manifest, item: "F1", label: "Figure 1", equation: false)
+        XCTAssertFalse(model.returnToChatAvailable, "an explainer's citation replaces an older Back to chat")
+        model.explainerReturn = nil
         model.setProfileDefault(.standard, for: .figures)
         XCTAssertEqual(model.chatProfile, cheap, "Changing a default cannot silently reroute an existing conversation")
         model.forgetIndexedPapers([paper.id])

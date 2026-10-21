@@ -81,6 +81,7 @@ extension ReaderModel {
             switch start {
             case .feed: wideMode = .feed
             case .paper, .chat: wideMode = .reader
+            case .notes: wideMode = .notes
             case .library, .settings: break
             }
         }

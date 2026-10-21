@@ -119,10 +119,8 @@ struct AnswerOptionsSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text(model.chatProfileReason).font(.footnote).foregroundStyle(.secondary)
                     ChatChoiceControls(model: model, mode: .chat)
-                    defaults
-                    NavigationLink { AIChatOptionsView(model: model).toolbar(.visible, for: .navigationBar) } label: {
-                        Label("About AI chat options", systemImage: "info.circle").font(.subheadline.weight(.semibold))
-                    }.accessibilityIdentifier("chat.profile.about")
+                    ChatDefaultRow(model: model)
+                    ChatOptionsAboutLink(model: model)
                 }
                 .padding(20)
             }
@@ -144,8 +142,13 @@ struct AnswerOptionsSheet: View {
         .accessibilityAction(.escape) { dismiss() }
     }
 
-    /// Owner, build 57: "an option to set the current options as the default for chats".
-    @ViewBuilder private var defaults: some View {
+}
+
+/// Owner, build 57: "an option to set the current options as the default for chats" (Answer options, and the composer's
+/// Choose model since build 69's one model control).
+struct ChatDefaultRow: View {
+    @Bindable var model: ReaderModel
+    var body: some View {
         let choice = model.chatProfile, table = model.chatProfileTable
         VStack(alignment: .leading, spacing: 6) {
             Divider()
@@ -160,6 +163,15 @@ struct AnswerOptionsSheet: View {
                 .accessibilityHint("Uses the selected model and length for new chats")
                 .accessibilityIdentifier("chat.profile.makeDefault")
         }
+    }
+}
+
+struct ChatOptionsAboutLink: View {
+    @Bindable var model: ReaderModel
+    var body: some View {
+        NavigationLink { AIChatOptionsView(model: model).toolbar(.visible, for: .navigationBar) } label: {
+            Label("About AI chat options", systemImage: "info.circle").font(.subheadline.weight(.semibold))
+        }.accessibilityIdentifier("chat.profile.about")
     }
 }
 

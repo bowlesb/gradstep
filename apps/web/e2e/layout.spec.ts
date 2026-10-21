@@ -1,4 +1,5 @@
 // The large-screen workspace (legacy three-pane layout) and its narrow fallback, under the production CSP.
+import { openAddPaper } from './device-reader-helpers';
 import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
@@ -52,9 +53,9 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(page.getByTestId('pane-right')).toHaveCount(0);
       await expect(page.getByRole('toolbar', { name: 'Filter library' })).toHaveCount(0); // the rail replaces the chips
       await shot(page, `library-${name}`);
-      await rail.getByRole('button', { name: /Alignment/ }).click();
+      await rail.getByRole('button', { name: /^Alignment/ }).click();
       await expect(page.getByTestId('paper-row')).toHaveCount(1);
-      await rail.getByRole('button', { name: /Alignment/ }).click();
+      await rail.getByRole('button', { name: /^Alignment/ }).click();
 
       // Paper: contents rail, the paper, and the chat pane beside it.
       await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -150,7 +151,7 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(cards.nth(1).getByRole('button', { name: 'In library' })).toBeVisible({ timeout: 10_000 });
 
       // Add by DOI (add-paper) and a link our servers can't fetch.
-      await page.getByTestId('add-paper').click();
+      await openAddPaper(page);
       await page.getByTestId('arxiv-input').fill('https://publisher.example/paper.pdf');
       await page.getByTestId('arxiv-add').click();
       await expect(page.getByTestId('add-outcome')).toContainText('needs a sign-in or subscription');

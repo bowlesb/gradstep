@@ -192,7 +192,7 @@ import Testing
         #expect(await fixture.store.snapshot() == acknowledged)
         let reopened = try fixture.reopen()
         #expect(await reopened.snapshot() == LocalStoreSnapshot(state: acknowledged.state, generation: acknowledged.generation + 1,
-            pendingCount: acknowledged.pendingCount, drafts: acknowledged.drafts))
+            pendingCount: acknowledged.pendingCount, drafts: acknowledged.drafts, pendingEventIDs: acknowledged.pendingEventIDs, pendingNoteBlobs: acknowledged.pendingNoteBlobs, noteDestination: acknowledged.noteDestination))
 
         try await reopened.acknowledge(saved[1])
         let complete = await reopened.snapshot()
@@ -204,7 +204,7 @@ import Testing
         #expect(received.state.events[remote.id] != nil)
         let final = try fixture.reopen()
         #expect(await final.snapshot() == LocalStoreSnapshot(state: received.state, generation: received.generation + 1,
-            pendingCount: received.pendingCount, drafts: received.drafts))
+            pendingCount: received.pendingCount, drafts: received.drafts, pendingEventIDs: received.pendingEventIDs, pendingNoteBlobs: received.pendingNoteBlobs, noteDestination: received.noteDestination))
         // Earlier values remain stable even when later generations are
         // published first by independent asynchronous UI continuations.
         #expect(initial.state.events.isEmpty && initial.pendingCount == 0)
@@ -231,6 +231,6 @@ import Testing
         #expect(await fixture.store.snapshot() == before)
         let reopened = try fixture.reopen()
         #expect(await reopened.snapshot() == LocalStoreSnapshot(state: before.state, generation: before.generation + 1,
-            pendingCount: before.pendingCount, drafts: before.drafts))
+            pendingCount: before.pendingCount, drafts: before.drafts, pendingEventIDs: before.pendingEventIDs, pendingNoteBlobs: before.pendingNoteBlobs, noteDestination: before.noteDestination))
     }
 }

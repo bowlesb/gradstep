@@ -207,6 +207,51 @@ test('a figure is explained only on request, part by part with its crop; a part 
  expect(errors).toEqual([]);
 });
 
+// Build 73 (AHYZ): "Clicked back to chat and somehow got here": a promoted explainer chat read as a new chat. It is named
+// for its figure; a citation from it and Back to chat return to that same chat; only one Back shows at a time (the most
+// recent origin wins).
+test('a promoted explainer chat keeps its figure’s name; Back to chat returns to it; one Back at a time',async({page,request})=>{
+ test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
+ await openFixture(page,request);
+ await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
+ let viewer=await openFigure(page);
+ await viewer.getByTestId('figure-explain').click();
+ await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
+ await viewer.getByRole('button',{name:'Open in Chat',exact:true}).click();
+ await expect(viewer).toBeHidden();
+ const pane=page.getByTestId('chat-pane');
+ await expect(pane.getByTestId('promoted-context')).toBeVisible();
+ await expect(pane.getByTestId('chat-title')).toHaveText('Figure 1');
+ const field=pane.getByRole('textbox',{name:'Message',exact:true});
+ const composer=await field.getAttribute('data-composer-id');
+ await page.screenshot({path:`../../.artifacts/feedback-20261021/browser/b1-promoted-title-${test.info().project.name}-light.png`});
+ await page.emulateMedia({colorScheme:'dark'});
+ await page.screenshot({path:`../../.artifacts/feedback-20261021/browser/b1-promoted-title-${test.info().project.name}-dark.png`});
+ await page.emulateMedia({colorScheme:'light'});
+ test.skip(test.info().project.name==='desktop','Beside the paper the chat stays open: there is no Back to chat.');
+ // A citation in the promoted explanation closes the drawer and offers Back to chat, not an explainer's Back.
+ await pane.getByTestId('promoted-context').locator('.cite').first().click();
+ const chatBack=page.getByTestId('chat-back'),explainerBack=page.getByTestId('explainer-return');
+ await expect(chatBack).toBeVisible();await expect(explainerBack).toHaveCount(0);
+ // An explainer's own citation then wins: Back to Figure Explainer, and no Back to chat beside it.
+ viewer=await openFigure(page);
+ await viewer.getByTestId('figure-section-0').locator('.cite').first().click();
+ await expect(viewer).toBeHidden();
+ await expect(explainerBack).toHaveText('Back to Figure Explainer');await expect(chatBack).toHaveCount(0);
+ // The chat's citation again wins over the explainer's Back.
+ await page.getByTestId('ask').click();
+ await expect(pane.getByTestId('chat-title')).toHaveText('Figure 1');
+ await pane.getByTestId('promoted-context').locator('.cite').first().click();
+ await expect(chatBack).toBeVisible();await expect(explainerBack).toHaveCount(0);
+ await page.screenshot({path:`../../.artifacts/feedback-20261021/browser/b1-chat-back-${test.info().project.name}-light.png`});
+ // Back to chat: the same promoted chat, named for its figure, its composer unchanged.
+ await chatBack.click();
+ await expect(pane.getByTestId('promoted-context')).toBeVisible();
+ await expect(pane.getByTestId('chat-title')).toHaveText('Figure 1');
+ await expect(field).toHaveAttribute('data-composer-id',composer!);
+});
+
 test('Find lists occurrences and jumps without rewriting verified paper text',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  await openFixture(page,request,twoFigures);
@@ -287,6 +332,9 @@ test('a figure reference in the text offers Explain in Chat and AI Explainer; AI
  const detail=page.getByRole('dialog',{name:'Figure 1'});
  await expect(detail.getByTestId('figure-reference-ask')).toHaveText('Chat about Figure');
  await expect(detail.getByTestId('figure-reference-explain')).toHaveText('AI Explainer');
+ // Peers with the same weight (owner, build 76: "Confusing that only one is purple").
+ const look=(id:string)=>detail.getByTestId(id).evaluate(e=>{const s=getComputedStyle(e);return [s.color,s.backgroundColor,s.borderColor].join('|');});
+ expect(await look('figure-reference-explain')).toBe(await look('figure-reference-ask'));
  await expect(detail.getByRole('button',{name:'Discuss in chat'})).toHaveCount(0);await expect(detail.getByRole('button',{name:'Done'})).toHaveCount(0);
  await expect(detail.getByTestId('figure-reference-go')).toBeVisible();
  await page.screenshot({path:`../../.artifacts/figure-reference-${test.info().project.name}.png`});

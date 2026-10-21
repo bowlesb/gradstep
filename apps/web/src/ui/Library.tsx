@@ -20,7 +20,7 @@ import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
-import { Dialog, dateLines, formatDate, formatDateTime } from './common';
+import { Dialog, MenuButton, dateLines, formatDate, formatDateTime } from './common';
 import { Icon } from './icons';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { useLibraryColumns } from './prefs';
@@ -44,6 +44,7 @@ export const commandError = (error: unknown) => {
   if (code === 'library_command_pending') return 'This change is still updating. Wait for your library to refresh.';
   if (code === 'library_revision_conflict') return 'This paper changed since you last saw it. Check its status and try again.';
   if (code === 'library_not_ready') return 'Wait for your library to load, then add the paper.';
+  if (code === 'library_already_present') return 'This paper is already in your library.';
   if (code === 'connection') return 'Couldn’t reach Gradstep. Your change may not have been saved; check the list, then try again.';
   return 'Couldn’t update the library. Try again.';
 };
@@ -62,11 +63,19 @@ export function deviceCopy(entry: ClientEntry, prepared: boolean): DeviceCopy | 
     return { kind: 'cloud', glyph: '☁︎', label: 'Not on this device yet; downloads when you open it' };
   return { kind: 'unavailable', glyph: '!', label: 'No readable copy on this device' };
 }
-/** The row's marks before its first author: "new" (added in the last three days, never opened) and the device copy. */
-function RowMarks({ isNew, copy }: { isNew: boolean; copy: DeviceCopy | null }) {
-  return <>{isNew && <span className="new-dot" title="Added recently, not opened yet" data-testid="new-dot"><span className="visually-hidden">New</span></span>}
-    {copy && <span className={`device ${copy.kind}`} title={copy.label} aria-label={copy.label} role="img" data-testid="device-badge">{copy.glyph}</span>}</>;
+/** The row's device copy before its first author. */
+function RowMarks({ copy }: { copy: DeviceCopy | null }) {
+  return copy && <span className={`device ${copy.kind}`} title={copy.label} aria-label={copy.label} role="img" data-testid="device-badge">{copy.glyph}</span>;
 }
+/** A paper added in the last three days and never opened on this device (owner, build 42: an indicator for recently
+ * added unread papers) as plain secondary words where "—" (never opened) would be. Build 75 (AK1U): the accent dot
+ * beside the device check was "confusing". */
+function NewLabel() {
+  return <span className="new-label" title="Added recently, not opened yet" data-testid="new-label">New<span className="visually-hidden">, not opened yet</span></span>;
+}
+/** Where a row's New goes: the Opened column, else Progress, else beside the device mark (the first of them shown). */
+const newSlot = (columns: readonly LibraryColumn[]): 'opened' | 'progress' | 'device' | null =>
+  columns.includes('opened') ? 'opened' : columns.includes('progress') ? 'progress' : columns.includes('device') ? 'device' : null;
 
 /** Rows, counts, tags and the filtered, sorted list for one library view. Shared by the table, rail and compact list. */
 export function useLibraryModel(library: Library, current: Map<string, Activity>, view: LibraryQuery, visible = true) {
@@ -134,8 +143,18 @@ const filterCount = (model: LibraryModel, f: Filter) => f === 'all' ? model.coun
 /** Only filters that would change the list appear (DESIGN.md › Filters). */
 const offered = (model: LibraryModel, f: Filter) => f === 'all' || (f === 'unread' ? model.counts.unread > 0 && model.counts.unread < model.counts.total : filterCount(model, f) > 0);
 
+/** "Search ML papers for …" at the top of the tags (owner, build 75: "a Search ML papers for tag at the top which then
+ * directs you to the ML paper search"): the chosen tag, or a menu of the tags when none is chosen. */
+function TagSearch({ model, view, onSearchTag }: { model: LibraryModel; view: LibraryQuery; onSearchTag?: (tag: string) => void }) {
+  if (!onSearchTag || !model.tags.length) return null;
+  if (view.tag) return <button className="rail-item rail-tag-search" onClick={() => onSearchTag(view.tag)} data-testid="tag-search">
+    <Icon name="search" size={13} /><span className="rail-label">Search ML papers for “{view.tag}”</span></button>;
+  return <MenuButton icon="search" text="Search ML papers for a tag" label="Search ML papers for a tag" align="start" className="rail-tag-search" testID="tag-search">
+    {close => model.tags.map(([t]) => <button key={t} type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onSearchTag(t); }}>{t}</button>)}</MenuButton>;
+}
+
 /** The library route's left rail: the views and the tags, with counts. */
-export function LibraryRail({ model, view, setView }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery }) {
+export function LibraryRail({ model, view, setView, onSearchTag }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery; onSearchTag?: (tag: string) => void }) {
   return (
     <nav className="rail-nav" aria-label="Library filters">
       <div className="rail-section">
@@ -149,6 +168,7 @@ export function LibraryRail({ model, view, setView }: { model: LibraryModel; vie
       {model.tags.length > 0 && (
         <div className="rail-section">
           <div className="rail-heading">Tags{view.tag && <button className="rail-clear" onClick={() => setView(q => ({ ...q, tag: '' }))}>Clear</button>}</div>
+          <TagSearch model={model} view={view} onSearchTag={onSearchTag} />
           {model.tags.map(([t, n]) => (
             <button key={t} className={`rail-item tag-item${view.tag === t ? ' selected' : ''}`} aria-pressed={view.tag === t} onClick={() => setView(q => ({ ...q, tag: q.tag === t ? '' : t }))}>
               <span className="rail-label">{t}</span><span className="rail-count">{n}</span>
@@ -160,8 +180,9 @@ export function LibraryRail({ model, view, setView }: { model: LibraryModel; vie
   );
 }
 
-/** The same filters as chips, when the rail isn't showing. */
-function FilterChips({ model, view, setView }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery }) {
+const SEARCH_TAG = 'search\u0000';
+/** The same filters as chips, when the rail isn't showing. The tag menu starts with the ML paper search for a tag. */
+function FilterChips({ model, view, setView, onSearchTag }: { model: LibraryModel; view: LibraryQuery; setView: SetQuery; onSearchTag?: (tag: string) => void }) {
   const chip = (value: Filter, label: string) => (
     <button key={value} className={view.filter === value ? 'chip selected' : 'chip'} aria-pressed={view.filter === value} onClick={() => setView(q => ({ ...q, filter: value }))}>
       {label}{value === 'failed' && model.counts.failed > 0 ? <span className="chip-count"> {model.counts.failed}</span> : null}
@@ -171,9 +192,15 @@ function FilterChips({ model, view, setView }: { model: LibraryModel; view: Libr
     <div className="chips" role="toolbar" aria-label="Filter library">
       {model.tags.length > 0 && (
         <label className="tag-select"><span className="visually-hidden">Tag</span>
-          <select value={view.tag} onChange={e => setView(q => ({ ...q, tag: e.target.value }))} aria-label="Filter by tag">
+          <select value={view.tag} aria-label="Filter by tag" onChange={e => {
+            const value = e.target.value;
+            if (value.startsWith(SEARCH_TAG)) { e.target.value = view.tag; onSearchTag?.(value.slice(SEARCH_TAG.length)); }
+            else setView(q => ({ ...q, tag: value }));
+          }}>
             <option value="">Tags</option>
-            {model.tags.map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}
+            {onSearchTag && (view.tag ? <option value={SEARCH_TAG + view.tag}>Search ML papers for “{view.tag}”</option>
+              : <optgroup label="Search ML papers for a tag">{model.tags.map(([t]) => <option key={t} value={SEARCH_TAG + t}>Search ML papers for “{t}”</option>)}</optgroup>)}
+            <optgroup label="Show papers tagged">{model.tags.map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}</optgroup>
           </select>
         </label>
       )}
@@ -257,11 +284,13 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
   </div>;
 }
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, onSearchTag }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
   /** Whether this tab has the paper prepared (the row's check); without it every paper shows as still to download. */
   prepared?: (entry: ClientEntry) => boolean;
   currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void;
+  /** ML paper search for a tag (the Tags menu's first entry). */
+  onSearchTag?: (tag: string) => void;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
@@ -324,8 +353,6 @@ export function LibraryView({ library, model, activity, view, setView, showChips
         {sortedHidden && <span className="fine library-sort-note">Sorted by {LIBRARY_COLUMNS.find(c => c.key === view.sort.key)?.label} {view.sort.descending ? '↓' : '↑'}</span>}
       </div>
       <CatalogsDialog open={showCatalogs} onClose={() => setShowCatalogs(false)} library={library} />
-      {library.catalogs && (library.catalogs.state.catalogs.length > 1 || library.catalogs.state.catalogs[0].name !== 'Default') && <label className="catalog-switch">Catalog <select aria-label="Current catalog" value={library.catalogs.currentID} onChange={e => library.catalogs?.select(e.target.value)}>
-        {library.catalogs.state.catalogs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
       <Dialog open={choosingColumns} onClose={() => setChoosingColumns(false)} title="Library columns">
         <h2>Library columns</h2>
         <p className="fine">Title stays pinned as you scroll.</p>
@@ -344,7 +371,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
         </div>
         <div className="row-actions column-actions"><button className="secondary" onClick={reset}>Reset</button><button className="primary" onClick={() => setChoosingColumns(false)}>Done</button></div>
       </Dialog>
-      {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} />}
+      {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} onSearchTag={onSearchTag} />}
       {notice && <p className="issue banner" role="alert">{notice.text}</p>}
       <LibraryActionSurface actions={actions} />
       {library.state === 'loading' && all.length === 0 && <div className="empty"><div className="spinner" aria-label="Loading library" /></div>}
@@ -417,6 +444,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
   // authors show under the title (no Authors column), their line (owner, build 58), so the row never grows when its
   // details arrive.
   const adding = entry.kind === 'import' && !entry.metadata && ['accepted', 'resolving', 'acquiring'].includes(entry.phase);
+  const fresh = isNew ? newSlot(columns) : null;
   return (
     <tr ref={measure} data-index={index} data-row-key={row.key} aria-rowindex={index + 2}
       className={`${row.readable ? 'readable' : 'pending'}${adding ? ' adding' : ''}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
@@ -430,7 +458,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
         {busy && <span className="status active">Updating…</span>}
         <span className="inline-action"><RowAction row={row} busy={busy} retry={retry} remove={remove} run={run} /></span>
       </td>
-      {columns.includes('device') && <td className="col-device"><RowMarks isNew={isNew} copy={deviceCopy(entry, onDevice)} /></td>}
+      {columns.includes('device') && <td className="col-device"><RowMarks copy={deviceCopy(entry, onDevice)} />{fresh === 'device' && <> <NewLabel /></>}</td>}
       {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{compactAuthors(authors) || <span className="faint">—</span>}</td>}
       {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
@@ -439,7 +467,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
           title={t === activeTag ? `Show all papers` : `Show papers tagged “${t}”`}>{t}</button>))}</span>
         : <span className="faint">—</span>}</td>}
       {columns.includes('added') && <td className="col-added"><TableDate ms={row.added} /></td>}
-      {columns.includes('opened') && <td className="col-opened"><TableDate ms={opened} /></td>}
+      {columns.includes('opened') && <td className="col-opened">{fresh === 'opened' ? <NewLabel /> : <TableDate ms={opened} />}</td>}
       {columns.includes('progress') && <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">
@@ -448,7 +476,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
           </span>
         ) : row.readable ? (
           readingProgress !== null ? <span className="reading-progress"><progress className="accent" max={1} value={readingProgress} aria-label={`${Math.round(readingProgress * 100)}% read`} />
-            <span className="fine">{Math.round(readingProgress * 100)}%</span></span> : <span className="faint">—</span>
+            <span className="fine">{Math.round(readingProgress * 100)}%</span></span> : fresh === 'progress' ? <NewLabel /> : <span className="faint">—</span>
         ) : <span className="faint">—</span>}
       </td>}
     </tr>
@@ -484,7 +512,8 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query, prep
               {row.readable && isLibraryPaper(entry)
                 ? <a className="compact-link" href={`/paper/${entry.id}`} aria-current={entry.id === currentID ? 'page' : undefined}
                     onClick={e => { e.preventDefault(); onOpen(entry); }}><span className="compact-title">{row.title}</span>
-                    <span className="compact-meta"><RowMarks isNew={isReaderPaper(entry) && isNewPaper(entry, !!a)} copy={deviceCopy(entry, !!prepared?.(entry))} />{meta}</span>
+                    <span className="compact-meta"><RowMarks copy={deviceCopy(entry, !!prepared?.(entry))} />
+                      {isReaderPaper(entry) && isNewPaper(entry, !!a) && <><NewLabel />{meta ? ' · ' : ''}</>}{meta}</span>
                     {a && <progress className="accent mini" max={1} value={a.progress} aria-label={`${Math.round(a.progress * 100)}% read`} />}</a>
                 : <span className="compact-link disabled"><span className="compact-title">{row.title}</span><span className="compact-meta">{row.status?.text ?? meta}</span></span>}
             </li>
@@ -509,8 +538,11 @@ function pdfFailure(error: unknown): string {
 
 /** Add paper: an arXiv ID stays a library command; a DOI or any link goes to add-paper.
  * A selected PDF is checked and kept on this device; only its encrypted membership syncs. */
-export function AddPaper({ open, onClose, library, account, keys, localPDFs }: { localPDFs:DevicePDFs; open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys }) {
+export function AddPaper({ open, onClose, library, account, keys, localPDFs, onOpen }: { localPDFs:DevicePDFs; open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys;
+  /** Opens a paper already in the library (an arXiv ID added a second time). */
+  onOpen?: (paper: LibraryPaper) => void }) {
   const [text, setText] = useState('');
+  const [already, setAlready] = useState<LibraryPaper | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<AddOutcome | null>(null);
@@ -552,6 +584,13 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
     if (!value) return;
     setBusy(true); setIssue(null); setOutcome(null);
     const reference = parseArxiv(value);
+    const present = reference && library.present(reference.sourceID);
+    if (present) {
+      // Already here (any version): say so and offer it, without a second import (build 75: two "TreeCut" rows).
+      setBusy(false); setAlready(isReaderPaper(present) ? present : null);
+      setOutcome({ status: 'present', message: `${present.metadata?.title ? `“${present.metadata.title}”` : 'This paper'} is already in your library.`, link: null, finished: true });
+      return;
+    }
     if (reference) {
       try { await library.addArxiv(reference.sourceID, reference.revision); setText(''); onClose(); }
       catch (error) { setIssue(commandError(error)); if (error instanceof CommandRefreshError) setAwaitingObservation(true); }
@@ -592,6 +631,7 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
           <div className={`outcome ${outcome.finished ? 'good' : 'problem'}`} role="status" data-testid="add-outcome">
             <p>{outcome.message}</p>
             {outcome.link && !outcome.finished && <a href={outcome.link} target="_blank" rel="noopener noreferrer" className="outcome-link">Open {new URL(outcome.link).hostname.replace(/^www\./, '')} <Icon name="external" size={12} /></a>}
+            {outcome.status === 'present' && already && onOpen && <button type="button" className="secondary small" data-testid="add-open-existing" onClick={() => { const paper = already; setAlready(null); onClose(); onOpen(paper); }}>Open it</button>}
           </div>
         )}
         <div className="pdf-upload-choice" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); choose(event.dataTransfer.files[0] ?? null); }}>

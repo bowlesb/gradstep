@@ -163,6 +163,22 @@ export const TAG_VOCABULARY: readonly VocabularyTag[] = Object.freeze([
 ] satisfies VocabularyTag[]);
 
 export const TAG_NAMES: readonly string[] = Object.freeze(TAG_VOCABULARY.map(tag => tag.name));
+
+/** Keywords too broad to tell one paper from another (owner, build 70: "keywords that uniquely identify the paper as
+ * compared to other papers"; build 75 still showed LLM, Large language models, Reasoning and Evaluation on most
+ * papers). The apps leave them out of derived keywords and of catalog tags as the reader sees them; a tag the reader
+ * typed stays theirs. Lower case, matched whole. ScienceReaderCore/TagVocabulary.swift keeps the same list (a backend
+ * test compares the two). Catalog tagging is unchanged: the vocabulary still names these topics. */
+export const GENERIC_KEYWORDS: readonly string[] = Object.freeze([
+  'llm', 'llms', 'large language model', 'large language models', 'language model', 'language models',
+  'foundation model', 'foundation models', 'vlm', 'vlms', 'mllm', 'mllms', 'reasoning', 'evaluation', 'benchmark',
+  'benchmarks', 'deep learning', 'neural network', 'neural networks', 'transformer', 'transformers', 'generative ai',
+]);
+/** A keyword specific enough to describe one paper (not AI/ML, not one of the generic keywords). */
+export function distinctiveKeyword(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  return !['artificial intelligence', 'machine learning', 'ai', 'ml', 'statistical ml'].includes(key) && !GENERIC_KEYWORDS.includes(key);
+}
 const byLowerName = new Map(TAG_VOCABULARY.map(tag => [tag.name.toLowerCase(), tag.name]));
 const byCategory = new Map(TAG_VOCABULARY.flatMap(tag => (tag.categories ?? []).map(category => [category, tag.name] as const)));
 

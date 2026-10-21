@@ -4,7 +4,7 @@ import {RECOVERY_CODE} from './fixture-keys.mjs';
 import {fixtureOrigin} from './environment';
 import {durableKeys} from './key-capability';
 import {readFileSync,readdirSync} from 'node:fs';
-import {choosePDF,guardLocalContent,signInReader} from './device-reader-helpers';
+import {choosePDF,guardLocalContent,signInReader,openAddPaper} from './device-reader-helpers';
 
 test('chosen PDF stays local; encrypted membership survives reload without pretending the file synced',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
@@ -14,7 +14,7 @@ test('chosen PDF stays local; encrypted membership survives reload without prete
  await page.goto('/');await page.getByTestId('email').fill('returning@example.test');await page.getByTestId('send-code').click();
  await page.getByTestId('code').fill('123456');await page.getByTestId('verify').click();
  await page.getByTestId('use-recovery-code').click();await page.getByTestId('recovery-code').fill(RECOVERY_CODE);await page.getByTestId('recover').click();
- await expect(page.getByTestId('library-table')).toBeVisible();await page.getByRole('button',{name:'Add paper',exact:true}).click();
+ await expect(page.getByTestId('library-table')).toBeVisible();await openAddPaper(page);
  const pdf=await PDFDocument.create();pdf.addPage().drawText('Device-only authored paper');
  await page.getByRole('dialog',{name:'Add paper'}).locator('input[type=file]').setInputFiles({name:'Device-only authored paper.pdf',mimeType:'application/pdf',buffer:Buffer.from(await pdf.save())});
  await page.getByRole('button',{name:'Add PDF',exact:true}).click();

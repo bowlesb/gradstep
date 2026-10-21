@@ -220,6 +220,8 @@ enum GradstepSymbol {
     static let paper = "gradstep.paper"
     static let chat = "gradstep.chat"
     static let settings = "gradstep.settings"
+    /// Notes: a notebook page with a captured box; the amber point marks the newest snippet.
+    static let notes = "gradstep.notes"
     static let newChat = "gradstep.chat.new"
     /// All chats: a list (owner feedback, build 14: not a clock-arrow, which reads as refresh).
     static let chats = "gradstep.chats"
@@ -245,6 +247,7 @@ extension ReaderTab {
         case .library: GradstepSymbol.library
         case .paper: GradstepSymbol.paper
         case .chat: GradstepSymbol.chat
+        case .notes: GradstepSymbol.notes
         case .settings: GradstepSymbol.settings
         }
     }

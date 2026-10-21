@@ -287,10 +287,15 @@ final class CloudSync {
     private let store: EncryptedStore
     private let onDeviceChanged: @MainActor (LocalDevice) -> Void
     private var currentTask: Task<Void, Error>?
+    /// Notes snippet images (NOTES_AND_SNIPPETS.md): uploaded before events, so a held entry follows its blobs.
+    private let noteAssets: (any NoteAssetTransport)?
+    private let onNoteUploads: @MainActor (NoteUploadReport) -> Void
 
     init(backend: BackendClient, device: LocalDevice, keyManager: DeviceKeys, store: EncryptedStore,
+         noteAssets: (any NoteAssetTransport)? = nil, onNoteUploads: @escaping @MainActor (NoteUploadReport) -> Void = { _ in },
          onDeviceChanged: @escaping @MainActor (LocalDevice) -> Void = { _ in }) {
         self.backend = backend; self.device = device; self.keyManager = keyManager; self.store = store; self.onDeviceChanged = onDeviceChanged
+        self.noteAssets = noteAssets; self.onNoteUploads = onNoteUploads
     }
 
     func synchronize() async throws {
@@ -331,6 +336,17 @@ final class CloudSync {
         try await pull()
         try Task.checkCancellation()
         try await store.rebasePendingAfterCatchUp(deviceID: device.deviceID, verifiedEpoch: keys.epoch, cursor: await store.cursor())
+        // Snippet blobs first: an entry event is uploaded only after its blobs are `ready` (store.pending() holds it
+        // until then). A failed image never blocks chats, catalogs or other notes; its report is shown in Notes.
+        if let noteAssets, !(try await store.pendingNoteUploads()).isEmpty {
+            let report = try await NoteAssetSync.uploadPending(store: store, transport: noteAssets)
+            try Task.checkCancellation()
+            onNoteUploads(report)
+            if !report.failures.isEmpty {
+                SessionTimeline.shared.record("sync", ["step": "note-assets", "uploaded": String(report.uploaded.count),
+                                                       "failed": String(report.failures.count)])
+            }
+        }
         struct Push: Encodable, Sendable {
             let p_device_id: UUID; let p_id: UUID; let p_epoch: Int; let p_format: Int; let p_ciphertext: String; let p_management_token: String
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import ScienceReaderCore
 
 private func catalogPaperCount(_ count: Int) -> String {
@@ -13,6 +14,9 @@ struct LibraryCatalogsView: View {
     @State private var name = ""
     @State private var deleting: LibraryCatalog?
     @State private var issue: String?
+    /// "Saving…" only for a write that takes a while: a fast local rename showed it, disabled every row and the X, and
+    /// put it all back within a moment (build 75: "an apparent flash of change of UI which was awkward").
+    @State private var slowSave = false
 
     var body: some View {
         NavigationStack {
@@ -45,26 +49,39 @@ struct LibraryCatalogsView: View {
                                 if catalog.id != model.libraryCatalogs.defaultID {
                                     Button("Make default", systemImage: "star") { perform { try await model.makeDefaultCatalog(catalog.id) } }
                                 }
+                                // Owner, build 75: "an option to save the entire catalog as csv" (share, or Save to Files).
+                                ShareLink(item: CatalogCSVExport(model: model, catalogID: catalog.id, name: catalog.name),
+                                          preview: SharePreview(LibraryCSV.fileName(catalog.name))) {
+                                    Label("Export as CSV…", systemImage: "tablecells")
+                                }.accessibilityIdentifier("catalog.exportCSV")
                                 Button("Delete catalog…", systemImage: "trash", role: .destructive) { deleting = catalog }
                             } label: { Image(systemName: "ellipsis").padding(10).contentShape(Rectangle()) }
                                 .accessibilityLabel("Options for \(catalog.name)")
-                                .disabled(!model.canManageCatalogs || model.catalogBusy)
-                        }.disabled(model.catalogBusy)
+                                .disabled(!model.canManageCatalogs)
+                        }
                     }
                 } footer: {
                     Text("Each paper belongs to one catalog. Your default opens when you start the app; new papers go into the catalog you’re viewing.")
                 }
                 Section {
                     Button("New catalog", systemImage: "plus") { renameID = nil; name = ""; showName = true }
-                        .disabled(!model.canManageCatalogs || model.catalogBusy).accessibilityIdentifier("catalog.create")
+                        .disabled(!model.canManageCatalogs).accessibilityIdentifier("catalog.create")
                 }
-                if model.catalogBusy { ProgressView("Saving…") }
+            }
+            .overlay(alignment: .bottom) {
+                if slowSave {
+                    ProgressView("Saving…").padding(.horizontal, 16).padding(.vertical, 10)
+                        .chromeSurface(Capsule()).padding(.bottom, 16).accessibilityIdentifier("catalog.saving")
+                }
             }
             .navigationTitle("Catalogs").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close catalogs").disabled(model.catalogBusy)
+                    HStack(spacing: 16) {
+                        SheetOptionsMenu { ReportPresenter.present(model, sheet: "Catalogs", afterMenu: true) }
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close catalogs")
+                    }
                 }
             }
             .alert(renameID == nil ? "New catalog" : "Rename catalog", isPresented: $showName) {
@@ -82,13 +99,65 @@ struct LibraryCatalogsView: View {
             .interactiveDismissDisabled(model.catalogBusy)
         }
     }
+    /// One change at a time; the list stays as it is while a change saves (a local write is usually instant).
     private func perform(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !model.catalogBusy else { return }
         let scope = model.catalogScope; issue = nil; model.catalogBusy = true
+        let indicator = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled, model.catalogBusy, model.catalogScope == scope { slowSave = true }
+        }
         Task {
-            defer { if model.catalogScope == scope { model.catalogBusy = false } }
+            defer { indicator.cancel(); slowSave = false; if model.catalogScope == scope { model.catalogBusy = false } }
             do { try await action() }
             catch { if model.catalogScope == scope { issue = (error as? LibraryCatalogError)?.errorDescription ?? "Couldn’t save this catalog change. Try again." } }
         }
+    }
+}
+
+/// A catalog's papers as a CSV file, made only when the reader shares or saves it (LibraryCSV; build 75).
+struct CatalogCSVExport: Transferable {
+    let model: ReaderModel
+    let catalogID: UUID
+    let name: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .commaSeparatedText) { export in
+            await MainActor.run { LibraryCSV.data(export.model.catalogCSVRows(export.catalogID)) }
+        }
+        .suggestedFileName { LibraryCSV.fileName($0.name) }
+    }
+}
+
+extension ReaderModel {
+    /// Every paper in this catalog as the Library shows it: its papers, then those still being added.
+    func catalogCSVRows(_ catalogID: UUID) -> [LibraryCSV.Row] {
+        func identity(_ sourceID: String?, revision: Int?) -> (arxiv: String?, doi: String?, link: String?) {
+            guard let sourceID else { return (nil, nil, nil) }
+            if let reference = try? ArxivReference(sourceID) {
+                let id = reference.sourceID + ((revision ?? reference.revision).map { "v\($0)" } ?? "")
+                return (id, nil, "https://arxiv.org/abs/" + id)
+            }
+            if let doi = PublicPaperLink(doi: sourceID) { return (nil, doi.identity, doi.sourceURL.absoluteString) }
+            return (nil, nil, nil)
+        }
+        var rows: [LibraryCSV.Row] = [], seen = Set<String>()
+        for paper in papers where !paper.isSample && libraryCatalogs.catalogID(for: catalogKey(paper)) == catalogID {
+            guard seen.insert(catalogKey(paper)).inserted else { continue }
+            let ids = identity(paper.sourceID, revision: paper.sourceRevision)
+            rows.append(.init(title: paper.title, authors: paper.authorNames.isEmpty ? (paper.authors.isEmpty ? [] : [paper.authors]) : paper.authorNames,
+                              year: paper.year, arxivID: ids.arxiv, doi: ids.doi, link: ids.link ?? paper.sourceURL, tags: LibraryTags.tags(for: paper),
+                              added: paper.addedAt))
+        }
+        for item in libraryImports where item.visible && libraryCatalogs.catalogID(for: catalogKey(item)) == catalogID {
+            guard seen.insert(catalogKey(item)).inserted else { continue }
+            let ids = identity(item.sourceID, revision: item.sourceRevision ?? item.requestedRevision)
+            rows.append(.init(title: item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID),
+                              authors: item.metadata?.authors ?? [], year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
+                              arxivID: ids.arxiv, doi: ids.doi, link: ids.link ?? item.sourceURL, tags: LibraryTags.tags(for: item),
+                              added: item.addedAt?.date))
+        }
+        return rows
     }
 }
 

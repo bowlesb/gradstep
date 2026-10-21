@@ -86,7 +86,8 @@ enum LibraryTags {
         let own = distinct(paper.tags).filter(PaperKeywords.allowed)
         if paper.tagsCustomized { return own }
         let derived = PaperKeywords.derive(title: paper.title, abstract: paper.abstract)
-        return derived.isEmpty ? own : derived
+        // Catalog tags the reader didn't choose keep only the specific ones (builds 70 and 75: no LLM, Reasoning...).
+        return derived.isEmpty ? own.filter(PaperKeywords.distinctive) : derived
     }
 
     static func tags(for item: LibraryImportRecord) -> [String] {
