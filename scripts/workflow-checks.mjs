@@ -428,14 +428,17 @@ check('config.edge-functions', { title: 'Edge functions are deployed and active'
 
 check('config.function-secrets', { title: 'Function secrets exist (names only)', suites: ALL, timeout: 60 }, async () => {
   if (!management) return skip('needs a management token');
-  // What the deployed functions read (OCR keys live with the Cloud Run worker, not here).
-  // DeepSeek in chat (infra chat_deepseek: on, hidden or off) needs its key whenever it is not off.
+  // What the deployed functions read. Every model call goes through OpenRouter (one key; owner 2026-10-18 and 2026-10-21);
+  // DeepSeek in chat is a model choice on OpenRouter's DeepInfra route, switched by CHAT_DEEPSEEK (on, hidden or off).
+  // A retired direct-provider key left on the project is a failure: nothing may hold one.
   const deepseek = infra.chat_deepseek ?? 'off';
   const required = ['ADMIN_ORIGINS', 'CHAT_WEB_SEARCH', 'OPENROUTER_CHAT_API_KEY', 'TAVILY_API_KEY', 'APP_STORE_BUNDLE_ID', 'APP_STORE_ENVIRONMENTS', 'APP_STORE_ONLINE_CHECKS',
     ...(deepseek !== 'off' ? ['CHAT_DEEPSEEK'] : [])];
   const secrets = await management.get('/secrets');
   const missing = required.filter(name => !secrets.some(s => s.name === name));
   if (missing.length) return fail(`missing function secrets: ${missing.join(', ')}`);
+  const retired = ['ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY'].filter(name => secrets.some(s => s.name === name));
+  if (retired.length) return fail(`retired direct-provider keys still set: ${retired.join(', ')} (deploy-staging.py removes them)`);
   // Values are listed as SHA-256 digests; the web-search and DeepSeek switches must match infra.
   const search = secrets.find(s => s.name === 'CHAT_WEB_SEARCH')?.value, want = infra.chat_web_search ? 'on' : 'off';
   if (search && [sha256('on'), sha256('off')].includes(search) && search !== sha256(want)) return fail(`CHAT_WEB_SEARCH is ${want === 'on' ? 'off' : 'on'}, infra says ${want}`);
@@ -443,7 +446,7 @@ check('config.function-secrets', { title: 'Function secrets exist (names only)',
   const modes = ['on', 'hidden', 'off'];
   if (switched && modes.some(m => sha256(m) === switched) && switched !== sha256(deepseek))
     return fail(`CHAT_DEEPSEEK is ${modes.find(m => sha256(m) === switched)}, infra says ${deepseek}`);
-  return pass(`${required.length} required present; web search ${want}; chat DeepSeek ${deepseek}`);
+  return pass(`${required.length} required present, no direct-provider key; web search ${want}; chat DeepSeek (OpenRouter) ${deepseek}`);
 });
 
 check('config.pipeline-budget', { title: 'Pipeline enabled with budget headroom', suites: ALL, timeout: 60 }, async () => {
@@ -616,9 +619,11 @@ check('pdf.device-only', {title:'The server refuses PDF upload intents',suites:A
  const r=await acct.fn('upload-pdf',{method:'POST',body:{action:'begin'},signal});
  return r.status===410 && r.json?.code==='pdf_device_only' ? pass('HTTP 410 pdf_device_only; no PDF bytes sent') : fail(`PDF admission not fenced: HTTP ${r.status}`);
 });
-// Budget health (audit 2026-10-14): paused work, a spent share at or above 80 %, attempts left unknown for over an hour
-// (platform liability nobody released), holds open for over an hour, or a missing next-month row each fail the check,
-// so the scheduled run emails the owner (migration 060 readback; no customer data).
+// Budget health (audit 2026-10-14): paused work, a spent share at or above 80 %, OpenRouter attempts left unknown for over
+// an hour (platform liability nobody released), holds open for over an hour, or a missing next-month row each fail the
+// check, so the scheduled run emails the owner (migration 060 readback; no customer data). Every model call goes through
+// OpenRouter (owner 2026-10-21): attempts of retired direct providers are legacy history (migration 0140), reported in
+// the message with the ceilings they still hold, never a failure and never dropped from the month's figures.
 check('budget.health', {title:'Platform budget is enabled, under 80 %, without aged liability, with next month ready',suites:ALL,timeout:30},async()=>{
  const h=await rpc('worker_budget_health',{},{service:true});
  if(!h||h.missing)return fail('No platform budget row for this month: every paid request would be refused');
@@ -627,10 +632,14 @@ check('budget.health', {title:'Platform budget is enabled, under 80 %, without a
  const problems=[];
  if(!h.work_enabled)problems.push('paid work is paused (work_enabled=false)');
  if(share>=0.8)problems.push(`${Math.round(share*100)} % of the ${usd(limit/1e6)} limit is spent or reserved`);
- if(Number(h.unknown_attempts_over_1h)>0)problems.push(`${h.unknown_attempts_over_1h} provider attempt(s) unknown for over an hour`);
+ // Servers before migration 0140 report only the all-provider count.
+ const unknown=h.unknown_openrouter_attempts_over_1h??h.unknown_attempts_over_1h;
+ if(Number(unknown)>0)problems.push(`${unknown} OpenRouter attempt(s) unknown for over an hour`);
  if(Number(h.open_operations_over_1h)>0)problems.push(`${h.open_operations_over_1h} hold(s) open for over an hour`);
  if(!h.next_period_exists)problems.push('next month has no budget row');
- const summary=`${h.period}: ${usd(spent/1e6)} spent, ${usd(reserved/1e6)} reserved of ${usd(limit/1e6)}; next month ${h.next_period_exists?'ready':'missing'}`;
+ const legacy=h.reconciliation?.legacy;
+ const legacyNote=legacy&&Number(legacy.attempts)>0?`; legacy (not OpenRouter, settled by the owner): ${legacy.attempts} attempt(s) holding ${usd(Number(legacy.held_microusd)/1e6)} (${Object.entries(legacy.by_provider??{}).map(([p,n])=>`${p} ${n}`).join(', ')})`:'';
+ const summary=`${h.period}: ${usd(spent/1e6)} spent, ${usd(reserved/1e6)} reserved of ${usd(limit/1e6)}; next month ${h.next_period_exists?'ready':'missing'}${legacyNote}`;
  return problems.length?fail(`${summary}; ${problems.join('; ')}`):pass(summary,{spent_microusd:spent,reserved_microusd:reserved,limit_microusd:limit});
 });
 

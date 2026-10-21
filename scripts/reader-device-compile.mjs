@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The whole device path for a cached paper, in a headless browser: the shipped compiler (apps/web/public/arxiv-reader.js)
+// The whole device path for a cached paper, in a headless browser: the shipped compiler (apps/web/src/reader/arxiv-reader.js)
 // plans the assets, this script fetches them once (paced, cached under .artifacts/reader-sweep/assets/<id>/), the
 // compiler rasterizes/admits them and composes the bundle, and the result says ok (bundle size, members, pixels) or the
 // reason code. The sweep (reader-sweep.mjs) converts the HTML only; a paper can pass it and still fail on a device
@@ -18,7 +18,7 @@ const { chromium } = require('playwright');
 const arg = (name, fallback) => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const IDS = arg('ids', '').split(',').map(s => s.trim()).filter(Boolean);
 if (!IDS.length) { console.error('pass --ids=<id>v<rev>,…'); process.exit(2); }
-const compiler = readFileSync(ROOT + 'apps/web/public/arxiv-reader.js', 'utf8');
+const compiler = readFileSync(ROOT + 'apps/web/src/reader/arxiv-reader.js', 'utf8');
 const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.setContent(`<!doctype html><meta charset="utf-8"><script>${compiler}</script>`);

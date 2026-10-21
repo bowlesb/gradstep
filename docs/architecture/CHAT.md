@@ -22,9 +22,10 @@ Activation is established by the later published-table readback and ordinary def
 
 Build 65 feedback (2026-10-17 UTC; browser `91c7d07f`, TestFlight 66): the native Answer options sheet has no title or
 Done row; its drag handle and accessibility escape dismiss it (Mac retains an X). “New chats currently start with
-‹model · length›” always states the saved default. The owner's label “Reset default settings” replaces “Use for new
+‹model · length›” always states the saved default. The owner's label “Reset default settings” replaced “Use for new
 chats”; it saves the visible choices as the new default, is disabled while they match, and becomes accented when
-they differ. Browser uses the same wording and enabled state. Model/length selection and provider consent are
+they differ. Since c4d15d9 the apps read “Use for new ‹activity›” (general chat, paper chat, equation explanations,
+figures and tables); the browser matches since the 2026-10-21 review fixes (B10/B11). Model/length selection and provider consent are
 unchanged. Its existing desktop dialog header/X remain.
 The same feedback batch removes the empty-chat accent glow on both clients; starter positions and actions stay the same.
 
@@ -236,6 +237,12 @@ logs, or the server. A visible Copied/Copy failed label and disabled state preve
 clipboard operation is settling. The production-CSP Playwright journey covers both controls without a provider call.
 
 ## Web search (on in staging)
+
+Current (2026-10-21): web search is only our `search_web` function tool. The model calls it through OpenRouter like
+any tool; our server runs the search with Tavily (prepaid plan, admitted as provider `tavily`) and returns the pages
+as tool results. Its cost to Gradstep is the prepaid plan, not OpenRouter; the reader pays Tavily's list price per
+credit. The Anthropic server-side search backup described below was gated off from 2026-10-14 and its code was removed
+with the OpenRouter-only decision; a paused or exhausted Tavily now means the answer is written without search.
 
 Search is on when `CHAT_WEB_SEARCH=on` (`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`;
 on in staging since 2026-10-05). Two providers (owner decision 2026-10-06, [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06)):
@@ -1009,8 +1016,9 @@ input/output tokens) is cheaper than DeepSeek Flash even off-peak ($0.15/$0.60);
 Haiku's and Sonnet's (Standard: 1–3 credits, at most 5; Sonnet 4–24, at most 37).
 
 `CHAT_DEEPSEEK` (infra `chat_deepseek`, `deploy-staging.py --chat-deepseek on|hidden|off`): `on` publishes and accepts
-DeepSeek, `hidden` accepts it without publishing it (for the recorded check), `off` does neither; DeepSeek also needs
-`DEEPSEEK_API_KEY`, now a function secret (the podcast worker keeps its own copy on Cloud Run). A DeepSeek choice the
+DeepSeek, `hidden` accepts it without publishing it (for the recorded check), `off` does neither. Since 2026-10-18
+DeepSeek is served through OpenRouter (DeepInfra) with `OPENROUTER_CHAT_API_KEY`; no `DEEPSEEK_API_KEY` exists any more
+(2026-10-21: the deploy removes a leftover one and the check fails on it). A DeepSeek choice the
 server does not accept is `invalid_request`; the deploy check `config.function-secrets` compares the switch with infra.
 
 **DeepSeek request** (`deepseek.ts`: `deepseekChatParams`, `streamDeepSeekChat`; `chat/index.ts` routes by model). The

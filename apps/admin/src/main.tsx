@@ -8,6 +8,7 @@ import { Health, HEALTH_WINDOWS } from './health';
 import { ProviderHours } from './provider-hours';
 import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
+import { Costs } from './costs';
 import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
@@ -30,7 +31,7 @@ const statusName = (value: string) => value.replaceAll('_', ' ');
 const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GiB` : `${(value / 1024 ** 2).toFixed(2)} MiB`;
 
 // The address names the page (#health/30, #support), so a bookmark or the apps' "Operations dashboard" link opens it.
-const OWNER_TABS = ['Health', 'Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'];
+const OWNER_TABS = ['Health', 'Overview', 'Spending', 'Costs', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'];
 function fromHash(): { tab: string | null; days: number } {
   const [name, days] = location.hash.replace(/^#/, '').split('/');
   const tab = OWNER_TABS.find(t => t.toLowerCase() === (name ?? '').toLowerCase()) ?? null;
@@ -120,6 +121,7 @@ function App() {
         <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
       </>}
       {tab === 'Spending' && owner && <Spending key={account.account_id} ownerID={account.account_id} reloadKey={reloads} />}
+      {tab === 'Costs' && owner && <Costs key={account.account_id} reloadKey={reloads} />}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
       {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /><ProviderHours load={loadProviderHours} reloadKey={reloads} /></>}
       {tab === 'Accounts' && owner && <Accounts key={account.account_id} api={accountsApi} reloadKey={reloads} />}
@@ -297,9 +299,10 @@ const root = createRoot(document.getElementById('root')!);
 // Development-only screenshot fixtures; production builds drop these branches and their modules.
 if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'spending') {
   void import('./spending-fixture').then(({ SpendingFixture }) => root.render(<React.StrictMode><SpendingFixture /></React.StrictMode>));
-} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases', 'health'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
-  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture, HealthFixture }) => root.render(<React.StrictMode>
+} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases', 'health', 'costs'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
+  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture, HealthFixture, CostsFixture }) => root.render(<React.StrictMode>
     {new URLSearchParams(location.search).get('fixture') === 'health' ? <HealthFixture />
+      : new URLSearchParams(location.search).get('fixture') === 'costs' ? <CostsFixture />
       : new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture />
       : new URLSearchParams(location.search).get('fixture') === 'purchases' ? <PurchasesFixture /> : <ReliabilityFixture />}</React.StrictMode>));
 } else {

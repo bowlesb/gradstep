@@ -30,7 +30,7 @@ function diagramScript(): { script: string; hash: string } {
 }
 
 function compilerScript(): { script: string; hash: string } {
-  const script = readFileSync(new URL('./public/arxiv-reader.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('./src/reader/arxiv-compiler-host.js', import.meta.url), 'utf8');
+  const script = readFileSync(new URL('./src/reader/arxiv-reader.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('./src/reader/arxiv-compiler-host.js', import.meta.url), 'utf8');
   if (/<\/script|<!--/i.test(script)) throw new Error('Unsafe compiler script serialization');
   return {script, hash: 'sha256-' + createHash('sha256').update(script).digest('base64')};
 }

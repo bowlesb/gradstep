@@ -36,8 +36,31 @@ test('a browser report includes a screenshot and can be reopened from My reports
   await page.getByTestId('report-issue').click();
   await page.getByTestId('report-title').fill('Add paper is disabled');
   await page.getByTestId('report-note').fill('The button stays disabled after sign-in.');
-  await page.getByTestId('report-file').setInputFiles({ name: 'bug.png', mimeType: 'image/png', buffer: PNG });
-  await expect(page.getByAltText('Screenshot preview')).toBeVisible();
+  // A screenshot with private text in its top half (a 400 × 300 PNG drawn here).
+  const shot = Buffer.from(await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 400; c.height = 300; const x = c.getContext('2d')!;
+    x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 300); x.fillStyle = '#c00'; x.fillRect(50, 40, 300, 100); return c.toDataURL('image/png').split(',')[1]; }), 'base64');
+  await page.getByTestId('report-file').setInputFiles({ name: 'bug.png', mimeType: 'image/png', buffer: shot });
+  const preview = page.getByTestId('report-preview');
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(400); // shown, not blocked by the image policy
+  // Crop or redact (B5): cover the private half, then crop to the lower half; only the edited preview is uploaded.
+  await page.getByTestId('report-edit').click();
+  const editor = page.getByRole('dialog', { name: 'Edit screenshot' }), area = editor.getByTestId('screenshot-area');
+  await expect(editor.getByTestId('screenshot-cover')).toHaveAttribute('aria-pressed', 'true');
+  await expect(editor).toContainText('Drag to cover private details.');
+  const b = (await area.boundingBox())!;
+  await page.mouse.move(b.x + 5, b.y + 5); await page.mouse.down(); await page.mouse.move(b.x + b.width - 5, b.y + b.height * 0.55, { steps: 5 }); await page.mouse.up();
+  await expect(area.locator('.screenshot-cover')).toHaveCount(1);
+  await editor.getByTestId('screenshot-crop').click(); await expect(editor).toContainText('Drag around the area to keep.');
+  await page.mouse.move(b.x + 2, b.y + b.height * 0.3); await page.mouse.down(); await page.mouse.move(b.x + b.width - 2, b.y + b.height - 2, { steps: 5 }); await page.mouse.up();
+  await expect(area.locator('.screenshot-crop')).toHaveCount(1);
+  await page.screenshot({ path: `../../.artifacts/web-support/${test.info().project.name}-screenshot-editor.png` });
+  await editor.getByTestId('screenshot-done').click(); await expect(editor).toHaveCount(0);
+  await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalHeight)).toBeLessThan(250);
+  // No red left: the covered part is black, the rest white.
+  const red = await preview.evaluate((img: HTMLImageElement) => { const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; const x = c.getContext('2d')!; x.drawImage(img, 0, 0);
+    const d = x.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i + 1] < 80) n++; return n; });
+  expect(red).toBe(0);
   await page.getByTestId('report-send').click();
   await expect(page.getByRole('heading', { name: 'My reports' })).toBeVisible();
   expect(uploaded).toBeGreaterThan(0);

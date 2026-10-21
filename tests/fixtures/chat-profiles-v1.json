@@ -1,0 +1,716 @@
+{
+  "version": "chat-profiles-v1",
+  "rate_version": "beta-credits-v1",
+  "tariff": "openrouter-reviewed-cards",
+  "microusd_per_credit": 5000,
+  "default": {
+    "model": "sonnet",
+    "effort": "low",
+    "length": "standard"
+  },
+  "default_auto": {
+    "model": "sonnet",
+    "effort": "auto",
+    "length": "standard"
+  },
+  "models": [
+    {
+      "id": "haiku",
+      "label": "Haiku",
+      "detail": "Quick, economical explanations · OpenRouter → Google Vertex",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v5"
+    },
+    {
+      "id": "sonnet",
+      "label": "Sonnet",
+      "detail": "Strong answers at a moderate cost · OpenRouter → Google Vertex",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v5"
+    },
+    {
+      "id": "opus",
+      "label": "Opus",
+      "detail": "Most capable; costs the most · OpenRouter → Google Vertex",
+      "api_model": "anthropic/claude-opus-5.5",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v5"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "detail": "Low cost; processed by DeepSeek · OpenRouter → DeepInfra",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "provider": "openrouter",
+      "consent_version": "cloud-ai-v6"
+    }
+  ],
+  "efforts": [
+    {
+      "id": "low",
+      "label": "Low",
+      "detail": "Thinks only when needed; quickest"
+    },
+    {
+      "id": "medium",
+      "label": "Medium",
+      "detail": "Thinks through harder questions"
+    },
+    {
+      "id": "high",
+      "label": "High",
+      "detail": "Thinks carefully; slowest"
+    },
+    {
+      "id": "auto",
+      "label": "Automatic",
+      "detail": "Chosen for each question"
+    }
+  ],
+  "lengths": [
+    {
+      "id": "brief",
+      "label": "Brief",
+      "detail": "A few sentences"
+    },
+    {
+      "id": "standard",
+      "label": "Standard",
+      "detail": "Focused answers"
+    },
+    {
+      "id": "detailed",
+      "label": "Detailed",
+      "detail": "Thorough, with derivations and caveats"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "haiku-low-brief",
+      "model": "haiku",
+      "effort": "low",
+      "length": "brief",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 2
+      }
+    },
+    {
+      "id": "haiku-low-standard",
+      "model": "haiku",
+      "effort": "low",
+      "length": "standard",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 8000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-low-detailed",
+      "model": "haiku",
+      "effort": "low",
+      "length": "detailed",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 12000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-medium-brief",
+      "model": "haiku",
+      "effort": "medium",
+      "length": "brief",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 5000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 2
+      }
+    },
+    {
+      "id": "haiku-medium-standard",
+      "model": "haiku",
+      "effort": "medium",
+      "length": "standard",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-medium-detailed",
+      "model": "haiku",
+      "effort": "medium",
+      "length": "detailed",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-high-brief",
+      "model": "haiku",
+      "effort": "high",
+      "length": "brief",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 9000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-high-standard",
+      "model": "haiku",
+      "effort": "high",
+      "length": "standard",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-high-detailed",
+      "model": "haiku",
+      "effort": "high",
+      "length": "detailed",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 4
+      }
+    },
+    {
+      "id": "sonnet-low-brief",
+      "model": "sonnet",
+      "effort": "low",
+      "length": "brief",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 3,
+        "high": 24,
+        "max": 30
+      }
+    },
+    {
+      "id": "sonnet-low-standard",
+      "model": "sonnet",
+      "effort": "low",
+      "length": "standard",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 8000,
+      "credits": {
+        "low": 5,
+        "high": 26,
+        "max": 41
+      }
+    },
+    {
+      "id": "sonnet-low-detailed",
+      "model": "sonnet",
+      "effort": "low",
+      "length": "detailed",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 12000,
+      "credits": {
+        "low": 7,
+        "high": 29,
+        "max": 50
+      }
+    },
+    {
+      "id": "sonnet-medium-brief",
+      "model": "sonnet",
+      "effort": "medium",
+      "length": "brief",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 5000,
+      "credits": {
+        "low": 5,
+        "high": 27,
+        "max": 34
+      }
+    },
+    {
+      "id": "sonnet-medium-standard",
+      "model": "sonnet",
+      "effort": "medium",
+      "length": "standard",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 7,
+        "high": 28,
+        "max": 45
+      }
+    },
+    {
+      "id": "sonnet-medium-detailed",
+      "model": "sonnet",
+      "effort": "medium",
+      "length": "detailed",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 10,
+        "high": 31,
+        "max": 54
+      }
+    },
+    {
+      "id": "sonnet-high-brief",
+      "model": "sonnet",
+      "effort": "high",
+      "length": "brief",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 9000,
+      "credits": {
+        "low": 9,
+        "high": 31,
+        "max": 43
+      }
+    },
+    {
+      "id": "sonnet-high-standard",
+      "model": "sonnet",
+      "effort": "high",
+      "length": "standard",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 11,
+        "high": 32,
+        "max": 54
+      }
+    },
+    {
+      "id": "sonnet-high-detailed",
+      "model": "sonnet",
+      "effort": "high",
+      "length": "detailed",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 14,
+        "high": 35,
+        "max": 63
+      }
+    },
+    {
+      "id": "opus-low-brief",
+      "model": "opus",
+      "effort": "low",
+      "length": "brief",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 6,
+        "high": 48,
+        "max": 60
+      }
+    },
+    {
+      "id": "opus-low-standard",
+      "model": "opus",
+      "effort": "low",
+      "length": "standard",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 8000,
+      "credits": {
+        "low": 9,
+        "high": 51,
+        "max": 82
+      }
+    },
+    {
+      "id": "opus-low-detailed",
+      "model": "opus",
+      "effort": "low",
+      "length": "detailed",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 12000,
+      "credits": {
+        "low": 14,
+        "high": 57,
+        "max": 99
+      }
+    },
+    {
+      "id": "opus-medium-brief",
+      "model": "opus",
+      "effort": "medium",
+      "length": "brief",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 5000,
+      "credits": {
+        "low": 10,
+        "high": 53,
+        "max": 68
+      }
+    },
+    {
+      "id": "opus-medium-standard",
+      "model": "opus",
+      "effort": "medium",
+      "length": "standard",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 13,
+        "high": 56,
+        "max": 90
+      }
+    },
+    {
+      "id": "opus-medium-detailed",
+      "model": "opus",
+      "effort": "medium",
+      "length": "detailed",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 19,
+        "high": 61,
+        "max": 108
+      }
+    },
+    {
+      "id": "opus-high-brief",
+      "model": "opus",
+      "effort": "high",
+      "length": "brief",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 9000,
+      "credits": {
+        "low": 18,
+        "high": 61,
+        "max": 86
+      }
+    },
+    {
+      "id": "opus-high-standard",
+      "model": "opus",
+      "effort": "high",
+      "length": "standard",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 21,
+        "high": 64,
+        "max": 108
+      }
+    },
+    {
+      "id": "opus-high-detailed",
+      "model": "opus",
+      "effort": "high",
+      "length": "detailed",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 27,
+        "high": 69,
+        "max": 126
+      }
+    },
+    {
+      "id": "deepseek-low-brief",
+      "model": "deepseek",
+      "effort": "low",
+      "length": "brief",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-low-standard",
+      "model": "deepseek",
+      "effort": "low",
+      "length": "standard",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 8000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-low-detailed",
+      "model": "deepseek",
+      "effort": "low",
+      "length": "detailed",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 12000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 4
+      }
+    },
+    {
+      "id": "deepseek-medium-brief",
+      "model": "deepseek",
+      "effort": "medium",
+      "length": "brief",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 5000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-medium-standard",
+      "model": "deepseek",
+      "effort": "medium",
+      "length": "standard",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-medium-detailed",
+      "model": "deepseek",
+      "effort": "medium",
+      "length": "detailed",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 1,
+        "high": 3,
+        "max": 4
+      }
+    },
+    {
+      "id": "deepseek-high-brief",
+      "model": "deepseek",
+      "effort": "high",
+      "length": "brief",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 9000,
+      "credits": {
+        "low": 1,
+        "high": 3,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-high-standard",
+      "model": "deepseek",
+      "effort": "high",
+      "length": "standard",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 14000,
+      "credits": {
+        "low": 1,
+        "high": 3,
+        "max": 4
+      }
+    },
+    {
+      "id": "deepseek-high-detailed",
+      "model": "deepseek",
+      "effort": "high",
+      "length": "detailed",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 1,
+        "high": 3,
+        "max": 4
+      }
+    },
+    {
+      "id": "haiku-auto-brief",
+      "model": "haiku",
+      "effort": "auto",
+      "length": "brief",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 2
+      }
+    },
+    {
+      "id": "haiku-auto-standard",
+      "model": "haiku",
+      "effort": "auto",
+      "length": "standard",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "haiku-auto-detailed",
+      "model": "haiku",
+      "effort": "auto",
+      "length": "detailed",
+      "api_model": "anthropic/claude-haiku-5.5",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 4
+      }
+    },
+    {
+      "id": "sonnet-auto-brief",
+      "model": "sonnet",
+      "effort": "auto",
+      "length": "brief",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 3,
+        "high": 24,
+        "max": 30
+      }
+    },
+    {
+      "id": "sonnet-auto-standard",
+      "model": "sonnet",
+      "effort": "auto",
+      "length": "standard",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 5,
+        "high": 26,
+        "max": 45
+      }
+    },
+    {
+      "id": "sonnet-auto-detailed",
+      "model": "sonnet",
+      "effort": "auto",
+      "length": "detailed",
+      "api_model": "anthropic/claude-sonnet-5.5",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 10,
+        "high": 31,
+        "max": 63
+      }
+    },
+    {
+      "id": "opus-auto-brief",
+      "model": "opus",
+      "effort": "auto",
+      "length": "brief",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 6,
+        "high": 48,
+        "max": 60
+      }
+    },
+    {
+      "id": "opus-auto-standard",
+      "model": "opus",
+      "effort": "auto",
+      "length": "standard",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 9,
+        "high": 51,
+        "max": 90
+      }
+    },
+    {
+      "id": "opus-auto-detailed",
+      "model": "opus",
+      "effort": "auto",
+      "length": "detailed",
+      "api_model": "anthropic/claude-opus-5.5",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 19,
+        "high": 61,
+        "max": 126
+      }
+    },
+    {
+      "id": "deepseek-auto-brief",
+      "model": "deepseek",
+      "effort": "auto",
+      "length": "brief",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 3000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-auto-standard",
+      "model": "deepseek",
+      "effort": "auto",
+      "length": "standard",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 10000,
+      "credits": {
+        "low": 1,
+        "high": 2,
+        "max": 3
+      }
+    },
+    {
+      "id": "deepseek-auto-detailed",
+      "model": "deepseek",
+      "effort": "auto",
+      "length": "detailed",
+      "api_model": "deepseek/deepseek-v4.1-flash-1017",
+      "max_output_tokens": 18000,
+      "credits": {
+        "low": 1,
+        "high": 3,
+        "max": 4
+      }
+    }
+  ],
+  "estimate_note": "For a question about a typical 25-page paper. Web searches add about 2 credits each."
+}

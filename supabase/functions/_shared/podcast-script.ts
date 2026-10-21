@@ -2,9 +2,11 @@
 // fact-check review (a bounded correction set, applied deterministically) with Claude
 // Sonnet 5.5, then a deterministic evidence checker. Deno and Node compatible. Never
 // log paper text, prompts or scripts; only ids and counts.
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ModelRequest } from './model-request.ts';
 import type { OpenRouterAttribution } from './openrouter-transport.ts';
-import { priceAttempts } from './anthropic.ts';
+import { priceAttempts } from './inference.ts';
+import { routedClaudeModel } from './openrouter-claude-pricing.ts';
+import { routedDeepSeekModel } from './openrouter-deepseek-pricing.ts';
 import { evidenceNumbers, indexPaper, latexFromPaper, spokenNumbers, verifyQuote, type EvidenceDrop, type EvidenceRepair,
   type PaperIndex } from './podcast-evidence.ts';
 import { spokenCharacterBudget, type SpeechBudget } from './podcast-speech.ts';
@@ -191,7 +193,7 @@ Repair before you reject. Fix every problem you can with these corrections: pref
 Then set verdict. "accept" means the draft with your corrections applied is fully supported by the paper; empty lists with "accept" approve the draft as written. "reject" is only for a draft that misrepresents the paper's main result, contains fabricated content (a result, number, experiment, quote or detail that is not in the paper), or has more problems than {LIMIT} corrections can fix. Unsupported turns, wrong numbers and speculation presented as a finding are not by themselves reasons to reject: delete or correct those turns.
 reasons names problems by kind, each with the ids of the draft segments it affects. Codes: misrepresents_main_result, fabricated_detail, wrong_numbers, unsupported_claims, speculation_presented_as_finding (a guess or the authors' speculation presented as a result), too_many_problems, other. With "reject", list at least one reason for every problem your corrections leave unfixed, naming each affected segment; leave a reason's segment list empty only when the problem is not confined to particular segments. With "accept", list the problems your corrections fixed, or none.`;
 
-export type ScriptParams = Anthropic.Messages.MessageCreateParamsNonStreaming;
+export type ScriptParams = ModelRequest;
 
 function paperBlock(paperText: string, title: string | null): string {
   const cleaned = title?.replace(/["<>\n\r]/g, ' ').trim().slice(0, 300);
@@ -285,7 +287,9 @@ export interface ScriptProvider {
 /** micro-USD (rounded up once) and numeric units for worker_provider_attempt_finish. */
 export function scriptCost(result: ScriptCallResult): { microusd: number; units: Record<string, number> } {
   const u = result.usage!;
-  const microusd = Math.ceil(result.billedMicrousd ?? priceAttempts([{ model: result.model, estimated: false, usage: u }]));
+  // OpenRouter's reported cost; without it, the card of the OpenRouter route the spec's model was sent to.
+  const routed = result.model ? routedDeepSeekModel(routedClaudeModel(result.model)) : null;
+  const microusd = Math.ceil(result.billedMicrousd ?? priceAttempts([{ model: routed, estimated: false, usage: u }]));
   return { microusd, units: { input_tokens: u.input, cache_write_5m_tokens: u.cacheWrite5m, cache_write_1h_tokens: u.cacheWrite1h,
     cache_read_tokens: u.cacheRead, output_tokens: u.output } };
 }

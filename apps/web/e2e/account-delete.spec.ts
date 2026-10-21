@@ -134,7 +134,7 @@ test('typing DELETE enables deletion; the account is deleted, this browser keeps
   // The server deleted the login too: the same address no longer signs in.
   await page.getByTestId('email').fill('returning@example.test');
   await page.getByTestId('send-code').click();
-  await expect(page.getByRole('alert')).toHaveText('There’s no Gradstep account for this address. Gradstep is invite-only during the beta.');
+  await expect(page.getByRole('alert')).toHaveText('This sign-in address isn’t invited to the beta. Use the address on your invitation; Apple’s Hide My Email address may be different.');
   // Reloading does not repeat the confirmation.
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();

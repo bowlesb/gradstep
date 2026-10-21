@@ -6,14 +6,12 @@ import { MAXIMUM_READER_HEADINGS, type VerifiedBundle } from '../lib/bundle';
 import { isUUID } from '../lib/bytes';
 import type { Selection, SelectionPart } from '../lib/passage';
 
-export const FRAME_SCRIPT_HASH = frame.hash;
-
 const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,applet,form,link,noscript,template,portal';
 
 export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | { names: string[]; source: string } | null; paperAuthors?: string[]; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null;
   /** The text column's measure (READING_MODE.md): comfortable, wide or full. */ lineWidth?: LineWidth }
-export type LineWidth = 'comfortable' | 'wide' | 'full';
-export const LINE_WIDTHS: readonly LineWidth[] = ['comfortable', 'wide', 'full'];
+import type { LineWidth } from './line-width';
+export { LINE_WIDTHS, type LineWidth } from './line-width';
 
 /** No bundle scripts, frames, forms or handlers, no script or data URLs; verified images inlined as data URIs. Shared
  * with the equation view's frame (equation-frame.ts). */
@@ -42,8 +40,12 @@ export function bundleStyles(bundle: VerifiedBundle, hrefs: (string | null)[] = 
   return [...new Set(ordered)].map(member => new TextDecoder().decode(bundle.contents.get(member!.path)!));
 }
 
-/** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
-export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
+/** The last framed bundle's document around its config block: parsing the paper, encoding every image and adding the
+ * styles, CSP and frame script happen once per bundle; each figure or table view of the same paper (and every ←/→ step)
+ * only adds its own config (C4). One paper at a time, so at most one extra copy is held. */
+let template: { bundle: VerifiedBundle; before: string; after: string } | null = null;
+function documentTemplate(bundle: VerifiedBundle): { before: string; after: string } {
+  if (template?.bundle === bundle) return template;
   const html = new TextDecoder().decode(bundle.contents.get(bundle.manifest.entrypoint)!);
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const stylesheetHrefs = [...doc.querySelectorAll('link[rel~="stylesheet"]')].map(l => l.getAttribute('href'));
@@ -61,16 +63,27 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
   const configBlock = doc.createElement('script');
   configBlock.setAttribute('type', 'application/json');
   configBlock.setAttribute('data-gradstep-config', '');
+  // A script's text is serialized as is, so the config can take this marker's place exactly.
+  const marker = `gradstep-frame-config-${crypto.randomUUID()}`;
+  configBlock.textContent = marker;
+  const script = doc.createElement('script');
+  script.textContent = frame.script;
+  doc.body.append(configBlock, script);
+  const parts = ('<!doctype html>\n' + doc.documentElement.outerHTML).split(marker);
+  if (parts.length !== 2) throw new Error('frame_template');
+  template = { bundle, before: parts[0], after: parts[1] };
+  return template;
+}
+
+/** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
+export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
+  const { before, after } = documentTemplate(bundle);
   const config = {
     parent_origin: options.parentOrigin, paper_line: options.paperLine ?? null, paper_tags: options.paperTags ?? null, paper_authors: options.paperAuthors ?? [], font_size: options.fontSize ?? null, theme: options.theme ?? null, line_width: options.lineWidth ?? null,
     bundle: { ...bundle.index, manifest_sha256: bundle.manifestSHA256, ...(options.figureID ? { figure_id: options.figureID } : {}) },
   };
   // `<` escaped so no text in the index can end the data block.
-  configBlock.textContent = JSON.stringify(config).replace(/</g, '\\u003c');
-  const script = doc.createElement('script');
-  script.textContent = frame.script;
-  doc.body.append(configBlock, script);
-  return '<!doctype html>\n' + doc.documentElement.outerHTML;
+  return before + JSON.stringify(config).replace(/</g, '\\u003c') + after;
 }
 
 /** Messages from the frame, validated with the native coordinator's bounds. */
@@ -86,6 +99,8 @@ export type FrameMessage =
   | { type: 'author'; name: string } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'tag'; name: string } | { type: 'contentsGesture' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number; matches: { index: number; text: string }[] }
   | { type: 'key'; key: FrameKey }
+  /** A link out of the paper the reader clicked (frame-shim.js): opened in a new tab, never in the frame. */
+  | { type: 'link'; url: string }
   /** Notes: a region or element made into a PNG inside the frame (frame-shim.js). `box` is in the frame's CSS px. */
   | { type: 'capture'; nonce: string; ok: true; png: ArrayBuffer; width: number; height: number; blocks: string[]; box: [number, number, number, number]; viewport: [number, number, number] }
   | { type: 'capture'; nonce: string; ok: false; reason: string }
@@ -147,6 +162,7 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
         }) : [] } : null;
     }
     case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
+    case 'link': { const url = typeof v.url === 'string' ? outboundLink(v.url) : null; return url ? { type: 'link', url } : null; }
     case 'captureProbe': return typeof v.nonce === 'string' && isUUID(v.nonce) && typeof v.ok === 'boolean' ? { type: 'captureProbe', nonce: v.nonce.toLowerCase(), ok: v.ok } : null;
     case 'capture': {
       if (typeof v.nonce !== 'string' || !isUUID(v.nonce)) return null;
@@ -164,6 +180,17 @@ export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): Frame
     }
   }
   return null;
+}
+
+/** A paper's own link out (the apps open only https in Safari): http becomes https, no credentials, bounded. */
+export function outboundLink(raw: string): string | null {
+  if (raw.length > 4096 || /[\u0000-\u0020\u007f]/.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || !url.hostname) return null;
+    url.protocol = 'https:';
+    return url.href;
+  } catch { return null; }
 }
 
 const ID = /^[0-9A-Za-z_-]{1,200}$/;

@@ -45,7 +45,7 @@ export function useChat(account: string, ready: Extract<Preparation, { kind: 're
     }
     if (owner.signal.aborted) { opened?.journal.retire(); return; }
     if (journalState !== 'active' && journalState !== 'inactive') {
-      history.status = 'error'; history.issue = 'This browser’s encrypted chat storage couldn’t be opened. Your stored data has been kept. Reload to retry; don’t clear site data if you need unsynced work.';
+      history.status = 'error'; history.issueBlocks = true; history.issue = 'This browser’s encrypted chat storage couldn’t be opened. Your stored data has been kept. Reload to retry; don’t clear site data if you need unsynced work.';
       session.lockJournal(journalState);
     }
     setChat(session);

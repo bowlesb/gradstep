@@ -1,15 +1,19 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatSession } from '../lib/chat-session';
-import { LibraryCatalogs, catalogEvent, catalogName, type CatalogOperation } from '../lib/library-catalogs';
+import { PrivateState } from '../lib/events';
+import { catalogEvent, catalogName, catalogsOf, type CatalogOperation } from '../lib/library-catalogs';
+
+const EMPTY = new PrivateState();
 
 export function useCatalogs(chat: ChatSession | null) {
   const version = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
-  const state = useMemo(() => new LibraryCatalogs(chat?.history.state), [chat, version]);
+  // The same catalogs while their records are unchanged (C3), so the library keeps its order and rows.
+  const state = useMemo(() => catalogsOf(chat?.history.state ?? EMPTY), [chat, version]); // eslint-disable-line react-hooks/exhaustive-deps
   const [selected, select] = useState<string | null>(null);
   const currentID = state.resolve(selected ?? state.defaultID);
   const tail = useRef<Promise<void>>(Promise.resolve());
   const ready = !!chat && !chat.signal.aborted && chat.history.status === 'ready';
-  const currentState = () => new LibraryCatalogs(chat?.history.state);
+  const currentState = () => catalogsOf(chat?.history.state ?? EMPTY);
   const write = (operations: CatalogOperation[]) => {
     const work = tail.current.catch(() => {}).then(async () => {
       if (!chat || chat.signal.aborted || chat.history.status !== 'ready') throw Error('Unlock your library before changing catalogs.');

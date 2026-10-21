@@ -701,8 +701,9 @@ stage of it (see [Lengths](#lengths-short-5-10-and-20-minutes)). Wake-ups: `pg_n
 (`science_reader_pipeline_url` + `/podcast`), and a customer's status poll re-kicks a queued, parked or stalled job at most
 once a minute; `scripts/podcast-ops.py kick` does the same for the operator. There is no new schedule or loop.
 The numbers below are the five-minute profile's; every length's are in its profile.
-Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker leaves generated jobs queued
-(fixture jobs still run).
+Without an OpenRouter key (`OPENROUTER_PODCAST_API_KEY`, else `OPENROUTER_CHAT_API_KEY`) the worker leaves generated
+jobs queued (fixture jobs still run). Script, review and voices all go through OpenRouter since 2026-10-18; the direct
+`ANTHROPIC_API_KEY` and the Vertex speech identity are retired (2026-10-21: no longer accepted by the worker deploy).
 
 1. **Source:** download the pinned `standalone.mmd` (bounded), verify length and SHA-256; refuse > 400 KB.
 2. **Script pass 1** (`podcast_script`): Claude Sonnet 5.5, ≤ 6,000 output tokens, no tools, no server-side

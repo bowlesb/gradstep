@@ -1,5 +1,67 @@
 # Infrastructure, spending, and recovery
 
+## OpenRouter exclusively and cost per account — 2026-10-21
+
+Owner: "exclusively use open router for better breakdowns of user by cost" ([decision](../DECISIONS.md)). Status:
+implemented and tested locally; **not deployed**. This change: **$0 new paid inference, $0 reservations, $0 fixed
+commitments**; no budget, price, credit rate or consent change. The $100/month operating ceiling is unchanged.
+
+**One provider.** Every model call (chat answers and their titles, suggestions and Study maps, figure and equation
+explainers, tags, podcast scripts, reviews and voices) goes to OpenRouter with the dedicated `OPENROUTER_CHAT_API_KEY`
+(or the per-feature tags/podcast keys when provisioned). Nothing reads `ANTHROPIC_API_KEY` or `DEEPSEEK_API_KEY`; the
+staging deploy removes them (and the retired `CHAT_CLAUDE_OPENROUTER` switch) from the Supabase project, the pipeline
+worker accepts no provider identity besides its OpenRouter secret, and the `config.function-secrets` workflow check
+fails if a direct key reappears. Web search is our Tavily tool on its prepaid plan; it is not an OpenRouter cost.
+
+**Checks.** `budget.health` fails on OpenRouter attempts unknown for over an hour
+(`unknown_openrouter_attempts_over_1h`, migration 0140); attempts of the retired direct providers are reported as
+legacy in its message and on Health (by provider, with held ceilings), and stay in the month's spend and reservation
+until an owner reconciles each with the provider's evidence (`scripts/pipeline-ops.py attempts`, then `reconcile`).
+
+### Cost per account (Admin › Costs, migration 0141)
+
+`v1_admin_account_costs` (owner with MFA, the Spending tab's request rate) reads only our ledger:
+`app_private.provider_attempts` (account UUID, route, model, the feature recorded at dispatch, state, cost) and
+settled `metered_operations` (credits charged). For the current UTC month and the last 30 UTC days, per account:
+
+| Figure | Meaning |
+|---|---|
+| Cost | Recorded provider cost: OpenRouter's reported `usage.cost` per generation (rounded up once), plus estimates where no bill arrived. Credit-purchase fees are not included. |
+| Held | Ceilings of attempts still `admitted`/`unknown`: liability, never counted as cost. |
+| Calls | Provider attempts (refused-before-send `denied` attempts excluded). |
+| Searches | Prepaid Tavily searches and their pay-as-you-go value ($0.008 each); not in Cost. |
+| Credits charged | Credits settled against the reader in the window. |
+| Legacy | The part of Cost from retired direct providers (before 2026-10-18). |
+
+Features: chat (answers, titles, suggestions, Study maps, Related, Why it matters, Add paper, diagram repairs), figure
+explainer (`figure`, `figure_simpler`, `figure_detail`), equation explainer (`equation`, `equation_background`), tags,
+podcasts (script, review, repair, voices), search (Tavily routes). Models are named as sent to OpenRouter
+(`anthropic/claude-sonnet-5.5`, `gemini-3.8-flash`, `deepseek/deepseek-v4.1-flash-1017`, …). The page shows at most
+500 accounts, ordered by the last 30 days' cost plus held; it sorts in the browser. An account is named by its
+pseudonymous UUID; its sign-in email appears exactly where Accounts shows it (null once the account is deleted, when the
+UUID remains as the de-identified billing record).
+
+### Checking an account against OpenRouter
+
+Each OpenRouter request carries `user` = the **account UUID** (never an email), `session_id` = the operation UUID
+(also the `X-Session-ID` header) and a `trace` with the attempt UUID and feature; the ledger stores each generation id
+(`provider_attempts.provider_request_id`). OpenRouter documents `user` as a stable end-user identifier that it folds into
+the hashed identity sent upstream (abuse isolation; checked 2026-10-21 at openrouter.ai/docs, "User Tracking"). Its
+documented Activity page groups spend by **Model**, **API Key** or **Creator (org member)** and exports CSV/PDF
+(“Activity Export”); its Analytics API `user` dimension returns org members, not end users. So, as documented today:
+
+1. Per-user totals: use Admin › Costs (our ledger). Do not expect OpenRouter's Activity to split by reader.
+2. To verify one account: copy its UUID from Costs; list its attempts and generation ids from the ledger (read-only
+   SQL on `provider_attempts` where `account_id` = that UUID, or `scripts/pipeline-ops.py attempts` for unresolved
+   ones); look up any generation with OpenRouter's `GET /api/v1/generation?id=<generation id>` (read-only, the same
+   key) and compare its cost with the ledger's.
+3. If the OpenRouter dashboard offers a user filter on Activity or Logs (not in its documentation on 2026-10-21), the
+   value to enter is the account UUID; nothing else identifies a reader there.
+4. Per-feature totals on OpenRouter's side: provision the tags and podcast keys (`OPENROUTER_TAGS_API_KEY`,
+   `OPENROUTER_PODCAST_API_KEY`; review A13) and group Activity by **API Key**.
+5. OpenRouter's account-wide usage also includes local research calls; reconcile against the ledger, never add one to
+   the other.
+
 ## Unlimited owner testing — 2026-10-19
 
 The owner's new account is verified against the retained exact-address beta admission from the prior deleted

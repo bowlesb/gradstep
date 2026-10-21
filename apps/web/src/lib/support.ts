@@ -27,8 +27,14 @@ export async function prepareScreenshot(source: Blob): Promise<ScreenshotAttachm
       }
     }
     if (output.size > MAX_BYTES) throw new BackendError('payload_too_large');
-    return { blob: output, url: URL.createObjectURL(output), mediaType, width, height };
+    // A data: URL (the preview and the editor show it): the image policy has always allowed data: images, while blob:
+    // images came only with browser Notes, and there is no object URL to revoke.
+    return { blob: output, url: await dataURL(output), mediaType, width, height };
   } finally { bitmap.close(); }
+}
+
+function dataURL(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new BackendError('invalid_response')); reader.readAsDataURL(blob); });
 }
 
 function canvasBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
@@ -63,7 +69,41 @@ export async function captureBrowserScreen(): Promise<ScreenshotAttachment> {
   } finally { stream.getTracks().forEach(track => track.stop()); }
 }
 
-export function disposeScreenshot(image: ScreenshotAttachment | null): void { if (image) URL.revokeObjectURL(image.url); }
+/** A box on the screenshot, as fractions of its width and height. */
+export interface ScreenshotBox { x: number; y: number; w: number; h: number }
+export interface ScreenshotEdits { crop: ScreenshotBox | null; covers: ScreenshotBox[] }
+/** Where the edited image comes from and where its covers go, in pixels (ReportComposer's ScreenshotEditor): the crop
+ * (or the whole image) and each cover clipped to it. A crop of 1% or less of a side is refused. */
+export function screenshotPlan(width: number, height: number, edits: ScreenshotEdits) {
+  const crop = edits.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+  if (crop.w <= 0.01 || crop.h <= 0.01) throw new BackendError('crop_too_small');
+  const sx = Math.round(crop.x * width), sy = Math.round(crop.y * height);
+  const sw = Math.max(1, Math.round(crop.w * width)), sh = Math.max(1, Math.round(crop.h * height));
+  const covers = edits.covers.map(c => {
+    const x = Math.max(0, Math.round(c.x * width) - sx), y = Math.max(0, Math.round(c.y * height) - sy);
+    const right = Math.min(sw, Math.round((c.x + c.w) * width) - sx), bottom = Math.min(sh, Math.round((c.y + c.h) * height) - sy);
+    return { x, y, w: right - x, h: bottom - y };
+  }).filter(c => c.w > 0 && c.h > 0);
+  return { source: { x: sx, y: sy, w: sw, h: sh }, covers };
+}
+/** The screenshot as edited: cropped, private details covered in black, re-rendered without metadata and bounded
+ * like any attachment. The preview shown is exactly what is uploaded. */
+export async function editScreenshot(image: ScreenshotAttachment, edits: ScreenshotEdits): Promise<ScreenshotAttachment> {
+  const plan = screenshotPlan(image.width, image.height, edits);
+  let bitmap: ImageBitmap;
+  try { bitmap = await createImageBitmap(image.blob); } catch { throw new BackendError('invalid_response'); }
+  try {
+    const canvas = document.createElement('canvas'); canvas.width = plan.source.w; canvas.height = plan.source.h;
+    const context = canvas.getContext('2d'); if (!context) throw new BackendError('invalid_response');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, plan.source.x, plan.source.y, plan.source.w, plan.source.h, 0, 0, plan.source.w, plan.source.h);
+    context.fillStyle = '#000';
+    for (const c of plan.covers) context.fillRect(c.x, c.y, c.w, c.h);
+    return await prepareScreenshot(await canvasBlob(canvas, 'image/png'));
+  } finally { bitmap.close(); }
+}
+
+export function disposeScreenshot(image: ScreenshotAttachment | null): void { if (image?.url.startsWith('blob:')) URL.revokeObjectURL(image.url); }
 
 export function captureErrorMessage(error: unknown): string {
   if (!(error instanceof BackendError)) return 'The screenshot could not be prepared. Choose a PNG or JPEG and try again.';

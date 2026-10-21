@@ -1,15 +1,17 @@
-import { isRouterDeepSeek, clientDeepSeekModel, ROUTER_DEEPSEEK_TARIFF, ROUTER_CONSENT_VERSION } from "./openrouter-deepseek-pricing.ts";
-import { clientClaudeModel, isRouterClaude, routedClaudeModel, ROUTER_CLAUDE_TARIFF } from './openrouter-claude-pricing.ts';
-// Paid chat orchestration: validation, context, hold -> provider -> settle.
+import { clientDeepSeekModel, ROUTER_CONSENT_VERSION } from "./openrouter-deepseek-pricing.ts";
+import { clientClaudeModel } from './openrouter-claude-pricing.ts';
+// Paid chat orchestration: validation, context, hold -> provider -> settle. Every model call goes to OpenRouter
+// (owner, 2026-10-18 and 2026-10-21); web search is our search_web tool, run with Tavily.
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
   ADD_PAPER_TOOL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, creditsFor, holdFor, holdForParams, priceAttempts, promptCharacters, RATE_VERSION, readerPriceAttempts,
-  SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
-  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus, TARIFF, DEEPSEEK_TARIFF,
+  SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, tariffFor,
+  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, searchingStatus,
   type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
-} from './anthropic.ts';
-import { EFFORTS, GEMINI_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, providerForModel, resolveChoice, resolveProfile,
+} from './inference.ts';
+import type { MessageParam, ModelRequest, ToolResultBlock } from './model-request.ts';
+import { EFFORTS, GEMINI_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, isDefaultChoice, parseChoice, PROFILE_VERSION, resolveChoice, resolveProfile,
   type ChatProfile, type RequestedChoice } from './chat-profiles.ts';
 import { cleanTitle, TITLE_GRACE_MS, TITLE_MAX_TOKENS, TITLE_MODEL, titleRequestParams } from './chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, FOLLOW_UP_MODEL, FOLLOW_UP_TIMEOUT_MS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from './chat-follow-ups.ts';
@@ -20,18 +22,17 @@ import { figureBlocks, figureImages, figureInstructions, figureLookRequest, figu
 import { EQUATION_BACKGROUND_INSTRUCTIONS, EQUATION_INSTRUCTIONS, EQUATION_MAX_TOKENS, equationFallbackText, equationSymbols, isEquationAction, paragraphCount, type EquationSymbols } from './chat-equation.ts';
 import { FIGURE_DETAIL_INSTRUCTIONS, FIGURE_INSTRUCTIONS, FIGURE_SIMPLER_INSTRUCTIONS, FIGURE_VIEW_CAPABILITY, FIGURE_WALKTHROUGH_TOOL, figureDetail, figureDetailMaxTokens,
   figureMaxTokens, figureWalkthrough, figureWalkthroughText, offeredBoxes, isFigureAction, type FigureDetail, type FigureWalkthrough } from './chat-figure-view.ts';
-import { GEMINI_TARIFF } from './gemini-pricing.ts';
-import type Anthropic from '@anthropic-ai/sdk';
 
-/** The consent text the reader accepted. v2 names Tavily as a search provider;
- * v1 (builds up to TestFlight 11) names only Anthropic's, so v1 answers never use Tavily. */
+/** The consent text the reader accepted. v2 names Tavily as a search provider; v1 (builds up to TestFlight 11) named
+ * only Anthropic's search. Every answer now needs v5 or later, which names OpenRouter (runChecked: `consent_required`);
+ * the older versions stay accepted by validation so those builds are told to update rather than refused as invalid. */
 export const CONSENT_VERSION = 'cloud-ai-v2';
 /** v3 (2026-10-15) also names the figure a question is about: only v3 (and later) requests may carry figure images. */
 export const FIGURE_CONSENT_VERSION = 'cloud-ai-v3';
 /** v4 (2026-10-16) is v3 plus DeepSeek, named as the processor when the reader chooses it: v4 or later is required. */
 export { DEEPSEEK_CONSENT_VERSION };
 export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION, FIGURE_CONSENT_VERSION, DEEPSEEK_CONSENT_VERSION, GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION];
-/** v2 and later name Tavily; v1 (builds up to TestFlight 11) names only Anthropic's search. */
+/** v2 and later name Tavily; v1 (builds up to TestFlight 11) named only Anthropic's search. */
 const namesTavily = (version: string) => version === CONSENT_VERSION || version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION || version === ROUTER_CONSENT_VERSION;
 /** v3 and later name the figure a question is about. */
 export const namesFigures = (version: string) => version === FIGURE_CONSENT_VERSION || version === DEEPSEEK_CONSENT_VERSION || version === GEMINI_CONSENT_VERSION || version === ROUTER_CONSENT_VERSION;
@@ -531,13 +532,12 @@ export interface ChatDependencies {
   rpc(name: string, params: Record<string, unknown>): Promise<unknown>;
   /** Returns the stored object bytes, or null when it is missing. */
   loadPaper(bucket: string, path: string, expectedBytes?: number): Promise<Uint8Array | null>;
-  /** Null when the provider is not configured in this environment. Serves every model in the profile table: Claude
-   * models through Anthropic, `deepseek-*` through DeepSeek's Anthropic-compatible API (the caller routes by model). */
-  generate: ((params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) | null;
+  /** Null when OpenRouter is not configured in this environment. Serves every model in the profile table, each on its
+   * pinned OpenRouter route (provider-spending.ts admittedModelCalls around openrouter-chat.ts). */
+  generate: ((params: ModelRequest, options: StreamOptions) => Promise<ProviderOutcome>) | null;
   /** DeepSeek may answer (CHAT_DEEPSEEK on or hidden, with a key). Off, a DeepSeek choice is `invalid_request`. */
   deepseek?: boolean;
   gemini?: boolean;
-  claudeOpenRouter?: boolean;
   /** Whether an admitted model's reviewed price card stays valid for this answer (A4, migration 0101: the chat function
    * reads app_private.openrouter_tariffs). Absent: every model is open and admission alone decides. */
   modelAvailable?: (apiModel: string) => Promise<boolean>;
@@ -553,14 +553,10 @@ export interface ChatDependencies {
   studyTimeoutMs?: number;
   /** The caller's available credits (for the hold cap); null if unknown. */
   availableCredits?: () => Promise<number | null>;
-  /** Offer web search (server setting; off by default). Anthropic's search serves it,
-   * or backs up `search` when that is configured. */
+  /** Offer web search (server setting; off by default): our search_web tool, run with `search`. */
   webSearch?: boolean;
-  /** Native backup requires a separately verified provider-enforced cost bound.
-   * Production leaves this false until that deployment gate is implemented. */
-  nativeSearch?: boolean;
-  /** Tavily, the primary search provider (absent when not configured). `ready` is false
-   * while it is paused after a failure or its plan allowance is used up. */
+  /** Tavily, the search provider (absent when not configured). `ready` is false while it is paused after a failure or its
+   * plan allowance is used up; the answer is then written without search. */
   search?: { ready(): Promise<boolean>; run(input: SearchInput, signal: AbortSignal): Promise<SearchOutcome> };
   /** Ingest: the paper that strictly matches the citation, if any: on arXiv, else (with `web`)
    * an open-access copy found through OpenAlex. */
@@ -613,18 +609,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The reader's model, effort and length, `auto` resolved from the length and this question before anything is held
   // (chat-profiles.ts autoEffort); the quote, the request and the answer all carry the resolved profile.
   const choice = resolveChoice(request.choice, { question: request.turns.at(-1)!.text, selection: request.selection, figures: request.figures.length });
-  const profile = resolveProfile(choice, deps.claudeOpenRouter);
-  const routeAux = (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming) => deps.claudeOpenRouter
-    ? { ...params, model: routedClaudeModel(params.model) } : params;
-  if (deps.claudeOpenRouter && (profile.provider === 'openrouter' || request.topicTitle || request.followUps || request.study)
-      && ![GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION].includes(request.consentVersion)) { await admitted(); throw new ChatFailure('consent_required'); }
-  if (deps.claudeOpenRouter && profile.model === 'deepseek' && request.consentVersion !== ROUTER_CONSENT_VERSION) {
+  const profile = resolveProfile(choice);
+  // Every answer goes to OpenRouter, so the reader's consent must name it (v5, or v6 which also names DeepSeek's route).
+  if (![GEMINI_CONSENT_VERSION, ROUTER_CONSENT_VERSION].includes(request.consentVersion)) { await admitted(); throw new ChatFailure('consent_required'); }
+  if (profile.model === 'deepseek' && request.consentVersion !== ROUTER_CONSENT_VERSION) {
     await admitted(); throw new ChatFailure('consent_required');
   }
   // Ingest, Why it matters (the paper only), Study (the paper only) and diagram repairs never search.
   const search = !['ingest', 'relevance', 'diagram_fix', 'study'].includes(request.action ?? '') && deps.webSearch === true;
-  // Tavily first when the reader's consent names it (checked while the paper loads);
-  // otherwise, and as its backup, Anthropic's search.
+  // Our search_web tool (Tavily), when its consent is given and it is ready (checked while the paper loads).
   const tavilyReady = search && namesTavily(request.consentVersion) && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
   const balance = deps.availableCredits ? settled(deps.availableCredits()) : null;
@@ -637,11 +630,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A4: a model whose price card lapses before this answer could finish is unavailable (no hold, no retry loop); the
   // title, suggestions and map run only while their own model's card holds.
   if (deps.modelAvailable && !await deps.modelAvailable(profile.apiModel)) throw new ChatFailure('model_unavailable');
-  const sidesAvailable = !deps.modelAvailable || await deps.modelAvailable(routeAux({ model: TITLE_MODEL } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming).model);
+  const sidesAvailable = !deps.modelAvailable || await deps.modelAvailable(TITLE_MODEL);
   const tavily = await tavilyReady === true;
-  // Anthropic's own search tool exists only on Anthropic; DeepSeek searches through our Tavily tool or not at all.
-  const nativeSearch = search && deps.nativeSearch === true && profile.provider === 'anthropic';
-  const searchOffered = tavily || nativeSearch;
+  // Every model searches through our search_web tool or not at all: no provider-native search is offered.
+  const searchOffered = tavily;
   // Related always searches before it answers: say so at once, not after the paper loads and the model's
   // first round has chosen its queries (that first status used to arrive ~4 s in).
   if (request.action === 'related' && searchOffered && !signal.aborted) emit({ event: 'status', data: searchingStatus(undefined) });
@@ -679,10 +671,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     repair || study || heldBack ? null : profile.lengthInstructions].filter(Boolean).join('\n\n') || null;
   const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: trailing,
     paper, turns: request.turns, selection: request.selection, maxTokens, figures: request.figures.length ? figureBlocks(request.figures) : undefined,
-    model: { id: profile.apiModel, effort: profile.effort, fallbacks: profile.fallbacks }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
+    model: { id: profile.apiModel, effort: profile.effort }, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
       : [...(request.action === 'diagram_fix' ? [CREATE_DIAGRAM_TOOL] : request.visuals ? [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, ...(request.mode === 'paper' ? [SHOW_FIGURE_PARTS_TOOL] : []), ...(offersLook ? [LOOK_AT_FIGURE_TOOL] : [])] : []),
         ...(offersWalkthrough ? [FIGURE_WALKTHROUGH_TOOL] : []),
-        ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
+        ...(tavily ? [SEARCH_WEB_TOOL] : [])] });
   const held = balance ? await balance : null;
   const available = held?.ok ? held.value : null;
   if (deps.availableCredits && (available === null || !Number.isSafeInteger(available) || available < 0)) throw new ChatFailure('service_unavailable');
@@ -718,18 +710,18 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
   const hold = holdForParams(params);
   if (searchOffered) {
-    // Sized for Anthropic's search, which also bounds Tavily and a mid-answer switch between them.
+    // Each search's round and results (inference.ts webSearchHoldMicrousd).
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap, params.model);
   }
   // The topic title is a second, small request in the same operation: its whole ceiling is held too.
-  const titleParams = request.topicTitle && sidesAvailable ? routeAux(titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null })) : null;
+  const titleParams = request.topicTitle && sidesAvailable ? titleRequestParams({ turns: request.turns, selection: request.selection, paperTitle: paper?.title ?? null }) : null;
   const titleHold = titleParams ? holdForParams(titleParams) : null;
   if (titleHold) hold.microusd += titleHold.microusd;
   // Follow-up suggestions are a third small request, after the answer: its ceiling (every excerpt at its limit) is held too.
-  const followUpHold = request.followUps && sidesAvailable && !repair && request.action !== 'ingest' ? holdForParams(routeAux(FOLLOW_UP_HOLD_PARAMS)) : null;
+  const followUpHold = request.followUps && sidesAvailable && !repair && request.action !== 'ingest' ? holdForParams(FOLLOW_UP_HOLD_PARAMS) : null;
   if (followUpHold) hold.microusd += followUpHold.microusd;
   // Study: the knowledge-map request after the answer is held at its largest (a full map, both excerpts at their limits).
-  const studyHold = study && sidesAvailable ? holdForParams(routeAux(STUDY_HOLD_PARAMS)) : null;
+  const studyHold = study && sidesAvailable ? holdForParams(STUDY_HOLD_PARAMS) : null;
   if (studyHold) hold.microusd += studyHold.microusd;
   hold.credits = creditsFor(hold.microusd);
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
@@ -745,7 +737,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     reservation = await deps.rpc('worker_reserve_chat', {
       p_account_id: deps.accountID, p_id: request.operationID, p_request_sha256: `\\x${digest}`,
       p_rate_version: RATE_VERSION, p_credits: hold.credits, p_microusd: hold.microusd,
-      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair, studyHold?.microusd ?? null, deps.claudeOpenRouter),
+      p_quote: chatQuote(profile, params, hold.inputTokens, searchOffered ? searchCap : 0, titleHold?.microusd ?? null, followUpHold?.microusd ?? null, repair, studyHold?.microusd ?? null),
     }) as typeof reservation;
   } catch (error) {
     const code = RESERVE_ERRORS[reason(error)];
@@ -766,7 +758,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
   let wroteText = false, answerTail = '', answerHead = '', heldText = '';
-  const stats: SearchStats = { tavily: 0, credits: 0, failures: 0, failover: false };
+  const stats: SearchStats = { tavily: 0, credits: 0, failures: 0 };
   // Status lines go only to this reader's stream (the search query included); logs keep counts only.
   const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
   // The title is written alongside the answer (from the question, not the answer), so it adds no wait.
@@ -785,7 +777,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         if (heldBack) { heldText = (heldText + text).slice(0, 40_000); return; }
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
-    }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
+    }, { tavily, cap: searchCap }, stats);
     leftDuringAnswer = signal.aborted;
     if (titling) {
       // A title still being written gets a short grace period; abandoning it still settles its attempt.
@@ -811,7 +803,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // An answer that asked for a figure is not the answer: the device asks again with it, and that one gets suggestions.
   const asksForFigure = offersLook && !request.figures.length && !isEquationAction(request.action) && !!outcome.toolCalls?.some(c => c.name === 'look_at_figure');
   if (followUpHold && finished && wroteText && !asksForFigure && !signal.aborted) {
-    const params = routeAux(followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead }));
+    const params = followUpRequestParams({ paperTitle: paper?.title ?? null, selection: request.selection, question: request.turns.at(-1)!.text, answer: answerHead });
     suggested = await suggestFollowUps(deps.generate, params, followUpHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.followUpTimeoutMs ?? FOLLOW_UP_TIMEOUT_MS)]), now);
     if (suggested.outcome.attempts.length) {
       outcome = { ...outcome, attempts: [...outcome.attempts, ...suggested.outcome.attempts], exact: outcome.exact && suggested.outcome.exact };
@@ -821,7 +813,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // the tutor's reply; never the paper). The reader's first message starts the study and is no answer.
   let studied: StudyResult | null = null;
   if (studyHold && request.study && finished && wroteText && !signal.aborted) {
-    const params = routeAux(studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead }));
+    const params = studyMapRequestParams({ map: request.study, answer: request.turns.length > 1 ? request.turns.at(-1)!.text : null, reply: answerHead });
     studied = await updateStudyMap(deps.generate, params, studyHold.inputTokens, AbortSignal.any([signal, AbortSignal.timeout(deps.studyTimeoutMs ?? STUDY_TIMEOUT_MS)]), now);
     if (studied.outcome.attempts.length) {
       outcome = { ...outcome, attempts: [...outcome.attempts, ...studied.outcome.attempts], exact: outcome.exact && studied.outcome.exact };
@@ -848,16 +840,14 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
   const ending = await answerEnding(deps, request, answer, { readerLeft: leftDuringAnswer, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
-  const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
-  // Provider spend (the platform budget): tokens and Anthropic's per-search fee, whoever pays for them. Tavily
-  // searches within its prepaid plan add nothing (a fixed commitment). The reader's price
-  // adds Tavily's per-credit price, so a search costs the reader about the same either way.
-  const actual = Math.ceil(tokens + anthropicFees);
+  // Provider spend (the platform budget): OpenRouter's cost of every attempt. Tavily searches within its prepaid plan
+  // add nothing (a fixed commitment); the reader's price adds Tavily's per-credit price.
+  const actual = Math.ceil(priceAttempts(outcome.attempts));
   // What reached the reader: the answer's own rounds and, with a completed answer, the title, suggestions and map that
   // were relayed. A side request that failed, came back unusable or too late is Gradstep's cost.
   // Side requests are relayed only to a reader still connected (every emit below checks); one who left gets none of them.
   const sides = ending === 'completed' && !signal.aborted ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
-  const delivered = readerPriceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? readerPriceAttempts(part.attempts) : 0), 0);
+  const delivered = readerPriceAttempts(answer.attempts) + sides.reduce((sum, part) => sum + (part ? readerPriceAttempts(part.attempts) : 0), 0);
   const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
   // Ingest: at most one add per request, only of a strictly matched arXiv paper, only when the turn ended in the tool
   // call (not cut off). It runs before the settlement (import takes no hold) so an add that doesn't happen costs the
@@ -879,16 +869,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // A23: the reader is told what was recorded. A settlement the database refused, or one that could not be confirmed and
   // reads back unsettled, is settled later by the stale sweep as our server's ending, charging nothing.
   const reported = settledAs === 'settled' ? { credits, charged } : await settlementReadback(deps, request.operationID);
-  await recordUsage(deps, request.operationID, outcome, actual, providerForModel(params.model));
+  await recordUsage(deps, request.operationID, outcome, actual);
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
   if (outcome.rejectionReason) deps.log({ event: 'chat_provider_rejected', operation_id: request.operationID,
     provider: profile.provider, status: outcome.httpStatus ?? null, reason: outcome.rejectionReason });
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode, ending,
     charged: reported.charged, credits: reported.credits, ...(settledAs === 'settled' ? {} : { settlement: settledAs }),
-    web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
-    web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
-    failover: stats.failover, sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
+    web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : 'none',
+    web_searches: stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
+    sources: outcome.sources?.length ?? 0, profile: repair ? 'diagram_fix' : profile.id,
     // Whether the effort in `profile` was picked by the server (`auto`), and who answered.
     auto_effort: request.choice?.effort === 'auto', provider: profile.provider,
     // Whether a title was written (never the title itself), and how many follow-ups were suggested (never their text).
@@ -1061,17 +1051,17 @@ export const PROVIDER_BILLING_RETRY_SECONDS = 300;
 export const RETRY_AFTER_SECONDS: Partial<Record<ChatErrorCode, number>> = { rate_limited: 60, provider_unavailable: 10, service_unavailable: 10 };
 
 /** The reservation's frozen quote (migration 047, `worker_reserve_chat`): what the hold was sized for. No prompt text. */
-export function chatQuote(profile: ChatProfile, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, inputTokens: number,
-  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null, claudeOpenRouter = false): Record<string, string | number | null> {
-  // The answer and auxiliaries retain their exact billed API identities; the route switch selects their card.
+export function chatQuote(profile: ChatProfile, params: ModelRequest, inputTokens: number,
+  maxSearches: number, titleMicrousd: number | null, followUpMicrousd: number | null, repair: boolean, studyMicrousd: number | null = null): Record<string, string | number | null> {
+  // The answer and auxiliaries retain their exact billed OpenRouter model identities and reviewed cards.
   return { profile_version: PROFILE_VERSION, profile: repair ? 'diagram_fix' : profile.id, model: params.model,
     effort: (params.output_config?.effort ?? 'low') as string, length: repair ? 'repair' : profile.length,
-    tariff: isRouterDeepSeek(params.model) ? ROUTER_DEEPSEEK_TARIFF : isRouterClaude(params.model) ? ROUTER_CLAUDE_TARIFF : profile.provider === 'openrouter' ? GEMINI_TARIFF : providerForModel(params.model) === 'deepseek' ? DEEPSEEK_TARIFF : TARIFF,
+    tariff: tariffFor(params.model) ?? 'unreviewed',
     max_output_tokens: params.max_tokens, input_estimate_tokens: inputTokens, max_searches: maxSearches,
-    title_model: titleMicrousd === null ? null : (claudeOpenRouter ? routedClaudeModel(TITLE_MODEL) : TITLE_MODEL), title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
+    title_model: titleMicrousd === null ? null : TITLE_MODEL, title_max_tokens: titleMicrousd === null ? null : TITLE_MAX_TOKENS,
     title_ceiling_microusd: titleMicrousd,
-    ...(followUpMicrousd === null ? {} : { follow_ups_model: (claudeOpenRouter ? routedClaudeModel(FOLLOW_UP_MODEL) : FOLLOW_UP_MODEL), follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }),
-    ...(studyMicrousd === null ? {} : { study_model: (claudeOpenRouter ? routedClaudeModel(STUDY_MODEL) : STUDY_MODEL), study_max_tokens: STUDY_MAX_TOKENS, study_ceiling_microusd: studyMicrousd }) };
+    ...(followUpMicrousd === null ? {} : { follow_ups_model: FOLLOW_UP_MODEL, follow_ups_max_tokens: FOLLOW_UP_MAX_TOKENS, follow_ups_ceiling_microusd: followUpMicrousd }),
+    ...(studyMicrousd === null ? {} : { study_model: STUDY_MODEL, study_max_tokens: STUDY_MAX_TOKENS, study_ceiling_microusd: studyMicrousd }) };
 }
 
 /** The model that wrote the answer: the last attempt's serving model, when it is a plausible model identifier. */
@@ -1086,7 +1076,7 @@ const ANSWER_HEAD_CHARACTERS = 2_400;
 
 interface FollowUpResult { outcome: ProviderOutcome; questions: string[] | null }
 /** One follow-up suggestion request (the tool call forced) through the same admitted provider adapter. Never throws. */
-async function suggestFollowUps(generate: NonNullable<ChatDependencies['generate']>, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+async function suggestFollowUps(generate: NonNullable<ChatDependencies['generate']>, params: ModelRequest,
   inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<FollowUpResult> {
   try {
     const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: () => { /* a forced tool call writes no text */ } });
@@ -1101,7 +1091,7 @@ async function suggestFollowUps(generate: NonNullable<ChatDependencies['generate
 
 interface StudyResult { outcome: ProviderOutcome; map: StudyMap | null }
 /** One knowledge-map request (the tool call forced) through the same admitted provider adapter. Never throws. */
-async function updateStudyMap(generate: NonNullable<ChatDependencies['generate']>, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+async function updateStudyMap(generate: NonNullable<ChatDependencies['generate']>, params: ModelRequest,
   inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<StudyResult> {
   try {
     const outcome = await generate(params, { signal, inputEstimateTokens, now, onText: () => { /* a forced tool call writes no text */ } });
@@ -1116,7 +1106,7 @@ async function updateStudyMap(generate: NonNullable<ChatDependencies['generate']
 
 interface TitleResult { outcome: ProviderOutcome; text: string | null }
 /** One title request through the same admitted provider adapter as the answer. Never throws. */
-async function writeTitle(generate: NonNullable<ChatDependencies['generate']>, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+async function writeTitle(generate: NonNullable<ChatDependencies['generate']>, params: ModelRequest,
   inputEstimateTokens: number, signal: AbortSignal, now: () => number): Promise<TitleResult> {
   let raw = '';
   try {
@@ -1130,39 +1120,31 @@ async function writeTitle(generate: NonNullable<ChatDependencies['generate']>, p
   }
 }
 
-export interface SearchStats { tavily: number; credits: number; failures: number; failover: boolean }
+export interface SearchStats { tavily: number; credits: number; failures: number }
 /** Smallest output allowance worth another round after searches. */
 const MIN_ROUND_TOKENS = 1_024;
-type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
-type ToolResult = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 
 /**
  * The answer, in rounds: search_web (Tavily) is a client tool, so a round that ends
  * in searches is answered with their results and the answer continues. At most one
  * round per allowed search plus one to answer, sharing one output allowance. If Tavily
- * fails, the rest of the answer uses Anthropic's search (when on). Never throws:
+ * fails, the rest of the answer is written without search. Never throws:
  * a failed round ends the answer with what is known about billing.
  */
 async function generateAnswer(deps: ChatDependencies, generate: NonNullable<ChatDependencies['generate']>, operationID: string,
-  params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions,
-  search: { tavily: boolean; backup: boolean; cap: number }, stats: SearchStats): Promise<ProviderOutcome> {
+  params: ModelRequest, options: StreamOptions,
+  search: { tavily: boolean; cap: number }, stats: SearchStats): Promise<ProviderOutcome> {
   const attempts: ProviderAttempt[] = [], calls: NonNullable<ProviderOutcome['toolCalls']> = [];
-  const sources = new Map<string, string | null>();
   // Pages each Tavily search returned (in rank order): the source list when the answer writes none.
   const searched: { url: string; title: string | null }[][] = [];
   const extra: MessageParam[] = [];
-  let tools = params.tools, tavily = search.tavily, searches = 0, anthropicSearches = 0, exact = true;
+  let tavily = search.tavily, searches = 0, exact = true;
   let firstID: string | null = null, wrote = false, separate = false;
   for (let round = 0; ; round++) {
     const used = attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
-    const remaining = Math.max(0, search.cap - searches - anthropicSearches);
-    // Native search's max_uses is per API request. Never reset it on pause_turn
-    // or after a client-tool round. With no allowance the tool is unavailable.
-    if (tools) tools = tools.flatMap(tool => 'name' in tool && tool.name === 'web_search'
-      ? remaining > 0 ? [{ ...tool, max_uses: remaining }] : [] : [tool]);
     let opening = true, outcome: ProviderOutcome;
     try {
-      outcome = await generate({ ...params, messages: [...params.messages, ...marked(extra)], ...(tools ? { tools } : {}),
+      outcome = await generate({ ...params, messages: [...params.messages, ...marked(extra)],
         max_tokens: params.max_tokens - used }, { ...options, onText: text => {
         // A round after searches starts a new paragraph.
         if (opening && text) { if (separate && !/^\s/.test(text)) text = `\n\n${text}`; opening = false; }
@@ -1176,19 +1158,15 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
         cause: 'server' };
     }
     firstID ??= outcome.messageID;
-    attempts.push(...outcome.attempts); exact &&= outcome.exact; anthropicSearches += outcome.webSearches ?? 0;
-    for (const source of outcome.sources ?? []) if (!sources.has(source.url)) sources.set(source.url, source.title);
+    attempts.push(...outcome.attempts); exact &&= outcome.exact;
     const finish = (): ProviderOutcome => {
       const all = [...calls, ...(outcome.stopReason === 'tool_use' ? outcome.toolCalls ?? [] : [])].filter(call => call.name !== SEARCH_WEB_TOOL.name);
-      const { toolCalls: _calls, webSearches: _searches, sources: _sources, ...last } = outcome;
+      const { toolCalls: _calls, sources: _sources, ...last } = outcome;
       return { ...last, messageID: firstID ?? outcome.messageID, attempts, exact, ...(all.length ? { toolCalls: all } : {}),
-        ...(anthropicSearches ? { webSearches: anthropicSearches } : {}),
-        ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) }
-          : searched.length ? { sources: searchedPages(searched) } : {}) };
+        ...(searched.length ? { sources: searchedPages(searched) } : {}) };
     };
     const left = params.max_tokens - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
-    const continuation = outcome.stopReason === 'pause_turn'
-      || (outcome.stopReason === 'tool_use' && outcome.toolCalls?.some(call => call.name === SEARCH_WEB_TOOL.name));
+    const continuation = outcome.stopReason === 'tool_use' && outcome.toolCalls?.some(call => call.name === SEARCH_WEB_TOOL.name);
     if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round >= search.cap || left < MIN_ROUND_TOKENS) {
       // A turn that wanted another round past our round or output bound ends at our limit.
       if (continuation && outcome.status === 'complete') outcome = { ...outcome, status: 'failed', failure: 'provider_error', cause: 'limit' };
@@ -1199,28 +1177,18 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       if (previous?.role === 'assistant') previous.content = [...previous.content as unknown[], ...outcome.content!] as typeof previous.content;
       else extra.push({ role: 'assistant', content: outcome.content as MessageParam['content'] });
     };
-    // A long server-side search turn paused: send it back to continue it.
-    if (outcome.stopReason === 'pause_turn') {
-      if (search.cap - searches - anthropicSearches <= 0) {
-        outcome = { ...outcome, status: 'failed', failure: 'provider_error', cause: 'limit' };
-        return finish();
-      }
-      append(); separate = false; continue;
-    }
     const roundCalls = outcome.stopReason === 'tool_use' ? outcome.toolCalls ?? [] : [];
     if (!roundCalls.some(call => call.name === SEARCH_WEB_TOOL.name) || roundCalls.some(call => !call.id)) return finish();
     calls.push(...roundCalls);
-    let failed = false;
-    const canSwitch = () => search.backup && search.cap - searches - anthropicSearches > 0;
-    const results = await Promise.all(roundCalls.map(async (call): Promise<ToolResult> => {
-      const reply = (content: ToolResult['content'], error = false): ToolResult =>
+    const results = await Promise.all(roundCalls.map(async (call): Promise<ToolResultBlock> => {
+      const reply = (content: ToolResultBlock['content'], error = false): ToolResultBlock =>
         ({ type: 'tool_result', tool_use_id: call.id!, content, ...(error ? { is_error: true } : {}) });
       if (call.name !== SEARCH_WEB_TOOL.name) return reply(call.name === CREATE_DIAGRAM_TOOL.name ? 'The diagram is shown with your answer.' : 'Done.');
       searches++;
       const input = searchInput(call.input);
-      if (searches + anthropicSearches > search.cap) return reply('No searches are left for this answer. Answer with what you have.', true);
+      if (searches > search.cap) return reply('No searches are left for this answer. Answer with what you have.', true);
       if (!input) return reply('Invalid search: give a short query.', true);
-      if (!tavily || !deps.search) return reply(unavailable(canSwitch()), true);
+      if (!tavily || !deps.search) return reply(SEARCH_UNAVAILABLE, true);
       options.onStatus?.(searchingStatus(input.query));
       const result = await deps.search.run(input, options.signal).catch((): SearchOutcome => ({ status: 'failed', failure: 'unavailable', retryAfterMs: null }));
       if (result.status === 'ok') {
@@ -1228,21 +1196,15 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
         searched.push(result.results.map(page => ({ url: page.url, title: page.title || null })));
         return reply(searchResultContent(result.results));
       }
-      stats.failures++; tavily = false; failed = true;
+      stats.failures++; tavily = false;
       deps.log({ event: 'chat_search_failed', operation_id: operationID, provider: 'tavily', failure: result.failure });
-      return reply(unavailable(canSwitch()), true);
+      return reply(SEARCH_UNAVAILABLE, true);
     }));
     // Results are in (at least one search succeeded): the answer continues from them.
     if (results.some(result => !result.is_error && Array.isArray(result.content)) && !options.signal.aborted) options.onStatus?.({ kind: 'reading' });
     append();
     extra.push({ role: 'user', content: results });
     separate = wrote;
-    const searchesLeft = search.cap - searches - anthropicSearches;
-    if (failed && search.backup && searchesLeft > 0) {
-      // The rest of this answer searches with Anthropic. search_web stays defined: the conversation uses it.
-      stats.failover = true;
-      tools = [...(params.tools ?? []), { ...WEB_SEARCH_TOOL, max_uses: searchesLeft }];
-    }
   }
 }
 
@@ -1255,10 +1217,7 @@ function searchedPages(lists: readonly { url: string; title: string | null }[][]
   return [...pages].map(([url, title]) => ({ url, title }));
 }
 
-function unavailable(backup: boolean): string {
-  return backup ? 'search_web is unavailable for the rest of this answer. Use the web_search tool instead.'
-    : 'Web search is unavailable right now. Answer without it and say briefly that you could not search.';
-}
+const SEARCH_UNAVAILABLE = 'Web search is unavailable right now. Answer without it and say briefly that you could not search.';
 
 /** The conversation so far with one cache breakpoint, on its last block: each round
  * reads everything before it from the cache (with the paper's, two of four breakpoints). */
@@ -1322,14 +1281,14 @@ async function recordSearchUsage(deps: ChatDependencies, operationID: string, st
   } catch { deps.log({ event: 'chat_usage_record_failed', operation_id: operationID, provider: 'tavily' }); }
 }
 
-/** The operation's usage summary under the answering provider. Each admitted attempt already wrote its own usage row
- * (`attempt:<id>`, under its own provider: a DeepSeek answer's Haiku title is an Anthropic row), so the database keeps
- * this summary only for operations without attempts (migration 034; DeepSeek since migration 078). */
-async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number, provider: 'anthropic' | 'deepseek' | 'openrouter' = 'anthropic') {
+/** The operation's usage summary under OpenRouter. Each admitted attempt already wrote its own usage row
+ * (`attempt:<id>`), so the database keeps this summary only for operations without attempts (migration 034). */
+async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number) {
   if (!outcome.attempts.length) return;
+  const provider = 'openrouter';
   const units = {
     estimated: !outcome.exact, stop_reason: outcome.stopReason, refusal_category: outcome.refusalCategory, failure: outcome.failure,
-    web_searches: outcome.webSearches ?? 0,
+    web_searches: 0,
     attempts: outcome.attempts.map(attempt => ({ model: attempt.model, estimated: attempt.estimated, input_tokens: attempt.usage.input,
       cache_write_5m_tokens: attempt.usage.cacheWrite5m, cache_write_1h_tokens: attempt.usage.cacheWrite1h,
       cache_read_tokens: attempt.usage.cacheRead, output_tokens: attempt.usage.output,

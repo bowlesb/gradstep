@@ -24,7 +24,7 @@ async function compiled(page: Page, key: string): Promise<Bundle | null> {
   const lock = JSON.parse(readFileSync(new URL('tests/corpus/reader-lock.json', root), 'utf8')).papers.find((p: { key: string }) => p.key === key);
   if (!lock || !existsSync(new URL(`${key}/source.html`, corpus))) return null;
   const input = (name: string) => readFileSync(new URL(`${key}/${name}`, corpus)).toString('base64');
-  const script = readFileSync(new URL('apps/web/public/arxiv-reader.js', root), 'utf8') + '\n' + readFileSync(new URL('apps/web/src/reader/arxiv-compiler-host.js', root), 'utf8');
+  const script = readFileSync(new URL('apps/web/src/reader/arxiv-reader.js', root), 'utf8') + '\n' + readFileSync(new URL('apps/web/src/reader/arxiv-compiler-host.js', root), 'utf8');
   const hash = 'sha256-' + createHash('sha256').update(script).digest('base64');
   const [id, revision] = key.split('v');
   const inputs = lock.assets.map((a: { url: string }) => ({ url: a.url, base64: input(createHash('sha256').update(a.url).digest('hex')) }));

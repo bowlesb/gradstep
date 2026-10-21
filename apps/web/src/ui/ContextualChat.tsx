@@ -8,7 +8,11 @@ export function useContextualChat(host: ContextualHost | undefined, manifest: st
   useSyncExternalStore(host?.chat.subscribe ?? subscribe, host?.chat.getVersion ?? version);
   const anchor = useMemo<TextAnchor>(() => ({ manifestSHA256: manifest, elementID: element ?? undefined, quote: [...quote].slice(0, 4000).join(''), prefix: '', suffix: '' }), [manifest, element, quote]);
   const composer = useMemo(() => host && element && quote ? host.chat.contextualComposer(host.documentID, anchor, label.startsWith('Equation') ? 'equations' : 'figures') : null, [host?.chat, host?.documentID, anchor, element, quote]);
-  useEffect(() => () => { if (host && composer && !host.chat.promotedContexts.has(composer.id)) host.chat.stop(composer); }, [host?.chat, composer]);
+  // Closing the view stops its answer, and lets go of a composer it only showed (C8).
+  useEffect(() => {
+    if (host && composer) host.chat.retainContextual(composer, label.startsWith('Equation') ? 'equations' : 'figures');
+    return () => { if (host && composer && !host.chat.promotedContexts.has(composer.id)) { host.chat.stop(composer); host.chat.releaseContextual(composer); } };
+  }, [host?.chat, composer]); // eslint-disable-line react-hooks/exhaustive-deps
   return host && composer ? { host, composer, anchor, label, quote, profile: host.chat.profileTable ? host.chat.profileFor(composer) : undefined } : null;
 }
 export function ContextualChat({ context, explanation, onCite }: { context: ReturnType<typeof useContextualChat>; explanation?: string; onCite: (anchor: TextAnchor) => void }) {

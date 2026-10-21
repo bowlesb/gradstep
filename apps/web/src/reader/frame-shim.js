@@ -238,6 +238,21 @@
     if (key !== 'escape') event.preventDefault();
     send({ type: 'key', key });
   }, true);
+  // A link out of the paper (a dataset, code, a cited page): the frame never navigates away from the paper (the page's
+  // CSP would refuse it and the reading place would be lost). The app opens it in a new tab, as the apps hand it to
+  // Safari (PaperView's decidePolicyFor). Runs after the bridge's own handlers, which keep in-page links and citations.
+  addEventListener('click', event => {
+    const element = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const anchor = element?.closest('a[href]');
+    if (!anchor || event.defaultPrevented) return;
+    const raw = anchor.getAttribute('href') ?? '';
+    if (raw.startsWith('#')) return;
+    event.preventDefault();
+    let url = null;
+    try { url = new URL(raw); } catch { url = null; }
+    // A drag that selected text over the link is a selection, not a click on it.
+    if (url && (url.protocol === 'https:' || url.protocol === 'http:') && window.getSelection()?.isCollapsed !== false) send({ type: 'link', url: url.href });
+  });
   addEventListener('message', event => {
     const message = event.data;
     if (event.source !== parent || event.origin !== target || !message || message.gradstep !== 'command') return;

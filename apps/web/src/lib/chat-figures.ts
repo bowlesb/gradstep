@@ -5,7 +5,6 @@
 import type { VerifiedBundle } from './bundle';
 
 export const MAX_FIGURES = 2, MAX_SIDE = 1568, MAX_PIXELS = 1_150_000;
-export const FIGURE_PARTS_FORMAT = 'figure-parts-v1';
 
 export interface ChatFigureImage {
   id: string; paragraph: number; caption: string; mediaType: 'image/jpeg' | 'image/png'; data: string; width: number; height: number;

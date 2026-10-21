@@ -53,16 +53,20 @@ test('equation explanation, model choice and follow-up remain together with encr
  await keywords.locator('h2').click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
  await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
- await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Related']);
+ await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Copy as Text','Related','Add to note']); // Copy as Text (B10), Add to note (Notes)
  await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
  const view=page.getByTestId('equation-view'), context=view.getByTestId('contextual-chat');
  await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();
  const chats=async()=>(await(await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests;
  expect(await chats()).toHaveLength(0);
+ // The model under the field asks Default or Choose model (B7, AISelectionButton); Use Haiku sets this thread's model.
  await context.getByTestId('composer-model').click();
- const options=page.getByRole('dialog',{name:'Answer options',exact:true});
- await options.getByRole('radio',{name:'Haiku',exact:true}).click(); await options.getByRole('button',{name:'Close',exact:true}).click();
- await view.getByTestId('equation-explain').click();await view.getByRole('button',{name:'Allow and explain'}).click();
+ const options=page.getByRole('dialog',{name:'AI model',exact:true}); await options.getByTestId('explainer-choose').click();
+ await options.getByRole('radio',{name:'Haiku',exact:true}).click(); await options.getByTestId('explainer-use').click(); await expect(options).toBeHidden();
+ await expect(context.getByTestId('composer-model')).toHaveAccessibleName('Model: Haiku');
+ // AI Explainer asks which model first (B7): Default is this equation's chat choice, Haiku.
+ await view.getByTestId('equation-explain').click();await expect(page.getByTestId('explainer-default')).toHaveText('Default (Haiku)');await page.getByTestId('explainer-default').click();
+ await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toHaveText('It squares x: the value multiplied by itself.');
  expect((await chats())[0].profile.model).toBe('haiku');
  await view.getByTestId('equation-more').click();await expect(view.getByTestId('equation-background')).toContainText('That symmetry is why the paper uses it.');
@@ -255,6 +259,7 @@ test('a wide equation fits at 100 percent and automatically pans when enlarged',
  await frame.locator('.reader-display[data-reader-equation]').nth(1).click();
  await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
+ await page.getByRole('dialog',{name:'AI model'}).getByRole('button',{name:'Cancel'}).click(); // AI Explainer's model choice (B7), not needed here
  await expect(view.getByRole('heading',{name:'Equation (2)'})).toBeVisible();
  const box=view.frameLocator('[data-testid=equation-frame]').locator('#eq-box');
  await expect(box.locator('math')).toBeVisible();

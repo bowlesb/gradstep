@@ -2,23 +2,25 @@ import {readVisualAnswers} from '../lib/chat-session';
 import { decodeStoredFigureParts, hasPartMarkers, partSegments, storedPaths, stripPartMarkers } from '../lib/chat-figures';
 import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { TranscriptFollow } from '../lib/chat-follow';
-import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
+import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
-import { ChatSession, composerBusy, type Composer } from '../lib/chat-session';
+import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer } from '../lib/chat-session';
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
 import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
 import { citationAnchor } from '../lib/passage';
-import { AnswerOptionsDialog } from './ChatProfile';
+import { AnswerOptionsDialog, ExplainerModelDialog } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate, MenuButton } from './common';
 import { CopyButton } from './CopyButton';
 import { Diagram, FigurePartInline, FigurePartsOverview, useFigureDataURL } from './Diagram';
 import { Icon, iconName } from './icons';
-import { useStored } from './prefs';
+import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
+import { PapersInAnswer, type AnswerPapers } from './AnswerPapers';
+import { AnswerSelectionBar, formulaPick, useAnswerSelection } from './AnswerSelection';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
 import { asOf } from '../lib/retry';
 
@@ -27,6 +29,9 @@ export function useChatUpdates(chat: ChatSession) {
   return useSyncExternalStore(chat.history.subscribe, chat.history.getVersion);
 }
 export interface PaperContext { documentID: string; title: string; available: boolean }
+/** Chat text size (B8; RootView's chat … › Smaller text / Larger text): per browser, 13–26 px; none set follows the layout. */
+const CHAT_TEXT_KEY = 'gradstep.chat.textSize', CHAT_TEXT_MIN = 13, CHAT_TEXT_MAX = 26;
+const validChatText = (v: unknown) => v === null || (typeof v === 'number' && Number.isInteger(v) && v >= CHAT_TEXT_MIN && v <= CHAT_TEXT_MAX);
 
 /** A conversation's title as shown: its topic title (generated or renamed) as is, else today's derived title. */
 export function summaryTitle(summary: ConversationSummary): string {
@@ -55,17 +60,19 @@ function RenameField({ initial, onSave, onCancel, label }: { initial: string; on
 /** A fresh 32-bit seed for a new empty chat's starter questions. */
 const starterSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
-export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions }: {
+export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, papers }: {
   chat: ChatSession | null; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
   onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
+  /** The library, for each answer's Papers in this answer (B2). */
+  papers?: AnswerPapers;
 }) {
-  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} />
+  return chat ? <ConnectedChat chat={chat} paper={paper} mode={mode} onMode={onMode} onAllChats={onAllChats} onPassage={onPassage} onChatOptions={onChatOptions} papers={papers} />
     : <div className="empty" role="status">Opening chats…</div>;
 }
 export interface ContextualConversation { composer: Composer; quote: string; label: string; anchor: TextAnchor; explanation?: string; image?:string }
-export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext }: {
+export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage, onChatOptions, context: providedContext, papers }: {
   context?: ContextualConversation; chat: ChatSession; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
-  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void;
+  onAllChats: () => void; onPassage: (documentID: string, anchor: TextAnchor) => void; onChatOptions: () => void; papers?: AnswerPapers;
 }) {
   const historyVersion = useChatUpdates(chat);
   const workspace = useWorkspaceControls();
@@ -99,12 +106,13 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   }, []);
   const field = useRef<HTMLTextAreaElement>(null);
   const [displayText, setDisplayText] = useState(c.liveText);
-  // Fixed cadence, not a debounce: continuously arriving tokens must remain visibly streaming.
-  const latestText = useRef(c.liveText); latestText.current = c.liveText;
+  // Fixed cadence, not a debounce: continuously arriving tokens must remain visibly streaming. It reads the composer's
+  // text itself, which the session updates in place; the session notifies less often than text arrives (C2).
+  const live = useRef(c); live.current = c;
   useEffect(() => {
     setDisplayText(c.liveText);
     if (c.phase !== 'streaming') return;
-    const t = setInterval(() => setDisplayText(latestText.current), 80);
+    const t = setInterval(() => setDisplayText(live.current.liveText), 80);
     return () => clearInterval(t);
   }, [c.id, c.phase]);
   useLayoutEffect(() => { follow.current.reset(); setAway(false); }, [c.id]);
@@ -147,7 +155,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   const last = messages.at(-1);
   const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
   const canAnswer = !retired && !chat.hasUnresolvedTurn(c) && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
-  const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
+  const disabled = retired || chat.history.blocksSending || deleted || (mode === 'paper' && !paper?.available);
   const send = () => {
     if (disabled) return;
     if (context) {
@@ -157,12 +165,28 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       void chat.send(c, selection, null, context.anchor);
     } else void chat.send(c);
   };
+  // Selected answer text or a formula (B1): Quote in Chat puts it in the draft; Explain and Define ask at once when the
+  // box is empty, else join the draft without sending (ReaderModel's chat actions).
+  const region = useCallback(() => viewport.current, []);
+  const [pick, setPick] = useAnswerSelection(region, c.id);
+  const focusEnd = () => requestAnimationFrame(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } });
+  const quoteInChat = (quote: string) => { if (chat.edit(c, `About “${quote}”: ${c.draft}`)) focusEnd(); };
+  const askAbout = (action: 'explain' | 'define', quote: string) => {
+    const prompt = answerActionPrompt(action, quote);
+    if (!c.draft.trim()) { if (chat.edit(c, prompt)) send(); }
+    else if (chat.edit(c, `${prompt}\n\n${c.draft}`)) focusEnd();
+  };
   // Study (experimental): an adaptive tutor for this paper; offered when the paper is numbered on this device.
   const studyOffered = !context && mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
   const startStudy = () => { if (!disabled) void chat.startStudy(c); };
   const choiceBusy = retired || composerBusy(c) || !!c.answer;
   const [answerOptions, setAnswerOptions] = useState(false);
-  useEffect(() => setAnswerOptions(false), [c.id]);
+  // The model under the field asks Default or Choose model (B7, the apps' AISelectionButton); Length stays in ⋯ › Answer options.
+  const [modelChoice, setModelChoice] = useState(false);
+  useEffect(() => { setAnswerOptions(false); setModelChoice(false); }, [c.id]);
+  // The main chat's text size; an equation or figure thread keeps the standard size, as on iPhone.
+  const [textSize, setTextSize] = useStored<number | null>(CHAT_TEXT_KEY, null, validChatText);
+  const layoutText = useMedia('(max-width: 600px)') ? 15 : 14, chatText = textSize ?? layoutText;
 
   // Starter questions (CHAT.md, 2026-10-16): a fresh seed whenever another empty chat is shown, kept while it stays on
   // screen; the paper's structure from its verified bundle on this device (none for a general chat).
@@ -191,7 +215,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
     f.style.height = 'auto'; f.style.height = `${Math.min(f.scrollHeight + 2, 168)}px`;
   }, [c.draft, c.id]);
 
-  return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane">
+  return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane"
+    style={!providedContext && textSize !== null ? { '--chat-text': `${textSize}px` } as CSSProperties : undefined}>
     {/* The main chat keeps its header and title for a promoted explainer chat too; an explainer's own embedded chat has none. */}
     {!providedContext && <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
       <button className={mode === 'paper' ? 'segment on' : 'segment'} aria-pressed={mode === 'paper'} disabled={!paper} onClick={() => onMode('paper')}>Paper</button>
@@ -208,6 +233,14 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           onClick={() => { close(); startStudy(); }}><Icon name="book" size={14} /> Study mode</button>}
         {c.study && <button type="button" role="menuitem" className="menu-item" data-testid="study-end-menu" disabled={composerBusy(c) || !!c.answer}
           onClick={() => { close(); chat.endStudy(c); }}><Icon name="book" size={14} /> End study mode</button>}
+        {summary?.anchor && summary.documentID && !deleted && <button type="button" role="menuitem" className="menu-item" data-testid="chat-menu-passage"
+          onClick={() => { close(); onPassage(summary.documentID!, summary.anchor!); }}><Icon name="list" size={14} /> Go to passage</button>}
+        <div className="menu-row chat-text-size" role="group" aria-label="Chat text size">
+          <button type="button" role="menuitem" className="seg" disabled={chatText <= CHAT_TEXT_MIN} onClick={() => setTextSize(Math.max(CHAT_TEXT_MIN, chatText - 1))}
+            data-testid="chat-text-smaller"><span className="a-small" aria-hidden="true">A</span> Smaller text</button>
+          <button type="button" role="menuitem" className="seg" disabled={chatText >= CHAT_TEXT_MAX} onClick={() => setTextSize(Math.min(CHAT_TEXT_MAX, chatText + 1))}
+            data-testid="chat-text-larger"><span className="a-large" aria-hidden="true">A</span> Larger text</button>
+        </div>
       </>}</MenuButton>
     </PaneHeader>}
     {!providedContext && <div className="chat-heading">
@@ -248,6 +281,11 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       setAway(!follow.current.scrolled(el.scrollTop, el.scrollHeight - el.clientHeight));
     }} onClick={e => {
       if (cite(e.target as Element)) { e.preventDefault(); return; }
+      // A click on a formula in a saved answer offers its actions; elsewhere it puts them away (not on the bar itself).
+      if ((e.target as Element).closest?.('.chat-selection-bar')) return;
+      const formula = (e.target as Element).closest?.('[data-answer] .answer-math[data-latex]');
+      if (formula && document.getSelection()?.isCollapsed !== false) { const picked = formulaPick(formula); if (picked) setPick({ ...picked, clicked: true }); return; }
+      if (pick?.clicked) setPick(null);
       const a = (e.target as Element).closest('a[href]'); if (!a) return;
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
     }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
@@ -265,10 +303,12 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         </div>}
       </div>}
       {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context"><h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}}/>}<Answer text={promoted.explanation ?? promoted.quote} /></section>}
-      {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
+      {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`} data-answer={m.payload.role === 'assistant' ? m.payload.entityID : undefined}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
-            : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}</>}
+            : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}
+          {/* A finished answer's papers (B2): never while it streams or when it was cut short. */}
+          {papers && m.payload.status === 'complete' && <PapersInAnswer text={stripPartMarkers(m.payload.text ?? '')} papers={papers} />}</>}
         {/* What an early end cost, while this session lasts (2026-10-16); earlier answers keep "Answer interrupted". */}
         {m.payload.status === 'interrupted' && <span className="fine interrupted" data-testid="chat-interrupted">{chat.interruptionNote(m.payload.entityID) ?? 'Answer interrupted'}</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
@@ -294,6 +334,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       {canAnswer && (c.issue || last?.payload.role === 'user') && <p className="fine" data-testid="retry-profile">This question: {profileSummary(chat.retryProfile(c), table)}</p>}
       {c.credits !== null && <p className="fine answer-cost">{c.credits === 0 && c.issue ? 'No credits used' : `${c.credits} ${c.credits === 1 ? 'credit' : 'credits'} used`}</p>}
       {deleted && <p className="issue">This conversation was deleted. Your draft is still here to copy.</p>}
+      {pick && <AnswerSelectionBar pick={pick} canQuote={!retired} canAsk={!disabled && !composerBusy(c) && !c.answer}
+        onQuote={quoteInChat} onExplain={quote => askAbout('explain', quote)} onDefine={quote => askAbout('define', quote)}
+        onDone={() => { document.getSelection()?.removeAllRanges(); setPick(null); }} />}
       {away && <button className="jump-latest secondary small" onClick={() => { follow.current.reset(); setAway(false); showLatest(); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
       <div ref={bottom} />
     </div>
@@ -307,7 +350,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           title="Enter sends; Shift+Enter starts a new line"
           onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
-        <button type="button" className="link composer-model" disabled={choiceBusy} onClick={() => setAnswerOptions(true)} aria-label="Answer options" data-testid="composer-model">{modelOption(table, choice.model).label} <Icon name="sliders" size={14} /></button>
+        <button type="button" className="link composer-model" disabled={choiceBusy} onClick={() => setModelChoice(true)} aria-label={`Model: ${modelOption(table, choice.model).label}`} data-testid="composer-model">{modelOption(table, choice.model).label} <Icon name="sliders" size={14} /></button>
         {c.phase === 'streaming' ? <button type="button" className="composer-send stop" aria-label="Stop" title="Stop" onClick={() => chat.stop(c)}><Icon name="stop" size={16} /></button>
           : <button type="submit" className="composer-send" aria-label={c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'} title="Send (Enter)"
             disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}><Icon name="arrowUp" size={17} /></button>}
@@ -327,8 +370,11 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       })()}
     </form>
     <AnswerOptionsDialog open={answerOptions} onClose={() => setAnswerOptions(false)} table={table} choice={choice} defaultChoice={chat.defaultFor(c)} reason={chat.profileReason(c)}
+      activity={AI_USE_CASE_TITLES[chat.activityFor(c)].toLowerCase()}
       onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultFor(c,next)} onRetry={() => chat.reloadProfiles()}
       onAbout={() => { setAnswerOptions(false); onChatOptions(); }} />
+    <ExplainerModelDialog open={modelChoice} table={table} defaultChoice={chat.defaultFor(c)} onClose={() => setModelChoice(false)}
+      onRetry={() => chat.reloadProfiles()} onUse={next => { setModelChoice(false); chat.setProfile(c, next); }} />
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       {/* Consent cloud-ai-v5 (CHAT.md, 2026-10-16), worded as on iPhone, iPad and Mac. */}
       <h2>Cloud AI answers</h2><p>All cloud answers use OpenRouter. Gemini Flash and Claude run on Google Vertex; DeepSeek runs on DeepInfra. To answer, Gradstep sends:</p>
@@ -356,15 +402,27 @@ const Answer = memo(function Answer({ text, streaming = false }: { text: string;
   return <Suspense fallback={<div className="question-text">{text}</div>}><RichAnswer text={text} streaming={streaming} /></Suspense>;
 });
 
-export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOpen }: {
+export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOpen, topics }: {
   chat: ChatSession | null; open: boolean; onClose: () => void; papers: Map<string, string>; currentDocument: string | null;
-  onOpen: (documentID: string | null) => void;
+  onOpen: (documentID: string | null, anchor?: TextAnchor) => void;
+  /** Each paper's library tags (All chats' Topics). */ topics?: Map<string, string[]>;
 }) {
-  return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} /> : <p>Loading chats…</p>}</Dialog>;
+  return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} topics={topics} /> : <p>Loading chats…</p>}</Dialog>;
 }
-interface HistoryColumns { paper: boolean; messages: boolean; started: boolean }
+// The apps' All chats columns in their order (ChatHistoryView): Kind, Topics and Answer length since B9; a choice saved
+// before them keeps working (they start off).
+type HistoryColumn = 'paper' | 'kind' | 'topics' | 'messages' | 'started' | 'length';
+type HistoryColumns = Record<'paper' | 'messages' | 'started', boolean> & Partial<Record<'kind' | 'topics' | 'length', boolean>>;
+const HISTORY_COLUMNS: readonly [HistoryColumn, string][] = [['paper', 'Paper'], ['kind', 'Kind'], ['topics', 'Topics'], ['messages', 'Messages'], ['started', 'Started'], ['length', 'Answer length']];
 const DEFAULT_HISTORY_COLUMNS: HistoryColumns = { paper: true, messages: false, started: false };
-const validHistoryColumns = (v: unknown) => !!v && typeof v === 'object' && ['paper', 'messages', 'started'].every(k => typeof (v as Record<string, unknown>)[k] === 'boolean');
+const validHistoryColumns = (v: unknown) => !!v && typeof v === 'object' && ['paper', 'messages', 'started'].every(k => typeof (v as Record<string, unknown>)[k] === 'boolean')
+  && ['kind', 'topics', 'length'].every(k => (v as Record<string, unknown>)[k] === undefined || typeof (v as Record<string, unknown>)[k] === 'boolean');
+/** "1 word", "320 words", "1.2k words" (ChatHistory's answer length); none is a dash. */
+export function answerLength(words: number): string {
+  if (!words) return '—';
+  if (words === 1) return '1 word';
+  return words < 1000 ? `${words} words` : `${(words / 1000).toFixed(1).replace(/\.0$/, '')}k words`;
+}
 function useNarrow() {
   const query = '(max-width: 600px)';
   const [narrow, setNarrow] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches);
@@ -376,8 +434,8 @@ function useNarrow() {
   }, []);
   return narrow;
 }
-function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null) => void }) {
-  useChatUpdates(chat);
+function HistoryList({ chat, papers, currentDocument, onClose, onOpen, topics }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null, anchor?: TextAnchor) => void; topics?: Map<string, string[]> }) {
+  const historyVersion = useChatUpdates(chat);
   // All first and chosen (owner, build 57: "You can put All to the left and make that the default").
   const [search, setSearch] = useState(''), [filter, setFilter] = useState('all');
   const [sort, setSort] = useState<'last' | 'title' | 'started'>('last');
@@ -396,12 +454,17 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
     }));
   };
   const normalized = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  const rows = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
-    && normalized(search).split(/\s+/).filter(Boolean).every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
-  rows.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
+  // Filtered and sorted once per history change or choice, not on every streamed answer's update (C2).
+  const rows = useMemo(() => {
+    const words = normalized(search).split(/\s+/).filter(Boolean);
+    const list = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
+      && words.every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
+    return list.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
+  }, [chat, historyVersion, filter, currentDocument, search, papers, sort]); // eslint-disable-line react-hooks/exhaustive-deps
   // The reader's columns (≡ › Columns); a narrow window shows the conversation and Last read only (as an iPhone in portrait).
   const narrow = useNarrow();
-  const shown = { paper: columns.paper && !narrow, messages: columns.messages && !narrow, started: columns.started && !narrow };
+  const shown = { paper: columns.paper && !narrow, messages: columns.messages && !narrow, started: columns.started && !narrow,
+    kind: !!columns.kind && !narrow, topics: !!columns.topics && !narrow, length: !!columns.length && !narrow };
   const paperName = (c: ConversationSummary) => c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General';
   // Owner, build 57: "The paper should only be in its column not duplicated on left column".
   const secondLine = (c: ConversationSummary) => shown.paper || !c.documentID ? conversationPreview(c) : paperName(c);
@@ -416,8 +479,8 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
           {(['last', 'started', 'title'] as const).map(s => <button key={s} type="button" role="menuitemradio" aria-checked={sort === s} className="menu-item menu-check"
             onClick={() => { setSort(s); close(); }}><span className="menu-check-mark" aria-hidden="true">{sort === s ? '✓' : ''}</span>{sortTitles[s]}</button>)}</div>
         <div className="menu-section" role="group" aria-label="Columns"><p className="fine menu-heading">Columns</p>
-          {(['paper', 'messages', 'started'] as const).map(k => <button key={k} type="button" role="menuitemcheckbox" aria-checked={columns[k]} className="menu-item menu-check"
-            onClick={() => setColumns(v => ({ ...v, [k]: !v[k] }))}><span className="menu-check-mark" aria-hidden="true">{columns[k] ? '✓' : ''}</span>{({ paper: 'Paper', messages: 'Messages', started: 'Started' })[k]}</button>)}
+          {HISTORY_COLUMNS.map(([k, label]) => <button key={k} type="button" role="menuitemcheckbox" aria-checked={!!columns[k]} className="menu-item menu-check"
+            onClick={() => setColumns(v => ({ ...v, [k]: !v[k] }))}><span className="menu-check-mark" aria-hidden="true">{columns[k] ? '✓' : ''}</span>{label}</button>)}
           {narrow && <p className="fine">A wider window shows them.</p>}</div>
         <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onClose(); }} data-testid="history-close"><Icon name="close" size={14} /> Close</button>
       </>}</MenuButton>
@@ -430,8 +493,11 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
     <div className="history-table-wrap"><table className="history-table" data-testid="history-table"><thead><tr>
       <th className="history-conversation"><button className="link" aria-pressed={sort === 'title'} onClick={() => setSort('title')}>Conversation</button></th>
       {shown.paper && <th className="history-paper">Paper</th>}
+      {shown.kind && <th className="history-kind">Kind</th>}
+      {shown.topics && <th className="history-topics">Topics</th>}
       {shown.messages && <th className="history-count">Messages</th>}
       {shown.started && <th className="history-started"><button className="link" aria-pressed={sort === 'started'} onClick={() => setSort('started')}>Started</button></th>}
+      {shown.length && <th className="history-length">Answer length</th>}
       <th className="history-last"><button className="link" aria-pressed={sort === 'last'} onClick={() => setSort('last')}>Last read</button></th>
       <th className="history-actions"><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>{rows.map(c => <tr key={c.id}><td>{renamingID === c.id
@@ -440,10 +506,15 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
         : <><button className="history-title" onClick={() => { chat.open(c.id); onOpen(c.documentID ?? null); onClose(); }}>{summaryTitle(c) || 'Chat'}</button>
           <span className="fine history-meta" data-testid="history-second-line">{secondLine(c) || ' '}</span></>}</td>
         {shown.paper && <td className="history-paper">{paperName(c)}</td>}
+        {shown.kind && <td className="fine history-kind">{c.documentID ? 'Paper' : 'General'}</td>}
+        {shown.topics && <td className="history-topics">{(c.documentID && topics?.get(c.documentID)?.length) ? <span className="tags">{topics.get(c.documentID)!.slice(0, 3).map(t => <span key={t} className="tag">{t}</span>)}</span> : null}</td>}
         {shown.messages && <td className="fine history-count">{c.messageCount}</td>}
         {shown.started && <td className="fine">{formatDate(c.startedAt)}</td>}
+        {shown.length && <td className="fine history-length">{answerLength(c.latestAnswerWords)}</td>}
         <td className="fine">{formatDate(c.lastUsedAt)}</td>
-        <td className="history-row-actions"><button className="link" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button>
+        <td className="history-row-actions">{c.anchor && c.documentID && papers.has(c.documentID) && <button className="link" aria-label={`Go to the passage of ${summaryTitle(c) || 'chat'}`}
+          onClick={() => { chat.open(c.id); onOpen(c.documentID!, c.anchor); onClose(); }}>Go to passage</button>}
+          <button className="link" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button>
           <button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
     </table></div>
     {!rows.length && <p className="muted">{search ? 'No matching chats.' : 'Your saved conversations will appear here.'}</p>}

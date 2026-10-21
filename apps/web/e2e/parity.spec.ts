@@ -73,6 +73,15 @@ test('a tag chip filters by its tag, shows which one is active, and clears when 
  await active.click();
  await expect(page.getByTestId('library-table').locator('button.tag.on')).toHaveCount(0);
  await expect(page.getByTestId('paper-row')).toHaveCount(all);
+ // A visit starts with all tags, as the apps do (B3): a tag chosen before a reload doesn't come back; the status filter does.
+ await chip.click();
+ await expect(page.getByTestId('library-table').locator('button.tag.on')).not.toHaveCount(0);
+ await page.evaluate(()=>localStorage.setItem('gradstep.library.filter',JSON.stringify('unread')));
+ await page.reload();
+ await expect(page.getByTestId('library-table')).toBeVisible();
+ await expect(page.getByTestId('library-table').locator('button.tag.on')).toHaveCount(0);
+ expect(await page.evaluate(()=>localStorage.getItem('gradstep.library.tag'))).toBeNull();
+ expect(await page.evaluate(()=>localStorage.getItem('gradstep.library.filter'))).toBe('"unread"');
 });
 
 // Build 75 (AOog): "I somehow got here, I wonder if a search was not escaped": the search field active with a tag

@@ -1,14 +1,16 @@
 import { isRouterDeepSeek, routerDeepSeekRates, ROUTER_DEEPSEEK_ENDPOINT } from "./openrouter-deepseek-pricing.ts";
 import { openRouterPost, OpenRouterNotDispatched } from "./openrouter-transport.ts";
 import { isRouterClaude, routerClaudeRates, ROUTER_CLAUDE_ENDPOINT } from './openrouter-claude-pricing.ts';
-// Gemini Flash on the same pinned OpenRouter -> Google route as the comparison. No SDK retries or alternate routes.
-// Chat orchestration still owns tools, consent, admission and settlement. Content/signatures live only in memory.
-import type Anthropic from '@anthropic-ai/sdk';
-import { emptyUsage, ESTIMATED_OUTPUT_TOKENS_PER_SECOND, holdForParams, type ProviderAttempt, type ProviderOutcome, type StreamOptions } from './anthropic.ts';
+// The one model adapter: every chat answer, title, suggestion, Study map, tag and podcast script goes to OpenRouter on a
+// pinned route (Claude and Gemini through Google Vertex, DeepSeek through DeepInfra). No retries or alternate routes.
+// It translates our request shape (model-request.ts) into OpenRouter's chat/completions body. Chat orchestration still
+// owns tools, consent, admission and settlement. Content/signatures live only in memory.
+import type { ModelRequest, TextBlock } from './model-request.ts';
+import { emptyUsage, ESTIMATED_OUTPUT_TOKENS_PER_SECOND, holdForParams, type ProviderAttempt, type ProviderOutcome, type StreamOptions } from './inference.ts';
 import { lookupGeneration, type GenerationLookupOptions, type GenerationRecord } from './openrouter-generation.ts';
 import { GEMINI_MODEL, GEMINI_OPENROUTER_MODEL, GEMINI_ENDPOINT, GEMINI_RATES } from './gemini-pricing.ts';
 
-type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+type Params = ModelRequest;
 type ObjectValue = Record<string, unknown>;
 const object = (v: unknown): ObjectValue => v && typeof v === 'object' && !Array.isArray(v) ? v as ObjectValue : {};
 const array = (v: unknown): unknown[] => Array.isArray(v) ? v : [];
@@ -68,7 +70,7 @@ export function openRouterTransportFor(model: string): { transport_model: string
 export function openRouterChatParams(params: Params): ObjectValue {
   const claude = isRouterClaude(params.model), deepseek = isRouterDeepSeek(params.model);
   if (params.model !== GEMINI_MODEL && !claude && !deepseek) throw new Error('unsupported_model');
-  const blocks: Anthropic.Beta.Messages.BetaTextBlockParam[] = typeof params.system === 'string' ? [{ type: 'text', text: params.system }] : params.system ?? [];
+  const blocks: TextBlock[] = typeof params.system === 'string' ? [{ type: 'text', text: params.system }] : params.system ?? [];
   const boundary = blocks.findLastIndex(b => !!b.cache_control);
   const stable = boundary < 0 ? blocks : blocks.slice(0, boundary + 1);
   const tail = claude || deepseek || boundary < 0 ? '' : blocks.slice(boundary + 1).map(b => b.text).join('\n\n');
@@ -86,7 +88,7 @@ export function openRouterChatParams(params: Params): ObjectValue {
       else ordinary.push(part(b));
     }
     if (tail && index === 0) ordinary.unshift({ type: 'text', text: tail });
-    // Tool results precede a new user message, if the same Anthropic turn contains both.
+    // Tool results precede a new user message, if the same turn contains both.
     messages.push(...results);
     if (ordinary.length || calls.length || reasoning.length) messages.push({ role: m.role, content: ordinary.length ? ordinary : null,
       ...(calls.length ? { tool_calls: calls } : {}), ...(reasoning.length ? { reasoning_details: reasoning } : {}) });

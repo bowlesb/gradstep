@@ -129,6 +129,8 @@ export interface ConversationSummary {
   lastArrival: number; startArrival: number; latestAnswer?: string; questions: string; anchor?: TextAnchor;
   /** Where `title` came from: absent for the first question, else `generated` (topic title) or `renamed`. */
   titleSource?: string;
+  /** Words in the newest answer (All chats' Answer length). */
+  latestAnswerWords: number;
 }
 
 /** A topic title as one plain line of at most 80 characters (ChatTopicTitle.clean): control and bidirectional
@@ -149,6 +151,40 @@ export class PrivateState {
   readonly events = new Map<string, AppliedEvent>();
   private arrival = new Map<string, number>();
   private nextArrival = 0;
+  /** Changes with every applied, rolled-back or replaced event. Derived views (summaries, branches, revisions, diagrams)
+   * are computed once per change and shared until the next (C2/C3): a render or a streamed token no longer rescans all
+   * events. Cached arrays are frozen; callers copy before sorting. */
+  private mutation = 0;
+  private derived: Derived = emptyDerived(-1);
+  get version(): number { return this.mutation; }
+  private cache(): Derived {
+    if (this.derived.mutation !== this.mutation) this.derived = emptyDerived(this.mutation);
+    return this.derived;
+  }
+  private index(): Required<Pick<Derived, 'byEntity' | 'messages' | 'deleted' | 'kinds' | 'references'>> {
+    const cache = this.cache();
+    if (!cache.byEntity) {
+      const byEntity = new Map<string, AppliedEvent[]>(), messages = new Map<string, AppliedEvent[]>(), deleted = new Set<string>(), kinds = new Map<EventKind, Set<string>>();
+      const references = new Map<string, SourcePaperReference>();
+      for (const e of this.events.values()) {
+        const list = byEntity.get(e.payload.entityID); if (list) list.push(e); else byEntity.set(e.payload.entityID, [e]);
+        if (e.payload.kind === 'tombstone') deleted.add(e.payload.entityID);
+        if (e.payload.kind === 'message' && e.payload.conversationID) { const m = messages.get(e.payload.conversationID); if (m) m.push(e); else messages.set(e.payload.conversationID, [e]); }
+        const ids = kinds.get(e.payload.kind); if (ids) ids.add(e.payload.entityID); else kinds.set(e.payload.kind, new Set([e.payload.entityID]));
+        const reference = e.payload.paperReference; if (reference && !references.has(reference.membershipID)) references.set(reference.membershipID, reference);
+      }
+      Object.assign(cache, { byEntity, messages, deleted, kinds, references });
+    }
+    return cache as Required<Pick<Derived, 'byEntity' | 'messages' | 'deleted' | 'kinds' | 'references'>>;
+  }
+  /** Every event of an entity (tombstones included), in arrival order. */
+  private entityEvents(entityID: string): readonly AppliedEvent[] { return this.index().byEntity.get(entityID) ?? []; }
+  /** Every record of an entity (all revisions and tombstones), as a copy. */
+  entityRecords(entityID: string): AppliedEvent[] { return [...this.entityEvents(entityID)]; }
+  /** The entities that have at least one event of this kind (arrival order). */
+  entitiesOfKind(kind: EventKind): string[] { return [...this.index().kinds.get(kind) ?? []]; }
+  /** The first paper reference saved for a source membership (a chat started on it). */
+  paperReference(membershipID: string): SourcePaperReference | undefined { return this.index().references.get(membershipID); }
 
   arrivalIndex(id: string): number | undefined { return this.arrival.get(id); }
 
@@ -163,7 +199,7 @@ export class PrivateState {
       }
     } catch (error) {
       for (const id of added) { this.events.delete(id); this.arrival.delete(id); }
-      this.nextArrival = before;
+      this.nextArrival = before; this.mutation++;
       throw error;
     }
   }
@@ -175,7 +211,7 @@ export class PrivateState {
       for (const event of events) { const exists = this.events.has(event.id); this.apply(event); if (!exists) added.push(event.id); }
     } finally {
       for (const id of added) { this.events.delete(id); this.arrival.delete(id); }
-      this.nextArrival = before;
+      this.nextArrival = before; if (added.length) this.mutation++;
     }
   }
 
@@ -183,7 +219,7 @@ export class PrivateState {
   private replacements = new Map<string, string>();
   resolve(id: string): string { let next = id; for (let i = 0; i < 64 && this.replacements.has(next); i++) next = this.replacements.get(next)!; return next; }
   /** Restores mappings committed earlier (the retired events themselves are not loaded). */
-  restoreReplacements(mapping: Map<string, string>) { for (const [old, next] of mapping) this.replacements.set(old, next); }
+  restoreReplacements(mapping: Map<string, string>) { for (const [old, next] of mapping) this.replacements.set(old, next); if (mapping.size) this.mutation++; }
   /** Prove a local rebase is valid before its transaction commits. */
   checkLocalReplacements(events: AppliedEvent[], mapping: Map<string, string>): void {
     const staged = new PrivateState();
@@ -210,6 +246,7 @@ export class PrivateState {
       this.arrival.delete(oldID);
       if (original !== undefined) this.arrival.set(newID, Math.min(original, this.arrival.get(newID) ?? original));
     }
+    this.mutation++;
   }
 
   apply(event: AppliedEvent): void {
@@ -218,7 +255,7 @@ export class PrivateState {
     const existing = this.events.get(event.id);
     if (existing) { if (!same(existing, event)) fail('event_conflict'); return; }
     if (event.payload.parents.includes(event.id)) fail();
-    this.events.set(event.id, event);
+    this.events.set(event.id, event); this.mutation++;
     if (this.containsCycle(event.id)) { this.events.delete(event.id); fail(); }
     this.arrival.set(event.id, this.nextArrival++);
   }
@@ -237,21 +274,21 @@ export class PrivateState {
     return false;
   }
 
-  private deleted(): Set<string> {
-    const out = new Set<string>();
-    for (const e of this.events.values()) if (e.payload.kind === 'tombstone') out.add(e.payload.entityID);
-    return out;
-  }
-  isDeleted(entityID: string): boolean {
-    for (const e of this.events.values()) if (e.payload.entityID === entityID && e.payload.kind === 'tombstone') return true;
-    return false;
-  }
+  private deleted(): ReadonlySet<string> { return this.index().deleted; }
+  isDeleted(entityID: string): boolean { return this.deleted().has(entityID); }
 
   /** Each continuation follows its causal predecessor; concurrent children are separate branches (ID order for stability). */
-  conversationBranches(conversationID: string): ConversationBranch[] {
+  conversationBranches(conversationID: string): readonly ConversationBranch[] {
+    const cache = this.cache(), cached = cache.branches.get(conversationID);
+    if (cached) return cached;
+    const branches = freezeBranches(this.computeBranches(conversationID));
+    cache.branches.set(conversationID, branches);
+    return branches;
+  }
+  private computeBranches(conversationID: string): ConversationBranch[] {
     const deleted = this.deleted();
     if (deleted.has(conversationID)) return [];
-    const messages = [...this.events.values()].filter(e => e.payload.kind === 'message' && e.payload.conversationID === conversationID && !deleted.has(e.payload.entityID));
+    const messages = (this.index().messages.get(conversationID) ?? []).filter(e => !deleted.has(e.payload.entityID));
     const parents = new Set<string>();
     for (const message of messages) {
       const candidates = [...message.payload.parents], visited = new Set<string>();
@@ -269,10 +306,14 @@ export class PrivateState {
   }
 
   conversationBranch(conversationID: string, head: string): ConversationBranch | null {
-    return this.branchThrough(conversationID, head, this.deleted());
+    // A head that is one of the conversation's branch tips is that cached branch.
+    const tip = this.conversationBranches(conversationID).find(b => b.head === head);
+    if (tip) return tip;
+    const branch = this.branchThrough(conversationID, head, this.deleted());
+    return branch && freezeBranches([branch])[0];
   }
 
-  private branchThrough(conversationID: string, head: string, deleted: Set<string>): ConversationBranch | null {
+  private branchThrough(conversationID: string, head: string, deleted: ReadonlySet<string>): ConversationBranch | null {
     const first = this.events.get(head);
     if (deleted.has(conversationID) || !first || first.payload.kind !== 'message' || first.payload.conversationID !== conversationID) return null;
     const path: AppliedEvent[] = [], visited = new Set<string>();
@@ -298,7 +339,7 @@ export class PrivateState {
 
   revisions(entityID: string): AppliedEvent[] {
     if (this.isDeleted(entityID)) return [];
-    const revisions = [...this.events.values()].filter(e => e.payload.entityID === entityID && e.payload.kind !== 'tombstone');
+    const revisions = this.entityEvents(entityID).filter(e => e.payload.kind !== 'tombstone');
     const superseded = new Set(revisions.flatMap(e => e.payload.parents));
     return revisions.filter(e => !superseded.has(e.id)).sort((a, b) => (a.id < b.id ? -1 : 1));
   }
@@ -317,8 +358,12 @@ export class PrivateState {
     return event;
   }
 
-  /** Every saved, undeleted conversation (one pass over the events), as All chats lists them. */
-  conversationSummaries(): ConversationSummary[] {
+  /** Every saved, undeleted conversation (one pass over the events, once per change), as All chats lists them. */
+  conversationSummaries(): readonly ConversationSummary[] {
+    const cache = this.cache();
+    return cache.summaries ??= Object.freeze(this.computeSummaries());
+  }
+  private computeSummaries(): ConversationSummary[] {
     const deleted = new Set<string>(), roots = new Map<string, AppliedEvent[]>(), messages = new Map<string, AppliedEvent[]>();
     for (const e of this.events.values()) {
       if (e.payload.kind === 'tombstone') deleted.add(e.payload.entityID);
@@ -345,15 +390,20 @@ export class PrivateState {
       out.push({ id, title: root.payload.text ?? '', titleSource: root.payload.titleSource, documentID: root.payload.documentID, messageCount: new Set(surviving.map(e => e.payload.entityID)).size,
         startedAt: rootTime ?? (times.length ? Math.min(...times) : undefined), lastUsedAt: all.length ? Math.max(...all) : undefined,
         lastArrival: Math.max(-1, ...[...revisions, ...surviving].map(e => arrival(e.id))), startArrival: Math.min(...revisions.map(e => arrival(e.id))),
-        latestAnswer: answer ? stripPartMarkers(answer).slice(0, 1000) : undefined, questions, anchor: root.payload.anchor });
+        latestAnswer: answer ? stripPartMarkers(answer).slice(0, 1000) : undefined, questions, anchor: root.payload.anchor,
+        latestAnswerWords: answer ? stripPartMarkers(answer).split(/\s+/).filter(Boolean).length : 0 });
     }
     return out.sort((a, b) => (a.id < b.id ? -1 : 1));
   }
 
   /** Every saved diagram outside deleted chats (ChatDiagram.swift `diagrams()`, Settings › Your assets › Diagrams),
    * newest first, with the paper of the chat that drew it (a figure's parts load their figure from it). */
-  savedDiagrams(): SavedDiagram[] {
-    const ids = new Set([...this.events.values()].filter(e => e.payload.kind === 'diagram').map(e => e.payload.entityID));
+  savedDiagrams(): readonly SavedDiagram[] {
+    const cache = this.cache();
+    return cache.savedDiagrams ??= Object.freeze(this.computeSavedDiagrams());
+  }
+  private computeSavedDiagrams(): SavedDiagram[] {
+    const ids = this.index().kinds.get('diagram') ?? new Set<string>();
     const out: SavedDiagram[] = [];
     for (const id of ids) {
       const event = this.revisions(id)[0], conversationID = event?.payload.conversationID;
@@ -367,9 +417,13 @@ export class PrivateState {
   }
 
   /** Saved diagrams (mermaid-v1 JSON in `text`) by the assistant message that drew them. */
-  diagramsByMessage(): Map<string, { id: string; title: string; source: string; format: DiagramFormat }> {
+  diagramsByMessage(): ReadonlyMap<string, { id: string; title: string; source: string; format: DiagramFormat }> {
+    const cache = this.cache();
+    return cache.diagrams ??= this.computeDiagramsByMessage();
+  }
+  private computeDiagramsByMessage(): Map<string, { id: string; title: string; source: string; format: DiagramFormat }> {
     const out = new Map<string, { id: string; title: string; source: string; format: DiagramFormat }>();
-    const ids = new Set([...this.events.values()].filter(e => e.payload.kind === 'diagram').map(e => e.payload.entityID));
+    const ids = this.index().kinds.get('diagram') ?? new Set<string>();
     for (const id of [...ids].sort()) {
       const event = this.revisions(id)[0];
       if (!event || (event.payload.conversationID && this.isDeleted(event.payload.conversationID))) continue;
@@ -378,6 +432,19 @@ export class PrivateState {
     }
     return out;
   }
+}
+
+interface Derived {
+  mutation: number; branches: Map<string, readonly ConversationBranch[]>;
+  byEntity?: Map<string, AppliedEvent[]>; messages?: Map<string, AppliedEvent[]>; deleted?: Set<string>; kinds?: Map<EventKind, Set<string>>;
+  references?: Map<string, SourcePaperReference>; summaries?: readonly ConversationSummary[]; savedDiagrams?: readonly SavedDiagram[];
+  diagrams?: Map<string, { id: string; title: string; source: string; format: DiagramFormat }>;
+}
+const emptyDerived = (mutation: number): Derived => ({ mutation, branches: new Map() });
+/** Shared branches can't be changed by a caller (copy before sorting). */
+function freezeBranches(branches: ConversationBranch[]): readonly ConversationBranch[] {
+  for (const b of branches) { Object.freeze(b.messages); Object.freeze(b); }
+  return Object.freeze(branches);
 }
 
 // ---------- Diagrams (ChatDiagram.swift) ----------

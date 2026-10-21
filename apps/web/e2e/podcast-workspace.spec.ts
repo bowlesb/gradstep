@@ -136,6 +136,14 @@ test('Listen preserves the draft, opens the exact evidence paper and leaves room
   await page.screenshot({ path: `../../.artifacts/web-podcast-workspace/${info.project.name}-paper-chat.png` });
   expect(f.calls.filter(c => c.action === 'start' || c.action === 'quote')).toHaveLength(0);
   expect((await (await request.get(`${API}/__chat-evidence`)).json()).requests).toHaveLength(0);
+  // The player's options (B10, PodcastPlayerViews): Report a problem at this time opens the report; Clear progress.
+  await page.getByTestId('podcast-menu').click();
+  await expect(page.getByTestId('podcast-report')).toHaveText(/^Report a problem at \d+:\d\d$/);
+  await expect(page.getByTestId('podcast-clear-progress')).toHaveText('Clear progress');
+  await page.screenshot({ path: `../../.artifacts/web-podcast-workspace/${info.project.name}-player-options.png` });
+  await page.getByTestId('podcast-report').click();
+  const reportDialog = page.getByRole('dialog', { name: 'Report an issue' });
+  await expect(reportDialog).toBeVisible(); await reportDialog.getByRole('button', { name: 'Cancel' }).click(); await expect(reportDialog).toBeHidden();
   await page.getByTestId('podcast-stop').click(); await page.reload(); await showChat(page);
   await expect(message(page)).toHaveValue('Keep my paper question while I listen'); expect(errors).toEqual([]);
 });

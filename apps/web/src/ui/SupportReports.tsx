@@ -3,6 +3,7 @@ import { BackendError, createSupportReport, getSupportThread, listSupportReports
 import { captureBrowserScreen, captureErrorMessage, disposeScreenshot, prepareScreenshot, type ScreenshotAttachment } from '../lib/support';
 import { formatDate, Dialog } from './common';
 import { faultSummary } from '../lib/faults';
+import { ScreenshotEditor } from './ScreenshotEditor';
 
 const WEB_VERSION = '0.1.0';
 
@@ -33,6 +34,8 @@ export function ReportDialog({ open, onClose, account, onSent }: { open: boolean
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // Crop or redact (B5): the editor's result replaces the preview, and only the preview is uploaded.
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     if (open) return;
@@ -86,13 +89,19 @@ export function ReportDialog({ open, onClose, account, onSent }: { open: boolean
       </label>
       <section className="support-screenshot" aria-label="Screenshot attachment">
         <div className="support-section-head"><strong>Screenshot</strong><span className="fine">optional</span></div>
-        {image ? <div className="support-preview"><img src={image.url} alt="Screenshot preview" /><button className="secondary small" onClick={() => { disposeScreenshot(image); setImage(null); setAttachmentID(null); }} disabled={busy}>Remove</button></div> : <p className="fine">Capture the current browser tab, or choose a screenshot file.</p>}
+        {image ? <div className="support-preview"><img src={image.url} alt="Screenshot preview" data-testid="report-preview" />
+          <span className="support-preview-actions">
+            <button className="secondary small" onClick={() => setEditing(true)} disabled={busy} data-testid="report-edit">Crop or redact</button>
+            <button className="secondary small" onClick={() => { disposeScreenshot(image); setImage(null); setAttachmentID(null); }} disabled={busy}>Remove</button>
+          </span></div> : <p className="fine">Capture the current browser tab, or choose a screenshot file.</p>}
+        {image && editing && <ScreenshotEditor image={image} onCancel={() => setEditing(false)}
+          onDone={edited => { setEditing(false); setImage(previous => { disposeScreenshot(previous); return edited; }); setAttachmentID(crypto.randomUUID()); }} />}
         <div className="support-image-actions">
           <button className="secondary small" onClick={() => void capture()} disabled={busy}><span aria-hidden="true">⌁</span> Capture this screen…</button>
           <button className="secondary small" onClick={() => file.current?.click()} disabled={busy}>Choose image…</button>
           <input ref={file} type="file" accept="image/png,image/jpeg" hidden onChange={event => { const selected = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (selected) void replaceImage(selected); }} data-testid="report-file" />
         </div>
-        <p className="fine">The browser will ask which tab or window to share. Crop or cover private details before choosing a file. The image is resized and stripped of metadata before upload.</p>
+        <p className="fine">The browser will ask which tab or window to share. Only this preview is uploaded. Crop or cover private details. The image is resized and stripped of metadata before upload.</p>
       </section>
       {error && <p className="issue" role="alert">{error}</p>}
       <div className="dialog-actions"><button className="secondary" onClick={onClose} disabled={busy}>Cancel</button><button className="primary" onClick={() => void send()} disabled={busy || !note.trim()} data-testid="report-send">{busy ? 'Sending…' : 'Send report'}</button></div>

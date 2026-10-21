@@ -288,6 +288,10 @@ table.papers { width: max(100%, calc(var(--library-title-width) + var(--library-
 .papers tbody tr:hover td.col-title { background: var(--row-hover); }
 .papers .col-authors { white-space: nowrap; text-overflow: ellipsis; }
 .papers .col-year { font-variant-numeric: tabular-nums; }
+/* Venue (two lines), Source (one, cut in the middle on the apps), Pages and Chats as numbers (B9). */
+.papers td.col-venue { white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.papers td.col-source { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.papers .col-pages, .papers .col-chats { font-variant-numeric: tabular-nums; text-align: right; }
 .papers .col-added, .papers .col-opened { white-space: nowrap; }
 @media print {
   .app:has(.library), .app:has(.library) .workspace, .app:has(.library) .pane-center,
@@ -489,7 +493,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 .chat-sync button { margin-left: 8px; }
 .chat-transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 8px; overscroll-behavior: contain; }
 .chat-transcript .chat-empty { min-height: 150px; padding: 12px; }
-.chat-message { margin: 0 0 24px; font-size: 14px; line-height: 1.62; overflow-wrap: anywhere; }
+.chat-message { margin: 0 0 24px; font-size: var(--chat-text, 14px); line-height: 1.62; overflow-wrap: anywhere; }
 .message-label-row { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; }
 .message-label { font-size: 10px; font-weight: 650; color: var(--faint); letter-spacing: .06em; text-transform: uppercase; margin: 0; }
 .message-label-row .link { margin-left: auto; opacity: .72; }
@@ -583,7 +587,10 @@ progress.mini { height: 3px; margin-top: 4px; }
 .history-draft { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .chat-delete { margin-top: 15px; }
 .selection-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
-@media(max-width: 600px) { .chat-message { font-size: 15px; } .chat-pane .segment { min-height: 32px; } }
+@media(max-width: 600px) { .chat-message { font-size: var(--chat-text, 15px); } .chat-pane .segment { min-height: 32px; } }
+.chat-text-size { display: flex; gap: 4px; }
+.chat-text-size .seg { flex: 1; white-space: nowrap; }
+.chat-text-size .seg:disabled { opacity: .45; }
 
 /* Small menus under an icon button (the chat's ⋯, All chats' ≡). */
 .menu-anchor { position: relative; }
@@ -967,3 +974,28 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 @media (max-width: 640px) { .topbar-catalog select { max-width: 80px; padding: 0 18px 0 8px; font-size: 12.5px; } }
 .menu .menu-add { font-weight: 600; color: var(--accent); }
 .catalog-fields label { display: grid; gap: 6px; margin: 12px 0; }
+/* Papers in this answer (B2): a quiet numbered list under a finished answer. */
+.answer-papers { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+.answer-papers-heading { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.answer-papers ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.answer-paper { display: flex; gap: 6px; }
+.answer-paper-number { color: var(--muted); min-width: 1.4em; }
+.answer-paper-body { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.answer-paper-title { font-weight: 600; overflow-wrap: anywhere; }
+.answer-paper-details { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.answer-paper-id { display: inline-flex; align-items: center; gap: 3px; }
+.answer-paper-details .link.small { display: inline-flex; align-items: center; gap: 3px; min-height: 24px; }
+.answer-paper-notice { display: inline-flex; align-items: center; gap: 6px; }
+/* Actions on a selected answer passage or formula (B1): above the composer, in view while the transcript scrolls. */
+.answer-math { display: contents; }
+.chat-selection-bar { position: sticky; bottom: 6px; left: auto; transform: none; margin: 6px auto 0; width: max-content; max-width: calc(100% - 8px); }
+/* Crop or redact a support screenshot (B5). */
+.support-preview-actions { display: flex; flex-direction: column; gap: 6px; }
+.screenshot-editor-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.screenshot-editor-area { position: relative; margin: 6px auto 0; touch-action: none; user-select: none; cursor: crosshair; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.screenshot-editor-area img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.screenshot-cover { position: absolute; background: #000; }
+.screenshot-cover.drafting { opacity: .75; }
+.screenshot-crop { position: absolute; border: 2px solid #f5c400; box-shadow: 0 0 0 9999px #0006; }
+

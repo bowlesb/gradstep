@@ -90,19 +90,22 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   // The ⋯ menu: Answer options… with the current choice, and Study mode; arrow keys move, Esc closes and returns focus.
   await page.getByTestId('chat-menu').click();
   const menu = page.getByRole('menu', { name: 'Chat menu' });
-  await expect(menu.getByRole('menuitem')).toHaveText([/^Answer options…\s*Sonnet · Standard$/, 'Study mode']);
+  // Smaller / Larger text last (B8; the apps keep them in this menu too).
+  await expect(menu.getByRole('menuitem')).toHaveText([/^Answer options…\s*Sonnet · Standard$/, 'Study mode', /Smaller text$/, /Larger text$/]);
   await expect(menu.getByTestId('answer-options-item')).toBeFocused();
   await page.keyboard.press('ArrowDown'); await expect(menu.getByRole('menuitem', { name: 'Study mode' })).toBeFocused();
   await page.keyboard.press('Escape'); await expect(menu).toHaveCount(0); await expect(page.getByTestId('chat-menu')).toBeFocused();
   await page.getByTestId('chat-menu').click(); await page.getByTestId('answer-options-item').click();
   const options = page.getByRole('dialog', { name: 'Answer options' });
-  await expect(options.getByRole('radiogroup')).toHaveCount(2);
-  await expect(options.getByRole('radiogroup', { name: 'Model' }).getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus', 'DeepSeek']);
+  // Models in two groups since the providers changed (Anthropic models, Other providers), then Length.
+  await expect(options.getByRole('radiogroup')).toHaveCount(3);
+  await expect(options.getByRole('radiogroup', { name: 'Anthropic models' }).getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus']);
+  await expect(options.getByRole('radiogroup', { name: 'Other providers' }).getByRole('radio')).toHaveText(['DeepSeek']);
   await expect(options.getByRole('radiogroup', { name: 'Length' }).getByRole('radio')).toHaveText(['Brief', 'Standard', 'Detailed']);
   await expect(options.getByRole('button', { name: 'About AI chat options' })).toBeVisible();
   await expect(options).not.toContainText(/credit|Effort|Reset/);
   await options.getByRole('radio', { name: 'DeepSeek', exact: true }).click();
-  await expect(options.getByRole('button', { name: 'Use for new chats' })).toBeVisible();
+  await expect(options.getByRole('button', { name: /^Use for new (paper|general) chat$/ })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-answer-options.png` });
   await page.keyboard.press('Escape'); await expect(options).toBeHidden();
 
@@ -140,7 +143,8 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   const options2 = page.getByRole('menu', { name: 'All chats options' });
   await expect(options2.getByRole('group', { name: 'Sort by' }).getByRole('menuitemradio')).toHaveText([/Last read/, /Started/, /Title/]);
   await expect(options2.getByRole('menuitemradio', { name: /Last read/ })).toHaveAttribute('aria-checked', 'true');
-  await expect(options2.getByRole('group', { name: 'Columns' }).getByRole('menuitemcheckbox')).toHaveText([/Paper/, /Messages/, /Started/]);
+  // The apps' All chats columns (B9): Kind, Topics and Answer length besides these.
+  await expect(options2.getByRole('group', { name: 'Columns' }).getByRole('menuitemcheckbox')).toHaveText([/Paper/, /Kind/, /Topics/, /Messages/, /Started/, /Answer length/]);
   await expect(options2.getByRole('menuitem', { name: 'Close' })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-all-chats-menu.png` });
   await page.keyboard.press('Escape');
@@ -149,6 +153,11 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
     await chats.getByTestId('history-menu').click();
     await page.getByRole('menuitemcheckbox', { name: /Messages/ }).click();
     await expect(chats.getByRole('columnheader', { name: 'Messages' })).toBeVisible();
+    for (const name of [/Kind/, /Topics/, /Answer length/]) await page.getByRole('menuitemcheckbox', { name }).click();
+    await expect(chats.getByRole('columnheader')).toContainText(['Conversation', 'Paper', 'Kind', 'Topics', 'Messages', 'Answer length', 'Last read']);
+    const row = chats.getByTestId('history-table').locator('tbody tr').first();
+    await expect(row.locator('.history-kind')).toHaveText(/^(Paper|General)$/);
+    await expect(row.locator('.history-length')).toHaveText(/^(—|1 word|\d+ words|\d+(\.\d)?k words)$/);
     await page.keyboard.press('Escape');
   }
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-all-chats.png` });

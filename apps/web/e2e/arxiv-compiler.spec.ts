@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 
-const script = readFileSync(new URL('../public/arxiv-reader.js', import.meta.url), 'utf8') + '\n'
+const script = readFileSync(new URL('../src/reader/arxiv-reader.js', import.meta.url), 'utf8') + '\n'
  + readFileSync(new URL('../src/reader/arxiv-compiler-host.js', import.meta.url), 'utf8');
 const hash = 'sha256-' + createHash('sha256').update(script).digest('base64');
 const source = readFileSync(new URL('../../../tests/fixtures/reader-arxiv/source.html', import.meta.url), 'utf8');

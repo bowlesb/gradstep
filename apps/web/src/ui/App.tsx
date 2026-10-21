@@ -5,9 +5,11 @@ import type {ClientEntry, LibraryPaper} from '../lib/device-pdf';
 import { localChatContext, observeArxivSources, prepareArxivReader } from '../lib/arxiv-reader';
 import { sourceMetadataReporter } from '../lib/source-metadata';
 import { type ReaderPaper, ReaderBundles, isReaderPaper, isSourcePaper, paperIdentity, paperReference, readerCacheKey, readingSource } from '../lib/reader-paper';
-import { type FocusEvent as ReactFocusEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { type Activity, loadActivity, saveActivity } from '../lib/activity';
-import { AuthError, type AuthIssue, type Session, auth, config, operationsDashboard, operatorRoles } from '../lib/backend';
+import { type ComponentProps, type FocusEvent as ReactFocusEvent, type ReactNode, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type Activity, ActivityStore, loadActivity, saveActivity } from '../lib/activity';
+import { loadKept, saveKept } from '../lib/kept-explanations';
+import { AuthError, type AuthIssue, type Session, auth, config, functionPost, operationsDashboard, operatorRoles } from '../lib/backend';
+import type { AnswerPapers } from './AnswerPapers';
 import { type AccountSummary, CREDITS_INFO, PLAN_INFO, creditsLabel, loadAccountSummary, planLabel } from '../lib/account-summary';
 import { type DeviceRecord, type Preparation, eraseDeletedAccount, forgetDevice, readDevice } from '../lib/keys';
 import { TYPED_CONFIRMATION, deletionFailure, forgetAccountStorage, noteAccountDeleted, requestAccountDeletion } from '../lib/account-deletion';
@@ -16,7 +18,7 @@ import type { Episode, Evidence } from '../lib/podcast';
 import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
-import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
+import { ChatHistory, ChatPane, type PaperContext, summaryTitle, useChatUpdates } from './ChatPane';
 import { ChatOptionsDialog, type ChatOptionsView } from './ChatProfile';
 import { readVisualAnswers, writeVisualAnswers } from '../lib/chat-session';
 import type { ChatSession, Explanation, AIUseCase } from '../lib/chat-session';
@@ -35,21 +37,36 @@ import { KeySetup } from './Keys';
 import { RegionBoundary } from './ErrorBoundary';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
-import { readStored, type Route, type Theme, useMedia, useTheme, writeStored } from './prefs';
+import { readStored, type Route, type Theme, useMedia, useStored, useTheme, writeStored } from './prefs';
 import { type ComposerDraft, NewNoteDialog, NoteComposer, NoteDetail, NotesList, useNotes } from './Notes';
 import type { EntryView } from '../lib/notes';
-/** The Library's filter and tag, remembered between visits (per browser, a convenience only). */
-const LIBRARY_FILTER_KEY = 'gradstep.library.filter';
-import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
+/** Underline passages with chats (the apps' Settings › Reading; per browser, on unless turned off). */
+const PASSAGE_MARKS_KEY = 'gradstep.reader.passageMarks';
+/** The Library's status filter, remembered between visits (per browser, a convenience only). The tag isn't: every visit
+ * starts with all tags, as the apps do (B3; owner: an old tag filter came back and the library looked empty). */
+const LIBRARY_FILTER_KEY = 'gradstep.library.filter', OLD_LIBRARY_TAG_KEY = 'gradstep.library.tag';
+import type { ReaderCache, ReaderCommands } from './Reader';
 import type { EquationHost } from './EquationView';
 import type { FigureHost } from './FigureView';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { useReadingMode } from './ReadingMode';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
-import { ReportDialog, ReportsDialog } from './SupportReports';
-import { HowGradstepWorks } from './HowGradstepWorks';
-import { PrivacyData } from './PrivacyData';
+// Loaded when first needed (C5): the reader with its frame script, and dialogs opened from the account menu.
+type ReaderModule = typeof import('./Reader');
+let readerModule: ReaderModule | null = null;
+const loadReader = () => import('./Reader').then(m => (readerModule = m));
+const LazyReader = lazy(() => loadReader().then(m => ({ default: m.Reader })));
+/** The reader, rendered directly once its chunk is here (fetched right after sign-in), so it mounts with the chat pane in
+ * one commit; lazily before that. Chosen once per mount, so a reader never remounts when the chunk arrives. */
+function Reader(props: ComponentProps<ReaderModule['Reader']>) {
+  const [Chosen] = useState(() => readerModule?.Reader ?? LazyReader);
+  return <Chosen {...props} />;
+}
+const ReportDialog = lazy(() => import('./SupportReports').then(m => ({ default: m.ReportDialog })));
+const ReportsDialog = lazy(() => import('./SupportReports').then(m => ({ default: m.ReportsDialog })));
+const HowGradstepWorks = lazy(() => import('./HowGradstepWorks').then(m => ({ default: m.HowGradstepWorks })));
+const PrivacyData = lazy(() => import('./PrivacyData').then(m => ({ default: m.PrivacyData })));
 import { useLibrary } from './useLibrary';
 import { useCatalogs } from './useCatalogs';
 
@@ -114,11 +131,21 @@ const SHORTCUTS = [['/ or ⌘K', 'Search the library or ML papers'], ['⌘F', 'F
   ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
 const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help', f: 'reading', j: 'next', k: 'previous' };
 
+/** The activity the library views show: live while one is on screen, the last shown otherwise (C1). */
+function useActivity(store: ActivityStore, live: boolean): Map<string, Activity> {
+  const shown = useRef(store.snapshot());
+  const snapshot = useCallback(() => (live ? (shown.current = store.snapshot()) : shown.current), [store, live]);
+  return useSyncExternalStore(store.subscribe, snapshot);
+}
+
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
   // What this browser reads about a paper it prepares goes to the server only while it asks (ARXIV_DEVICE_ONLY.md §5.3).
   useEffect(() => observeArxivSources(sourceMetadataReporter(account)), [account]);
   const chat = useChat(account, ready);
+  // The reader's chunk is fetched once the signed-in shell is on screen, off the first render's path, so opening a paper
+  // mounts it at once: the reader and the chat's starter questions then share one arXiv request (C5).
+  useEffect(() => { const t = setTimeout(() => { void loadReader().catch(() => {}); }, 0); return () => clearTimeout(t); }, []);
   const catalogs = useCatalogs(chat);
   const notes = useNotes(chat);
   // Add to note (a crop, a quote or text) and its "Saved to … · Open note" (NOTES_AND_SNIPPETS.md).
@@ -175,7 +202,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     return () => { ++navigationIntent.current; removeEventListener('popstate', pop); };
   }, [chat]);
   const [device, setDevice] = useState<DeviceRecord | null>(null);
-  const [activity, setActivity] = useState<Map<string, Activity>>(new Map());
+  // Reading activity lives outside React state (C1): while a paper is read, its place reports don't render the app.
+  const [activityStore] = useState(() => new ActivityStore());
   const [activityLoaded, setActivityLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
@@ -262,9 +290,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   useEffect(()=>{if(chat&&library.state==='ready')chat.retainPromotedContexts(new Set(library.entries.filter((p):p is ReaderPaper=>isReaderPaper(p)&&p.visible).map(paperIdentity)));},[chat,library.state,library.entries]);
   // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md); the filter is remembered
   // between visits too (owner-approved follow-up, 2026-10-07). The tag is not, as on the apps since build 71 ("I open to
-  // this screen": an empty tag view after relaunch).
-  const [view, setViewState] = useState<LibraryQuery>(() => ({ ...INITIAL_QUERY,
-    filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)) }));
+  // this screen": an empty tag view after relaunch); a tag an earlier build stored is forgotten (B3).
+  const [view, setViewState] = useState<LibraryQuery>(() => {
+    try { localStorage.removeItem(OLD_LIBRARY_TAG_KEY); } catch { /* storage unavailable */ }
+    return { ...INITIAL_QUERY, filter: readStored<LibraryQuery['filter']>(LIBRARY_FILTER_KEY, 'all', v => typeof v === 'string' && ['all', 'unread', 'reading', 'failed', 'archived'].includes(v)) };
+  });
   const setView = useCallback((next: LibraryQuery | ((q: LibraryQuery) => LibraryQuery)) => setViewState(previous => {
     const value = typeof next === 'function' ? next(previous) : next;
     if (value.filter !== previous.filter) writeStored(LIBRARY_FILTER_KEY, value.filter);
@@ -324,7 +354,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       if (!record || record.deviceID !== ready.deviceID) return;
       const saved = await loadActivity(record);
       if (!live) return;
-      setDevice(record); setActivity(saved);
+      setDevice(record); activityStore.replace(saved);
     }).catch(() => {}).finally(() => { if (live) setActivityLoaded(true); });
     return () => { live = false; if (saveTimer.current) clearTimeout(saveTimer.current); readerCache.clear(); };
   }, [account, ready.deviceID]);
@@ -335,20 +365,33 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   },[devicePDFs,openReader]);
   const record = useCallback((itemID: string, value: Activity) => {
     if (!activityLoaded || leaving) return;
-    setActivity(previous => {
-      const next = new Map(previous); next.set(itemID, value);
-      return next;
-    });
-  }, [activityLoaded, leaving]);
+    activityStore.set(itemID, value);
+  }, [activityLoaded, leaving, activityStore]);
 
+  // Kept explanations (B4): restored once the device's key and the chat are here; each new one saved (encrypted, here).
+  useEffect(() => {
+    if (!chat || !device || !ready.local || leaving) return;
+    const local = ready.local;
+    let live = true, timer: ReturnType<typeof setTimeout> | undefined;
+    void loadKept(device).then(entries => { if (live && entries.length) chat.restoreKept(entries); });
+    const unsubscribe = chat.onKept(() => { clearTimeout(timer); timer = setTimeout(() => { void saveKept(device, chat.keptEntries(), local).catch(() => {}); }, 300); });
+    return () => { live = false; unsubscribe(); clearTimeout(timer); };
+  }, [chat, device, leaving, ready.local]);
+  // Saved half a second after the last change (encrypted, on this device), without rendering anything.
   useEffect(() => {
     if (!device || !ready.local || leaving) return;
     const local = ready.local;
-    const timer = setTimeout(() => { saveActivity(device, activity, local).catch(() => {}); }, 500);
-    saveTimer.current = timer;
-    return () => clearTimeout(timer);
-  }, [device, activity, leaving, ready.local]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const changed = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { saveActivity(device, activityStore.snapshot(), local).catch(() => {}); }, 500);
+      saveTimer.current = timer;
+    };
+    const unsubscribe = activityStore.subscribe(changed);
+    return () => { unsubscribe(); clearTimeout(timer); };
+  }, [device, leaving, ready.local, activityStore]);
 
+  const readSaved = useCallback((itemID: string) => activityStore.get(itemID), [activityStore]);
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
   const paperID = match?.[1] ?? null;
   const notesMatch = /^\/notes(?:\/([0-9a-f-]{36}))?$/.exec(path);
@@ -364,7 +407,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const reading = useReadingMode(ws, route === 'paper' && !!item);
   const latest = useRef({ ws, route, paperID, reading });
   latest.current = { ws, route, paperID, reading };
-  const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
+  const libraryShown = route !== 'paper' || (railTab === 'library' && ws.left.open);
+  const activity = useActivity(activityStore, libraryShown);
+  const model = useLibraryModel(library, activity, view, libraryShown);
   const feed = useFeed(account, library.serverEntries);
   const podcasts = usePodcasts(account);
   const player = usePodcastPlayer(account);
@@ -428,7 +473,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       await chat?.settleBeforeSignOut();
       owner.signal.throwIfAborted();
       if (forget) await forgetDevice(account, owner.signal);
-      else if (device && ready.local) await saveActivity(device, activity, ready.local).catch(() => {});
+      else if (device && ready.local) await saveActivity(device, activityStore.snapshot(), ready.local).catch(() => {});
       if (!forget) await chat?.retireJournal();
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
       if (forget) clearPositions(account);
@@ -505,7 +550,35 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   };
   const railVisible = ws.left.open && ws.left.inline;
   const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || !!readingSource(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
+  // Saved chats per paper for the library's Chats column (B9): one pass over the cached summaries per history change.
+  const chatCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of chat?.history.state.conversationSummaries() ?? []) if (c.documentID) counts.set(c.documentID, (counts.get(c.documentID) ?? 0) + 1);
+    return counts;
+  }, [chat, historyVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The account's sync state with Sync now (RootView's Account › Sync; B10): paused, syncing, waiting, synced.
+  const syncState = chat ? {
+    label: chat.history.issue ? 'Sync paused' : chat.history.syncing ? 'Syncing…' : chat.history.unsaved
+      ? `${chat.history.unsaved.toLocaleString()} ${chat.history.unsaved === 1 ? 'change' : 'changes'} waiting to sync` : chat.history.status === 'ready' ? 'Synced' : 'Not synced yet',
+    detail: chat.history.issue, canSync: !chat.history.syncing && (!!chat.history.issue || chat.history.unsaved > 0 || chat.history.status !== 'ready'),
+    run: () => { void chat.history.sync().catch(() => {}); },
+  } : null;
+  const paperTopics = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), effectiveTags(e)])), [library.entries]);
+  const chatCount = useCallback((entry: ClientEntry) => chatCounts.get(isReaderPaper(entry) ? paperIdentity(entry) : entry.id) ?? 0, [chatCounts]);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
+  // Papers an answer names (B2): in the library already (a paper or a visible import), opened or shown there; else added
+  // as the Add paper dialog adds an arXiv ID, or a DOI through the reader's free reference lookup.
+  const answerPapers = useMemo<AnswerPapers>(() => ({
+    has: sourceID => library.entries.some(e => e.visible && e.source_id === sourceID),
+    title: sourceID => library.entries.find(e => e.visible && e.source_id === sourceID)?.metadata?.title ?? null,
+    open: sourceID => {
+      const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID);
+      if (paper && (isSourcePaper(paper) || readingSource(paper))) { void openPaper(paper); return; }
+      setSearchExternal(false); setView({ ...INITIAL_QUERY, query: sourceID }); void navigate('/');
+    },
+    addArxiv: (sourceID, revision) => library.addArxiv(sourceID, revision),
+    addReference: (doi, operationID) => functionPost('add-reference', { operation_id: operationID, reference: doi, capabilities: ['web_import'] }, { account, maximum: 65_536 }),
+  }), [library, openPaper, navigate, setView, account]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
     const showing = anchor && documentID && chat ? chat.current(documentID).id : null;
     if (!documentID) setChatMode('general');
@@ -577,8 +650,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     consented: () => chat.cloudConsent, accept: () => chat.acceptCloudConsent(),
     saved: (manifest, figureID, action, part, choice) => chat.savedFigure(manifest, figureID, action, part, choice),
     run: (input, action, update, signal, choice) => chat.figure(equationDocument, input, action, update, signal, choice),
+    image: figureID => chat.keptFigureImage(equationDocument, figureID),
   } : undefined, [chat, equationDocument]);
-  const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined)]);
+  // Passages with chats are underlined unless the reader turned that off (Settings › Reading on the apps; B10).
+  const [passageMarks, setPassageMarks] = useStored<boolean>(PASSAGE_MARKS_KEY, true, v => typeof v === 'boolean');
+  const marks = useMemo(() => !passageMarks ? [] : chat?.history.state.conversationSummaries().filter(c => c.documentID === (item ? paperIdentity(item) : undefined) && c.anchor)
+    .map(c => ({ id: c.id, anchor: c.anchor!, title: summaryTitle(c) || undefined, lastUsedAt: c.lastUsedAt })) ?? [], [chat, historyVersion, (item ? paperIdentity(item) : undefined), passageMarks]);
 
   const openPodcastEvidence = async (episode: Episode, evidence: Evidence): Promise<boolean | null> => {
     const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === episode.documentID);
@@ -619,7 +696,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // A direct paper URL can finish loading the library before local decryption. Mounting the
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} extra={!!readingSource(item)} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
+      : item ? <Suspense fallback={<div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>}><Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} extra={!!readingSource(item)} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} onBrowseShared={() => { setListening(true); void navigate('/feed'); }}
         onAsked={podcasts.asked} openWith={listenAgain?.itemID === item.id ? listenAgain : null} onOpened={() => setListenAgain(null)} deviceSource={readingSource(item) ? async signal => {
         // The paper's own text on this device (migration 066): the verified bundle's numbered context, as the chat sends it.
         // An arXiv paper from before the HTML-first reader sends it too, named by its library item (migration 081: the
@@ -632,8 +709,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         catch (e) { if (legacy && !signal.aborted) return null; throw e; }
         const context = localChatContext(reference, bundle);
         return { text: { format: 'paper-context-v2', text: context.text }, identity: { source: 'arxiv', source_id: context.source_id, revision: context.revision, manifest_sha256: context.manifest_sha256, title: item.metadata?.title ?? undefined, authors: item.metadata?.authors ?? [] } };
-      } : undefined} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
+      } : undefined} />} cache={readerCache} account={account} item={item} saved={activityStore.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
+        readSaved={readSaved}
         passage={passage?.documentID === paperIdentity(item) ? passage : null} onPassageHandled={() => setPassage(null)}
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
@@ -642,7 +720,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         onBackToChat={chatReturn && !ws.right.open ? () => { const back = chatReturn.composer; setChatReturn(null); if (back) chat?.chooseDraft(back); setChatMode('paper'); ws.show('right'); } : undefined}
         onExplainerReturn={() => setChatReturn(null)}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading}
-        noteCapture={notes ? { writable: notes.writable, images: notes.canSaveImages, add: (draft, adjust) => setComposer({ draft, adjust }) } : undefined} />
+        noteCapture={notes ? { writable: notes.writable, images: notes.canSaveImages, add: (draft, adjust) => setComposer({ draft, adjust }) } : undefined} /></Suspense>
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'notes') {
@@ -663,7 +741,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared} onSearchTag={searchPapers}
-      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} />;
+      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} chatCount={chatCount} />;
   }
 
   // Paper (phone): the paper last open in this tab, else the one most recently opened on this device.
@@ -723,7 +801,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu compact={phone} onAdd={library.state === 'ready' ? () => setAdding(true) : null} account={session.user.id} email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onPrivacy={() => setPrivacy(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onDeleteAccount={() => { setDeleteTyped(''); setDeleteError(null); setDeletingAccount(true); }}
             onChatDefaults={chat ? () => setChatDefaults('defaults') : null} onChats={() => setChats(true)} onDiagrams={chat ? () => setDiagramsOpen(true) : null}
-            onExplanations={chat ? setExplanationsOpen : null} />
+            onExplanations={chat ? setExplanationsOpen : null} passageMarks={passageMarks} onPassageMarks={setPassageMarks} sync={syncState} />
         </div>
       </header>
       {searching && <div className="search-scope" ref={scope} onFocus={() => setSearchFocus(true)} onBlur={leaveSearch} data-testid="search-scope">
@@ -747,10 +825,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Notes' : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}:${noteID ?? ''}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
-          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} />
+          <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers} />
         </RegionBoundary>} />
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
-      <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} /></RegionBoundary>
+      <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} onReport={report} /></RegionBoundary>
       {savedNote && <div className="notes-saved" role="status" data-testid="notes-saved"><span>Saved to {savedNote.title}{savedNote.offline ? ' · Waiting to sync' : ''}</span>
         <button className="link" onClick={() => { setSavedNote(null); void navigate(`/notes/${savedNote.noteID}`); }} data-testid="open-saved-note">Open note</button>
         <button className="icon-button" aria-label="Dismiss" onClick={() => setSavedNote(null)}><Icon name="close" size={14} /></button></div>}
@@ -765,7 +843,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} onOpen={paper => void openPaper(paper)} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
       </RegionBoundary>
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
-        <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
+        <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} topics={paperTopics} />
       </RegionBoundary>
       {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       {chat && <RegionBoundary region="diagrams" label="All diagrams" compact resetKey={diagramsOpen} onReport={report}><DiagramsDialog chat={chat} open={diagramsOpen} onClose={() => setDiagramsOpen(false)} /></RegionBoundary>}
@@ -780,8 +858,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           void openPaper(paper);
           return true;
         }} /></RegionBoundary>}
-      <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />
-      <ReportsDialog open={reportsOpen} onClose={() => setReportsOpen(false)} account={account} />
+      {reportOpen && <Suspense fallback={null}><ReportDialog open onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} /></Suspense>}
+      {reportsOpen && <Suspense fallback={null}><ReportsDialog open onClose={() => setReportsOpen(false)} account={account} /></Suspense>}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <h2>Keyboard shortcuts</h2>
         <dl className="shortcuts">
@@ -790,8 +868,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
         <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
-      <HowGradstepWorks open={howGradstepWorks} onClose={() => setHowGradstepWorks(false)} />
-      <PrivacyData open={privacy} onClose={() => setPrivacy(false)} />
+      {howGradstepWorks && <Suspense fallback={null}><HowGradstepWorks open onClose={() => setHowGradstepWorks(false)} /></Suspense>}
+      {privacy && <Suspense fallback={null}><PrivacyData open onClose={() => setPrivacy(false)} /></Suspense>}
       <Dialog open={deletingAccount} onClose={() => { if (!deleteBusy) setDeletingAccount(false); }} title="Delete account" className="delete-account">
         <h2>Delete account</h2>
         <p>This permanently deletes your account:</p>
@@ -855,11 +933,13 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
   </nav>;
 }
 
-function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations }: {
+function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, onHelp, onInfo, onPrivacy, onReport, onReports, onSignOut, onDeleteAccount, onChatDefaults, onChats, onDiagrams, onExplanations, passageMarks, onPassageMarks, sync }: {
   compact?: boolean;
   /** Add paper, the menu's first row (owner, build 75: "move the + option as a new row inside the dialogue on the far right"). */
   onAdd: (() => void) | null; account: string; email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onPrivacy: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
-  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null }) {
+  onDeleteAccount: () => void; onChatDefaults: (() => void) | null; onChats: () => void; onDiagrams: (() => void) | null; onExplanations: ((kind: Explanation['kind']) => void) | null;
+  passageMarks: boolean; onPassageMarks: (on: boolean) => void;
+  sync?: { label: string; detail: string | null; canSync: boolean; run: () => void } | null }) {
   const [open, setOpen] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
   // AI credits and Subscription plan, read again each time the menu opens (native Settings › AI credits); the last values
@@ -902,6 +982,8 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
           {compact && <p className="fine menu-heading">Settings</p>}
           <p className="menu-email">{email}</p>
           <p className="fine">This browser is an approved device.</p>
+          {sync && <div className="menu-fact" data-testid="account-sync" title={sync.detail ?? undefined}><span>Sync</span>
+            <span className="menu-fact-value">{sync.label}{sync.canSync && <button type="button" className="link small" onClick={sync.run} data-testid="sync-now"> Sync now</button>}</span></div>}
           {/* Owner, build 57: "Credits -> AI credits", "Plan -> Subscription Plan"; the explanations behind ⓘ. Bought in the apps. */}
           <div className="menu-facts" role="group" aria-label="AI credits">
             <div className="menu-fact" data-testid="account-credits"><span>AI credits <InfoTip text={CREDITS_INFO} testID="credits-info" /></span>
@@ -923,6 +1005,8 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
+          <button role="menuitemcheckbox" aria-checked={passageMarks} className="menu-item menu-check" onClick={() => onPassageMarks(!passageMarks)} data-testid="passage-marks">
+            <span className="menu-check-mark" aria-hidden="true">{passageMarks ? '✓' : ''}</span>Underline passages with chats</button>
           <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> AI chat options…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
           {/* About, with Report and My reports beside it, for everyone (owner, build 58). */}

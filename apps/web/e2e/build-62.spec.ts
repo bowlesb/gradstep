@@ -41,7 +41,7 @@ test('Reader version details: this paper’s version and this browser’s; an ol
  await expect(page.getByText(/newer reader|prepared again/i)).toHaveCount(0);
  await page.locator('.reader-actions').getByRole('button',{name:/^Actions for/}).click();
  const item=page.getByRole('menu',{name:'Paper actions'}).getByRole('menuitem',{name:'Reader version details'});
- await expect(page.getByRole('menu',{name:'Paper actions'}).getByRole('menuitem').first()).toHaveText('Reader version details');
+ await expect(item).toBeVisible(); // after Find similar papers and sharing, as in the apps' ⋯ (PaperView)
  await item.click();
  const sheet=page.getByRole('dialog',{name:'Reader version'});
  await expect(sheet.getByTestId('reader-version-paper')).toHaveText('An earlier version');
@@ -103,16 +103,23 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
  await expect(display).toBeVisible({timeout:20000});
  const chats=async()=>(await (await request.get(`${fixtureOrigin}/__chat-evidence`)).json()).requests as Record<string,unknown>[];
 
+ // A tapped equation also offers Copy as Text: the formula as the paper writes it (B10, the apps' equation menu).
+ if(test.info().project.name!=='webkit')await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+ await display.click();await page.getByTestId('equation-copy').click();
+ await expect(page.locator('.toast')).toHaveText('Copied.');
+ if(test.info().project.name!=='webkit')expect(await page.evaluate(()=>navigator.clipboard.readText())).toMatch(/\\\[|\\\(|\\begin/);
  // An equation explained (AI Explainer from its menu, after the consent), then a figure.
  await display.click();await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
+ // AI Explainer asks which model first (B7): Default.
+ await expect(page.getByRole('dialog',{name:'AI model'})).toBeVisible();await page.getByTestId('explainer-default').click();
  await view.getByRole('button',{name:'Allow and explain'}).click();
  await expect(view.getByTestId('equation-summary')).toBeVisible();
  await view.getByTestId('equation-close').click();await expect(view).toBeHidden();
  await page.getByTestId('figures').click();
  const viewer=page.getByRole('dialog',{name:'Figures'});
  await viewer.getByRole('list',{name:'Figures'}).getByRole('button').first().click();
- await viewer.getByTestId('figure-explain').click();
+ await viewer.getByTestId('figure-explain').click();await page.getByTestId('explainer-default').click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await viewer.getByTestId('figure-close').click();await expect(viewer).toBeHidden();
  expect(await chats()).toHaveLength(2);
@@ -142,5 +149,26 @@ test('Your assets › Equation and Figure explanations list this tab’s, newest
  await kept.getByTestId('explanations-list').getByRole('button').first().click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3,{timeout:20000});
  await expect(viewer.getByTestId('figure-explain')).toHaveCount(0);
+ expect(await chats()).toHaveLength(2);
+
+ // Kept across a reload (B4): encrypted in this browser, as the apps keep them on the device; reopening asks nothing.
+ await page.reload(); await expect(page.getByTestId('reader-frame')).toBeVisible({timeout:20000});
+ await page.getByTestId('account-menu').click();await page.getByTestId('assets-equations').click();
+ kept=page.getByRole('dialog',{name:'Equation explanations'});
+ await expect(kept.getByTestId('explanations-list').getByRole('button')).toHaveCount(1);
+ await kept.getByTestId('explanations-list').getByRole('button').first().click();
+ await expect(view.getByTestId('equation-summary')).toBeVisible({timeout:20000});await expect(view.getByTestId('equation-explain')).toHaveCount(0);
+ await view.getByTestId('equation-close').click();
+ await page.getByTestId('account-menu').click();await page.getByTestId('assets-figures').click();
+ kept=page.getByRole('dialog',{name:'Figure explanations'});
+ await kept.getByTestId('explanations-list').getByRole('button').first().click();
+ await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3,{timeout:20000});
+ // Its image is prepared again from the paper here (kept answers don't hold images): the parts show their crops.
+ await expect(viewer.getByTestId('figure-crop').first()).toBeVisible();
+ // Nothing of it is readable in this browser's storage.
+ const stored=await page.evaluate(async()=>{const db=await new Promise<IDBDatabase>(r=>{const q=indexedDB.open('gradstep');q.onsuccess=()=>r(q.result);});
+   const values=await Promise.all([...db.objectStoreNames].map(n=>new Promise(r=>{const q=db.transaction(n).objectStore(n).getAll();q.onsuccess=()=>r(q.result);})));
+   return JSON.stringify(values);});
+ expect(stored).not.toContain('Equation (1)');
  expect(await chats()).toHaveLength(2);
 });

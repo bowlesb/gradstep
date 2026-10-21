@@ -24,7 +24,7 @@ export function useDevicePDFs(chat:ChatSession|null,catalogs?:CatalogController)
  useEffect(()=>{const clear=()=>{for(const f of files.current.values())URL.revokeObjectURL(f.url);files.current.clear();};chat?.signal.addEventListener('abort',clear,{once:true});return()=>{clear();chat?.signal.removeEventListener('abort',clear);};},[chat]);
  const rows=useMemo(()=>{
   if(!chat)return [];
-  const state=chat.history.state,ids=new Set([...state.events.values()].filter(e=>e.payload.kind==='local_paper').map(e=>e.payload.entityID));
+  const state=chat.history.state,ids=state.entitiesOfKind('local_paper');
   const result:LocalPDFPaper[]=[];
   for(const id of ids){const event=state.revisions(id)[0]?.payload;if(!event||event.kind!=='local_paper')continue;
    const m=localPDFMembership(event);result.push({kind:'local_pdf',id,visible:true,metadata:{title:m.title,authors:[],categories:[]},page_count:m.pageCount,added_at:m.createdAt,archived:m.archived,user_tags:m.tags,available:files.current.has(id)});

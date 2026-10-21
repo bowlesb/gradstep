@@ -112,15 +112,14 @@ class PipelineDeploymentTests(unittest.TestCase):
             docker = (ROOT / 'services/pipeline-worker/Dockerfile').read_text()
             self.assertIn('COPY server.ts run.ts podcast-run.ts podcast-encode.ts ./services/pipeline-worker/', docker)
 
-    def test_podcast_speech_identity_is_nonsecret_and_allowlisted(self):
-        args = DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping',
-                                      extra_env={'PODCAST_SPEECH_SERVICE_ACCOUNT': 'gradstep-podcast-speech@gradstep.iam.gserviceaccount.com',
-                                                 'PODCAST_GCP_PROJECT': 'gradstep'})
-        self.assertEqual(args[args.index('--update-env-vars') + 1],
-                         'PIPELINE_MAINTENANCE=false,EGRESS_ARXIV=block,PODCAST_GCP_PROJECT=gradstep,'
-                         'PODCAST_SPEECH_SERVICE_ACCOUNT=gradstep-podcast-speech@gradstep.iam.gserviceaccount.com')
-        with self.assertRaises(ValueError):
-            DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping', extra_env={'ANTHROPIC_API_KEY': 'x'})
+    def test_no_direct_provider_identity_or_key_reaches_the_worker(self):
+        # Owner, 2026-10-21: OpenRouter exclusively. Speech no longer has a Vertex identity; no direct key is accepted.
+        args = DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping')
+        self.assertEqual(args[args.index('--update-env-vars') + 1], 'PIPELINE_MAINTENANCE=false,EGRESS_ARXIV=block')
+        for name in ('PODCAST_SPEECH_SERVICE_ACCOUNT', 'PODCAST_GCP_PROJECT', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY'):
+            with self.assertRaises(ValueError):
+                DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping', extra_env={name: 'x'})
+        self.assertEqual(set(DEPLOY.SECRETS), {'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'PIPELINE_SECRET', 'OPENROUTER_CHAT_API_KEY'})
 
 
 class PipelineActivationOrderTests(unittest.TestCase):

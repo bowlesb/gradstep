@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { Library } from './Library';
+import { type Library, commandError } from './Library';
+import { BackendError } from '../lib/backend';
 import { Dialog } from './common';
 import type { Catalog } from '../lib/library-catalogs';
 import { catalogCSVRows, csvFileName, libraryCSV } from '../lib/library-csv';
@@ -25,7 +26,8 @@ export function CatalogsDialog({ open, onClose, library }: { open: boolean; onCl
     if (busy || !catalogs?.ready) return;
     const signal = catalogs.signal; setIssue(null); setBusy(true);
     try { await action(); if (!signal?.aborted) reset(); }
-    catch (error) { if (!signal?.aborted) setIssue(error instanceof Error ? error.message : 'Couldn’t save this change. Try again.'); }
+    // A library command's failure says what happened (D11: it showed codes such as library_revision_conflict).
+    catch (error) { if (!signal?.aborted) setIssue(error instanceof BackendError ? commandError(error) : error instanceof Error ? error.message : 'Couldn’t save this change. Try again.'); }
     finally { if (!signal?.aborted) setBusy(false); }
   };
   const remove = () => void run(async () => {

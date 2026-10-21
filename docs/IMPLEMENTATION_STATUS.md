@@ -57,6 +57,100 @@ journeys pass; the dark one timed out at the self-hiding bar under load, and it 
 merge. The iPad ⌘F step of `testTabletReaderHidesAndResizesTheChatColumn` fails on this branch and also on main
 (`9ee4884`, built separately, 2 of 2) on the same Simulator.
 
+## Browser review fixes — October 21 UTC (local; not deployed)
+
+The browser findings of the [2026-10-21 review](reviews/WEB_SERVER_REVIEW_20261021.md#fix-status--2026-10-21-browser-built-and-tested-locally-not-deployed)
+are fixed on branch `worktree-agent-a07aac6f6943c5a8b`, one commit per finding or group (the review's table lists
+them). **Not deployed**: no Pages build was published and no hosted request or staging account was used. The
+released browser is still Pages `27c45ca0`. iPhone sources were read for wording and behaviour, not changed.
+
+- **Correctness**: links out of a paper open in a new tab and the frame keeps the paper (A18; frame sandbox and CSP
+  unchanged). Stop, storage retirement and sign-out reach the gap between a figure answer's two passes (A19). A
+  temporary sync failure no longer refuses the next question; key, capacity, conflict and local-storage failures still
+  do (A20). The A19 and A20 unit tests fail on the old code.
+- **Parity with the apps**: actions on selected answer text and formulas (B1); Papers in this answer (B2); every visit
+  starts with all tags (B3); kept explanations survive reloads, sealed with the device's local key (B4); crop or
+  redact a report's screenshot (B5); AI model first for explainers and the composer, the answering model named,
+  Change AI (B7); chat text size (B8); Library Venue/Source/Pages/Chats and All chats Kind/Topics/Answer length (B9);
+  the smaller B10 differences, with player options, account Sync and About's version and acknowledgements.
+  Not done: approving another device from the browser (B6, needs a cross-device run), Other lengths… in the player,
+  and the sign-in method in the account menu (the owner removed it in build 58).
+- **Performance** (temporary render probe, desktop, DPO fixture; not committed):
+
+  | Measure | Before | After |
+  |---|---|---|
+  | 40 reader scroll steps: app / chat / library model / reader renders | 80 / 80 / 80 / 80 | 0 / 0 / 0 / 50 |
+  | ~225-delta streamed answer: branch scans / summaries / chat renders | 707 / 14 / 342 | 3 / 2 / 151 |
+  | Four figure frames: `frameDocument` | 69.2 ms | 1.0 ms |
+  | Initial JS (entry + preloads; production build, staging env) | 1,034.3 kB (310.9 kB gzip) | 806.8 kB (241.2 kB gzip) after C5; 892.8 kB (267.0 kB gzip) after merging main (browser Notes ~42 kB, the feedback branch ~5 kB) and the B features (~10 kB) |
+
+  Caches are bounded (C8), the journal counts records with `count()`, and the compiler no longer ships in `dist/`.
+- **Shared code** (D8, browser side): the browser uses the server's arXiv parser, `visualDocument` (now
+  `_shared/visual-document.ts`) and `parseBalance`. Consent versions, the study/figure/equation pairs (E4) and
+  Retry-After parsing were not changed. **D11**: error codes in words, DOI/web papers go into the viewed catalog,
+  diagrams follow the app theme, the podcast route line names OpenRouter, five unused exports removed.
+- **Journeys failing on main before this work** now pass. The tests were stale for account-delete, reader, build-62,
+  library-actions, chat-controls, chat-redesign, equation-view, journal and arxiv-html (current wording, consent v6,
+  three model/length groups, Find similar papers first, the saved-draft hint going away). The app was wrong for
+  owner-58: Privacy &amp; data still mentioned a backup search provider; it now uses the apps' wording. One app
+  regression of this work was caught by arxiv-html (the lazy reader asked arXiv twice) and fixed in 114df10.
+- **Evidence** (after merging main at 5a38d04): `apps/web` unit tests 552 passing; root `npm test` (fast tier) passes
+  every step, compiler freshness included: backend 686, browser units 552, operations, egress scan, Edge and admin
+  type checks. Playwright (after the 5ef1bce merge; main changed no browser code after it) on desktop and phone for 22 affected specs (account-assets, account-delete, arxiv-html,
+  build-62, catalogs, chat, chat-controls, chat-redesign, equation-view, figure-view, journal, layout, library,
+  library-actions, library-columns, library-commands, notes, owner-58, parity, podcast-workspace, reader,
+  support-reports): 207 passed, 25 skipped by their engine or width gates, none failing. Stale tests found on the way
+  were updated and rerun: account-assets (b54d0d8, the tab-only wording), figure-view and library-actions (22d8991, after
+  main's feedback branch). Two cases failed once under load and passed when repeated (an opaque diagram, 12 of 12; the
+  phone podcast workspace, whose paper download was still at 57% after 10 s). notes-capture with its own config: 10
+  passed; its arXiv cases skip without the local corpus. Screenshots reviewed in light and dark under `.artifacts/`
+  (web-chat, web-columns, web-support, figure views, web-build62, owner-58, web-podcast-workspace).
+- **Limits**: browser Notes adds about 42 kB to the first load and could be loaded lazily next. WebKit keeps its
+  durable-key limitation. The compiler freshness check failed in this worktree until main's 5ef1bce (packages resolve
+  from the repository's node_modules only); after merging it the check passes and the moved copy in
+  `apps/web/src/reader/` matches the app's.
+
+## OpenRouter exclusively, cost per account, no import quota — October 21 UTC (built and tested locally; not deployed)
+
+Owner directives of 2026-10-21 ([decisions](DECISIONS.md)). Nothing deployed; no hosted, paid or phone check run; the
+browser and Apple apps untouched. Designs: PROVIDER_SPENDING.md "OpenRouter only (2026-10-21)",
+OPERATIONS_AND_BILLING.md "OpenRouter exclusively and cost per account", LIBRARY_CAPACITY.md "No import quota".
+
+- **Code:** direct-provider cards, the Anthropic SDK client/stream adapter, the fallback beta, native search and the
+  `claudeOpenRouter` switch removed; `anthropic.ts` → `inference.ts`, own request types in `model-request.ts`,
+  `admittedAnthropic` → `admittedModelCalls` (always `worker_openrouter_admit`); `@anthropic-ai/sdk` removed from
+  `deno.json`, `package.json` and the pipeline worker (locks pruned offline). Web search is our Tavily `search_web` tool
+  only. provider-health maps only real providers; the egress guard still refuses direct model hosts and logs them.
+- **Config:** `deploy-staging.py` stops setting `CHAT_CLAUDE_OPENROUTER` and deletes `ANTHROPIC_API_KEY`,
+  `DEEPSEEK_API_KEY` and `CHAT_CLAUDE_OPENROUTER` from the project; the worker deploy accepts no Vertex identity;
+  `infra/staging.json` loses its unused entries; `config.function-secrets` fails on a direct key; `budget.health` fails on
+  OpenRouter attempts only and names legacy ones.
+- **Migrations (after 0100–0135, in order):** 0140 OpenRouter-only reporting (legacy named, held, kept), 0141
+  `v1_admin_account_costs`, 0142 no import quota (lifetime limits NULL; in-flight backstop 100/2,000). Fixtures:
+  `openrouter_only_reporting.sql`, `account_costs.sql`, `no_import_quota.sql`.
+- **Admin:** Costs tab (sortable, per-account feature/model breakdowns, this month and last 30 days); Health shows legacy
+  attempts apart from OpenRouter ones. Screenshots (fixture): desktop light and phone dark, no horizontal overflow.
+- **Evidence (local):** `npm test` all nine steps pass (backend 683/683 — direct-adapter and native-search tests removed,
+  chat tests now use OpenRouter models, reported costs and consent v6 as production requires; browser 520/520;
+  operations Node 24 and Python 124; Edge `deno check`; admin `tsc`); `npm run test:database` passed (824 steps, 127 s);
+  `npm run test:ops` passed. `scripts/check-admin-build.mjs` needs the production backend environment, absent in this
+  worktree; the built bundle contains no Costs fixture data (checked by search).
+- **Deploy order:** (1) migrations through `scripts/deploy-staging.py` (0140 needs 0102/0108/0128; 0141 needs 0037/0140);
+  (2) every routine Edge function (all import the changed `egress.ts`/`provider-health.ts`; chat the rest) — the same
+  run sets the secrets and removes the retired ones; (3) the Cloud Run worker (`scripts/deploy-pipeline-worker.py`:
+  tags, podcasts, provider-health, no SDK); (4) the admin site (`node scripts/deploy-web.mjs admin`).
+- **Live checks (read-only, unpaid):** `worker_budget_health()` has `unknown_openrouter_attempts_over_1h` and
+  `reconciliation.legacy` (`by_provider` `{"anthropic":1}`, held 138 micro-USD until the Oct 17 attempt is settled, then
+  0); the Management API secret list has no `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY`/`CHAT_CLAUDE_OPENROUTER`;
+  `node scripts/workflow-checks.mjs --only config.function-secrets,budget.health` passes; `GET functions/v1/chat` lists
+  every model with `provider: "openrouter"` and `tariff: "openrouter-reviewed-cards"`; `app_private.library_policy` shows
+  NULL lifetime limits and 100/2,000 in flight; Admin › Costs loads for the owner and its month cost equals Spending's
+  month `reported + estimated` for attempts; Admin › Health shows legacy separately. Paid (owner's choice, ~$0.005): one
+  chat answer appears in Costs under that account, feature chat, model `anthropic/claude-sonnet-5.5` or `gemini-3.8-flash`.
+- **Not done here:** the Swift and browser copies of the chat profile fixture and the apps' quota/limit strings and
+  4,000-entry bound (app agents; listed in LIBRARY_CAPACITY.md); dropping the still-evaluated lifetime count queries
+  (perf, review C7/E2); provisioning per-feature OpenRouter keys (owner).
+
 ## Notes and snippets, native — October 21 UTC (local; not released)
 
 The iPhone, iPad and Mac client of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc)
@@ -1436,14 +1530,16 @@ behaviour: DATA_HANDLING_AND_COSTS.md "Server paper copies: retired").
   **AI chat options** (per-model detail and provider, credit table, ⓘ explanations); one-pill composer and the new
   placeholders; three seeded starters with icons above it and an accent glow; All chats with search and ≡, All first,
   Last read, the paper only in its column.
-- **Account menu**: who and sync state; About with Privacy &amp; data, Report this screen and My reports for everyone;
+- **Account menu**: who and sync state (corrected 2026-10-21, B11: the menu had no sync state until the browser review
+  fixes added Sync with Sync now); About with Privacy &amp; data, Report this screen and My reports for everyone;
   operator tools in a grey Admin group. **Privacy &amp; data** (new): notes, AI answers (Anthropic or DeepSeek), Papers
   and arXiv (device-only, pacing, terms link, acknowledgement; a PDF opens from arXiv in a new tab), Reports.
 - **Feed / ML search Add**: the Library's spinner from Add until the paper is prepared here (percent under it once
   known; a click shows the Library), then ✓ In library. **Library**: a paper being added reserves two title lines (and
   the authors line when shown under the title), so the row never grows when its details arrive.
 - Not in the browser at that point: Your assets › Diagrams, AI credits / Subscription plan (added below, "Browser:
-  AI credits, Subscription plan and Your assets"); text sizes stay where the reader reads, as on the apps.
+  AI credits, Subscription plan and Your assets"); text sizes stay where the reader reads, as on the apps (corrected
+  2026-10-21, B11: the apps also size chat text separately; the browser's chat ⋯ gained Smaller / Larger text then).
 - Evidence: vitest 433/433; Playwright desktop and phone for the changed journeys (chat-redesign, chat-controls,
   study, owner-58, support-reports, parity, paper-search, layout, library*, chat, podcast-workspace and others).
 

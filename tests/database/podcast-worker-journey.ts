@@ -94,7 +94,9 @@ const deps = (): PodcastDeps => ({
     const review = JSON.stringify(params.messages).includes('<draft>'), long = params.max_tokens >= 10_000;
     return { state: 'succeeded', requestID: `msg_${++scriptCalls}`, model: 'claude-sonnet-5-5', stopReason: 'end_turn',
       text: JSON.stringify(review ? (long ? APPROVE : CORRECTIONS) : long ? longScript() : script()), failure: null,
-      usage: long ? { input: 20_000, output: 7_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } : { input: 18_000, output: 2_500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } };
+      usage: long ? { input: 20_000, output: 7_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } : { input: 18_000, output: 2_500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 },
+      // OpenRouter's reported cost for the generation (every script call goes through OpenRouter).
+      billedMicrousd: long ? 110_000 : 61_000 };
   } },
   speech: { generate: async request => {
     speechCalls++;

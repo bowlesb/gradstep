@@ -211,6 +211,11 @@ const clone = (h: Head): Head => ({ ...h, outbox: [...h.outbox], replaced: h.rep
   drafts: Object.fromEntries(Object.entries(h.drafts).map(([k, v]) => [k, { ...v }])), turns: Object.fromEntries(Object.entries(h.turns).map(([k, v]) => [k, { ...v }])),
   ...(h.notes ? { notes: { blobs: Object.fromEntries(Object.entries(h.notes.blobs).map(([k, v]) => [k, { ...v }])) } } : {}) });
 
+/** The number of records in a key range; an access without counting reads them. */
+function countRecords(access: JournalAccess, lower: string, upper: string): Promise<number> {
+  return access.count ? access.count(lower, upper) : access.range(lower, upper).then(rows => rows.length);
+}
+
 export class Journal {
   private retired = false;
   private faultListeners = new Set<(error: unknown) => void>();
@@ -250,7 +255,7 @@ export class Journal {
       let stored = await deps.access.get(headKey);
       if (!stored) {
         // A lost head never authorizes initializing over remaining private records.
-        if ((await deps.access.range(prefix, `${prefix}\uffff`)).length) damaged();
+        if (await countRecords(deps.access, prefix, `${prefix}\uffff`)) damaged();
         const incarnation = scope.fence.incarnation;
         const head: Head = { format: JOURNAL_FORMAT, minReader: JOURNAL_FORMAT, origin: scope.origin, environment: scope.environment, account: scope.account,
           incarnation, device: scope.deviceID, lifetime: scope.lifetime, generation: scope.fence.generation, writer: scope.fence.writer,
@@ -316,7 +321,8 @@ export class Journal {
       turns.push(validTurn(turn, id));
     }
     const prefix = journalPrefix(scope.environment, scope.account, scope.origin);
-    if ((await this.deps.access.range(prefix, `${prefix}\uffff`)).length !== 1 + head.count + drafts.length + turns.length) damaged();
+    // Counted, not read: the events were read above, and the partition can be tens of megabytes (C8).
+    if (await countRecords(this.deps.access, prefix, `${prefix}\uffff`) !== 1 + head.count + drafts.length + turns.length) damaged();
     return { events, cursor: head.cursor, outbox: [...head.outbox], replaced, drafts, turns, device: head.device };
   }
 
@@ -771,4 +777,3 @@ export function browserJournalDependencies(): JournalDependencies | null {
   };
 }
 
-export const isJournalID = uuid;

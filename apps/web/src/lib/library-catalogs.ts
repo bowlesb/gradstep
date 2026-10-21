@@ -69,6 +69,18 @@ export function catalogEvent(state: PrivateState, operations: CatalogOperation[]
   return { kind: 'note', entityID: CATALOG_ENTITY, parents, text };
 }
 
+/** The catalogs a state's records describe, rebuilt only when those records change (C3): a chat message or another
+ * history change keeps the same instance, so the library doesn't sort again. */
+const built = new WeakMap<PrivateState, { signature: string; value: LibraryCatalogs }>();
+export function catalogsOf(state: PrivateState): LibraryCatalogs {
+  const signature = state.entityRecords(CATALOG_ENTITY).map(e => e.id).join(',');
+  const known = built.get(state);
+  if (known?.signature === signature) return known.value;
+  const value = new LibraryCatalogs(state);
+  built.set(state, { signature, value });
+  return value;
+}
+
 export class LibraryCatalogs {
   readonly catalogs: Catalog[];
   readonly defaultID: string;
@@ -80,7 +92,7 @@ export class LibraryCatalogs {
     const names = new Map([[INITIAL_CATALOG, 'Default']]), retired = new Set<string>();
     let preferred = INITIAL_CATALOG;
     if (!state.isDeleted(CATALOG_ENTITY)) {
-      const records = new Map([...state.events].filter(([, e]) => e.payload.entityID === CATALOG_ENTITY));
+      const records = new Map(state.entityRecords(CATALOG_ENTITY).map(e => [e.id, e]));
       const remaining = new Map<string, number>(), children = new Map<string, string[]>(), heights = new Map<string, number>(), queue: string[] = [];
       for (const [id, { payload }] of records) {
         remaining.set(id, payload.parents.length);

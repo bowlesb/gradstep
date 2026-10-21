@@ -2,6 +2,48 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## OpenRouter exclusively; cost per account (owner, 2026-10-21; implemented locally, not deployed)
+
+Owner, verbatim: "I don't think Anthropic API should even be part of deploy check. I want to double down and
+exclusively use open router for better breakdowns of user by cost."
+
+This extends the 2026-10-18 decision (below): OpenRouter is the only inference provider in code, configuration and
+checks, not only at runtime. Direct-provider rate cards, the Anthropic SDK client and its stream adapter, the
+server-side-fallback beta, provider-native web search and the always-on routing switch are removed; the server keeps
+its own Anthropic-Messages-shaped request type (`model-request.ts`), which `openrouter-chat.ts` translates into
+OpenRouter's chat/completions body. `@anthropic-ai/sdk` is no longer a dependency. Web search in chat is only our
+`search_web` function tool, called through OpenRouter and run by our server with Tavily (prepaid plan); no
+provider-native search exists. The egress guard keeps refusing every direct model host (now with a host-only log line,
+and Google's text-to-speech host added). Deploys no longer set `CHAT_CLAUDE_OPENROUTER` and remove any
+`ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY` left on the project; the workflow check fails if one is present.
+
+Budget and health checks reason only about OpenRouter attempts (migration 0140). Attempts of retired direct providers
+stay in the ledger, in the month's spend and in its reservation; they are reported as **legacy**, by provider, with
+the ceilings they still hold, until an owner reconciles each with the provider's evidence (the October 17 Anthropic
+attempt is being settled separately). Tavily's prepaid searches are counted apart.
+
+Per-user cost breakdowns come from our own ledger: every provider attempt carries the account UUID, route, model and
+feature (089). Admin › Costs (migration 0141, owner with MFA) shows each account's AI cost this UTC month and over the
+last 30 UTC days, by feature and by model, with totals, held liability, prepaid searches, credits charged and the
+legacy share. Accounts are named by their pseudonymous UUID; the sign-in email appears only where Accounts shows it.
+OpenRouter receives the same UUID as each request's `user` (never an email); OpenRouter documents that field as an
+abuse-isolation identifier hashed upstream, and its documented Activity grouping is by model, key or org member, so
+the ledger is the per-user source and OpenRouter's generation records are the per-request cross-check
+([Operations](architecture/OPERATIONS_AND_BILLING.md#openrouter-exclusively-and-cost-per-account--2026-10-21)).
+No budget, price, credit rate or consent text changes; the $100/month operating budget is unchanged.
+
+## No import quota (owner, 2026-10-21; implemented locally, not deployed)
+
+Owner, verbatim: "I'm not sure why import quota is even a thing? Users can import and download whenever they want if
+it's free". Adding papers, importing, removing and downloading cost Gradstep no provider money since every PDF stays
+on the device. The lifetime counts (2,000 imports and memberships per account, 12,000 library commands per account,
+the service-wide 20,000/120,000 and the 10,000-record shared catalog) no longer refuse anything (migration 0142: a
+NULL limit is no limit). Kept as abuse protection a reader adding papers by hand never meets: the request rates
+(add-paper and add-reference 120 an hour, library-write 1,000 an hour), a backstop on imports in flight (100 per
+account, 2,000 for the service; was 10/100) and the existing per-row and storage bounds. Paid AI work keeps its
+credits, holds and budget. The apps' 4,000-entry local library bound and their quota messages are owned by the app
+agents; where they appear is listed in [Library capacity](architecture/LIBRARY_CAPACITY.md#no-import-quota-2026-10-21).
+
 ## Builds 66–76 open screenshot feedback (owner requests; 2026-10-21, implemented on a branch, not released)
 
 The owner's builds 73–76 requests are implemented as asked (see the triage report's §0). Decisions they settle:
@@ -646,6 +688,9 @@ chosen again (per device kind); see [Library as a proper table](#library-as-a-pr
 
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 
+Status 2026-10-21: web search is only our `search_web` tool (Tavily), called through OpenRouter; the Anthropic search
+backup described below was gated off from 2026-10-14 and removed from the code with the OpenRouter-only decision above.
+
 Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.
 Implemented and **on in staging** since 2026-10-05 (server switch `CHAT_WEB_SEARCH`; see [chat](architecture/CHAT.md)). Restores the legacy
 app's web search. Enabling needs: consent copy that names Anthropic's search provider as a recipient of search
@@ -705,6 +750,9 @@ searching, Cancel replaces + and …, and the Library/arXiv switch appears under
 library. The navigation bar is hidden on the Library root.
 
 ## Web search providers and pricing (owner decided 2026-10-06)
+
+Status 2026-10-21: Tavily is the only search provider; there is no automatic Anthropic backup (OpenRouter-only decision
+above). A paused or exhausted Tavily answers without search.
 
 The owner bought Tavily's **Project plan ($30/month, 4,000 search credits; billing cycle from 2026-10-06)** and asked for
 a recommendation and a well-designed fit with credits; on follow-up: "I dont feel strongly about tavily, what ever is
@@ -1290,7 +1338,7 @@ Owner: conversations linked to the passage they came from — the paper ↔ chat
 | Tapping a mark | Opens its conversation; several on that spot offer "Chats about this passage". Links, citations, contents rows, figures, references, tags and formulas keep their own taps, and nothing opens while text is selected. A marked formula therefore still selects on tap; its chat is reached from the chat or All chats. |
 | Setting | Settings › Reading › **Underline passages with chats** (on by default; this device only). Cheap, so included. |
 | All chats | With the Paper column shown (iPhone landscape, iPad), an anchored row's muted second line is the passage in quotes (math readable) instead of the newest answer; in iPhone portrait the second line stays the paper's title. The title still reads "Explain · ‹passage›". |
-| Not done | Marks aren't announced by VoiceOver (Go to passage is reachable); the browser reader doesn't show marks yet, and the Mac app shares this code but was only compiled, not run; passages are found again by text only, not by position within a re-rendered artifact. |
+| Not done | Marks aren't announced by VoiceOver (Go to passage is reachable); the browser reader shows marks too (corrected 2026-10-21, B11: it has had them since the passage-link port; several chats on one passage are listed by title and Account › Underline passages with chats turns them off since the browser review fixes), and the Mac app shares this code but was only compiled, not run; passages are found again by text only, not by position within a re-rendered artifact. |
 
 ## Purchase verification runtime deployed (owner approved 2026-10-07 evening)
 
@@ -1420,7 +1468,7 @@ A new browser is approved from the owner's phone instead of typing the recovery 
 | Backend | No migration: `v1_request_enrollment`, `v1_enrollment_requests`, `v1_approve_enrollment` and `v1_key_state` (002) already suffice. Expiry stays server-side (15 minutes); the browser renews for the same recipient, so the number never changes. |
 | QR drawing | `uqr` 0.1.3 (MIT, a port of Nayuki's QR generator, zero dependencies), as an inline SVG; no network or CSP change. |
 | Camera | AVFoundation (works on iPhone, iPad and Mac Catalyst); `NSCameraUsageDescription` and the Mac sandbox `com.apple.security.device.camera` entitlement added. No prompt on a device without a camera. |
-| Not done | A new **Mac or iPad** showing its own QR (the native restore screen still uses the recovery code); approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. |
+| Not done | A new iPad showing its own QR; approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. (Corrected 2026-10-21, B11: a new **Mac** now shows its own QR, MacDeviceApproval.swift.) |
 
 ## Browser reader workspace (owner asked 2026-10-07: "copy the old web UX as a starting point"; agent decisions, reversible)
 

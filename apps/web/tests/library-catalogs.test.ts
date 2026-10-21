@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PrivateState, decodeEvent, encodeEvent, type AppliedEvent } from '../src/lib/events';
-import { CATALOG_ENTITY, INITIAL_CATALOG, LibraryCatalogs, arxivCatalogKey, catalogEvent, catalogName, entryCatalogKey, sourceCatalogKey, type CatalogOperation } from '../src/lib/library-catalogs';
+import { CATALOG_ENTITY, INITIAL_CATALOG, LibraryCatalogs, arxivCatalogKey, catalogEvent, catalogName, catalogsOf, entryCatalogKey, sourceCatalogKey, type CatalogOperation } from '../src/lib/library-catalogs';
 import type { ClientEntry } from '../src/lib/device-pdf';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -11,6 +11,16 @@ function record(n: number, operations: CatalogOperation[], parents: string[] = [
 function state(...events: AppliedEvent[]) { const s = new PrivateState(); s.applyBatch(events); return s; }
 
 describe('encrypted library catalogs', () => {
+  it('keeps one catalogs instance until a catalog record changes (C3)', () => {
+    const s = state(record(1, [{ action: 'create', catalogID: other, name: 'Research' }]));
+    const first = catalogsOf(s);
+    expect(catalogsOf(s)).toBe(first);
+    s.applyBatch([{ id: id(50), deviceID: id(99), payload: { kind: 'conversation', entityID: id(51), parents: [], text: 'A chat' } }]);
+    expect(catalogsOf(s)).toBe(first);
+    s.applyBatch([record(2, [{ action: 'assign', catalogID: other, paperKey: key }], [id(1)])]);
+    const next = catalogsOf(s);
+    expect(next).not.toBe(first); expect(next.catalogFor(key)).toBe(other); expect(first.catalogFor(key)).toBe(INITIAL_CATALOG);
+  });
   it('choosing a default leaves existing papers in the original catalog', () => {
     const s = new LibraryCatalogs(state(record(1, [{ action: 'create', catalogID: other, name: 'Research' }, { action: 'makeDefault', catalogID: other }])));
     expect(s.defaultID).toBe(other); expect(s.catalogFor(key)).toBe(INITIAL_CATALOG);

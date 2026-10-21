@@ -474,7 +474,7 @@ test('an address without an account is told sign-up is invite-only', async ({ pa
   await shot(page, 'sign-in');
   await page.getByTestId('email').fill('stranger@example.test');
   await page.getByTestId('send-code').click();
-  await expect(page.getByText(/invite-only during the beta/)).toBeVisible();
+  await expect(page.getByText('This sign-in address isn’t invited to the beta. Use the address on your invitation; Apple’s Hide My Email address may be different.')).toBeVisible();
 });
 
 test('security headers and a refused foreign script', async ({ page, request }) => {

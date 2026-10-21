@@ -72,9 +72,14 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await page.screenshot({path:`../../.artifacts/figure-view-opened-${test.info().project.name}.png`});
 
  // Explain asks the chat's own consent first; nothing is sent before it.
+ // AI Explainer asks which model first (B7, the apps' AIChoiceView): Default; then the consent; nothing is sent before.
  await explain.click();
+ await expect(page.getByRole('dialog',{name:'AI model'})).toBeVisible();expect(await chats()).toHaveLength(0);
+ await page.screenshot({path:`../../.artifacts/figure-view-model-choice-${test.info().project.name}.png`});
+ await page.getByTestId('explainer-default').click();
  await expect(viewer.getByTestId('figure-consent')).toBeVisible();expect(await chats()).toHaveLength(0);
  await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await expect(viewer.getByTestId('explainer-model-name')).toBeVisible();
  const walk=viewer.getByTestId('figure-walkthrough');
  await expect(viewer.getByTestId('figure-summary')).toContainText('The figure compares two pipelines');
  await expect(walk.locator('.figure-section')).toHaveCount(3);
@@ -176,6 +181,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  await expect(viewer).toBeHidden();
 
  // Reopened: the walkthrough and the simpler part come back without a new request.
+ await expect(page.getByTestId('explainer-return')).toHaveText('Back to Figure Explainer');
  await page.getByTestId('explainer-return').click();
  viewer=page.getByRole('dialog',{name:'Figures'});
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
@@ -216,6 +222,7 @@ test('a promoted explainer chat keeps its figure’s name; Back to chat returns 
  await expect(page.frameLocator('[data-testid=reader-frame]').locator('figure').first()).toBeVisible({timeout:20000});
  let viewer=await openFigure(page);
  await viewer.getByTestId('figure-explain').click();
+ await page.getByTestId('explainer-default').click(); // AI Explainer asks which model first (B7)
  await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await viewer.getByRole('button',{name:'Open in Chat',exact:true}).click();
@@ -293,7 +300,7 @@ test('a failed walkthrough says so and can be tried again; the figure page’s E
  let viewer=await openFigure(page);
  await viewer.getByTestId('figure-explain').click();
  // The walkthrough's panel loads with the first figure page: the consent shows once it has.
- await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-issue')).toContainText('The AI service couldn’t finish this answer. Try again.');
  await viewer.getByTestId('figure-retry').click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
@@ -315,7 +322,7 @@ test('without a walkthrough the words show as the description; cut off at its le
  const viewer=await openFigure(page);
  await viewer.getByTestId('figure-explain').click();
  // The walkthrough's panel loads with the first figure page: the consent shows once it has.
- await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-words')).toContainText('The figure shows two pipelines side by side');
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-note')).toHaveText('Interrupted · not charged');
@@ -340,7 +347,8 @@ test('a figure reference in the text offers Explain in Chat and AI Explainer; AI
  await page.screenshot({path:`../../.artifacts/figure-reference-${test.info().project.name}.png`});
  await detail.getByTestId('figure-reference-explain').click();
  const viewer=page.getByRole('dialog',{name:'Figures'});
- // Asked at once: the chat's consent first, then the walkthrough.
+ // Asked at once: the model (B7), the chat's consent, then the walkthrough.
+ await page.getByTestId('explainer-default').click();
  await expect(viewer.getByTestId('figure-consent')).toBeVisible();
  await viewer.getByRole('button',{name:'Allow and explain'}).click();
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
@@ -363,7 +371,7 @@ test('concept and related-work cards keep distinct titles and paper provenance w
   await route.fulfill({status:200,contentType:'text/event-stream',body:`event: figure\ndata: ${JSON.stringify(answer)}\n\nevent: done\ndata: {"stop_reason":"end_turn","credits":2,"charged":true}\n\n`});
  });
  const viewer=await openFigure(page);await viewer.getByTestId('figure-explain').click();
- await viewer.getByRole('button',{name:'Allow and explain'}).click();
+ await page.getByTestId('explainer-default').click();await viewer.getByRole('button',{name:'Allow and explain'}).click();
  const concept=viewer.getByTestId('figure-section-0'),related=viewer.getByTestId('figure-section-1');
  await expect(concept.locator('h4')).toHaveText('ConceptPreference learning');
  await expect(related.locator('h4')).toHaveText('Related workEarlier reward-model methods');

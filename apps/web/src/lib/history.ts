@@ -33,10 +33,25 @@ export type HistoryStatus = 'loading' | 'ready' | 'error';
 const refreshable = (error: unknown) => (error instanceof WireError && error.code === 'missing_key')
   || (error instanceof BackendError && ['stale_key_epoch', 'key_authority_required'].includes(error.code));
 
+/** Sync failures that sending can't get past: the keys, the history's size, an update, a conflict or this browser's own
+ * storage. Anything else (no connection, a rate limit, a paused transfer) is temporary: a question is still saved here and
+ * synced by the send itself or a later sync (A20, "degrade, don't refuse"). */
+const BLOCKING_SYNC = new Set(['stale_key_epoch', 'key_authority_required', 'missing_key', 'history_capacity', 'sync_page_too_large', 'reader_update_required',
+  'event_conflict', 'local_storage', 'local_quota', 'local_capacity']);
+export function syncBlocksSending(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code !== 'string') return true; // unknown: as before, wait for a completed sync
+  return BLOCKING_SYNC.has(code) || code.startsWith('storage_');
+}
+
 export class History {
   readonly state = new PrivateState();
   status: HistoryStatus = 'loading';
   issue: string | null = null;
+  /** Whether the current issue stops new questions (see syncBlocksSending); a temporary one doesn't. */
+  issueBlocks = false;
+  /** New questions wait for the first completed sync and for a sync failure that sending can't get past. */
+  get blocksSending(): boolean { return this.status !== 'ready' || (!!this.issue && this.issueBlocks); }
   private cursor = 0;
   private acknowledged = 0;
   private version = 0;
@@ -70,6 +85,8 @@ export class History {
   /** Pending events the gate held back in the last send. */
   readonly held = new Set<string>();
   get unsaved(): number { return this.pending.length; }
+  /** A sync is under way (the account menu's Syncing…). */
+  get syncing(): boolean { return !!this.running; }
   isPending(id: string): boolean { const resolved = this.state.resolve(id); return this.pending.some(p => p.id === resolved); }
   /** An event ID after any local rebase. */
   resolve(id: string): string { return this.state.resolve(id); }
@@ -169,11 +186,11 @@ export class History {
           if (this.journal) await this.journal.sync(() => this.transfer());
           else await this.transfer();
         } while (this.again && !this.signal.aborted);
-        if (this.status !== 'ready' || this.issue) { this.status = 'ready'; this.issue = null; this.publish(); }
+        if (this.status !== 'ready' || this.issue) { this.status = 'ready'; this.issue = null; this.issueBlocks = false; this.publish(); }
       } catch (error) {
         if (this.signal.aborted) return;
         this.status = this.status === 'loading' ? 'error' : this.status;
-        this.issue = syncIssueText(error);
+        this.issue = syncIssueText(error); this.issueBlocks = syncBlocksSending(error);
         this.publish();
         throw error;
       } finally { this.running = null; }

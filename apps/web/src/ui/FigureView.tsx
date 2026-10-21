@@ -4,7 +4,8 @@
 // drew a box (cut here from the image that was sent, so it costs nothing more). Each part's ⋯ offers Explain more
 // simply (streamed under it), Extract the subfigure and more context (owner, TestFlight 62: a loader under the part, then
 // its crop and a closer reading), Show in the paper and Ask in chat about this. No credit counts (owner, build 59).
-import type { ProfileChoice } from '../lib/chat-profiles';
+import { STANDARD_PROFILE, modelName, modelOption, type ProfileChoice } from '../lib/chat-profiles';
+import { ExplainerModelDialog } from './ChatProfile';
 import type { ContextualHost } from './ContextualChat';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
@@ -21,6 +22,8 @@ export interface FigureHost {
   saved: (manifest: string, figureID: string, action: FigureAction, part?: string, choice?: ProfileChoice) => FigureResult | null;
   run: (input: { figureID: string; part?: { key: string; label: string; title: string; text: string } }, action: FigureAction,
     update: (result: FigureResult) => void, signal: AbortSignal, choice?: ProfileChoice) => Promise<FigureResult>;
+  /** A kept walkthrough's image, prepared again on this device (B4). */
+  image?: (figureID: string) => Promise<FigureResult['image']>;
 }
 type Props = { label?:string; profile?: ProfileChoice; onExplanation?: (text: string) => void; manifest: string; figureID: string; host?: FigureHost;
   /** The page's figure gets smaller while a walkthrough is asked for or shown, so the words are in view. */
@@ -40,7 +43,10 @@ const endedEarly = (r: FigureResult | null | undefined) => r?.phase === 'done' &
 const loading = (): FigureResult => ({ phase: 'loading', walkthrough: null, text: '', issue: null, image: null, credits: null });
 const issueText = (code: string) => code === 'figure_unavailable' ? 'This figure’s image couldn’t be prepared in this browser.' : failureText(code);
 
-export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile, onExplanation, label = 'Figure' }: Props) {
+export function FigureExplain({ manifest, figureID, host, onActive, onCite, onShowFigure, onAsk, busy, request, profile: shownProfile, onExplanation, label = 'Figure' }: Props) {
+  // AI Explainer asks which model first (B7, AIChoiceView): Default or Choose model; that choice answers here.
+  const [chosen, setChosen] = useState<ProfileChoice | null>(null), [choosing, setChoosing] = useState(false), [pending, setPending] = useState(false);
+  const profile = chosen ?? shownProfile, table = host?.context?.chat.profileTable ?? null;
   const [consented, setConsented] = useState(() => !!host?.consented());
   const [asking, setAsking] = useState(false);
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure', '', profile) ?? null);
@@ -85,14 +91,32 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     void host.run({ figureID, ...(part ? { part: { key, label: part.label, title: part.title, text: part.text } } : {}) }, action, set, controller.signal, profile).catch(() => {});
   }, [host, figureID, JSON.stringify(profile)]);
 
+  // A kept walkthrough (B4) comes back without its image: it is prepared again from the paper on this device.
+  useEffect(() => {
+    if (walk?.phase !== 'done' || walk.image || !host?.image) return;
+    let live = true;
+    void host.image(figureID).then(image => { if (live && image) setWalk(w => w && !w.image ? { ...w, image } : w); });
+    return () => { live = false; };
+  }, [walk, host, figureID]);
   const panel = useRef<HTMLDivElement>(null);
   const explain = () => {
     if (!host || walk) return;
+    if (!chosen) { setChoosing(true); return; }
     if (!consented && !host.consented()) { setAsking(true); return; }
     setConsented(true); setAsking(false); run('figure');
     requestAnimationFrame(() => panel.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
   };
   const allow = () => { if (host?.accept()) { setConsented(true); setAsking(false); run('figure'); } };
+  // After the model is chosen: its kept walkthrough, else the consent or the request.
+  useEffect(() => {
+    if (!pending || !host) return;
+    setPending(false);
+    const saved = host.saved(manifest, figureID, 'figure', '', profile);
+    if (saved) { setWalk(saved); return; }
+    if (!consented && !host.consented()) { setAsking(true); return; }
+    setConsented(true); setAsking(false); run('figure');
+    requestAnimationFrame(() => panel.current?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+  }, [pending, JSON.stringify(profile)]); // eslint-disable-line react-hooks/exhaustive-deps
   const handled = useRef(0);
   useEffect(() => {
     if (!request || request.id !== figureID || request.n === handled.current) return;
@@ -174,12 +198,17 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
         })}</ol>
       </section>}
       {result.phase === 'failed' && <div className="equation-issue" role="alert" data-testid="figure-issue"><p>{issueText(result.issue ?? 'provider_unavailable')}</p>
-        {result.issue !== 'invalid_request' && result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => run('figure')} data-testid="figure-retry">Try again</button>}</div>}
+        {result.issue !== 'invalid_request' && result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => run('figure')} data-testid="figure-retry">Try again</button>}
+        {result.issue !== 'storage_retired' && <button className="secondary small" onClick={() => setChoosing(true)} data-testid="explainer-change">Change AI</button>}</div>}
+      {(result.model || profile) && <p className="fine answer-by" data-testid="explainer-model-name">{result.model ? modelName(result.model) : modelOption(table, profile!.model).label}</p>}
       {note && <p className="fine" data-testid="figure-note">{note}</p>}
     </div>}
     {link && <div className="equation-link" role="group" aria-label="Open source"><p className="source-address">{link}</p>
       <button className="secondary small" onClick={() => setLink(null)}>Cancel</button>
       <a className="primary small" href={link} target="_blank" rel="noopener noreferrer" onClick={() => setLink(null)}>Open link</a></div>}
+    {host && <ExplainerModelDialog open={choosing} table={table} defaultChoice={shownProfile ?? STANDARD_PROFILE} onClose={() => setChoosing(false)}
+      onRetry={() => host.context?.chat.reloadProfiles() ?? Promise.resolve()}
+      onUse={choice => { setChoosing(false); setChosen({ ...choice }); setPending(true); }} />}
   </div>;
 }
 

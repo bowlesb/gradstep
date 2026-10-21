@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SSEParser, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText, failureText, retryable } from '../src/lib/chat';
+import { SSEParser, answerActionPrompt, chatTitle, interruptionNote, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText, failureText, retryable } from '../src/lib/chat';
 import { renderMarkdown } from '../src/lib/markdown';
 import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, makeDiagram, type PrivateEvent } from '../src/lib/events';
 
@@ -210,3 +210,17 @@ describe('early endings (2026-10-16, CHAT.md "When an answer stops early")', () 
     expect(interruptionNote(false, { credits: 3 })).toBeNull();
   });
 });
+
+describe('actions on selected answer text (B1)', () => {
+  it('Explain asks as a selection’s Explain (an equation gets the equation prompt); Define asks for terms and symbols', () => {
+    expect(answerActionPrompt('explain', 'the KL term')).toBe('Explain in plain terms, including any symbols: the KL term');
+    expect(answerActionPrompt('explain', '\\[L = -\\log \\sigma(x)\\]')).toMatch(/^Explain this equation: \\\[L = /);
+    expect(answerActionPrompt('define', 'KL divergence')).toBe('Define the terms and symbols in: KL divergence'); // ChatGenerationTests
+  });
+  it('formulas carry their LaTeX, inline or display, for Copy LaTeX and quotes', () => {
+    const html = renderMarkdown('So \\(a<b\\) and \\[x^2\\]');
+    expect(html).toContain('<span class="answer-math" data-latex="a&lt;b" data-display="0">');
+    expect(html).toContain('<span class="answer-math" data-latex="x^2" data-display="1">');
+  });
+});
+

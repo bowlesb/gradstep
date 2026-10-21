@@ -12,6 +12,7 @@ import type { VerifiedBundle } from './bundle';
 // final or interrupted answer retires its turn atomically. A turn whose owning tab died reopens as interrupted. Nothing
 // is ever re-requested automatically. Without the journal, private text stays in memory only.
 import { BackendError, config, rpc } from './backend';
+import { parseBalance } from './account-summary';
 import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, interruptionNote, makeRequest, recordStop, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { available, isProfileChoice, isStandard, parseProfileID, ProfileTableLoader, requestProfile, STANDARD_PROFILE, withChoice, type ProfileChoice, type ProfileTable } from './chat-profiles';
@@ -25,6 +26,7 @@ import type { NotesStore } from './notes-store';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
 import { detailQuote, figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
+import { MAX_KEPT_PER_KIND, boundKept, type KeptEntry } from './kept-explanations';
 
 /** One equation or figure this tab explained (its symbols or its walkthrough): the paper's document id, the bundle it was
  * read from, the equation or figure id and its name ("Equation (4)", "Figure 2"). */
@@ -81,10 +83,23 @@ export const VISUAL_ANSWERS_KEY = 'gradstep.chat-visual-answers.v1';
 export function readVisualAnswers(): boolean { try { return localStorage.getItem(VISUAL_ANSWERS_KEY) !== 'false'; } catch { return true; } }
 export function writeVisualAnswers(on: boolean) { try { localStorage.setItem(VISUAL_ANSWERS_KEY, on ? 'true' : 'false'); } catch { /* per-browser convenience */ } }
 const bytes = (s: string) => new TextEncoder().encode(s).length;
+/** Finished explanations kept in memory (C8): least recently used first out. A figure's result carries its image. */
+const EQUATION_RESULTS = 200, FIGURE_RESULTS = 24;
+function remember<V>(map: Map<string, V>, key: string, value: V, limit: number) {
+  map.delete(key); map.set(key, value);
+  while (map.size > limit) map.delete(map.keys().next().value!);
+}
+function recall<V>(map: Map<string, V>, key: string): V | undefined {
+  const value = map.get(key);
+  if (value !== undefined) { map.delete(key); map.set(key, value); }
+  return value;
+}
 const scope = (documentID: string | null) => documentID ?? 'general';
 const busy = (c: Composer) => c.phase === 'saving' || c.phase === 'streaming' || c.phase === 'finishing';
 export const composerBusy = busy;
 const CHECKPOINT_DELAY = 400, CHECKPOINT_MAX = 2_000, TURN_INTERVAL = 1_000;
+/** Streamed text notifies subscribers at most this often (C2); the chat pane shows text at its own 80 ms cadence. */
+const STREAM_PUBLISH = 100;
 
 export const browserLocks: Locks = {
   hold: name => new Promise((resolve, reject) => {
@@ -99,6 +114,9 @@ export const browserLocks: Locks = {
 };
 
 export type AIUseCase = 'general' | 'paper' | 'equations' | 'figures';
+/** Each activity's title, as AI chat options and the apps (AIScenarioDefaults.swift) name it. */
+export const AI_USE_CASE_TITLES: Record<AIUseCase, string> = { general: 'General chat', paper: 'Paper chat', equations: 'Equation explanations', figures: 'Figures and tables' };
+const contextualKey = (documentID: string, anchor: TextAnchor) => JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
 const scenarioKey = 'gradstep.ai.scenarios.v1';
 function scenarioDefaults(): Partial<Record<AIUseCase,ProfileChoice>> {
   try { const value=JSON.parse(localStorage.getItem(scenarioKey)??'{}'); return Object.fromEntries(['general','paper','equations','figures'].flatMap(k=>isProfileChoice(value?.[k])?[[k,value[k]]]:[])); } catch { return {}; }
@@ -119,7 +137,7 @@ export class ChatSession {
   }
   private reference(documentID:string|null):SourcePaperReference|undefined {
     if(!documentID)return undefined;
-    return this.sourcePapers.get(documentID)?.reference ?? [...this.history.state.events.values()].find(e=>e.payload.paperReference?.membershipID===documentID)?.payload.paperReference;
+    return this.sourcePapers.get(documentID)?.reference ?? this.history.state.paperReference(documentID);
   }
   /** The account's notes (lib/notes-store.ts), attached before the first sync so pending snippets wait for their images. */
   noteStore: NotesStore | null = null;
@@ -217,7 +235,13 @@ export class ChatSession {
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getVersion = () => this.version;
-  private publish() { if (!this.signal.aborted) { this.version++; for (const listener of this.listeners) listener(); } }
+  private publish() {
+    if (this.pendingPublish) { clearTimeout(this.pendingPublish); this.pendingPublish = null; }
+    if (!this.signal.aborted) { this.version++; for (const listener of this.listeners) listener(); }
+  }
+  private pendingPublish: ReturnType<typeof setTimeout> | null = null;
+  /** One notification for a run of streamed text (C2); any other change still notifies at once. */
+  private publishSoon() { this.pendingPublish ??= setTimeout(() => { this.pendingPublish = null; this.publish(); }, STREAM_PUBLISH); }
   private allowed() { this.signal.throwIfAborted(); if (!this.accepting) throw new BackendError('cancelled'); }
   /** Work a reload or closing the tab would lose (the before-unload warning and storage-update deferral use this). */
   get hasVolatileContent() {
@@ -263,7 +287,9 @@ export class ChatSession {
   private scenarioChoices = scenarioDefaults();
   private contextualKinds = new Map<string,AIUseCase>();
   readonly promotedContexts = new Map<string,{quote:string;label:string;anchor:TextAnchor;explanation?:string;image?:string}>();
-  defaultFor(c:Composer):ProfileChoice { return this.scenarioProfile(this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general')); }
+  defaultFor(c:Composer):ProfileChoice { return this.scenarioProfile(this.activityFor(c)); }
+  /** Which activity's default a composer follows (AI chat options' Activity). */
+  activityFor(c:Composer):AIUseCase { return this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general'); }
   setDefaultFor(c:Composer,choice:ProfileChoice) { this.setScenarioProfile(this.contextualKinds.get(c.id) ?? (c.documentID ? 'paper' : 'general'),choice); }
   scenarioProfile(kind:AIUseCase):ProfileChoice { const saved=this.scenarioChoices[kind]; return saved && this.profileTable && available(this.profileTable,saved) ? saved : this.defaultProfile; }
   setScenarioProfile(kind:AIUseCase,choice:ProfileChoice) {
@@ -285,7 +311,7 @@ export class ChatSession {
   contextualComposer(documentID: string, anchor: TextAnchor, kind:AIUseCase = 'figures'): Composer {
     this.allowed();
     validateEvent({ kind: 'position', entityID: documentID, documentID, parents: [], anchor });
-    const key = JSON.stringify([documentID, anchor.manifestSHA256, anchor.elementID, anchor.quote]);
+    const key = contextualKey(documentID, anchor);
     const cached = this.composers.get(this.contextualComposers.get(key) ?? '');
     if (cached && (!cached.conversationID || !this.history.state.isDeleted(cached.conversationID))) return cached;
     const saved = this.history.state.conversationSummaries().find(s => s.documentID === documentID && s.anchor?.manifestSHA256 === anchor.manifestSHA256
@@ -294,6 +320,23 @@ export class ChatSession {
     if (saved) c.conversationID = saved.id;
     this.contextualKinds.set(c.id,kind); c.anchor = { ...anchor }; this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.claimEditor(c.id);
     return c;
+  }
+  /** An equation or figure view closed: a composer it only showed goes, with its editor lock (C8). Text, a conversation,
+   * work under way or a promotion to the main chat keeps it. */
+  releaseContextual(c: Composer) {
+    if (c.draft || c.conversationID || busy(c) || c.question || c.answer || c.revision || c.savedRevision || this.promotedContexts.has(c.id)
+      || this.turnOwners.has(c.id) || this.checkpoints.has(c.id) || this.streams.has(c.id)) return;
+    let contextual = false;
+    for (const [key, id] of this.contextualComposers) if (id === c.id) { this.contextualComposers.delete(key); contextual = true; }
+    if (!contextual) return;
+    this.contextualKinds.delete(c.id); this.composers.delete(c.id); this.releaseEditor(c.id);
+  }
+  /** The view showing it is (again) on screen: a composer released meanwhile comes back (React may remount a view). */
+  retainContextual(c: Composer, kind: AIUseCase) {
+    if (this.signal.aborted || !c.documentID || !c.anchor || this.composers.has(c.id)) return;
+    const key = contextualKey(c.documentID, c.anchor);
+    if (this.composers.has(this.contextualComposers.get(key) ?? '')) return;
+    this.composers.set(c.id, c); this.contextualComposers.set(key, c.id); this.contextualKinds.set(c.id, kind); this.claimEditor(c.id);
   }
 
   // ---------- Model, effort and length ----------
@@ -567,11 +610,10 @@ export class ChatSession {
   balanceStale = false;
   async refreshBalance() {
     try {
-      const balance = await rpc<{ available: number; reserved: number; unlimited_testing?: boolean }>('v1_credit_balance', {}, { account: this.account, signal: this.signal });
+      // The account menu's own check (account-summary.ts parseBalance; D8: this was a second copy).
+      const balance = parseBalance(await rpc<unknown>('v1_credit_balance', {}, { account: this.account, signal: this.signal }));
       if (this.signal.aborted) return;
-      if (Number.isSafeInteger(balance?.available) && balance.available >= 0 && Number.isSafeInteger(balance.reserved) && balance.reserved >= 0) {
-        this.balance = balance; this.balanceAt = Date.now(); this.balanceStale = false; this.publish();
-      }
+      if (balance) { this.balance = balance; this.balanceAt = Date.now(); this.balanceStale = false; this.publish(); }
     } catch {
       // A failed balance read never becomes a fabricated zero or client spending authority: the last one stays, marked.
       if (!this.signal.aborted && this.balance && !this.balanceStale) { this.balanceStale = true; this.publish(); }
@@ -585,8 +627,31 @@ export class ChatSession {
   private equations = new Map<string, EquationResult>();
   // Your assets › Equation explanations / Figure explanations: what this tab explained, newest first, each once.
   private explained: Explanation[] = [];
-  /** This session's explanations of one kind, newest first (the account menu's Your assets; memory only). */
+  /** This browser's explanations of one kind, newest first (the account menu's Your assets; kept across reloads, B4). */
   explanations(kind: Explanation['kind']): Explanation[] { return this.explained.filter(e => e.kind === kind); }
+  // Kept explanations (B4): every finished explainer answer, kept in this browser by its key (lib/kept-explanations.ts).
+  private kept = new Map<string, KeptEntry>();
+  private keptListeners = new Set<() => void>();
+  /** Notifies when an answer is kept, so the page saves the list (encrypted, on this device). */
+  onKept(listener: () => void) { this.keptListeners.add(listener); return () => { this.keptListeners.delete(listener); }; }
+  keptEntries(): KeptEntry[] { return boundKept([...this.kept.values()]); }
+  /** What this browser kept before: the answers come back without a new request, and Your assets lists them. */
+  restoreKept(entries: readonly KeptEntry[]) {
+    for (const e of boundKept(entries)) if (!this.kept.has(`${e.kind}|${e.key}`)) this.kept.set(`${e.kind}|${e.key}`, e);
+    const listed = [...this.kept.values()].filter(e => e.listed).map(e => ({ kind: e.kind, ...e.listed!, at: e.savedAt }) as Explanation);
+    this.explained = [...this.explained, ...listed].sort((a, b) => b.at - a.at)
+      .filter((e, i, all) => all.findIndex(o => o.kind === e.kind && o.documentID === e.documentID && o.targetID === e.targetID) === i).slice(0, 500);
+    this.publish();
+  }
+  private keep(kind: KeptEntry['kind'], key: string, result: object, listed: KeptEntry['listed']) {
+    const stored = kind === 'figure' ? { ...result, image: null } : result;
+    this.kept.set(`${kind}|${key}`, { kind, key, listed, result: stored, savedAt: Date.now() });
+    // At most MAX_KEPT_PER_KIND of each kind, the oldest out first (as the apps' stores).
+    const ofKind = [...this.kept.entries()].filter(([, e]) => e.kind === kind);
+    if (ofKind.length > MAX_KEPT_PER_KIND) this.kept.delete(ofKind.reduce((a, b) => (a[1].savedAt <= b[1].savedAt ? a : b))[0]);
+    for (const listener of [...this.keptListeners]) listener();
+  }
+  private keptResult<T>(kind: KeptEntry['kind'], key: string): T | undefined { return this.kept.get(`${kind}|${key}`)?.result as T | undefined; }
   private noteExplanation(entry: Explanation) {
     this.explained = [entry, ...this.explained.filter(e => !(e.kind === entry.kind && e.documentID === entry.documentID && e.targetID === entry.targetID))].slice(0, 500);
   }
@@ -594,7 +659,8 @@ export class ChatSession {
   /** A finished result for this equation with the current default model (memory only, this login lifetime). */
   savedEquation(manifest: string, equationID: string, action: EquationAction, choice?: ProfileChoice): EquationResult | null {
     const p = choice ?? this.equationProfile();
-    return this.equations.get(equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`)) ?? null;
+    const key = equationKey(manifest, equationID, action, `${p.model}-${p.effort}-${p.length}`);
+    return recall(this.equations, key) ?? this.keptResult<EquationResult>('equation', key) ?? null;
   }
   /** One equation-view request, sent exactly as this browser's chat sends a question about the paper (its default
    * profile, capabilities, consent and the numbered paper on this device), so the server reads the same cached prefix.
@@ -615,7 +681,7 @@ export class ChatSession {
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     const key = equationKey(bundle.manifestSHA256, input.equationID, action, `${profile.model}-${profile.effort}-${profile.length}`);
-    const saved = this.equations.get(key);
+    const saved = recall(this.equations, key) ?? this.keptResult<EquationResult>('equation', key);
     if (saved) { update(saved); return saved; }
     const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: equationTurn(input.number) }], input.latex, action,
       { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
@@ -626,7 +692,7 @@ export class ChatSession {
         if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
         else if (event.type === 'equation') { result = { ...result, symbols: event.symbols }; update(result); }
         else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null }; finish(event.code); break; }
-        else if (event.type === 'done') { result = { ...result, credits: event.credits }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
+        else if (event.type === 'done') { result = { ...result, credits: event.credits, ...(event.model ? { model: event.model } : {}) }; finish(result.symbols || result.text.trim() ? null : 'provider_unavailable'); break; }
       }
       if (result.phase === 'loading') finish('transport');
     } catch (error) {
@@ -634,8 +700,10 @@ export class ChatSession {
         : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
     } finally { clearTimeout(deadline); controller.dispose(); }
     if (result.phase === 'done') {
-      this.equations.set(key, result);
-      if (action === 'equation') this.noteExplanation({ kind: 'equation', documentID, manifest: bundle.manifestSHA256, targetID: input.equationID, label: equationTurn(input.number), at: Date.now() });
+      remember(this.equations, key, result, EQUATION_RESULTS);
+      const listed = action === 'equation' ? { documentID, manifest: bundle.manifestSHA256, targetID: input.equationID, label: equationTurn(input.number) } : null;
+      if (listed) this.noteExplanation({ kind: 'equation', ...listed, at: Date.now() });
+      this.keep('equation', key, result, listed);
     }
     void this.refreshBalance();
     return result;
@@ -646,7 +714,8 @@ export class ChatSession {
   private profileKey(): string { const p = this.equationProfile(); return `${p.model}-${p.effort}-${p.length}`; }
   /** A finished walkthrough (or, with `part`, that part more simply) with the current default model (memory only). */
   savedFigure(manifest: string, figureID: string, action: FigureAction, part = '', choice?: ProfileChoice): FigureResult | null {
-    return this.figureResults.get(figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part)) ?? null;
+    const key = figureKey(manifest, figureID, action, choice ? `${choice.model}-${choice.effort}-${choice.length}` : this.profileKey(), part);
+    return recall(this.figureResults, key) ?? this.keptResult<FigureResult>('figure', key) ?? null;
   }
   /** One figure-view request, sent exactly as this browser's chat sends a question about the paper (its default profile,
    * capabilities, consent and the numbered paper on this device) with this figure's image, as a chat question naming it
@@ -672,7 +741,7 @@ export class ChatSession {
     try { bundle = await local.load(); } catch { return finish('local_reader_unavailable'); }
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     const key = figureKey(bundle.manifestSHA256, input.figureID, action, `${profile.model}-${profile.effort}-${profile.length}`, input.part?.key ?? '');
-    const saved = this.figureResults.get(key);
+    const saved = recall(this.figureResults, key) ?? this.keptResult<FigureResult>('figure', key);
     if (saved) { update(saved); return saved; }
     const figure = bundle.index.figures.find(f => f.id === input.figureID);
     const image = figure ? await figureImage(bundle, figure) : null;
@@ -694,7 +763,7 @@ export class ChatSession {
         else if (event.type === 'figure_detail') { result = { ...result, detail: event.detail }; update(result); }
         else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
         else if (event.type === 'done') {
-          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason };
+          result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason, ...(event.model ? { model: event.model } : {}) };
           finish(result.walkthrough || result.detail || result.text.trim() ? null : 'provider_unavailable'); break;
         }
       }
@@ -704,11 +773,23 @@ export class ChatSession {
         : error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport');
     } finally { clearTimeout(deadline); controller.dispose(); }
     if (result.phase === 'done') {
-      this.figureResults.set(key, result);
-      if (action === 'figure') this.noteExplanation({ kind: 'figure', documentID, manifest: bundle.manifestSHA256, targetID: figure.id, label: name, at: Date.now() });
+      remember(this.figureResults, key, result, FIGURE_RESULTS);
+      const listed = action === 'figure' ? { documentID, manifest: bundle.manifestSHA256, targetID: figure.id, label: name } : null;
+      if (listed) this.noteExplanation({ kind: 'figure', ...listed, at: Date.now() });
+      this.keep('figure', key, result, listed);
     }
     void this.refreshBalance();
     return result;
+  }
+  /** A kept walkthrough's image, prepared again from this paper on this device (kept answers don't hold images). */
+  async keptFigureImage(documentID: string, figureID: string): Promise<FigureResult['image']> {
+    const reference = this.reference(documentID), local = reference ? this.sourcePapers.get(reference.membershipID) : this.legacyPapers.get(documentID);
+    if (!local) return null;
+    try {
+      const bundle = await local.load(), figure = bundle.index.figures.find(f => f.id === figureID);
+      const image = figure ? await figureImage(bundle, figure) : null;
+      return image ? { data: image.data, width: image.width, height: image.height } : null;
+    } catch { return null; }
   }
   private track(task: Promise<void>): Promise<void> { this.tasks.add(task); void task.finally(() => this.tasks.delete(task)).catch(() => {}); return task; }
 
@@ -755,7 +836,7 @@ export class ChatSession {
     if (!action && c.study) action = 'study';
     if (this.retiredStorage) return Promise.resolve(); // refused: nothing is saved or requested from this page
     if (busy(c) || c.answer || this.turnOwners.has(c.id) || !c.draft.trim()) return Promise.resolve();
-    if (this.history.status !== 'ready' || this.history.issue) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
+    if (this.history.blocksSending) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
     if (c.conversationID && this.history.state.isDeleted(c.conversationID)) { c.issue = 'conversation_deleted'; this.publish(); return Promise.resolve(); }
     const branch = this.branch(c);
     if (c.conversationID && (!branch || !branch.complete)) { c.issue = 'branch_required'; this.publish(); return Promise.resolve(); }
@@ -891,7 +972,7 @@ export class ChatSession {
     // A question saved while storage retired stays saved; no paid request starts from this page.
     if (this.retiredStorage) { c.phase = 'idle'; c.issue = 'storage_retired'; this.publish(); return; }
     const questionID = c.question ? this.history.resolve(c.question.id) : null;
-    if (this.history.status !== 'ready' || this.history.issue || !c.question || !questionID || this.history.isPending(questionID) || this.history.state.isDeleted(c.conversationID!)) { c.phase = 'idle'; c.issue = 'question_unsaved'; this.publish(); return; }
+    if (this.history.blocksSending || !c.question || !questionID || this.history.isPending(questionID) || this.history.state.isDeleted(c.conversationID!)) { c.phase = 'idle'; c.issue = 'question_unsaved'; this.publish(); return; }
     if (!this.deps.readConsent()) { c.phase = 'consent'; this.publish(); return; }
     const branch = this.history.state.conversationBranch(c.conversationID!, questionID);
     if (!branch?.complete) { c.phase = 'idle'; c.issue = 'branch_required'; this.publish(); return; }
@@ -982,6 +1063,8 @@ export class ChatSession {
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
     let topicTitle: string | null = null, followUps: string[] | null = null, nextMap: StudyMap | null = null, answeredBy: { model?: string; profile?: string } = {};
+    // The streamed text's size, kept as it grows (C2: not the whole text encoded again for every piece).
+    let liveBytes = 0;
     let figureParts: FigureParts | null = null, asked: string | null = null, sent = request;
     // What the answer's last done/error said it cost (credits, `charged`), for the note under an interrupted answer.
     let end: { credits?: number; charged?: boolean } | null = null;
@@ -991,9 +1074,13 @@ export class ChatSession {
       for await (const event of this.deps.stream(this.account, sent, controller.signal)) {
         controller.signal.throwIfAborted();
         if (event.type === 'delta') {
-          const next = c.liveText + event.text;
-          if (bytes(next) > 200_000) { c.liveText = boundedText(next); outcome = { kind: 'failed', code: 'answer_too_large' }; break; }
-          c.liveText = next; c.progress = null; checkpointTurn();
+          const first = !c.liveText;
+          liveBytes += bytes(event.text);
+          if (liveBytes > 200_000) { c.liveText = boundedText(c.liveText + event.text); outcome = { kind: 'failed', code: 'answer_too_large' }; break; }
+          c.liveText += event.text; c.progress = null; checkpointTurn();
+          // The first text replaces "Thinking…" at once; later text is shown by the pane's own cadence.
+          if (first) this.publish(); else this.publishSoon();
+          continue;
         } else if (event.type === 'status') c.progress = event.progress;
         else if (event.type === 'diagram') diagram = { title: event.title, source: event.source };
         else if (event.type === 'visual') diagram = { title: event.title, source: event.html, format: 'html-v1' };
@@ -1013,17 +1100,23 @@ export class ChatSession {
     } finally { clearTimeout(deadline); clearTimeout(checkpointTimer); controller.dispose(); this.streams.delete(c.id); }
     // The model asked for a figure the question is about (none was attached): the same question again, once, with that
     // figure from this paper; the first answer was only the request and is not kept.
-    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted && !this.stopping.has(c.id)) {
-      const figures = await chatFigureImages(asked, null, figureBundle);
-      if (figures.length && !this.signal.aborted) {
+    if (pass === 0 && asked && !sent.figures?.length && outcome.kind === 'completed' && figureBundle && !this.signal.aborted && !this.stopping.has(c.id)
+      && !this.retiredStorage && this.accepting) {
+      // The next pass's controller is registered before the figure is prepared, so Stop, storage retirement and sign-out
+      // reach this gap too (A19): Stop has no operation to record here and simply ends it.
+      const next = cancellation([this.signal]);
+      this.streams.set(c.id, next); this.operations.delete(c.id);
+      let figures: Awaited<ReturnType<typeof chatFigureImages>> = [];
+      try { figures = await chatFigureImages(asked, null, figureBundle); } catch { figures = []; }
+      if (figures.length && !next.signal.aborted && !this.signal.aborted && !this.stopping.has(c.id) && !this.retiredStorage && this.accepting) {
         sent = { ...sent, operationID: crypto.randomUUID(), figures }; figureManifest = figureBundle.manifestSHA256;
-        c.liveText = ''; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
+        c.liveText = ''; liveBytes = 0; diagram = null; figureParts = null; followUps = null; nextMap = null; asked = null; end = null;
         outcome = { kind: 'failed', code: 'transport' };
         c.progress = { kind: 'looking_at_figure', query: figures[0] ? figureLabel(figures[0].caption) ?? undefined : undefined }; this.publish();
-        controller = cancellation([this.signal]); deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
-        this.streams.set(c.id, controller);
+        controller = next; deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
         continue;
       }
+      next.dispose(); if (this.streams.get(c.id) === next) this.streams.delete(c.id);
     }
     break;
     }

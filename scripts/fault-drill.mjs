@@ -27,10 +27,9 @@
 // The synthetic answers of midstream and stop, and the overrun's attempt, carry a `drill-` request id and are reconciled
 // to zero at the end (worker_fault_drill_reconcile, test accounts only): they never reached a provider.
 //
-// Since 2026-10-18 every model call goes through OpenRouter (migration 089; owner: no direct-provider fallback), so the
-// drill targets provider `openrouter` (the host chat actually calls); an `anthropic` drill would inject nothing.
-// The streamed `midstream`/`slow` faults need provider-health.ts to answer in OpenRouter's stream format for openrouter
-// hosts; until that is deployed, `--mode=midstream`/`stop` on openrouter do not reach the synthetic stream.
+// Every model call goes through OpenRouter (migration 089; owner 2026-10-18 and 2026-10-21: OpenRouter exclusively), so
+// the drill targets provider `openrouter` (the only model host; direct model hosts are refused by the egress guard and
+// are not providers in provider-health.ts). Streamed `midstream`/`slow` faults answer in OpenRouter's stream format.
 //
 // Secrets come from the environment or .env.staging (a git worktree reads the main checkout's) and are never printed.
 // No dependencies beyond Node 24.

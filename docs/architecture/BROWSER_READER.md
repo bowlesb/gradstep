@@ -1,5 +1,34 @@
 # Browser reader
 
+## Review fixes — October 21 UTC (local; not deployed)
+
+Fixes for the browser findings of the [2026-10-21 review](../reviews/WEB_SERVER_REVIEW_20261021.md); evidence and
+measurements are in [implementation status](../IMPLEMENTATION_STATUS.md#browser-review-fixes--october-21-utc-local-not-deployed).
+
+- **Reader frame**: `frame-shim.js` posts `{type:'link', url}` for a click on an outside http(s) link that no bridge
+  handler took (not while text is selected); the app accepts it only from the reader and figure frames and opens
+  https links without credentials via `window.open(url, '_blank', 'noopener,noreferrer')`. The frame keeps
+  `sandbox="allow-scripts"` and its CSP hash. `frameDocument` keeps one parsed template per bundle (images encoded
+  once), so figure and table views add only their own configuration.
+- **Loading**: the Reader, the account dialogs (Report, My reports, How Gradstep works, Privacy &amp; data) and the
+  approval QR load when needed; the Reader chunk is fetched right after sign-in and then mounted directly, so opening
+  a paper doesn't wait or mount twice. The device compiler source lives in `src/reader/arxiv-reader.js` (it is
+  inlined at build time and no longer copied to `dist/`).
+- **State**: reading activity and the podcast position are external stores read with `useSyncExternalStore`;
+  `PrivateState` caches derived views per change; streamed text is published every 100 ms. Equation and figure results
+  are LRU-bounded; a contextual composer that was only shown is released when its view closes.
+- **Chat**: actions on selected answer text and formulas (Quote in Chat, Explain, Define, Copy LaTeX, Copy as text);
+  Papers in this answer; chat ⋯ › Smaller / Larger text; the model under the field asks Default or Choose model (Length
+  stays in ⋯ › Answer options). Only sync failures that need action block sending.
+- **Explainers**: AI model first, the answering model named, Change AI; kept explanations are sealed with the device's
+  local key in IndexedDB (`activity` store, `${env}:${account}:explanations`, at most 400 per kind) and deleted with
+  Forget this device. Kept walkthroughs hold no image; it is prepared again from the paper.
+- **Library and account**: no saved tag filter; Venue, Source, Pages and Chats columns; All chats Kind, Topics and
+  Answer length; Sync with Sync now; version and acknowledgements in How Gradstep works; the podcast player's options
+  (Report a problem at ‹time›, Clear progress); report screenshots can be cropped and covered before upload.
+- **Not done**: approving another device from the browser (B6), Other lengths… in the player, and the sign-in method
+  in the account menu (owner, build 58).
+
 ## Notes and snippets — October 21 UTC (local; not deployed)
 
 The browser implements [Notes and snippets](NOTES_AND_SNIPPETS.md#browser-client-status--implemented-locally-not-deployed-2026-10-21-utc)
@@ -351,10 +380,11 @@ top row" and "Explain actions"), with the apps' wording:
   while the copy on screen stays, then swaps it in near the same place; a failure shows its reason and code. No
   banner ever interrupts the reader.
 - **Your assets › Equation explanations / Figure explanations** (`ui/ExplanationsDialog.tsx`): what this tab
-  explained (`ChatSession.explanations`, recorded when an explanation or walkthrough finishes; memory only), newest
-  first, each equation or figure once with its paper; "None yet" when empty; an ⓘ says the apps keep them on the
-  device and this browser keeps them until the tab closes. A row opens the paper there (the reader's `explainer`
-  request), where the kept answer shows without a new request.
+  explained (`ChatSession.explanations`, recorded when an explanation or walkthrough finishes), newest first, each
+  equation or figure once with its paper; empty, it says "No equation explanations" (or figure) as the apps do. Since
+  the 2026-10-21 review fixes (B4) they are kept
+  across reloads, sealed with the device's local key (above), as the apps keep them on the device. A row opens the
+  paper there (the reader's `explainer` request), where the kept answer shows without a new request.
 - **Diagram full size** (`DiagramFrame fit="width"`): drawn across the width at first, never larger than its own size
   (the frame reports its drawing's viewBox), a tall one scrolling down; pinch on a touch screen, ctrl/⌘ + wheel (a
   trackpad pinch) or Safari's gesture zooms about the fingers or pointer, a drag pans, a double-click (or Fit) returns
@@ -422,7 +452,8 @@ succeeding is insufficient.
   explanations** and **Figure explanations** (build 62, this tab's; above) and **Diagrams**: All
   diagrams (`ui/DiagramsDialog.tsx`) lists every diagram, visual and figure breakdown from the reader's chats, newest
   first (`PrivateState.savedDiagrams`, as native `diagrams()`; a deleted chat takes its diagrams), and one opens as in
-  its answer, with Full size. Text sizes stay where the reader reads and chats (A−/A+), as on the apps. Journey:
+  its answer, with Full size. Text sizes stay where they apply, as on the apps: the reader's A−/A+ for the paper,
+  the chat's ⋯ › Smaller / Larger text for chats (B8, 2026-10-21). Journey:
   `e2e/account-assets.spec.ts` (desktop and phone, light and dark).
 - **Delete account** (owner, 2026-10-16; local fixture verification only, not deployed). The account menu's
   "Delete account…" (destructive, after Sign out) mirrors the apps' Settings › Account › Delete account…

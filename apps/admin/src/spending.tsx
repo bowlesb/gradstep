@@ -125,7 +125,6 @@ export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ow
       <section className="panel"><h2>Search allowance</h2>
         {!summary.allowances.length && <p className="notice">Tavily is gated until its billing period, usage baseline and overage setting are verified.</p>}
         {summary.allowances.map(a => <div className="allowance-row" key={a.id}><strong>{a.provider}</strong><span>{new Date(a.starts_at).toLocaleDateString()} – {new Date(a.ends_at).toLocaleDateString()}</span><span>{a.baseline_units + a.spent_units} used + {a.reserved_units} held / {a.limit_units}</span><span className="badge">{a.enabled ? 'Enabled' : 'Paused'}</span><small className="muted">Baseline {a.baseline_units}; evidence {a.evidence_reference}, checked {date(a.observed_at)}</small></div>)}
-        {summary.anomalies.native_search_gated && <p className="muted">Anthropic search backup is gated until its full cost can be bounded.</p>}
       </section>
       {summary.note_assets && <NoteImages usage={summary.note_assets} account={account} />}
       <Forecast summary={summary} />

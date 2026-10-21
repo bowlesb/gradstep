@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fromBytea, sha256, toBytea } from '../src/lib/bytes';
 import type { StreamEvent } from '../src/lib/chat';
-const server = vi.hoisted(() => ({ rows: [] as any[], fail: false, pause: null as null | (() => Promise<void>), requests: [] as any[] }));
+const server = vi.hoisted(() => ({ rows: [] as any[], fail: false, pullFail: null as null | string, pause: null as null | (() => Promise<void>), requests: [] as any[] }));
 vi.mock('../src/lib/backend', async original => {
   const mod = await original<typeof import('../src/lib/backend')>();
   return { ...mod, rpc: async (name: string, p: any) => {
@@ -13,7 +13,7 @@ vi.mock('../src/lib/backend', async original => {
       server.rows.push({ id: p.p_id, device_id: p.p_device_id, epoch: p.p_epoch, format: p.p_format, ciphertext: p.p_ciphertext,
         ciphertext_sha256: toBytea(await sha256(fromBytea(p.p_ciphertext))), cursor: server.rows.length + 1 }); return server.rows.length;
     }
-    if (name === 'v3_pull_events') { const events = server.rows.filter(r => r.cursor > p.p_after).slice(0, p.p_limit); return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: false }; }
+    if (name === 'v3_pull_events') { if (server.pullFail) throw new mod.BackendError(server.pullFail); const events = server.rows.filter(r => r.cursor > p.p_after).slice(0, p.p_limit); return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: false }; }
     if (name === 'v1_credit_balance') return { available: 100, reserved: 4 };
     return null;
   } };
@@ -34,8 +34,30 @@ async function setup(events: StreamEvent[] = [{ type: 'delta', text: 'A clear an
   });
   return { chat, history, owner };
 }
-beforeEach(() => { server.rows = []; server.fail = false; server.pause = null; server.requests = []; });
+beforeEach(() => { server.rows = []; server.fail = false; server.pullFail = null; server.pause = null; server.requests = []; });
 describe('account-owned chat transactions', () => {
+  it('a temporary background sync failure does not refuse the next question; a key failure does (A20)', async () => {
+    const { chat, history } = await setup(), c = chat.current(null);
+    server.pullFail = 'connection'; await history.sync().catch(() => {});
+    expect(history.issue).toMatch(/reach Gradstep/); expect(history.blocksSending).toBe(false);
+    server.pullFail = null;
+    chat.edit(c, 'Still answer me'); await chat.send(c);
+    expect(server.requests).toHaveLength(1); expect(history.issue).toBeNull();
+    expect(chat.branch(c)?.messages.map(e => e.payload.text)).toEqual(['Still answer me', 'A clear answer.']);
+    server.pullFail = 'key_authority_required'; await history.sync().catch(() => {});
+    expect(history.blocksSending).toBe(true);
+    const next = chat.newChat(null); chat.edit(next, 'Needs keys'); await chat.send(next);
+    expect(next.issue).toBe('question_unsaved'); expect(server.requests).toHaveLength(1); expect(next.draft).toBe('Needs keys');
+  });
+  it('a question sent while sync is still failing is kept and answered once sync recovers (A20)', async () => {
+    const { chat, history } = await setup(), c = chat.current(null);
+    server.pullFail = 'connection'; await history.sync().catch(() => {});
+    chat.edit(c, 'Offline question'); await chat.send(c);
+    expect(server.requests).toHaveLength(0); expect(c.issue).toBe('question_unsaved'); expect(c.draft).toBe('Offline question');
+    server.pullFail = null; await chat.retry(c);
+    expect(server.requests).toHaveLength(1);
+    expect(chat.branch(c)?.messages.map(e => e.payload.text)).toEqual(['Offline question', 'A clear answer.']);
+  });
   it('acknowledges the encrypted question before consent and one paid send, and synchronizes the answer', async () => {
     const { chat, history } = await setup(undefined, false), c = chat.current(null);
     chat.edit(c, 'Explain β'); await chat.send(c);

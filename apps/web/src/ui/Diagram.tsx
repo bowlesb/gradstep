@@ -3,21 +3,18 @@ import { Dialog } from './common';
 import { CopyButton } from './CopyButton';
 import { decodeStoredFigureParts, type StoredFigureParts } from '../lib/chat-figures';
 
-/** The document a visual answer is shown in: no scripts, no network (chat-visual.ts `visualDocument`, kept alike). */
-export function visualDocument(html: string, dark: boolean): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
-    + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`
-    + `<style>:root{color-scheme:${dark ? 'dark' : 'light'}}html,body{margin:0;padding:0}body{padding:16px;font:15px/1.45 system-ui,sans-serif;background:${dark ? '#17171a' : '#fff'};color:${dark ? '#e6e6ea' : '#1b1b1f'};overflow-wrap:anywhere}`
-    + `table{border-collapse:collapse;max-width:100%}td,th{border:1px solid rgba(128,128,128,.45);padding:4px 8px;vertical-align:top}th{text-align:left}svg{max-width:100%;height:auto}`
-    + `pre,code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}pre{white-space:pre-wrap}h1,h2,h3{line-height:1.25}h1{font-size:1.35em}h2{font-size:1.2em}h3{font-size:1.05em}img,iframe,object,embed,video{display:none !important}</style>`
-    + `</head><body>${html}</body></html>`;
-}
+// The document a visual answer is shown in: the server's own function (D8), no copy to drift.
+import { visualDocument } from '../../../../supabase/functions/_shared/visual-document.ts';
+export { visualDocument };
+/** The app's appearance (System, Light, Dark), as the page applies it (prefs.ts). */
+const appScheme = (): 'light' | 'dark' => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme
+  && typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 
 /** A visual answer inline under the answer: a sandboxed frame without scripts; "Full size" opens it in a dialog. */
 export function Visual({ title, html }: { title: string; html: string }) {
   const [open, setOpen] = useState(false);
-  const dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
-  const doc = visualDocument(html, dark);
+  // The app's appearance, forced or the system's (D11: a visual followed only the system's).
+  const doc = visualDocument(html, { scheme: appScheme(), fontSize: 15 });
   return <div className="chat-visual" data-testid="chat-visual">
     <iframe title={title} className="visual-frame" sandbox="" srcDoc={doc} />
     <div className="visual-tools"><span className="fine">{title}</span><button className="link small" onClick={() => setOpen(true)}>Full size</button></div>

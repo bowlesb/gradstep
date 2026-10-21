@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import type Anthropic from '@anthropic-ai/sdk';
-import { BUSY_RETRY_MAX_MS, retryOnceWhenBusy } from '../../supabase/functions/_shared/anthropic.ts';
+import { BUSY_RETRY_MAX_MS, retryOnceWhenBusy } from '../../supabase/functions/_shared/inference.ts';
 import {
-  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, holdForParams, hourCachedCharacters, PAPER_CACHE_TTL, priceAttempts, ratesFor,
-  streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, DEEPSEEK_TARIFF, type ChatStatus, type ProviderOutcome, type StreamOptions,
-} from '../../supabase/functions/_shared/anthropic.ts';
+  ADD_PAPER_TOOL, CHAT_MAX_TOKENS, CHAT_MODEL, chatRequestParams, CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, promptCharacters, SEARCH_WEB_TOOL, webSearchHoldMicrousd, creditsFor, holdFor, holdForParams, hourCachedCharacters, PAPER_CACHE_TTL, priceAttempts, ratesFor,
+  UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
+} from '../../supabase/functions/_shared/inference.ts';
+import type { ModelRequest, TextBlock } from '../../supabase/functions/_shared/model-request.ts';
+import { routerClaudeRates } from '../../supabase/functions/_shared/openrouter-claude-pricing.ts';
+import { routerDeepSeekRates, ROUTER_DEEPSEEK_TARIFF } from '../../supabase/functions/_shared/openrouter-deepseek-pricing.ts';
+import { openRouterChat } from '../../supabase/functions/_shared/openrouter-chat.ts';
 import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
 import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { FOLLOW_UP_HOLD_PARAMS, FOLLOW_UP_MAX_TOKENS, followUpRequest, followUpRequestParams, SUGGEST_FOLLOW_UPS_TOOL } from '../../supabase/functions/_shared/chat-follow-ups.ts';
@@ -24,13 +27,19 @@ const operation = 'bbbbbbbb-0000-4000-8000-000000000002';
 const documentID = 'cccccccc-0000-4000-8000-000000000003';
 const secretQuestion = 'What does the attention scaling factor do? (private-question-marker)';
 const paperText = '# Attention\n\nWe scale by \\( 1/\\sqrt{d_k} \\). '.repeat(40);
+// Every answer goes to OpenRouter (owner, 2026-10-18 and 2026-10-21), so every request carries a consent that names it:
+// v6 (OpenRouter, its Google Vertex and DeepInfra routes, Tavily and figures), as current builds send.
+const CONSENT = 'cloud-ai-v6';
+/** The OpenRouter models and their reviewed cards (micro-USD per token). */
+const SONNET = 'anthropic/claude-sonnet-5.5', HAIKU = 'anthropic/claude-haiku-5.5', OPUS = 'anthropic/claude-opus-5.5';
+const FLASH = 'deepseek/deepseek-v4.1-flash-1017';
 
 function paperBody(overrides: Record<string, unknown> = {}) {
-  return { operation_id: operation, consent_version: 'cloud-ai-v1', mode: 'paper', document_id: documentID,
+  return { operation_id: operation, consent_version: CONSENT, mode: 'paper', document_id: documentID,
     messages: [{ role: 'user', text: secretQuestion }], ...overrides };
 }
 function generalBody(overrides: Record<string, unknown> = {}) {
-  return { operation_id: operation, consent_version: 'cloud-ai-v1', mode: 'general', messages: [{ role: 'user', text: 'Hello' }], ...overrides };
+  return { operation_id: operation, consent_version: CONSENT, mode: 'general', messages: [{ role: 'user', text: 'Hello' }], ...overrides };
 }
 
 test('validation accepts bounded paper and general requests and normalizes identifiers', () => {
@@ -70,70 +79,59 @@ test('canonical request digests are independent of input key order', () => {
   assert.equal(canonicalRequest(validateChatRequest(quoted)), canonicalRequest(validateChatRequest({ ...quoted, action: null })));
 });
 
-test('pricing follows the beta credit rate card and never undercharges unknown models', () => {
-  assert.deepEqual(ratesFor('claude-sonnet-5-5').known, true);
-  assert.deepEqual(ratesFor('claude-sonnet-5-5-20261001').known, true);
-  assert.deepEqual(ratesFor('claude-sonnet-5').rates.output, 10);
-  assert.deepEqual(ratesFor('claude-mystery').rates, UNKNOWN_MODEL_RATES);
-  assert.deepEqual(ratesFor(null).rates, UNKNOWN_MODEL_RATES);
-  assert.equal(ratesFor('__proto__').known, false);
-  // 1M input at $2, 1M output at $10, 1M cache write at $2.50, 1M cache read at $0.10 (Sonnet 5.5: 0.05x input;
-  // https://platform.claude.com/docs/en/about-claude/pricing, read 2026-10-08).
+test('pricing follows the reviewed OpenRouter cards and never undercharges a model without one', () => {
+  for (const model of [SONNET, HAIKU, OPUS, FLASH, 'gemini-3.8-flash']) assert.equal(ratesFor(model).known, true, model);
+  // Direct-provider names have no card (and no route: they are never sent); they price at the ceiling card.
+  for (const model of ['claude-sonnet-5-5', 'claude-sonnet-5', 'deepseek-flash', 'claude-mystery', null, '__proto__']) {
+    assert.deepEqual(ratesFor(model), { rates: UNKNOWN_MODEL_RATES, known: false }, String(model));
+  }
   const usage = { input: 1_000_000, cacheWrite5m: 1_000_000, cacheWrite1h: 0, cacheRead: 1_000_000, output: 1_000_000 };
-  assert.equal(priceAttempts([{ model: 'claude-sonnet-5-5', usage, estimated: false }]), 14_600_000);
-  // Sonnet 5 (Sonnet 5.5's fallback) reads the cache at $0.20.
-  assert.equal(priceAttempts([{ model: 'claude-sonnet-5', usage, estimated: false }]), 14_700_000);
-  // Unknown models price at the highest card this route can be served by: Opus 5 / 4.8 ($5 / $6.25 / $0.50 / $25).
+  const card = (model: string) => { const r = ratesFor(model).rates; return r.input * 1_000_000 + r.cacheWrite5m * 1_000_000 + r.cacheRead * 1_000_000 + r.output * 1_000_000; };
+  // Sonnet 5.5 through Vertex: $2.20 in, $2.75 five-minute write, $0.11 read (0.05x), $11 out per million.
+  assert.equal(Math.round(priceAttempts([{ model: SONNET, usage, estimated: false }])), 16_060_000);
+  assert.equal(priceAttempts([{ model: SONNET, usage, estimated: false }]), card(SONNET));
+  // Opus 5.5 through Vertex: $4.40 / $5.50 / $0.22 / $22.
+  assert.equal(Math.round(priceAttempts([{ model: OPUS, usage, estimated: false }])), 32_120_000);
+  // The ceiling card ($5 / $6.25 / $0.50 / $25) is above every reviewed card.
   assert.equal(priceAttempts([{ model: 'unknown', usage, estimated: false }]), 36_750_000);
-  assert.equal(priceAttempts([{ model: 'claude-opus-5-5', usage, estimated: false }]), 29_200_000);
-  assert.equal(priceAttempts([{ model: 'claude-opus-4-8', usage, estimated: false }]), 36_750_000);
-  assert.equal(priceAttempts([{ model: 'claude-haiku-4-5-20251001', usage, estimated: false }]), 7_350_000);
+  for (const model of [SONNET, HAIKU, OPUS, FLASH]) for (const key of ['input', 'cacheWrite5m', 'cacheWrite1h', 'cacheRead', 'output'] as const) {
+    assert.ok(UNKNOWN_MODEL_RATES[key] >= ratesFor(model, 200_000).rates[key], `${model} ${key}`);
+  }
   // Haiku 5.5: a prompt over 100,000 tokens pays the long-prompt card for the whole request.
-  assert.equal(priceAttempts([{ model: 'claude-haiku-5-5', usage: { input: 50_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 50_000, output: 1_000 }, estimated: false }]),
-    50_000 * 0.1 + 50_000 * 0.01 + 1_000 * 0.5);
-  assert.equal(priceAttempts([{ model: 'claude-haiku-5-5', usage: { input: 50_001, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 50_000, output: 1_000 }, estimated: false }]),
-    50_001 * 0.5 + 50_000 * 0.05 + 1_000 * 2.5);
+  const short = routerClaudeRates(HAIKU, 100_000), long = routerClaudeRates(HAIKU, 100_001);
+  assert.equal(priceAttempts([{ model: HAIKU, usage: { input: 50_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 50_000, output: 1_000 }, estimated: false }]),
+    50_000 * short.input + 50_000 * short.cacheRead + 1_000 * short.output);
+  assert.equal(priceAttempts([{ model: HAIKU, usage: { input: 50_001, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 50_000, output: 1_000 }, estimated: false }]),
+    50_001 * long.input + 50_000 * long.cacheRead + 1_000 * long.output);
+  // OpenRouter's reported cost wins over any card; an estimate never uses it.
+  assert.equal(priceAttempts([{ model: SONNET, usage, estimated: false, billedMicrousd: 123.4 }]), 123.4);
+  assert.equal(priceAttempts([{ model: SONNET, usage, estimated: true, billedMicrousd: 123.4 }]), card(SONNET));
   assert.equal(creditsFor(0), 0); assert.equal(creditsFor(1), 1); assert.equal(creditsFor(5_000), 1); assert.equal(creditsFor(5_001), 2);
-  // Hold: weighted chars/3 tokens at the cache-write rate plus the whole
-  // output budget, times the fallback headroom (3).
-  assert.deepEqual(holdFor(300_000, 8_000), { inputTokens: 100_000, microusd: 990_000, credits: 198 });
-  assert.equal(holdFor(1, 8_000).microusd, 240_008);
+  // Hold: weighted chars/3 tokens at the cache-write rate plus the whole output budget; Sonnet on Vertex is one attempt
+  // (no server-side fallback on this route), a model without a card three at the ceiling card.
+  const sonnet = routerClaudeRates(SONNET);
+  assert.equal(CHAT_MODEL, SONNET);
+  assert.deepEqual(holdFor(300_000, 8_000), { inputTokens: 100_000, microusd: Math.ceil(100_000 * sonnet.cacheWrite5m + 8_000 * sonnet.output),
+    credits: creditsFor(Math.ceil(100_000 * sonnet.cacheWrite5m + 8_000 * sonnet.output)) });
+  assert.equal(holdFor(1, 8_000, 'unknown').microusd, Math.ceil((1 * 6.25 + 8_000 * 25) * 3));
 });
 
-test('fallback iterations are priced per serving model', () => {
-  const usage = {
-    input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cache_creation: null,
-    iterations: [
-      { type: 'message', model: 'claude-sonnet-5-5', input_tokens: 1000, output_tokens: 50, cache_creation_input_tokens: 400, cache_read_input_tokens: 0,
-        cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 100 } },
-      { type: 'fallback_message', model: 'claude-future-1', input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cache_creation: null },
-    ],
-  } as unknown as Anthropic.Beta.Messages.BetaUsage;
-  const attempts = attemptsFromUsage('claude-future-1', usage);
-  assert.equal(attempts.length, 2);
-  assert.deepEqual(attempts[0].usage, { input: 1000, cacheWrite5m: 300, cacheWrite1h: 100, cacheRead: 0, output: 50 });
-  assert.equal(priceAttempts(attempts), (1000 * 2 + 300 * 2.5 + 100 * 4 + 50 * 10) + (1000 * 5 + 200 * 25));
-  const single = attemptsFromUsage('claude-sonnet-5-5', { input_tokens: 3, output_tokens: 4, cache_creation_input_tokens: null,
-    cache_read_input_tokens: 5, cache_creation: null, iterations: null } as unknown as Anthropic.Beta.Messages.BetaUsage);
-  assert.deepEqual(single, [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 3, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 5, output: 4 } }]);
-});
-
-test('request params cache the paper prefix and enable adaptive thinking with server fallback', () => {
+test('request params cache the paper prefix and enable adaptive thinking; no provider-specific fallback', () => {
   const params = chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'A "quoted" <title>', text: paperText },
     turns: [{ role: 'user', text: 'q1' }, { role: 'assistant', text: 'a1' }, { role: 'user', text: 'q2' }], selection: 'the passage' });
-  assert.equal(params.model, 'claude-sonnet-5-5'); assert.equal(params.max_tokens, CHAT_MAX_TOKENS);
+  assert.equal(params.model, SONNET); assert.equal(params.max_tokens, CHAT_MAX_TOKENS);
   assert.deepEqual(params.thinking, { type: 'adaptive' }); assert.deepEqual(params.output_config, { effort: 'low' });
-  assert.deepEqual(params.betas, [FALLBACK_BETA]); assert.equal(params.fallbacks, 'default');
+  assert.equal((params as Record<string, unknown>).betas, undefined); assert.equal((params as Record<string, unknown>).fallbacks, undefined);
   // Owner feedback 2026-10-07: answers start with their content, not an "Answer:" label.
   for (const mode of ['paper', 'general'] as const) assert.match(chatInstructions(mode), /no label such as "Answer:"/);
-  const system = params.system as Anthropic.Beta.Messages.BetaTextBlockParam[];
+  const system = params.system as TextBlock[];
   assert.equal(system.length, 2); assert.equal(system[0].cache_control, undefined);
   assert.deepEqual(system[1].cache_control, { type: 'ephemeral', ttl: '1h' });
   assert.ok(system[1].text.startsWith('<paper title="A  quoted   title">\n'));
   assert.ok(system[1].text.endsWith(`${paperText}\n</paper>`));
   assert.match(system[0].text, /\\\( \.\.\. \\\)/); assert.match(system[0].text, /\\\[ \.\.\. \\\]/);
   assert.deepEqual(params.messages[1], { role: 'assistant', content: 'a1' });
-  const last = params.messages[2].content as Anthropic.Beta.Messages.BetaTextBlockParam[];
+  const last = params.messages[2].content as TextBlock[];
   assert.equal(last[0].text, '<selected_passage>\nthe passage\n</selected_passage>'); assert.equal(last[1].text, 'q2');
   const general = chatRequestParams({ instructions: chatInstructions('general'), paper: null, turns: [{ role: 'user', text: 'q' }], selection: null });
   assert.equal((general.system as unknown[]).length, 1); assert.deepEqual(general.messages, [{ role: 'user', content: 'q' }]);
@@ -143,11 +141,11 @@ test('ingest requests carry only add_paper; other requests carry only create_dia
   const turns = [{ role: 'user' as const, text: 'Find and add the paper referenced in this passage' }];
   const ingest = chatRequestParams({ instructions: chatInstructions('paper', 'ingest'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: [ADD_PAPER_TOOL] });
   assert.deepEqual(ingest.tools, [ADD_PAPER_TOOL]); assert.equal(ingest.tool_choice, undefined);
-  const ingestSystem = (ingest.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text;
+  const ingestSystem = (ingest.system as TextBlock[])[0].text;
   assert.match(ingestSystem, /call add_paper once/); assert.doesNotMatch(ingestSystem, /create_diagram/);
   const plain = chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: [CREATE_DIAGRAM_TOOL] });
   assert.deepEqual(plain.tools, [CREATE_DIAGRAM_TOOL]);
-  const plainSystem = (plain.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text;
+  const plainSystem = (plain.system as TextBlock[])[0].text;
   assert.match(plainSystem, /call create_diagram once/); assert.match(plainSystem, /call create_visual once/); assert.doesNotMatch(plainSystem, /add_paper/);
   const none = chatRequestParams({ instructions: chatInstructions('general'), paper: null, turns, selection: null });
   assert.equal(none.tools, undefined);
@@ -413,22 +411,24 @@ test('ingest adds an open-access web paper only for builds that show web papers'
   assert.equal(imports, 0);
 });
 
-test('web search is offered only when the server enables it, and never on Ingest', async () => {
+test('web search is offered only when the server enables it and Tavily is ready, and never on Ingest', async () => {
   const seen: unknown[] = [];
   const capture = (generateText: string) => async (params: unknown, stream: StreamOptions) => {
     seen.push((params as { tools?: unknown }).tools); stream.onText(generateText); return completeOutcome();
   };
   const off = harness({ generate: capture('a') });
   await runChat(off.deps, paperBody(), off.emit, new AbortController().signal);
-  const on = harness({ generate: capture('b') }); on.deps.webSearch = true;
+  const on = harness({ generate: capture('b') }); searching(on, []);
   await runChat(on.deps, paperBody(), on.emit, new AbortController().signal);
-  const ingest = harness({ generate: capture('c') }); ingest.deps.webSearch = true;
+  const unready = harness({ generate: capture('d') }); searching(unready, [], false);
+  await runChat(unready.deps, paperBody(), unready.emit, new AbortController().signal);
+  const ingest = harness({ generate: capture('c') }); searching(ingest, []);
   await runChat(ingest.deps, ingestBody(), ingest.emit, new AbortController().signal);
-  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL], [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
+  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL], [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL, SEARCH_WEB_TOOL],
+    [CREATE_DIAGRAM_TOOL, CREATE_VISUAL_TOOL, SHOW_FIGURE_PARTS_TOOL], [ADD_PAPER_TOOL]], 'our search_web function tool only; no provider-native search');
   // Every request completed (a fractional bigint amount once failed the reservation).
-  for (const run of [off, on, ingest]) assert.equal(run.events.at(-1)?.event, 'done', JSON.stringify(run.events.at(-1)));
+  for (const run of [off, on, unready, ingest]) assert.equal(run.events.at(-1)?.event, 'done', JSON.stringify(run.events.at(-1)));
   assert.ok(Number.isSafeInteger(webSearchHoldMicrousd(39_657)));
-  assert.deepEqual(WEB_SEARCH_TOOL, { type: 'web_search_20250305', name: 'web_search', max_uses: 3 });
   assert.match(chatInstructions('paper', null, true), /You can search the web/);
   assert.doesNotMatch(chatInstructions('paper', null, false), /search the web/);
   // The hold grows by the search allowance.
@@ -436,43 +436,29 @@ test('web search is offered only when the server enables it, and never on Ingest
   const holdOn = Number(on.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
   const inputTokens = Math.ceil(promptCharacters(chatRequestParams({ instructions: chatInstructions('paper', null, true),
     paper: { title: 'Attention', text: paperText }, turns: [{ role: 'user', text: secretQuestion }], selection: null,
-    tools: [CREATE_DIAGRAM_TOOL, WEB_SEARCH_TOOL] })) / 3);
+    tools: [CREATE_DIAGRAM_TOOL, SEARCH_WEB_TOOL] })) / 3);
   assert.ok(holdOn >= holdOff + webSearchHoldMicrousd(inputTokens) - 1);
-  assert.ok(webSearchHoldMicrousd(50_000) > 3 * (10_000 + 50_000 * 2.5));
-});
-
-test('searches are charged and cited sources are shown with the answer', async () => {
-  const h = harness({ generate: async (_p, stream) => {
-    stream.onText('DPO has follow-ups such as IPO.');
-    return completeOutcome({ webSearches: 2, sources: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'A General Theoretical Paradigm [IPO]' },
-      { url: 'javascript:alert(1)', title: 'bad' }, { url: 'https://example.org/blog', title: null }] });
-  } });
-  h.deps.webSearch = true;
-  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
-  // 900 input at $2 + 300 output at $10 = 4,800 micro-USD, plus two searches at $0.01.
-  assert.equal(settle.p_actual_microusd, 24_800); assert.equal(settle.p_actual_credits, 5);
-  assert.equal(h.calls.find(c => c.name === 'worker_record_provider_usage')!.params.p_microusd, 24_800);
-  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
-  assert.equal((h.events[1].data as { text: string }).text,
-    '\n\nSources:\n1. A General Theoretical Paradigm IPO — https://arxiv.org/abs/2310.12036\n2. https://example.org/blog');
-  assert.equal(sourcesText([]), '');
+  assert.ok(webSearchHoldMicrousd(50_000) > 3 * (10_000 + 50_000 * 2.75));
 });
 
 test('an answer that lists its own sources gets no second list', async () => {
+  let round = 0;
   const h = harness({ generate: async (_p, stream) => {
+    if (++round === 1) return searchRound([{ id: 's1', input: { query: 'IPO' } }]);
     stream.onText('IPO generalizes DPO.\n\nSources:\n1. IPO — https://arxiv.org/abs/2310.12036');
-    return completeOutcome({ webSearches: 1, sources: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }] });
+    return completeOutcome();
   } });
-  h.deps.webSearch = true;
+  searching(h, [found]);
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events.map(e => e.event), ['delta', 'done']);
+  assert.deepEqual(h.events.filter(e => e.event !== 'status').map(e => e.event), ['delta', 'done']);
   assert.match(chatInstructions('paper', null, true), /end your answer with a line "Sources:"/);
+  assert.equal(sourcesText([]), '');
+  assert.equal(sourcesText([{ url: 'javascript:alert(1)', title: 'bad' }, { url: 'https://example.org/blog', title: null }]), '\n\nSources:\n1. https://example.org/blog');
 });
 
 test('a balance between 50 credits and the full hold caps the credit hold, never the budget hold', async () => {
   const run = async (available: number | null, generate?: ChatDependencies['generate']) => {
-    const paper = new TextEncoder().encode(paperText.repeat(20));
+    const paper = new TextEncoder().encode(paperText.repeat(40));
     const h = harness(generate ? { generate, paper } : { paper });
     if (available !== null) h.deps.availableCredits = async () => available;
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
@@ -482,17 +468,18 @@ test('a balance between 50 credits and the full hold caps the credit hold, never
   assert.ok(Number(full.p_credits) > 60, `full hold ${full.p_credits}`);
   const capped = (await run(60)).reserve!;
   assert.equal(capped.p_credits, 60); assert.equal(capped.p_microusd, full.p_microusd);
-  assert.equal((await run(40)).reserve, undefined, 'clearly insufficient credits are refused before fetching the paper');
+  assert.equal((await run(10)).reserve, undefined, 'clearly insufficient credits are refused before fetching the paper');
   assert.equal((await run(100_000)).reserve!.p_credits, full.p_credits);
   // An answer costing more than the capped hold charges the balance and logs it.
   const costly = await run(60, async (_p, stream) => { stream.onText('x');
-    return completeOutcome({ attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 31_000 } }] }); });
+    return completeOutcome({ attempts: [{ model: SONNET, estimated: false, billedMicrousd: 310_000, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 31_000 } }] }); });
   assert.equal(costly.h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_credits, 60);
   assert.ok(costly.h.logs.some(l => l.event === 'chat_credits_capped_at_balance'));
 });
 
 test('unavailable or clearly insufficient credits stop before paper context authorization and Storage GET', async () => {
-  for (const available of [null, 0, 1, 40]) {
+  // Below what the request without its paper already holds (Sonnet: 8,000 output tokens at $11 per million, ~18 credits).
+  for (const available of [null, 0, 1, 10]) {
     const h = harness(); let downloads = 0;
     h.deps.availableCredits = async () => available;
     h.deps.loadPaper = async () => { downloads++; return new TextEncoder().encode(paperText); };
@@ -512,8 +499,8 @@ test('paper context byte authorization is passed to the single Storage read', as
   assert.equal(downloads, 1);
 });
 
-test('Ingest paid discovery requires consent v2 and the enabled server switch', async () => {
-  for (const [consent, enabled, allowed] of [['cloud-ai-v1', true, false], ['cloud-ai-v2', false, false], ['cloud-ai-v2', true, true]] as const) {
+test('Ingest paid discovery requires a consent naming Tavily and the enabled server switch', async () => {
+  for (const [consent, enabled, allowed] of [['cloud-ai-v5', false, false], ['cloud-ai-v5', true, true], ['cloud-ai-v6', true, true]] as const) {
     const h = harness({ generate: toolGenerate({ title: 'A sufficiently precise paper title' }) });
     h.deps.webSearch = enabled;
     h.deps.findPaper = async (_request, _signal, options) => { assert.equal(options.tavily, allowed); return { status: 'not_found' }; };
@@ -523,35 +510,14 @@ test('Ingest paid discovery requires consent v2 and the enabled server switch', 
   }
 });
 
-test('native backup is absent when separately gated, even with general web search enabled', async () => {
+test('web search without a configured search provider offers no search tool at all (no provider-native backup exists)', async () => {
   const h = harness({ generate: async (params) => {
-    assert.ok(!params.tools?.some(tool => tool.name === 'web_search'));
+    assert.ok(!params.tools?.some(tool => tool.name === 'web_search' || tool.name === 'search_web'));
     return completeOutcome();
   } });
-  h.deps.webSearch = true; h.deps.nativeSearch = false;
-  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.equal(h.answers[0].web_search_offered, false);
-});
-
-test('pause_turn continuations share one search allowance and never report an unfinished answer as done', async () => {
-  const offered: number[] = [];
-  const h = harness({ generate: async params => {
-    offered.push((params.tools?.find(tool => tool.name === 'web_search') as { max_uses: number }).max_uses);
-    return completeOutcome({ stopReason: 'pause_turn', webSearches: 1, content: [] });
-  } });
   h.deps.webSearch = true;
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(offered, [3, 2, 1]);
-  assert.equal(h.events.at(-1)?.event, 'error');
-  assert.equal(h.answers[0].web_searches, 3);
-});
-
-test('pause_turn without search progress still obeys the pre-continuation round bound', async () => {
-  let requests = 0;
-  const h = harness({ generate: async () => { requests++; return completeOutcome({ stopReason: 'pause_turn', content: [] }); } });
-  h.deps.webSearch = true;
-  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.equal(requests, 4); assert.equal(h.events.at(-1)?.event, 'error');
+  assert.equal(h.answers[0].web_search_offered, false); assert.equal(h.answers[0].search_provider, 'none');
 });
 
 test('SSE frames and bounded body reading', async () => {
@@ -565,9 +531,10 @@ test('SSE frames and bounded body reading', async () => {
 
 type Call = { name: string; params: Record<string, unknown> };
 type Script = Record<string, (params: Record<string, unknown>) => unknown>;
+// OpenRouter reports each generation's cost (`usage.cost`); 900 input and 300 output tokens here cost $0.0048.
 function completeOutcome(changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
-  return { status: 'complete', failure: null, messageID: 'msg_01', model: 'claude-sonnet-5-5', stopReason: 'end_turn', refusalCategory: null,
-    attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 300 } }],
+  return { status: 'complete', failure: null, messageID: 'gen-01', model: SONNET, stopReason: 'end_turn', refusalCategory: null,
+    attempts: [{ model: SONNET, estimated: false, billedMicrousd: 4_800, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 300 } }],
     exact: true, ...changes };
 }
 function harness(options: { script?: Script; generate?: ChatDependencies['generate']; paper?: Uint8Array | null } = {}) {
@@ -597,9 +564,6 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
     : options.generate;
   const deps: ChatDependencies = {
     accountID: account,
-    // Native-search continuation behavior remains tested explicitly while the
-    // production admitted adapter gates native search pending a strict bound.
-    nativeSearch: true,
     rpc: async (name, params) => {
       calls.push({ name, params });
       const handler = script[name]; assert.ok(handler, `unexpected rpc ${name}`);
@@ -614,6 +578,25 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
   };
   return { deps, calls, events, logs, answers, emit: (event: ChatEvent) => events.push(event), generations: () => generations };
 }
+// ---- Web search: our search_web tool, run with Tavily ----
+
+/** A consent that names Tavily (v2 and later); every answer now needs v5 or later, which names OpenRouter. */
+const v2 = (body: Record<string, unknown>) => ({ ...body, consent_version: CONSENT });
+type Sent = { messages: { role: string; content: unknown }[]; tools?: { name?: string; type?: string; max_uses?: number }[]; max_tokens: number };
+function searchRound(calls: { id: string; input: unknown; name?: string }[], output = 120): ProviderOutcome {
+  const toolCalls = calls.map(call => ({ id: call.id, name: call.name ?? 'search_web', input: call.input }));
+  return completeOutcome({ messageID: 'gen-round', stopReason: 'tool_use', toolCalls,
+    attempts: [{ model: SONNET, estimated: false, billedMicrousd: 900 * 2 + output * 10, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output } }],
+    content: [{ type: 'text', text: 'Let me look.' }, ...toolCalls.map(call => ({ type: 'tool_use', ...call }))] });
+}
+const found: SearchOutcome = { status: 'ok', credits: 1, results: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO', text: 'A general paradigm.', published: '2023-10-18' }] };
+function searching(h: ReturnType<typeof harness>, outcomes: SearchOutcome[], ready = true) {
+  const runs: unknown[] = [];
+  h.deps.webSearch = true;
+  h.deps.search = { ready: async () => ready, run: async input => { runs.push(input); return outcomes.shift() ?? found; } };
+  return runs;
+}
+
 const names = (calls: Call[]) => calls.map(call => call.name);
 function noPlaintext(logs: LogEntry[]) {
   const serialized = JSON.stringify(logs);
@@ -626,19 +609,19 @@ test('a paper answer holds, streams, settles once and records usage', async () =
   assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_chat_context', 'worker_reserve_chat', 'worker_settle_chat', 'worker_record_provider_usage']);
   const reserve = h.calls[2].params, settle = h.calls[3].params, usage = h.calls[4].params;
   assert.equal(reserve.p_rate_version, 'beta-credits-v1'); assert.equal(reserve.p_id, operation);
-  // The quote freezes the default profile: exactly the request the function made before profiles.
-  assert.deepEqual(reserve.p_quote, { profile_version: 'chat-profiles-v1', profile: 'sonnet-low-standard', model: 'claude-sonnet-5-5',
-    effort: 'low', length: 'standard', tariff: 'anthropic-list-prices-2026-10-08', max_output_tokens: 8_000,
+  // The quote freezes the default profile: Sonnet 5.5 through OpenRouter at its reviewed Vertex card.
+  assert.deepEqual(reserve.p_quote, { profile_version: 'chat-profiles-v1', profile: 'sonnet-low-standard', model: SONNET,
+    effort: 'low', length: 'standard', tariff: 'openrouter-claude-vertex-us-20261017', max_output_tokens: 8_000,
     input_estimate_tokens: (reserve.p_quote as { input_estimate_tokens: number }).input_estimate_tokens, max_searches: 0,
     title_model: null, title_max_tokens: null, title_ceiling_microusd: null });
   assert.match(String(reserve.p_request_sha256), /^\\x[0-9a-f]{64}$/);
   const expected = createHash('sha256').update(canonicalRequest(validateChatRequest(paperBody()))).digest('hex');
   assert.equal(reserve.p_request_sha256, `\\x${expected}`);
   assert.ok(Number(reserve.p_credits) >= 16 && Number(reserve.p_microusd) >= 80_000);
-  // 900 input at $2 + 300 output at $10 = 4,800 micro-USD -> 1 credit.
+  // OpenRouter's reported cost, 4,800 micro-USD -> 1 credit.
   assert.deepEqual(settle, { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 4_800,
     p_action: 'answer', p_ending: 'completed', p_absorbed_microusd: 0 });
-  assert.equal(usage.p_provider, 'anthropic'); assert.equal(usage.p_provider_event_id, 'msg_01'); assert.equal(usage.p_microusd, 4_800);
+  assert.equal(usage.p_provider, 'openrouter'); assert.equal(usage.p_provider_event_id, 'gen-01'); assert.equal(usage.p_microusd, 4_800);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
   assert.deepEqual(h.events[2].data, { stop_reason: 'end_turn', credits: 1,
     usage: { input_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 300 },
@@ -660,15 +643,17 @@ test('a build without stop_signal closing the stream aborts the provider and is 
     client.abort();
     assert.ok(stream.signal.aborted, 'provider signal follows the client');
     stream.onText('late text');
-    return { status: 'failed', failure: 'aborted', messageID: 'msg_02', model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null,
-      attempts: [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 100 }, readerMicrousd: 3_000 }], exact: false };
+    return { status: 'failed', failure: 'aborted', messageID: 'msg_02', model: SONNET, stopReason: null, refusalCategory: null,
+      attempts: [{ model: SONNET, estimated: true, usage: { input: 1000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 100 }, readerMicrousd: 3_000 }], exact: false };
   } });
   await runChat(h.deps, paperBody(), h.emit, client.signal);
   assert.deepEqual(h.events, [{ event: 'delta', data: { text: 'partial ' } }]);
   const settles = h.calls.filter(c => c.name === 'worker_settle_chat');
   assert.equal(settles.length, 1);
-  assert.deepEqual(settles[0].params, { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 3_000,
-    p_action: 'answer', p_ending: 'left', p_absorbed_microusd: 0 });
+  // The reader pays for what was written (3,000); the estimate (1,000 input at $2.20 + 100 output at $11 = 3,300) is
+  // the provider spend, and the 300 between them is Gradstep's.
+  assert.deepEqual(settles[0].params, { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 3_300,
+    p_action: 'answer', p_ending: 'left', p_absorbed_microusd: 300 });
   // Nothing asks whether the reader pressed Stop: the build can't say.
   assert.ok(!names(h.calls).includes('worker_chat_stop_requested'));
   const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!.params;
@@ -678,25 +663,25 @@ test('a build without stop_signal closing the stream aborts the provider and is 
 test('a provider error mid-stream settles once, charges nothing (Gradstep absorbs it) and reports provider_unavailable', async () => {
   const h = harness({ generate: async (_params, stream) => {
     stream.onText('half an answer');
-    return { status: 'failed', failure: 'provider_error', messageID: 'msg_03', model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null,
-      attempts: [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 50 } }], exact: false };
+    return { status: 'failed', failure: 'provider_error', messageID: 'msg_03', model: SONNET, stopReason: null, refusalCategory: null,
+      attempts: [{ model: SONNET, estimated: true, usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 50 } }], exact: false };
   } });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
   assert.equal(h.calls.filter(c => c.name === 'worker_settle_chat').length, 1);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'error']);
   // Mid-stream (message_start seen; owner decision 2026-10-16): the reader keeps the partial text and pays nothing; the
-  // estimated provider cost (500 input at $2 + 50 output at $10 = 1,500 micro-USD) is Gradstep's, recorded as absorbed.
+  // estimated provider cost (500 input at $2.20 + 50 output at $11 = 1,650 micro-USD) is Gradstep's, recorded as absorbed.
   assert.deepEqual(h.events[1].data, { code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 10 });
   assert.deepEqual(h.calls.find(c => c.name === 'worker_settle_chat')!.params, { p_account_id: account, p_id: operation, p_actual_credits: 0,
-    p_actual_microusd: 1_500, p_action: 'answer', p_ending: 'provider', p_absorbed_microusd: 1_500 });
+    p_actual_microusd: 1_650, p_action: 'answer', p_ending: 'provider', p_absorbed_microusd: 1_650 });
 });
 
 test('A13: a provider billing refusal (402) settles without charge and blames the service, not the chosen model', async () => {
   const h = harness({ generate: async () => ({ status: 'failed', failure: 'provider_billing', messageID: null,
-    model: 'claude-sonnet-5-5', stopReason: null, refusalCategory: null, attempts: [], exact: true }) });
+    model: SONNET, stopReason: null, refusalCategory: null, attempts: [], exact: true }) });
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
   assert.deepEqual(h.events, [{ event: 'error', data: { code: 'service_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 300 } }]);
-  assert.deepEqual(h.logs, [{ event: 'chat_provider_billing', operation_id: operation, provider: 'anthropic' }]);
+  assert.deepEqual(h.logs, [{ event: 'chat_provider_billing', operation_id: operation, provider: 'openrouter' }]);
   const settlements = h.calls.filter(c => c.name === 'worker_settle_chat');
   assert.equal(settlements.length, 1);
   assert.equal(settlements[0].params.p_actual_credits, 0);
@@ -776,7 +761,7 @@ test('a refusal is settled at no charge and reported as refused', async () => {
 });
 
 test('usage above the hold charges at most the hold but records the true cost', async () => {
-  const h = harness({ generate: async (_params, stream) => { stream.onText('A long answer.'); return completeOutcome({ attempts: [{ model: 'claude-sonnet-5-5', estimated: false,
+  const h = harness({ generate: async (_params, stream) => { stream.onText('A long answer.'); return completeOutcome({ attempts: [{ model: SONNET, estimated: false,
     usage: { input: 5_000_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8_000 } }] }); } });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
   const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
@@ -831,142 +816,19 @@ test('the server deadline aborts generation, charges nothing (our limit) and rep
     p_action: 'answer', p_ending: 'limit', p_absorbed_microusd: 0 });
 });
 
-// Real SDK, fake transport: verifies the request on the wire and event handling.
-function sseResponse(events: Record<string, unknown>[], hang = false) {
-  return (signal?: AbortSignal | null) => new Response(new ReadableStream<Uint8Array>({
-    async start(controller) {
-      for (const event of events) controller.enqueue(new TextEncoder().encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
-      if (!hang) { controller.close(); return; }
-      await new Promise<void>(resolve => signal?.addEventListener('abort', () => resolve(), { once: true }));
-      controller.error(new DOMException('aborted', 'AbortError'));
-    },
-  }), { status: 200, headers: { 'content-type': 'text/event-stream', 'request-id': 'req_test' } });
+// The real OpenRouter adapter over a fake transport (its own tests: openrouter-chat.test.ts).
+const attribution = { accountID: account, operationID: operation, attemptID: 'cccccccc-0000-4000-8000-0000000000aa', feature: 'chat', caller: 'chat',
+  dispatch: async () => true };
+function routerStream(events: Record<string, unknown>[]) {
+  return () => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
 }
-function fakeClient(respond: (signal?: AbortSignal | null) => Response, seen: { url?: string; headers?: Headers; body?: Record<string, unknown> } = {}) {
-  return createAnthropicClient({ apiKey: 'test-key', maxRetries: 0, fetch: (async (url: string, init: RequestInit) => {
-    seen.url = String(url); seen.headers = new Headers(init.headers); seen.body = JSON.parse(String(init.body));
-    return respond(init.signal);
-  }) as typeof fetch });
-}
-const usage0 = { input_tokens: 1200, output_tokens: 1, cache_creation_input_tokens: 800, cache_read_input_tokens: 0 };
-const start = { type: 'message_start', message: { id: 'msg_live', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', content: [],
-  stop_reason: null, stop_sequence: null, usage: usage0 } };
-const text = (index: number, value: string) => [
-  { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
-  { type: 'content_block_delta', index, delta: { type: 'text_delta', text: value } },
-  { type: 'content_block_stop', index },
-];
+const routerChat = (respond: () => Response) => openRouterChat({ apiKey: 'test-key', fetch: (async () => respond()) as typeof fetch, sleep: async () => {} });
 const params = () => chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'T', text: paperText },
   turns: [{ role: 'user', text: secretQuestion }], selection: null });
 
-test('the SDK adapter streams text, sends the fallback beta and returns exact usage', async () => {
-  const seen: { url?: string; headers?: Headers; body?: Record<string, unknown> } = {};
-  const client = fakeClient(sseResponse([start, ...text(0, 'Hello '), ...text(1, 'world'),
-    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { ...usage0, output_tokens: 40 } },
-    { type: 'message_stop' }]), seen);
-  const received: string[] = [];
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: t => received.push(t), inputEstimateTokens: 2000 });
-  assert.deepEqual(received, ['Hello ', 'world']);
-  assert.equal(outcome.status, 'complete'); assert.equal(outcome.stopReason, 'end_turn'); assert.equal(outcome.exact, true);
-  assert.deepEqual(outcome.attempts, [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 1200, cacheWrite5m: 800, cacheWrite1h: 0, cacheRead: 0, output: 40 } }]);
-  assert.match(seen.url!, /\/v1\/messages\?beta=true$/);
-  assert.ok(seen.headers!.get('anthropic-beta')!.includes(FALLBACK_BETA));
-  assert.equal(seen.body!.fallbacks, 'default'); assert.equal(seen.body!.stream, true); assert.equal(seen.body!.model, 'claude-sonnet-5-5');
-  assert.deepEqual(seen.body!.thinking, { type: 'adaptive' }); assert.equal(seen.body!.betas, undefined);
-});
-
-test('the SDK adapter returns client tool calls from the final message', async () => {
-  const client = fakeClient(sseResponse([start, ...text(0, 'That is DPO.'),
-    { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'add_paper', input: {} } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"title":"Direct Preference Optimization","year":2023}' } },
-    { type: 'content_block_stop', index: 1 },
-    { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { ...usage0, output_tokens: 60 } },
-    { type: 'message_stop' }]));
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 2000 });
-  assert.equal(outcome.stopReason, 'tool_use');
-  assert.deepEqual(outcome.toolCalls, [{ id: 'toolu_1', name: 'add_paper', input: { title: 'Direct Preference Optimization', year: 2023 } }]);
-  assert.equal((outcome.content as { type: string }[]).map(block => block.type).join(), 'text,tool_use', 'content kept for a continuation');
-  assert.equal(JSON.stringify(ADD_PAPER_TOOL).includes('eager_input_streaming'), false);
-});
-
-test('the SDK adapter counts web searches and collects cited sources', async () => {
-  const searching = { type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } };
-  const cited = [
-    { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '', citations: [] } },
-    { type: 'content_block_delta', index: 2, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', url: 'https://arxiv.org/abs/2310.12036',
-      title: 'IPO', cited_text: 'x', encrypted_index: 'e' } } },
-    { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'IPO generalizes DPO.' } },
-    { type: 'content_block_stop', index: 2 },
-  ];
-  const client = fakeClient(sseResponse([start, ...text(0, 'Searching.'), searching, { type: 'content_block_stop', index: 1 }, ...cited,
-    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
-      usage: { ...usage0, output_tokens: 70, server_tool_use: { web_search_requests: 1, web_fetch_requests: 0 } } },
-    { type: 'message_stop' }]));
-  const received: string[] = [];
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: t => received.push(t), inputEstimateTokens: 2000 });
-  assert.deepEqual(received, ['Searching.', 'IPO generalizes DPO.']);
-  assert.equal(outcome.webSearches, 1);
-  assert.deepEqual(outcome.sources, [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }]);
-});
-
-test('the SDK adapter reports refusals with their category', async () => {
-  const client = fakeClient(sseResponse([start, ...text(0, 'I can'),
-    { type: 'message_delta', delta: { stop_reason: 'refusal', stop_sequence: null, stop_details: { type: 'refusal', category: 'general_harms', explanation: null } },
-      usage: { ...usage0, output_tokens: 5 } }, { type: 'message_stop' }]));
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
-  assert.equal(outcome.status, 'complete'); assert.equal(outcome.stopReason, 'refusal'); assert.equal(outcome.refusalCategory, 'general_harms');
-});
-
-test('the SDK adapter treats an explicit validation rejection as unbilled', async () => {
-  const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'invalid_request_error', message: 'Invalid' } }, { status: 400 }));
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
-  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_rejected'); assert.deepEqual(outcome.attempts, []);
-});
-
-test('the SDK adapter names a refusal for the account\'s balance (staging, 2026-10-16), unbilled', async () => {
-  const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'invalid_request_error',
-    message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } }, { status: 400 }));
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
-  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_billing'); assert.deepEqual(outcome.attempts, []);
-});
-
-test('the SDK adapter estimates usage after an abort mid-stream', async () => {
-  const controller = new AbortController();
-  let clock = 1_000;
-  const client = fakeClient(sseResponse([start, ...text(0, 'x'.repeat(30))], true));
-  const outcome = await streamChat(client, params(), { signal: controller.signal, inputEstimateTokens: 5_000, now: () => clock,
-    onText: () => { clock += 2_000; queueMicrotask(() => controller.abort()); } });
-  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'aborted'); assert.equal(outcome.exact, false);
-  assert.equal(outcome.messageID, 'msg_live');
-  // Input comes from message_start; output is the larger of text/3 and 100 tokens per elapsed second.
-  assert.deepEqual(outcome.attempts, [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1200, cacheWrite5m: 800, cacheWrite1h: 0, cacheRead: 0, output: 200 } }]);
-});
-
-test('an abort after a web search estimates the extra pass and results', async () => {
-  const controller = new AbortController();
-  let clock = 1_000;
-  const searching = { type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } };
-  const client = fakeClient(sseResponse([start, searching, { type: 'content_block_stop', index: 1 }, ...text(2, 'x'.repeat(30))], true));
-  const outcome = await streamChat(client, params(), { signal: controller.signal, inputEstimateTokens: 5_000, now: () => clock,
-    onText: () => { clock += 2_000; queueMicrotask(() => controller.abort()); } });
-  assert.equal(outcome.webSearches, 1);
-  // message_start input (1,200) plus one pass over the prompt estimate and 30k tokens of results.
-  assert.equal(outcome.attempts[0].usage.input, 1_200 + 5_000 + 30_000);
-});
-
-test('the SDK adapter charges the input estimate when billing is uncertain before message_start', async () => {
-  const client = createAnthropicClient({ apiKey: 'test-key', maxRetries: 0, fetch: (async () => { throw new TypeError('network down'); }) as typeof fetch });
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 777 });
-  assert.equal(outcome.status, 'failed'); assert.equal(outcome.exact, false);
-  assert.deepEqual(outcome.attempts, [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 777, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }]);
-  const already = new AbortController(); already.abort();
-  const skipped = await streamChat(client, params(), { signal: already.signal, onText: () => {}, inputEstimateTokens: 777 });
-  assert.deepEqual(skipped.attempts, []);
-});
-
 test('all prompt text and nested tool results use a conservative UTF-8 byte bound', async () => {
   // Three per byte, so the estimate is one token per byte (a 2–3× margin; see promptCharacters for the 2026-10-14 pause).
-  const { promptCharacters } = await import('../../supabase/functions/_shared/anthropic.ts');
+  const { promptCharacters } = await import('../../supabase/functions/_shared/inference.ts');
   const params = (text: string) => ({ model: 'x', max_tokens: 1, messages: [{ role: 'user' as const, content: text }] });
   const base = promptCharacters(params(''));
   assert.equal(promptCharacters(params('abc')) - base, 9);
@@ -985,48 +847,44 @@ test('Related searches the web by instruction; every answer logs counts only', a
   assert.match(chatInstructions('paper', 'related', true), /You must search the web before answering/);
   assert.match(chatInstructions('paper', 'related', false), /could not search the web/);
   assert.doesNotMatch(chatInstructions('paper', null, true), /"Related"/);
-  let tools: unknown;
+  let tools: unknown, round = 0;
   const h = harness({ generate: async (params, stream) => {
     tools = (params as { tools?: { name?: string }[] }).tools?.map(t => t.name);
-    stream.onText('1. **A paper**'); return completeOutcome({ webSearches: 3 });
+    if (++round === 1) return searchRound([{ id: 's1', input: { query: 'multi-head attention variants', academic: true } }]);
+    stream.onText('1. **A paper**'); return completeOutcome();
   } });
-  h.deps.webSearch = true;
+  searching(h, [found]);
   await runChat(h.deps, quoted, h.emit, new AbortController().signal);
-  assert.ok((tools as string[]).includes('web_search'));
-  assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', ending: 'completed', charged: true, credits: 7,
-    web_search_offered: true, search_provider: 'anthropic', web_searches: 3, tavily_searches: 0, search_failures: 0, failover: false, sources: 0,
-    profile: 'sonnet-low-standard', auto_effort: false, provider: 'anthropic', title: 'not_requested' }]);
-  const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!;
-  assert.equal((usage.params.p_units as { web_searches: number }).web_searches, 3);
+  assert.ok((tools as string[]).includes('search_web'), 'our search tool; no provider-native search');
+  // Reader: both rounds (3,000 + 4,800 reported by OpenRouter) and one Tavily credit at $0.008 = 15,800 -> 4 credits.
+  assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', ending: 'completed', charged: true, credits: 4,
+    web_search_offered: true, search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, sources: 1,
+    profile: 'sonnet-low-standard', auto_effort: false, provider: 'openrouter', title: 'not_requested' }]);
+  const usage = h.calls.filter(c => c.name === 'worker_record_provider_usage').map(c => c.params);
+  assert.deepEqual(usage.map(u => u.p_provider), ['openrouter', 'tavily']);
+  assert.equal((usage[0].p_units as { web_searches: number }).web_searches, 0, 'no provider-native searches');
 });
 
-// ---- Web search with Tavily (primary) and Anthropic (backup) ----
-
-const v2 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v2' });
-type Sent = { messages: { role: string; content: unknown }[]; tools?: { name?: string; type?: string; max_uses?: number }[]; max_tokens: number };
-function searchRound(calls: { id: string; input: unknown; name?: string }[], output = 120): ProviderOutcome {
-  const toolCalls = calls.map(call => ({ id: call.id, name: call.name ?? 'search_web', input: call.input }));
-  return completeOutcome({ messageID: 'msg_round', stopReason: 'tool_use', toolCalls,
-    attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output } }],
-    content: [{ type: 'text', text: 'Let me look.' }, ...toolCalls.map(call => ({ type: 'tool_use', ...call }))] });
-}
-const found: SearchOutcome = { status: 'ok', credits: 1, results: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO', text: 'A general paradigm.', published: '2023-10-18' }] };
-function searching(h: ReturnType<typeof harness>, outcomes: SearchOutcome[], ready = true) {
-  const runs: unknown[] = [];
-  h.deps.webSearch = true;
-  h.deps.search = { ready: async () => ready, run: async input => { runs.push(input); return outcomes.shift() ?? found; } };
-  return runs;
-}
-
-test('consent v2 is accepted alongside v1 and keeps its own request digest', () => {
-  assert.equal(validateChatRequest(v2(paperBody())).consentVersion, 'cloud-ai-v2');
-  assert.equal(validateChatRequest(paperBody()).consentVersion, 'cloud-ai-v1');
-  assert.notEqual(canonicalRequest(validateChatRequest(paperBody())), canonicalRequest(validateChatRequest(v2(paperBody()))));
-  // v3 (2026-10-15) names figures and v4 (2026-10-16) DeepSeek; an unknown version is still refused.
-  assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })).consentVersion, 'cloud-ai-v3');
-  assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v4' })).consentVersion, 'cloud-ai-v4');
-  assert.equal(validateChatRequest(paperBody({ consent_version: 'cloud-ai-v5' })).consentVersion, 'cloud-ai-v5');
+test('consent: v1–v6 are read, every answer needs v5 or later (it names OpenRouter), and DeepSeek needs v6', async () => {
+  const digests = new Set<string>();
+  for (const version of ['cloud-ai-v1', 'cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5', 'cloud-ai-v6']) {
+    assert.equal(validateChatRequest(paperBody({ consent_version: version })).consentVersion, version);
+    digests.add(canonicalRequest(validateChatRequest(paperBody({ consent_version: version }))));
+  }
+  assert.equal(digests.size, 6, 'each version keeps its own request digest');
   assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v7' })), { code: 'invalid_request' });
+  // Builds whose consent predates OpenRouter are told to update before anything is held or sent.
+  for (const version of ['cloud-ai-v1', 'cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4']) {
+    const h = harness();
+    await runChat(h.deps, paperBody({ consent_version: version }), h.emit, new AbortController().signal);
+    assert.deepEqual(h.events, [{ event: 'error', data: { code: 'consent_required' } }], version);
+    assert.deepEqual(names(h.calls), ['worker_consume_request'], version); assert.equal(h.generations(), 0, version);
+  }
+  for (const version of ['cloud-ai-v5', 'cloud-ai-v6']) {
+    const h = harness();
+    await runChat(h.deps, paperBody({ consent_version: version }), h.emit, new AbortController().signal);
+    assert.equal(h.events.at(-1)?.event, 'done', version);
+  }
 });
 
 test('Tavily searches run between rounds as search results (not citable: no cache-breaking switch) and are priced for the reader but not as provider spend', async () => {
@@ -1040,7 +898,7 @@ test('Tavily searches run between rounds as search results (not citable: no cach
   const runs = searching(h, [found]);
   await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
   assert.deepEqual(runs, [{ query: 'IPO preference optimization', academic: true }]);
-  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'search_web'], 'Tavily, not Anthropic search');
+  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'search_web'], 'our search_web tool (Tavily); no provider-native search');
   // Round two: the first round's content, then the results as search results (citations off) with a cache breakpoint.
   const [assistant, results] = sent[1].messages.slice(-2) as { role: string; content: Record<string, unknown>[] }[];
   assert.equal(assistant.role, 'assistant'); assert.equal(assistant.content[1].id, 'toolu_s1');
@@ -1061,25 +919,25 @@ test('Tavily searches run between rounds as search results (not citable: no cach
   assert.equal(settle.p_actual_microusd, tokens);
   assert.equal(settle.p_actual_credits, creditsFor(tokens + 8_000));
   const usage = h.calls.filter(c => c.name === 'worker_record_provider_usage').map(c => c.params);
-  assert.deepEqual(usage.map(u => u.p_provider), ['anthropic', 'tavily']);
-  assert.equal(usage[0].p_provider_event_id, 'msg_round'); assert.equal(usage[0].p_microusd, tokens);
+  assert.deepEqual(usage.map(u => u.p_provider), ['openrouter', 'tavily']);
+  assert.equal(usage[0].p_provider_event_id, 'gen-round'); assert.equal(usage[0].p_microusd, tokens);
   assert.deepEqual(usage[1], { p_account_id: account, p_operation_id: operation, p_provider: 'tavily', p_provider_event_id: `operation:${operation}`,
     p_model: 'search-basic', p_microusd: 0, p_units: { searches: 1, credits: 1, failed: 0, list_microusd: 8_000 } });
   assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', ending: 'completed', charged: true, credits: 4,
-    web_search_offered: true, search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, failover: false, sources: 1,
-    profile: 'sonnet-low-standard', auto_effort: false, provider: 'anthropic', title: 'not_requested' }]);
+    web_search_offered: true, search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, sources: 1,
+    profile: 'sonnet-low-standard', auto_effort: false, provider: 'openrouter', title: 'not_requested' }]);
   assert.match(text, /Sources:\n1\. IPO — https:\/\/arxiv\.org\/abs\/2310\.12036/);
   noPlaintext(h.logs);
 });
 
-test('readers who consented to v1 (Anthropic only), and a paused or exhausted Tavily, use Anthropic search', async () => {
-  for (const [body, ready] of [[paperBody(), true], [v2(paperBody()), false]] as const) {
+test('a paused or exhausted Tavily offers no search tool: the answer is written without search', async () => {
+  {
     let tools: string[] = [];
     const h = harness({ generate: async (params, stream) => { tools = ((params as unknown as Sent).tools ?? []).map(t => t.name!); stream.onText('a'); return completeOutcome(); } });
-    const runs = searching(h, [], ready);
-    await runChat(h.deps, body, h.emit, new AbortController().signal);
-    assert.deepEqual(tools, ['create_diagram', 'create_visual', 'show_figure_parts', 'web_search']); assert.equal(runs.length, 0);
-    assert.equal(h.answers[0].search_provider, 'anthropic');
+    const runs = searching(h, [], false);
+    await runChat(h.deps, v2(paperBody()), h.emit, new AbortController().signal);
+    assert.deepEqual(tools, ['create_diagram', 'create_visual', 'show_figure_parts']); assert.equal(runs.length, 0);
+    assert.equal(h.answers[0].search_provider, 'none'); assert.equal(h.answers[0].web_search_offered, false);
   }
   // Ingest never searches.
   let tools: string[] = [];
@@ -1089,26 +947,25 @@ test('readers who consented to v1 (Anthropic only), and a paused or exhausted Ta
   assert.deepEqual(tools, ['add_paper']);
 });
 
-test('a Tavily failure switches the rest of the answer to Anthropic search; failed searches cost nothing', async () => {
+test('a Tavily failure ends search for the rest of the answer, which continues without it; failed searches cost nothing', async () => {
   const sent: Sent[] = [];
   const h = harness({ generate: async (params, stream) => {
     sent.push(structuredClone(params) as unknown as Sent);
     if (sent.length === 1) return searchRound([{ id: 'toolu_s1', input: { query: 'follow-up work' } }]);
-    stream.onText('Found via the backup.'); return completeOutcome({ webSearches: 1 });
+    stream.onText('Answered without search.'); return completeOutcome();
   } });
   searching(h, [{ status: 'failed', failure: 'limit', retryAfterMs: null }]);
   await runChat(h.deps, v2(paperBody()), h.emit, new AbortController().signal);
   const result = (sent[1].messages.at(-1)!.content as { is_error?: boolean; content: string }[])[0];
-  assert.equal(result.is_error, true); assert.match(result.content, /Use the web_search tool instead/);
-  const backup = sent[1].tools!.find(t => t.name === 'web_search')!;
-  assert.equal(backup.type, 'web_search_20250305'); assert.equal(backup.max_uses, 2, 'the search allowance is shared');
-  assert.ok(sent[1].tools!.some(t => t.name === 'search_web'), 'search_web stays defined: the conversation uses it');
+  assert.equal(result.is_error, true); assert.match(result.content, /Web search is unavailable right now\. Answer without it/);
+  assert.deepEqual(sent[1].tools!.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'search_web'],
+    'search_web stays defined (the conversation uses it); no provider-native search appears');
   const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
   const tokens = 900 * 2 + 120 * 10 + 900 * 2 + 300 * 10;
-  assert.equal(settle.p_actual_microusd, tokens + 10_000, 'the backup search is provider spend');
-  assert.equal(settle.p_actual_credits, creditsFor(tokens + 10_000));
+  assert.equal(settle.p_actual_microusd, tokens, 'provider spend is the two OpenRouter rounds');
+  assert.equal(settle.p_actual_credits, creditsFor(tokens), 'the failed search is not charged');
   assert.deepEqual(h.logs.filter(l => l.event === 'chat_search_failed'), [{ event: 'chat_search_failed', operation_id: operation, provider: 'tavily', failure: 'limit' }]);
-  assert.equal(h.answers[0].failover, true); assert.equal(h.answers[0].search_failures, 1); assert.equal(h.answers[0].web_searches, 1);
+  assert.equal(h.answers[0].search_failures, 1); assert.equal(h.answers[0].web_searches, 0);
   const tavily = h.calls.filter(c => c.name === 'worker_record_provider_usage').find(c => c.params.p_provider === 'tavily')!;
   assert.deepEqual(tavily.params.p_units, { searches: 0, credits: 0, failed: 1, list_microusd: 0 });
 });
@@ -1149,21 +1006,6 @@ test('rounds stop at the search allowance; a failed round ends the answer and ke
   const settle = failing.calls.find(c => c.name === 'worker_settle_chat')!.params;
   assert.ok(Number(settle.p_actual_microusd) > 900 * 2 + 120 * 10, 'the first round and an estimate for the lost one');
   assert.equal(failing.events.at(-1)!.event, 'error');
-});
-
-test('the SDK adapter collects search_result citations as sources', async () => {
-  const cited = [
-    { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '', citations: [] } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'citations_delta', citation: { type: 'search_result_location', source: 'https://arxiv.org/abs/2310.12036',
-      title: 'IPO', cited_text: 'x', search_result_index: 0, start_block_index: 0, end_block_index: 1 } } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'IPO generalizes DPO.' } },
-    { type: 'content_block_stop', index: 1 },
-  ];
-  const client = fakeClient(sseResponse([start, ...text(0, 'Answer: '), ...cited,
-    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { ...usage0, output_tokens: 20 } }, { type: 'message_stop' }]));
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 2000 });
-  assert.deepEqual(outcome.sources, [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }]);
-  assert.equal(outcome.webSearches, undefined, 'client searches are not Anthropic searches');
 });
 
 test('Tavily input, results and HTTP failures are bounded and typed', async () => {
@@ -1270,30 +1112,6 @@ test('ingest reports finding the paper, and adding it only when it was found', a
   assert.equal(stopped.events.some(e => e.event === 'done'), false);
 });
 
-test('the SDK adapter reports Anthropic search progress from the stream', async () => {
-  const query = 'DPO follow-ups 2025';
-  const client = fakeClient(sseResponse([start, ...text(0, 'Let me check. '),
-    { type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"query":"DPO follow' } },
-    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '-ups 2025"}' } },
-    { type: 'content_block_stop', index: 1 },
-    { type: 'content_block_start', index: 2, content_block: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [] } },
-    { type: 'content_block_stop', index: 2 },
-    ...text(3, 'Found it.'),
-    { type: 'content_block_start', index: 4, content_block: { type: 'server_tool_use', id: 'srvtoolu_2', name: 'web_search', input: {} } },
-    { type: 'content_block_delta', index: 4, delta: { type: 'input_json_delta', partial_json: '{"qu' } },
-    { type: 'content_block_stop', index: 4 },
-    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
-      usage: { ...usage0, output_tokens: 70, server_tool_use: { web_search_requests: 2, web_fetch_requests: 0 } } },
-    { type: 'message_stop' }]));
-  const seen: (string | ChatStatus)[] = [];
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, inputEstimateTokens: 2000,
-    onText: t => seen.push(t), onStatus: s => seen.push(s) });
-  assert.deepEqual(seen, ['Let me check. ', { kind: 'searching', query }, { kind: 'reading' }, 'Found it.', { kind: 'searching' }],
-    'an unreadable query still reports searching');
-  assert.equal(outcome.webSearches, 2);
-});
-
 // ---- Chat quality (2026-10-07): Why it matters, Mermaid rules, diagram repairs ----
 
 test('Why it matters uses only the paper: no search tool, even with Tavily ready', async () => {
@@ -1312,14 +1130,14 @@ test('Why it matters uses only the paper: no search tool, even with Tavily ready
   assert.equal(runs.length, 0);
   // No search allowance in the hold either.
   const held = Number(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
-  assert.equal(held, holdForParams(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming).microusd);
+  assert.equal(held, holdForParams(sent as unknown as ModelRequest).microusd);
   assert.equal(h.answers[0].web_search_offered, false); assert.equal(h.answers[0].action, 'relevance');
   // Ordinary questions on the same paper still search.
-  const plain = harness(); plain.deps.webSearch = true;
+  const plain = harness(); searching(plain, []);
   let plainTools: string[] = [];
   plain.deps.generate = async (params, stream) => { plainTools = ((params as unknown as Sent).tools ?? []).map(t => t.name ?? ''); stream.onText('x'); return completeOutcome(); };
   await runChat(plain.deps, paperBody(), plain.emit, new AbortController().signal);
-  assert.ok(plainTools.includes('web_search'));
+  assert.ok(plainTools.includes('search_web'));
 });
 
 test('diagram instructions carry the Mermaid label rules', () => {
@@ -1354,7 +1172,7 @@ test('a diagram repair is metered: a small hold, settled at its actual cost, one
     sent = params as unknown as Sent;
     system = ((params as unknown as { system: { text: string }[] }).system)[0].text;
     return completeOutcome({ stopReason: 'tool_use',
-      attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 1_400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 600 } }],
+      attempts: [{ model: SONNET, estimated: false, billedMicrousd: 8_800, usage: { input: 1_400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 600 } }],
       toolCalls: [{ name: 'create_diagram', input: { title: 'DPO pipeline', mermaid: 'flowchart TD\n A["Policy (pi)"] --> B[Loss]' } }] });
   } });
   searching(h, []);
@@ -1366,14 +1184,15 @@ test('a diagram repair is metered: a small hold, settled at its actual cost, one
   assert.match(system, /could not draw a Mermaid diagram/); assert.doesNotMatch(system, /Gradstep, an app people use/);
   assert.deepEqual(h.events.map(e => e.event), ['diagram', 'done'], 'no "Diagram:" caption for a repair');
   assert.deepEqual(h.events[0].data, { title: 'DPO pipeline', source: 'flowchart TD\n A["Policy (pi)"] --> B[Loss]' });
-  // Held like any answer (input at the write rate plus its whole output allowance, times the fallback headroom)…
+  // Held like any answer (input at the write rate plus its whole output allowance)…
   const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
-  const hold = holdFor(promptCharacters(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), DIAGRAM_FIX_MAX_TOKENS);
+  const hold = holdForParams(sent as unknown as ModelRequest);
+  assert.equal(sent!.max_tokens, DIAGRAM_FIX_MAX_TOKENS);
   assert.equal(reserve.p_microusd, hold.microusd); assert.equal(reserve.p_credits, hold.credits);
   assert.ok(hold.credits <= 25, `a repair holds at most 25 credits (${hold.credits})`);
-  assert.ok(hold.credits < holdFor(promptCharacters(chatRequestParams({ instructions: chatInstructions('general'), paper: null,
-    turns: [{ role: 'user', text: repairText }], selection: null, tools: [CREATE_DIAGRAM_TOOL] }))).credits / 3, 'far below an answer’s hold');
-  // …and settled at its actual cost: 1,400 input × $2 + 600 output × $10 per MTok = 8,800 µ$ → 2 credits.
+  assert.ok(hold.credits < holdForParams(chatRequestParams({ instructions: chatInstructions('general'), paper: null,
+    turns: [{ role: 'user', text: repairText }], selection: null, tools: [CREATE_DIAGRAM_TOOL] })).credits / 2, 'far below an answer’s hold');
+  // …and settled at its actual cost: OpenRouter reported 8,800 µ$ → 2 credits.
   const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
   assert.equal(settle.p_actual_microusd, 8_800); assert.equal(settle.p_actual_credits, 2);
   assert.ok(names(h.calls).includes('worker_record_provider_usage'));
@@ -1387,7 +1206,7 @@ test('a repair round cannot exceed its output allowance', async () => {
   const h = harness({ generate: async params => {
     rounds.push((params as unknown as Sent).max_tokens);
     return completeOutcome({ stopReason: 'max_tokens',
-      attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 1_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: DIAGRAM_FIX_MAX_TOKENS } }] });
+      attempts: [{ model: SONNET, estimated: false, usage: { input: 1_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: DIAGRAM_FIX_MAX_TOKENS } }] });
   } });
   await runChat(h.deps, repairBody(), h.emit, new AbortController().signal);
   assert.deepEqual(rounds, [DIAGRAM_FIX_MAX_TOKENS], 'one round, no continuation');
@@ -1472,7 +1291,7 @@ test('the published profile table is versioned, complete, and its default is exa
   const table = publishedProfiles();
   assert.equal(table.version, 'chat-profiles-v1'); assert.equal(table.rate_version, 'beta-credits-v1');
   assert.deepEqual(table.default, { model: 'sonnet', effort: 'low', length: 'standard' });
-  assert.deepEqual(table.models.map(m => [m.id, m.api_model]), [['haiku', 'claude-haiku-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['opus', 'claude-opus-5-5']]);
+  assert.deepEqual(table.models.map(m => [m.id, m.api_model, m.provider]), [['haiku', HAIKU, 'openrouter'], ['sonnet', SONNET, 'openrouter'], ['opus', OPUS, 'openrouter']]);
   // 2026-10-16: `auto` follows the three efforts, and its profiles follow the 27 explicit ones (tests/backend/chat-profiles.test.ts).
   assert.deepEqual(table.efforts.map(e => e.id), ['low', 'medium', 'high', 'auto']);
   assert.deepEqual(table.lengths.map(l => l.id), ['brief', 'standard', 'detailed']);
@@ -1493,10 +1312,10 @@ test('the published profile table is versioned, complete, and its default is exa
     const [h, s, o] = ['haiku', 'sonnet', 'opus'].map(m => byID.get(`${m}-${e}-${l}`)!.credits);
     assert.ok(h.max < s.max && s.max < o.max && h.high < s.high && s.high < o.high, `${e}/${l} orders by model`);
   }
-  // Documented examples (CHAT.md): the default, and the two extremes.
-  assert.deepEqual(byID.get('sonnet-low-standard')!.credits, { low: 4, high: 24, max: 37 });
+  // Documented examples (CHAT.md): the default, and the two extremes, at the OpenRouter Vertex cards.
+  assert.deepEqual(byID.get('sonnet-low-standard')!.credits, { low: 5, high: 26, max: 41 });
   assert.deepEqual(byID.get('haiku-low-brief')!.credits, { low: 1, high: 2, max: 2 });
-  assert.deepEqual(byID.get('opus-high-detailed')!.credits, { low: 24, high: 63, max: 114 });
+  assert.deepEqual(byID.get('opus-high-detailed')!.credits, { low: 27, high: 69, max: 126 });
   assert.ok(!JSON.stringify(table).includes('reader chose'), 'prompt text is not published');
 });
 
@@ -1521,7 +1340,7 @@ test('a profile is a strict {model, effort, length}; the default named or not is
 });
 
 test('each profile sends its model, effort, allowance and length; the paper block is identical across lengths', async () => {
-  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  const sent: ModelRequest[] = [];
   const run = async (profile: Record<string, string>) => {
     const h = harness({ generate: async (params, stream) => { sent.push(params); stream.onText('ok'); return completeOutcome({ model: params.model }); } });
     await runChat(h.deps, paperBody({ profile }), h.emit, new AbortController().signal);
@@ -1530,13 +1349,13 @@ test('each profile sends its model, effort, allowance and length; the paper bloc
   const haiku = await run({ model: 'haiku', effort: 'medium', length: 'brief' });
   const opus = await run({ model: 'opus', effort: 'high', length: 'detailed' });
   await run({ model: 'sonnet', effort: 'low', length: 'standard' });
-  assert.equal(sent[0].model, 'claude-haiku-5-5'); assert.deepEqual(sent[0].output_config, { effort: 'medium' });
+  assert.equal(sent[0].model, HAIKU); assert.deepEqual(sent[0].output_config, { effort: 'medium' });
   assert.deepEqual(sent[0].thinking, { type: 'adaptive' }); assert.equal(sent[0].max_tokens, 5_000);
-  assert.equal(sent[0].fallbacks, undefined); assert.equal(sent[0].betas, undefined, 'Haiku 5.5 has no fallback models');
-  assert.equal(sent[1].model, 'claude-opus-5-5'); assert.deepEqual(sent[1].output_config, { effort: 'high' });
-  assert.equal(sent[1].max_tokens, 18_000); assert.equal(sent[1].fallbacks, 'default'); assert.deepEqual(sent[1].betas, [FALLBACK_BETA]);
-  assert.equal(sent[2].model, 'claude-sonnet-5-5'); assert.equal(sent[2].max_tokens, 8_000);
-  const system = sent.map(params => params.system as Anthropic.Beta.Messages.BetaTextBlockParam[]);
+  for (const request of sent) assert.equal((request as Record<string, unknown>).fallbacks, undefined, 'no provider-side fallback on OpenRouter');
+  assert.equal(sent[1].model, OPUS); assert.deepEqual(sent[1].output_config, { effort: 'high' });
+  assert.equal(sent[1].max_tokens, 18_000);
+  assert.equal(sent[2].model, SONNET); assert.equal(sent[2].max_tokens, 8_000);
+  const system = sent.map(params => params.system as TextBlock[]);
   // Standard adds nothing (today's prompt); brief and detailed add their instructions after the cached paper.
   assert.equal(system[2].length, 2);
   assert.match(system[0][2].text, /brief answers/); assert.match(system[1][2].text, /detailed answers/);
@@ -1549,26 +1368,35 @@ test('each profile sends its model, effort, allowance and length; the paper bloc
     usage: { input_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 300 },
     model: 'claude-haiku-5-5', profile: 'haiku-medium-brief', charged: true });
   const quote = opus.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
-  assert.deepEqual([quote.profile, quote.model, quote.effort, quote.length, quote.max_output_tokens], ['opus-high-detailed', 'claude-opus-5-5', 'high', 'detailed', 18_000]);
+  assert.deepEqual([quote.profile, quote.model, quote.effort, quote.length, quote.max_output_tokens, quote.tariff],
+    ['opus-high-detailed', OPUS, 'high', 'detailed', 18_000, 'openrouter-claude-vertex-us-20261017']);
 });
 
-test('holds use the chosen model\'s rates: Opus at its fallbacks\' Opus 5 card twice, Haiku once at its prompt tier', () => {
-  // 100,000 estimated tokens and 8,000 output tokens.
-  assert.equal(holdFor(300_000, 8_000, 'claude-opus-5-5').microusd, (100_000 * 6.25 + 8_000 * 25) * 2);
-  assert.equal(holdFor(300_000, 8_000, 'claude-haiku-5-5').microusd, 100_000 * 0.125 + 8_000 * 0.5);
-  assert.equal(holdFor(300_003, 8_000, 'claude-haiku-5-5').microusd, Math.ceil(100_001 * 0.625 + 8_000 * 2.5));
-  assert.equal(holdFor(300_000, 8_000, 'claude-sonnet-5-5').microusd, 990_000, 'Sonnet holds are unchanged');
-  assert.equal(holdFor(300_000, 8_000, 'claude-mystery').microusd, (100_000 * 6.25 + 8_000 * 25) * 3);
+test('holds use the chosen model\'s OpenRouter card, one attempt (no server-side fallback); Haiku at its prompt tier', () => {
+  // 100,000 estimated tokens and 8,000 output tokens, at the five-minute write rate and the output rate.
+  const at = (model: string, input: number, prompt = input) => { const r = routerClaudeRates(model, prompt); return Math.ceil(input * r.cacheWrite5m + 8_000 * r.output); };
+  assert.equal(holdFor(300_000, 8_000, OPUS).microusd, at(OPUS, 100_000));
+  assert.equal(holdFor(300_000, 8_000, OPUS).microusd, 726_000, '$5.50 write and $22 output per million');
+  assert.equal(holdFor(300_000, 8_000, HAIKU).microusd, at(HAIKU, 100_000));
+  assert.equal(holdFor(300_003, 8_000, HAIKU).microusd, at(HAIKU, 100_001), 'over 100,000 prompt tokens: the long-prompt card');
+  assert.equal(holdFor(300_000, 8_000, SONNET).microusd, at(SONNET, 100_000));
+  assert.equal(holdFor(300_000, 8_000, 'claude-mystery').microusd, (100_000 * 6.25 + 8_000 * 25) * 3, 'no card: the ceiling card, three attempts');
+  const flash = routerDeepSeekRates(FLASH);
+  assert.equal(holdFor(300_000, 8_000, FLASH).microusd, Math.ceil((100_000 * flash.cacheWrite5m + 8_000 * flash.output) * 2), 'DeepSeek: two attempts');
   // Search holds follow the model too (Haiku's later rounds may cross into the long-prompt tier).
-  assert.equal(webSearchHoldMicrousd(10_000, 3, 'claude-sonnet-5-5'), webSearchHoldMicrousd(10_000, 3));
-  assert.equal(webSearchHoldMicrousd(10_000, 3, 'claude-haiku-5-5'), Math.ceil(3 * (10_000 + 10_000 * 0.125 + 60_000 * 0.1)));
-  assert.equal(webSearchHoldMicrousd(10_001, 3, 'claude-haiku-5-5'), Math.ceil(3 * (10_000 + 10_001 * 0.625 + 60_000 * 0.5)));
-  assert.equal(webSearchHoldMicrousd(1_000, 1, 'claude-haiku-5-5'), Math.ceil(10_000 + 1_000 * 0.125 + 60_000 * 0.1));
+  const search = (prompt: number, uses: number) => { const r = routerClaudeRates(HAIKU, prompt + uses * 30_000);
+    return Math.ceil(uses * (10_000 + prompt * r.cacheWrite5m + 60_000 * r.input)); };
+  assert.equal(webSearchHoldMicrousd(10_000, 3, SONNET), webSearchHoldMicrousd(10_000, 3));
+  assert.equal(webSearchHoldMicrousd(10_000, 3, HAIKU), search(10_000, 3));
+  assert.equal(webSearchHoldMicrousd(10_001, 3, HAIKU), search(10_001, 3));
+  assert.ok(search(10_001, 3) > search(10_000, 3) * 2, 'the long-prompt tier');
+  assert.equal(webSearchHoldMicrousd(1_000, 1, HAIKU), search(1_000, 1));
 });
 
+// The title, suggestion and map requests are Haiku 5.5 through OpenRouter; their fixtures carry OpenRouter's reported cost.
 function titleOutcome(changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
-  return completeOutcome({ messageID: 'msg_title', model: 'claude-haiku-5-5',
-    attempts: [{ model: 'claude-haiku-5-5', estimated: false, usage: { input: 400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8 } }], ...changes });
+  return completeOutcome({ messageID: 'gen-title', model: HAIKU,
+    attempts: [{ model: HAIKU, estimated: false, billedMicrousd: 44, usage: { input: 400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8 } }], ...changes });
 }
 
 test('every admitted request fits the operation hold: the answer\'s first round plus the title', async () => {
@@ -1577,39 +1405,39 @@ test('every admitted request fits the operation hold: the answer\'s first round 
   const h = harness({ script: { worker_reserve_chat: params => { reserved = Number(params.p_microusd); return { replayed: false }; } },
     generate: async (params, stream) => {
       ceilings.push(holdForParams(params).microusd);
-      if (params.model === 'claude-haiku-5-5' && params.max_tokens === 40) { stream.onText('Scaled attention'); return titleOutcome(); }
+      if (params.model === HAIKU && params.max_tokens === 40) { stream.onText('Scaled attention'); return titleOutcome(); }
       stream.onText('An answer.'); return completeOutcome({ model: params.model });
     } });
   await runChat(h.deps, paperBody({ topic_title: true, profile: { model: 'opus', effort: 'medium', length: 'standard' } }), h.emit, new AbortController().signal);
   assert.equal(ceilings.length, 2);
   assert.equal(ceilings.reduce((a, b) => a + b, 0), reserved, 'the hold is exactly the sum of the admitted ceilings');
   const quote = h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
-  assert.equal(quote.title_model, 'claude-haiku-5-5'); assert.equal(quote.title_max_tokens, 40);
+  assert.equal(quote.title_model, HAIKU); assert.equal(quote.title_max_tokens, 40);
   assert.equal(quote.title_ceiling_microusd, Math.min(...ceilings));
 });
 
 test('a topic title is written alongside the answer with Haiku 5.5, sent before done, charged, and never logged', async () => {
-  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  const sent: ModelRequest[] = [];
   const h = harness({ generate: async (params, stream) => {
     sent.push(params);
-    if (params.model === 'claude-haiku-5-5') { assert.equal(stream.purpose, 'topic_title'); stream.onText('"Attention scaling '); stream.onText('explained."\n'); return titleOutcome(); }
+    if (params.model === HAIKU) { assert.equal(stream.purpose, 'topic_title'); stream.onText('"Attention scaling '); stream.onText('explained."\n'); return titleOutcome(); }
     stream.onText('Scaling keeps logits bounded.'); return completeOutcome();
   } });
   await runChat(h.deps, paperBody({ topic_title: true, selection: { quote: 'divide by sqrt(d_k)' } }), h.emit, new AbortController().signal);
-  const title = sent.find(params => params.model === 'claude-haiku-5-5')!;
+  const title = sent.find(params => params.model === HAIKU)!;
   assert.equal(title.max_tokens, 40); assert.deepEqual(title.thinking, { type: 'disabled' });
-  assert.equal(title.tools, undefined); assert.equal(title.fallbacks, undefined);
+  assert.equal(title.tools, undefined); assert.equal((title as Record<string, unknown>).fallbacks, undefined);
   const input = JSON.stringify(title.messages);
   assert.match(input, /<paper_title>Attention<\/paper_title>/); assert.match(input, /private-question-marker/); assert.match(input, /sqrt\(d_k\)/);
   assert.ok(!input.includes('We scale by'), 'the title never reads the paper text');
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'title', 'done']);
   assert.deepEqual(h.events[1].data, { text: 'Attention scaling explained' });
-  // 900 input + 300 output (Sonnet) + 400 input + 8 output (Haiku 5.5) = 4,800 + 44 micro-USD.
+  // OpenRouter's reported costs: the answer (Sonnet 5.5) 4,800 and the title (Haiku 5.5) 44 micro-USD.
   const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
   assert.equal(settle.p_actual_microusd, 4_844); assert.equal(settle.p_actual_credits, 1);
   const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!.params;
-  assert.equal(usage.p_provider_event_id, 'msg_01'); assert.equal(usage.p_model, 'claude-sonnet-5-5');
-  assert.deepEqual((usage.p_units as { attempts: { model: string }[] }).attempts.map(a => a.model), ['claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.equal(usage.p_provider, 'openrouter'); assert.equal(usage.p_provider_event_id, 'gen-01'); assert.equal(usage.p_model, SONNET);
+  assert.deepEqual((usage.p_units as { attempts: { model: string }[] }).attempts.map(a => a.model), [SONNET, HAIKU]);
   assert.equal(h.answers[0].title, 'written');
   assert.ok(!JSON.stringify([h.logs, h.answers, h.calls]).includes('Attention scaling'));
 });
@@ -1622,7 +1450,7 @@ test('no title event without a complete answer or a usable title; the answer is 
   ];
   for (const [label, write, logged] of cases) {
     const h = harness({ generate: async (params, stream) => {
-      if (params.model === 'claude-haiku-5-5') return write(stream);
+      if (params.model === HAIKU) return write(stream);
       stream.onText('Answer.'); return completeOutcome();
     } });
     await runChat(h.deps, generalBody({ topic_title: true }), h.emit, new AbortController().signal);
@@ -1631,7 +1459,7 @@ test('no title event without a complete answer or a usable title; the answer is 
   }
   // A refused answer gets no title (its title request is still settled).
   const refused = harness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') { stream.onText('Some title'); return titleOutcome(); }
+    if (params.model === HAIKU) { stream.onText('Some title'); return titleOutcome(); }
     return completeOutcome({ stopReason: 'refusal' });
   } });
   await runChat(refused.deps, generalBody({ topic_title: true }), refused.emit, new AbortController().signal);
@@ -1643,18 +1471,19 @@ test('no title event without a complete answer or a usable title; the answer is 
 test('a slow title is abandoned shortly after the answer and its attempt is still settled', async () => {
   let titleSignal: AbortSignal | undefined;
   const h = harness({ generate: async (params, stream) => {
-    if (params.model !== 'claude-haiku-5-5') { stream.onText('Answer.'); return completeOutcome(); }
+    if (params.model !== HAIKU) { stream.onText('Answer.'); return completeOutcome(); }
     titleSignal = stream.signal;
     await new Promise<void>(resolve => stream.signal.addEventListener('abort', () => resolve(), { once: true }));
     return titleOutcome({ status: 'failed', failure: 'aborted', stopReason: null, exact: false,
-      attempts: [{ model: 'claude-haiku-5-5', estimated: true, usage: { input: 400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }] });
+      attempts: [{ model: HAIKU, estimated: true, usage: { input: 400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }] });
   } });
   const started = Date.now();
   await runChat(h.deps, generalBody({ topic_title: true }), h.emit, new AbortController().signal);
   assert.ok(titleSignal?.aborted);
   assert.ok(Date.now() - started < 6_000);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'done']);
-  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_microusd, 4_840);
+  // The answer's reported 4,800 and the abandoned title's estimate (400 input at Haiku's $0.11 per million).
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_microusd, Math.ceil(4_800 + 400 * routerClaudeRates(HAIKU).input));
   assert.equal((h.calls.find(c => c.name === 'worker_record_provider_usage')!.params.p_units as { estimated: boolean }).estimated, true);
 });
 
@@ -1709,17 +1538,17 @@ test('another account or revision cannot use local context to bypass library aut
 });
 
 function followUpOutcome(questions: string[], changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
-  return completeOutcome({ messageID: 'msg_follow', model: 'claude-haiku-5-5', stopReason: 'tool_use',
+  return completeOutcome({ messageID: 'msg_follow', model: HAIKU, stopReason: 'tool_use',
     toolCalls: [{ name: 'suggest_follow_ups', input: { questions } }],
-    attempts: [{ model: 'claude-haiku-5-5', estimated: false, usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 60 } }], ...changes });
+    attempts: [{ model: HAIKU, estimated: false, billedMicrousd: 80, usage: { input: 500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 60 } }], ...changes });
 }
 
 test('follow-ups are a forced Haiku 5.5 request after the answer: relayed once before done, cleaned and bounded, charged, never logged as text', async () => {
-  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  const sent: ModelRequest[] = [];
   let answered = 0;
   const h = harness({ generate: async (params, stream) => {
     sent.push(params);
-    if (params.model === 'claude-haiku-5-5') {
+    if (params.model === HAIKU) {
       assert.equal(answered, 1, 'the suggestion request waits for the answer');
       return followUpOutcome([' How does β\tscale? ', 'how does β scale?', 'x', 'Why is the reference model frozen?', 'What breaks without the KL term?', 'A fourth question']);
     }
@@ -1730,7 +1559,7 @@ test('follow-ups are a forced Haiku 5.5 request after the answer: relayed once b
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'followups', 'done']);
   assert.deepEqual(h.events[2].data, { questions: ['How does β scale?', 'Why is the reference model frozen?', 'What breaks without the KL term?'] });
   assert.equal((h.events[3].data as { stop_reason: string }).stop_reason, 'end_turn');
-  const suggestion = sent.find(params => params.model === 'claude-haiku-5-5')!;
+  const suggestion = sent.find(params => params.model === HAIKU)!;
   assert.equal(suggestion.max_tokens, FOLLOW_UP_MAX_TOKENS); assert.deepEqual(suggestion.thinking, { type: 'disabled' });
   assert.deepEqual(suggestion.tools, [SUGGEST_FOLLOW_UPS_TOOL]); assert.deepEqual(suggestion.tool_choice, { type: 'tool', name: 'suggest_follow_ups' });
   const input = JSON.stringify(suggestion.messages);
@@ -1759,26 +1588,27 @@ test('follow-ups are held with the answer, only when asked for, and never for In
   const held = harness({ script: { worker_reserve_chat: params => { reserved = Number(params.p_microusd); return { replayed: false }; } },
     generate: async (params, stream) => {
       ceilings.push(holdForParams(params).microusd);
-      if (params.model === 'claude-haiku-5-5') return followUpOutcome(['One?', 'Two?']);
+      if (params.model === HAIKU) return followUpOutcome(['One?', 'Two?']);
       stream.onText('An answer.'); return completeOutcome();
     } });
   await runChat(held.deps, paperBody({ follow_ups: true }), held.emit, new AbortController().signal);
-  const suggestionCeiling = holdFor(promptCharacters(FOLLOW_UP_HOLD_PARAMS), FOLLOW_UP_MAX_TOKENS, 'claude-haiku-5-5').microusd;
+  const suggestionCeiling = holdForParams(FOLLOW_UP_HOLD_PARAMS).microusd;
+  assert.equal(FOLLOW_UP_HOLD_PARAMS.max_tokens, FOLLOW_UP_MAX_TOKENS); assert.equal(FOLLOW_UP_HOLD_PARAMS.model, HAIKU);
   assert.equal(ceilings.length, 2);
   assert.equal(ceilings[0] + suggestionCeiling, reserved, 'the hold is the answer ceiling plus the suggestion ceiling');
   assert.ok(ceilings[1] <= suggestionCeiling, 'the real suggestion request never exceeds its held ceiling');
   const quote = held.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
-  assert.equal(quote.follow_ups_model, 'claude-haiku-5-5'); assert.equal(quote.follow_ups_max_tokens, FOLLOW_UP_MAX_TOKENS); assert.equal(quote.follow_ups_ceiling_microusd, suggestionCeiling);
+  assert.equal(quote.follow_ups_model, HAIKU); assert.equal(quote.follow_ups_max_tokens, FOLLOW_UP_MAX_TOKENS); assert.equal(quote.follow_ups_ceiling_microusd, suggestionCeiling);
   // Unusable input: no event, the answer completes, the outcome is counted.
   const invalid = harness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') return followUpOutcome(['', 'ab']);
+    if (params.model === HAIKU) return followUpOutcome(['', 'ab']);
     stream.onText('x'); return completeOutcome(); } });
   await runChat(invalid.deps, paperBody({ follow_ups: true }), invalid.emit, new AbortController().signal);
   assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']);
   assert.equal(invalid.answers[0].follow_ups, 'unusable');
   // A failed suggestion request is settled (estimated) and the answer still completes.
   const failed = harness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') throw new Error('provider down');
+    if (params.model === HAIKU) throw new Error('provider down');
     stream.onText('x'); return completeOutcome(); } });
   await runChat(failed.deps, paperBody({ follow_ups: true }), failed.emit, new AbortController().signal);
   assert.deepEqual(failed.events.map(e => e.event), ['delta', 'done']);
@@ -1786,7 +1616,7 @@ test('follow-ups are held with the answer, only when asked for, and never for In
   assert.ok(Number(failed.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_microusd) > priceAttempts(completeOutcome().attempts));
   // A slow suggestion is abandoned after its bound; the answer still completes.
   const slow = harness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return followUpOutcome([], { status: 'failed', failure: 'aborted', stopReason: null }); }
+    if (params.model === HAIKU) { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return followUpOutcome([], { status: 'failed', failure: 'aborted', stopReason: null }); }
     stream.onText('x'); return completeOutcome(); } });
   slow.deps.followUpTimeoutMs = 20;
   await runChat(slow.deps, paperBody({ follow_ups: true }), slow.emit, new AbortController().signal);
@@ -1831,7 +1661,7 @@ test('a numbered local context (v2) asks for grounded citations; v1 and server-h
   const systems: string[] = [];
   const run = async (body: unknown) => {
     const h = harness({ script: { worker_local_chat_context: () => ({ title: 'Local' }) }, generate: async (params, stream) => {
-      systems.push((params.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text); stream.onText('Cited [¶2].'); return completeOutcome(); } });
+      systems.push((params.system as TextBlock[])[0].text); stream.onText('Cited [¶2].'); return completeOutcome(); } });
     await runChat(h.deps, body, h.emit, new AbortController().signal);
     assert.equal(h.events.at(-1)?.event, 'done');
   };
@@ -1855,9 +1685,9 @@ const sampleMap = { concepts: [{ id: 'scaling', label: 'Scaled dot-product atten
 const studyHarness = (options: Parameters<typeof harness>[0] = {}) =>
   harness({ ...options, script: { worker_local_chat_context: () => ({ title: 'Attention' }), ...options.script } });
 function studyOutcome(map: unknown, changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
-  return completeOutcome({ messageID: 'msg_study', model: 'claude-haiku-5-5', stopReason: 'tool_use',
+  return completeOutcome({ messageID: 'msg_study', model: HAIKU, stopReason: 'tool_use',
     toolCalls: [{ name: 'update_study_map', input: map }],
-    attempts: [{ model: 'claude-haiku-5-5', estimated: false, usage: { input: 700, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 200 } }], ...changes });
+    attempts: [{ model: HAIKU, estimated: false, billedMicrousd: 170, usage: { input: 700, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 200 } }], ...changes });
 }
 
 test('a Study turn is a paper action on numbered local context that carries a validated map and no follow-ups', () => {
@@ -1902,11 +1732,11 @@ test('the map validator survives one careless element: bad links, journey entrie
 });
 
 test('Study: the tutor sees the map after the paper, the map request runs after the answer and is relayed once before done', async () => {
-  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  const sent: ModelRequest[] = [];
   let answered = 0;
   const h = studyHarness({ generate: async (params, stream) => {
     sent.push(params);
-    if (params.model === 'claude-haiku-5-5') { assert.equal(answered, 1, 'the map request waits for the answer'); return studyOutcome({ ...sampleMap, journey: ['scaling', 'softmax', 'scaling', 'scaling'] }); }
+    if (params.model === HAIKU) { assert.equal(answered, 1, 'the map request waits for the answer'); return studyOutcome({ ...sampleMap, journey: ['scaling', 'softmax', 'scaling', 'scaling'] }); }
     stream.onText('Partly right. '); stream.onText('**What does dividing by √d_k keep small?**'); answered++;
     return completeOutcome();
   } });
@@ -1929,8 +1759,8 @@ test('Study: the tutor sees the map after the paper, the map request runs after 
   assert.ok(!input.includes('device-only-context-marker'), 'the map request never reads the paper');
   // Charged with the answer, held at the map request's largest size, frozen in the quote.
   const quote = h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
-  assert.equal(quote.study_model, 'claude-haiku-5-5'); assert.equal(quote.study_max_tokens, STUDY_MAX_TOKENS);
-  assert.equal(quote.study_ceiling_microusd, holdFor(promptCharacters(STUDY_HOLD_PARAMS), STUDY_MAX_TOKENS, 'claude-haiku-5-5').microusd);
+  assert.equal(quote.study_model, HAIKU); assert.equal(quote.study_max_tokens, STUDY_MAX_TOKENS);
+  assert.equal(quote.study_ceiling_microusd, holdForParams(STUDY_HOLD_PARAMS).microusd); assert.equal(STUDY_HOLD_PARAMS.model, HAIKU);
   assert.equal(quote.max_searches, 0);
   const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
   assert.equal(Number(settle.p_actual_microusd), priceAttempts([...completeOutcome().attempts, ...studyOutcome(sampleMap).attempts]));
@@ -1941,7 +1771,7 @@ test('Study: the tutor sees the map after the paper, the map request runs after 
 
 test('Study: the first turn is no answer; unusable, failed or slow map requests leave the map unchanged and the answer completes', async () => {
   const first = studyHarness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') {
+    if (params.model === HAIKU) {
       assert.match(JSON.stringify(params.messages), /<reader_answer>none: the first turn<\/reader_answer>/);
       return studyOutcome({ concepts: [{ id: 'attention', label: 'Attention', state: 'learning', paragraphs: [1] }], links: [], focus: 'attention', journey: ['attention'], next: 'calibrate' });
     }
@@ -1950,18 +1780,18 @@ test('Study: the first turn is no answer; unusable, failed or slow map requests 
   assert.deepEqual(first.events.map(e => e.event), ['delta', 'study', 'done']);
   assert.equal((first.events[1].data as { map: { focus: string } }).map.focus, 'attention');
   const invalid = studyHarness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') return studyOutcome({ concepts: [{ id: 'x', label: 'x', state: 'fluent', paragraphs: [] }], links: [], focus: null, journey: [], next: 'teach' });
+    if (params.model === HAIKU) return studyOutcome({ concepts: [{ id: 'x', label: 'x', state: 'fluent', paragraphs: [] }], links: [], focus: null, journey: [], next: 'teach' });
     stream.onText('x'); return completeOutcome(); } });
   await runChat(invalid.deps, studyBody(), invalid.emit, new AbortController().signal);
   assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']); assert.equal(invalid.answers[0].study, 'unusable');
   const failed = studyHarness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') throw new Error('provider down');
+    if (params.model === HAIKU) throw new Error('provider down');
     stream.onText('x'); return completeOutcome(); } });
   await runChat(failed.deps, studyBody(), failed.emit, new AbortController().signal);
   assert.deepEqual(failed.events.map(e => e.event), ['delta', 'done']); assert.equal(failed.answers[0].study, 'failed');
   assert.ok(Number(failed.calls.find(c => c.name === 'worker_settle_chat')!.params.p_actual_microusd) > priceAttempts(completeOutcome().attempts));
   const slow = studyHarness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return studyOutcome(null, { status: 'failed', failure: 'aborted', stopReason: null }); }
+    if (params.model === HAIKU) { await new Promise(resolve => stream.signal.addEventListener('abort', resolve, { once: true })); return studyOutcome(null, { status: 'failed', failure: 'aborted', stopReason: null }); }
     stream.onText('x'); return completeOutcome(); } });
   slow.deps.studyTimeoutMs = 20;
   await runChat(slow.deps, studyBody(), slow.emit, new AbortController().signal);
@@ -1975,10 +1805,10 @@ test('Study: the first turn is no answer; unusable, failed or slow map requests 
   assert.ok(!('study_model' in (plain.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as object))); assert.equal(plain.answers[0].study, undefined);
   // Study never searches, even when search is on.
   const searching = studyHarness({ generate: async (params, stream) => {
-    if (params.model === 'claude-haiku-5-5') return studyOutcome(EMPTY_STUDY_MAP);
+    if (params.model === HAIKU) return studyOutcome(EMPTY_STUDY_MAP);
     assert.ok(!params.tools?.some(t => t.name === 'web_search' || t.name === 'search_web'), 'no search tool for the tutor');
     stream.onText('x'); return completeOutcome(); } });
-  searching.deps.webSearch = true; searching.deps.nativeSearch = true;
+  searching.deps.webSearch = true; searching.deps.search = { ready: async () => true, run: async () => found };
   await runChat(searching.deps, studyBody(), searching.emit, new AbortController().signal);
   assert.equal(searching.answers[0].web_search_offered, false);
 });
@@ -2080,7 +1910,7 @@ test('figures: bounded PNG/JPEG images with ids and paragraphs, only under conse
   }
   const v3 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v3' });
   assert.equal(validateChatRequest(v3(paperBody({ figures: [figure()] }))).figures.length, 1);
-  assert.throws(() => validateChatRequest(v2(paperBody({ figures: [figure()] }))), { code: 'invalid_request' }, 'v2 does not name figures');
+  assert.throws(() => validateChatRequest({ ...paperBody({ figures: [figure()] }), consent_version: 'cloud-ai-v2' }), { code: 'invalid_request' }, 'v2 does not name figures');
   assert.throws(() => validateChatRequest(v3(paperBody({ figures: [figure()], action: 'ingest', selection: { quote: '[3] A paper' } }))), { code: 'invalid_request' });
   // The digest covers the image itself.
   const a = canonicalRequest(validateChatRequest(v3(paperBody({ figures: [figure()] })))), b = canonicalRequest(validateChatRequest(v3(paperBody({ figures: [figure({ data: JPEG.slice(0, -4) + 'AAAA' })] }))));
@@ -2116,7 +1946,7 @@ test('show_figure_parts: boxes within the image, tight enough, against an attach
     stream.onText('Figure 2 has two halves.');
     return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'show_figure_parts', input: { figure: 'F1', title: 'Pipeline', parts: [{ label: 'Left', box: [0, 0, 0.5, 1], note: 'The encoder.' }] } }] });
   } });
-  await runChat(h.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', figures: [figure()] }, h.emit, new AbortController().signal);
+  await runChat(h.deps, { ...paperBody(), consent_version: CONSENT, figures: [figure()] }, h.emit, new AbortController().signal);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'figure_parts', 'done']);
   assert.deepEqual(h.events[1].data, { figure: 'F1', paragraph: 12, title: 'Pipeline', parts: [{ label: 'Left', note: 'The encoder.', box: [0, 0, 0.5, 1] }] });
   assert.deepEqual(h.logs, [{ event: 'chat_figure_parts', operation_id: operation }]);
@@ -2130,7 +1960,7 @@ test('show_figure_parts: boxes within the image, tight enough, against an attach
   // Parts without prose: the answer is the parts' notes.
   const bare = harness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'show_figure_parts',
     input: { figure: 'F1', title: 'Pipeline', parts: [{ label: 'Left', box: [0, 0, 0.5, 1], note: 'The encoder.' }, { label: 'Right', box: [0.5, 0, 1, 1], note: 'The decoder.' }] } }] }) });
-  await runChat(bare.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', figures: [figure()] }, bare.emit, new AbortController().signal);
+  await runChat(bare.deps, { ...paperBody(), consent_version: CONSENT, figures: [figure()] }, bare.emit, new AbortController().signal);
   assert.deepEqual(bare.events.map(e => e.event), ['delta', 'figure_parts', 'done']);
   assert.equal((bare.events[0].data as { text: string }).text, 'Pipeline\n\n[[part 1]]\n**Left**: The encoder.\n\n[[part 2]]\n**Right**: The decoder.');
 });
@@ -2147,14 +1977,15 @@ test('look_at_figure: offered to devices that can answer it (consent v3), relaye
     stream.onText('Let me look at Figure 4.');
     return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'look_at_figure', input: { figure: 'Figure 4' } }] });
   } });
-  await runChat(asks.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers', 'figure_requests'], follow_ups: true }, asks.emit, new AbortController().signal);
+  await runChat(asks.deps, { ...paperBody(), consent_version: CONSENT, capabilities: ['visual_answers', 'figure_requests'], follow_ups: true }, asks.emit, new AbortController().signal);
   assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure']);
   assert.match(sent!.system!.map(b => b.text).join('\n'), /call look_at_figure with its number before writing anything/);
   assert.deepEqual(asks.events.map(e => e.event), ['delta', 'figure_request', 'done'], 'no suggestions for an answer that asked for a figure');
   assert.deepEqual(asks.events[1].data, { figure: 'Figure 4' });
 
-  // A build without the capability, or consent v2, is never offered the tool.
-  for (const body of [{ ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers'] }, { ...paperBody(), capabilities: ['visual_answers', 'figure_requests'] }]) {
+  // A build without the capability (or without visual answers) is never offered the tool; consent v2 sends nothing at all.
+  for (const body of [{ ...paperBody(), consent_version: CONSENT, capabilities: ['visual_answers'] }, { ...paperBody(), capabilities: ['figure_requests'] },
+    { ...paperBody(), consent_version: 'cloud-ai-v2', capabilities: ['visual_answers', 'figure_requests'] }]) {
     let tools: string[] = [];
     const h = harness({ generate: async params => { tools = ((params as { tools?: { name: string }[] }).tools ?? []).map(t => t.name); return completeOutcome({}); } });
     await runChat(h.deps, body, h.emit, new AbortController().signal);
@@ -2162,7 +1993,7 @@ test('look_at_figure: offered to devices that can answer it (consent v3), relaye
   }
   // With a figure attached the tool is still offered (the cached tools stay the same) but a call is not relayed.
   const attached = harness({ generate: async () => completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'look_at_figure', input: { figure: 'Figure 2' } }] }) });
-  await runChat(attached.deps, { ...paperBody(), consent_version: 'cloud-ai-v3', capabilities: ['visual_answers', 'figure_requests'], figures: [figure()] }, attached.emit, new AbortController().signal);
+  await runChat(attached.deps, { ...paperBody(), consent_version: CONSENT, capabilities: ['visual_answers', 'figure_requests'], figures: [figure()] }, attached.emit, new AbortController().signal);
   assert.ok(!attached.events.some(e => e.event === 'figure_request'));
 });
 
@@ -2185,7 +2016,7 @@ test('equation actions: the numbered paper on the device, one turn, a selection;
 });
 
 test('the equation view reads the chat cache: same tools, shared instructions and paper as a chat about the paper', async () => {
-  const seen: Anthropic.Beta.Messages.MessageCreateParams[] = [];
+  const seen: ModelRequest[] = [];
   const h = equationHarness({ generate: async (params, stream) => { seen.push(params); stream.onText('{"summary":"s","symbols":[]}'); return completeOutcome(); } });
   for (const body of [paperBody({ document_id: null, local_context: equationContext, selection: { quote: 'L = -\\log \\sigma(\\beta x)' } }), equationBody(), equationBody({ action: 'equation_background' })])
     await runChat(h.deps, body, h.emit, new AbortController().signal);
@@ -2200,7 +2031,7 @@ test('the equation view reads the chat cache: same tools, shared instructions an
 });
 
 test('Flash symbols reserve reasoning as well as the JSON answer, without changing the cached prefix', async () => {
-  const sent: Anthropic.Beta.Messages.MessageCreateParams[] = [];
+  const sent: ModelRequest[] = [];
   const h = equationHarness({ generate: async (params, stream) => {
     sent.push(params);
     stream.onText('{"summary":"The DPO loss.","symbols":[{"symbol":"β","meaning":"Controls departure from the reference.","source":"paper","paragraph":2}]}');
@@ -2266,7 +2097,7 @@ test('symbols are held back, checked and relayed once; a made-up paragraph becom
 const figureContext = { ...localContext, format: 'reader-local-context-v2', text: Array.from({ length: 14 }, (_, i) => `[¶${i + 1}] Block ${i + 1}.`).join('\n') };
 const toolNames = (p: Params) => (p.tools ?? []).map(t => (t as { name: string }).name);
 const FIGURE_DEVICE = ['visual_answers', 'figure_requests', 'figure_view', 'stop_signal'];
-const figureBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3',
+const figureBody = (overrides: Record<string, unknown> = {}) => paperBody({ document_id: null, local_context: figureContext, consent_version: CONSENT,
   capabilities: FIGURE_DEVICE, action: 'figure', selection: { quote: 'Figure 2: The pipeline.' }, messages: [{ role: 'user', text: 'Figure 2' }],
   figures: [figure()], ...overrides });
 const walkthroughCall = (input: unknown, changes: Partial<ProviderOutcome> = {}) => completeOutcome({ stopReason: 'tool_use',
@@ -2292,8 +2123,8 @@ test('figure actions: the numbered paper on the device, one turn, a selection an
 test('the figure view reads the chat cache: tools, model, thinking, shared instructions and paper byte-identical to a chat about the paper', async () => {
   const seen: Params[] = [];
   const h = equationHarness({ generate: async (params, stream) => { seen.push(params); stream.onText('Words.'); return completeOutcome(); } });
-  h.deps.webSearch = true;
-  const device = { document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3', capabilities: FIGURE_DEVICE };
+  searching(h, []);
+  const device = { document_id: null, local_context: figureContext, consent_version: CONSENT, capabilities: FIGURE_DEVICE };
   const bodies = [
     paperBody({ ...device, messages: [{ role: 'user', text: 'What does the method optimize?' }] }),
     paperBody({ ...device, messages: [{ role: 'user', text: 'What does Figure 2 show?' }], figures: [figure()] }),
@@ -2310,7 +2141,7 @@ test('the figure view reads the chat cache: tools, model, thinking, shared instr
     assert.equal(other.tool_choice, undefined, 'no forced tool: Sonnet 5.5 refuses one, and it is the chat\'s tool_choice');
     assert.deepEqual((other.system as { cache_control?: unknown }[])[1].cache_control, { type: 'ephemeral', ttl: '1h' }, 'the paper keeps its breakpoint');
   }
-  assert.deepEqual(toolNames(chat), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure', 'figure_walkthrough', 'web_search']);
+  assert.deepEqual(toolNames(chat), ['create_diagram', 'create_visual', 'show_figure_parts', 'look_at_figure', 'figure_walkthrough', 'search_web']);
   // Only the action's own instructions (after the paper) and the turn differ.
   const after = (p: Params) => (p.system as { text: string }[])[2]?.text ?? '';
   assert.match(after(walkthrough), /^The reader opened the figure view on the attached figure \(F1/);
@@ -2427,8 +2258,8 @@ test('figure_detail: validated like the figure view, the chat\'s cached prefix, 
     detailBody({ follow_ups: true }), detailBody({ topic_title: true })]) assert.throws(() => validateChatRequest(bad), /invalid_request/);
   const seen: Params[] = [];
   const h = equationHarness({ generate: async (params, stream) => { seen.push(params); stream.onText('Words.'); return completeOutcome(); } });
-  h.deps.webSearch = true;
-  const device = { document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3', capabilities: FIGURE_DEVICE };
+  searching(h, []);
+  const device = { document_id: null, local_context: figureContext, consent_version: CONSENT, capabilities: FIGURE_DEVICE };
   for (const body of [paperBody({ ...device, messages: [{ role: 'user', text: 'What does the method optimize?' }] }), detailBody()]) {
     await runChat(h.deps, body, h.emit, new AbortController().signal);
   }
@@ -2495,11 +2326,11 @@ test('figure_simpler streams words like an answer; tool calls are never relayed;
   assert.deepEqual([settledWith(silent).p_ending, settledWith(silent).p_actual_credits], ['provider', 0]);
   // An ordinary answer that called the view's tool anyway: never a `figure` event; with no words of its own, its words.
   const chat = equationHarness({ generate: async () => walkthroughCall({ summary: 'S.', sections: [{ label: '(a)', title: 'A', text: 'T [¶2].', paragraphs: [2] }] }) });
-  await runChat(chat.deps, paperBody({ document_id: null, local_context: figureContext, consent_version: 'cloud-ai-v3', capabilities: FIGURE_DEVICE }), chat.emit, new AbortController().signal);
+  await runChat(chat.deps, paperBody({ document_id: null, local_context: figureContext, consent_version: CONSENT, capabilities: FIGURE_DEVICE }), chat.emit, new AbortController().signal);
   assert.deepEqual(chat.events.map(e => e.event), ['delta', 'done']); assert.deepEqual(chat.events[0].data, { text: 'S.\n\n**(a) A**\n\nT [¶2].' });
 });
 
-// Resilience (docs/architecture/RESILIENCE.md, fixes 6 and 7): one more try when Anthropic refused an answer as busy
+// Resilience (docs/architecture/RESILIENCE.md, fixes 6 and 7): one more try when the provider refused an answer as busy
 // before starting it, and the reader told how long to wait when it still can't run.
 const refusedBefore = (changes: Partial<ProviderOutcome>): ProviderOutcome => ({ status: 'failed', failure: 'provider_error', messageID: null, model: null,
   stopReason: null, refusalCategory: null, attempts: [], exact: true, ...changes });
@@ -2526,13 +2357,6 @@ test('busy (429) or overloaded (529) before the answer starts: one more try afte
   })) assert.equal((await run([first, completeOutcome()])).calls, 1, label);
   assert.equal((await run([refusedBefore({ httpStatus: 429, retryAfterMs: 100 }), completeOutcome()], true)).calls, 1, 'not after the reader left');
 });
-test('the SDK adapter reports a refusal\'s HTTP status and Retry-After, unbilled', async () => {
-  const client = createAnthropicClient({ apiKey: 'test-key', maxRetries: 0, fetch: (async () => new Response(
-    JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }),
-    { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '2' } })) as typeof fetch });
-  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 777 });
-  assert.deepEqual([outcome.status, outcome.httpStatus, outcome.retryAfterMs, outcome.attempts.length], ['failed', 429, 2_000, 0]);
-});
 test('an answer that can\'t run says how long to wait (the provider\'s Retry-After, else a default)', async () => {
   const waited = harness({ generate: async () => refusedBefore({ httpStatus: 429, retryAfterMs: 30_000 }) });
   await runChat(waited.deps, paperBody(), waited.emit, new AbortController().signal);
@@ -2544,20 +2368,21 @@ test('an answer that can\'t run says how long to wait (the provider\'s Retry-Aft
 
 test('the paper is cached for an hour: held at the one-hour write rate, settled at it, and the turn marker stays five minutes', () => {
   const params = chatRequestParams({ instructions: 'Answer.', paper: { title: 'P', text: 'x '.repeat(20_000) }, turns: [{ role: 'user', text: 'Q' }], selection: null,
-    model: { id: 'claude-sonnet-5-5', effort: 'low' } });
+    model: { id: SONNET, effort: 'low' } });
   const paperBlock = (params.system as { cache_control?: { ttl?: string } }[])[1];
   assert.equal(PAPER_CACHE_TTL, '1h'); assert.deepEqual(paperBlock.cache_control, { type: 'ephemeral', ttl: '1h' });
   assert.ok(hourCachedCharacters(params) > 0 && hourCachedCharacters(params) < promptCharacters(params));
-  const hourHold = holdForParams(params).microusd, fiveMinuteHold = holdFor(promptCharacters(params), params.max_tokens, params.model).microusd;
+  const hourHold = holdForParams(params).microusd, fiveMinuteHold = holdFor(promptCharacters(params) + 3 * 1024, params.max_tokens, params.model).microusd;
   assert.ok(hourHold > fiveMinuteHold, 'a one-hour write costs more, and the hold covers it');
-  const rates = ratesFor('claude-sonnet-5-5', 1000).rates;
-  const priced = priceAttempts([{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 1000, cacheRead: 0, output: 0 } }]);
+  const rates = ratesFor(SONNET, 1000).rates;
+  const priced = priceAttempts([{ model: SONNET, estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 1000, cacheRead: 0, output: 0 } }]);
   assert.equal(priced, 1000 * rates.cacheWrite1h, 'settlement prices one-hour writes at their own rate');
 });
 
 // ---------- Automatic effort and DeepSeek (2026-10-16, CHAT.md "Chat redesign from build 57 feedback") ----------
-const v4 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v4' });
-type Params = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+/** The consent that names DeepSeek's OpenRouter route (DeepInfra): v6. */
+const v6 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v6' });
+type Params = ModelRequest;
 function sending(sent: Params[], outcome: (params: Params) => ProviderOutcome = params => completeOutcome({ model: params.model,
   attempts: [{ model: params.model, estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 300 } }] })) {
   return async (params: Params, stream: StreamOptions) => { sent.push(params); stream.onText('An answer.'); return outcome(params); };
@@ -2573,7 +2398,7 @@ test('auto effort is resolved from the question before the hold; the quote, the 
     return { sent, reserve, quote: reserve.p_quote as Record<string, unknown>, done: h.events.at(-1)!, answers: h.answers, body };
   };
   const why = await run({ model: 'sonnet', effort: 'auto', length: 'standard' }, 'Why does DPO need a reference model?');
-  assert.equal(why.sent[0].model, 'claude-sonnet-5-5'); assert.deepEqual(why.sent[0].output_config, { effort: 'medium' }); assert.equal(why.sent[0].max_tokens, 10_000);
+  assert.equal(why.sent[0].model, SONNET); assert.deepEqual(why.sent[0].output_config, { effort: 'medium' }); assert.equal(why.sent[0].max_tokens, 10_000);
   assert.deepEqual([why.quote.profile, why.quote.effort, why.quote.max_output_tokens], ['sonnet-medium-standard', 'medium', 10_000]);
   assert.equal(why.done.event, 'done');
   assert.equal((why.done.data as { profile: string }).profile, 'sonnet-medium-standard'); assert.equal((why.done.data as { effort: string }).effort, 'medium');
@@ -2605,74 +2430,77 @@ test('auto reads the equation selection and attached figures', async () => {
   assert.deepEqual(sent[0].output_config, { effort: 'medium' });
   const pictured = harness({ generate: sending(sent) });
   await runChat(pictured.deps, { ...paperBody({ profile: { model: 'sonnet', effort: 'auto', length: 'standard' }, messages: [{ role: 'user', text: 'What does Figure 2 show?' }] }),
-    consent_version: 'cloud-ai-v3', figures: [figure()] }, pictured.emit, new AbortController().signal);
+    consent_version: CONSENT, figures: [figure()] }, pictured.emit, new AbortController().signal);
   assert.deepEqual(sent[1].output_config, { effort: 'medium' });
 });
 
-test('DeepSeek needs consent v4 and the server switch; refusals come before any hold', async () => {
+test('DeepSeek needs consent v6 (its OpenRouter route) and the server switch; refusals come before any hold', async () => {
   const choice = { profile: { model: 'deepseek', effort: 'auto', length: 'standard' } };
   for (const consent of ['cloud-ai-v1', 'cloud-ai-v2', 'cloud-ai-v3']) {
     assert.throws(() => validateChatRequest({ ...paperBody(choice), consent_version: consent }), { code: 'consent_required' }, consent);
+  }
+  for (const consent of ['cloud-ai-v1', 'cloud-ai-v2', 'cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5']) {
     const h = harness({ generate: sending([]) }); h.deps.deepseek = true;
     await runChat(h.deps, { ...paperBody(choice), consent_version: consent }, h.emit, new AbortController().signal);
-    assert.deepEqual(h.events, [{ event: 'error', data: { code: 'consent_required' } }]);
+    assert.deepEqual(h.events, [{ event: 'error', data: { code: 'consent_required' } }], consent);
     assert.deepEqual(names(h.calls), ['worker_consume_request'], 'rate-limited, then refused before any hold');
   }
   // Switched off (or no key): the choice is not one the server offers.
   const off = harness({ generate: sending([]) });
-  await runChat(off.deps, v4(paperBody(choice)), off.emit, new AbortController().signal);
+  await runChat(off.deps, v6(paperBody(choice)), off.emit, new AbortController().signal);
   assert.deepEqual(off.events, [{ event: 'error', data: { code: 'invalid_request' } }]);
   assert.ok(!names(off.calls).includes('worker_reserve_chat'));
-  // v4 changes nothing for a Claude answer: figures and Tavily stay named.
-  assert.equal(validateChatRequest(v4(paperBody({ figures: [figure()] }))).figures.length, 1);
+  // v6 changes nothing for a Claude answer: figures and Tavily stay named.
+  assert.equal(validateChatRequest(v6(paperBody({ figures: [figure()] }))).figures.length, 1);
 });
 
-test('a DeepSeek answer: its model and no Claude extras, figures kept, no provider search tool, DeepSeek tariff, peak pricing, usage under DeepSeek', async () => {
+test('a DeepSeek answer: its OpenRouter model, figures kept, no provider search tool, its DeepInfra card, usage under OpenRouter', async () => {
   const sent: Params[] = [];
   const h = harness({ generate: sending(sent) });
-  h.deps.deepseek = true; h.deps.webSearch = true; h.deps.nativeSearch = true;
-  await runChat(h.deps, v4({ ...paperBody({ profile: { model: 'deepseek', effort: 'auto', length: 'standard' }, topic_title: true,
+  h.deps.deepseek = true; h.deps.webSearch = true;
+  await runChat(h.deps, v6({ ...paperBody({ profile: { model: 'deepseek', effort: 'auto', length: 'standard' }, topic_title: true,
     messages: [{ role: 'user', text: 'What does Figure 2 show?' }] }), figures: [figure()] }), h.emit, new AbortController().signal);
-  const answer = sent.find(p => p.model === 'deepseek-flash')!;
-  assert.ok(answer, 'the answer went to deepseek-flash');
+  const answer = sent.find(p => p.model === FLASH)!;
+  assert.ok(answer, 'the answer went to DeepSeek V4.1 Flash through OpenRouter');
   assert.deepEqual(answer.output_config, { effort: 'medium' }); assert.deepEqual(answer.thinking, { type: 'adaptive' }); assert.equal(answer.max_tokens, 10_000);
-  assert.equal(answer.fallbacks, undefined); assert.equal(answer.betas, undefined);
+  assert.equal((answer as Record<string, unknown>).fallbacks, undefined); assert.equal((answer as Record<string, unknown>).betas, undefined);
   const tools = (answer.tools ?? []).map(t => (t as { name: string }).name);
-  assert.ok(!tools.includes('web_search'), 'never Anthropic\'s search tool, even with native search on');
+  assert.ok(!tools.includes('web_search'), 'never a provider-native search tool');
   assert.ok(tools.includes('show_figure_parts'));
   const last = answer.messages.at(-1)!.content as { type: string; source?: { media_type: string } }[];
   assert.equal(last.find(b => b.type === 'image')?.source?.media_type, 'image/jpeg', 'the figure goes with the question');
-  // The title stays on Claude Haiku.
-  assert.ok(sent.some(p => p.model === 'claude-haiku-5-5'));
+  // The title stays on Claude Haiku (through OpenRouter).
+  assert.ok(sent.some(p => p.model === HAIKU));
   const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params, quote = reserve.p_quote as Record<string, unknown>;
-  assert.deepEqual([quote.profile, quote.model, quote.effort, quote.tariff, quote.max_searches], ['deepseek-medium-standard', 'deepseek-flash', 'medium', DEEPSEEK_TARIFF, 0]);
-  // Held at DeepSeek's own rates (twice, for the uncounted tokenizer), far below a Sonnet hold for the same question.
+  assert.deepEqual([quote.profile, quote.model, quote.effort, quote.tariff, quote.max_searches], ['deepseek-medium-standard', FLASH, 'medium', ROUTER_DEEPSEEK_TARIFF, 0]);
+  // Held at DeepSeek's own card (twice, for the uncounted tokenizer), far below a Sonnet hold for the same question.
   const sonnet = harness({ generate: sending([]) });
-  await runChat(sonnet.deps, v4({ ...paperBody({ profile: { model: 'sonnet', effort: 'medium', length: 'standard' }, topic_title: true,
+  await runChat(sonnet.deps, v6({ ...paperBody({ profile: { model: 'sonnet', effort: 'medium', length: 'standard' }, topic_title: true,
     messages: [{ role: 'user', text: 'What does Figure 2 show?' }] }), figures: [figure()] }), sonnet.emit, new AbortController().signal);
   const sonnetHold = Number(sonnet.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
   assert.ok(Number(reserve.p_microusd) * 4 < sonnetHold, `${reserve.p_microusd} vs ${sonnetHold}`);
-  // 900 uncached input at $0.30 and 300 output at $1.20 per million (peak), plus the title's Haiku tokens at Anthropic's card.
+  // Without a reported cost: 900 uncached input and 300 output at the DeepInfra card, plus the title's Haiku tokens at its card.
+  const flash = routerDeepSeekRates(FLASH), haiku = routerClaudeRates(HAIKU);
   const settle = h.calls.find(c => c.name === 'worker_settle_chat')!.params;
-  assert.equal(settle.p_actual_microusd, Math.ceil(900 * 0.3 + 300 * 1.2 + 900 * 0.1 + 300 * 0.5));
+  assert.equal(settle.p_actual_microusd, Math.ceil(900 * flash.input + 300 * flash.output + 900 * haiku.input + 300 * haiku.output));
   const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!.params;
-  assert.equal(usage.p_provider, 'deepseek');
+  assert.equal(usage.p_provider, 'openrouter');
   const done = h.events.find(e => e.event === 'done')!.data as { profile: string; model: string; effort: string };
-  assert.deepEqual([done.profile, done.model, done.effort], ['deepseek-medium-standard', 'deepseek-flash', 'medium']);
-  assert.deepEqual([h.answers[0].provider, h.answers[0].search_provider], ['deepseek', 'none']);
+  assert.deepEqual([done.profile, done.model, done.effort], ['deepseek-medium-standard', 'deepseek-flash', 'medium'], 'the stable client model name');
+  assert.deepEqual([h.answers[0].provider, h.answers[0].search_provider], ['openrouter', 'none']);
 });
 
-test('DeepSeek searches only through our Tavily tool, and never fails over to Anthropic\'s search', async () => {
+test('DeepSeek searches only through our search_web tool (Tavily), never a provider-native search', async () => {
   const sent: Sent[] = [];
-  const deepseekRound = (output: number) => [{ model: 'deepseek-flash', estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output } }];
+  const deepseekRound = (output: number) => [{ model: FLASH, estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output } }];
   const h = harness({ generate: async (params, stream) => {
     sent.push(structuredClone(params) as unknown as Sent);
-    if (sent.length === 1) { stream.onText('Let me look.'); return { ...searchRound([{ id: 'toolu_s1', input: { query: 'IPO', academic: true } }]), model: 'deepseek-flash', attempts: deepseekRound(120) }; }
-    stream.onText('IPO is related.'); return completeOutcome({ model: 'deepseek-flash', attempts: deepseekRound(100) });
+    if (sent.length === 1) { stream.onText('Let me look.'); return { ...searchRound([{ id: 'toolu_s1', input: { query: 'IPO', academic: true } }]), model: FLASH, attempts: deepseekRound(120) }; }
+    stream.onText('IPO is related.'); return completeOutcome({ model: FLASH, attempts: deepseekRound(100) });
   } });
-  h.deps.deepseek = true; h.deps.nativeSearch = true;
+  h.deps.deepseek = true;
   searching(h, [found]);
-  await runChat(h.deps, v4(paperBody({ profile: { model: 'deepseek', effort: 'low', length: 'standard' }, action: 'related', selection: { quote: 'preference optimization' } })),
+  await runChat(h.deps, v6(paperBody({ profile: { model: 'deepseek', effort: 'low', length: 'standard' }, action: 'related', selection: { quote: 'preference optimization' } })),
     h.emit, new AbortController().signal);
   const tools = sent[0].tools!.map(t => t.name);
   assert.ok(tools.includes('search_web') && !tools.includes('web_search'));
@@ -2680,14 +2508,14 @@ test('DeepSeek searches only through our Tavily tool, and never fails over to An
   let rounds = 0;
   const failing = harness({ generate: async (params, stream) => {
     rounds++;
-    if (rounds === 1) return { ...searchRound([{ id: 'toolu_s1', input: { query: 'IPO' } }]), model: 'deepseek-flash', attempts: deepseekRound(120) };
-    assert.ok(!(params.tools ?? []).some(t => 'name' in t && t.name === 'web_search'), 'no switch to Anthropic\'s search');
-    stream.onText('Without search.'); return completeOutcome({ model: 'deepseek-flash', attempts: deepseekRound(100) });
+    if (rounds === 1) return { ...searchRound([{ id: 'toolu_s1', input: { query: 'IPO' } }]), model: FLASH, attempts: deepseekRound(120) };
+    assert.ok(!(params.tools ?? []).some(t => 'name' in t && t.name === 'web_search'), 'no provider-native search appears');
+    stream.onText('Without search.'); return completeOutcome({ model: FLASH, attempts: deepseekRound(100) });
   } });
-  failing.deps.deepseek = true; failing.deps.nativeSearch = true;
+  failing.deps.deepseek = true;
   searching(failing, [{ status: 'failed', failure: 'unavailable', retryAfterMs: null }]);
-  await runChat(failing.deps, v4(paperBody({ profile: { model: 'deepseek', effort: 'low', length: 'standard' } })), failing.emit, new AbortController().signal);
-  assert.equal(rounds, 2); assert.equal(failing.answers[0].failover, false);
+  await runChat(failing.deps, v6(paperBody({ profile: { model: 'deepseek', effort: 'low', length: 'standard' } })), failing.emit, new AbortController().signal);
+  assert.equal(rounds, 2); assert.equal(failing.answers[0].search_failures, 1);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -2696,9 +2524,10 @@ test('DeepSeek searches only through our Tavily tool, and never fails over to An
 // ---------------------------------------------------------------------------------------------------------------------
 const settledWith = (h: ReturnType<typeof harness>) => h.calls.find(c => c.name === 'worker_settle_chat')!.params;
 const aborted = (usage: { input: number; output: number }, messageID: string | null = 'msg_stop'): ProviderOutcome => ({ status: 'failed', failure: 'aborted',
-  messageID, model: messageID ? 'claude-sonnet-5-5' : null, stopReason: null, refusalCategory: null,
-  attempts: [{ model: messageID ? 'claude-sonnet-5-5' : null, estimated: true, usage: { cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, ...usage },
-    // The adapter's observation of what was written (here priced like the usage: 1,000 input at $2 + 100 output at $10).
+  messageID, model: messageID ? SONNET : null, stopReason: null, refusalCategory: null,
+  attempts: [{ model: messageID ? SONNET : null, estimated: true, usage: { cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, ...usage },
+    // The adapter's observation of what was written (here 1,000 input at $2 + 100 output at $10 = 3,000), below the
+    // estimate's liability at the Sonnet card ($2.20 and $11: 3,300), which stays in the platform's spend.
     readerMicrousd: messageID ? usage.input * 2 + usage.output * 10 : 0 }], exact: false });
 
 test('stop_signal is a known capability; builds that send it are told apart from those that do not', () => {
@@ -2716,9 +2545,9 @@ test('a Stop the app recorded (v1_chat_stop) is charged for what the answer used
     } });
   await runChat(h.deps, paperBody({ capabilities: ['stop_signal', 'visual_answers'], topic_title: true }), h.emit, client.signal);
   assert.deepEqual(h.events, [{ event: 'delta', data: { text: 'partial ' } }], 'nothing is sent after the reader left');
-  // 1,000 input at $2 + 100 output at $10 = 3,000 micro-USD -> 1 credit; the title's 44 micro-USD are absorbed.
-  assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 3_044,
-    p_action: 'answer', p_ending: 'stopped', p_absorbed_microusd: 44 });
+  // The written part (3,000 micro-USD) -> 1 credit; the rest of the estimate (300) and the title's 44 micro-USD are absorbed.
+  assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 3_344,
+    p_action: 'answer', p_ending: 'stopped', p_absorbed_microusd: 344 });
   assert.equal(h.calls.filter(c => c.name === 'worker_chat_stop_requested').length, 1);
   assert.equal(h.answers[0].ending, 'stopped'); assert.equal(h.answers[0].charged, true);
 });
@@ -2738,7 +2567,7 @@ test('a dropped connection (stop_signal, no Stop recorded) charges nothing; a St
     await runChat(h.deps, paperBody({ capabilities: ['stop_signal'] }), h.emit, client.signal);
     const settle = settledWith(h);
     assert.equal(settle.p_ending, ending, label); assert.equal(settle.p_actual_credits, credits, label);
-    assert.equal(settle.p_absorbed_microusd, credits ? 0 : 3_000, label);
+    assert.equal(settle.p_absorbed_microusd, credits ? 300 : 3_300, label);
     assert.equal(looks, 2, `${label}: two looks`); assert.deepEqual(waits, [1_500], `${label}: one short wait between them`);
   }
 });
@@ -2825,10 +2654,10 @@ test('our own limit and our own server are named: provider_unavailable/limit and
   }
 });
 
-test('the provider overloading mid-stream (a real SDK error event after the first text) charges nothing and keeps the text it sent', async () => {
-  const client = fakeClient(sseResponse([start, ...text(0, 'Half an answer '),
-    { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }]));
-  const h = harness({ generate: (params, stream) => streamChat(client, params, stream) });
+test('the provider overloading mid-stream (a real OpenRouter error event after the first text) charges nothing and keeps the text it sent', async () => {
+  const generate = routerChat(routerStream([{ id: 'gen-mid', model: SONNET, choices: [{ index: 0, delta: { content: 'Half an answer ' }, finish_reason: null }] },
+    { id: 'gen-mid', error: { code: 503, message: 'Overloaded' } }]));
+  const h = harness({ generate: (params, stream) => generate(params, { ...stream, attribution }) });
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
   assert.deepEqual(h.events, [{ event: 'delta', data: { text: 'Half an answer ' } },
     { event: 'error', data: { code: 'provider_unavailable', credits: 0, charged: false, reason: 'provider', retry_after: 10 } }]);
@@ -2874,7 +2703,7 @@ test('A1: an estimate without an observation of what was written is never billed
   const client = new AbortController();
   const h = harness({ script: { worker_chat_stop_requested: () => true },
     generate: async (_params, stream) => { stream.onText('partial '); client.abort();
-      return { ...aborted({ input: 150_000, output: 8_000 }), attempts: [{ model: 'claude-sonnet-5-5', estimated: true,
+      return { ...aborted({ input: 150_000, output: 8_000 }), attempts: [{ model: SONNET, estimated: true,
         usage: { input: 150_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8_000 } }] }; } });
   await runChat(h.deps, paperBody({ capabilities: ['stop_signal'] }), h.emit, client.signal);
   const settle = settledWith(h);

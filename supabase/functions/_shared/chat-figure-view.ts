@@ -7,7 +7,7 @@
 // so the call is asked for by the instructions with the chat's own tool_choice (auto) and adaptive thinking, and the
 // server checks its input. The tool is in the tools of every paper chat from a build that has the figure view (the
 // `figure_view` capability), so a walkthrough and the chat around it share one cached prefix.
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ToolDefinition } from './model-request.ts';
 import { EFFORTS } from './chat-profiles.ts';
 
 export const FIGURE_ACTIONS = ['figure', 'figure_simpler', 'figure_detail'] as const;
@@ -33,7 +33,7 @@ export function figureDetailMaxTokens(effort: string): number {
   return FIGURE_DETAIL_ANSWER_TOKENS + (EFFORTS.find(entry => entry.id === effort)?.thinkingTokens ?? 4_000);
 }
 
-export const FIGURE_WALKTHROUGH_TOOL: Anthropic.Beta.Messages.BetaTool = {
+export const FIGURE_WALKTHROUGH_TOOL: ToolDefinition = {
   name: 'figure_walkthrough',
   description: 'Gives the figure view its walkthrough of the attached figure (F1): a short summary, then one section per '
     + 'sub-figure, panel or region in reading order; a section may carry a box, a region of the image the reader sees '

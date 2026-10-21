@@ -15,6 +15,7 @@ import { contentsEquations, contentsFigures, contentsTables, type ContentsEquati
 import { equationNumbers } from '../lib/equation';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
+import { formatDate } from './common';
 import { figureName, figureNoun } from '../lib/figure-view';
 import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
 import { EquationTiles } from './EquationTiles';
@@ -81,7 +82,7 @@ function failure(error: unknown): string {
 
 type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: ReaderPaper; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
-  marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
+  marks: { id: string; anchor: TextAnchor; title?: string; lastUsedAt?: number }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   /** A kept explanation reopened from Your assets: its equation view or figure page, once the paper is ready. */
   explainer?: { id: string; kind: 'equation' | 'figure'; targetID: string; at: number } | null; onExplainerHandled?: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor, paragraph?: number) => void; onMarkedChat: (id: string) => void;
@@ -102,7 +103,9 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   reading?: ReadingMode;
   /** Notes: Add to note from a selection, a figure, table or equation, and Draw snippet. */
   noteCapture?: NoteCapture;
-  onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
+  onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void;
+  /** The paper's latest saved place (the app no longer renders for each report, C1), read when the paper (re)opens. */
+  readSaved?: (itemID: string) => Activity | undefined };
 
 export function Reader(props: ReaderProps) {
   const { account, item } = props;
@@ -112,7 +115,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onTagSearch, onShowTagged, onBackToChat, onExplainerReturn, reading, noteCapture }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved: shownSaved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onTagSearch, onShowTagged, onBackToChat, onExplainerReturn, reading, readSaved, noteCapture }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -174,6 +177,10 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [lineWidth, setLineWidth] = useState(readLineWidth);
   // Reading mode: how far through the paper (whole percent) and whether the quiet bar shows.
   const [progress, setProgress] = useState(0);
+  // Only reading mode shows the percent; elsewhere a scroll report doesn't render the reader for it (C1).
+  const progressNow = useRef(0), readingOn = useRef(!!reading?.on);
+  readingOn.current = !!reading?.on;
+  useEffect(() => { if (reading?.on) setProgress(progressNow.current); }, [reading?.on]);
   const [barShown, setBarShown] = useState(false);
   const barTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -271,7 +278,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
       const message: FrameMessage | null = readFrameMessage(event.data.value, bundle ?? undefined);
       if (!message) return;
       switch (message.type) {
-        case 'headings':
+        case 'headings': {
+          const saved = readSaved?.(item.id) ?? shownSaved;
           setHeadings(message.items);
           frameReady.current = true; setBridgeReady(true);
           appliedPresentation.current = initialPresentation;
@@ -281,6 +289,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           restoreAcross.current = false;
           onActivity(item.id, { ...(saved ?? { progress: 0 }), opened: Date.now() });
           break;
+        }
         case 'position': {
           const now = Date.now();
           // The bridge already bounds scroll reports (120 ms plus scroll-end). Keep the final one:
@@ -288,7 +297,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           // App owns debounced, ordered encrypted persistence independently of this in-memory update.
           const { block, fraction, height, y } = message;
           onActivity(item.id, { opened: now, progress: message.progress, location: { block, fraction, height, y }, manifest: bundle?.manifestSHA256 });
-          setProgress(Math.round(message.progress * 100));
+          progressNow.current = Math.round(message.progress * 100);
+          if (readingOn.current) setProgress(progressNow.current);
           let current: string | null = null;
           for (const h of headingBlocks) { if (h.block <= block) current = h.id; else break; }
           setActive(current);
@@ -317,9 +327,27 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
+  }, [bundle, command, item.id, onActivity, onKey, shownSaved, readSaved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled, onContents, workspace?.left.open]);
+
+  // A link out of the paper, from the paper or one of its figure frames: a new tab, as the apps open Safari (A18).
+  useEffect(() => {
+    const open = (event: MessageEvent) => {
+      if (event.data?.gradstep !== 'reader' || event.data.value?.type !== 'link') return;
+      if (![...document.querySelectorAll<HTMLIFrameElement>('iframe.reader-frame, iframe.figure-frame')].some(f => f.contentWindow === event.source)) return;
+      const message = readFrameMessage(event.data.value);
+      if (message?.type === 'link') window.open(message.url, '_blank', 'noopener,noreferrer');
+    };
+    window.addEventListener('message', open);
+    return () => window.removeEventListener('message', open);
+  }, []);
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
+  // Several chats on one passage are listed by title; a title shared by two names when each was last read (PaperPassages).
+  const markTitle = (id: string) => {
+    const mark = marks.find(m => m.id === id), title = mark?.title || 'Untitled conversation';
+    const shared = markedChats.some(other => other !== id && (marks.find(m => m.id === other)?.title || 'Untitled conversation') === title);
+    return shared && mark?.lastUsedAt ? `${title} · ${formatDate(mark.lastUsedAt)}` : title;
+  };
 
   // ---------- Notes: Add to note and Draw snippet (NOTES_AND_SNIPPETS.md) ----------
   const ask = useCallback(<T extends 'capture' | 'captureProbe'>(name: T, args: unknown[], wait: number) => new Promise<Extract<FrameMessage, { type: T }>>(resolve => {
@@ -617,7 +645,11 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
               <button key="equation" className="secondary small" data-testid="equation-open" onClick={() => {
                 const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
                 setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: true }); setSelection(null); command('clearSelection');
-              }}>AI Explainer</button>] : [])])}
+              }}>AI Explainer</button>,
+              // The raw formula, as the apps' Copy as Text on a tapped equation copies it.
+              <button key="copy" className="secondary small" data-testid="equation-copy" onClick={() => {
+                void navigator.clipboard.writeText(quote).then(() => setNotice('Copied.'), () => setNotice('Couldn’t copy the equation.'));
+              }}>Copy as Text</button>] : [])])}
           {/* Notes: the selection as a quotation (no AI), or a tapped equation as its rendered image. */}
           {noteCapture && <button className="secondary small" data-testid="selection-add-to-note" onClick={() => {
             const part = selection.parts[0];
@@ -628,7 +660,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           }}>Add to note</button>}
         </div>}
         {snippet && srcdoc && !error && <SnippetOverlay initial={snippet.box} busy={snippet.busy} issue={snippet.issue} onUse={box => void takeSnippet(box)} onCancel={() => setSnippet(null)} />}
-        {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
+        {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage" data-testid="passage-chats">{markedChats.map(id => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>{markTitle(id)}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Cancel</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
         {referenceNotice && <div className="reader-reference-notice" role="status" data-testid="reference-notice">
           <span>{referenceNotice.message}</span>

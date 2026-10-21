@@ -3,10 +3,11 @@
 // in parallel with the answer and inside the same metered operation, for a 3–7 word title. The title goes only to the
 // reader's stream (an SSE `title` event before `done`); the device stores it in its encrypted history. The server
 // never logs or stores it. Deno and Node compatible.
-import type Anthropic from '@anthropic-ai/sdk';
-import type { ChatTurn } from './anthropic.ts';
+import type { ModelRequest } from './model-request.ts';
+import type { ChatTurn } from './inference.ts';
 
-export const TITLE_MODEL = 'claude-haiku-5-5';
+/** Haiku 5.5 through OpenRouter (Google Vertex). */
+export const TITLE_MODEL = 'anthropic/claude-haiku-5.5';
 /** A title is ~10 tokens; the allowance bounds a model that ignores the instructions. */
 export const TITLE_MAX_TOKENS = 40;
 /** After the answer, a title still being written gets this long before it is abandoned (its attempt is still settled). */
@@ -28,7 +29,7 @@ export function excerpt(text: string, limit: number): string {
 /** What the title model reads: the paper's title, the selected passage, the first question (and, for a conversation
  * titled late, its first answer and newest question). Never the paper's text. */
 export function titleRequestParams(input: { turns: readonly ChatTurn[]; selection: string | null; paperTitle: string | null })
-  : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
+  : ModelRequest {
   const first = input.turns.find(turn => turn.role === 'user');
   const answer = input.turns.find(turn => turn.role === 'assistant');
   const latest = input.turns.length > 1 ? input.turns.at(-1) : undefined;

@@ -31,6 +31,8 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await expect(menu.getByRole('menuitem')).toHaveText(['Add paper…', 'Chats', 'Diagrams', 'Equation explanations', 'Figure explanations', 'AI chat options…', 'Keyboard shortcuts', 'How Gradstep works', 'Privacy & data', 'Report this screen…',
     'My reports', 'Sign out…', 'Delete account…'].map(t => new RegExp(`^\\s*${t.replace(/[.…&]/g, c => `\\${c}`)}$`)));
   await expect(menu.getByRole('group', { name: 'Admin' })).toHaveCount(0);
+  // The sync state (B10, RootView's Account › Sync), with Sync now only while something is waiting.
+  await expect(menu.getByTestId('account-sync')).toHaveText(/^Sync\s*(Synced|Syncing…|Not synced yet|Sync paused|\d+ changes? waiting to sync)(\s*Sync now)?$/);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-account-menu.png` });
 
   await menu.getByRole('menuitem', { name: 'Privacy & data' }).click();
@@ -42,7 +44,8 @@ for (const scheme of ['light', 'dark'] as const) test(`account menu, Privacy & d
   await expect(arxiv).toContainText('Requests to arXiv are spaced out, name Gradstep, and stop for a day if arXiv asks this device to slow down, as arXiv’s API Terms of Use require. Each paper stays under its authors’ license, with a link back to arXiv.');
   await expect(arxiv.getByRole('link', { name: 'arXiv API Terms of Use' })).toHaveAttribute('href', 'https://info.arxiv.org/help/api/tou.html');
   await expect(arxiv).toContainText('Thank you to arXiv for use of its open access interoperability.');
-  await expect(privacy).toContainText('to Anthropic, or to DeepSeek when you choose it in Answer options.');
+  // The apps' wording (RootView › Privacy & data): OpenRouter routes, the account ID, Tavily and no backup search provider.
+  await expect(privacy.getByTestId('privacy-ai')).toHaveText('AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text and the image of any figure or table you ask about through OpenRouter to Google Vertex (Gemini and Claude) or DeepInfra (DeepSeek), according to Answer options. A random account ID accompanies requests for cost accounting. Claude through OpenRouter writes the chat’s title and suggested questions. The model may search the web for some questions; those searches go to Tavily, a search service.');
   await expect(privacy).toContainText('A report you send, with its screenshot and notes, goes to Gradstep’s support so we can fix the problem, and is kept until you delete your account.');
   await expect(privacy).not.toContainText('fetched by our server');
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-privacy.png` });

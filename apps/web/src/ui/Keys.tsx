@@ -1,15 +1,17 @@
 // This browser becomes a device: new keys for an account without any; otherwise approval from another device (QR,
 // the primary path) or the recovery code.
 import { requestPersistence } from '../lib/persistence';
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { BackendError } from '../lib/backend';
 import { StorageError, activateJournal, storage } from '../lib/idb';
 import { type Preparation, bootstrap, prepare, recoverWithCode } from '../lib/keys';
 import { WireError, generateBundle, generateRecoveryCode, recoveryCodeBytes } from '../lib/wire';
 import { backoffDelay, isTransient, retryAfterMs } from '../lib/retry';
-import { ApproveFromPhone } from './Approve';
 import { Brand } from './common';
 import { storageGuidance, useStorageLifecycle } from './StorageNotice';
+
+// Approval from another device (its QR and code) loads only when this browser needs it (C5).
+const ApproveFromPhone = lazy(() => import('./Approve').then(m => ({ default: m.ApproveFromPhone })));
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
 type View = { kind: 'preparing' } | { kind: 'activation'; ready: Ready } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string; title?: string; reload?: boolean }
@@ -122,8 +124,8 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
             <p className="issue" role="alert">{issue}</p>
             <button className="primary" onClick={() => { setIssue(null); setPhoneAttempt(a => a + 1); }}>Try again</button>
             <button type="button" className="secondary" onClick={() => { setIssue(null); setMethod('code'); }}>Use recovery code instead</button>
-          </> : <ApproveFromPhone account={account} attempt={phoneAttempt} onResult={approved} onIssue={approvalIssue}
-            onUseCode={() => { setIssue(null); setMethod('code'); }} />}
+          </> : <Suspense fallback={<span className="spinner" aria-label="Loading" />}><ApproveFromPhone account={account} attempt={phoneAttempt} onResult={approved} onIssue={approvalIssue}
+            onUseCode={() => { setIssue(null); setMethod('code'); }} /></Suspense>}
         </>}
         {view.kind === 'recovery_required' && method === 'code' && <Recover onUsePhone={() => { setIssue(null); setMethod('phone'); }} account={account} email={email} busy={busy} issue={issue} onSubmit={async code => {
           const signal = lifetime.current!.signal;
