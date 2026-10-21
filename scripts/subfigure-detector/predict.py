@@ -40,6 +40,7 @@ def main():
     ap.add_argument('--size', type=int, default=640)
     ap.add_argument('--zoom', type=float, default=1.0)
     ap.add_argument('--min-score', type=float, default=.03)
+    ap.add_argument('--cpu', action='store_true')
     args = ap.parse_args()
     gts = [json.loads(l) for l in args.gt.read_text().splitlines() if l.strip()]
     rows = [{'id': g['id'], 'image': str(args.root / g['image']), 'width': g['width'], 'height': g['height'], 'boxes': []} for g in gts]
@@ -51,9 +52,10 @@ def main():
     bad = [k for k in missing if k not in ('decoder.anchors', 'decoder.valid_mask')]
     if bad or unexpected:
         raise ValueError(f'checkpoint mismatch {bad[:5]} {unexpected[:5]}')
-    model.cuda().eval()
+    dev = torch.device('cpu' if args.cpu else 'cuda')
+    model.to(dev).eval()
     ds = Placed(rows, args.size, args.zoom, (.5, .5))
-    preds = T.predict(model, DataLoader(ds, batch_size=32, collate_fn=T.collate, num_workers=8), torch.device('cuda'), args.min_score)
+    preds = T.predict(model, DataLoader(ds, batch_size=32, collate_fn=T.collate, num_workers=8), dev, args.min_score)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps([{'id': r['id'], 'predictions': p} for r, p in zip(rows, preds)]))
     print('wrote', len(preds))

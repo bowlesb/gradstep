@@ -187,6 +187,14 @@ missed or wrong boxes); keeping a compound figure whole is a safe miss, because 
 everything. v13 raw: 36.1% harmful. Of the 16 clipped figures left with r2 + caption/agreement, half lose
 ≤ 2% of one panel's ink and the worst loses 9% (v13 raw: 28 clipped, worst 10%).
 
+**Selection rule (declared 05:20 PDT, before the last R50-M epochs finished):** the frozen system is the
+checkpoint with the highest mean app success over the two validation sets under the caption-decoding +
+agreement policy at threshold .5 or .6, ties broken by lower arXiv harmful rate. Interim: R50-M (r4) epoch 4
+gives 75.6% arXiv / 96.2% frozen (harmful 13.4%), r2 75.2% / 95.5%. The LaTeX sub-figure fine-tune (r6, from
+r5 e07, 6 epochs) did **not** help: 72.3% arXiv / 94.6% frozen at its best epoch — the page composites are
+real compounds but differ from the single-image figures the app sends (wider gutters, paper fonts, subcaptions
+in body type), and the fine-tune slightly over-split singles (9.7% false splits).
+
 **Ensembles did not help.** Weighted box fusion of r1+r2+r5 (or r2+r5) reaches 73.5% / 72.7% on arXiv
 validation with the full policy — no better than r2 alone — and 97.1% on frozen validation. The models make
 correlated errors; the limit is the training data for non-plot compounds, not variance.
@@ -218,7 +226,7 @@ where possible. Checkpoint selection by mean app success over both validation se
 | r3-r18-clean | r2 without SCI-3000 (rights-clean) | 11 (5) | 76 min / 6.1 GB | ran concurrently with r2 |
 | r5-r18-pseudo | r2 + grouped 159 + pseudo 11.7K | 12 (7) | 49 min / 6.1 GB | |
 | r4-r50m-pseudo | r5 data, RT-DETRv2-M (R50) | running | | |
-| r6-r18-subfig-ft | r5 data + LaTeX sub-figure composites, fine-tuned from r5 e07 | running | | |
+| r6-r18-subfig-ft | r5 data + 5,443 LaTeX sub-figure composites, fine-tuned from r5 e07, LR 1e-4 | 6 (3) | ≈45 min (shared GPU) / 6.1 GB | no gain; rejected |
 
 Exact configs, source/data hashes, per-epoch metrics, predictions and resource samples are in each
 `runs/<id>/` on the GPU host (`d21/`), with copied summaries under
