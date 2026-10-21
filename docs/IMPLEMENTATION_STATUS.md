@@ -1,5 +1,16 @@
 # Implementation status
 
+## TestFlight 79 and browser release — 2026-10-21 UTC
+
+iOS and Mac build 79 uploaded ~17:32 UTC (iOS VALID at the time of writing); browser redeployed to https://app.gradstep.ai.
+Adds since 78: Notes renamed Snippets (cards, comment-only stream text, snippet Chat, Your assets › Snippets), podcast
+defaults and model-choice ⓘ explainers, crop completeness with a background margin on every presented crop and equation,
+the build-78 feedback (figure/table/equation top row Snippet · Chat · AI Explainer; Focus; instant Contents jumps; double
+tap → Contents; keyword chip editor; section spacing; lower tab bar), the after-screenshot report offer back on by default.
+Gates: `npm test` passes; import acceptance 15/15 on the uploaded source (`.artifacts/import-acceptance/2026-10-21T17-14-50-887Z.log`);
+figure journeys 5/5 and Notes journeys pass on an iPhone 17 Pro Simulator. Not verified: physical device (paused), iPad/Mac
+journeys after the final merge.
+
 
 ## Snippets, Podcasts default and AI defaults explainer — 2026-10-21 UTC (local source, not released)
 
