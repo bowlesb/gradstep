@@ -242,7 +242,7 @@ struct PaperView: View {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                                          if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
                                          #endif
-                                     }, paperLine: paper.publicationLine, paperTags: LibraryTags.tags(for: paper), paperTagSource: paper.tagsCustomized ? "Your keywords" : "Gradstep",
+                                     }, paperLine: paper.publicationLine, showsPaperTags: !paper.isSample, paperTags: LibraryTags.tags(for: paper), paperTagSource: paper.tagsCustomized ? "Your keywords" : "Gradstep",
                                      onTags: { if model.readerDocumentScope == readerScope { model.editTags(for: paper) } },
                                      citationReturnID: citationReturnID, onCitation: { active, origin in
                                          if model.readerDocumentScope == readerScope { citationBack = active; citationOrigin = active ? origin : "" }
@@ -962,6 +962,8 @@ struct PaperWebView: UIViewRepresentable {
     var onReady: () -> Void = {}
     /// One secondary line under the authors (year · venue · source); nil shows none.
     var paperLine: String? = nil
+    /// No keyword row at all (the offline sample, whose keywords can't be edited: no "Add keywords" that does nothing).
+    var showsPaperTags = true
     /// The paper's tags as small chips under that line (docs/architecture/TAGS.md); a tap calls `onTags`.
     var paperTags: [String] = []
     var paperTagSource = "Gradstep"
@@ -1049,7 +1051,7 @@ struct PaperWebView: UIViewRepresentable {
         // The line is placed before the first layout, so restoring a position never shifts.
         let line = figureID == nil ? paperLine.flatMap { try? JSONEncoder().encode($0) } : nil
         context.coordinator.appliedPaperLine = line == nil ? nil : paperLine
-        let tags = figureID == nil ? try? JSONSerialization.data(withJSONObject: ["names": paperTags, "source": paperTagSource]) : nil
+        let tags = figureID == nil && showsPaperTags ? try? JSONSerialization.data(withJSONObject: ["names": paperTags, "source": paperTagSource]) : nil
         context.coordinator.appliedPaperTags = tags == nil ? [] : paperTags
         context.coordinator.appliedPaperTagSource = paperTagSource
         context.coordinator.appliedLineWidth = lineWidth
@@ -1369,7 +1371,7 @@ struct PaperWebView: UIViewRepresentable {
 
         /// Tags can arrive or change while the paper is open (tagging, an edit on another device).
         func applyPaperTags(in web: WKWebView) {
-            guard parent.figureID == nil, appliedPaperTags != parent.paperTags || appliedPaperTagSource != parent.paperTagSource else { return }
+            guard parent.figureID == nil, parent.showsPaperTags, appliedPaperTags != parent.paperTags || appliedPaperTagSource != parent.paperTagSource else { return }
             appliedPaperTags = parent.paperTags
             appliedPaperTagSource = parent.paperTagSource
             web.callAsyncJavaScript("window.__scienceReaderSetPaperTags(tags);", arguments: ["tags": ["names": parent.paperTags, "source": parent.paperTagSource]],
