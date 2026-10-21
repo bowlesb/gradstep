@@ -1,0 +1,479 @@
+<style>
+#notes-snippets { color-scheme: light dark; }
+#notes-snippets .ns-stage { padding: 28px 10px 20px; }
+#notes-snippets .ns-preview-label { margin: 0 auto 12px; max-width: 414px; padding-right: 70px; font: 12px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; color: light-dark(#62626c, #adadb8); }
+#notes-snippets .ns-phone {
+  --ns-bg: light-dark(#fff, #141417); --ns-soft: light-dark(#f5f5f7, #1e1e24); --ns-line: light-dark(#e7e7ea, #34343c);
+  --ns-ink: light-dark(#18181b, #e7e7ea); --ns-muted: light-dark(#656571, #aaaab5);
+  --ns-accent: light-dark(#4f52cf, #a5a7ff); --ns-tint: light-dark(#eef0ff, #292944);
+  --ns-onaccent: light-dark(#fff, #15152c); --ns-amber: light-dark(#b17417, #f5bd63);
+  --ns-danger: light-dark(#ba273c, #ff909d); --ns-scrim: light-dark(#1c1c2030, #00000070);
+  max-width: 414px; margin: auto; border: 1px solid var(--ns-line); border-radius: 26px; overflow: hidden;
+  background: var(--ns-bg); color: var(--ns-ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 16px 44px light-dark(#20202812, #00000030); position: relative;
+}
+#notes-snippets .ns-phone * { box-sizing: border-box; }
+#notes-snippets [hidden] { display: none !important; }
+#notes-snippets button, #notes-snippets input, #notes-snippets textarea, #notes-snippets select { font: inherit; color: inherit; }
+#notes-snippets button { border: 0; background: transparent; min-height: 44px; padding: 9px 12px; border-radius: 12px; text-align: left; }
+#notes-snippets button:disabled { opacity: .45; }
+#notes-snippets button:hover:not(:disabled) { background: var(--ns-soft); }
+#notes-snippets .ns-primary { background: var(--ns-accent); color: var(--ns-onaccent); text-align: center; font-weight: 600; }
+#notes-snippets .ns-primary:hover:not(:disabled) { background: var(--ns-accent); filter: brightness(.95); }
+#notes-snippets .ns-link { color: var(--ns-accent); display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+#notes-snippets .ns-danger { color: var(--ns-danger); }
+#notes-snippets .ns-top { display: flex; align-items: center; gap: 4px; padding: 13px 12px 10px; position: relative; border-bottom: 1px solid var(--ns-line); }
+#notes-snippets .ns-heading { min-width: 0; flex: 1; padding-left: 4px; }
+#notes-snippets h2 { font-size: 19px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; margin: 0; overflow-wrap: anywhere; }
+#notes-snippets h3 { font-size: 18px; line-height: 1.35; margin: 0 0 12px; font-weight: 600; }
+#notes-snippets p { margin: 0 0 12px; }
+#notes-snippets .ns-caption { font-size: 12px; line-height: 1.5; color: var(--ns-muted); }
+#notes-snippets .ns-circle { width: 44px; height: 44px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ns-line); border-radius: 50%; color: var(--ns-accent); background: var(--ns-bg); }
+#notes-snippets .ns-circle svg { width: 18px; height: 18px; }
+#notes-snippets .ns-back { border: 0; }
+#notes-snippets .ns-screen { min-height: 510px; }
+#notes-snippets .ns-body { padding: 20px 16px; }
+#notes-snippets .ns-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#notes-snippets .ns-between { justify-content: space-between; }
+#notes-snippets .ns-grow { flex: 1; min-width: 0; }
+#notes-snippets .ns-stack { display: grid; gap: 16px; }
+#notes-snippets label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+#notes-snippets input:not([type=range]), #notes-snippets textarea, #notes-snippets select { width: 100%; min-width: 0; border: 1px solid var(--ns-line); border-radius: 12px; padding: 12px; background: var(--ns-bg); color: var(--ns-ink); font-size: 16px; font-weight: 400; }
+#notes-snippets textarea { resize: vertical; min-height: 96px; }
+#notes-snippets input::placeholder, #notes-snippets textarea::placeholder { color: var(--ns-muted); opacity: 1; }
+#notes-snippets input[type=range] { accent-color: var(--ns-accent); width: 100%; min-height: 28px; }
+#notes-snippets .ns-search { display: flex; align-items: center; gap: 8px; border-radius: 22px; background: var(--ns-soft); padding: 0 13px; margin-bottom: 14px; }
+#notes-snippets .ns-search input { border: 0; background: transparent; padding-left: 0; }
+#notes-snippets .ns-search svg { width: 17px; flex: none; color: var(--ns-muted); }
+#notes-snippets .ns-notes-list { margin: 0; padding: 0; list-style: none; }
+#notes-snippets .ns-note-row { padding: 15px 0; border-bottom: 1px solid var(--ns-line); display: flex; align-items: center; gap: 10px; }
+#notes-snippets .ns-note-open { padding: 2px 4px; flex: 1; min-width: 0; }
+#notes-snippets .ns-note-title { display: block; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+#notes-snippets .ns-note-preview { display: block; color: var(--ns-muted); font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 280px; }
+#notes-snippets .ns-note-meta { margin-top: 8px; display: block; }
+#notes-snippets .ns-note-mark { color: var(--ns-accent); background: var(--ns-tint); border-radius: 12px; width: 40px; height: 44px; display: grid; place-items: center; flex: none; }
+#notes-snippets .ns-note-mark svg { width: 20px; height: 20px; }
+#notes-snippets .ns-empty { padding: 48px 8px; text-align: center; }
+#notes-snippets .ns-empty button { text-align: center; }
+#notes-snippets .ns-day { font-size: 12px; font-weight: 600; color: var(--ns-muted); margin: 4px 0 18px; letter-spacing: .03em; }
+#notes-snippets .ns-entry { position: relative; padding: 0 0 20px 16px; margin: 0 0 24px 3px; border-left: 1px solid var(--ns-line); }
+#notes-snippets .ns-entry::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ns-amber); position: absolute; left: -4px; top: 7px; }
+#notes-snippets .ns-entry-top { display: flex; align-items: center; gap: 4px; margin: -8px -5px 7px 0; }
+#notes-snippets .ns-entry-top .ns-circle { border: 0; margin-left: auto; }
+#notes-snippets .ns-entry blockquote { margin: 0 0 13px; padding: 12px 14px; background: var(--ns-soft); border-radius: 10px; font: 16px/1.6 Georgia, serif; }
+#notes-snippets .ns-comment { font-size: 15px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+#notes-snippets .ns-source { display: block; width: 100%; font-size: 12px; line-height: 1.5; color: var(--ns-muted); padding: 9px 0; overflow-wrap: anywhere; }
+#notes-snippets .ns-source strong { color: var(--ns-accent); font-weight: 500; }
+#notes-snippets .ns-image { width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--ns-line); border-radius: 10px; margin-bottom: 12px; background: var(--ns-bg); display: block; }
+#notes-snippets .ns-crop-svg { display: block; width: 100%; max-height: 220px; color: var(--ns-ink); }
+#notes-snippets .ns-image:hover { background: var(--ns-bg); }
+#notes-snippets .ns-paper { padding: 15px 16px 0; }
+#notes-snippets .ns-paper-surface { position: relative; overflow: hidden; border-radius: 3px; user-select: text; }
+#notes-snippets .ns-paper-surface.ns-capturing { touch-action: none; user-select: none; cursor: crosshair; }
+#notes-snippets .ns-paper-svg { display: block; width: 100%; height: auto; background: var(--ns-bg); }
+#notes-snippets .ns-paper-ink { fill: var(--ns-ink); }
+#notes-snippets .ns-paper-muted { fill: var(--ns-muted); }
+#notes-snippets .ns-plot-grid { stroke: var(--ns-line); }
+#notes-snippets .ns-plot-a { stroke: var(--ns-accent); }
+#notes-snippets .ns-plot-b { stroke: var(--ns-muted); }
+#notes-snippets .ns-crop-box { position: absolute; border: 2px solid var(--ns-accent); box-shadow: 0 0 0 600px var(--ns-scrim); touch-action: none; cursor: move; }
+#notes-snippets .ns-handle { position: absolute; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; touch-action: none; display: grid; place-items: center; }
+#notes-snippets .ns-handle::after { content: ''; position: absolute; width: 10px; height: 10px; border-radius: 3px; border: 2px solid var(--ns-accent); background: var(--ns-bg); }
+#notes-snippets .ns-handle:hover { background: transparent !important; }
+#notes-snippets .ns-handle[data-corner=nw] { top: 0; left: 0; cursor: nwse-resize; }
+#notes-snippets .ns-handle[data-corner=ne] { top: 0; right: 0; cursor: nesw-resize; }
+#notes-snippets .ns-handle[data-corner=sw] { bottom: 0; left: 0; cursor: nesw-resize; }
+#notes-snippets .ns-handle[data-corner=se] { bottom: 0; right: 0; cursor: nwse-resize; }
+#notes-snippets .ns-handle[data-corner=nw]::after { top: 0; left: 0; }
+#notes-snippets .ns-handle[data-corner=ne]::after { top: 0; right: 0; }
+#notes-snippets .ns-handle[data-corner=sw]::after { bottom: 0; left: 0; }
+#notes-snippets .ns-handle[data-corner=se]::after { bottom: 0; right: 0; }
+#notes-snippets .ns-capture-controls { padding: 10px 16px 16px; display: grid; gap: 10px; }
+#notes-snippets .ns-capture-controls .ns-primary { width: 100%; }
+#notes-snippets .ns-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+#notes-snippets details { font-size: 13px; color: var(--ns-muted); }
+#notes-snippets summary { min-height: 44px; padding: 10px 0; }
+#notes-snippets .ns-toolbar { margin: 4px 16px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#notes-snippets .ns-toolbar .ns-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 8px; }
+#notes-snippets .ns-nav { display: flex; border: 1px solid var(--ns-line); border-radius: 30px; margin: 4px 12px 13px; padding: 4px; background: var(--ns-bg); box-shadow: 0 4px 18px light-dark(#10101809, #00000020); }
+#notes-snippets .ns-tab { flex: 1; min-width: 0; padding: 7px 1px; border-radius: 24px; text-align: center; display: grid; justify-items: center; gap: 4px; font-size: 11px; color: var(--ns-muted); }
+#notes-snippets .ns-tab svg { width: 19px; height: 19px; }
+#notes-snippets .ns-tab[aria-current=page] { background: var(--ns-tint); color: var(--ns-accent); font-weight: 600; }
+#notes-snippets .ns-popover { position: absolute; top: 66px; right: 12px; left: 60px; z-index: 10; padding: 6px; border: 1px solid var(--ns-line); border-radius: 17px; background: var(--ns-bg); box-shadow: 0 10px 36px light-dark(#11112222, #00000070); }
+#notes-snippets .ns-popover button { width: 100%; display: flex; align-items: center; gap: 12px; font-size: 14px; }
+#notes-snippets .ns-popover svg { width: 17px; height: 17px; color: var(--ns-accent); }
+#notes-snippets .ns-popover hr { border: 0; border-top: 1px solid var(--ns-line); margin: 4px 6px; }
+#notes-snippets .ns-notice { margin: 10px 16px; padding: 10px 12px; background: var(--ns-tint); border-radius: 12px; font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#notes-snippets .ns-notice button { padding: 4px 6px; }
+#notes-snippets .ns-sync { margin: 0 16px 12px; padding: 10px 12px; background: var(--ns-soft); border-radius: 12px; font-size: 12px; }
+#notes-snippets .ns-fact { padding: 14px 0; border-bottom: 1px solid var(--ns-line); display: flex; gap: 12px; justify-content: space-between; }
+#notes-snippets .ns-fact span:last-child { color: var(--ns-muted); text-align: right; }
+#notes-snippets .ns-form-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+#notes-snippets .ns-error { color: var(--ns-danger); font-size: 13px; }
+#notes-snippets .ns-selection { fill: var(--ns-tint); }
+#notes-snippets .ns-library-paper { padding: 14px 0; border-bottom: 1px solid var(--ns-line); width: 100%; }
+#notes-snippets .ns-library-paper strong { display: block; margin-bottom: 7px; }
+#notes-snippets .ns-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+@media (max-width: 380px) {
+  #notes-snippets .ns-stage { padding: 26px 0 12px; }
+  #notes-snippets .ns-paper { padding: 12px 12px 0; }
+  #notes-snippets .ns-top { padding-inline: 8px; }
+  #notes-snippets .ns-body { padding: 16px 12px; }
+  #notes-snippets .ns-note-preview { max-width: 205px; }
+}
+</style>
+<div id="notes-snippets">
+  <div class="ns-stage viz-dotted-background">
+    <div class="ns-preview-label">Interactive design · sample data<br>Edits are session-only; sync is simulated.</div>
+    <div class="ns-phone" aria-label="Gradstep Notes design">
+      <div id="ns-content"></div>
+      <div id="ns-announcement" class="ns-sr" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('notes-snippets');
+  const content = root.querySelector('#ns-content');
+  const announce = root.querySelector('#ns-announcement');
+  const settings = { sync: 'Synced', sourceAvailable: true, previewSize: 'Comfortable' };
+  const sampleQuote = 'The strongest gains appear early. Later updates improve consistency more than average performance.';
+  const captured = '2026-10-20T17:42:00Z';
+  const notes = [
+    { id: 'alignment', title: 'Alignment ideas', updated: captured, entries: [
+      { id: 'first', type: 'region', rect: { x: 0, y: 199, w: 360, h: 256 }, comment: 'The early improvement is the interesting part. Compare this with the smaller-model experiment.', time: captured },
+      { id: 'second', type: 'quote', quote: sampleQuote, comment: 'Is consistency the better metric for our evaluation?', time: '2026-10-20T17:49:00Z' }
+    ] },
+    { id: 'friday', title: 'Reading for Friday', updated: '2026-10-19T21:15:00Z', entries: [
+      { id: 'third', type: 'text', comment: 'Compare the training objectives. Bring one clear example of a failure case.', time: '2026-10-19T21:15:00Z' }
+    ] }
+  ];
+  let screen = 'paper', activeNote = 'alignment', menu = null, mode = 'read', rect = null, quoteSelected = false;
+  let form = null, search = '', notice = null, lastDestination = 'alignment', returnScreen = 'paper', zoom = 1;
+  let drawing = null, hold = null, heldPoint = null, entryTarget = null;
+  let lastHostState = JSON.stringify(window.openai?.widgetState ?? null);
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+  const button = (action, label, cls = 'ns-link', extra = '') => `<button type="button" class="${cls}" data-action="${action}" ${extra}>${label}</button>`;
+  const circle = (action, name, label, extra = '') => button(action, icon(name), 'ns-circle', `aria-label="${escape(label)}" ${extra}`);
+  const currentNote = () => notes.find(n => n.id === activeNote);
+  const id = () => globalThis.crypto?.randomUUID?.() || `demo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const dateLabel = value => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const timeLabel = value => new Date(value).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const notify = value => { announce.textContent = value; };
+  function remember() {
+    const state = { modelContent: { design: 'Gradstep Notes', screen, syncPreview: settings.sync, sourceAvailable: settings.sourceAvailable }, privateContent: { screen, activeNote, sync: settings.sync, sourceAvailable: settings.sourceAvailable } };
+    lastHostState = JSON.stringify(state);
+    if (window.openai?.setWidgetState) window.openai.setWidgetState(state).catch(() => {});
+  }
+  function restore(saved) {
+    const p = saved?.privateContent;
+    if (!p) return;
+    if (['paper','notes','feed','library','chat'].includes(p.screen)) screen = p.screen;
+    if (notes.some(n => n.id === p.activeNote)) activeNote = p.activeNote;
+    if (['Synced','Offline','Sync paused'].includes(p.sync)) settings.sync = p.sync;
+    if (typeof p.sourceAvailable === 'boolean') settings.sourceAvailable = p.sourceAvailable;
+  }
+  restore(window.openai?.widgetState);
+  window.addEventListener('openai:set_globals', event => {
+    const next=event.detail?.globals?.widgetState;
+    if(next===undefined || JSON.stringify(next)===lastHostState)return;
+    lastHostState=JSON.stringify(next);restore(next);render();
+  });
+
+  function paperMarkup(selected = false) {
+    return `<rect x="0" y="0" width="360" height="455" fill="var(--ns-bg)"/>
+      <text x="8" y="32" class="ns-paper-ink" font-family="Georgia,serif" font-size="25">Learning from feedback</text>
+      <text x="8" y="58" class="ns-paper-muted" font-size="16">Example paper · revision 1</text>
+      <text x="8" y="100" class="ns-paper-ink" font-family="Georgia,serif" font-size="21">3. Comparing the results</text>
+      ${selected ? '<rect x="6" y="114" width="348" height="79" rx="3" class="ns-selection"/>' : ''}
+      <text class="ns-paper-ink" font-family="Georgia,serif" font-size="17">
+        <tspan x="8" y="135">The strongest gains appear early. Later</tspan>
+        <tspan x="8" y="159">updates improve consistency more than</tspan>
+        <tspan x="8" y="183">average performance.</tspan>
+      </text>
+      <g fill="none" stroke-width="1" class="ns-plot-grid">
+        <path d="M48 239H326 M48 284H326 M48 329H326 M48 374H326"/>
+        <path d="M48 232V374H330" stroke="var(--ns-muted)"/>
+      </g>
+      <g class="ns-paper-muted" font-size="16">
+        <text x="8" y="220">Score</text><text x="10" y="246">90</text><text x="10" y="291">70</text><text x="10" y="336">50</text>
+        <text x="43" y="396">0</text><text x="174" y="396">5</text><text x="307" y="396">10</text>
+        <text x="105" y="422">Training steps (k)</text>
+      </g>
+      <path d="M49 351 C80 320 99 274 132 257 S214 239 325 237" fill="none" stroke-width="3" class="ns-plot-a"/>
+      <path d="M49 352 C90 332 107 311 144 297 S243 278 325 276" fill="none" stroke-width="2.5" stroke-dasharray="6 5" class="ns-plot-b"/>
+      <text x="195" y="229" fill="var(--ns-accent)" font-size="16">Feedback</text>
+      <text x="248" y="300" class="ns-paper-muted" font-size="16">Baseline</text>
+      <text x="8" y="451" class="ns-paper-muted" font-family="Georgia,serif" font-size="16">Figure 2. Improvement over training.</text>`;
+  }
+  function cropMarkup(r, cls = 'ns-crop-svg', zoomFactor = 1) {
+    const cut = r || {x: 22, y: 205, w: 318, h: 194};
+    const w = cut.w / zoomFactor, h = cut.h / zoomFactor;
+    return `<svg class="${cls}" viewBox="${cut.x+(cut.w-w)/2} ${cut.y+(cut.h-h)/2} ${w} ${h}" role="img" aria-label="Captured region from the example paper" xmlns="http://www.w3.org/2000/svg">${paperMarkup()}</svg>`;
+  }
+  function syncStatus() {
+    if (settings.sync === 'Synced') return '';
+    return `<div class="ns-sync" role="status">${settings.sync === 'Offline' ? 'Saved on this device · Waiting to sync' : 'Your changes are saved here. Sync is paused.'}${settings.sync === 'Sync paused' ? button('retry-sync','Retry') : ''}</div>`;
+  }
+  function header(title, subtitle, {back = false, add = false, more = true} = {}) {
+    return `<header class="ns-top">${back ? circle('back','chevron-left','Back to Notes') : ''}<div class="ns-heading"><h2>${escape(title)}</h2>${subtitle ? `<div class="ns-caption">${escape(subtitle)}</div>` : ''}</div>${add ? circle('add','plus',screen === 'note' ? 'Add text to note' : 'New note') : ''}${more ? circle('menu','ellipsis',`${title} options`) : ''}</header>`;
+  }
+  function nav() {
+    const active = ['note'].includes(screen) ? 'notes' : screen;
+    return `<nav class="ns-nav" aria-label="Main destinations">${[['feed','radio','Feed'],['library','library','Library'],['paper','file-text','Paper'],['chat','messages-square','Chat'],['notes','notebook-pen','Notes']].map(([key, ico, label]) =>
+      button('tab', `${icon(ico)}<span>${label}</span>`, 'ns-tab', `data-tab="${key}" ${active === key ? 'aria-current="page"' : ''}`)).join('')}</nav>`;
+  }
+  function paper() {
+    const capture = mode === 'capture';
+    return `${capture ? `<header class="ns-top">${button('cancel-capture','Cancel')}<div class="ns-heading"><h2>Draw snippet</h2><div class="ns-caption">Drag around anything on the page</div></div></header>` : header('Paper','Learning from feedback')}
+      <div class="ns-screen"><div class="ns-paper"><div class="ns-paper-surface ${capture ? 'ns-capturing' : ''}" id="ns-paper-surface">
+        <svg class="ns-paper-svg" viewBox="0 0 360 455" role="img" aria-label="Example scientific paper with a comparison chart. Hold to select text or draw a snippet." xmlns="http://www.w3.org/2000/svg">${paperMarkup(quoteSelected)}</svg>
+        ${capture ? `<div class="ns-crop-box" id="ns-crop-box" hidden>${['nw','ne','sw','se'].map(c => button('handle','', 'ns-handle', `data-corner="${c}" aria-label="Adjust ${ {nw:'top left',ne:'top right',sw:'bottom left',se:'bottom right'}[c]} corner with arrow keys"`)).join('')}</div>` : ''}
+      </div></div>
+      ${capture ? `<div class="ns-capture-controls"><div class="ns-row ns-between"><span id="ns-crop-size" class="ns-caption" aria-live="polite">Draw a box, or select the figure.</span>${button('whole-figure','Select figure')}</div>
+        <details><summary>Adjust edges without dragging</summary><div class="ns-edges">${[['left','Left edge',360],['right','Right edge',360],['top','Top edge',455],['bottom','Bottom edge',455]].map(([key,label,max]) => `<label>${label}<input type="range" data-edge="${key}" min="0" max="${max}" value="0" aria-label="${label}"></label>`).join('')}</div></details>
+        ${button('use-crop','Use snippet','ns-primary','id="ns-use-crop" disabled')}</div>` : `<div class="ns-toolbar">${button('contents',`${icon('list')} Contents`)}${button(quoteSelected ? 'save-selection' : 'capture',quoteSelected ? 'Add selection to note' : `${icon('scan')} Draw snippet`)}</div>`}
+      </div>`;
+  }
+  function notesList() {
+    return `${header('Notes',`${notes.length} notes · ${settings.sync}`,{add:true})}${syncStatus()}<div class="ns-screen ns-body"><label class="ns-search">${icon('search')}<input id="ns-search" type="search" aria-label="Search notes" placeholder="Search notes" value="${escape(search)}"></label><ul class="ns-notes-list" id="ns-notes-list">${notesRows()}</ul></div>`;
+  }
+  function notesRows() {
+    const q = search.trim().toLowerCase();
+    const found = [...notes].sort((a,b) => b.updated.localeCompare(a.updated)).filter(n => [n.title,...n.entries.map(e => `${e.comment} ${e.quote || ''}`)].join(' ').toLowerCase().includes(q));
+    return found.length ? found.map(n => `<li class="ns-note-row"><span class="ns-note-mark">${icon('notebook-pen')}</span>${button('open-note',`<span class="ns-note-title">${escape(n.title)}</span><span class="ns-note-preview">${escape(notePreview(n))}</span><span class="ns-note-meta ns-caption">${n.entries.length} ${n.entries.length === 1 ? 'entry' : 'entries'} · ${dateLabel(n.updated)}</span>`,'ns-note-open',`data-note="${n.id}"`)}${circle('note-menu','ellipsis',`Options for ${n.title}`,`data-note="${n.id}"`)}</li>`).join('') : `<li class="ns-empty"><h3>${q ? 'No matching notes' : 'Your ideas, collected'}</h3><p class="ns-caption">${q ? 'Try a title, a comment or quoted text.' : 'Create a note, or capture your first snippet in Paper.'}</p>${button(q ? 'clear-search' : 'add',q ? 'Clear search' : 'New note')}</li>`;
+  }
+  function notePreview(n) {
+    const last=n.entries.at(-1);
+    return last ? last.comment || last.quote || 'Snippet from Learning from feedback' : 'No snippets yet';
+  }
+  function entry(e, index) {
+    return `<article class="ns-entry" aria-label="Entry ${index+1}" id="ns-entry-${e.id}"><div class="ns-entry-top"><span class="ns-caption">${timeLabel(e.time)} · ${e.type === 'text' ? 'Your writing' : e.type === 'quote' ? 'Text snippet' : 'Region snippet'}</span>${circle('entry-menu','ellipsis',`Entry ${index+1} options`,`data-entry="${e.id}"`)}</div>
+      ${e.type === 'region' ? button('zoom',cropMarkup(e.rect),'ns-image',`data-entry="${e.id}" aria-label="Enlarge snippet ${index+1}"`) : e.type === 'quote' ? `<blockquote>${escape(e.quote)}</blockquote>` : ''}
+      ${e.comment ? `<p class="ns-comment">${escape(e.comment)}</p>` : button('edit-comment','Add a comment','ns-link',`data-entry="${e.id}"`)}
+      ${e.type !== 'text' ? button('source',`<strong>Learning from feedback ↗</strong><br>Revision 1 · ${sourceLocation(e)} · ${dateLabel(e.time)}`,'ns-source',`data-entry="${e.id}"`) : ''}</article>`;
+  }
+  function sourceLocation(e) {
+    if(e.type==='quote')return '§3';
+    if(e.rect?.y>=199)return 'Figure 2';
+    if(e.rect?.y>=85 && e.rect.y+e.rect.h<199)return '§3';
+    return 'Paper region';
+  }
+  function noteView() {
+    const n = currentNote();
+    if (!n) { screen = 'notes'; return notesList(); }
+    let day = '';
+    return `${header(n.title,`${n.entries.length} ${n.entries.length === 1 ? 'entry' : 'entries'} · ${settings.sync}`,{back:true,add:true})}${syncStatus()}<div class="ns-screen ns-body">${n.entries.length ? n.entries.map((e,i) => {
+      const d = dateLabel(e.time), divider = d !== day ? `<div class="ns-day">${d}</div>` : ''; day=d; return divider+entry(e,i);
+    }).join('') : `<div class="ns-empty"><h3>A place for your next idea</h3><p class="ns-caption">Add your own writing, or collect a snippet while reading.</p>${button('add','Add text','ns-primary')}${button('tab','Open Paper','ns-link','data-tab="paper"')}</div>`}${n.entries.length ? button('add',`${icon('plus')} Add text`) : ''}</div>`;
+  }
+  function formHeader(title, saveLabel='Save') {
+    return `<header class="ns-top">${button('cancel-form','Cancel')}<div class="ns-heading"><h2>${title}</h2></div>${button('submit-form',saveLabel,'ns-link','id="ns-submit"')}</header>`;
+  }
+  function compose() {
+    const f = form, isText = f.type === 'text';
+    return `${formHeader(isText ? 'Add text' : 'Add to note')}<div class="ns-screen ns-body"><div class="ns-stack">
+      ${f.type === 'region' ? `<div><div class="ns-image">${cropMarkup(f.rect)}</div>${button('adjust-crop','Adjust crop')}</div>` : f.type === 'quote' ? `<article class="ns-entry"><blockquote>${escape(sampleQuote)}</blockquote></article>` : ''}
+      <label>Note<select id="ns-destination" aria-label="Note">${notes.map(n => `<option value="${n.id}" ${f.destination === n.id ? 'selected' : ''}>${escape(n.title)}</option>`).join('')}<option value="new" ${f.destination === 'new' ? 'selected' : ''}>＋ New note</option></select></label>
+      <label id="ns-new-name-wrap" ${f.destination !== 'new' ? 'hidden' : ''}>New note name<input id="ns-new-name" maxlength="80" placeholder="Name your note" value="${escape(f.name || '')}"></label>
+      <label>${isText ? 'Your writing' : 'Your comment (optional)'}<textarea id="ns-comment" aria-label="${isText ? 'Your writing' : 'Your comment (optional)'}" maxlength="16000" rows="4" placeholder="${isText ? 'What are you thinking about?' : 'What caught your attention?'}">${escape(f.comment || '')}</textarea></label>
+      ${!isText ? `<div class="ns-caption">Learning from feedback · Revision 1<br>${sourceLocation(f)} · ${dateLabel(f.time)} at ${timeLabel(f.time)}</div>` : ''}
+      <div class="ns-caption">${settings.sync === 'Synced' ? 'Save here, then sync with your approved devices.' : 'Saved here first. Sync resumes when available.'}</div><div id="ns-error" class="ns-error" role="alert"></div>
+      ${button('submit-form',isText ? 'Save text' : 'Save snippet','ns-primary')}</div></div>`;
+  }
+  function simpleForm() {
+    const f=form;
+    if (f.type === 'delete-note' || f.type === 'delete-entry') {
+      const n=currentNote();
+      return `${header('Delete '+(f.type === 'delete-note' ? 'note' : 'snippet'),'',{more:false})}<div class="ns-screen ns-body"><h3>${f.type === 'delete-note' ? `Delete “${escape(n?.title)}”?` : 'Delete this snippet?'}</h3><p>${f.type === 'delete-note' ? `This removes the note and its ${n?.entries.length || 0} entries from your devices when they sync.` : 'This removes the snippet and its comment from this note when your devices sync.'}</p><p class="ns-caption">Your papers stay in the Library. Encrypted history is retained until account deletion.</p><div class="ns-form-footer">${button('cancel-form','Cancel')}${button('submit-form',f.type === 'delete-note' ? 'Delete note' : 'Delete snippet','ns-danger')}</div></div>`;
+    }
+    if (f.type === 'edit') return `${formHeader('Edit comment','Done')}<div class="ns-screen ns-body ns-stack">${f.entry.type === 'region' ? `<div class="ns-image">${cropMarkup(f.entry.rect)}</div>` : ''}<label>Your ${f.entry.type === 'text' ? 'writing' : 'comment'}<textarea id="ns-edit-comment" aria-label="Your ${f.entry.type === 'text' ? 'writing' : 'comment'}" rows="6" maxlength="16000">${escape(f.comment)}</textarea></label><p class="ns-caption">Captured ${dateLabel(f.entry.time)} at ${timeLabel(f.entry.time)}<br>The original source and capture time stay with the snippet.</p><div id="ns-error" class="ns-error" role="alert"></div></div>`;
+    return `${formHeader(f.type === 'rename' ? 'Rename note' : 'New note',f.type === 'rename' ? 'Done' : 'Create')}<div class="ns-screen ns-body ns-stack"><label>Note name<input id="ns-title-input" value="${escape(f.name || '')}" maxlength="80" placeholder="e.g. Alignment ideas"></label><p class="ns-caption">A note can collect snippets from as many papers as you like.</p><div id="ns-error" class="ns-error" role="alert"></div></div>`;
+  }
+  function settingsView() {
+    return `<header class="ns-top"><div class="ns-heading"><h2>Settings</h2></div>${button('close-settings','Done')}</header><div class="ns-screen ns-body"><div class="ns-fact"><span>Account</span><span>Approved device</span></div><div class="ns-fact"><span>Sync</span><span>${settings.sync}</span></div><div class="ns-fact"><span>Reading</span><span>System appearance</span></div><div class="ns-fact"><span>Chat defaults</span><span>Automatic effort</span></div><div class="ns-fact"><span>Recovery</span><span>Devices & recovery code</span></div></div>`;
+  }
+  function sourceView() {
+    const e=entryTarget;
+    return `<header class="ns-top"><div class="ns-heading"><h2>Snippet details</h2></div>${button('close-detail','Done')}</header><div class="ns-screen ns-body"><h3>Learning from feedback</h3><div class="ns-fact"><span>Version</span><span>Revision 1</span></div><div class="ns-fact"><span>Location</span><span>${sourceLocation(e)}</span></div><div class="ns-fact"><span>Captured</span><span>${dateLabel(e.time)}<br>${timeLabel(e.time)}</span></div><div class="ns-fact"><span>Paper</span><span>${settings.sourceAvailable ? 'On this device' : 'Not on this device'}</span></div><p class="ns-caption" style="margin-top:18px">${settings.sourceAvailable ? 'Return to the original passage in the paper.' : 'Your snippet is still available here. Get this exact paper version to reopen its source.'}</p>${button('open-source',settings.sourceAvailable ? 'Open in paper' : 'Get paper on this device','ns-primary')}</div>`;
+  }
+  function zoomView() {
+    return `<header class="ns-top"><div class="ns-heading"><h2>Snippet</h2></div>${button('close-detail','Done')}</header><div class="ns-screen ns-body ns-stack"><div class="ns-image" id="ns-zoom-image">${cropMarkup(entryTarget.rect,'ns-crop-svg',zoom)}</div><label>Zoom<input id="ns-zoom" type="range" min="1" max="3" step=".1" value="${zoom}"></label><p class="ns-caption">Learning from feedback · Figure 2</p><p class="ns-comment">${escape(entryTarget.comment)}</p></div>`;
+  }
+  function otherView() {
+    const title = {feed:'Feed',library:'Library',chat:'Chat'}[screen];
+    const body=screen==='chat' ? `<p class="ns-caption">General chat</p><blockquote>What should I compare in these papers?</blockquote><p>Compare their objectives, evaluation methods and failure cases.</p><label>Your draft<textarea id="ns-chat-draft" placeholder="Write a message…">${escape(chatDraft)}</textarea></label>` :
+      `${screen === 'library' ? '<p class="ns-caption">Default catalog · 2 papers</p>' : '<p class="ns-caption">For you</p>'}${button('tab','<strong>Learning from feedback</strong><span class="ns-caption">Example paper · Open the paper</span>','ns-library-paper','data-tab="paper"')}${button('tab','<strong>Evaluating model consistency</strong><span class="ns-caption">Example paper · Sample library item</span>','ns-library-paper','data-tab="paper"')}`;
+    return `${header(title,'') }<div class="ns-screen ns-body">${body}</div>`;
+  }
+  let chatDraft = '';
+  function popover() {
+    if (!menu) return '';
+    const row=(act,label,ico,extra='')=>button(act,`${icon(ico)}${label}`,'',`role="menuitem" ${extra}`);
+    let rows='';
+    if (menu.kind === 'hold') rows = row('select','Select text','text-select')+row('capture','Draw snippet','scan');
+    else if (menu.kind === 'entry') rows = row('edit-comment','Edit comment','pencil',`data-entry="${menu.id}"`)+(currentNote()?.entries.find(e=>e.id===menu.id)?.type!=='text' ? row('source','Open source details','file-text',`data-entry="${menu.id}"`) : '')+row('delete-entry','Delete snippet','trash-2',`data-entry="${menu.id}"`);
+    else if (menu.kind === 'note') rows = row('rename','Rename note','pencil')+row('delete-note','Delete note','trash-2');
+    else if(screen==='paper') rows = row('select','Select text','text-select')+row('capture','Draw snippet','scan')+row('contents','Contents','list');
+    else if(screen==='note') rows = row('add','Add text','plus')+row('rename','Rename note','pencil')+row('delete-note','Delete note','trash-2');
+    else if(screen==='notes') rows=row('add','New note','plus');
+    if (menu.kind !== 'hold' && menu.kind !== 'entry') rows += '<hr>'+row('settings','Settings','settings');
+    return `<div class="ns-popover" role="menu" aria-label="Actions">${rows}</div>`;
+  }
+  function render() {
+    const noNav = ['compose','form','settings','source','zoom','contents'].includes(screen) || mode==='capture';
+    let body=screen==='paper' ? paper() : screen==='notes' ? notesList() : screen==='note' ? noteView() : screen==='compose' ? compose() : screen==='form' ? simpleForm() : screen==='settings' ? settingsView() : screen==='source' ? sourceView() : screen==='zoom' ? zoomView() : screen==='contents' ? `${header('Contents','',{more:false})}<div class="ns-screen ns-body">${button('close-contents','3. Comparing the results')}${button('close-contents','Done')}</div>` : otherView();
+    content.innerHTML = body + (notice ? `<div class="ns-notice" role="status"><span class="ns-grow">${escape(notice.text)}</span>${notice.note ? button('open-saved','Open note','ns-link',`data-note="${notice.note}"`) : ''}${circle('dismiss-notice','x','Dismiss confirmation')}</div>` : '') + (!noNav ? nav() : '') + popover();
+    root.querySelectorAll('button').forEach(b=>b.classList.add('cursor-interaction'));
+    if (globalThis.lucide) globalThis.lucide.createIcons({attrs:{width:18,height:18}});
+    if (mode==='capture' && screen==='paper') updateRect();
+    if (screen==='paper') bindPaper();
+    const preview = root.querySelectorAll('.ns-crop-svg');
+    preview.forEach(el => el.style.maxHeight = settings.previewSize==='Compact' ? '150px' : '220px');
+  }
+  function beginCapture() { screen='paper'; mode='capture'; quoteSelected=false; menu=null; notice=null; if (!form) rect=null; render(); notify('Capture mode. Draw a rectangle or choose Select figure.'); }
+  function beginCompose(type) {
+    form={type,rect:rect ? {...rect} : null,destination:notes.some(n=>n.id===lastDestination) ? lastDestination : notes[0]?.id || 'new', name:notes.length ? '' : 'Quick notes', comment:form?.comment || '',time:form?.time || new Date().toISOString()};
+    screen='compose';mode='read';menu=null;notice=null;render();
+  }
+  function editEntry(target) { const e=currentNote()?.entries.find(e=>e.id===target); if(!e)return; form={type:'edit',entry:e,comment:e.comment}; screen='form';menu=null;render(); }
+  function error(message) { const el=root.querySelector('#ns-error'); if(el)el.textContent=message;notify(message); }
+  function submit() {
+    if(!form)return;
+    const f=form,n=currentNote(),now=new Date().toISOString();
+    if(screen==='compose') {
+      let dest=notes.find(n=>n.id===f.destination);
+      if(f.destination==='new') {
+        const name=f.name.trim(); if(!name)return error('Give the new note a name.');
+        dest={id:id(),title:name,updated:now,entries:[]};
+      }
+      if(!dest)return error('Choose a note.');
+      if(f.type==='text' && !f.comment.trim()) return error('Write something before saving.');
+      if(f.destination==='new')notes.push(dest);
+      dest.entries.push({id:id(),type:f.type,rect:f.rect,quote:f.type==='quote'?sampleQuote:undefined,comment:f.comment,time:f.time});dest.updated=now;
+      lastDestination=dest.id;activeNote=dest.id;screen=f.type==='text'?'note':'paper';
+      notice={text:`Saved to ${dest.title}${settings.sync==='Synced' ? '' : ' · Waiting to sync'}`,note:dest.id};
+    } else if(f.type==='new'||f.type==='rename') {
+      const name=f.name.trim();if(!name)return error('Give the note a name.');
+      if(f.type==='new'){const newNote={id:id(),title:name,updated:now,entries:[]};notes.push(newNote);activeNote=newNote.id;}
+      else if(n){n.title=name;n.updated=now;}
+      screen='note';notice=null;
+    } else if(f.type==='edit') { f.entry.comment=f.comment;if(n)n.updated=now;screen='note';notice={text:'Comment saved on this device'}; }
+    else if(f.type==='delete-note') { if(n)notes.splice(notes.indexOf(n),1);activeNote=notes[0]?.id||'';screen='notes';notice={text:'Note removed'}; }
+    else if(f.type==='delete-entry') { if(n){n.entries=n.entries.filter(e=>e.id!==f.id);n.updated=now;}screen='note';notice={text:'Snippet removed'}; }
+    form=null;mode='read';quoteSelected=false;menu=null;render();remember();notify(notice?.text||'Saved');
+  }
+  function cancelForm() {
+    if(form?.returnFrom) screen=form.returnFrom;
+    else if(screen==='compose') screen=form?.type==='text'?'note':'paper';
+    else screen=form?.type==='new'?'notes':'note';
+    form=null;mode='read';render();
+  }
+  content.addEventListener('click',event=>{
+    const b=event.target.closest('button[data-action]');if(!b||b.disabled)return;
+    const a=b.dataset.action;
+    if(a==='tab'){screen=b.dataset.tab;mode='read';menu=null;notice=null;search='';render();remember();return;}
+    if(a==='menu'){menu=menu ? null : {kind:'screen'};render();if(menu)root.querySelector('.ns-popover button')?.focus();return;}
+    if(a==='note-menu'){activeNote=b.dataset.note;menu={kind:'note'};render();return;}
+    if(a==='entry-menu'){menu={kind:'entry',id:b.dataset.entry};render();return;}
+    if(a==='capture'){beginCapture();return;}
+    if(a==='cancel-capture'){mode='read';rect=null;form=null;render();notify('Capture cancelled.');return;}
+    if(a==='whole-figure'){rect={x:0,y:199,w:360,h:256};updateRect();notify('Whole figure selected.');return;}
+    if(a==='use-crop'){if(rect&&rect.w>=24&&rect.h>=24)beginCompose('region');return;}
+    if(a==='adjust-crop'){rect={...form.rect};screen='paper';mode='capture';render();return;}
+    if(a==='select'){quoteSelected=true;menu=null;render();notify('Example passage selected. Add selection to note is available.');return;}
+    if(a==='save-selection'){beginCompose('quote');return;}
+    if(a==='open-note'||a==='open-saved'){activeNote=b.dataset.note;screen='note';menu=null;notice=null;render();remember();return;}
+    if(a==='back'){screen='notes';menu=null;render();remember();return;}
+    if(a==='add'){
+      if(screen==='note'){form=null;lastDestination=activeNote;beginCompose('text');}
+      else {form={type:'new',name:'',returnFrom:screen};screen='form';menu=null;render();root.querySelector('#ns-title-input')?.focus();}
+      return;
+    }
+    if(a==='rename'||a==='delete-note'){form={type:a==='rename'?'rename':'delete-note',name:currentNote()?.title||'',returnFrom:screen};screen='form';menu=null;render();if(a==='rename')root.querySelector('#ns-title-input')?.focus();return;}
+    if(a==='edit-comment'){editEntry(b.dataset.entry);return;}
+    if(a==='delete-entry'){form={type:'delete-entry',id:b.dataset.entry};screen='form';menu=null;render();return;}
+    if(a==='submit-form'){submit();return;}
+    if(a==='cancel-form'){cancelForm();return;}
+    if(a==='settings'){returnScreen=screen;screen='settings';menu=null;notice=null;render();return;}
+    if(a==='close-settings'){screen=returnScreen;render();return;}
+    if(a==='source'||a==='zoom'){entryTarget=currentNote()?.entries.find(e=>e.id===b.dataset.entry);if(!entryTarget||entryTarget.type==='text') {menu=null;render();return;}screen=a;zoom=1;menu=null;notice=null;render();return;}
+    if(a==='close-detail'){screen='note';render();return;}
+    if(a==='open-source'){settings.sourceAvailable=true;screen='paper';quoteSelected=entryTarget?.type==='quote';notice={text:'Example source opened at the captured section'};render();remember();return;}
+    if(a==='retry-sync'){settings.sync='Synced';render();remember();return;}
+    if(a==='contents'){screen='contents';menu=null;render();return;}
+    if(a==='close-contents'){screen='paper';render();return;}
+    if(a==='clear-search'){search='';render();return;}
+    if(a==='dismiss-notice'){notice=null;render();return;}
+  });
+  content.addEventListener('input',event=>{
+    const el=event.target;
+    if(el.id==='ns-search'){search=el.value;root.querySelector('#ns-notes-list').innerHTML=notesRows();globalThis.lucide?.createIcons({attrs:{width:18,height:18}});}
+    if(el.id==='ns-new-name'&&form)form.name=el.value;
+    if(el.id==='ns-comment'&&form)form.comment=el.value;
+    if(el.id==='ns-edit-comment'&&form)form.comment=el.value;
+    if(el.id==='ns-title-input'&&form)form.name=el.value;
+    if(el.id==='ns-chat-draft')chatDraft=el.value;
+    if(el.id==='ns-zoom'){zoom=Number(el.value);root.querySelector('#ns-zoom-image').innerHTML=cropMarkup(entryTarget.rect,'ns-crop-svg',zoom);}
+    if(el.dataset.edge){if(!rect)rect={x:22,y:205,w:318,h:194};const v=Number(el.value),right=rect.x+rect.w,bottom=rect.y+rect.h;
+      if(el.dataset.edge==='left')rect={...rect,x:Math.min(v,right-24),w:right-Math.min(v,right-24)};
+      if(el.dataset.edge==='right')rect.w=Math.max(24,v-rect.x);
+      if(el.dataset.edge==='top')rect={...rect,y:Math.min(v,bottom-24),h:bottom-Math.min(v,bottom-24)};
+      if(el.dataset.edge==='bottom')rect.h=Math.max(24,v-rect.y);updateRect();}
+  });
+  content.addEventListener('change',event=>{if(event.target.id==='ns-destination'&&form){form.destination=event.target.value;root.querySelector('#ns-new-name-wrap').hidden=form.destination!=='new';if(form.destination==='new')root.querySelector('#ns-new-name')?.focus();}});
+  root.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){if(menu){menu=null;render();}else if(mode==='capture'){mode='read';rect=null;form=null;render();}else if(screen==='settings'){screen=returnScreen;render();}return;}
+    const corner=event.target.dataset?.corner;
+    if(corner&&rect&&['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key)){
+      event.preventDefault();const delta=event.shiftKey?20:4,dx=event.key==='ArrowLeft'?-delta:event.key==='ArrowRight'?delta:0,dy=event.key==='ArrowUp'?-delta:event.key==='ArrowDown'?delta:0;
+      const base={...rect};moveCorner(corner,base,dx,dy);updateRect();
+    }
+  });
+  function clamp(v,min,max){return Math.min(max,Math.max(min,v));}
+  function moveCorner(corner,base,dx,dy){let x1=base.x,y1=base.y,x2=base.x+base.w,y2=base.y+base.h;
+    if(corner.includes('w'))x1=clamp(x1+dx,0,x2-24);else x2=clamp(x2+dx,x1+24,360);
+    if(corner.includes('n'))y1=clamp(y1+dy,0,y2-24);else y2=clamp(y2+dy,y1+24,455);
+    rect={x:x1,y:y1,w:x2-x1,h:y2-y1};
+  }
+  function updateRect(){
+    const box=root.querySelector('#ns-crop-box'),use=root.querySelector('#ns-use-crop');if(!box)return;
+    box.hidden=!rect;if(use)use.disabled=!rect||rect.w<24||rect.h<24;
+    if(!rect)return;
+    rect.x=clamp(rect.x,0,360);rect.y=clamp(rect.y,0,455);rect.w=clamp(rect.w,0,360-rect.x);rect.h=clamp(rect.h,0,455-rect.y);
+    Object.assign(box.style,{left:`${rect.x/360*100}%`,top:`${rect.y/455*100}%`,width:`${rect.w/360*100}%`,height:`${rect.h/455*100}%`});
+    const size=box.getBoundingClientRect(),small=size.width<88||size.height<88;
+    box.querySelectorAll('.ns-handle').forEach(el=>el.hidden=small);
+    root.querySelector('#ns-crop-size').textContent=`${Math.round(rect.w)} × ${Math.round(rect.h)} · ${small ? 'Use Adjust edges to refine' : 'Drag corners to adjust'}`;
+    const edges={left:rect.x,right:rect.x+rect.w,top:rect.y,bottom:rect.y+rect.h};root.querySelectorAll('[data-edge]').forEach(el=>el.value=Math.round(edges[el.dataset.edge]));
+  }
+  function bindPaper(){
+    const area=root.querySelector('#ns-paper-surface');if(!area)return;
+    const point=e=>{const r=area.getBoundingClientRect();return {x:clamp((e.clientX-r.left)/r.width*360,0,360),y:clamp((e.clientY-r.top)/r.height*455,0,455)};};
+    area.addEventListener('contextmenu',e=>{e.preventDefault();if(mode==='read'){menu={kind:'hold'};render();}});
+    area.addEventListener('pointerdown',e=>{
+      if(mode!=='capture'){heldPoint={x:e.clientX,y:e.clientY};hold=setTimeout(()=>{hold=null;menu={kind:'hold'};render();},500);return;}
+      e.preventDefault();const p=point(e),corner=e.target.closest('[data-corner]')?.dataset.corner;
+      drawing={start:p,base:rect?{...rect}:null,kind:corner||(e.target.closest('#ns-crop-box')?'move':'new')};
+      if(drawing.kind==='new')rect={x:p.x,y:p.y,w:0,h:0};area.setPointerCapture(e.pointerId);updateRect();
+    });
+    area.addEventListener('pointermove',e=>{
+      if(hold&&heldPoint&&Math.hypot(e.clientX-heldPoint.x,e.clientY-heldPoint.y)>8){clearTimeout(hold);hold=null;}
+      if(!drawing)return;const p=point(e),dx=p.x-drawing.start.x,dy=p.y-drawing.start.y;
+      if(drawing.kind==='new')rect={x:Math.min(p.x,drawing.start.x),y:Math.min(p.y,drawing.start.y),w:Math.abs(dx),h:Math.abs(dy)};
+      else if(drawing.kind==='move')rect={...drawing.base,x:clamp(drawing.base.x+dx,0,360-drawing.base.w),y:clamp(drawing.base.y+dy,0,455-drawing.base.h)};
+      else moveCorner(drawing.kind,drawing.base,dx,dy);updateRect();
+    });
+    const finish=e=>{if(hold){clearTimeout(hold);hold=null;}if(drawing){drawing=null;updateRect();notify('Region selected. Adjust it or use the snippet.');}if(area.hasPointerCapture?.(e.pointerId))area.releasePointerCapture(e.pointerId);};
+    area.addEventListener('pointerup',finish);area.addEventListener('pointercancel',finish);
+  }
+  render();
+  if(globalThis.Tweak){
+    const tweak=new Tweak({container:root.querySelector('.ns-phone'),onChange:()=>{render();remember();}});
+    tweak.addSelect(settings,'sync',{label:'Sync state (simulated)',options:['Synced','Offline','Sync paused']});
+    tweak.addToggle(settings,'sourceAvailable',{label:'Paper is on this device'});
+    tweak.addSelect(settings,'previewSize',{label:'Snippet preview height',options:['Comfortable','Compact']});
+  }
+})();
+</script>

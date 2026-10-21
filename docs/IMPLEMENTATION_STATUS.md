@@ -1,5 +1,29 @@
 # Implementation status
 
+## Notes and snippets — October 20 local / October 21 UTC (design/prototype only)
+
+The owner-requested Notes/capture experience has a source-grounded [architecture and UX proposal](architecture/NOTES_AND_SNIPPETS.md)
+and an interactive prototype at `docs/prototypes/notes-snippets.html`. It covers replacing Settings with Notes in
+the compact tab bar, Settings in all top-right menus, capture/annotation/destination choice, ordered entries,
+management, encrypted media and existing sync/key integration. It distinguishes the working encrypted event
+journal from the missing encrypted image service and explicitly gates browser arbitrary-region capture.
+
+No production app code, database migration, bucket, paid call or release is part of this design. Current clients
+remain build 77/browser `27c45ca0`. Prototype interactions and simulated sync states are not evidence of Notes
+encryption, offline durability or device-to-device synchronization. Implementation and the affected runtime
+acceptance gates remain outstanding.
+
+Local Chromium prototype review passes at **2026-10-21 05:40:54 UTC**: Settings round trips through all five
+destinations; pointer capture and keyboard resizing; existing/new note destinations; optional comments; editing,
+rename/search and deletion; standalone writing; hold/selection; simulated offline and missing-source states.
+Control bounds pass in light/dark at 320, 390 and 736 px, with no JavaScript errors. Screenshots of capture,
+composition, list and stream were visually reviewed, including narrow dark mode. The review corrected ambiguous
+form labels, duplicate state restoration, overlapping small-box handles, region labels and empty-comment previews.
+Report/screenshots: `.artifacts/notes-design/`; final prototype SHA-256:
+`876a5c171aead2a5053b4b79f29c0d55a27185c9ef86b8cc18a7df19703913ac`.
+JavaScript parsing and whitespace checks pass. No production test suite was rerun for documentation/mockup-only
+changes; native capture, browser rasterization, media cryptography and hosted sync are expressly untested here.
+
 ## Recent-change parity and responsiveness — October 20 UTC (TestFlight 77 and browser live)
 
 The iPad/browser/Mac audit covers named catalogs, account-return handling, queued keyword recovery, OpenRouter

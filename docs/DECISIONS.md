@@ -1,6 +1,23 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-20 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Notes and snippets (owner, October 20 local / October 21 UTC; design and prototype)
+
+The owner requests personal encrypted notes synced through the existing Supabase/device-key machinery. A note
+is a sequential collection of captured paper regions and optional editable writing; capture starts from a hold
+action offering ordinary text selection or Draw snippet, and saves to an existing or new note with paper/date/time
+recorded automatically. Notes supports create, rename, delete and commentary editing. The owner proposes replacing
+Settings with Notes in the five-item bottom bar and making Settings available from every top-right menu; this is
+explicit direction for those navigation changes.
+
+The reviewed proposal is [Notes and snippets](architecture/NOTES_AND_SNIPPETS.md), with an interactive design
+prototype. Recommended details preserve default text selection, paper/chat arrangement and reading position;
+source-linked crops are encrypted on the device before sync, while whole PDFs stay device-only. Existing note events
+include catalog metadata, so user notes need a separate payload namespace. Media requires a new bounded encrypted
+blob service; the planned `encrypted_blobs` entry in DATA_MODEL.md is not an existing implementation. The design
+records conflict/deletion semantics, old-client compatibility, capture feasibility, budget and release gates.
+This is design work, not a deployed Notes feature, new infrastructure commitment or E2EE verification claim.
 
 ## Responsiveness, dollar balances and platform parity (October 20; parity released, dollars design only)
 
