@@ -312,12 +312,15 @@ final class ReaderModel {
     /// The table's columns, per width class (Library options › Columns).
     var libraryColumns = LibraryColumnSettings.load(from: .standard) { didSet { libraryColumns.save(to: .standard) } }
     /// Papers marked archived, including changes still syncing (for row labels and actions).
-    func isArchived(_ paper: Paper) -> Bool {
-        for command in libraryCommands.reversed() where command.isUnfinished {
-            if case .setArchived(let document, let archived, _) = command.mutation, document == paper.id { return archived }
-            if case .setSourceDetails(let id, let archived, _, _) = command.mutation, id == paper.id { return archived }
+    func isArchived(_ paper: Paper) -> Bool { pendingArchiveOverrides()[paper.id] ?? paper.archived }
+    /// Archive changes still syncing, by paper (the newest wins): a document's archive and a source paper's details.
+    private func pendingArchiveOverrides() -> [UUID: Bool] {
+        var pending: [UUID: Bool] = [:]
+        for command in libraryCommands.sorted(by: { $0.handle.localSequence < $1.handle.localSequence }) where command.isUnfinished {
+            if case .setArchived(let document, let archived, _) = command.mutation { pending[document] = archived }
+            if case .setSourceDetails(let id, let archived, _, _) = command.mutation { pending[id] = archived }
         }
-        return paper.archived
+        return pending
     }
     private(set) var libraryCommandIssue: String?
     var showLibraryChanges = false
@@ -1193,10 +1196,7 @@ final class ReaderModel {
     /// How many rows each quick filter holds, and the tags to filter by within the current quick filter, most used
     /// first (the filter row's chips and Tags menu). Archive changes still syncing already count.
     func libraryFilterSummary() -> LibraryFilterSummary {
-        var pendingArchive: [UUID: Bool] = [:]
-        for command in libraryCommands where command.isUnfinished {
-            if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
-        }
+        let pendingArchive = pendingArchiveOverrides()
         var counts: [LibraryFilter: Int] = [:], tagRows: [[String]] = []
         for paper in papers where catalogContains(catalogKey(paper)) {
             let activity = readingActivity[paper.id], tags = LibraryTags.tags(for: paper)
@@ -1227,10 +1227,7 @@ final class ReaderModel {
             lookup[row.id] = row
         }
         // Archive changes waiting to sync already apply here, so a swipe hides the row at once.
-        var pendingArchive: [UUID: Bool] = [:]
-        for command in libraryCommands where command.isUnfinished {
-            if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
-        }
+        let pendingArchive = pendingArchiveOverrides()
         // The quick filter and tag filter decide which rows are candidates; search and sort then run over them.
         let filter = libraryFilter, tagFilter = libraryTagFilter
         func tagged(_ tags: [String]) -> Bool { tagFilter.map(tags.contains) ?? true }
@@ -2474,7 +2471,14 @@ final class ReaderModel {
     /// Archive or unarchive (migration 020): the item stays in the library and syncs across devices.
     func setArchived(_ paper: Paper, archived: Bool) async {
         if paper.isLocalPDF { await editLocalPDF(paper, archived: archived); return }
-        if paper.sourceMembership != nil { if let issue = await editSourceDetails(paper, archived: archived, tags: paper.ownTags) { error = issue }; return }
+        if paper.sourceMembership != nil {
+            // The tags the server holds (or a pending edit's): it keeps "customized" unchanged when they match, so an
+            // archive never freezes derived keywords as the reader's own.
+            let stored = pendingTagEdits[paper.id]?.own
+                ?? completeLibrary?.imports.first(where: { $0.id == paper.sourceMembership?.membershipID })?.userTags ?? []
+            if let issue = await editSourceDetails(paper, archived: archived, tags: stored) { error = issue }
+            return
+        }
         guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
               let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
               let commands = libraryCommandCoordinator else { return }

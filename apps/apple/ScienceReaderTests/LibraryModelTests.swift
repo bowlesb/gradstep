@@ -188,6 +188,10 @@ private final class LibraryModelServer: @unchecked Sendable {
                     request.respond(bytes(sequence))
                 } else { request.respond(Data("{}".utf8), status: 400) }
             case "v1_acknowledge_cursor": privateCalls.append("ack"); request.respond(Data(), status: 204)
+            case "v5_set_source_details":
+                // Captured and left unconfirmed (a busy server), so the change stays pending.
+                capturedCommands.append(.init(endpoint: request.request.url!.lastPathComponent, body: body(request.request)))
+                request.respond(Data("{}".utf8), status: 503)
             case "logout": request.respond(Data("{}".utf8))
             default: request.respond(Data("[]".utf8))
             }
@@ -358,8 +362,11 @@ private final class LibraryModelServer: @unchecked Sendable {
         return bytes(page)
     }
     func changes(_ rows: [[String: Any]], through: Int) -> Data {
-        bytes(["format": 2, "account_id": account.wire, "through": through, "retained_after": 0,
-               "changes": rows.isEmpty ? [] : [["seq": through, "entries": rows]], "next_cursor": through, "has_more": false])
+        var page: [String: Any] = ["format": 2, "account_id": account.wire, "through": through, "retained_after": 0,
+               "changes": rows.isEmpty ? [] : [["seq": through, "entries": rows]], "next_cursor": through, "has_more": false]
+        // An upload-capable server names its dataset on every page, as the live changes route does.
+        if let epoch = lock.withLock({ epoch }) { page["dataset_epoch"] = epoch.wire }
+        return bytes(page)
     }
 }
 
@@ -746,6 +753,35 @@ final class LibraryModelTests: XCTestCase {
         try importReplies()
         model.prepareOnDevice(paper); try await importSettled(model, paper: paper)
         XCTAssertNil(model.devicePreparationIssues[paper.id]); XCTAssertEqual(model.deviceCopy(for: paper), .reader)
+    }
+
+    /// A12, A13: archiving a source (arXiv metadata) paper moves it to Archived and recounts at once, while the change
+    /// syncs, and sends the tags the server holds rather than the derived keywords (which would freeze them as the
+    /// reader's own).
+    func testArchivingASourcePaperAppliesAtOnceAndKeepsItsKeywordsDerived() async throws {
+        let server = LibraryModelServer(activated: true, uploadEpoch: UUID()), f = try fixture(server), model = f.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        var row = server.pending(state: 3, sourceOnly: true)
+        var metadata = try XCTUnwrap(row["metadata"] as? [String: Any])
+        metadata["title"] = "Direct Preference Optimization: DPO"
+        row["metadata"] = metadata; row["tags_customized"] = false
+        server.deliver(server.changes([row], through: 3)); await model.refreshLibrary()
+        let paper = try XCTUnwrap(model.papers.first { $0.sourceMembership != nil })
+        XCTAssertFalse(LibraryTags.tags(for: paper).isEmpty, "Derived keywords show while the reader hasn't edited them")
+        let before = model.libraryFilterSummary().counts
+        await model.setArchived(paper, archived: true)
+        XCTAssertNil(model.error)
+        // The fixture's capture isn't observable: poll each frame.
+        try await renderReady("source details sent") { server.commands().contains { $0.endpoint == "v5_set_source_details" } }
+        XCTAssertTrue(model.isArchived(paper))
+        let after = model.libraryFilterSummary().counts
+        XCTAssertEqual(after[.archived, default: 0], before[.archived, default: 0] + 1, "Counted as archived while it syncs")
+        XCTAssertEqual(after[.all, default: 0], before[.all, default: 0] - 1, "Hidden from All while it syncs")
+        let sent = try XCTUnwrap(server.commands().last { $0.endpoint == "v5_set_source_details" })
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
+        XCTAssertEqual(body["p_archived"] as? Bool, true)
+        XCTAssertEqual(body["p_tags"] as? [String], [], "The stored list, so the server keeps the keywords derived")
     }
 
     func testOfflineImportAbsentHTMLDownloadsAndReopensPDFWithoutUpload() async throws {
