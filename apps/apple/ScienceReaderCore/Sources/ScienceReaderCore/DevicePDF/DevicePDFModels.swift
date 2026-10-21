@@ -5,8 +5,9 @@ import Foundation
 /// The three exported models of the device route (docs/architecture/DEVICE_PDF_ROUTE.md) and their contracts, from
 /// `device-models.json` beside the compiled models (`scripts/device-models.mjs` writes it from the exports).
 public struct DevicePDFModelConfiguration: Decodable, Sendable {
-    public struct Model: Decodable, Sendable { public let id: String; public let file: String; public let weightsSHA256: String
-        enum CodingKeys: String, CodingKey { case id, file; case weightsSHA256 = "weights_sha256" } }
+    /// `function`: one function of a multifunction package (the recogniser's `prefill` and `step`, which share one state).
+    public struct Model: Decodable, Sendable { public let id: String; public let file: String; public let weightsSHA256: String; public let function: String?
+        enum CodingKeys: String, CodingKey { case id, file, function; case weightsSHA256 = "weights_sha256" } }
     public struct Layout: Decodable, Sendable {
         public let model: Model
         public let classes: [String]
@@ -68,6 +69,7 @@ public final class DevicePDFModels: @unchecked Sendable {
             let url = directory.appendingPathComponent(model.file)
             guard FileManager.default.fileExists(atPath: url.path) else { throw DevicePDFModelError.missing(model.file) }
             let config = MLModelConfiguration(); config.computeUnits = units
+            if let function = model.function { config.functionName = function }
             let start = Date()
             do {
                 let loaded = try MLModel(contentsOf: url, configuration: config)
@@ -185,35 +187,120 @@ public final class DevicePDFModels: @unchecked Sendable {
     /// One crop (RGB, already on white with the 8 px margin) to LaTeX and the probability of every chosen token,
     /// the end token included: TexTeller's own preprocessing, the encoder once, the stateful decoder step by step.
     public func recognise(crop: CGImage) throws -> Recognition {
-        let c = configuration.recogniser
-        return try recognise(pixels: try DevicePDFRaster.recogniserInput(crop, size: c.imageSize, mean: c.mean, std: c.std))
+        try recognise(batch: [recogniserInput(crop: crop)])[0]
     }
 
     /// The preprocessed input ([1, 1, 448, 448] float32) to LaTeX; the export's samples are already in this form.
     public func recognise(pixels: MLMultiArray) throws -> Recognition {
+        let values = Self.floats(pixels)
+        return try recognise(batch: [values])[0]
+    }
+
+    /// Crops the recogniser reads in one pass: the export's batch size (1 for the port kit's export; the batched
+    /// exports of `scripts/device-pdf-models/export_texteller.py` take B crops in every encoder pass and decoder step).
+    public var recogniserBatch: Int { encoder.flatMap { Self.batchSize($0) } ?? 1 }
+    static func batchSize(_ encoder: MLModel) -> Int? {
+        encoder.modelDescription.inputDescriptionsByName["pixel_values"]?.multiArrayConstraint?.shape.first?.intValue
+    }
+    /// The recogniser is one multifunction package: `prefill` (pixels into the shared state) and `step`.
+    var isMultifunction: Bool { configuration.recogniser.encoder.function != nil }
+    /// Whether the decoder takes the cross-attention keys and values as float16 (no conversion of the encoder's output).
+    var decoderCrossIsHalf: Bool { decoder?.modelDescription.inputDescriptionsByName["cross_k"]?.multiArrayConstraint?.dataType == .float16 }
+
+    /// Up to `recogniserBatch` preprocessed crops (448 × 448 floats each) to LaTeX, greedily, every crop to its end
+    /// token or the cache's length. Unused rows of a batch are blank input whose output is ignored; a crop's tokens are
+    /// those of a one-crop decode (each row's attention sees only its own cache and cross keys).
+    public func recognise(batch inputs: [[Float]]) throws -> [Recognition] {
         let c = configuration.recogniser
         guard let encoder, let decoder else { throw DevicePDFModelError.unusable("recogniser: \(recogniserIssue ?? "not loaded")") }
-        let input = try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels])
-        let encoded = try encoder.prediction(from: input)
-        guard let k16 = encoded.featureValue(for: "cross_k")?.multiArrayValue, let v16 = encoded.featureValue(for: "cross_v")?.multiArrayValue else {
-            throw DevicePDFModelError.unusable("encoder outputs")
+        let b = recogniserBatch, side = c.imageSize, plane = side * side
+        guard !inputs.isEmpty, inputs.count <= b, inputs.allSatisfy({ $0.count == plane }) else { throw DevicePDFModelError.unusable("recogniser input") }
+        let pixels = try MLMultiArray(shape: [NSNumber(value: b), 1, NSNumber(value: side), NSNumber(value: side)], dataType: .float32)
+        pixels.withUnsafeMutableBytes { raw, _ in
+            let p = raw.bindMemory(to: Float.self)
+            for (i, input) in inputs.enumerated() { input.withUnsafeBufferPointer { src in _ = memcpy(p.baseAddress! + i * plane, src.baseAddress!, plane * 4) } }
+            // Blank rows: the normalised white page (the preprocessing's padding value is 0, the mean grey).
+            if inputs.count < b { for i in (inputs.count * plane)..<(b * plane) { p[i] = 0 } }
         }
-        let crossK = try Self.float32(k16), crossV = try Self.float32(v16)
         let state = decoder.makeState()
-        let token = try MLMultiArray(shape: [1, 1], dataType: .int32), position = try MLMultiArray(shape: [1], dataType: .int32)
-        var ids = [c.bos], probabilities: [Double] = []
+        // The multifunction package's `prefill` writes the cross keys and values into the shared state; the two-package
+        // exports pass them into every step.
+        var cross: [String: MLMultiArray] = [:]
+        if isMultifunction {
+            _ = try encoder.prediction(from: try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels]), using: state)
+        } else {
+            let encoded = try encoder.prediction(from: try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels]))
+            guard let k16 = encoded.featureValue(for: "cross_k")?.multiArrayValue, let v16 = encoded.featureValue(for: "cross_v")?.multiArrayValue else {
+                throw DevicePDFModelError.unusable("encoder outputs")
+            }
+            let half = decoderCrossIsHalf
+            cross = ["cross_k": half ? k16 : try Self.float32(k16), "cross_v": half ? v16 : try Self.float32(v16)]
+        }
+        let token = try MLMultiArray(shape: [NSNumber(value: b), 1], dataType: .int32), position = try MLMultiArray(shape: [1], dataType: .int32)
+        let n = inputs.count
+        var ids = [[Int]](repeating: [c.bos], count: n), probabilities = [[Double]](repeating: [], count: n), done = [Bool](repeating: false, count: n)
         for step in 0..<(c.maxLength - 1) {
-            token[0] = NSNumber(value: ids[ids.count - 1]); position[0] = NSNumber(value: step)
-            let features = try MLDictionaryFeatureProvider(dictionary: ["token": token, "position": position, "cross_k": crossK, "cross_v": crossV])
+            for row in 0..<b { token[row] = NSNumber(value: row < n ? ids[row][ids[row].count - 1] : c.eos) }
+            position[0] = NSNumber(value: step)
+            var inputs: [String: MLMultiArray] = cross
+            inputs["token"] = token; inputs["position"] = position
+            let features = try MLDictionaryFeatureProvider(dictionary: inputs)
             guard let logits = try decoder.prediction(from: features, using: state).featureValue(for: "logits")?.multiArrayValue else {
                 throw DevicePDFModelError.unusable("decoder output")
             }
-            let (best, probability) = Self.argmaxProbability(logits)
-            ids.append(best); probabilities.append(probability)
-            if best == c.eos { break }
+            let values = Self.floats(logits), vocabulary = values.count / b
+            for row in 0..<n where !done[row] {
+                let (best, probability) = Self.argmaxProbability(values, from: row * vocabulary, count: vocabulary)
+                ids[row].append(best); probabilities[row].append(probability)
+                if best == c.eos { done[row] = true }
+            }
+            if !done.contains(false) { break }
         }
-        let generated = Array(ids.dropFirst())
-        return Recognition(latex: tokenizer.decode(generated), probabilities: probabilities, tokens: generated)
+        return (0..<n).map { row in
+            let generated = Array(ids[row].dropFirst())
+            return Recognition(latex: tokenizer.decode(generated), probabilities: probabilities[row], tokens: generated)
+        }
+    }
+
+    /// Evaluation: median milliseconds of the encoder pass, the cross keys' conversion and one decoder step at this
+    /// export's batch size (blank input; `steps` steps after two warm-ups).
+    public func stepTimes(steps: Int) throws -> [(String, Double)] {
+        let c = configuration.recogniser
+        guard let encoder, let decoder else { throw DevicePDFModelError.unusable("recogniser") }
+        let b = recogniserBatch, side = c.imageSize
+        let pixels = try MLMultiArray(shape: [NSNumber(value: b), 1, NSNumber(value: side), NSNumber(value: side)], dataType: .float32)
+        func ms(_ body: () throws -> Void) rethrows -> Double { let t = DispatchTime.now().uptimeNanoseconds; try body(); return Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6 }
+        func median(_ v: [Double]) -> Double { v.sorted()[v.count / 2] }
+        let state = decoder.makeState()
+        var encoded: MLFeatureProvider?
+        var encode: [Double] = []
+        let pixelInput = try MLDictionaryFeatureProvider(dictionary: ["pixel_values": pixels])
+        for _ in 0..<5 {
+            encode.append(try ms { encoded = isMultifunction ? try encoder.prediction(from: pixelInput, using: state) : try encoder.prediction(from: pixelInput) })
+        }
+        var cross: [String: MLMultiArray] = [:]
+        var convert = 0.0
+        if !isMultifunction, let k16 = encoded?.featureValue(for: "cross_k")?.multiArrayValue, let v16 = encoded?.featureValue(for: "cross_v")?.multiArrayValue {
+            convert = try ms { cross = decoderCrossIsHalf ? ["cross_k": k16, "cross_v": v16] : ["cross_k": try Self.float32(k16), "cross_v": try Self.float32(v16)] }
+        }
+        let token = try MLMultiArray(shape: [NSNumber(value: b), 1], dataType: .int32), position = try MLMultiArray(shape: [1], dataType: .int32)
+        for row in 0..<b { token[row] = NSNumber(value: c.bos) }
+        var step: [Double] = []
+        for t in 0..<(steps + 2) {
+            position[0] = NSNumber(value: t)
+            var values = cross; values["token"] = token; values["position"] = position
+            let features = try MLDictionaryFeatureProvider(dictionary: values)
+            let time = try ms { _ = try decoder.prediction(from: features, using: state) }
+            if t >= 2 { step.append(time) }
+        }
+        return [("batch", Double(b)), ("encoder", median(encode)), ("encoder per crop", median(encode) / Double(b)), ("convert", convert),
+                ("step", median(step)), ("step per crop", median(step) / Double(b))]
+    }
+
+    /// One crop (RGB, already on white with the 8 px margin) to the recogniser's preprocessed input.
+    public func recogniserInput(crop: CGImage) -> [Float] {
+        let c = configuration.recogniser
+        return DevicePDFRaster.recogniserPixels(DevicePDFRaster.rgb(crop), size: c.imageSize, mean: c.mean, std: c.std)
     }
 
     // MARK: Arrays
@@ -265,10 +352,16 @@ public final class DevicePDFModels: @unchecked Sendable {
     /// The greedy token and its softmax probability over the step's logits.
     static func argmaxProbability(_ logits: MLMultiArray) -> (Int, Double) {
         let values = floats(logits)
-        var maximum: Float = 0; var index: vDSP_Length = 0
-        vDSP_maxvi(values, 1, &maximum, &index, vDSP_Length(values.count))
-        var sum = 0.0
-        for v in values { sum += exp(Double(v - maximum)) }
-        return (Int(index), 1 / sum)
+        return argmaxProbability(values, from: 0, count: values.count)
+    }
+    static func argmaxProbability(_ values: [Float], from start: Int, count: Int) -> (Int, Double) {
+        values.withUnsafeBufferPointer { all in
+            let row = all.baseAddress! + start
+            var maximum: Float = 0; var index: vDSP_Length = 0
+            vDSP_maxvi(row, 1, &maximum, &index, vDSP_Length(count))
+            var sum = 0.0
+            for i in 0..<count { sum += exp(Double(row[i] - maximum)) }
+            return (Int(index), 1 / sum)
+        }
     }
 }

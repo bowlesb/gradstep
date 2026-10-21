@@ -283,3 +283,32 @@ test('formula crops are cleaned by the host and shown where the cleaned image si
   assert.doesNotMatch(fallback, /reader-math-image/);
   assert.match(fallback, /reader-math-fallback/);
 });
+
+test('a background recogniser (submit, collect) gives the same bundle, and a preview with every formula as its image comes first', () => {
+  const pages = syntheticPaper();
+  const plain = composeDevicePDFReader(input(pages.length, { title: 'Catalog title' }), host(pages));
+  type Crop = { page: number; rect: [number, number, number, number]; display?: boolean };
+  const queued: Crop[][] = [];
+  let collected = 0;
+  const backgroundHost = () => {
+    const h = host(pages);
+    return { ...h, submit: (crops: Crop[]) => { queued.push(crops); return queued.length - 1; },
+      collect: (ticket: number) => { collected += 1; return h.recognise(queued[ticket].map(({ page, rect }) => ({ page, rect }))); } };
+  };
+  const same = composeDevicePDFReader(input(pages.length, { title: 'Catalog title' }), backgroundHost());
+  assert.equal(same.manifestSHA256, plain.manifestSHA256, 'the same bundle as one-call recognition');
+  assert.equal(collected, queued.length);
+  // With a preview the stand-in host numbers its images differently (it counts calls), so the readings are compared.
+  const previews: ReturnType<typeof composeDevicePDFReader>[] = [];
+  const bundle = composeDevicePDFReader(input(pages.length, { title: 'Catalog title' }), backgroundHost(), b => previews.push(b));
+  const index = (b: typeof plain) => JSON.parse(decoder.decode(b.members.get('reader.json')!));
+  assert.deepEqual(index(bundle).blocks, index(plain).blocks);
+  assert.deepEqual(index(bundle).equations, index(plain).equations);
+  assert.equal(bundle.summary.rendered, plain.summary.rendered);
+  assert.ok(queued.flat().some(c => c.display === true) && queued.flat().some(c => c.display === false), 'placements travel with the crops');
+  assert.equal(previews.length, 1);
+  const preview = decoder.decode(previews[0].members.get('index.html')!);
+  assert.ok(!preview.includes('<math'), 'no formula is typeset before it is read');
+  assert.match(preview, /reader-math-image/);
+  assert.equal(previews[0].summary.rendered, 0);
+});

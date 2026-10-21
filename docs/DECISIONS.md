@@ -2,6 +2,25 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## PDFs without arXiv HTML: keep developing the on-device model; no Mathpix (owner, 2026-10-21)
+
+Owner, verbatim: "Ok, well maybe we can just continue to develop the on device version then? The current version
+feels too slow, and not accurate enough, but maybe we can improve it?" This follows the same day's "the local model
+for entire PDFs is too ambitious" and the Mathpix research
+([MATHPIX_FALLBACK_20261021](research/MATHPIX_FALLBACK_20261021.md)). Decided:
+
+- **Mathpix is not built.** The research stays as a record; the device-only rule for PDFs (no server PDF
+  acquisition, upload or processing, no Mathpix fallback) stands as written in the user constraints.
+- **The on-device PDF route stays the PDF path** and remains experimental, behind Settings › Experimental, beside
+  the arXiv HTML reader, which stays first-class. Work on it is now development of the app's own route (speed first,
+  then accuracy), measured against the arXiv HTML of the same papers where it exists, with before/after numbers for
+  every change ([DEVICE_PDF_ROUTE](architecture/DEVICE_PDF_ROUTE.md),
+  [review 2026-10-21](reviews/DEVICE_PDF_ROUTE_20261021.md)).
+- The desktop's port kit (converter 0.1.0) stops being a frozen reference the app must match: the app may diverge
+  from it where measurement shows a gain. The desktop project (`/home/ben/mathpix`) stays read-only; new training or
+  export work runs in `/home/ben/science-reader-device-pdf` on the desktop, and any new model reaches the app only
+  through `scripts/device-models.mjs` and a lock update.
+
 ## OpenRouter exclusively; cost per account (owner, 2026-10-21; implemented locally, not deployed)
 
 Owner, verbatim: "I don't think Anthropic API should even be part of deploy check. I want to double down and

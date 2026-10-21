@@ -8,6 +8,7 @@ import { confidence, renderMath } from './math.ts';
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
 import { spansOf, tagInput } from './tagger.ts';
+import { transcribe } from './transcribe.ts';
 import { BLOCK_TEXT_CHUNK, CROP_MARGIN, DEVICE_PDF_CONVERTER_VERSION, DEVICE_PDF_RENDERER_ID, DPI, GATE, GATE_DISPLAY, LAYOUT_CLASSES,
   PLACEHOLDER, TABLE_PLACED, TAGGED, type Box, type DevicePDFHost, type DevicePDFInput, type Formula, type Glyph, type PageInput, type Region } from './types.ts';
 
@@ -38,6 +39,8 @@ export interface Reading {
   trace: TraceIndex; traceFigureBlocks: Map<LogicalBlock, string>;
   pages: { width: number; height: number; imageWidth: number; imageHeight: number }[];
   warnings: string[]; unowned: number; recognitionFailures: number;
+  /** Recognitions submitted to the host's background recogniser and not yet collected (`settle`). */
+  submissions: { ticket: number; formulas: Formula[] }[];
 }
 
 interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections'] }
@@ -87,7 +90,8 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     return id;
   };
   const commit = (f: Formula, blockID: string, sourceForm: 'body' | 'environment') => {
-    committed.push(f.id); pendingRecognition.push(f);
+    committed.push(f.id);
+    if (f.transcribed) formulas.set(f.id, f); else pendingRecognition.push(f);
     trace.equations.push({ id: f.id, block_id: blockID, latex: '', display: f.display, source_form: sourceForm });
   };
   let title = '', inReferences = false, refs: string[] = [];
@@ -125,9 +129,13 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   const makeFormula = (gl: Glyph[], page: number, display: boolean, fontSize: number, box?: Box): Formula => {
     const bx = box ?? union(gl);
     const shown = gl.filter(visible);
-    return { id: equationID(), display, page, box: bx, fontSize: fontSize > 0 ? fontSize : 10,
+    const f: Formula = { id: equationID(), display, page, box: bx, fontSize: fontSize > 0 ? fontSize : 10,
       baseline: display ? undefined : Math.max(...shown.map(g => g.bottom)) - bx[1],
       glyphText: byX(gl).map(g => g.text).join(''), latex: '', confidence: 0, recognised: false, rendered: false };
+    // A simple inline formula is written from the text layer and never reaches the recogniser (transcribe.ts).
+    const tex = !display && input.transcribe ? transcribe(gl, fontSize) : null;
+    if (tex) Object.assign(f, { latex: tex, probs: [], recognised: true, confidence: 1, transcribed: true });
+    return f;
   };
 
   const recognisePending = () => {
@@ -142,17 +150,20 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     }
     pendingRecognition.length = 0;
     if (!readable.length) return;
+    const requests = readable.map(r => ({ page: r.f.page, rect: r.rect, display: r.f.display }));
+    // A host with a background recogniser reads this page's formulas while the converter reads on (port revision 5).
+    if (host.submit && host.collect) {
+      let ticket: number;
+      try { ticket = host.submit(requests); } catch { warnings.push('equations: Error'); recognitionFailures += readable.length; return; }
+      submissions.push({ ticket, formulas: readable.map(r => r.f) });
+      return;
+    }
     let results: ({ latex: string; probs: number[] } | null)[] = [];
-    try { results = host.recognise(readable.map(r => ({ page: r.f.page, rect: r.rect }))); }
+    try { results = host.recognise(requests.map(({ page, rect }) => ({ page, rect }))); }
     catch { warnings.push('equations: Error'); recognitionFailures += readable.length; return; }
-    readable.forEach(({ f }, i) => {
-      const r = results?.[i];
-      if (!r || typeof r.latex !== 'string' || !Array.isArray(r.probs)) { recognitionFailures += 1; return; }
-      // The reference keeps each token probability to five decimals before the gate reads it (texteller._batch).
-      f.latex = r.latex; f.probs = r.probs.filter(Number.isFinite).map(v => Number(v.toFixed(5))); f.recognised = true;
-      f.confidence = confidence(f.probs, f.display);
-    });
+    recognitionFailures += assignRecognitions(readable.map(r => r.f), results);
   };
+  const submissions: Reading['submissions'] = [];
 
   for (let p = 0; p < nPages; p++) {
     cancelled();
@@ -326,7 +337,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   recognisePending();
 
   trace.title = title || input.pdf.name.replace(/\.[^.]*$/, '');
-  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures,
+  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions,
     unowned: pyRound(nUnowned / Math.max(1, nGlyphs), 4),
     pages: pages.map(pg => ({ width: pg.width, height: pg.height, imageWidth: pg.imageWidth, imageHeight: pg.imageHeight })) };
 }
@@ -337,6 +348,28 @@ function byXCached(gl: Glyph[]): Glyph[] {
   let sorted = sortedCells.get(gl);
   if (!sorted) { sorted = byX(gl); sortedCells.set(gl, sorted); }
   return sorted;
+}
+
+/** Each formula's recognition (LaTeX and token probabilities) and its confidence; returns how many had none. */
+function assignRecognitions(fs: Formula[], results: ({ latex: string; probs: number[] } | null)[] | null | undefined): number {
+  let failures = 0;
+  fs.forEach((f, i) => {
+    const r = results?.[i];
+    if (!r || typeof r.latex !== 'string' || !Array.isArray(r.probs)) { failures += 1; return; }
+    // The reference keeps each token probability to five decimals before the gate reads it (texteller._batch).
+    f.latex = r.latex; f.probs = r.probs.filter(Number.isFinite).map(v => Number(v.toFixed(5))); f.recognised = true;
+    f.confidence = confidence(f.probs, f.display);
+  });
+  return failures;
+}
+
+/** The background recogniser's results, waited for (port revision 5); nothing to do for a host that recognises inline. */
+export function settle(reading: Reading, host: DevicePDFHost): void {
+  for (const { ticket, formulas } of reading.submissions.splice(0)) {
+    let results: ({ latex: string; probs: number[] } | null)[] | null = null;
+    try { results = host.collect!(ticket); } catch { reading.warnings.push('equations: Error'); reading.recognitionFailures += formulas.length; continue; }
+    reading.recognitionFailures += assignRecognitions(formulas, results);
+  }
 }
 
 /** The gate: Temml MathML for each recognised formula whose confidence passes. */
