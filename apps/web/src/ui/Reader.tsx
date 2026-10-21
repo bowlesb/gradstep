@@ -87,6 +87,8 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   figureView?: FigureHost;
   /** After a chat citation closed the chat drawer: reopens it (PaperView's Back to chat). */
   onBackToChat?: () => void;
+  /** An explainer's citation now offers Back to its explainer: the host drops an older Back to chat (one Back at a time). */
+  onExplainerReturn?: () => void;
   /** Reading mode (READING_MODE.md): the toolbar becomes a quiet bar over the paper. */
   reading?: ReadingMode;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
@@ -99,7 +101,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, reading }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, explainer, onExplainerHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu, equations, figureView, onEditTags, onAuthorSearch, onBackToChat, onExplainerReturn, reading }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -123,7 +125,12 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
   const [reference, setReference] = useState<ReaderReference | null>(null);
   const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
   // Contents › Tables: a table with its whole caption, and Show in paper (as a figure reference's view).
-  const [explainerReturn,setExplainerReturn]=useState<{kind:'equation'|'figure';id:string}|null>(null);
+  // Back to the explainer a citation left (a table's says Table, as the apps). The most recent origin wins: a chat
+  // citation's passage replaces it, and setting it drops the host's Back to chat (build 73: both Backs showed).
+  const [explainerReturn,setExplainerReturnState]=useState<{kind:'equation'|'figure'|'table';id:string}|null>(null);
+  const setExplainerReturn=(value:{kind:'equation'|'figure'|'table';id:string}|null)=>{setExplainerReturnState(value);if(value)onExplainerReturn?.();};
+  const figureReturn=(id:string)=>({kind:bundle&&figureNoun(figureName(bundle,id))==='Table'?'table' as const:'figure' as const,id});
+  useEffect(()=>{if(passage)setExplainerReturnState(null);},[passage?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tableDetail, setTableDetail] = useState<ReaderFigureReference | null>(null);
   const [referenceNotice, setReferenceNotice] = useState<{ text: string; operationID: string; message: string; kind: 'working' | 'done' | 'not_found' | 'failed' } | null>(null);
   const referenceRequest = useRef<AbortController | null>(null);
@@ -452,7 +459,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
             data-testid="ask" title="Chat ( ] )"><Icon name="chat" /><span>Chat</span></button>
         </div>
       </header>
-      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='figure')setFigure({id:explainerReturn.id,open:true});else setEquation(equationTarget(explainerReturn.id));setExplainerReturn(null);}}>Back to {explainerReturn.kind==='figure'?'Figure':'Equation'} Explainer</button>}
+      {explainerReturn && <button type="button" className="secondary small explainer-return" data-testid="explainer-return" onClick={()=>{if(explainerReturn.kind==='equation')setEquation(equationTarget(explainerReturn.id));else setFigure({id:explainerReturn.id,open:true});setExplainerReturn(null);}}>Back to {explainerReturn.kind==='equation'?'Equation':explainerReturn.kind==='table'?'Table':'Figure'} Explainer</button>}
       {finding && (
         <form className="find-bar" role="search" aria-label="Find in paper" onSubmit={e => e.preventDefault()}>
           <Icon name="search" size={14} />
@@ -554,8 +561,8 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
         onEquation={id => { setEquationTiles(false); showEquation(id); }} />}
       {bundle && figure.open && (
         <FigureViewer bundle={bundle} theme={theme} initial={figure.id} explain={figure.explain} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })} figureView={figureView}
-          onCite={(marker,id) => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
-          onShowInPaper={id => { setExplainerReturn({kind:'figure',id}); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
+          onCite={(marker,id) => { setExplainerReturn(figureReturn(id)); setFigure({ id: null, open: false }); goToCited(marker); if (workspace && !workspace.left.inline) workspace.show('left', false); }}
+          onShowInPaper={id => { setExplainerReturn(figureReturn(id)); setFigure({ id: null, open: false }); command('showFigure', id, reduced()); if (workspace && !workspace.left.inline) workspace.show('left', false); }} />
       )}
     </div>
   );

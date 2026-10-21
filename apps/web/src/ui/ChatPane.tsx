@@ -140,7 +140,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   }, []);
   const messages = branch?.messages ?? [];
   const savedLive = messages.some(m => m.payload.entityID === c.liveID);
-  const titleText = summary ? summaryTitle(summary) || 'Chat' : mode === 'paper' ? 'Ask about this paper' : 'General chat';
+  // A promoted explainer chat is named for its figure, table or equation until it has its own title (build 73, AHYZ:
+  // it read "New chat" and looked like another conversation).
+  const titleText = summary ? summaryTitle(summary) || 'Chat' : promoted && !providedContext ? promoted.label : mode === 'paper' ? 'Ask about this paper' : 'General chat';
   const deleted = !!c.conversationID && chat.history.state.isDeleted(c.conversationID);
   const last = messages.at(-1);
   const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
@@ -190,7 +192,8 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
   }, [c.draft, c.id]);
 
   return <div className={`chat-pane${empty ? ' chat-pane-empty' : ''}`} data-testid="chat-pane">
-    {!context && <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
+    {/* The main chat keeps its header and title for a promoted explainer chat too; an explainer's own embedded chat has none. */}
+    {!providedContext && <PaneHeader title={<span className="segmented" role="group" aria-label="Chat mode">
       <button className={mode === 'paper' ? 'segment on' : 'segment'} aria-pressed={mode === 'paper'} disabled={!paper} onClick={() => onMode('paper')}>Paper</button>
       <button className={mode === 'general' ? 'segment on' : 'segment'} aria-pressed={mode === 'general'} onClick={() => onMode('general')}>General</button>
     </span>} onClose={() => workspace?.show('right', false)} closeLabel="Hide chat">
@@ -207,7 +210,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
           onClick={() => { close(); chat.endStudy(c); }}><Icon name="book" size={14} /> End study mode</button>}
       </>}</MenuButton>
     </PaneHeader>}
-    {!context && <div className="chat-heading">
+    {!providedContext && <div className="chat-heading">
       {renaming && summary ? <RenameField initial={titleText} label="Chat name" onCancel={() => setRenaming(false)}
         onSave={async name => { const ok = await chat.rename(summary.id, name); if (ok) setRenaming(false); return ok; }} />
         : <div className="chat-title-row"><strong title={titleText} data-testid="chat-title">{titleText}</strong>

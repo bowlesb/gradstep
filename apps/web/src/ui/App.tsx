@@ -130,8 +130,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
   const [passage, setPassage] = useState<{ id: string; documentID: string; anchor: TextAnchor; at: number } | null>(null);
-  // After a chat citation closed the chat drawer: the reader's Back to chat (ReaderModel.returnToChat).
-  const [chatReturn, setChatReturn] = useState(false);
+  // After a chat citation closed the chat drawer: the reader's Back to chat (ReaderModel.returnToChat), to the composer
+  // that was showing (build 73, AHYZ: a promoted figure explainer's chat must come back as itself).
+  const [chatReturn, setChatReturn] = useState<{ composer: string | null } | null>(null);
   const [path, moveTo] = usePath();
   const [navigationIssue, setNavigationIssue] = useState(false);
   const navigationIntent = useRef(0);
@@ -338,7 +339,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 
   const ws = useWorkspace(route);
   // Back to chat goes away once the chat is open again or the paper is left.
-  useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(false); }, [ws.right.open, route]);
+  useEffect(() => { if (ws.right.open || route !== 'paper') setChatReturn(null); }, [ws.right.open, route]);
   const reading = useReadingMode(ws, route === 'paper' && !!item);
   const latest = useRef({ ws, route, paperID, reading });
   latest.current = { ws, route, paperID, reading };
@@ -485,6 +486,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || !!readingSource(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
   const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
+    const showing = anchor && documentID && chat ? chat.current(documentID).id : null;
     if (!documentID) setChatMode('general');
     else {
       const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && paperIdentity(e) === documentID);
@@ -494,7 +496,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
     // A citation from a chat that covers the paper (a drawer: phone, narrow window) closes it so the passage shows, and
     // the reader offers Back to chat (PaperView's reader.chat.back); beside the paper, the chat stays open.
-    if (anchor && !latest.current.ws.right.inline) { latest.current.ws.show('right', false); setChatReturn(true); }
+    if (anchor && !latest.current.ws.right.inline) { latest.current.ws.show('right', false); setChatReturn({ composer: showing }); }
     else latest.current.ws.show('right');
   };
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
@@ -592,7 +594,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         explainer={explainer?.documentID === paperIdentity(item) ? explainer : null} onExplainerHandled={() => setExplainer(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }} equations={equationHost} figureView={figureHost}
         onEditTags={() => readerActions.editTags(item)} onAuthorSearch={name => searchPapers('author:' + name)}
-        onBackToChat={chatReturn && !ws.right.open ? () => { setChatReturn(false); ws.show('right'); } : undefined}
+        onBackToChat={chatReturn && !ws.right.open ? () => { const back = chatReturn.composer; setChatReturn(null); if (back) chat?.chooseDraft(back); setChatMode('paper'); ws.show('right'); } : undefined}
+        onExplainerReturn={() => setChatReturn(null)}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} reading={reading} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
