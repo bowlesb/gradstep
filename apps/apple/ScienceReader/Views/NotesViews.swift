@@ -516,6 +516,7 @@ struct NoteImageView: View {
 
     var body: some View {
         let ratio = CGFloat(media.width) / CGFloat(max(1, media.height))
+        // The frame hugs the image (aspect-correct, at most `maxHeight` tall; a tall one opens full size on a tap).
         Group {
             if let image {
                 Image(uiImage: image).resizable().interpolation(.high).aspectRatio(ratio, contentMode: .fit)
@@ -530,11 +531,13 @@ struct NoteImageView: View {
                             }.padding(8)
                         } else { ProgressView() }
                     }
+                    .frame(minWidth: failed == nil ? nil : 220, minHeight: failed == nil ? nil : 120)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+        .frame(maxHeight: maxHeight)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(uiColor: .separator), lineWidth: 0.5))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: "\(media.blobID.wire)/\(attempt)") {
             do { image = try await model.noteImage(media) }
             catch { failed = Self.message(error) }

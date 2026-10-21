@@ -8,11 +8,17 @@ final class NotesJourneyTests: XCTestCase {
 
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    /// The phone journeys use the five-item tab bar; the wide layout has its own journey below.
+    private func requirePhoneLayout(_ app: XCUIApplication) throws {
+        try XCTSkipUnless(app.buttons["tab.notes"].exists, "Phone-width layout (the wide layout's journey is testNotesInTheWideLayout)")
+    }
+
     private func launch(_ extra: [String] = [], appearance: String? = nil) -> XCUIApplication {
         XCUIDevice.shared.portraitWhereSupported()
         let app = XCUIApplication()
         app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"] + (appearance.map { ["-appearance", $0] } ?? []) + extra
         app.launch()
+        current = app
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15))
         return app
     }
@@ -21,12 +27,24 @@ final class NotesJourneyTests: XCTestCase {
         app.buttons[sampleID].tap()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))
-        XCTAssertTrue(web.staticTexts["An interactive reading sample · 2026"].waitForExistence(timeout: 15), "The paper is ready")
+        // The paper is ready: its byline at the top, or (a remembered place further down) its first section.
+        let ready = web.staticTexts["An interactive reading sample · 2026"].waitForExistence(timeout: 15)
+            || web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A useful first pass")).firstMatch.waitForExistence(timeout: 5)
+        if !ready { capture("Paper not ready") }
+        XCTAssertTrue(ready, "The paper is ready")
         return web
     }
 
+    /// The app under test (the Mac's screenshots are of its window only, never the rest of the desktop).
+    private var current: XCUIApplication?
+
     private func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        #if targetEnvironment(macCatalyst)
+        let shot = current?.windows.firstMatch.screenshot() ?? XCUIScreen.main.screenshot()
+        #else
+        let shot = XCUIScreen.main.screenshot()
+        #endif
+        let attachment = XCTAttachment(screenshot: shot)
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
 
@@ -77,6 +95,7 @@ final class NotesJourneyTests: XCTestCase {
     /// Draw snippet → save to a new note → Open note → edit the comment → rename the note → delete it.
     func testDrawSnippetSaveToNewNoteThenEditRenameAndDelete() throws {
         let app = launch()
+        try requirePhoneLayout(app)
         let web = openSample(app)
         let before = web.staticTexts["An interactive reading sample · 2026"].frame
         drawSnippet(app, web: web, from: CGVector(dx: 0.08, dy: 0.18), to: CGVector(dx: 0.92, dy: 0.42))
@@ -163,6 +182,7 @@ final class NotesJourneyTests: XCTestCase {
     /// The selection menu's Add to note keeps the passage as a quotation.
     func testAddSelectionToNote() throws {
         let app = launch()
+        try requirePhoneLayout(app)
         let web = openSample(app)
         let paragraph = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A useful first pass identifies")).firstMatch
         XCTAssertTrue(paragraph.waitForExistence(timeout: 20))
@@ -189,6 +209,7 @@ final class NotesJourneyTests: XCTestCase {
     /// Settings is the last section of every top-right menu and returns to where it was opened.
     func testSettingsFromEveryMenuReturnsToItsOrigin() throws {
         let app = launch()
+        try requirePhoneLayout(app)
         XCTAssertTrue(app.buttons["tab.notes"].exists, "Notes is the fifth tab")
         XCTAssertFalse(app.buttons["tab.settings"].exists, "Settings is no longer a tab")
         func roundTrip(_ place: String, back: @escaping () -> Bool) {
@@ -230,10 +251,80 @@ final class NotesJourneyTests: XCTestCase {
         capture("Note menu with Settings last")
     }
 
+    /// iPad (wide) and Mac: Notes is a destination beside Feed, Library, Reader, Browse and General Chat, with the list and
+    /// the open note side by side; capture works from the reader with its chat column; Escape cancels drawing.
+    func testNotesInTheWideLayout() throws {
+        let app = launch()
+        let notesMode = app.wideMode("Notes")
+        try XCTSkipUnless(notesMode.waitForExistence(timeout: 5), "The wide layout (a 13-inch iPad, the Mac)")
+        notesMode.tap()
+        XCTAssertTrue(app.staticTexts["Your ideas, collected"].waitForExistence(timeout: 10))
+        app.buttons["notes.new"].firstMatch.tap()
+        let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5)); name.typeText("Project: alignment")
+        (app.alerts.buttons["Create"].exists ? app.alerts.buttons["Create"] : app.buttons["Create"]).tap()
+        // The list and the note, side by side.
+        XCTAssertTrue(app.buttons["notes.row.Project: alignment"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["note.empty.addText"].waitForExistence(timeout: 10), "The new note is open beside the list")
+        capture("Wide Notes: list and empty note")
+
+        // Read, draw, save to that note.
+        app.wideMode("Library").tap()
+        let web = openSample(app)
+        #if targetEnvironment(macCatalyst)
+        app.menuBars.menuBarItems["Paper"].click()
+        app.menuItems["Draw Snippet"].click()
+        let overlay = app.descendants(matching: .any)["capture.overlay"]
+        XCTAssertTrue(overlay.waitForExistence(timeout: 5))
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 5), "Escape cancels drawing")
+        app.menuBars.menuBarItems["Paper"].click()
+        app.menuItems["Draw Snippet"].click()
+        XCTAssertTrue(overlay.waitForExistence(timeout: 5))
+        overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.15))
+            .press(forDuration: 0.1, thenDragTo: overlay.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4)))
+        XCTAssertTrue(app.buttons["capture.use"].isEnabled)
+        capture("Wide: box drawn")
+        app.buttons["capture.use"].click()
+        #else
+        drawSnippet(app, web: web, from: CGVector(dx: 0.1, dy: 0.15), to: CGVector(dx: 0.8, dy: 0.4))
+        #endif
+        let save = app.buttons["composer.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        // A menu is a button on iOS and a pop-up button on the Mac.
+        let destination = app.descendants(matching: .any)["composer.destination"]
+        XCTAssertTrue(destination.waitForExistence(timeout: 5))
+        XCTAssertTrue(destination.label.contains("Project: alignment") || (destination.value as? String)?.contains("Project: alignment") == true,
+                      "An existing note is preselected: \(destination.label)")
+        waitFor("Prepared") { save.isEnabled }
+        capture("Wide: composer")
+        save.tap()
+        let saved = app.staticTexts["notes.saved"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 10))
+        capture("Wide: saved")
+        app.buttons["notes.saved.open"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["notes.row.Project: alignment"].exists, "The list stays beside the note")
+        capture("Wide: note with its snippet")
+        // Settings from the note's menu, and back to Notes.
+        // Mac menus are pop-up buttons with menu items; iOS menus are buttons.
+        app.descendants(matching: .any)["note.options"].firstMatch.tap()
+        #if targetEnvironment(macCatalyst)
+        let settings = app.menuItems["Settings"].firstMatch
+        #else
+        let settings = app.buttons["menu.settings"]
+        #endif
+        XCTAssertTrue(settings.waitForExistence(timeout: 5)); settings.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        app.navigationBars["Settings"].buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "Done returns to the note")
+    }
+
     /// Light and dark screenshots of the Notes list, a note and the composer (visual review).
     func testNotesScreenshotsLightAndDark() throws {
         for appearance in ["light", "dark"] {
             let app = launch(appearance: appearance)
+            try requirePhoneLayout(app)
             let web = openSample(app)
             drawSnippet(app, web: web, from: CGVector(dx: 0.06, dy: 0.2), to: CGVector(dx: 0.94, dy: 0.5))
             XCTAssertTrue(app.buttons["composer.save"].waitForExistence(timeout: 10))

@@ -106,9 +106,10 @@ struct NoteComposerView: View {
                             .overlay { ProgressView() }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: 280)
+                .frame(maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(uiColor: .separator), lineWidth: 0.5))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("composer.preview")
                 if snippet.origin != .equation { Button { adjust() } label: { Label("Adjust crop", systemImage: "crop") }
                     .font(.subheadline).frame(minHeight: 36).accessibilityIdentifier("composer.adjust") }

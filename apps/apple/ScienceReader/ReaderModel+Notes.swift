@@ -130,6 +130,9 @@ extension ReaderModel {
     @discardableResult
     func saveSnippet(_ snippet: CapturedSnippet, prepared: PreparedSnippet, to destination: NoteDestinationChoice,
                      newTitle: String, comment: String) async throws -> (noteID: UUID, entryID: UUID) {
+        // A repeated Save of a capture that is already committed is the same operation: one entry, never two. (The
+        // store's commit is atomic, so a failed attempt left nothing behind and the next one writes it in full.)
+        if let existing = notes.state.entry(prepared.entryID) { return (existing.note.id, prepared.entryID) }
         let now = notesNow
         var events: [(id: UUID, event: PrivateEvent)] = []
         let noteID: UUID

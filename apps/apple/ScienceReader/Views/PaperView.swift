@@ -343,7 +343,11 @@ struct PaperView: View {
                         dismissBack: citationBack && !readerFailed ? { citationBack = false; citationOrigin = ""; citationDismissID = UUID() } : nil,
                         selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) },
                         // Paper › Figures (audit 2026-10-15: never wired since the menu was added, so always greyed out).
-                        figures: model.selectedPaper?.readerBundle?.index.figures.isEmpty == false && !readerFailed && !loadingPaper ? { showFigures = true } : nil))
+                        figures: model.selectedPaper?.readerBundle?.index.figures.isEmpty == false && !readerFailed && !loadingPaper ? { showFigures = true } : nil,
+                        drawSnippet: canFind && model.notes.capturing == nil ? { beginDrawing() } : nil,
+                        addSelectionToNote: selection.flatMap { chosen in
+                            (try? chosen.resolvedQuote(in: bundle)).map { quote in { addToNote(chosen, quote: quote, scope: readerScope) } }
+                        }))
                 } else if let selected = model.selectedPaper {
                     if let run = model.deviceModelRun, run.paperID == selected.id {
                         VStack { DeviceModelProgressBar(run: run) { model.cancelDeviceModelReading() }.frame(maxWidth: 520); Spacer() }
