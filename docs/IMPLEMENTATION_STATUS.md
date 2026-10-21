@@ -25,7 +25,7 @@ released browser is still Pages `27c45ca0`. iPhone sources were read for wording
   | 40 reader scroll steps: app / chat / library model / reader renders | 80 / 80 / 80 / 80 | 0 / 0 / 0 / 50 |
   | ~225-delta streamed answer: branch scans / summaries / chat renders | 707 / 14 / 342 | 3 / 2 / 151 |
   | Four figure frames: `frameDocument` | 69.2 ms | 1.0 ms |
-  | Initial JS (entry + preloads; production build, staging env) | 1,034.3 kB (310.9 kB gzip) | 806.8 kB (241.2 kB gzip) after C5; 887.7 kB (265.4 kB gzip) after merging browser Notes (~42 kB) and the B features (~10 kB) |
+  | Initial JS (entry + preloads; production build, staging env) | 1,034.3 kB (310.9 kB gzip) | 806.8 kB (241.2 kB gzip) after C5; 892.8 kB (267.0 kB gzip) after merging main (browser Notes ~42 kB, the feedback branch ~5 kB) and the B features (~10 kB) |
 
   Caches are bounded (C8), the journal counts records with `count()`, and the compiler no longer ships in `dist/`.
 - **Shared code** (D8, browser side): the browser uses the server's arXiv parser, `visualDocument` (now
@@ -37,14 +37,17 @@ released browser is still Pages `27c45ca0`. iPhone sources were read for wording
   three model/length groups, Find similar papers first, the saved-draft hint going away). The app was wrong for
   owner-58: Privacy &amp; data still mentioned a backup search provider; it now uses the apps' wording. One app
   regression of this work was caught by arxiv-html (the lazy reader asked arXiv twice) and fixed in 114df10.
-- **Evidence**: `apps/web` unit tests 545 passing. Root `npm test` (fast tier): ROOT_FINAL. Playwright
-  on desktop and phone, after merging main, for the 20 affected specs (account-assets, account-delete, arxiv-html,
-  build-62, catalogs, chat, chat-controls, chat-redesign, equation-view, figure-view, journal, layout, library-actions,
-  library-columns, notes, owner-58, parity, podcast-workspace, reader, support-reports): 179 passed, 25 skipped by
-  their engine or width gates, none failing (account-assets expected the old tab-only wording; updated in b54d0d8 and
-  rerun). One opaque-diagram case failed once under load and passed 12 of 12 when repeated. notes-capture with its
-  own config: 10 passed; its arXiv cases skip without the local corpus. Screenshots reviewed in light and dark under
-  `.artifacts/` (web-chat, web-columns, web-support, figure views, web-build62, owner-58, web-podcast-workspace).
+- **Evidence** (after merging main at 5ef1bce): `apps/web` unit tests 552 passing; root `npm test` (fast tier) passes
+  every step, compiler freshness included: backend 700, browser units 552, operations, egress scan, Edge and admin
+  type checks. Playwright on desktop and phone for 22 affected specs (account-assets, account-delete, arxiv-html,
+  build-62, catalogs, chat, chat-controls, chat-redesign, equation-view, figure-view, journal, layout, library,
+  library-actions, library-columns, library-commands, notes, owner-58, parity, podcast-workspace, reader,
+  support-reports): 207 passed, 25 skipped by their engine or width gates, none failing. Stale tests found on the way
+  were updated and rerun: account-assets (b54d0d8, the tab-only wording), figure-view and library-actions (22d8991, after
+  main's feedback branch). Two cases failed once under load and passed when repeated (an opaque diagram, 12 of 12; the
+  phone podcast workspace, whose paper download was still at 57% after 10 s). notes-capture with its own config: 10
+  passed; its arXiv cases skip without the local corpus. Screenshots reviewed in light and dark under `.artifacts/`
+  (web-chat, web-columns, web-support, figure views, web-build62, owner-58, web-podcast-workspace).
 - **Limits**: browser Notes adds about 42 kB to the first load and could be loaded lazily next. WebKit keeps its
   durable-key limitation. The compiler freshness check failed in this worktree until main's 5ef1bce (packages resolve
   from the repository's node_modules only); after merging it the check passes and the moved copy in

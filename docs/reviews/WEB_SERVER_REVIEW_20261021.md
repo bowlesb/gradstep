@@ -78,7 +78,7 @@ deletion), 0135 (default privileges). Deploy order and live checks: IMPLEMENTATI
 The browser findings (A18–A20, B, C1–C5, C8, browser parts of D8 and D11), on branch
 `worktree-agent-a07aac6f6943c5a8b`. Each was re-verified against the code first; all were real except where noted.
 iPhone wording and behaviour were read from `apps/apple/ScienceReader` (unchanged). Nothing was deployed: the released
-browser is still Pages `27c45ca0`. Evidence: `npm test` in `apps/web` (545 unit cases), the affected Playwright
+browser is still Pages `27c45ca0`. Evidence: `npm test` (fast tier, all steps) and `apps/web` (552 unit cases) after merging main, the affected Playwright
 journeys on the desktop and phone projects (screenshots reviewed in light and dark), and before/after render counts and
 bundle sizes for C. Details: IMPLEMENTATION_STATUS.md, 2026-10-21 (browser review fixes).
 
@@ -102,7 +102,7 @@ bundle sizes for C. Details: IMPLEMENTATION_STATUS.md, 2026-10-21 (browser revie
 | C2 | Fixed | cc9c3b3 | Branches and summaries cached per history change; streamed deltas published every 100 ms (first at once); running byte count. ~225-delta answer: branch scans 707 → 3, summaries 14 → 2, chat renders 342 → 151. |
 | C3 | Fixed | cc9c3b3 | `PrivateState` indexes events by entity and caches derived views per change; catalogs and device PDFs derived once per state. Catalog-deletion batching (one refresh) not changed. |
 | C4 | Fixed | cc9c3b3 | `frameDocument` keeps one parsed template per bundle: four figure frames 69.2 ms → 1.0 ms. |
-| C5 | Fixed | 7ace3d9, 114df10 | Reader, account dialogs and approval QR load when needed (the reader chunk is fetched right after sign-in); the compiler moved to `src/reader/`. Initial JS 1,034.3 → 806.8 kB (310.9 → 241.2 kB gzip); after merging browser Notes (about 42 kB in the entry) and the B features (about 10 kB), 887.7 kB (265.4 kB gzip). Podcast, Feed and Notes stay in the first load; lazy Notes would be the next step. |
+| C5 | Fixed | 7ace3d9, 114df10 | Reader, account dialogs and approval QR load when needed (the reader chunk is fetched right after sign-in); the compiler moved to `src/reader/`. Initial JS 1,034.3 → 806.8 kB (310.9 → 241.2 kB gzip); after merging main (browser Notes about 42 kB in the entry, the feedback branch about 5 kB) and the B features (about 10 kB), 892.8 kB (267.0 kB gzip). Podcast, Feed and Notes stay in the first load; lazy Notes would be the next step. |
 | C8 | Fixed | cc9c3b3 | LRU caps (200 equation, 24 figure results); contextual composers released when their view closes; the journal counts records with `count()`. The second decryption in `History.restore` is a different layer (event envelopes, not journal records), not a duplicate. |
 | D8 | Partly fixed (browser) | dea3b6a | The browser uses the server's arXiv parser and `visualDocument` (new `_shared/visual-document.ts`) and `parseBalance`. Not done: consent-version registry, study/figure/equation server pairs (E4), Retry-After parsing. |
 | D11 | Fixed (browser) | dea3b6a | Catalog and item errors in words; DOI/web additions go into the viewed catalog and a placement failure no longer fails the add; diagrams follow the app's theme; the podcast route line names OpenRouter; five unused exports removed. Kept: `add.ts`'s capabilities (the apps send the same `web_import`, `pdf_upload`) and `library-storage.ts` (deliberately staged). |
@@ -112,7 +112,10 @@ account-delete, reader (invite-only wording), build-62 and library-actions (Find
 tag the vocabulary refuses), chat-controls (three radio groups, consent v6, the saved-draft hint going away,
 per-activity defaults), chat-redesign (model groups), equation-view (Gradstep Keywords, toolbar), journal (saved-draft
 hint) and arxiv-html (consent v6). The app was wrong for owner-58: Privacy &amp; data still described a backup search
-provider; it now uses the apps' wording.
+provider; it now uses the apps' wording. Found stale on the way and updated: account-assets (b54d0d8: the kept
+explanations' wording since B4), and after merging main's feedback branch figure-view (its new promoted-chat test
+lacked B7's model step) and library-actions (main's 9446667 no longer shows the generic "Large language models";
+22d8991).
 
 ---
 
