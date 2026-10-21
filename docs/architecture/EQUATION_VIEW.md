@@ -34,11 +34,13 @@ the chat."
 
 ## Where it opens
 
-Tapping an equation already selects it and offers Explain in Chat, Why it matters, Related papers. A new action,
-**AI Explainer** (`sparkles` on Apple; it was **Equation** until build 62: owner, "Replace Explain with AI Explainer"),
-sits right after Explain in Chat and opens the view explaining the equation at once (choosing it is the request; the
-chat's consent comes first). The others are unchanged and keep their order. The browser's selection bar gains the same
-button, in the same place, when the selection is one equation.
+Tapping an equation already selects it and offers Chat about Equation, Why it matters, Related papers. **Focus**
+(`arrow.up.left.and.arrow.down.right` on Apple; owner, build 78: "Let's change AI explainer to Focus. Because in the
+first view you can see the equation up large which is helpful. In the next screen we should not necessarily assume they
+need an AI explainer"; it was **AI Explainer** from build 62, and **Equation** before that) sits right after Chat about
+Equation and opens the view with the equation large, asking nothing: its top row's **AI Explainer** asks (the model
+choice and the chat's consent come first). The others are unchanged and keep their order. The browser's selection bar
+has the same button, in the same place, when the selection is one equation.
 
 ## What it shows, top to bottom
 
@@ -46,9 +48,9 @@ button, in the same place, when the selection is one equation.
    bundle holds), in the reader's colours. A size control (A− / A+, 100 % to 400 % of the reader's text size, starting
    at 160 %) and a **Scroll sideways** toggle: off, the equation is scaled down to fit the width when it is wider; on,
    it keeps the chosen size and scrolls horizontally. The equation number, when it has one, stays beside it.
-   **The top row** (owner, build 62; DESIGN.md "Sheet top row"): one glass row, **Explain in Chat** and **AI Explainer**
-   (tinted) as glass capsules in its middle, a round **X** on the right; no title, no Done. AI Explainer shows until the explanation
-   is asked for (from the menu it is asked at once, so the row is Explain in Chat and the X). Above the equation its
+   **The top row** (owner, build 78; DESIGN.md "Sheet top row"): one glass row of words, **Snippet**, **Chat** (to the
+   conversation below) and **AI Explainer**, alike; no title, no Done, no "…", and no X on a touch screen (the sheet
+   swipes away; the Mac and the browser keep the X). AI Explainer shows until the explanation is asked for. Above the equation its
    name is a small menu, **Equation (4) ⌄**, listing the paper's display equations ("Equation · section" for an
    unnumbered one): choosing one shows it, with its kept explanation or AI Explainer (nothing is asked unasked).
    With one display equation the heading is the plain name.
@@ -143,7 +145,8 @@ sent without chat consent: Explain asks for it first, as chat does.
 
 ## Build-69 feedback, 2026-10-18 (TestFlight 70 and browser deployed)
 
-The equation menu starts with **Chat about Equation**, then **AI Explainer**, then Related. Chat about Equation
+The equation menu starts with **Chat about Equation**, then **AI Explainer** (since build 78: **Focus**, which opens
+the view without a generation like Chat about Equation; the view's AI Explainer asks), then Related. Chat about Equation
 opens this view without a generation; AI Explainer chooses the engine and requests the structured explanation.
 The conversation composer and answers are below that explanation, in the same view. Its actual model name opens
 the default/cloud/local choice. There is no top Explain in Chat action that discards the view for the main chat.

@@ -1,6 +1,6 @@
-// The equation view (docs/architecture/EQUATION_VIEW.md): a tapped equation's AI Explainer opens it large and asks at
-// once, after the chat's consent (owner, build 62); its one top row has Explain in Chat, AI Explainer until it is asked,
-// and the X; its heading switches to the paper's other equations, which wait for AI Explainer. The explanation describes
+// The equation view (docs/architecture/EQUATION_VIEW.md): a tapped equation's Focus opens it large and asks nothing
+// (owner, build 78; it was AI Explainer, which asked at once); its one top row has Snippet, Chat, AI Explainer until it is
+// asked, and the X; its heading switches to the paper's other equations, which wait for AI Explainer. The explanation describes
 // its symbols, then background is offered; ¶ links land in the paper with Back; no credit counts anywhere. Both requests
 // are the chat's own. Contents › Equations lists "Equation (n)" rows and a tile view.
 import {readFileSync} from 'node:fs';
@@ -53,7 +53,7 @@ test('equation explanation, model choice and follow-up remain together with encr
  await keywords.locator('h2').click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
  await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
- await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Copy as Text','Related','Add to note']); // Copy as Text (B10), Add to note (Notes)
+ await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','Focus','Copy as Text','Related','Add to note']); // Focus (build 78), Copy as Text (B10), Add to note (Notes)
  await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
  const view=page.getByTestId('equation-view'), context=view.getByTestId('contextual-chat');
  await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();
@@ -259,9 +259,10 @@ test('a wide equation fits at 100 percent and automatically pans when enlarged',
  await openFixture(page,request,source);
  const frame=page.frameLocator('[data-testid=reader-frame]');
  await frame.locator('.reader-display[data-reader-equation]').nth(1).click();
- await page.getByTestId('equation-open').click();
+ await expect(page.getByTestId('equation-open')).toHaveText('Focus');await page.getByTestId('equation-open').click();
  const view=page.getByTestId('equation-view');
- await page.getByRole('dialog',{name:'AI model'}).getByRole('button',{name:'Cancel'}).click(); // AI Explainer's model choice (B7), not needed here
+ // Focus asks nothing: no model choice, AI Explainer waits in the top row (owner, build 78).
+ await expect(view.getByTestId('equation-explain')).toBeVisible();await expect(page.getByRole('dialog',{name:'AI model'})).toHaveCount(0);
  await expect(view.getByRole('heading',{name:'Equation (2)'})).toBeVisible();
  const box=view.frameLocator('[data-testid=equation-frame]').locator('#eq-box');
  await expect(box.locator('math')).toBeVisible();

@@ -20,8 +20,8 @@ import XCTest
         app.launch(); app.show("paper")
         let equation = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
         XCTAssertTrue(equation.waitForExistence(timeout: 15)); equation.tap()
-        app.revealEditMenuItem("AI Explainer").tap()
-        app.buttons["ai.chooseModel"].tap()
+        app.revealEditMenuItem("Focus").tap(); app.askEquationExplainer()
+        XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
         let cloud = app.buttons["ai.chooseCloud"]
         XCTAssertTrue(cloud.waitForExistence(timeout: 5))
         XCTAssertTrue(cloud.label.contains("Sonnet"), cloud.label)
@@ -56,7 +56,7 @@ import XCTest
     func testLocalEquationChoiceKeepsTheEquationAndStreamsAnExplanation() {
         let app = launch()
         app.webViews.firstMatch.staticTexts["(1)"].firstMatch.tap()
-        app.revealEditMenuItem("AI Explainer").tap()
+        app.revealEditMenuItem("Focus").tap(); app.askEquationExplainer()
         chooseLocal(app)
         XCTAssertTrue(app.descendants(matching: .any)["equation.description"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["equation.aiSource"].label.contains("(local)"))
@@ -74,7 +74,7 @@ import XCTest
     }
     func testEquationFollowUpsStayBelowTheExplanationAndReopen() {
         let app = launch()
-        app.webViews.firstMatch.staticTexts["(1)"].firstMatch.tap(); app.revealEditMenuItem("AI Explainer").tap(); chooseLocal(app)
+        app.webViews.firstMatch.staticTexts["(1)"].firstMatch.tap(); app.revealEditMenuItem("Focus").tap(); app.askEquationExplainer(); chooseLocal(app)
         XCTAssertTrue(app.descendants(matching: .any)["equation.description"].waitForExistence(timeout: 8))
         let field = app.textViews["contextChat.composer"].exists ? app.textViews["contextChat.composer"] : app.textFields["contextChat.composer"]
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("Why squared?"); app.buttons["contextChat.send"].tap()

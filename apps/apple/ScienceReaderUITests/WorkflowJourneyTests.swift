@@ -563,8 +563,8 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["figureParts.part.2"].waitForExistence(timeout: 5), "the full view opens")
     }
 
-    /// The equation view (owner, 2026-10-15; EQUATION_VIEW.md): AI Explainer (build 62; it was "Equation") sits right after
-    /// Explain in Chat on a tapped equation and opens the view explaining it: the equation large with its size and
+    /// The equation view (owner, 2026-10-15; EQUATION_VIEW.md): Focus (build 78; it was "AI Explainer", before that
+    /// "Equation") sits right after Chat about Equation on a tapped equation and opens the view, whose AI Explainer explains it: the equation large with its size and
     /// sideways scrolling, what it says and each symbol, background on request, a symbol's paragraph with Back, and
     /// Explain in Chat with the equation as the passage, nothing sent. One top row: Explain in Chat and the X.
     /// Owner, 2026-10-21: "Some border basically, when we present them in the equation view": the equation sits inside a
@@ -579,8 +579,8 @@ final class WorkflowJourneyTests: XCTestCase {
         let number = app.webViews.firstMatch.staticTexts["(1)"].firstMatch
         XCTAssertTrue(number.waitForExistence(timeout: 15), "The paper's numbered equation")
         number.tap()
-        let item = app.revealEditMenuItem("AI Explainer")
-        XCTAssertTrue(item.exists); item.tap()
+        let item = app.revealEditMenuItem("Focus")
+        XCTAssertTrue(item.exists); item.tap(); app.askEquationExplainer()
         XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap()
         XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.1"].waitForExistence(timeout: 8))
@@ -603,8 +603,8 @@ final class WorkflowJourneyTests: XCTestCase {
             let number = web.staticTexts["(1)"].firstMatch
             XCTAssertTrue(number.waitForExistence(timeout: 10), "The paper's numbered equation")
             number.tap()
-            let item = app.revealEditMenuItem("AI Explainer")
-            XCTAssertTrue(item.exists, "AI Explainer is offered on a tapped equation")
+            let item = app.revealEditMenuItem("Focus")
+            XCTAssertTrue(item.exists, "Focus is offered on a tapped equation (build 78; it was AI Explainer)")
             return item
         }
         let item = openEquation()
@@ -612,13 +612,17 @@ final class WorkflowJourneyTests: XCTestCase {
         // Right after Explain in Chat: below it in the menu's list, or beside it in a horizontal menu.
         XCTAssertTrue(explain.exists)
         XCTAssertTrue(explain.frame.maxY <= item.frame.minY + 1 || explain.frame.maxX <= item.frame.minX + 1, "right after Explain in Chat")
-        capture(app, "AI Explainer in a tapped equation's menu")
+        capture(app, "Focus in a tapped equation's menu")
         item.tap()
+        // Focus shows the equation large and asks nothing (owner, build 78: "we should not necessarily assume they need
+        // an AI explainer"): no model choice until the view's AI Explainer.
+        XCTAssertFalse(app.buttons["ai.chooseModel"].waitForExistence(timeout: 2), "Focus asks nothing")
+        capture(app, "Focus: the equation large, AI Explainer waiting")
+        app.askEquationExplainer()
         XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         let heading = app.descendants(matching: .any)["equation.heading"].firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 5)); XCTAssertEqual(heading.label, "Equation (1)", "The view names the equation")
-        // AI Explainer is the reader's request: the explanation comes at once (owner, build 62), so the row offers
-        // Explain in Chat and the X only; no Done.
+        // Asked from the view's AI Explainer: the row then offers Snippet and Chat only; no X, no Done.
         let symbol = app.descendants(matching: .any)["equation.symbol.1"]
         XCTAssertTrue(symbol.waitForExistence(timeout: 8), "The symbols are described")
         let composer = app.descendants(matching: .any).matching(identifier: "contextChat.composer").firstMatch
@@ -691,7 +695,7 @@ final class WorkflowJourneyTests: XCTestCase {
         #else
         number.tap()
         #endif
-        let item = app.revealEditMenuItem("AI Explainer")
+        let item = app.revealEditMenuItem("Focus")
         #if targetEnvironment(macCatalyst)
         capture(app, "Mac equation action menu")
         #endif
@@ -702,8 +706,9 @@ final class WorkflowJourneyTests: XCTestCase {
         #else
         item.tap()
         #endif
+        app.askEquationExplainer()
         XCTAssertTrue(app.buttons["ai.chooseDefault"].waitForExistence(timeout: 5)); app.buttons["ai.chooseDefault"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8), "explained at once")
+        XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.2"].waitForExistence(timeout: 8), "explained once asked")
         app.buttons["equation.background"].tap()
         let text = app.descendants(matching: .any)["equation.backgroundText"]
         XCTAssertTrue(text.waitForExistence(timeout: 8))

@@ -90,7 +90,10 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
 - **Explain actions**: wherever a figure, table or equation is shown on its own, the top row offers **Chat** (a draft in
   the paper's chat, nothing sent; on the equation view, its conversation below) and **AI Explainer** (the walkthrough /
   symbol explanation, requested only then), after **Snippet**. They are peers and look the same: glass capsules with
-  accent words, none tinted (owner, build 76: "Confusing that only one is purple?"). An explainer's title is a small
+  accent words, none tinted (owner, build 76: "Confusing that only one is purple?"). A tapped equation's menu offers
+  **Focus** right after Chat about Equation (owner, build 78: "Let's change AI explainer to Focus… we should not
+  necessarily assume they need an AI explainer"): it opens the equation view large and asks nothing; the view's AI
+  Explainer asks. An explainer's title is a small
   menu (⌄) listing the paper's other figures or equations, to switch without going back to Contents.
 
 - **Contents discovery** (owner, 2026-10-18): open at full height. On touch devices, double-tapping article text opens

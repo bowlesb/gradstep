@@ -194,8 +194,8 @@ private extension UIView {
 /// The reader's web view. Selected text gets the system edit menu (the context menu on the Mac) with Copy first,
 /// then the selection actions — Explain in Chat, Why it matters, Related papers, Add paper — then the system's
 /// Look Up, Translate, Share… A tapped equation opens the same menu beside it: Copy LaTeX, Copy as text and the
-/// actions (owner feedback, build 16 #4/#5, replacing the bar that sat under the paper), with AI Explainer (its own view)
-/// right after Explain in Chat.
+/// actions (owner feedback, build 16 #4/#5, replacing the bar that sat under the paper), with Focus (its own view; build 78)
+/// right after Chat about Equation.
 final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     /// The paper's own view (not a figure's): runs a selection action on what is selected when it is chosen.
     var menuAction: ((SelectionAction) -> Void)?
@@ -206,9 +206,10 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     @MainActor static weak var paper: ReaderWebView?
     /// Called with the bridge's equation ID when that equation's menu closes without an action (its outline goes too).
     var onEquationMenuDismissed: ((String) -> Void)?
-    /// "AI Explainer" in a tapped equation's menu, right after Explain in Chat (owner, build 62; it was "Equation"): opens
-    /// the equation view for that equation and asks for its explanation (docs/architecture/EQUATION_VIEW.md). Nil offers
-    /// no such item.
+    /// "Focus" in a tapped equation's menu, right after Chat about Equation (owner, build 78: "Let's change AI explainer to
+    /// Focus. Because in the first view you can see the equation up large which is helpful. In the next screen we should
+    /// not necessarily assume they need an AI explainer"): opens the equation view for that equation, large, without
+    /// asking for an explanation; its top row offers AI Explainer (docs/architecture/EQUATION_VIEW.md). Nil offers no such item.
     var onOpenEquation: ((String) -> Void)?
     private lazy var equationMenu = UIEditMenuInteraction(delegate: self)
     /// The equation whose menu is open: its quote, where it is, its ID in the page, and this presentation's token.
@@ -350,7 +351,7 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
             identifier: UIAction.Identifier("reader.selection.define")) { _ in run(.define) }]
         actions += Self.actions([.similar], run: run)
         if let open = onOpenEquation {
-            let view = UIAction(title: "AI Explainer", image: UIImage(systemName: "sparkles"), identifier: UIAction.Identifier("reader.equation.view")) { [weak self] _ in
+            let view = UIAction(title: "Focus", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"), identifier: UIAction.Identifier("reader.equation.view")) { [weak self] _ in
                 self?.equation = nil; open(equation.equationID)
             }
             actions.insert(view, at: min(1, actions.count))

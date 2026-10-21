@@ -259,7 +259,8 @@ struct PaperView: View {
                                          selection = nil; selectionClearID = UUID()
                                      }, hasSelection: selection != nil, onEquation: { id in
                                          guard model.readerDocumentScope == readerScope else { return }
-                                         equation = EquationViewRequest(paperID: paper.id, equationID: id, explains: true)
+                                         // Focus (owner, build 78): the equation large; its AI Explainer waits to be asked.
+                                         equation = EquationViewRequest(paperID: paper.id, equationID: id)
                                          selection = nil; selectionClearID = UUID()
                                      }, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }

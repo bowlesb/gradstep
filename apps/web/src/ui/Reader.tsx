@@ -638,13 +638,13 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved: show
             if (action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID) { setEquation({ id:selection.parts[0].equationID,quote,anchor,explain:false }); setSelection(null); command('clearSelection'); return; }
             if (anchor) { onSelection(action, quote, anchor, paragraph > 0 ? paragraph : undefined); setSelection(null); command('clearSelection'); }
           }}>{action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' ? 'Chat about Equation' : title}</button>,
-            // One tapped equation: AI Explainer, right after Explain, opens its view and asks at once (owner, build 62:
-            // "Replace Explain with AI Explainer"; EQUATION_VIEW.md).
+            // One tapped equation: Focus, right after Chat about Equation, opens its view large without asking the AI (owner,
+            // build 78: "Let's change AI explainer to Focus… we should not necessarily assume they need an AI explainer").
             ...(action === 'define' && selection.parts.length === 1 && selection.parts[0].kind === 'equation' && selection.parts[0].equationID ? [
               <button key="equation" className="secondary small" data-testid="equation-open" onClick={() => {
                 const anchor = passageAnchor(item.artifact_id, selection, quote, item.kind === "import" ? bundle.manifestSHA256 : undefined);
-                setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: true }); setSelection(null); command('clearSelection');
-              }}>AI Explainer</button>,
+                setEquation({ id: selection.parts[0].equationID!, quote, anchor, explain: false }); setSelection(null); command('clearSelection');
+              }}>Focus</button>,
               // The raw formula, as the apps' Copy as Text on a tapped equation copies it.
               <button key="copy" className="secondary small" data-testid="equation-copy" onClick={() => {
                 void navigator.clipboard.writeText(quote).then(() => setNotice('Copied.'), () => setNotice('Couldn’t copy the equation.'));

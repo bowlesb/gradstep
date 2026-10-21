@@ -44,10 +44,9 @@ final class ExplanationAssetsTests: XCTestCase {
         let web = app.webViews.firstMatch
         let number = web.staticTexts["(1)"].firstMatch
         XCTAssertTrue(number.waitForExistence(timeout: 15)); number.tap()
-        // "Equation" in the menu, "AI Explainer" once renamed (owner, build 62).
-        var item = app.revealEditMenuItem("AI Explainer", timeout: 2)
-        if !item.exists { item = app.revealEditMenuItem("Equation") }
-        XCTAssertTrue(item.exists); item.tap()
+        // "Focus" in the menu (owner, build 78); the view's AI Explainer asks.
+        let item = app.revealEditMenuItem("Focus")
+        XCTAssertTrue(item.exists); item.tap(); app.askEquationExplainer()
         XCTAssertTrue(app.buttons["ai.chooseModel"].waitForExistence(timeout: 5)); app.buttons["ai.chooseModel"].tap(); XCTAssertTrue(app.buttons["ai.chooseCloud"].waitForExistence(timeout: 5)); app.buttons["ai.chooseCloud"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["equation.symbol.1"].waitForExistence(timeout: 10), "The explanation")
 

@@ -189,3 +189,13 @@ extension XCUIApplication {
         }
     }
 }
+
+/// A tapped equation's Focus (owner, build 78; it was AI Explainer, which asked at once) opens the equation view without
+/// asking; the view's own AI Explainer asks (then the model choice).
+extension XCUIApplication {
+    func askEquationExplainer(file: StaticString = #filePath, line: UInt = #line) {
+        let explain = buttons["equation.explain"]
+        XCTAssertTrue(explain.waitForExistence(timeout: 8), "Focus opens the equation with AI Explainer waiting", file: file, line: line)
+        explain.tap()
+    }
+}
