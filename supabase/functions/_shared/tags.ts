@@ -8,7 +8,7 @@
 //
 // Deno and Node compatible; dependencies are injected so tests drive it with fakes. Never logs
 // titles, abstracts, prompts or the API key.
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ModelRequest } from './model-request.ts';
 import { openRouterScriptProvider } from './openrouter-script.ts';
 import { rpcAttribution, type OpenRouterAttribution } from './openrouter-transport.ts';
 import type { ScriptProvider } from './podcast-script.ts';
@@ -61,7 +61,7 @@ export const TAG_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
-export function tagRequest(input: TagInput): Anthropic.MessageCreateParamsNonStreaming {
+export function tagRequest(input: TagInput): ModelRequest {
   const abstract = clean(input.abstract, MAX_ABSTRACT);
   const categories = input.categories.filter(c => /^[A-Za-z-]{1,16}(\.[A-Za-z-]{1,16})?$/.test(c)).slice(0, 12);
   const paper = [
@@ -102,7 +102,7 @@ export function priceUsage(usage: { input_tokens?: number | null; output_tokens?
 }
 
 /** Upper bound when a call may have been processed but returned nothing (connection lost). */
-export function estimateMicrousd(request: Anthropic.MessageCreateParamsNonStreaming): number {
+export function estimateMicrousd(request: ModelRequest): number {
   // Byte-level upper bound includes structured-output schema, tool/message
   // envelopes and escaped content. No prose-character/token heuristic.
   const inputBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength + 1024;

@@ -37,7 +37,6 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
   return {
     generated: !!(script && speech),
     rpc: rpcAdapter(service),
-    scriptProviders: { ...(script ? { anthropic: script, deepseek: script } : {}) },
     storage: {
       download: (bucket, path, maximum) => boundedStorageDownload(url, key, bucket, path, maximum),
       async upload(bucket, path, bytes, contentType) {

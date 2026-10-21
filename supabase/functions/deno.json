@@ -1,6 +1,5 @@
 {
   "imports": {
-    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@0.131.0",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
     "fflate": "npm:fflate@0.8.3",
     "pdf-lib": "npm:pdf-lib@1.17.1",

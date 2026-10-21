@@ -1,5 +1,46 @@
 # Implementation status
 
+## OpenRouter exclusively, cost per account, no import quota — October 21 UTC (built and tested locally; not deployed)
+
+Owner directives of 2026-10-21 ([decisions](DECISIONS.md)). Nothing deployed; no hosted, paid or phone check run; the
+browser and Apple apps untouched. Designs: PROVIDER_SPENDING.md "OpenRouter only (2026-10-21)",
+OPERATIONS_AND_BILLING.md "OpenRouter exclusively and cost per account", LIBRARY_CAPACITY.md "No import quota".
+
+- **Code:** direct-provider cards, the Anthropic SDK client/stream adapter, the fallback beta, native search and the
+  `claudeOpenRouter` switch removed; `anthropic.ts` → `inference.ts`, own request types in `model-request.ts`,
+  `admittedAnthropic` → `admittedModelCalls` (always `worker_openrouter_admit`); `@anthropic-ai/sdk` removed from
+  `deno.json`, `package.json` and the pipeline worker (locks pruned offline). Web search is our Tavily `search_web` tool
+  only. provider-health maps only real providers; the egress guard still refuses direct model hosts and logs them.
+- **Config:** `deploy-staging.py` stops setting `CHAT_CLAUDE_OPENROUTER` and deletes `ANTHROPIC_API_KEY`,
+  `DEEPSEEK_API_KEY` and `CHAT_CLAUDE_OPENROUTER` from the project; the worker deploy accepts no Vertex identity;
+  `infra/staging.json` loses its unused entries; `config.function-secrets` fails on a direct key; `budget.health` fails on
+  OpenRouter attempts only and names legacy ones.
+- **Migrations (after 0100–0135, in order):** 0140 OpenRouter-only reporting (legacy named, held, kept), 0141
+  `v1_admin_account_costs`, 0142 no import quota (lifetime limits NULL; in-flight backstop 100/2,000). Fixtures:
+  `openrouter_only_reporting.sql`, `account_costs.sql`, `no_import_quota.sql`.
+- **Admin:** Costs tab (sortable, per-account feature/model breakdowns, this month and last 30 days); Health shows legacy
+  attempts apart from OpenRouter ones. Screenshots (fixture): desktop light and phone dark, no horizontal overflow.
+- **Evidence (local):** `npm test` all nine steps pass (backend 683/683 — direct-adapter and native-search tests removed,
+  chat tests now use OpenRouter models, reported costs and consent v6 as production requires; browser 520/520;
+  operations Node 24 and Python 124; Edge `deno check`; admin `tsc`); `npm run test:database` passed (824 steps, 127 s);
+  `npm run test:ops` passed. `scripts/check-admin-build.mjs` needs the production backend environment, absent in this
+  worktree; the built bundle contains no Costs fixture data (checked by search).
+- **Deploy order:** (1) migrations through `scripts/deploy-staging.py` (0140 needs 0102/0108/0128; 0141 needs 0037/0140);
+  (2) every routine Edge function (all import the changed `egress.ts`/`provider-health.ts`; chat the rest) — the same
+  run sets the secrets and removes the retired ones; (3) the Cloud Run worker (`scripts/deploy-pipeline-worker.py`:
+  tags, podcasts, provider-health, no SDK); (4) the admin site (`node scripts/deploy-web.mjs admin`).
+- **Live checks (read-only, unpaid):** `worker_budget_health()` has `unknown_openrouter_attempts_over_1h` and
+  `reconciliation.legacy` (`by_provider` `{"anthropic":1}`, held 138 micro-USD until the Oct 17 attempt is settled, then
+  0); the Management API secret list has no `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY`/`CHAT_CLAUDE_OPENROUTER`;
+  `node scripts/workflow-checks.mjs --only config.function-secrets,budget.health` passes; `GET functions/v1/chat` lists
+  every model with `provider: "openrouter"` and `tariff: "openrouter-reviewed-cards"`; `app_private.library_policy` shows
+  NULL lifetime limits and 100/2,000 in flight; Admin › Costs loads for the owner and its month cost equals Spending's
+  month `reported + estimated` for attempts; Admin › Health shows legacy separately. Paid (owner's choice, ~$0.005): one
+  chat answer appears in Costs under that account, feature chat, model `anthropic/claude-sonnet-5.5` or `gemini-3.8-flash`.
+- **Not done here:** the Swift and browser copies of the chat profile fixture and the apps' quota/limit strings and
+  4,000-entry bound (app agents; listed in LIBRARY_CAPACITY.md); dropping the still-evaluated lifetime count queries
+  (perf, review C7/E2); provisioning per-feature OpenRouter keys (owner).
+
 ## Notes and snippets, native — October 21 UTC (local; not released)
 
 The iPhone, iPad and Mac client of the [Notes contract](architecture/NOTES_AND_SNIPPETS.md#native-client-status--iphone-ipad-and-mac-implemented-locally-not-released-2026-10-21-utc)

@@ -16,6 +16,11 @@ import { podcastAudioBounds, podcastCheckerBounds, runPodcast, sweepPodcastSourc
 import { handlePodcast, podcastError, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
 import { PublicError } from '../../supabase/functions/_shared/http.ts';
+import { routerClaudeRates } from '../../supabase/functions/_shared/openrouter-claude-pricing.ts';
+import { routerDeepSeekRates } from '../../supabase/functions/_shared/openrouter-deepseek-pricing.ts';
+/** A script call without OpenRouter's reported cost is priced at the card of the route its model was sent to. */
+const SONNET = routerClaudeRates('anthropic/claude-sonnet-5.5');
+const sonnetCost = (input: number, output: number) => Math.ceil(input * SONNET.input + output * SONNET.output);
 import { ffmetadata, ffmpegArguments, ffmpegEncoder, verifyProbe } from '../../services/pipeline-worker/podcast-encode.ts';
 import { createHandler } from '../../services/pipeline-worker/server.ts';
 
@@ -87,7 +92,10 @@ test('script requests: no tools, no fallback, no thinking, profile output caps a
   assert.equal(fitsInput(300_000, 76_000, 80_000), false, 'margin refuses near the cap');
   const cost = scriptCost({ state: 'succeeded', requestID: 'r', model: 'claude-sonnet-5-5', stopReason: 'end_turn', text: '', failure: null,
     usage: { input: 20_000, output: 3_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } });
-  assert.equal(cost.microusd, 70_000);
+  assert.equal(cost.microusd, sonnetCost(20_000, 3_000), 'Sonnet 5.5 through OpenRouter on Vertex: $2.20 in, $11 out per million');
+  assert.equal(scriptCost({ state: 'succeeded', requestID: 'r', model: 'claude-sonnet-5-5', stopReason: 'end_turn', text: '', failure: null,
+    usage: { input: 20_000, output: 3_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 }, billedMicrousd: 61_234.5 }).microusd, 61_235,
+    "OpenRouter's reported cost wins");
   assert.deepEqual(cost.units, { input_tokens: 20_000, cache_write_5m_tokens: 0, cache_write_1h_tokens: 0, cache_read_tokens: 0, output_tokens: 3_000 });
 });
 
@@ -448,7 +456,6 @@ function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' |
       },
     },
     script: { countTokens: async () => null, generate, ...options.script },
-    ...(options.scriptProviders ? { scriptProviders: options.scriptProviders } : {}),
     speech: options.speech === undefined ? { generate: async () => ({ state: 'succeeded', requestID: 'resp-1', model: 'gemini-3.8-flash-tts', finishReason: 'STOP',
       audio: tone(150, [20, 40, 60, 80, 100, 120]), mimeType: 'audio/wav', usage: { text_input_tokens: 1500, audio_output_tokens: 3750 }, failure: null }) } : options.speech,
     encoder: { encode: async (wav, chapters) => { const pcm = parseWav(wav); assert.ok(chapters.length >= 1);
@@ -473,7 +480,7 @@ test('generated job: grants precede each paid call, usage recorded, exact invent
   assert.ok(names.indexOf('worker_podcast_speech_begin') < names.indexOf('worker_provider_attempt_finish', names.indexOf('worker_podcast_speech_begin')));
   assert.ok(!names.includes('worker_podcast_checkpoint'), 'five minutes runs in one request');
   const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish');
-  assert.deepEqual(finishes.map(f => [f.params.p_state, f.params.p_actual_microusd]), [['succeeded', 70000], ['succeeded', 70000], ['succeeded', 69000]]);
+  assert.deepEqual(finishes.map(f => [f.params.p_state, f.params.p_actual_microusd]), [['succeeded', sonnetCost(20_000, 3_000)], ['succeeded', sonnetCost(20_000, 3_000)], ['succeeded', 69000]]);
   assert.deepEqual(finishes[2].params.p_actual_units, { text_input_tokens: 1500, audio_output_tokens: 3750, audio_ms: 150000 });
   assert.deepEqual(h.calls.filter(c => c.name === 'worker_podcast_advance').map(c => c.params.p_state), ['checking', 'synthesizing', 'verifying', 'publishing']);
   const plan = h.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { role: string; path: string; bytes: number; sha256: string }[];
@@ -683,8 +690,9 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
   const before = harness({ script: v1.script });
   assert.equal((await runPodcast(before.deps, Date.now() + 600_000)).failure, 'script_incomplete');
   assert.deepEqual(v1.calls, [{ max: 6_000, output: draftTokens, stop: 'end_turn' }, { max: 4_000, output: 4_000, stop: 'max_tokens' }]);
+  // Priced at today's OpenRouter card (the 2026-10-14 staging attempts were ~$0.107 and $0.109 at the direct list prices).
   assert.deepEqual(before.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => c.params.p_actual_microusd),
-    [29_575 * 2 + draftTokens * 10, 109_000], 'the staging attempts: ~$0.107 draft, $0.109 truncated review');
+    [sonnetCost(29_575, draftTokens), sonnetCost(34_500, 4_000)], 'the draft and the truncated review');
   assert.deepEqual(before.calls.filter(c => c.name === 'worker_podcast_advance').map(c => c.params.p_state), ['checking']);
   assert.equal(before.calls.at(-1)!.params.p_quality, true);
 
@@ -704,9 +712,9 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
   assert.ok(reviewTokens < 300, `correction set ${reviewTokens} tokens`);
   assert.deepEqual(v2.calls.map(c => [c.max, c.stop]), [[6_000, 'end_turn'], [4_000, 'end_turn']], 'same caps, nothing cut off');
   const [draftCost, reviewCost] = after.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => c.params.p_actual_microusd as number);
-  assert.equal(draftCost, 29_575 * 2 + draftTokens * 10);
-  assert.equal(reviewCost, 34_500 * 2 + reviewTokens * 10);
-  assert.ok(reviewCost < 72_000, 'the review costs ~$0.07 instead of $0.109');
+  assert.equal(draftCost, sonnetCost(29_575, draftTokens));
+  assert.equal(reviewCost, sonnetCost(34_500, reviewTokens));
+  assert.ok(reviewCost < 0.7 * sonnetCost(34_500, 4_000), 'the correction set costs well under the truncated whole-script review');
   const plan = after.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
   const transcript = JSON.parse(new TextDecoder().decode(after.uploads.get(plan[1].path)!));
   const ids = transcript.segments.map((s: { id: string }) => s.id);
@@ -1313,28 +1321,30 @@ test('a chunk granted less than the serving limit is refused before any speech i
 });
 
 
-// DeepSeek as the script provider (2026-10-14): a spec naming `deepseek` sends every script call there, never to the
-// Anthropic provider, and prices them from the DeepSeek card; a spec naming a provider the worker lacks fails
-// script_unavailable before any paid call.
-test('a spec naming deepseek routes the draft and the review to that provider at its prices; a missing provider is script_unavailable', async () => {
+// DeepSeek as the writer (2026-10-14): a spec naming the `deepseek` family sends every script call, with the spec's model,
+// to the one script provider (OpenRouter, routed to DeepInfra), priced from that route's card when no cost was reported;
+// a spec naming a family OpenRouter does not serve fails script_unavailable before any paid call.
+test('a spec naming deepseek sends the draft and the review with its model at the DeepInfra card; an unknown family is script_unavailable', async () => {
   const seen: string[] = [];
   const outputs = [(() => { const d = goodScript(); delete d.review; return d; })(), ACCEPT];
-  const deepseek: ScriptProvider = { countTokens: async () => null, generate: async params => {
+  const generate: ScriptProvider['generate'] = async params => {
     seen.push(params.model);
     return { state: 'succeeded', requestID: `ds_${seen.length}`, model: 'deepseek-v4-pro', stopReason: 'end_turn', text: JSON.stringify(outputs.shift()),
-      usage: { input: 50_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 5_000 }, failure: null }; } };
-  // The harness's version-1 shape (later versions bound the fake speech's duration); the provider gates on the spec's field, not the version.
+      usage: { input: 50_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 5_000 }, failure: null }; };
+  // The harness's version-1 shape (later versions bound the fake speech's duration); the family is the spec's field, not the version.
   const spec = { ...SPEC, script: { ...SPEC.script, provider: 'deepseek', model: 'deepseek-v4-pro' } };
-  const h = harness({ spec, script: { generate: async () => { throw new Error('anthropic must not be called'); } }, scriptProviders: { deepseek } });
+  const h = harness({ spec, script: { generate } });
   await runPodcast(h.deps, Date.now() + 600_000);
-  assert.deepEqual(seen, ['deepseek-v4-pro', 'deepseek-v4-pro'], `draft and review went to DeepSeek with the spec model; calls: ${h.names().join(',')}`);
+  assert.deepEqual(seen, ['deepseek-v4-pro', 'deepseek-v4-pro'], `draft and review used the spec model; calls: ${h.names().join(',')}`);
   const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish');
   assert.ok(finishes.length >= 2);
-  assert.equal(Number(finishes[0].params.p_actual_microusd), Math.ceil(50_000 * 1.32 + 5_000 * 3.96), 'priced from the DeepSeek card');
+  const pro = routerDeepSeekRates('deepseek/deepseek-v4-pro-0813');
+  assert.equal(Number(finishes[0].params.p_actual_microusd), Math.ceil(50_000 * pro.input + 5_000 * pro.output), 'priced from the DeepInfra card');
   assert.ok(!h.names().includes('worker_podcast_fail'), 'the episode completes');
-  const missing = harness({ spec, script: { generate: async () => { throw new Error('must not call'); } } });
+  const unknown = { ...SPEC, script: { ...SPEC.script, provider: 'openai', model: 'gpt-x' } };
+  const missing = harness({ spec: unknown, script: { generate: async () => { throw new Error('must not call'); } } });
   await runPodcast(missing.deps, Date.now() + 600_000);
-  assert.ok(missing.names().includes('worker_podcast_fail'), 'no provider for the spec fails the job');
+  assert.ok(missing.names().includes('worker_podcast_fail'), 'an unknown family fails the job');
   assert.ok(JSON.stringify(missing.calls).includes('script_unavailable'));
   assert.ok(!missing.names().includes('worker_provider_attempt_finish'), 'nothing was attempted');
 });

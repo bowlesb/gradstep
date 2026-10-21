@@ -195,11 +195,18 @@ function derive(data: HealthData, budget: Budget | null) {
       ? `The OpenRouter price card for ${t.model} ends in ${plural(days, 'day')} (${formatDay(t.valid_until.slice(0, 10), dayLong)}). Check the current price, then renew it with scripts/pipeline-ops.py tariff-renew; chat stops offering the model a day before.`
       : `The OpenRouter price card for ${t.model} has ended: the model is not offered and its requests are refused. Renew it after checking the current price (scripts/pipeline-ops.py tariff-renew).` });
   }
-  // Review A6 (migration 0102): unresolved attempts the automatic reconciler cannot settle keep their ceilings reserved.
-  const r = data.reconciliation, manual = r ? r.gave_up + r.without_generation + r.other_providers : 0;
-  if (r && manual > 0) attention.push({ tone: 'warning', text: `${plural(manual, 'provider attempt')} cannot be reconciled automatically (${[
-    r.gave_up ? `${r.gave_up} without an OpenRouter record after 12 tries` : '', r.without_generation ? `${r.without_generation} lost before OpenRouter named the generation` : '',
-    r.other_providers ? `${r.other_providers} from retired direct providers` : ''].filter(Boolean).join(', ')}) and still reserve ${dollarsShort(r.manual_held_microusd)}. Reconcile each with the provider's evidence (scripts/pipeline-ops.py attempts, then reconcile).` });
+  // Review A6 (migration 0102): unresolved OpenRouter attempts the automatic reconciler cannot settle keep their ceilings
+  // reserved. Every model call goes through OpenRouter (2026-10-21); a retired direct provider's attempt is legacy history
+  // (migration 0140), named apart, still held and still counted until an owner settles it.
+  const r = data.reconciliation, manual = r ? r.gave_up + r.without_generation : 0;
+  if (r && manual > 0) attention.push({ tone: 'warning', text: `${plural(manual, 'OpenRouter attempt')} cannot be reconciled automatically (${[
+    r.gave_up ? `${r.gave_up} without an OpenRouter record after 12 tries` : '', r.without_generation ? `${r.without_generation} lost before OpenRouter named the generation` : ''].filter(Boolean).join(', ')}). Reconcile each with OpenRouter's generation record (scripts/pipeline-ops.py attempts, then reconcile).` });
+  const legacy = r?.legacy;
+  if (r && (legacy?.attempts ?? r.other_providers) > 0) {
+    const named = legacy ? Object.entries(legacy.by_provider).map(([p, n]) => `${n} ${providerName(p)}`).join(', ') : `${r.other_providers} from retired direct providers`;
+    const n = legacy?.attempts ?? r.other_providers, one = n === 1;
+    attention.push({ tone: 'info', text: `Legacy: ${plural(n, 'attempt')} from before every model call went through OpenRouter (${named}) ${legacy ? `${one ? 'still holds' : 'still hold'} ${dollarsShort(legacy.held_microusd)}` : one ? 'remains unresolved' : 'remain unresolved'}. ${one ? 'It stays' : 'They stay'} in the month's spend until settled with the provider's own evidence (scripts/pipeline-ops.py attempts, then reconcile).` });
+  }
   // Our servers never contact arXiv (ARXIV_DEVICE_ONLY.md §6.5): any attempt in the last hour, refused or not, is shown.
   const arxiv = (data.providers?.last_hour ?? []).find(r => r.provider === 'arxiv');
   if (arxiv && arxiv.calls > 0) attention.push({ tone: 'warning', text: `Our servers tried to reach arXiv ${arxiv.calls.toLocaleString()} time${arxiv.calls === 1 ? '' : 's'} in the last hour. They must never contact arXiv: find the caller in the logs (event arxiv_egress).` });

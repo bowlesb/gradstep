@@ -82,8 +82,9 @@ job. `scripts/tag-catalog.mjs run` runs the same loop on demand (`status` shows 
    the current tags in the same transaction (trigger), so entries never change without a new `state_seq`.
    `worker_tags_pending_projection` finishes projections an interrupted run left.
 
-Operator switch: `worker_set_tagging_enabled(false)`. The Cloud Run worker needs `ANTHROPIC_API_KEY` (added to
-`scripts/deploy-pipeline-worker.py`'s secrets); without it only fallback tags are recorded.
+Operator switch: `worker_set_tagging_enabled(false)`. The Cloud Run worker classifies through OpenRouter
+(`anthropic/claude-haiku-5.5`) with `OPENROUTER_TAGS_API_KEY`, else `OPENROUTER_CHAT_API_KEY`; without a key only
+fallback tags are recorded. (The direct `ANTHROPIC_API_KEY` of 2026-10-07 is retired.)
 
 **Cost.** ~3,600 input + ~30 output tokens: **$0.0038 per paper**, once per paper version (measured on 13 calls,
 2026-10-07). 100 papers ≈ $0.38. Prompt caching does not apply (Haiku 4.5's minimum is 4,096 tokens).

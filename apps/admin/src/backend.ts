@@ -197,7 +197,9 @@ export interface Health {
   /** Migration 0101 (review A4): OpenRouter price cards that lapse within `warn_days`. Absent on older servers. */
   tariffs?: { warn_days: number; soonest_valid_until: string | null; expiring: { model: string; tariff: string; valid_until: string }[] };
   /** Migration 0102 (review A6): unresolved provider attempts the automatic reconciler cannot settle. Absent on older servers. */
-  reconciliation?: { automatic_pending: number; gave_up: number; without_generation: number; other_providers: number; manual_held_microusd: number; reconciled_24h: number };
+  reconciliation?: { automatic_pending: number; gave_up: number; without_generation: number; other_providers: number; manual_held_microusd: number; reconciled_24h: number;
+    /** Migration 0140: unresolved attempts of retired direct providers (legacy history), by provider; Tavily's apart. Absent on older servers. */
+    legacy?: { attempts: number; held_microusd: number; oldest_at: string | null; by_provider: Record<string, number> }; search_unresolved?: number };
 }
 
 /** v1_admin_provider_hours (migration 073): one row per hour and provider. */

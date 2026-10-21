@@ -3,12 +3,12 @@ import { accountProviderFetch, installProviderHealth } from '../_shared/provider
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
-import { retryOnceWhenBusy, type ProviderOutcome } from '../_shared/anthropic.ts';
+import { retryOnceWhenBusy } from '../_shared/inference.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
 import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
-import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
-import { providerForModel, publishedProfiles } from '../_shared/chat-profiles.ts';
+import { admittedModelCalls, admittedTavily } from '../_shared/provider-spending.ts';
+import { publishedProfiles } from '../_shared/chat-profiles.ts';
 import { openRouterChat } from '../_shared/openrouter-chat.ts';
 import { ACCEPT_MARGIN_MS, PUBLISH_MARGIN_MS, tariffOpen, tariffValidity } from '../_shared/openrouter-tariffs.ts';
 
@@ -23,7 +23,7 @@ const spendingPolicy = (service: ReturnType<typeof serviceClient>): Promise<unkn
   .then(({ data, error }) => error ? null : data, () => null);
 const encoder = new TextEncoder();
 
-// After a failure, this instance sends new answers to the backup for a while.
+// After a failure, this instance answers without web search for a while.
 let tavilyPausedUntil = 0;
 // DeepSeek in chat (docs/architecture/CHAT.md "DeepSeek in chat"): `on` publishes and accepts it, `hidden` accepts it
 // without publishing it (the recorded quality check before it is offered), anything else turns it off. Needs its key.
@@ -34,7 +34,7 @@ const deepseekPublished = !!openrouterKey && deepseekMode === 'on';
 const geminiMode = Deno.env.get('CHAT_GEMINI') ?? 'off';
 // Each model's price-card validity is app_private.openrouter_tariffs (A4, migration 0101), read per request below.
 const geminiAccepted = !!openrouterKey && ['on', 'hidden'].includes(geminiMode);
-const claudeOpenRouter = true; // All remote model inference uses OpenRouter; no direct-provider fallback.
+// OpenRouter is the only inference provider (owner, 2026-10-18 and 2026-10-21): every model below is sent through it.
 const geminiPublished = geminiAccepted && geminiMode === 'on';
 const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
 
@@ -56,7 +56,7 @@ Deno.serve(async request => {
       // unreadable table leaves the list as it is; admission still refuses a lapsed card.
       const validity = tariffValidity(await spendingPolicy(serviceClient()));
       return Response.json(publishedProfiles({ deepseek: deepseekPublished && new URL(request.url).searchParams.get('consent_version') === 'cloud-ai-v6',
-        gemini: geminiPublished, claudeOpenRouter, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS) }), { headers });
+        gemini: geminiPublished, available: model => tariffOpen(validity, model, PUBLISH_MARGIN_MS) }), { headers });
     }
     service = serviceClient();
   } catch (error) {
@@ -64,7 +64,7 @@ Deno.serve(async request => {
     return errorResponse(failure, headers);
   }
   // Started before the body is read and awaited only when search is decided (time to first text).
-  const providerPolicy = spendingPolicy(service) as Promise<{ tavily_enabled?: boolean; native_search_enabled?: boolean; openrouter_tariffs?: unknown } | null>;
+  const providerPolicy = spendingPolicy(service) as Promise<{ tavily_enabled?: boolean; openrouter_tariffs?: unknown } | null>;
   // An unreadable body is reported as invalid_request after rate limiting.
   try { body = await readChatBody(request); } catch { body = null; }
 
@@ -102,17 +102,14 @@ Deno.serve(async request => {
       return new Uint8Array(await data.arrayBuffer());
     },
     // One more try, inside the same answer, when the provider refused it as busy before starting (fix 7).
-    generate: router ? retryOnceWhenBusy(admittedAnthropic(spending, router), { log }) : null,
+    generate: router ? retryOnceWhenBusy(admittedModelCalls(spending, router), { log }) : null,
     deepseek: deepseekAccepted,
     gemini: geminiAccepted,
-    claudeOpenRouter,
     // A4: refused as model_unavailable before any hold when the card lapses within the answer's time.
     modelAvailable: async model => tariffOpen(tariffValidity(await providerPolicy), model, ACCEPT_MARGIN_MS),
     sha256Hex: sha256,
+    // Web search is our search_web tool, run with Tavily (CHAT.md "Web search"); no provider-native search exists.
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
-    // RPC readiness cannot stand in for an enforceable native-search quote.
-    // The adapter independently refuses native search until that work exists.
-    nativeSearch: false,
     search: search ? {
       ready: async () => {
         // This local pause is advisory. The transactional grant is the sole

@@ -334,8 +334,8 @@ unaudited credits; `resolve` handled only retired Mathpix OCR.
   in `stale_sweep_failures` (SQLSTATE only, back-off 10 minutes doubling to a day) instead of swallowing it, and moves on;
   `worker_budget_health.stale_sweep_failing` counts those still open, so 50 permanently failing operations can no longer
   block the sweep or keep `reserved_microusd` inflated unseen.
-- Not changed: the lifetime import counters (2,000 per account, 20,000 per environment) — a retention policy for
-  lifetime-counted tables is the larger refactor in review E2.
+- Not changed here: the lifetime import counters. Superseded 2026-10-21: migration 0142 removes every lifetime
+  library and catalog limit (owner: no import quota; [Library capacity](LIBRARY_CAPACITY.md#no-import-quota-2026-10-21)).
 
 ## October cap raised on the owner's instruction — 2026-10-15 01:30 UTC
 

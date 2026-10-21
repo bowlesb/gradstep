@@ -2,12 +2,10 @@ import { rpcAttribution, type OpenRouterDispatch } from "./openrouter-transport.
 import { openRouterTransportFor } from './openrouter-chat.ts';
 // Durable admission around one provider transport request. No prompts, queries,
 // answers or raw errors are stored/logged; only domain-bound digests and counts.
-import type Anthropic from '@anthropic-ai/sdk';
-import { holdForParams, priceAttempts, WEB_SEARCH_MICROUSD, webSearchHoldMicrousd,
-  type ProviderOutcome, type StreamOptions } from './anthropic.ts';
+import type { ModelRequest } from './model-request.ts';
+import { holdForParams, priceAttempts, type ProviderOutcome, type StreamOptions } from './inference.ts';
 import { providerRequestID, tavilySearch, type SearchInput, type SearchOutcome } from './tavily.ts';
 import { CONSENT_VERSION } from './chat.ts';
-import { providerForModel } from './chat-profiles.ts';
 
 export interface SpendingDependencies {
   feature?: string;
@@ -72,30 +70,27 @@ function unavailable(): ProviderOutcome {
     refusalCategory: null, attempts: [], exact: true };
 }
 
-/** Each model round, including pause_turn continuations, has its own grant. Anthropic-shaped requests only: Claude
- * models are admitted as provider `anthropic`, `deepseek-*` (DeepSeek's Anthropic-compatible API, chat since
- * 2026-10-16) as `deepseek`, and Gemini via OpenRouter as `openrouter` (migration 085). One ordinal sequence per
- * operation across providers keeps every attempt's identity distinct. */
-export function admittedAnthropic(deps: SpendingDependencies,
-  generate: (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) {
+/** Each model round of a chat operation (the answer's rounds, its title, suggestions and Study map) has its own grant.
+ * Every one goes to OpenRouter (provider `openrouter`, migration 089): admitted and dispatched in one transaction with
+ * its attribution (account UUID, operation, attempt, feature), so per-account and per-feature spend is in our ledger
+ * before the request leaves. A model without a reviewed OpenRouter route is never admitted. One ordinal sequence per
+ * operation keeps every attempt's identity distinct. */
+export function admittedModelCalls(deps: SpendingDependencies,
+  generate: (params: ModelRequest, options: StreamOptions) => Promise<ProviderOutcome>) {
   let ordinal = 0;
-  return async (params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions): Promise<ProviderOutcome> => {
+  return async (params: ModelRequest, options: StreamOptions): Promise<ProviderOutcome> => {
     if (options.signal.aborted) return unavailable();
+    // Our own function tools only: a provider-native (server-side) tool's cost cannot be bounded before the request.
+    if ((params.tools ?? []).some(tool => !('input_schema' in tool))) return { ...unavailable(), cause: 'server' };
+    const transport = openRouterTransportFor(params.model);
+    if (!transport) return { ...unavailable(), cause: 'server' };
     const attempt = await identity(deps, 'chat', ++ordinal, params);
-    const search = params.tools?.find(tool => 'name' in tool && tool.name === 'web_search') as { max_uses?: number } | undefined;
-    const maxSearches = Math.max(0, search?.max_uses ?? 0);
-    // web_search_20250305 has no enforceable result-token ceiling. The old
-    // 30k estimate is not a hard cap. A policy flag alone cannot bypass the
-    // missing context-bound quote: keep this route gated until implemented.
-    if (search) return { ...unavailable(), cause: 'server' };
     // The requested model's own hold rule (chat profiles, the title's Haiku request), never a fixed Sonnet card.
-    const hold = holdForParams(params);
-    const ceiling = hold.microusd + (maxSearches ? webSearchHoldMicrousd(hold.inputTokens, maxSearches, params.model) : 0);
+    const ceiling = holdForParams(params).microusd;
     const feature = options.purpose ?? (params.tool_choice?.type === 'tool' ? params.tool_choice.name : deps.feature ?? 'chat');
-    const transport = providerForModel(params.model) === 'openrouter' ? openRouterTransportFor(params.model) : null;
-    const dispatch = transport ? { ...transport, feature, caller: 'chat' } : undefined;
-    const granted = await admission(deps, attempt, providerForModel(params.model), 'chat', params.model, ceiling,
-      { output_tokens: params.max_tokens, web_searches: maxSearches }, dispatch);
+    const dispatch = { ...transport, feature, caller: 'chat' };
+    const granted = await admission(deps, attempt, 'openrouter', 'chat', params.model, ceiling,
+      { output_tokens: params.max_tokens, web_searches: 0 }, dispatch);
     // Not sent: our own bound when the round no longer fits the hold, else our server (a pause, capacity, a lost reply).
     // A lapsed price card (A4, migration 0101) is the model's unavailability, not a fault to retry.
     if (!granted.granted && granted.reason === 'tariff_expired') return { ...unavailable(), failure: 'provider_rejected', rejectionReason: 'tariff_expired', cause: 'server' };
@@ -116,11 +111,11 @@ export function admittedAnthropic(deps: SpendingDependencies,
     }), { input_tokens: 0, cache_write_5m_tokens: 0, cache_write_1h_tokens: 0, cache_read_tokens: 0, output_tokens: 0 });
     const storage = outcome.attempts.reduce((sum, item) => sum + (item.cacheStorageTokens ?? 0), 0);
     if (storage) units.cache_storage_tokens = storage;
-    const cost = Math.ceil(priceAttempts(outcome.attempts) + (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD);
+    const cost = Math.ceil(priceAttempts(outcome.attempts));
     const state: State = !outcome.exact ? 'unknown' : outcome.attempts.length ? 'succeeded' : 'rejected';
     // The receipt (still being written, C6) and the finish run together; the receipt never decides the outcome.
     const [recorded] = await Promise.all([finish(deps, attempt.id, state, outcome.requestID ?? outcome.messageID, state === 'unknown' ? null : cost,
-      { ...units, web_searches: outcome.webSearches ?? 0, attempts: outcome.attempts.length }, outcome.failure), outcome.receipt ?? Promise.resolve(true)]);
+      { ...units, web_searches: 0, attempts: outcome.attempts.length }, outcome.failure), outcome.receipt ?? Promise.resolve(true)]);
     // Stop here when the exact result could not be recorded, instead of sending
     // another round under headroom the database cannot know is available.
     return recorded ? outcome : { ...outcome, status: 'failed', failure: 'provider_error', exact: false, cause: 'server' };

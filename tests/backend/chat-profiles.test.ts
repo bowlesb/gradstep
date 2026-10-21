@@ -107,19 +107,27 @@ function decodeAsBuild57(body: string) {
 
 const build57 = readFileSync(new URL('../fixtures/chat-profiles-v1-build57.json', import.meta.url), 'utf8');
 
-test('builds 57/58 retain their choices and prices when the table grows', () => {
-  const before = decodeAsBuild57(build57);
+test('builds 57/58 keep decoding the table with the same choices; estimates follow the OpenRouter cards', () => {
+  const before = decodeAsBuild57(build57)!;
   assert.ok(before && Object.keys(before.estimates).length === 27 && before.default === 'sonnet-low-standard');
-  // Display descriptions are server-controlled; the inaccurate superlative is corrected for every build.
-  before.models.haiku.detail = 'Quick, economical explanations';
+  const shipped = JSON.parse(build57).profiles as { id: string; model: string; effort: string; length: string; max_output_tokens: number }[];
   for (const deepseek of [true, false]) for (const gemini of [true, false]) {
     const table = publishedProfiles({ deepseek, gemini }), body = JSON.stringify(table);
     assert.ok(Buffer.byteLength(body) < 32 * 1024, `the table stays well under the 64 KiB decoders' limit (${Buffer.byteLength(body)} bytes)`);
-    assert.deepEqual(decodeAsBuild57(body), before, `deepseek ${deepseek}`);
-    // The version and the default are the ones those builds require; the 27 profiles they know come first, unchanged.
+    const after = decodeAsBuild57(body)!;
+    assert.ok(after, `deepseek ${deepseek}: those builds still accept the table`);
+    // The same default, models, efforts and lengths; the descriptions name the OpenRouter route; the estimates are the
+    // route cards' (every model has been served through OpenRouter since 2026-10-18).
+    assert.equal(after.default, before.default);
+    assert.deepEqual(Object.keys(after.estimates), Object.keys(before.estimates));
+    assert.deepEqual(Object.keys(after.models), Object.keys(before.models));
+    for (const id of Object.keys(before.models)) assert.match(after.models[id].detail, / · OpenRouter → Google Vertex$/);
+    assert.deepEqual(after.efforts, before.efforts); assert.deepEqual(after.lengths, before.lengths);
+    // The version and the default are the ones those builds require; the 27 profiles they know come first, same choices.
     assert.equal(table.version, 'chat-profiles-v1');
     assert.deepEqual(table.default, { model: 'sonnet', effort: 'low', length: 'standard' });
-    assert.deepEqual(table.profiles.slice(0, 27), JSON.parse(build57).profiles);
+    assert.deepEqual(table.profiles.slice(0, 27).map(p => [p.id, p.model, p.effort, p.length, p.max_output_tokens]),
+      shipped.map(p => [p.id, p.model, p.effort, p.length, p.max_output_tokens]));
     assert.ok(table.profiles.length <= 64, 'every profile is within what an old decoder reads');
   }
 });
@@ -127,10 +135,13 @@ test('builds 57/58 retain their choices and prices when the table grows', () => 
 test('the table publishes DeepSeek, the automatic effort and its profiles, and the default new clients start with', () => {
   const table = publishedProfiles({ deepseek: true });
   assert.deepEqual(table.default_auto, { model: 'sonnet', effort: 'auto', length: 'standard' });
-  assert.deepEqual(table.models.map(m => [m.id, m.api_model, m.provider]), [['haiku', 'claude-haiku-5-5', 'anthropic'], ['sonnet', 'claude-sonnet-5-5', 'anthropic'],
-    ['opus', 'claude-opus-5-5', 'anthropic'], ['deepseek', 'deepseek-flash', 'deepseek']]);
+  // Every model is served through OpenRouter: Claude on Google Vertex (consent v5 names it), DeepSeek on DeepInfra (v6).
+  assert.deepEqual(table.models.map(m => [m.id, m.api_model, m.provider, m.consent_version]), [
+    ['haiku', 'anthropic/claude-haiku-5.5', 'openrouter', 'cloud-ai-v5'], ['sonnet', 'anthropic/claude-sonnet-5.5', 'openrouter', 'cloud-ai-v5'],
+    ['opus', 'anthropic/claude-opus-5.5', 'openrouter', 'cloud-ai-v5'], ['deepseek', 'deepseek/deepseek-v4.1-flash-1017', 'openrouter', 'cloud-ai-v6']]);
+  assert.equal(table.tariff, 'openrouter-reviewed-cards');
   const deepseek = table.models.find(m => m.id === 'deepseek')! as Record<string, unknown>;
-  assert.equal(deepseek.label, 'DeepSeek'); assert.equal(deepseek.consent_version, 'cloud-ai-v4');
+  assert.equal(deepseek.label, 'DeepSeek'); assert.equal(deepseek.detail, 'Low cost; processed by DeepSeek · OpenRouter → DeepInfra');
   for (const m of table.models) { assert.ok(m.label.length <= 24 && m.detail.length <= 80); }
   assert.deepEqual(table.efforts.at(-1), { id: 'auto', label: 'Automatic', detail: 'Chosen for each question' });
   assert.deepEqual(table.efforts.map(e => e.id), ['low', 'medium', 'high', 'auto']);
@@ -140,11 +151,11 @@ test('the table publishes DeepSeek, the automatic effort and its profiles, and t
   for (const p of table.profiles) assert.ok(p.credits.low <= p.credits.high && p.credits.high <= p.credits.max, `${p.id} estimate is ordered`);
   for (const e of ['low', 'medium', 'high']) for (const l of ['brief', 'standard', 'detailed']) {
     const [h, d, s] = ['haiku', 'deepseek', 'sonnet'].map(m => byID.get(`${m}-${e}-${l}`)!);
-    assert.equal(d.api_model, 'deepseek-flash'); assert.equal(d.max_output_tokens, s.max_output_tokens, 'allowances do not depend on the model');
+    assert.equal(d.api_model, 'deepseek/deepseek-v4.1-flash-1017'); assert.equal(d.max_output_tokens, s.max_output_tokens, 'allowances do not depend on the model');
     assert.ok(h.credits.max <= d.credits.max && d.credits.max < s.credits.max && d.credits.high < s.credits.high, `${e}/${l}: DeepSeek between Haiku and Sonnet`);
   }
-  // DeepSeek's documented estimate (CHAT.md): about 1–3 credits for a typical question, at most 5.
-  assert.deepEqual(byID.get('deepseek-low-standard')!.credits, { low: 1, high: 3, max: 5 });
+  // DeepSeek's estimate at the DeepInfra card: about 1–2 credits for a typical question, at most 3.
+  assert.deepEqual(byID.get('deepseek-low-standard')!.credits, { low: 1, high: 2, max: 3 });
   // An auto profile: the estimate of the effort usually picked, the maximum (and allowance) of the highest it can pick.
   for (const m of ['haiku', 'sonnet', 'opus', 'deepseek']) for (const l of ['brief', 'standard', 'detailed'] as LengthChoice[]) {
     const auto = byID.get(`${m}-auto-${l}`)!, usual = byID.get(`${m}-${AUTO_EFFORTS[l].usual}-${l}`)!, highest = byID.get(`${m}-${AUTO_EFFORTS[l].highest}-${l}`)!;
@@ -152,10 +163,11 @@ test('the table publishes DeepSeek, the automatic effort and its profiles, and t
     assert.deepEqual(auto.credits, { low: usual.credits.low, high: usual.credits.high, max: highest.credits.max }, auto.id);
     assert.equal(auto.max_output_tokens, highest.max_output_tokens);
   }
-  assert.deepEqual(byID.get('sonnet-auto-standard')!.credits, { low: 4, high: 24, max: 41 });
-  assert.deepEqual(byID.get('sonnet-auto-detailed')!.credits, { low: 9, high: 28, max: 57 });
+  // Sonnet 5.5 at the Vertex card ($2.20 in, $11 out per million).
+  assert.deepEqual(byID.get('sonnet-auto-standard')!.credits, { low: 5, high: 26, max: 45 });
+  assert.deepEqual(byID.get('sonnet-auto-detailed')!.credits, { low: 10, high: 31, max: 63 });
   // Without DeepSeek (off, or hidden while its check runs) nothing of it is published.
   const off = publishedProfiles({ deepseek: false });
   assert.ok(!JSON.stringify(off).includes('deepseek')); assert.equal(off.profiles.length, 27 + 9);
-  assert.equal(estimateCredits(resolveProfile({ model: 'deepseek', effort: 'low', length: 'standard' })).max, 5);
+  assert.equal(estimateCredits(resolveProfile({ model: 'deepseek', effort: 'low', length: 'standard' })).max, 3);
 });

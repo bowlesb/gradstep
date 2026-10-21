@@ -637,7 +637,8 @@ Design (additive; existing client commands unchanged):
   account's import history.
 - **Unchanged.** `v2_begin_import`, `v2_begin_web_import` and the v5 wrappers keep their contracts. The browser still
   calls `v2_begin_import` directly for arXiv IDs with a fresh UUID (`apps/web/src/lib/add.ts`); moving it to this RPC is a
-  separate client change. The lifetime import counters themselves are not changed here.
+  separate client change. The lifetime import counters themselves are not changed here; migration 0142 (2026-10-21)
+  removed them ([no import quota](LIBRARY_CAPACITY.md#no-import-quota-2026-10-21)).
 
 Evidence: `tests/database/server_add_once.sql` (presence by import phase and by item, replay, capacity untouched,
 another account, web sources, grants) and `tests/backend/add-paper.test.ts` (derived identity, outcome mapping).
