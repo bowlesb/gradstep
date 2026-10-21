@@ -6,8 +6,8 @@
 --  1. app_private.account_deletion_sweeps: attempts, last attempt and outcome, and the next allowed attempt per account;
 --  2. worker_account_deletion_attempt: the sweep's report of each outcome (back-off 5 min x 2^attempts, at most a day);
 --  3. app_private.account_deletion_unfinished: one predicate for "still holds personal rows, a login or files";
---  4. worker_account_deletions_pending: unfinished closed accounts past their back-off, never-tried first, then the least
---     recently tried; no 30-day cut-off; the earlier function's own list is kept as an input;
+--  4. worker_account_deletions_pending (wrapping 095's): unfinished closed accounts past their back-off, never-tried
+--     first, then the least recently tried; no 30-day cut-off; the earlier function's own list is kept as an input;
 --  5. v1_admin_health.account_deletions: unfinished / retrying / stalled (over 30 days) counts for Health > Attention.
 begin;
 set local lock_timeout='15s';
@@ -19,13 +19,14 @@ create table app_private.account_deletion_sweeps (
  last_attempt_at timestamptz,
  next_attempt_at timestamptz,
  last_step text check(last_step is null or last_step in ('begin','files','finish','login')),
- last_code text check(last_code is null or last_code in ('deletion_scan_incomplete','asset_write_uncertain','account_busy','begin_failed'))
+ last_code text check(last_code is null or last_code in ('deletion_scan_incomplete','deletion_unverified','asset_write_uncertain','account_busy','begin_failed'))
 );
 create index account_deletion_sweeps_next on app_private.account_deletion_sweeps(next_attempt_at);
 alter table app_private.account_deletion_sweeps enable row level security;
 revoke all on app_private.account_deletion_sweeps from public,anon,authenticated,service_role;
 
--- 3. Unfinished: the conditions of migrations 017 and 032 and the device-source records of 125. Add new ones here.
+-- 3. Unfinished: the conditions of migrations 017, 032 and 095 (note images) and the device-source records of 125.
+-- Add new ones here.
 create function app_private.account_deletion_unfinished(a uuid) returns boolean
 language sql stable security definer set search_path='' as $$
  select exists(select 1 from app_private.accounts x where x.id=a and x.auth_user_id is not null)
@@ -36,6 +37,7 @@ language sql stable security definer set search_path='' as $$
   or exists(select 1 from app_private.library_v4_entries e where e.account_id=a)
   or exists(select 1 from app_private.library_query_entries q where q.account_id=a)
   or exists(select 1 from app_private.podcast_device_sources d where d.owner_id=a)
+  or exists(select 1 from app_private.note_assets n where n.account_id=a)
   or exists(select 1 from app_private.account_deletion_objects(a) o where o.state in ('pending','verified','deleting'))
 $$;
 
@@ -45,7 +47,7 @@ language plpgsql security definer set search_path='' as $$
 declare s app_private.account_deletion_sweeps;
 begin
  if p_account_id is null or p_complete is null or (p_step is not null and p_step not in ('begin','files','finish','login'))
-  or (p_code is not null and p_code not in ('deletion_scan_incomplete','asset_write_uncertain','account_busy','begin_failed'))
+  or (p_code is not null and p_code not in ('deletion_scan_incomplete','deletion_unverified','asset_write_uncertain','account_busy','begin_failed'))
   or (p_complete and (p_step is not null or p_code is not null)) then raise exception 'invalid_deletion_attempt'; end if;
  if not exists(select 1 from app_private.accounts where id=p_account_id and closed_at is not null) then raise exception 'account_not_closed'; end if;
  if p_complete then

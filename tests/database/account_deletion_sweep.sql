@@ -60,6 +60,27 @@ reset role;
 select test.assert((:'again'::uuid[])[1]=:'NEW'::uuid,'a never-tried account goes first');
 select test.assert(not (:'OLD'::uuid=any(:'again'::uuid[])),'then the least recently tried (OLD was tried last)');
 
+-- A closed account whose only leftover is a note image (migration 095) is unfinished too.
+\set NOTE '12800000-0000-4000-8000-0000000000a4'
+insert into auth.users(id,email) values(:'NOTE','sweep-note@gradstep.test.org');
+set role service_role;
+select public.worker_note_asset_reserve(:'NOTE','12800000-0000-4000-8000-0000000000b1',decode(repeat('ab',32),'hex'),64);
+reset role;
+update app_private.accounts set closed_at=now()-interval '3 days' where id=:'NOTE';
+alter table app_private.accounts disable trigger user;
+update app_private.accounts set auth_user_id=null where id=:'NOTE';
+alter table app_private.accounts enable trigger user;
+select test.assert(app_private.account_deletion_unfinished(:'NOTE'),'a note image left makes the deletion unfinished');
+select test.assert(not app_private.account_deletion_unfinished(:'DONE'),'a finished deletion is finished');
+delete from app_private.note_assets where account_id=:'NOTE';
+update app_private.note_asset_totals set bytes=bytes-64,objects=objects-1 where singleton;
+-- A deletion the folder re-listing could not verify (095) is reported like any other failure.
+set role service_role;
+select public.worker_account_deletion_attempt(:'NOTE',false,'files','deletion_unverified');
+reset role;
+select test.assert((select last_code='deletion_unverified' from app_private.account_deletion_sweeps where account_id=:'NOTE'),'deletion_unverified recorded');
+delete from app_private.account_deletion_sweeps where account_id=:'NOTE';
+
 -- A completed deletion clears its row; bad reports and open accounts are refused.
 set role service_role;
 select public.worker_account_deletion_attempt(:'NEW',false,'login',null);

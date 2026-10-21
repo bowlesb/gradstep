@@ -274,7 +274,7 @@ holding personal rows or files. Now:
   code)`: a failure waits 5 minutes × 2^attempts, at most a day; a completed deletion clears the row.
 - `worker_account_deletions_pending` lists closed accounts that still have personal rows, a linked login or
   unfinished files (`app_private.account_deletion_unfinished`, which covers every earlier condition, the derived
-  library rows and podcast device sources), whose back-off has passed, never-tried accounts first and then the least
+  library rows, encrypted note images (migration 095) and podcast device sources), whose back-off has passed, never-tried accounts first and then the least
   recently tried; there is no 30-day cut-off. The earlier function's list is still included, so a condition added by
   another wrapper is not lost; new conditions belong in `account_deletion_unfinished`.
 - `v1_admin_health.account_deletions` gives the owner `unfinished`, `retrying` and `stalled` (unfinished more than 30
