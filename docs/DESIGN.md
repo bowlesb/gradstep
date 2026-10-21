@@ -25,7 +25,8 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
 - **Floating chrome** (2026-10-07, after Gemini; shared code in `Views/Chrome.swift`): bars float over content, which
   runs to the screen's edges behind them and fades out softly.
   - *Tab bar*: one glass capsule, 58 pt tall, 16 pt from the sides (at most 520 pt wide on iPad), sitting in the home
-    indicator's area. Each screen keeps room for it inside its NavigationStack (`tabBarSpace()`), so the last row
+    indicator's area, 14 pt above the screen's edge on a phone with a home indicator (owner, build 78: "the icons at the
+    very bottom could be lowered a bit"; it was 20 pt). Each screen keeps room for it inside its NavigationStack (`tabBarSpace()`), so the last row
     scrolls clear of it with an 8 pt gap. It hides while a software keyboard is up; over the reader's docked find bar
     (after Search) it sits just above the bar. It does not shrink on scroll.
   - *Headers*: the controls (Library catalog, search and …; Feed topics and …) float on a

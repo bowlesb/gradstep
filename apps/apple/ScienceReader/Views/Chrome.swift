@@ -20,9 +20,11 @@ enum ChromeMetrics {
     /// How far a fade reaches past the controls it is behind.
     static let fadeTail: CGFloat = 22
 
-    /// Distance from the screen's bottom edge to the tab bar: it sits in the home indicator's area,
-    /// as the system's floating tab bar does.
-    static func tabBarBottom(safeBottom: CGFloat) -> CGFloat { safeBottom > 0 ? max(10, safeBottom - 14) : 10 }
+    /// Distance from the screen's bottom edge to the tab bar: it sits in the home indicator's area, as the system's
+    /// floating tab bar does, 6 pt lower since build 78 (owner: "the icons at the very bottom could be lowered a bit to use
+    /// screen real estate a bit better"): 14 pt above the edge on a phone with a home indicator (34 pt safe area), just
+    /// above the indicator itself.
+    static func tabBarBottom(safeBottom: CGFloat) -> CGFloat { safeBottom > 0 ? max(10, safeBottom - 20) : 10 }
 
     /// What the tab bar adds to the bottom safe area, so the last row can scroll clear of it.
     static func tabBarReserve(safeBottom: CGFloat) -> CGFloat {
