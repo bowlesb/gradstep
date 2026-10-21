@@ -6,8 +6,6 @@ import { MAXIMUM_READER_HEADINGS, type VerifiedBundle } from '../lib/bundle';
 import { isUUID } from '../lib/bytes';
 import type { Selection, SelectionPart } from '../lib/passage';
 
-export const FRAME_SCRIPT_HASH = frame.hash;
-
 const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,applet,form,link,noscript,template,portal';
 
 export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | { names: string[]; source: string } | null; paperAuthors?: string[]; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null;

@@ -6,4 +6,3 @@ export interface LocalPDFPaper {
 }
 export type LibraryPaper=ReaderPaper|LocalPDFPaper;
 export type ClientEntry=Entry|LocalPDFPaper;
-export function isLocalPDF(e:ClientEntry):e is LocalPDFPaper{return e.kind==='local_pdf';}

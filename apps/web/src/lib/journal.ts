@@ -777,4 +777,3 @@ export function browserJournalDependencies(): JournalDependencies | null {
   };
 }
 
-export const isJournalID = uuid;

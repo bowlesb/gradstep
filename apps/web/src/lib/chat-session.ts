@@ -12,6 +12,7 @@ import type { VerifiedBundle } from './bundle';
 // final or interrupted answer retires its turn atomically. A turn whose owning tab died reopens as interrupted. Nothing
 // is ever re-requested automatically. Without the journal, private text stays in memory only.
 import { BackendError, config, rpc } from './backend';
+import { parseBalance } from './account-summary';
 import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, interruptionNote, makeRequest, recordStop, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { available, isProfileChoice, isStandard, parseProfileID, ProfileTableLoader, requestProfile, STANDARD_PROFILE, withChoice, type ProfileChoice, type ProfileTable } from './chat-profiles';
@@ -609,11 +610,10 @@ export class ChatSession {
   balanceStale = false;
   async refreshBalance() {
     try {
-      const balance = await rpc<{ available: number; reserved: number; unlimited_testing?: boolean }>('v1_credit_balance', {}, { account: this.account, signal: this.signal });
+      // The account menu's own check (account-summary.ts parseBalance; D8: this was a second copy).
+      const balance = parseBalance(await rpc<unknown>('v1_credit_balance', {}, { account: this.account, signal: this.signal }));
       if (this.signal.aborted) return;
-      if (Number.isSafeInteger(balance?.available) && balance.available >= 0 && Number.isSafeInteger(balance.reserved) && balance.reserved >= 0) {
-        this.balance = balance; this.balanceAt = Date.now(); this.balanceStale = false; this.publish();
-      }
+      if (balance) { this.balance = balance; this.balanceAt = Date.now(); this.balanceStale = false; this.publish(); }
     } catch {
       // A failed balance read never becomes a fabricated zero or client spending authority: the last one stays, marked.
       if (!this.signal.aborted && this.balance && !this.balanceStale) { this.balanceStale = true; this.publish(); }

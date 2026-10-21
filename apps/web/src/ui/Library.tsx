@@ -45,6 +45,7 @@ export const commandError = (error: unknown) => {
   if (code === 'library_command_pending') return 'This change is still updating. Wait for your library to refresh.';
   if (code === 'library_revision_conflict') return 'This paper changed since you last saw it. Check its status and try again.';
   if (code === 'library_not_ready') return 'Wait for your library to load, then add the paper.';
+  if (code === 'item_unavailable') return 'This paper is no longer in your library.';
   if (code === 'connection') return 'Couldn’t reach Gradstep. Your change may not have been saved; check the list, then try again.';
   return 'Couldn’t update the library. Try again.';
 };
@@ -577,12 +578,21 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
     const destination = library.catalogs?.currentID;
     try {
       const raw = await addPaper(account, value, controller.signal);
-      const key = raw.paper?.source_id && arxivCatalogKey(raw.paper.source_id);
-      if (raw.status === 'added' && key && destination) await library.catalogs?.assign(key, destination);
       const result = addOutcome(raw);
       if (controller.signal.aborted) return;
-      if (result.finished) { library.refresh().catch(() => {}); setText(''); }
+      if (result.finished) { setText(''); }
       setOutcome(result);
+      // New papers go into the catalog being viewed (D11): an arXiv paper by its ID, a DOI or web paper by its library
+      // entry once the library has it. The paper is added either way; only where it shows can still be changed.
+      if (raw.status === 'added' && raw.paper && destination) {
+        try {
+          const key = arxivCatalogKey(raw.paper.source_id);
+          if (key) await library.catalogs?.assign(key, destination);
+          await library.refresh().catch(() => {});
+          const entry = key ? null : library.sourceEntry(raw.paper.source_id);
+          if (entry) await library.catalogs?.assign(entryCatalogKey(entry), destination);
+        } catch { if (!controller.signal.aborted) setOutcome({ ...result, message: `${result.message} It couldn’t be put in this catalog; move it from its ⋯ menu.` }); }
+      } else if (result.finished) library.refresh().catch(() => {});
     } catch (error) { if (!controller.signal.aborted) setIssue(addFailure(error)); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }

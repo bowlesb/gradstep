@@ -219,5 +219,7 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:Ca
     const destination = catalogs.currentState().catalogs.find(c => c.id !== id)?.id;
     await catalogs.retire(id, destination, destination ? undefined : 'Default');
   };
-  return { ...(catalogs ? { catalogs } : {}), catalogEntries, deleteCatalogPapers, entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
+  /** The visible entry for a source ID as the reconciler has it now (before React shows it). */
+  const sourceEntry = (sourceID: string) => [...reconciler.current.entries.values()].find(e => e.visible && e.source_id === sourceID) ?? null;
+  return { ...(catalogs ? { catalogs } : {}), catalogEntries, deleteCatalogPapers, sourceEntry, entries:displayed, serverEntries:entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
 }

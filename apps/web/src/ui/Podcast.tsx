@@ -800,7 +800,8 @@ export function PaperListen({ account, itemID, title, player, onBrowseShared, de
   const chosenWriter = writers.find(w => w.writer === writer)?.writer ?? writers[0]?.writer ?? null;
   const chosenKey = useRef(''); chosenKey.current = `${chosenLength?.profile}|${chosenWriter}`;
   const maximum = quote?.maxCredits ?? writers.find(w => w.writer === chosenWriter)?.maxCredits ?? chosenLength?.maxCredits ?? paper?.capabilities.maxCredits ?? 150;
-  const providers = quote?.providers ?? [chosenWriter === 'deepseek' ? 'DeepSeek' : 'Anthropic', 'Google'];
+  // Until the quote names them, the route every script and voice takes (D11: it named Anthropic or DeepSeek and Google).
+  const providers = quote?.providers ?? ['OpenRouter'];
   const making = !!job && !jobTerminal(job);
   const failed = !!job && jobTerminal(job) && job.state !== 'ready' && !sourceTooLarge;
   const asking = !!paper && paper.capabilities.generation && !ready && !job && !sourceTooLarge;
