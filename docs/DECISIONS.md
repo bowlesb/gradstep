@@ -18,6 +18,9 @@ include catalog metadata, so user notes need a separate payload namespace. Media
 blob service; the planned `encrypted_blobs` entry in DATA_MODEL.md is not an existing implementation. The design
 records conflict/deletion semantics, old-client compatibility, capture feasibility, budget and release gates.
 This is design work, not a deployed Notes feature, new infrastructure commitment or E2EE verification claim.
+Update 2026-10-21 UTC: the reviewed implementation contract's server side is live on staging (migration 095 and
+the `note-assets` function, quotas inside the existing budget, no new vendor commitment); clients are separate work.
+That is a ciphertext transport, not evidence of client encryption or cross-device Notes sync.
 
 ## Responsiveness, dollar balances and platform parity (October 20; parity released, dollars design only)
 
