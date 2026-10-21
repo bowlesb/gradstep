@@ -185,6 +185,8 @@ targets:
       - package: ScienceReaderCore
       - package: LocalAI
         platformFilter: macOS
+      # It compiles all of ScienceReader/, including the chat's math typesetting (SwiftMath).
+      - package: SwiftMath
     info:
       path: Config/ResourceProbe-Info.plist
       properties:

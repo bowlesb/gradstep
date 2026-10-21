@@ -133,20 +133,22 @@ public final class DevicePDFRoute {
                       let image = page150(page) else { images.append(nil); continue }
                 images.append(DevicePDFRaster.cgImage(DevicePDFRaster.crop(image, rect, margin: 8)))
             }
+            // The progress callback is the caller's (not Sendable): workers call it one at a time, under the lock, so
+            // the counts arrive in order and the caller never sees two calls at once.
             final class Results: @unchecked Sendable {
                 let lock = NSLock(); var rows: [Any]; var done = 0
-                init(_ n: Int) { rows = [Any](repeating: NSNull(), count: n) }
+                let report: (Stage) -> Void
+                init(_ n: Int, report: @escaping (Stage) -> Void) { rows = [Any](repeating: NSNull(), count: n); self.report = report }
             }
-            let results = Results(count), models = self.models, report = progress
+            let results = Results(count, report: progress), models = self.models, crops = images
             let start = DispatchTime.now().uptimeNanoseconds
             DispatchQueue.concurrentPerform(iterations: max(1, min(options.recogniserConcurrency, count))) { worker in
                 var i = worker
                 while i < count {
-                    if let cg = images[i], let r = try? models.recognise(crop: cg) {
+                    if let cg = crops[i], let r = try? models.recognise(crop: cg) {
                         results.lock.lock(); results.rows[i] = ["latex": r.latex, "probs": r.probabilities] as [String: Any]; results.lock.unlock()
                     }
-                    results.lock.lock(); results.done += 1; let done = results.done; results.lock.unlock()
-                    report(.formulas(done: done, of: count))
+                    results.lock.lock(); results.done += 1; results.report(.formulas(done: results.done, of: count)); results.lock.unlock()
                     i += max(1, min(options.recogniserConcurrency, count))
                 }
             }

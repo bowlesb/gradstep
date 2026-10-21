@@ -375,15 +375,6 @@ final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
     }
     #endif
 
-    /// An equation as Unicode text (as the chat's "Copy as text").
-    static func plainText(_ quote: String) -> String {
-        let math = ChatTitle.segments(quote).compactMap { segment -> String? in
-            if case .math(let body, _, _) = segment { return body }
-            return nil
-        }
-        return math.count == 1 ? ChatMathText.plain(math[0]) : ChatTitle.readable(quote, wholeWord: true)
-    }
-
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration) -> CGRect {
         guard let equation, configuration.identifier as? String == equation.id else { return .null }
         let visible = equation.rect.intersection(bounds)

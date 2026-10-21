@@ -113,6 +113,7 @@
 		4AB0B361277D27FA451D1F49 /* LocalAIController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A337A053CFEF4CD75A4FCD /* LocalAIController.swift */; };
 		4ABFE89EFB8D9E515A0ABB8F /* SessionTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF110B147A6976DF04043D72 /* SessionTimeline.swift */; };
 		4B02E99A871E42293E631D14 /* reader-versions.json in Resources */ = {isa = PBXBuildFile; fileRef = 41F97A3775265C9B5D9D1057 /* reader-versions.json */; };
+		4B61BA20A9F616789736878C /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 52359234D84AB268FE6406AD /* SwiftMath */; };
 		4B9CE7E1323C1CCED427F186 /* SessionCaptureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5E2B5707AB958154DC93826 /* SessionCaptureViews.swift */; };
 		4BA22147F0D1261E3747391C /* GoogleSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */; };
 		4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
@@ -638,6 +639,7 @@
 			files = (
 				74A4180D876E3097503ACBB1 /* ScienceReaderCore in Frameworks */,
 				E73BAD7C131D0BE996730E20 /* LocalAI in Frameworks */,
+				4B61BA20A9F616789736878C /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1111,6 +1113,7 @@
 			packageProductDependencies = (
 				BD48DC7B746589499F3F6C03 /* ScienceReaderCore */,
 				994782BBBC41835EAA60B915 /* LocalAI */,
+				52359234D84AB268FE6406AD /* SwiftMath */,
 			);
 			productName = ScienceReaderResourceProbe;
 			productReference = A673417A4679FF103F59578D /* ScienceReaderResourceProbe.app */;
@@ -2301,6 +2304,11 @@
 		4A093C5F34CFCCF286EA9D5F /* LocalAI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = LocalAI;
+		};
+		52359234D84AB268FE6406AD /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6A56CAC58C4740DD960C1B60 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 		73C48F72EBEC7F248AD25F9F /* SwiftMath */ = {
 			isa = XCSwiftPackageProductDependency;

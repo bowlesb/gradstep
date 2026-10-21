@@ -24,8 +24,6 @@ enum SelectionAction: String, CaseIterable {
     var symbol: String {
         switch self { case .define: "text.magnifyingglass"; case .relevance: "lightbulb"; case .similar: "point.3.connected.trianglepath.dotted"; case .ingest: "plus.square.on.square" }
     }
-    /// A tapped equation offers these (adding the paper a passage cites makes no sense for a formula).
-    static let equationActions: [SelectionAction] = [.define, .similar]
 }
 enum PaperOfflineStatus: Equatable { case none, available, unavailable }
 

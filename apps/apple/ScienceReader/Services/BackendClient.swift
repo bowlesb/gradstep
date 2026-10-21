@@ -651,31 +651,6 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     // MARK: Device PDFs. There is no upload transport: the server refuses PDF ingress (HTTP 410;
     // docs/architecture/HTML_FIRST_READER.md). Only the device-local import links remain.
 
-    /// Stores the private display descriptor required for a paper created from a device PDF. The
-    /// descriptor is sealed locally; the server receives only the envelope and never the title in
-    /// the upload admission request. A unique upload source starts at revision zero, and replaying
-    /// the same request is safe if the network drops after the server commits it.
-    func putLibraryDescriptor(sourceID: String, displayName: String, filename: String?, accountID: UUID,
-                              deviceID: UUID, keys: KeyBundle) async throws {
-        let descriptorID = UUID(), mutationID = UUID()
-        let payload = try LibraryDescriptorPayload(displayName: displayName, filename: filename)
-        let envelope = try LibraryDescriptorCrypto.seal(payload, accountID: accountID, sourceID: sourceID,
-            descriptorID: descriptorID, revision: 1, mutationID: mutationID, deviceID: deviceID, keys: keys)
-        struct Parameters: Encodable, Sendable {
-            let p_source_id: String; let p_expected_revision: Int; let p_caller_device_id: String
-            let p_management_token: String; let p_envelope: LibraryDescriptorEnvelope
-        }
-        struct DescriptorResult: Decodable, Sendable { let status: String }
-        struct Response: Decodable, Sendable { let format: Int; let account_id: UUID; let result: DescriptorResult }
-        let response: Response = try await rpc("v1_put_library_descriptor", params: Parameters(
-            p_source_id: sourceID, p_expected_revision: 0, p_caller_device_id: deviceID.wire,
-            p_management_token: "\\x" + keys.managementToken.hex, p_envelope: envelope), accountID: accountID)
-        guard response.format == 1, response.account_id == accountID,
-              response.result.status == "applied" || response.result.status == "revision_conflict" else {
-            throw ReaderError.corruptData
-        }
-    }
-
     /// Where this device can try to fetch a failed web import's PDF.
     func importPDFSources(_ importID: UUID, accountID: UUID) async throws -> PDFImportSources {
         struct Parameters: Encodable, Sendable { let p_import_id: UUID }
@@ -1198,29 +1173,15 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     }
 }
 
-/// Library and auth requests stay on their configured origin. Never follow a
-/// redirect before parsing an error or forward credentials to its target.
+/// `v1_reader_capabilities` is absent (an older server): legacy library mode may be considered.
 private struct ReaderCapabilityMissing: Error {}
 
 /// HTTP 401 from the API: this access token was refused. `authorized()` refreshes and replays once before treating it
 /// as the end of the session.
 private struct TokenRejected: Error {}
 
-/// Bytes sent of a PDF upload, as a fraction.
-private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
-    private let report: @Sendable (Double) -> Void
-    init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        guard totalBytesExpectedToSend > 0 else { return }
-        report(min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
-    }
-    // The signed upload URL is final: a redirect is never followed.
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
+/// Library and auth requests stay on their configured origin. Never follow a
+/// redirect before parsing an error or forward credentials to its target.
 private final class LibraryRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
