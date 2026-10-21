@@ -765,6 +765,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   deadline.signal.addEventListener('abort', stopTitle, { once: true });
   const titling = titleParams && titleHold ? writeTitle(deps.generate, titleParams, titleHold.inputTokens, titleStop.signal, now) : null;
   let title: TitleResult | null = null;
+  // Whether the reader had left when the answer itself ended (A12): leaving later, during the title's grace, the
+  // suggestions or the map, does not turn a finished answer into an unpaid one.
+  let leftDuringAnswer = false;
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
@@ -773,6 +776,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
         if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
     }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
+    leftDuringAnswer = signal.aborted;
     if (titling) {
       // A title still being written gets a short grace period; abandoning it still settles its attempt.
       const grace = setTimeout(stopTitle, outcome.status === 'complete' && !signal.aborted ? TITLE_GRACE_MS : 0);
@@ -832,7 +836,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // The figure view delivers only what it shows: a walkthrough or words (its tool calls are never relayed otherwise).
   const showsWork = symbolsOnly ? !!described || !!symbolWords : walkthroughOnly ? !!walkthrough || !!walkthroughWords : detailOnly ? !!detail || !!detailWords
     : figureView ? wroteText : wroteText || !!answer.toolCalls?.length;
-  const ending = await answerEnding(deps, request, answer, { readerLeft: signal.aborted, timedOut, delivered: showsWork });
+  const ending = await answerEnding(deps, request, answer, { readerLeft: leftDuringAnswer, timedOut, delivered: showsWork });
   const charged = CHARGED_ENDINGS.includes(ending);
   const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
   // Provider spend (the platform budget): tokens and Anthropic's per-search fee, whoever pays for them. Tavily
@@ -841,7 +845,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const actual = Math.ceil(tokens + anthropicFees);
   // What reached the reader: the answer's own rounds and, with a completed answer, the title, suggestions and map that
   // were relayed. A side request that failed, came back unusable or too late is Gradstep's cost.
-  const sides = ending === 'completed' ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
+  // Side requests are relayed only to a reader still connected (every emit below checks); one who left gets none of them.
+  const sides = ending === 'completed' && !signal.aborted ? [title?.text ? title.outcome : null, suggested?.questions ? suggested.outcome : null, studied?.map ? studied.outcome : null] : [];
   const delivered = readerPriceAttempts(answer.attempts) + anthropicFees + sides.reduce((sum, part) => sum + (part ? readerPriceAttempts(part.attempts) : 0), 0);
   const priced = Math.ceil(delivered + stats.credits * TAVILY_CREDIT_MICROUSD);
   // Ingest: at most one add per request, only of a strictly matched arXiv paper, only when the turn ended in the tool
@@ -995,12 +1000,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   emit({ event: 'error', data: { code, credits, ...billing, retry_after: retryAfter } });
 }
 
-/** How a held answer ended (see ChatEnding). A refusal stays a refusal; then the reader leaving (their Stop, recorded by
- * v1_chat_stop, or a dropped connection; builds without `stop_signal` can't say which), then an answer cut short by our
- * time limit, our server or the provider, a length limit, and a finished turn with nothing to show (the provider's). */
+/** How a held answer ended (see ChatEnding). A refusal stays a refusal; a finished turn with something to show is
+ * completed even if the reader left as it finished or afterwards (A12: the answer was written; CHAT.md "charged as
+ * finished"); then the reader leaving while it was written (their Stop, recorded by v1_chat_stop, or a dropped
+ * connection; builds without `stop_signal` can't say which), then an answer cut short by our time limit, our server or
+ * the provider, a length limit, and a finished turn with nothing to show (the provider's). */
 async function answerEnding(deps: ChatDependencies, request: ChatRequest, answer: ProviderOutcome,
   state: { readerLeft: boolean; timedOut: boolean; delivered: boolean }): Promise<ChatEnding> {
   if (answer.status === 'complete' && answer.stopReason === 'refusal') return 'refusal';
+  if (answer.status === 'complete' && !LIMIT_STOP_REASONS.includes(answer.stopReason ?? '') && state.delivered) return 'completed';
   if (state.readerLeft) {
     if (!request.capabilities.includes('stop_signal')) return 'left';
     return await stopRequested(deps, request.operationID) ? 'stopped' : 'connection';

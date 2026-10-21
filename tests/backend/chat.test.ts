@@ -2752,6 +2752,36 @@ test('a completed answer pays for itself and what was relayed; a failed title is
   assert.equal((h.events.at(-1)!.data as { charged: boolean }).charged, true);
 });
 
+test('A12: a finished answer stays charged when the connection drops during its suggestions; the unrelayed suggestions are Gradstep\'s', async () => {
+  const client = new AbortController();
+  let stopLooks = 0;
+  const h = harness({ script: { worker_chat_stop_requested: () => { stopLooks++; return false; } },
+    generate: async (params, stream) => {
+      if (params.tools?.some(tool => 'name' in tool && tool.name === 'suggest_follow_ups')) {
+        client.abort(); // the reader's connection drops after the whole answer arrived, before `done`
+        return followUpOutcome(['Why is the reference model frozen?', 'What breaks without the KL term?']);
+      }
+      stream.onText('The answer.'); return completeOutcome();
+    } });
+  await runChat(h.deps, paperBody({ capabilities: ['stop_signal'], follow_ups: true }), h.emit, client.signal);
+  // The answer's 4,800 micro-USD are charged (1 credit); the suggestions' 80 were never relayed and are absorbed.
+  assert.deepEqual(settledWith(h), { p_account_id: account, p_id: operation, p_actual_credits: 1, p_actual_microusd: 4_880,
+    p_action: 'answer', p_ending: 'completed', p_absorbed_microusd: 80 });
+  assert.equal(stopLooks, 0, 'a finished answer needs no Stop lookup');
+  assert.deepEqual(h.events.map(e => e.event), ['delta'], 'nothing is sent after the reader left');
+});
+
+test('A12: a reader who leaves during the title grace after a finished answer still pays for it', async () => {
+  const client = new AbortController();
+  const h = harness({ generate: async (params, stream) => {
+    if (params.max_tokens === 40) { await new Promise(resolve => setTimeout(resolve, 5)); client.abort(); return titleOutcome(); }
+    stream.onText('The answer.'); return completeOutcome();
+  } });
+  await runChat(h.deps, paperBody({ capabilities: ['stop_signal'], topic_title: true }), h.emit, client.signal);
+  const settle = settledWith(h);
+  assert.equal(settle.p_ending, 'completed'); assert.equal(settle.p_actual_credits, 1);
+});
+
 test('a finished turn with nothing to show charges nothing (the provider\'s)', async () => {
   const h = harness({ generate: async () => completeOutcome() });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);

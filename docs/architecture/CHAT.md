@@ -629,10 +629,13 @@ part is listed at the end of this section.
 | **The connection between our server and the reader dropped** (an app with `stop_signal` that recorded no Stop) | nothing (it is gone) | nothing | `connection` |
 | **A refusal** (`stop_reason: refusal`, after any server-side fallback) | `error refused {credits: 0, charged: false, reason: "refusal"}` | nothing | `refusal` |
 
-A refusal is a refusal even if the reader also left; otherwise the reader leaving decides first, then a deadline that
-cut the answer short, then the provider's or our own failure, then a length limit. The server can only see a
-connection drop when it happens before the answer is handed to the network: an answer that finished and was written
-into a connection that then failed is charged as finished.
+A refusal is a refusal even if the reader also left; a finished turn with something to show is **completed** even if the
+reader left as it finished or afterwards (since 2026-10-21, review A12: the connection dropping during the title's
+grace, the suggestions or the map no longer makes a finished answer free; those side requests, never relayed, are
+Gradstep's). Otherwise the reader leaving while the answer was written decides first, then a deadline that cut the
+answer short, then the provider's or our own failure, then a length limit. The server can only see a connection drop
+when it happens before the answer is handed to the network: an answer that finished and was written into a
+connection that then failed is charged as finished.
 
 ### Each paid feature
 
