@@ -629,7 +629,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     const documentID = paper && chat.readsPaper(paperIdentity(paper)) ? paperIdentity(paper) : null;
     const place = [s?.label ?? s?.section, s?.page ? `page ${s.page}` : null].filter(Boolean).join(', ');
     const title = s ? `“${s.title || 'Untitled paper'}”${place ? ` (${place})` : ''}` : 'a paper';
-    const label = r.kind === 'region' ? `Snippet · ${s?.label ?? s?.section ?? s?.title ?? 'Notes'}` : `Quote · ${s?.title || 'Notes'}`;
+    const label = r.kind === 'region' ? `Snippet · ${s?.label ?? s?.section ?? s?.title ?? 'Snippets'}` : `Quote · ${s?.title || 'Snippets'}`;
     const block = r.anchor?.blockIDs[0];
     const paragraph = documentID ? await chat.noteParagraph(documentID, r.anchor?.manifestSHA256 ?? null, block) : null;
     let image: string | undefined, attachment: ChatFigureImage | undefined;
@@ -721,9 +721,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     </>
   ) : route === 'notes' ? (
     <>
-      <PaneHeader title="Notes" onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
+      <PaneHeader title="Snippets" onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
       <div className="rail-body">{notes ? <NotesList store={notes} current={noteID} rail onOpen={id => navigate(`/notes/${id}`)} onNew={() => setNewNote(true)} />
-        : <p className="fine rail-note">Opening your notes…</p>}</div>
+        : <p className="fine rail-note">Opening your snippets…</p>}</div>
     </>
   ) : (
     <>
@@ -766,11 +766,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'notes') {
     const listBeside = ws.left.open && ws.left.inline;
-    center = !notes ? <div className="empty" role="status"><div className="spinner" /><p>Opening your notes…</p></div>
+    center = !notes ? <div className="empty" role="status"><div className="spinner" /><p>Opening your snippets…</p></div>
       : noteID ? <NoteDetail key={noteID} store={notes} noteID={noteID} back={!listBeside} onBack={() => navigate('/notes')} onOpenSource={openSource} onChat={entry => void chatAboutEntry(entry)}
         onAddText={id => setComposer({ draft: { kind: 'text', source: null, anchor: null, capturedAt: Date.now(), destination: id } })} />
-      : listBeside ? <div className="empty notes-choose"><Icon name="notes" size={28} /><p className="muted">Choose a note, or start a new one.</p>
-        <button className="secondary" onClick={() => setNewNote(true)} disabled={!notes.writable}>New note</button></div>
+      : listBeside ? <div className="empty notes-choose"><Icon name="notes" size={28} /><p className="muted">Choose a collection, or start a new one.</p>
+        <button className="secondary" onClick={() => setNewNote(true)} disabled={!notes.writable}>New collection</button></div>
       : <NotesList store={notes} current={null} onOpen={id => navigate(`/notes/${id}`)} onNew={() => setNewNote(true)} />;
   } else if (route === 'feed') {
     center = <FeedView model={feed} library={library} showChips={!railVisible} preparing={feedPreparing} onLibrary={() => navigate('/')}
@@ -807,7 +807,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         {!phone && <nav className="topnav" aria-label="Main">
           {nav('/', 'Library', 'book', route === 'library', 'back-to-library')}
           {nav('/feed', 'Feed', 'feed', route === 'feed')}
-          {nav('/notes', 'Notes', 'notes', route === 'notes', 'nav-notes')}
+          {nav('/notes', 'Snippets', 'notes', route === 'notes', 'nav-notes')}
           <button className="nav-link" onClick={() => setChats(true)} title="All chats"><Icon name="chats" /><span className="nav-label">Chats</span></button>
         </nav>}
         {/* The catalog to the left of the search (owner, build 75: "Move the catalog to the left of the search bar"): on the
@@ -860,10 +860,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <button className="icon-button" aria-label="Dismiss save notice" onClick={() => setNavigationIssue(false)}><Icon name="close" size={16} /></button>
       </div>}
       {/* Each region fails on its own (RESILIENCE.md fix 2): a malformed answer, feed row or episode never blanks the page. */}
-      <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : route === 'notes' ? 'Notes list' : 'Library filters'} rightLabel="Chat"
+      <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : route === 'notes' ? 'Snippet collections' : 'Library filters'} rightLabel="Chat"
         left={<RegionBoundary region="side" label="The side panel" compact resetKey={route} onReport={report}>{left}</RegionBoundary>}
         center={<RegionBoundary region={route === 'paper' ? 'reader' : route === 'feed' ? (listening ? 'listen' : 'feed') : route === 'notes' ? 'notes' : 'library'}
-          label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Notes' : 'The library'}
+          label={route === 'paper' ? 'The reader' : route === 'feed' ? (listening ? 'Listen' : 'The feed') : route === 'notes' ? 'Snippets' : 'The library'}
           resetKey={`${route}:${item ? paperIdentity(item) : ''}:${listening}:${noteID ?? ''}`} onReport={report}>{center}</RegionBoundary>}
         right={<RegionBoundary region="chat" label="Chat" resetKey={paperContext?.documentID ?? chatMode} onReport={report}>
           <ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} onChatOptions={() => setChatDefaults('about')} papers={answerPapers}
@@ -872,11 +872,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       {item && <RegionBoundary region="paper-actions" label="Paper actions" compact onReport={report}><LibraryActionSurface actions={readerActions} /></RegionBoundary>}
       <RegionBoundary region="player" label="The player" compact onReport={report}><PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} onReport={report} /></RegionBoundary>
       {savedNote && <div className="notes-saved" role="status" data-testid="notes-saved"><span>Saved to {savedNote.title}{savedNote.offline ? ' · Waiting to sync' : ''}</span>
-        <button className="link" onClick={() => { setSavedNote(null); void navigate(`/notes/${savedNote.noteID}`); }} data-testid="open-saved-note">Open note</button>
+        <button className="link" onClick={() => { setSavedNote(null); void navigate(`/notes/${savedNote.noteID}`); }} data-testid="open-saved-note">Open</button>
         <button className="icon-button" aria-label="Dismiss" onClick={() => setSavedNote(null)}><Icon name="close" size={14} /></button></div>}
       {phone && <PhoneTabs route={route} chatOpen={ws.right.open} lastPaper={recentPaper}
         navigate={to => void navigate(to)} onChat={() => { if (route !== 'paper') setChatMode('general'); ws.show('right'); }} />}
-      {notes && composer && <RegionBoundary region="note-composer" label="Add to note" compact onReport={report}><NoteComposer store={notes} draft={composer.draft}
+      {notes && composer && <RegionBoundary region="note-composer" label="Save snippet" compact onReport={report}><NoteComposer store={notes} draft={composer.draft}
         onAdjust={composer.adjust ? () => { const adjust = composer.adjust!; setComposer(null); adjust(); } : undefined} onClose={() => setComposer(null)}
         onSaved={(id, title) => { const text = composer.draft.kind === 'text'; setComposer(null); if (text || route === 'notes') void navigate(`/notes/${id}`); else setSavedNote({ noteID: id, title, offline: typeof navigator !== 'undefined' && navigator.onLine === false }); }} /></RegionBoundary>}
       {notes && newNote && <NewNoteDialog store={notes} onClose={() => setNewNote(false)} onCreated={id => { setNewNote(false); void navigate(`/notes/${id}`); }} />}
@@ -917,7 +917,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <p>This permanently deletes your account:</p>
         <p>Your beta invitation remains valid. Signing in again creates a new account; your deleted library, conversations and credits won’t return.</p>
         <ul className="delete-list">
-          <li>Your library, conversations, notes and diagrams, and your private podcast episodes</li>
+          <li>Your library, conversations, snippets and diagrams, and your private podcast episodes</li>
           <li>Your support reports and screenshots</li>
           <li>This browser’s copy; other devices are signed out and your recovery code stops working</li>
         </ul>
@@ -980,7 +980,7 @@ function PhoneTabs({ route, chatOpen, lastPaper, navigate, onChat }: { route: Ro
     {lastPaper ? link(`/paper/${lastPaper}`, 'Paper', 'paper', 'paper', 'phone-paper')
       : <button className={`phone-tab${current === 'paper' ? ' on' : ''}`} disabled title="Open a paper from your library first" data-testid="phone-paper"><Icon name="paper" size={19} /><span>Paper</span></button>}
     <button className={`phone-tab${current === 'chat' ? ' on' : ''}`} aria-pressed={chatOpen} onClick={onChat} data-testid="phone-chat"><Icon name="chat" size={19} /><span>Chat</span></button>
-    {link('/notes', 'Notes', 'notes', 'notes', 'nav-notes')}
+    {link('/notes', 'Snippets', 'notes', 'notes', 'nav-notes')}
   </nav>;
 }
 
@@ -1049,7 +1049,7 @@ function AccountMenu({ compact = false, onAdd, account, email, theme, setTheme, 
             <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onChats(); }} data-testid="assets-chats"><Icon name="chats" size={14} /> Chats</button>
             <button role="menuitem" className="menu-item" disabled={!onDiagrams} onClick={() => { setOpen(false); onDiagrams?.(); }} data-testid="assets-diagrams"><Icon name="chart" size={14} /> Diagrams</button>
             {/* Owner, 2026-10-21: "Needs to be a Notes section in your assets". */}
-            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onNotes(); }} data-testid="assets-notes"><Icon name="notes" size={14} /> Notes</button>
+            <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onNotes(); }} data-testid="assets-notes"><Icon name="notes" size={14} /> Snippets</button>
             {/* Owner, build 62: the AI Explainer's answers too (this tab's; the apps keep theirs on the device). */}
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('equation'); }} data-testid="assets-equations"><Icon name="function" size={14} /> Equation explanations</button>
             <button role="menuitem" className="menu-item" disabled={!onExplanations} onClick={() => { setOpen(false); onExplanations?.('figure'); }} data-testid="assets-figures"><Icon name="image" size={14} /> Figure explanations</button>

@@ -50,13 +50,15 @@
 .note-head h1 { font-size: 19px; margin: 0; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .note-head > .icon-button, .note-head .menu-anchor > .icon-button { width: 36px; height: 36px; min-height: 36px; border: 1px solid var(--line); border-radius: 50%; color: var(--accent); }
 .note-stream { padding: 8px 20px; display: flex; flex-direction: column; }
-.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 8px 0 14px; }
+.note-day { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 8px 0 4px; }
 .note-entry { position: relative; padding: 0 0 18px 16px; margin: 0 0 18px 3px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .note-entry::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); position: absolute; left: -4px; top: 9px; }
 .note-entry-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: -4px; }
 .note-quote { margin: 0; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font: 15.5px/1.6 Georgia, "Times New Roman", serif;
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 22em; overflow: auto; }
 .note-comment { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 14.5px; }
+/* The reader's comment reads as their own words, apart from the snippet (owner, build 78): an accent bar on its edge. */
+.note-entry:not(.kind-text) .note-comment { border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent); padding-left: 10px; }
 .note-source { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 6px 0; min-height: 32px; border: 0; color: var(--muted); font-size: 12px; }
 .note-source strong { color: var(--accent); font-weight: 500; overflow-wrap: anywhere; }
 .note-source:hover strong { text-decoration: underline; }

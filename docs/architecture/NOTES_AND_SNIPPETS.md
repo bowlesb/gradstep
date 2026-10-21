@@ -9,6 +9,42 @@ The owner requested the end-to-end experience and examination of the current app
 This document separates that direction from recommended details and implementation gates. Current released
 clients remain TestFlight 77 and browser Pages `27c45ca0` as recorded in IMPLEMENTATION_STATUS.md.
 
+## Snippets: rename, comment only, Chat, cards (owner, 2026-10-21, builds 78 feedback; local source, not released)
+
+- **Name.** Owner (15:16 UTC): "We should rename Notes to Snippets." Every user-facing string now says **Snippets**
+  (tab, wide-layout mode and Mac window mode, Settings › Your assets, browser navigation, empty states, messages). A
+  named group of snippets is a **collection** ("New collection", "Rename collection…", "Delete collection…", the
+  composer's **Collection** picker; the first one is offered as "Quick snippets"). The composer and the selection,
+  table and Mac menu actions say **Save snippet**; Saved to X offers **Open**. Records, routes (`/notes`), types,
+  `gradstep-notes-v1` and accessibility identifiers (`tab.notes`, `notes.*`, `note.*`, `entry.*`) are unchanged.
+  Not yet renamed: the figure and equation pages' "Add to note" (native `FigureExplainView`/`EquationView`, browser
+  `Figures.tsx`/`EquationView.tsx`), left to the change to those pages that was in progress in parallel.
+- **One place for the reader's words.** Owner (15:02 UTC): "it's weird that there is two places to have text, one comment
+  and one in between. Let's stick with the comment option for now only… The comment can't be easily distinguished from
+  snippet text." The stream no longer offers Add text (toolbar +, ⋯, the bottom link, the empty collection's button);
+  existing writing entries still show and can be edited or deleted. A snippet's comment has a 3 pt accent bar on its
+  leading edge (VoiceOver: "Your comment: …").
+- **Dates.** Owner (15:01 UTC): "Less vertical space between dates and the text or snippet after it": the day label
+  sits close to its first entry (native −6 pt instead of 14 pt below it; browser 4 px instead of 14 px).
+- **Chat about a snippet.** Owner: "In the snippet options when viewing it in a figure, there should be a Chat option to
+  launch and talk about the snippet." A region or quotation entry's ⋯ and the full-size view offer **Chat**: a new chat,
+  nothing sent, the comment as its draft, titled "Snippet · Figure 2" / "Quote · <paper>", with **Back to snippets**
+  above it (native `ReaderModel.chatAboutNoteEntry`, browser `App.chatAboutEntry`). When the snippet's paper is in this
+  library with its text on this device, it is that paper's chat; the drawn crop goes with every question in it as
+  figure `F3` (JPEG on white, `ChatFigureFinder.prepare` / `prepareImageURL`; the paper's own named figures keep F1/F2),
+  with its source and paragraph as the passage; a quotation is the passage itself. Figure parts the model returns for
+  the crop are not kept as a drawing (the crop has no place in the paper's bundle). Otherwise the chat is general, with
+  the source line as context, and the crop is shown but **not sent**: the server accepts `figures` only in a paper's
+  chat (`chat.ts`: `mode !== 'paper'` → invalid). Sending a crop in general chat would need the server to accept
+  figures in `mode: "general"` under consent v3+ (and the consent copy to say so); not changed here.
+- **Cards.** The collections list shows each as a card (DESIGN.md "Cards").
+
+Tests: native `NotesJourneyTests` (`testSnippetChatAttachesTheCropAndReturnsToTheNote`, `testNotesListShowsCards`, the
+renamed labels) on iPhone 17 Pro, iPad Pro 13-inch and Mac; browser `notes.spec.ts` (desktop, phone), including the
+question's `figures` containing F3. `testAddSelectionToNote` fails on the Simulator because the long-press shows no
+edit menu at all (no Copy either), independent of the label; not investigated further here.
+
+
 ## Implementation contract (Claude review, 2026-10-21 UTC) — supersedes conflicting details below
 
 The owner asked for this proposal to be reviewed, improved and then built. The review keeps the product design and

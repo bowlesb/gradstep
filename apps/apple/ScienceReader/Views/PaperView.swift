@@ -759,7 +759,7 @@ struct PaperView: View {
     /// Paper ⋯ › Draw snippet, or the context menu's: the page stops where it is and takes no other touches until Cancel.
     private func beginDrawing() {
         guard model.notesAvailability == .ready else {
-            model.error = model.isSignedIn ? "Unlock Notes on this device to save snippets: they are encrypted with your account’s keys."
+            model.error = model.isSignedIn ? "Unlock Snippets on this device to save them: they are encrypted with your account’s keys."
                 : "Sign in to save snippets to your encrypted notes."
             return
         }
@@ -774,7 +774,7 @@ struct PaperView: View {
     private func addToNote(_ chosen: ReaderSelection, quote: String, scope: ReaderDocumentScope) {
         guard model.readerDocumentScope == scope else { return }
         guard model.notesAvailability == .ready else {
-            model.error = model.isSignedIn ? "Unlock Notes on this device to save quotations." : "Sign in to save quotations to your encrypted notes."
+            model.error = model.isSignedIn ? "Unlock Snippets on this device to save quotations." : "Sign in to save quotations to your encrypted snippets."
             return
         }
         guard let paper = model.selectedPaper, let snippet = SnippetCapturer.quote(chosen, quote: quote, paper: paper) else { return }
@@ -1529,7 +1529,7 @@ struct LocalPDFReaderView: View {
                                 if let model {
                                     MenuRow("Draw snippet", systemImage: "crop") {
                                         if model.notesAvailability == .ready { model.notes.notice = nil; model.notes.capturing = .pdf }
-                                        else { model.error = "Sign in and unlock Notes on this device to save snippets." }
+                                        else { model.error = "Sign in and unlock Snippets on this device to save them." }
                                     }
                                     .accessibilityIdentifier("pdf.drawSnippet")
                                 }

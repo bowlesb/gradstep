@@ -63,30 +63,26 @@ test('notes: create, write, quote, draw a snippet, view, edit, sync to another b
   // The destination: desktop adds Notes to the existing top navigation; phone widths use the five destinations.
   if (phone()) {
     const tabs = page.getByRole('navigation', { name: 'Main' });
-    await expect(tabs.locator('.phone-tab')).toHaveText(['Feed', 'Library', 'Paper', 'Chat', 'Notes']);
+    await expect(tabs.locator('.phone-tab')).toHaveText(['Feed', 'Library', 'Paper', 'Chat', 'Snippets']);
     await page.getByTestId('account-menu').click();
     await expect(page.getByRole('menu')).toContainText('Settings'); await page.keyboard.press('Escape');
-  } else await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link')).toHaveText(['Library', 'Feed', 'Notes']);
+  } else await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link')).toHaveText(['Library', 'Feed', 'Snippets']);
   await page.getByTestId('nav-notes').click();
   await expect(page).toHaveURL(/\/notes$/);
   await expect(page.getByText('A place for your next idea').first()).toBeVisible();
   await shot(page, 'light-empty');
 
-  // New note, then the reader's own writing.
+  // A new collection. Owner, build 78: the comment is the one place for the reader's words (no Add text in the stream).
   await page.getByTestId('new-note').first().click();
   await page.getByTestId('note-name').fill('Preference learning'); await page.getByTestId('note-name-save').click();
   await expect(page.getByTestId('note-title')).toHaveText('Preference learning');
-  await page.getByTestId('add-text').click();
-  await page.getByTestId('composer-comment').fill('Compare the DPO loss with IPO next.');
-  await page.getByTestId('composer-save').click();
-  await expect(page.getByTestId('note-entry')).toHaveCount(1);
-  await expect(page.getByTestId('note-entry').first()).toContainText('Your writing');
+  await expect(page.getByTestId('add-text')).toHaveCount(0);
 
   // A quote from the paper (selection › Add to note), saved back to the paper with Open note.
   await openPaper(page);
   await selectParagraph(page, 'preferences');
   await page.getByTestId('selection-add-to-note').click();
-  const composer = page.getByRole('dialog', { name: 'Add to note' });
+  const composer = page.getByRole('dialog', { name: 'Save snippet' });
   await expect(composer.getByTestId('composer-quote')).toContainText('preferences');
   await expect(composer.getByTestId('composer-note')).toHaveValue(/.+/);
   await expect(composer.getByTestId('composer-source')).toContainText('Direct Preference Optimization');
@@ -99,7 +95,7 @@ test('notes: create, write, quote, draw a snippet, view, edit, sync to another b
   await drawBox(page);
   await shot(page, 'light-draw');
   await page.getByTestId('snippet-use').click();
-  const draw = page.getByRole('dialog', { name: 'Add to note' });
+  const draw = page.getByRole('dialog', { name: 'Save snippet' });
   await expect(draw.getByTestId('composer-image')).toBeVisible();
   const size = await draw.getByTestId('composer-image').evaluate((img: HTMLImageElement) => ({ w: img.naturalWidth, h: img.naturalHeight }));
   expect(size.w).toBeGreaterThan(100); expect(size.h).toBeGreaterThan(50);
@@ -115,17 +111,19 @@ test('notes: create, write, quote, draw a snippet, view, edit, sync to another b
   await page.getByTestId('open-saved-note').click();
   await expect(page).toHaveURL(/\/notes\/[0-9a-f-]{36}$/);
   const entries = page.getByTestId('note-entry');
-  await expect(entries).toHaveCount(3);
-  await expect(entries.nth(1)).toContainText('Text snippet'); await expect(entries.nth(1)).toContainText('The key sentence.');
-  await expect(entries.nth(2)).toContainText('Region snippet');
-  const thumb = entries.nth(2).getByTestId('snippet-image').locator('img');
+  await expect(entries).toHaveCount(2);
+  await expect(entries.nth(0)).toContainText('Text snippet'); await expect(entries.nth(0)).toContainText('The key sentence.');
+  await expect(entries.nth(1)).toContainText('Region snippet');
+  // The comment is set apart from the snippet: an accent bar on its edge.
+  expect(await entries.nth(0).locator('.note-comment').evaluate(e => parseFloat(getComputedStyle(e).borderLeftWidth))).toBe(3);
+  const thumb = entries.nth(1).getByTestId('snippet-image').locator('img');
   await expect(thumb).toBeVisible();
   expect(await thumb.evaluate((img: HTMLImageElement) => img.src.startsWith('blob:') && img.complete && img.naturalWidth > 0)).toBe(true);
   await expect(page.getByTestId('entry-state')).toHaveCount(0); // synced
   await shot(page, 'light-note');
 
   // Full-size view with zoom.
-  await entries.nth(2).getByTestId('snippet-image').click();
+  await entries.nth(1).getByTestId('snippet-image').click();
   const zoom = page.getByRole('dialog', { name: 'Snippet' });
   await expect(zoom.locator('img')).toBeVisible();
   await zoom.getByTestId('zoom').fill('2');
@@ -133,10 +131,10 @@ test('notes: create, write, quote, draw a snippet, view, edit, sync to another b
   await zoom.getByRole('button', { name: 'Close' }).click();
 
   // Edit a comment, rename, search.
-  await entries.nth(1).getByTestId('entry-menu').click(); await page.getByRole('menuitem', { name: 'Edit comment' }).click();
+  await entries.nth(0).getByTestId('entry-menu').click(); await page.getByRole('menuitem', { name: 'Edit comment' }).click();
   await page.getByTestId('comment-text').fill('The key sentence, revised.'); await page.getByTestId('comment-save').click();
-  await expect(entries.nth(1)).toContainText('The key sentence, revised.');
-  await page.getByTestId('note-menu').click(); await page.getByRole('menuitem', { name: 'Rename note…' }).click();
+  await expect(entries.nth(0)).toContainText('The key sentence, revised.');
+  await page.getByTestId('note-menu').click(); await page.getByRole('menuitem', { name: 'Rename collection…' }).click();
   await page.getByTestId('note-name').fill('Preference learning (DPO)'); await page.getByTestId('note-name-save').click();
   await expect(page.getByTestId('note-title')).toHaveText('Preference learning (DPO)');
 
@@ -151,17 +149,17 @@ test('notes: create, write, quote, draw a snippet, view, edit, sync to another b
   await second.getByTestId('nav-notes').click();
   await second.getByTestId('note-row').filter({ hasText: 'Preference learning (DPO)' }).first().click();
   const remoteEntries = second.getByTestId('note-entry');
-  await expect(remoteEntries).toHaveCount(3);
-  await expect(remoteEntries.nth(2).getByTestId('snippet-image').locator('img')).toBeVisible();
+  await expect(remoteEntries).toHaveCount(2);
+  await expect(remoteEntries.nth(1).getByTestId('snippet-image').locator('img')).toBeVisible();
   await expect.poll(async () => (await assets(request)).gets.length).toBeGreaterThan(0);
-  await remoteEntries.nth(2).getByTestId('snippet-image').click();
+  await remoteEntries.nth(1).getByTestId('snippet-image').click();
   await expect(second.getByRole('dialog', { name: 'Snippet' }).locator('img')).toBeVisible();
   await second.screenshot({ path: `${SHOTS}/${info.project.name}-dark-second-browser-zoom.png` });
   await other.close();
 
   // Open in paper from the quote, then back to the list; search; delete with confirmation.
   await page.emulateMedia({ colorScheme: 'light' });
-  await entries.nth(1).getByTestId('entry-menu').click(); await page.getByRole('menuitem', { name: 'Open in paper' }).click();
+  await entries.nth(0).getByTestId('entry-menu').click(); await page.getByRole('menuitem', { name: 'Open in paper' }).click();
   await expect(page).toHaveURL(/\/paper\//);
   await page.getByTestId('nav-notes').click();
   if (await page.getByTestId('notes-search').first().isVisible()) {
@@ -175,9 +173,9 @@ test('notes: create, write, quote, draw a snippet, view, edit, sync to another b
   await page.getByTestId('note-row').first().click();
   await entries.nth(0).getByTestId('entry-menu').click(); await page.getByRole('menuitem', { name: 'Delete snippet' }).click();
   await page.getByTestId('confirm-delete').click();
-  await expect(entries).toHaveCount(2);
-  await page.getByTestId('note-menu').click(); await page.getByRole('menuitem', { name: 'Delete note…' }).click();
-  await expect(page.getByRole('dialog', { name: /Delete “Preference learning \(DPO\)”/ })).toContainText('2 entries');
+  await expect(entries).toHaveCount(1);
+  await page.getByTestId('note-menu').click(); await page.getByRole('menuitem', { name: 'Delete collection…' }).click();
+  await expect(page.getByRole('dialog', { name: /Delete “Preference learning \(DPO\)”/ })).toContainText('1 snippet');
   await page.getByTestId('confirm-delete').click();
   await expect(page).toHaveURL(/\/notes$/);
   await expect(page.getByText('A place for your next idea').first()).toBeVisible();
@@ -191,11 +189,11 @@ test('notes: a full snippet store keeps the crop here, says why, and uploads it 
   await openPaper(page);
   await drawBox(page);
   await page.getByTestId('snippet-use').click();
-  const draw = page.getByRole('dialog', { name: 'Add to note' });
+  const draw = page.getByRole('dialog', { name: 'Save snippet' });
   await expect(draw.getByTestId('composer-note')).toHaveValue('new');
-  await expect(draw.getByTestId('composer-new-name')).toHaveValue('Quick notes');
+  await expect(draw.getByTestId('composer-new-name')).toHaveValue('Quick snippets');
   await draw.getByTestId('composer-save').click();
-  await expect(page.getByTestId('notes-saved')).toContainText('Saved to Quick notes');
+  await expect(page.getByTestId('notes-saved')).toContainText('Saved to Quick snippets');
   await page.getByTestId('open-saved-note').click();
   await expect(page.getByTestId('notes-issue')).toContainText('Snippet storage is full');
   await expect(page.getByTestId('entry-state')).toContainText('Snippet storage is full');
@@ -232,14 +230,14 @@ test('notes: figure and equation pages add their item; Escape cancels drawing an
   await page.getByTestId('draw-snippet').click();
   await page.locator('.snippet-edges summary').click(); await page.getByTestId('snippet-whole').click();
   await page.getByTestId('snippet-use').click();
-  await expect(page.getByRole('dialog', { name: 'Add to note' }).getByTestId('composer-image')).toBeVisible();
-  await page.getByRole('dialog', { name: 'Add to note' }).getByRole('button', { name: 'Cancel' }).last().click();
-  await expect(page.getByRole('dialog', { name: 'Add to note' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Save snippet' }).getByTestId('composer-image')).toBeVisible();
+  await page.getByRole('dialog', { name: 'Save snippet' }).getByRole('button', { name: 'Cancel' }).last().click();
+  await expect(page.getByRole('dialog', { name: 'Save snippet' })).toHaveCount(0);
   // A figure page's Add to note: the figure's own image.
   await page.getByTestId('figures').click();
   await page.getByRole('list', { name: 'Figures' }).getByRole('button').first().click();
   await page.getByTestId('figure-add-to-note').click();
-  const composer = page.getByRole('dialog', { name: 'Add to note' });
+  const composer = page.getByRole('dialog', { name: 'Save snippet' });
   await expect(composer.getByTestId('composer-image')).toBeVisible();
   await expect(composer.getByTestId('composer-source')).toContainText('Figure');
   await composer.getByTestId('composer-new-name').fill('Figures');
@@ -250,7 +248,7 @@ test('notes: figure and equation pages add their item; Escape cancels drawing an
   await display.scrollIntoViewIfNeeded(); await display.click();
   await expect(page.getByRole('toolbar', { name: 'Selected passage' })).toBeVisible();
   await page.getByTestId('selection-add-to-note').click();
-  const eq = page.getByRole('dialog', { name: 'Add to note' });
+  const eq = page.getByRole('dialog', { name: 'Save snippet' });
   await expect(eq.getByTestId('composer-image')).toBeVisible();
   await expect(eq.getByTestId('composer-source')).toContainText('Equation');
   await eq.getByTestId('composer-save').click();
@@ -269,7 +267,7 @@ test('notes: a snippet’s Chat attaches its crop to the paper’s chat and retu
   await openPaper(page);
   await drawBox(page);
   await page.getByTestId('snippet-use').click();
-  const draw = page.getByRole('dialog', { name: 'Add to note' });
+  const draw = page.getByRole('dialog', { name: 'Save snippet' });
   await expect(draw.getByTestId('composer-image')).toBeVisible();
   await draw.getByTestId('composer-comment').fill('Why does it level off?');
   await draw.getByTestId('composer-save').click();
@@ -311,13 +309,10 @@ test('notes: the list shows each note as a card, apart from the next, in light a
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279).');
   await signIn(page);
   await page.getByTestId('nav-notes').click();
-  for (const [name, writing] of [['Preference learning', 'Compare the DPO loss with IPO next.'], ['Reading group: alignment', 'Bring the reward-model plot.'],
-    ['Open questions', 'Why does beta matter so much?']]) {
+  for (const name of ['Preference learning', 'Reading group: alignment', 'Open questions']) {
     await page.getByTestId('new-note').first().click();
     await page.getByTestId('note-name').fill(name); await page.getByTestId('note-name-save').click();
     await expect(page.getByTestId('note-title')).toHaveText(name);
-    await page.getByTestId('add-text').click(); await page.getByTestId('composer-comment').fill(writing); await page.getByTestId('composer-save').click();
-    await expect(page.getByTestId('note-entry')).toHaveCount(1);
     if (await page.getByTestId('notes-back').isVisible()) await page.getByTestId('notes-back').click();
   }
   if (phone()) await page.getByTestId('nav-notes').click();
@@ -328,7 +323,7 @@ test('notes: the list shows each note as a card, apart from the next, in light a
     return { radius: parseFloat(s.borderTopLeftRadius), top: parseFloat(s.borderTopWidth), bottom: parseFloat(s.borderBottomWidth), left: parseFloat(s.borderLeftWidth), y: r.top, bottomY: r.bottom }; }));
   for (const card of look) { expect(card.radius).toBeGreaterThanOrEqual(12); expect([card.top, card.bottom, card.left]).toEqual([1, 1, 1]); }
   for (let i = 1; i < look.length; i++) expect(look[i].y - look[i - 1].bottomY).toBeGreaterThanOrEqual(8);
-  await expect(rows.first()).toContainText('1 entry');
+  await expect(rows.first()).toContainText('0 snippets');
   await shot(page, 'light-cards');
   await page.emulateMedia({ colorScheme: 'dark' });
   await shot(page, 'dark-cards');

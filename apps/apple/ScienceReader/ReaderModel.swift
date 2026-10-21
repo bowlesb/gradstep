@@ -5,13 +5,13 @@ import StoreKit
 import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
-    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Notes", settings = "Settings"
+    case feed = "Feed", library = "Library", paper = "Paper", chat = "Chat", notes = "Snippets", settings = "Settings"
     /// The phone's floating tab bar (owner, 2026-10-20): Notes replaces Settings, which every top-right menu now opens.
     static let phoneTabs: [ReaderTab] = [.feed, .library, .paper, .chat, .notes]
     var id: Self { self }
     var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .notes: "note.text"; case .settings: "gearshape" } }
 }
-enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Notes" }
+enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat", notes = "Snippets" }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
 /// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
 enum SelectionAction: String, CaseIterable {
@@ -2374,10 +2374,10 @@ final class ReaderModel {
                 if let presentation, completeLibrary == nil {
                     presentLibraryProjection(presentation.rows, validatedEntryCount: presentation.validatedEntryCount)
                 }
-            case .failure: offlineCacheIssue = "Your saved library couldn’t be opened. Your notes and conversations are still available."
+            case .failure: offlineCacheIssue = "Your saved library couldn’t be opened. Your snippets and conversations are still available."
             }
             if case .failure = restored.installations {
-                offlineCacheIssue = "Downloaded papers couldn’t be listed. Your notes and conversations are still available."
+                offlineCacheIssue = "Downloaded papers couldn’t be listed. Your snippets and conversations are still available."
             }
             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             if let mode = OfflineResourceProbe.shared.mode, mode != .seed {

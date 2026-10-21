@@ -76,7 +76,7 @@ extension ReaderModel {
         tab = .library; wideMode = .library
         // Quick visual checks from the command line (`simctl launch … --start-tab=chat`): open on another tab.
         if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--start-tab=") })?.dropFirst("--start-tab=".count),
-           let start = ReaderTab.allCases.first(where: { $0.rawValue.lowercased() == name }) {
+           let start = ReaderTab.allCases.first(where: { $0.rawValue.lowercased() == name || String(describing: $0) == name }) {
             tab = start
             switch start {
             case .feed: wideMode = .feed
@@ -87,7 +87,7 @@ extension ReaderModel {
         }
         // The wide layouts' view (iPad and Mac): `--wide-mode=feed|library|reader|browse|chat`.
         if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--wide-mode=") })?.dropFirst("--wide-mode=".count),
-           let mode = WideMode.allCases.first(where: { $0.rawValue.lowercased().contains(name) }) {
+           let mode = WideMode.allCases.first(where: { $0.rawValue.lowercased().contains(name) || String(describing: $0) == name }) {
             showWideMode(mode)
         }
     }

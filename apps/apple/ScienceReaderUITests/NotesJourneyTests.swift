@@ -106,7 +106,7 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.images["composer.preview"].waitForExistence(timeout: 10) || app.descendants(matching: .any)["composer.preview"].exists)
         let title = app.textFields["composer.newTitle"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertEqual(title.value as? String, "Quick notes", "First use offers Quick notes")
+        XCTAssertEqual(title.value as? String, "Quick snippets", "First use offers Quick snippets")
         replaceText(title, with: "Alignment ideas", app: app)
         let comment = app.textFields["composer.comment"].exists ? app.textFields["composer.comment"] : app.textViews["composer.comment"]
         comment.tap(); comment.typeText("The early improvement is the interesting part.")
@@ -128,7 +128,7 @@ final class NotesJourneyTests: XCTestCase {
         // The note's stream: the crop, the comment, the source line and its sync state.
         XCTAssertTrue(app.navigationBars["Alignment ideas"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["entry.image.1"].waitForExistence(timeout: 10), "The snippet's image shows")
-        XCTAssertTrue(app.staticTexts["entry.comment.1"].label.hasPrefix("The early improvement"))
+        XCTAssertTrue(app.staticTexts["entry.comment.1"].label.contains("The early improvement"), "The comment, read as the reader’s own")
         XCTAssertTrue(app.descendants(matching: .any)["entry.sync.1"].exists, "Saved on this device · Waiting to sync")
         capture("Note stream with a snippet")
 
@@ -150,7 +150,7 @@ final class NotesJourneyTests: XCTestCase {
 
         // Rename from the note's ⋯.
         app.buttons["note.options"].tap()
-        menuItem(app, "Rename note").tap()
+        menuItem(app, "Rename collection").tap()
         let name = app.alerts.textFields.firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         replaceText(name, with: "Preference learning", app: app)
@@ -158,23 +158,17 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Preference learning"].waitForExistence(timeout: 10))
         capture("Renamed note")
 
-        // Add text: the reader's own writing, no source.
-        app.buttons["note.add"].tap()
-        let writing = app.textViews["note.text"]
-        XCTAssertTrue(writing.waitForExistence(timeout: 5))
-        writing.typeText("Next: compare with IPO.")
-        app.buttons["note.text.save"].tap()
-        XCTAssertTrue(app.staticTexts["entry.comment.2"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["entry.comment.2"].label, "Next: compare with IPO.")
+        // Owner, build 78: the comment is the one place for the reader's words; no separate writing is added here.
+        XCTAssertFalse(app.buttons["note.add"].exists, "No Add text in the stream")
 
         // Delete, confirmed with the note's name and entry count.
         app.buttons["note.options"].tap()
-        menuItem(app, "Delete note").tap()
+        menuItem(app, "Delete collection").tap()
         let sheet = app.sheets.firstMatch.exists ? app.sheets.firstMatch : app.otherElements.firstMatch
         XCTAssertTrue(app.staticTexts["Delete “Preference learning”?"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "2 entries")).firstMatch.exists, "The count is stated")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 snippet")).firstMatch.exists, "The count is stated")
         _ = sheet
-        app.buttons["Delete note"].firstMatch.tap()
+        app.buttons["Delete collection"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Your ideas, collected"].waitForExistence(timeout: 10), "The list is empty again")
         capture("Notes empty after delete")
     }
@@ -233,8 +227,8 @@ final class NotesJourneyTests: XCTestCase {
         XCTAssertTrue(paragraph.waitForExistence(timeout: 20))
         web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: paragraph.frame.minX - web.frame.minX + 55,
                                                                         dy: paragraph.frame.minY - web.frame.minY + 18)).press(forDuration: 1)
-        let add = app.revealEditMenuItem("Add to note")
-        XCTAssertTrue(add.waitForExistence(timeout: 5), "Add to note is in the selection menu")
+        let add = app.revealEditMenuItem("Save snippet")
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "Save snippet is in the selection menu")
         XCTAssertTrue(app.editMenuItem("Explain in Chat").exists || app.editMenuItem("Copy").exists, "The existing actions stay")
         add.tap()
         let quote = app.staticTexts["composer.quote"]
@@ -245,7 +239,7 @@ final class NotesJourneyTests: XCTestCase {
         app.buttons["composer.save"].tap()
         XCTAssertTrue(app.staticTexts["notes.saved"].waitForExistence(timeout: 10))
         app.buttons["notes.saved.open"].tap()
-        XCTAssertTrue(app.navigationBars["Quick notes"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Quick snippets"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", quoted)).firstMatch.waitForExistence(timeout: 5),
                       "The quotation is in the note")
         capture("Note with a quotation")
@@ -292,7 +286,7 @@ final class NotesJourneyTests: XCTestCase {
         capture("Your assets with Notes")
         row.tap()
         XCTAssertFalse(app.navigationBars["Settings"].waitForExistence(timeout: 2), "Settings closes")
-        XCTAssertTrue(app.buttons["tab.notes"].isSelected || app.navigationBars["Notes"].waitForExistence(timeout: 5), "Notes is shown")
+        XCTAssertTrue(app.buttons["tab.notes"].isSelected || app.navigationBars["Snippets"].waitForExistence(timeout: 5), "Snippets is shown")
     }
 
     /// Settings is the last section of every top-right menu and returns to where it was opened.
@@ -324,8 +318,8 @@ final class NotesJourneyTests: XCTestCase {
         roundTrip("Chat") { app.buttons["Chat options"].isHittable }
         // Notes list, then a note.
         app.buttons["tab.notes"].tap()
-        XCTAssertTrue(app.buttons["Notes options"].waitForExistence(timeout: 10))
-        roundTrip("Notes") { app.buttons["Notes options"].isHittable }
+        XCTAssertTrue(app.buttons["Snippets options"].waitForExistence(timeout: 10))
+        roundTrip("Notes") { app.buttons["Snippets options"].isHittable }
         app.buttons["notes.new"].tap()
         let name = app.alerts.textFields.firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5)); name.typeText("Reading for Friday")
@@ -345,7 +339,7 @@ final class NotesJourneyTests: XCTestCase {
     func testNotesInTheWideLayout() throws {
         // `TEST_RUNNER_NOTES_APPEARANCE=dark|light` for the visual review's other theme.
         let app = launch(appearance: ProcessInfo.processInfo.environment["NOTES_APPEARANCE"])
-        let notesMode = app.wideMode("Notes")
+        let notesMode = app.wideMode("Snippets")
         try XCTSkipUnless(notesMode.waitForExistence(timeout: 5), "The wide layout (a 13-inch iPad, the Mac)")
         notesMode.tap()
         XCTAssertTrue(app.staticTexts["Your ideas, collected"].waitForExistence(timeout: 10))
@@ -355,7 +349,7 @@ final class NotesJourneyTests: XCTestCase {
         (app.alerts.buttons["Create"].exists ? app.alerts.buttons["Create"] : app.buttons["Create"]).tap()
         // The list and the note, side by side.
         XCTAssertTrue(app.buttons["notes.row.Project: alignment"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["note.empty.addText"].waitForExistence(timeout: 10), "The new note is open beside the list")
+        XCTAssertTrue(app.staticTexts["A place for your next idea"].waitForExistence(timeout: 10), "The new collection is open beside the list")
         capture("Wide Notes: list and empty note")
 
         // Read, draw, save to that note.
@@ -416,7 +410,7 @@ final class NotesJourneyTests: XCTestCase {
     func testNotesListShowsCards() throws {
         for appearance in ["light", "dark"] {
             let app = launch(appearance: appearance)
-            let wideMode = app.wideMode("Notes")
+            let wideMode = app.wideMode("Snippets")
             let wide = !app.buttons["tab.notes"].exists
             if wide { XCTAssertTrue(wideMode.waitForExistence(timeout: 5)); wideMode.tap() } else { app.buttons["tab.notes"].tap() }
             for title in ["Preference learning", "Reading group: alignment", "Open questions"] {
@@ -424,7 +418,7 @@ final class NotesJourneyTests: XCTestCase {
                 let name = app.alerts.textFields.firstMatch.exists ? app.alerts.textFields.firstMatch : app.textFields.firstMatch
                 XCTAssertTrue(name.waitForExistence(timeout: 5)); name.typeText(title)
                 (app.alerts.buttons["Create"].exists ? app.alerts.buttons["Create"] : app.buttons["Create"]).tap()
-                XCTAssertTrue(app.buttons["note.empty.addText"].waitForExistence(timeout: 10), "The new note opens")
+                XCTAssertTrue(app.staticTexts["A place for your next idea"].waitForExistence(timeout: 10), "The new collection opens")
                 if !wide { app.navigationBars.buttons.firstMatch.tap() }
             }
             let rows = ["Preference learning", "Reading group: alignment", "Open questions"].map { app.buttons["notes.row.\($0)"] }
@@ -478,7 +472,7 @@ final class NotesJourneyTests: XCTestCase {
             capture("Note stream \(appearance)")
             app.buttons["tab.notes"].tap()
             app.buttons["tab.notes"].tap()
-            XCTAssertTrue(app.buttons["Notes options"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["Snippets options"].waitForExistence(timeout: 10))
             capture("Notes list \(appearance)")
             app.terminate()
         }

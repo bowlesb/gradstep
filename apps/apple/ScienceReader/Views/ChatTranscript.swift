@@ -26,7 +26,7 @@ struct ChatTranscript: View {
                         // A note snippet's chat: the way back to its entry, like the explainers' Back (2026-10-21).
                         if context.noteReturn != nil {
                             Button { model.returnToNote() } label: {
-                                Label("Back to note", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.semibold))
+                                Label("Back to snippets", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.semibold))
                                     .padding(.horizontal, 12).frame(minHeight: 44)
                             }
                             .modifier(ReaderControlMaterial()).accessibilityIdentifier("chat.backToNote")

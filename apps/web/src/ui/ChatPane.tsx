@@ -308,7 +308,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context">
         {/* A note snippet's chat: the way back to its entry, like the explainers' Back (2026-10-21). */}
         {promoted.noteReturn && onBackToNote && <button type="button" className="secondary small back-to-note" onClick={() => onBackToNote(promoted.noteReturn!.noteID, promoted.noteReturn!.entryID)}
-          data-testid="back-to-note"><Icon name="chevronLeft" size={14} /> Back to note</button>}
+          data-testid="back-to-note"><Icon name="chevronLeft" size={14} /> Back to snippets</button>}
         <h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}} data-testid="promoted-image"/>}
         {promoted.noteReturn && promoted.image ? <p className="fine" data-testid="promoted-image-note">{promoted.imageSent ? 'This picture goes with your questions in this chat.'
           : 'This paper isn’t on this device, so the picture stays here; the chat knows where it came from.'}</p>

@@ -62,7 +62,7 @@ extension XCUIApplication {
             // The paper's chat when a paper is open (beside it), else the general chat.
             modes["Reader"].tap()
             if !descendants(matching: .any)["chat.composer"].waitForExistence(timeout: 2) { modes["General Chat"].tap() }
-        case "notes": modes["Notes"].tap()
+        case "notes": modes["Snippets"].tap()
         case "settings": (buttons["Settings"].exists ? buttons["Settings"] : buttons["settings.open"]).tap()
         default: XCTFail("No place named \(place)")
         }
@@ -70,7 +70,7 @@ extension XCUIApplication {
 
     /// The ⋯ menu of whichever screen shows (by its accessibility label).
     var screenOptions: XCUIElement {
-        let labels = ["Library options", "Feed options", "Listen options", "Paper options", "Chat options", "Notes options", "Note options"]
+        let labels = ["Library options", "Feed options", "Listen options", "Paper options", "Chat options", "Snippets options", "Collection options"]
         return buttons.matching(NSPredicate(format: "label IN %@", labels)).allElementsBoundByIndex.first { $0.isHittable }
             ?? buttons.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
     }

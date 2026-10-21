@@ -119,7 +119,7 @@ struct DeviceApprovalPanel: View {
             .padding(.vertical, 16).frame(maxWidth: .infinity)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             Text(candidate.kind == nil
-                 ? "Compare all six digits with the new device. Approving gives it the keys to your private chats and notes, so only approve a device you’re using right now."
+                 ? "Compare all six digits with the new device. Approving gives it the keys to your private chats and snippets, so only approve a device you’re using right now."
                  : "Approving gives it the keys to your private chats and notes. Only approve a device you’re using right now.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 10) {
