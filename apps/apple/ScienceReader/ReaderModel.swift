@@ -4274,7 +4274,9 @@ final class ReaderModel {
     func refreshKeptExplanations() async {
         let equations = equationResultStore(), figures = figureResultStore()
         let (equationSubjects, figureSubjects) = await Task.detached(priority: .utility) {
-            (equations?.all(as: EquationAnswer.self).compactMap(\.subject) ?? [], figures?.all(as: FigureAnswer.self).compactMap(\.subject) ?? [])
+            // An older build's "Extract the subfigure" answers (`figure_detail`, removed 2026-10-21) are not listed.
+            (equations?.all(as: EquationAnswer.self).compactMap(\.subject) ?? [],
+             figures?.all(as: FigureAnswer.self).compactMap(\.subject).filter { FigureAnswer.isShownFigureAction($0.action) } ?? [])
         }.value
         let distinct = { (subjects: [ExplanationSubject]) -> [ExplanationSubject] in
             var seen = Set<String>()
@@ -4658,7 +4660,7 @@ final class ReaderModel {
                 case .followUps(let questions): followUps = questions
                 case .study(let map): studyMap = map
                 // The equation and figure views' own events; an ordinary answer never gets them.
-                case .equation, .figure, .figureDetail: break
+                case .equation, .figure: break
                 case .done(let stopReason, let credits, let model, let profile):
                     outcome = .completed(stopReason: stopReason); answered = (model, profile); doneCredits = credits
                 case .failure(let code, let credits): outcome = .failed(code: code); failedCredits = credits

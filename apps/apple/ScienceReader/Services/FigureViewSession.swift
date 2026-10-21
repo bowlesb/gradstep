@@ -54,8 +54,6 @@ enum FigureViewOutcome {
     struct Part: Equatable {
         var state: State = .idle
         var walkthrough: FigureWalkthrough?
-        /// One part extracted: its region (cropped here) and the closer reading; nil when the words came without a box.
-        var detail: FigureDetail?
         /// The words, when no walkthrough came (or a part again, more simply).
         var text = ""
         /// Ended early or with nothing to show, and the reader paid nothing (CHAT.md "When an answer stops early").
@@ -66,16 +64,13 @@ enum FigureViewOutcome {
     private(set) var walkthrough = Part()
     /// A part explained more simply, by the part's index in the walkthrough.
     private(set) var simpler: [Int: Part] = [:]
-    /// A part extracted with more context (owner, TestFlight 62: "Extract the subfigure and more context"), by its index.
-    private(set) var details: [Int: Part] = [:]
     /// The figure as the request sends it (its panels composed, or the table drawn here), which crops are cut from.
     private(set) var image: CGImage?
     /// Each card's framing (FIGURE_VIEW.md "Parts as viewports"): completed on the image the request carried, then framed
     /// by confidence as a viewport into `image` (tight, loose and outlined, or the whole figure outlined); the caption's
-    /// panel letters cap the parts. The walkthrough's by section index, each extracted part's (framed alone) by its index;
-    /// empty until worked out (off the main actor), so no card shows and then changes size.
+    /// panel letters cap the parts. By section index; empty until worked out (off the main actor), so no card shows and
+    /// then changes size.
     private(set) var framed: [Int: FramedPart] = [:]
-    private(set) var detailFramed: [Int: FramedPart] = [:]
     /// The card's key in the local framing record (FigureFramingRecorder); nil when the paper isn't an arXiv paper here.
     func recordKey(_ surface: FigureFramingRecord.Surface, _ index: Int) -> String? {
         context.localContext == nil ? nil : "\(context.bundle.manifestSHA256)|\(context.figureID)|\(surface.rawValue)|\(index)"
@@ -111,9 +106,6 @@ enum FigureViewOutcome {
             walkthrough = Part(state: .done, walkthrough: kept.walkthrough, text: kept.text, answeredModel: kept.model)
             for (index, section) in (kept.walkthrough?.sections ?? []).enumerated() {
                 if let more = model.figureAnswer(key(.figureSimpler, part: section.text, profile: profile)) { simpler[index] = Part(state: .done, text: more.text) }
-                if let closer = model.figureAnswer(key(.figureDetail, part: section.text, profile: profile)) {
-                    details[index] = Part(state: .done, detail: closer.detail, text: closer.text)
-                }
             }
         }
         await prepareImage()
@@ -132,16 +124,6 @@ enum FigureViewOutcome {
         guard let section = walkthrough.walkthrough?.sections[safe: index] else { return }
         run(.figureSimpler, part: (index, section))
     }
-    /// "Extract the subfigure and more context": that part's region, cropped, read again with more of the paper, inline
-    /// under it.
-    func extract(_ index: Int) {
-        guard let section = walkthrough.walkthrough?.sections[safe: index], details[index]?.state != .loading, details[index]?.state != .done else { return }
-        run(.figureDetail, part: (index, section))
-    }
-    func retryDetail(_ index: Int) {
-        guard let section = walkthrough.walkthrough?.sections[safe: index] else { return }
-        run(.figureDetail, part: (index, section))
-    }
 
     func acceptConsent() {
         guard let model, let resume = awaitingConsent else { return }
@@ -157,7 +139,6 @@ enum FigureViewOutcome {
         awaitingConsent = nil
         if walkthrough.state == .needsConsent { walkthrough = Part(state: .failed("Explanations use the chat’s AI. Try again to choose.", retryable: true)) }
         for (index, part) in simpler where part.state == .needsConsent { simpler[index] = nil }
-        for (index, part) in details where part.state == .needsConsent { details[index] = nil }
     }
 
     func stop() { for task in tasks.values { task.cancel() }; tasks = [:] }
@@ -192,28 +173,26 @@ enum FigureViewOutcome {
         refreshCrops()
     }
 
-    /// Frames every card shown (the walkthrough's together, each extracted part alone), off the main actor.
+    /// Frames the walkthrough's cards together, off the main actor.
     private func refreshCrops() {
         guard inkReady, let image else { return }
         let sections = walkthrough.walkthrough?.sections ?? []
         let boxed = sections.indices.filter { sections[$0].cardKind == .panel && sections[$0].box != nil }
         let boxes = boxed.map { sections[$0].box!.fractions }, labels = boxed.map { sections[$0].label.isEmpty ? sections[$0].title : sections[$0].label }
-        let extracted = details.compactMap { index, part in part.detail.map { (index, $0.box.fractions, $0.label.isEmpty ? $0.title : $0.label) } }
         let ink = self.ink, caption = context.caption, width = image.width, height = image.height
         let fallback = ink == nil ? walkthrough.walkthrough?.cropCoverage(width: image.width, height: image.height) : nil
         cropGeneration += 1
         let generation = cropGeneration
         Task { [weak self] in
-            struct Made: Sendable { let framed: [Int: FramedPart]; let details: [Int: FramedPart]; let coverage: Double? }
+            struct Made: Sendable { let framed: [Int: FramedPart]; let coverage: Double? }
             let made = await Task.detached(priority: .userInitiated) { () -> Made in
                 let all = FigureFraming.frame(ink, width: width, height: height, boxes: boxes, caption: caption, labels: labels)
-                var framed: [Int: FramedPart] = [:], details: [Int: FramedPart] = [:]
+                var framed: [Int: FramedPart] = [:]
                 for (k, index) in boxed.enumerated() where k < all.parts.count { framed[index] = all.parts[k] }
-                for (index, box, label) in extracted { details[index] = FigureFraming.frame(ink, width: width, height: height, boxes: [box], labels: [label]).parts.first }
-                return Made(framed: framed, details: details, coverage: all.coverage)
+                return Made(framed: framed, coverage: all.coverage)
             }.value
             guard let self, generation == cropGeneration else { return }
-            framed = made.framed; detailFramed = made.details; inkCoverage = made.coverage ?? fallback
+            framed = made.framed; inkCoverage = made.coverage ?? fallback
             record(boxed: boxed, sections: sections)
         }
     }
@@ -227,16 +206,11 @@ enum FigureViewOutcome {
             FigureFramingRecorder.shared.shown(key, FigureFramingRecord(figure: figure, surface: .walkthrough, part: k, parts: boxed.count, level: part.level,
                                                                         box: box.fractions, region: part.region, frame: part.frame))
         }
-        for (index, part) in detailFramed {
-            guard let box = details[index]?.detail?.box, let key = recordKey(.detail, index) else { continue }
-            FigureFramingRecorder.shared.shown(key, FigureFramingRecord(figure: figure, surface: .detail, part: 0, parts: 1, level: part.level,
-                                                                        box: box.fractions, region: part.region, frame: part.frame))
-        }
     }
 
     private func run(_ action: ChatAction, part: (index: Int, section: FigureWalkthrough.Section)?) {
         guard let model else { return }
-        func set(_ value: Part) { store(value, action: action, index: part?.index) }
+        func set(_ value: Part) { store(value, index: part?.index) }
         guard model.isSignedIn else { set(Part(state: .needsSignIn)); return }
         guard localModelID != nil || context.localContext != nil else { set(Part(state: .unavailable)); return }
         guard localModelID != nil || model.hasCloudConsent else {
@@ -249,9 +223,7 @@ enum FigureViewOutcome {
         let request: ChatGenerationRequest
         do {
             let label = part.map { "\(context.label) \($0.section.name)" } ?? context.label
-            // A part extracted is named by its label and title with its text, so the model knows which region to crop.
-            let quote = part.map { action == .figureDetail
-                ? ([$0.section.label, $0.section.title].filter { !$0.isEmpty }.joined(separator: " ") + "\n" + $0.section.text) : $0.section.text } ?? context.caption
+            let quote = part?.section.text ?? context.caption
             if localModelID != nil {
                 guard quote.unicodeScalars.count <= ChatGenerationRequest.maximumSelectionScalars else { throw LocalAIContext.Failure.mandatoryInputTooLarge }
                 request = try ChatGenerationRequest.make(operationID: UUID(), documentID: context.paperID,
@@ -266,29 +238,25 @@ enum FigureViewOutcome {
             set(Part(state: .failed(message, retryable: false))); return
         }
         set(Part(state: .loading))
-        let id = part.map { "\(action == .figureDetail ? "detail" : "simpler").\($0.index)" } ?? "figure"
+        let id = part.map { "simpler.\($0.index)" } ?? "figure"
         tasks[id]?.cancel()
         let answerKey = key(action, part: part?.section.text, profile: profile)
         tasks[id] = Task { [weak self] in await self?.stream(request, action: action, part: part?.index, key: answerKey) }
     }
 
-    /// The walkthrough, or one part's simpler words or extract.
-    private func store(_ value: Part, action: ChatAction, index: Int?) {
+    /// The walkthrough, or one part's simpler words.
+    private func store(_ value: Part, index: Int?) {
         guard let index else {
             let changed = walkthrough.walkthrough != value.walkthrough
             walkthrough = value
             if changed { refreshCrops() }
             return
         }
-        if action == .figureDetail {
-            let changed = details[index]?.detail != value.detail
-            details[index] = value
-            if changed { refreshCrops() }
-        } else { simpler[index] = value }
+        simpler[index] = value
     }
 
     private func stream(_ request: ChatGenerationRequest, action: ChatAction, part index: Int?, key: FigureResultKey) async {
-        func set(_ value: Part) { store(value, action: action, index: index) }
+        func set(_ value: Part) { store(value, index: index) }
         var part = Part(state: .loading), model: String?, credits: Int?
         let scope = self.model?.readerSessionID
         do {
@@ -298,11 +266,9 @@ enum FigureViewOutcome {
                 switch event {
                 case .delta(let piece):
                     part.text += piece
-                    // A part more simply streams as it is written; the walkthrough's words (no usable walkthrough) and an
-                    // extract's (no usable box) come whole.
+                    // A part more simply streams as it is written; the walkthrough's words (no usable walkthrough) come whole.
                     if localModelID != nil || (index != nil && action == .figureSimpler) { set(part) }
                 case .figure(let walkthrough): part.walkthrough = walkthrough
-                case .figureDetail(let detail): part.detail = detail
                 case .done(_, let paid, let answered, _): credits = paid; part.state = .done; model = answered; part.answeredModel = answered
                 case .failure(let code, let paid): credits = paid; part.state = Self.failure(code)
                 default: break
@@ -313,14 +279,14 @@ enum FigureViewOutcome {
         catch { guard !Task.isCancelled else { return }; part.state = Self.failure("transport") }
         guard !Task.isCancelled, self.model?.readerSessionID == scope else { return }
         if part.state == .loading { part.state = Self.failure("transport") }
-        if part.state == .done, part.walkthrough == nil, part.detail == nil, part.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if part.state == .done, part.walkthrough == nil, part.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             part.state = .failed(index == nil ? "Couldn’t explain this figure. Try again." : "Couldn’t explain this part. Try again.", retryable: true)
         }
         // The server says what an early or empty ending cost: nothing (it never charges for work it couldn't show).
         part.notCharged = credits == 0 && part.state != .done
         set(part)
         guard part.state == .done, let reader = self.model else { return }
-        reader.keepFigureAnswer(FigureAnswer(walkthrough: part.walkthrough, detail: part.detail, text: part.text, model: model), for: key)
+        reader.keepFigureAnswer(FigureAnswer(walkthrough: part.walkthrough, text: part.text, model: model), for: key)
         if localModelID == nil { Task { await reader.refreshCreditBalance() } }
     }
 

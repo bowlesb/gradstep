@@ -2,8 +2,9 @@
 // page's top row (owner, build 62), as the equation view. Nothing is asked of the AI unasked; it asks the chat's consent first. The
 // walkthrough says what the figure shows, then goes part by part, with a crop at the top of a part only where the model
 // drew a box (cut here from the image that was sent, so it costs nothing more). Each part's ⋯ offers Explain more
-// simply (streamed under it), Extract the subfigure and more context (owner, TestFlight 62: a loader under the part, then
-// its crop and a closer reading), Show in the paper and Ask in chat about this. No credit counts (owner, build 59).
+// simply (streamed under it: the one AI follow-up), Show in the paper, Save snippet and Ask in chat about this. To look
+// closer, a part's card zooms and expands to the whole figure ("Extract the subfigure and more context" was removed on
+// 2026-10-21: one AI result, the walkthrough). No credit counts (owner, build 59).
 import { STANDARD_PROFILE, modelName, modelOption, type ProfileChoice } from '../lib/chat-profiles';
 import { ExplainerModelDialog } from './ChatProfile';
 import type { ContextualHost } from './ContextualChat';
@@ -11,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { failureText, interruptionNote } from '../lib/chat';
 import { cropCoverage, cardTypeLabel, sectionHeading, type FigureAction, type FigureResult, type FigureSection } from '../lib/figure-view';
 import { boxFractions } from '../lib/figure-crops';
-import { frameParts, type FramedPart } from '../lib/figure-framing';
+import type { FramedPart } from '../lib/figure-framing';
 import { framingShown, type ArxivFigure, type FramingSurface } from '../lib/figure-framing-record';
 import { useFramedParts, useSentInk } from './useFigureCrops';
 import { ViewportCard, type FigureSource } from './FigureViewport';
@@ -62,14 +63,13 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const [asking, setAsking] = useState(false);
   const [walk, setWalk] = useState<FigureResult | null>(() => host?.saved(manifest, figureID, 'figure', '', profile) ?? null);
   const [simpler, setSimpler] = useState<Map<string, FigureResult>>(() => new Map());
-  const [details, setDetails] = useState<Map<string, FigureResult>>(() => new Map());
   const requests = useRef(new Map<string, AbortController>());
   useEffect(() => () => { for (const c of requests.current.values()) c.abort(); }, []);
   useEffect(() => { onActive(asking || !!walk); }, [asking, walk, onActive]);
 
   useEffect(() => {
     for (const c of requests.current.values()) c.abort();
-    setWalk(host?.saved(manifest, figureID, 'figure', '', profile) ?? null); setSimpler(new Map()); setDetails(new Map());
+    setWalk(host?.saved(manifest, figureID, 'figure', '', profile) ?? null); setSimpler(new Map());
   }, [JSON.stringify(profile)]);
   useEffect(() => { onExplanation?.(walk?.walkthrough ? [walk.walkthrough.summary, ...walk.walkthrough.sections.map(s => s.text)].join('\n') : walk?.text ?? ''); }, [walk, onExplanation]);
   // A reopened walkthrough brings its parts' simpler explanations with it (this session only).
@@ -78,11 +78,6 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     setSimpler(previous => {
       const next = new Map(previous);
       walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_simpler', k, profile); if (saved && !next.has(k)) next.set(k, saved); });
-      return next;
-    });
-    setDetails(previous => {
-      const next = new Map(previous);
-      walk.walkthrough!.sections.forEach((s, i) => { const k = partKey(s, i), saved = host.saved(manifest, figureID, 'figure_detail', k, profile); if (saved && !next.has(k)) next.set(k, saved); });
       return next;
     });
   }, [host, manifest, figureID, walk?.walkthrough]);
@@ -95,7 +90,6 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
     const set = (result: FigureResult) => {
       if (controller.signal.aborted) return;
       if (action === 'figure') setWalk(result);
-      else if (action === 'figure_detail') setDetails(m => new Map(m).set(key, result));
       else setSimpler(m => new Map(m).set(key, result));
     };
     set(loading());
@@ -154,11 +148,6 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
   const framed = useFramedParts(ink, image, { boxes: boxed.map(i => boxFractions(sections[i].box!)), caption, labels: boxed.map(i => sections[i].label || sections[i].title) });
   const shownFor = new Map(boxed.map((i, k) => [i, framed?.parts[k]] as const));
   const coverage = !framed || !image ? null : framed.coverage ?? (ink === null ? cropCoverage(sections, image) : null);
-  // An extracted part is framed alone, by the same rules (it is one of the walkthrough's parts, never a new one).
-  const closerFor = useMemo(() => ink === undefined ? new Map<string, FramedPart>() : new Map([...details].flatMap(([k, r]) => {
-    const sent = r.image ?? image;
-    return r.detail && sent ? [[k, frameParts(ink, sent, { boxes: [boxFractions(r.detail.box)], labels: [r.detail.label || r.detail.title] }).parts[0]] as const] : [];
-  })), [ink, details, image]);
   const source = useMemo((): FigureSource | null => image ? { src: `data:image/jpeg;base64,${image.data}`, width: image.width, height: image.height } : null, [image]);
   // What each card shows, for Save snippet, by part and card.
   const captures = useRef(new Map<string, () => Promise<Blob | null>>());
@@ -171,10 +160,9 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
       if (part && box) framingShown(recordKey(surface, i), { figure: { ...arxiv, figure: label }, surface, part: index, parts, level: part.level, box: boxFractions(box), region: part.region, frame: part.frame });
     };
     boxed.forEach((i, k) => show('walkthrough', i, framed?.parts[k], sections[i].box, boxed.length, k));
-    sections.forEach((s, i) => { const r = details.get(partKey(s, i)); show('detail', i, closerFor.get(partKey(s, i)), r?.detail?.box, 1, 0); });
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const snippet = async (key: string, heading: string) => {
-    const capture = captures.current.get(`card:${key}`) ?? captures.current.get(`detail:${key}`);
+    const capture = captures.current.get(`card:${key}`);
     const blob = capture ? await capture() : null;
     if (blob && onSnippet) onSnippet(blob, `${label} · ${heading}`);
   };
@@ -195,8 +183,6 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
         <h3 id="figure-parts">Part by part</h3>
         <ol className="figure-sections">{sections.map((s, i) => {
           const key = partKey(s, i), heading = sectionHeading(s), more = simpler.get(key), shown = shownFor.get(i);
-          const closer = details.get(key), closerImage = closer?.image ?? image, closerShown = closer?.detail ? closerFor.get(key) : undefined;
-          const closerSource = closerImage && closerImage !== image ? { src: `data:image/jpeg;base64,${closerImage.data}`, width: closerImage.width, height: closerImage.height } : source;
           const aspect = (p: FramedPart, im: { width: number; height: number }) => ((p.frame[2] - p.frame[0]) * im.width) / ((p.frame[3] - p.frame[1]) * im.height);
           return <li key={key} className="figure-section" data-testid={`figure-section-${i}`}>
             <div className="figure-section-head">
@@ -204,11 +190,9 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
               <MenuButton icon="more" label={`${heading}: options`} testID={`figure-section-menu-${i}`}>{close => <>
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-simpler-item" disabled={!!more && more.phase !== 'failed'}
                   onClick={() => { close(false); run('figure_simpler', s, i); }}><Icon name="lightbulb" size={14} /> Explain more simply</button>
-                {(!s.kind || s.kind === 'panel') && <button type="button" role="menuitem" className="menu-item" data-testid="figure-detail-item" disabled={!!closer && closer.phase !== 'failed'}
-                  onClick={() => { close(false); run('figure_detail', s, i); }}><Icon name="search" size={14} /> Extract the subfigure and more context</button>}
                 <button type="button" role="menuitem" className="menu-item" data-testid="figure-show-item"
                   onClick={() => { close(false); if (s.paragraphs[0]) onCite(s.paragraphs[0]); else onShowFigure(); }}><Icon name="book" size={14} /> Show in the paper</button>
-                {onSnippet && (shown || closerShown) && <button type="button" role="menuitem" className="menu-item" data-testid="figure-snippet-item"
+                {onSnippet && shown && <button type="button" role="menuitem" className="menu-item" data-testid="figure-snippet-item"
                   onClick={() => { close(false); void snippet(key, heading); }}><Icon name="image" size={14} /> Save snippet</button>}
                 {onAsk && <button type="button" role="menuitem" className="menu-item" data-testid="figure-ask-item" disabled={busy}
                   onClick={() => { close(false); void onAsk(s.text); }}><Icon name="chat" size={14} /> Ask in chat about this</button>}
@@ -224,18 +208,6 @@ export function FigureExplain({ manifest, figureID, host, onActive, onCite, onSh
                 {more.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_simpler', s, i)}>Try again</button>}</div>
                 : more.text ? <Answer text={more.text} streaming={more.phase === 'loading'} /> : <p className="fine" role="status">Writing…</p>}
               {endedEarly(more) && <p className="fine">{endedEarly(more)}</p>}
-            </div>}
-            {closer && <div className="figure-simpler figure-detail" data-testid="figure-detail">
-              <p className="figure-simpler-head">Up close</p>
-              {closer.phase === 'failed' && !closer.text ? <div className="equation-issue" role="alert"><p>{issueText(closer.issue ?? 'provider_unavailable')}</p>
-                {closer.issue !== 'invalid_request' && <button className="secondary small" onClick={() => run('figure_detail', s, i)}>Try again</button>}</div>
-                : closer.phase === 'loading' ? <p className="fine" role="status">Extracting this part…</p> : <>
-                  {closerShown && closerSource && <ViewportCard key={closerShown.frame.join()} image={closerSource} part={closerShown} label={`${heading}, up close`} testID="figure-detail-crop"
-                    width={`min(100%, ${Math.round(Math.min(560, 360 * aspect(closerShown, closerSource)))}px)`} recordKey={arxiv ? recordKey('detail', i) : undefined} register={registerCapture(`detail:${key}`)} />}
-                  <Answer text={closer.detail?.text ?? closer.text} />
-                  {!closer.detail && <p className="fine" data-testid="figure-detail-no-crop">Couldn’t crop this part; here is the closer reading.</p>}
-                </>}
-              {endedEarly(closer) && <p className="fine">{endedEarly(closer)}</p>}
             </div>}
           </li>;
         })}</ol>

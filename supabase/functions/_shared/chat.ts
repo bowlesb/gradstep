@@ -133,6 +133,8 @@ const LIMIT_STOP_REASONS: readonly string[] = ['max_tokens', 'model_context_wind
 /** A Stop's record (v1_chat_stop) may still be on its way when the stream closes: one more look after this long. */
 export const STOP_GRACE_MS = 1_500;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix' | 'study' | 'equation' | 'equation_background' | 'figure' | 'figure_simpler' | 'figure_detail';
+// `figure_detail` is deprecated (2026-10-21): accepted from older builds only; remove once no supported build sends it
+// (chat-figure-view.ts FIGURE_ACTIONS).
 const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix', 'study', 'equation', 'equation_background', 'figure', 'figure_simpler', 'figure_detail'];
 /** The equation and figure views: no conversation (one turn, no title, no suggestions), and no tool result relayed. */
 const isViewAction = (action: ChatAction | null) => isEquationAction(action) || isFigureAction(action);
@@ -644,7 +646,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const symbolsOnly = request.action === 'equation';
   // The figure view's walkthrough is one tool call, checked before the device sees it; any words are held back with it.
   const walkthroughOnly = request.action === 'figure';
-  // One part extracted (owner, build 62): the same tool with one section and its box, checked and held back the same way.
+  // One part extracted (owner, build 62; deprecated 2026-10-21, older builds only): the same tool with one section and its
+  // box, checked and held back the same way.
   const detailOnly = request.action === 'figure_detail';
   const heldBack = symbolsOnly || walkthroughOnly || detailOnly;
   // Flash counts reasoning against max_tokens: the live DPO symbol request used the old 2,000-token

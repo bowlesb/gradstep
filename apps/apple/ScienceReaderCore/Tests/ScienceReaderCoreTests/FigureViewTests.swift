@@ -80,33 +80,26 @@ import Testing
         #expect(walkthrough.sections.count == 2)
     }
 
-    /// One part extracted (`figure_detail`, owner, TestFlight 62): the event needs a usable box; it rides the same stream.
-    @Test func aDetailNeedsItsBoxAndRidesTheStream() throws {
-        let event: [String: Any] = ["format": "figure-detail-v1", "label": "(a)", "title": "The RLHF pipeline",
-                                    "text": "Up close: three boxes [¶12].", "paragraphs": [12, 12, 0], "box": ["x": 0.02, "y": 0.1, "w": 0.45, "h": 0.5]]
-        let detail = try #require(FigureDetail.validated(Self.json(event)))
-        #expect(detail.label == "(a)" && detail.title == "The RLHF pipeline" && detail.paragraphs == [12])
-        #expect(detail.box == .init(x: 0.02, y: 0.1, w: 0.45, h: 0.5))
-        for bad in [["x": 0, "y": 0, "w": 1, "h": 1], ["x": 0.1, "y": 0.1, "w": 0.01, "h": 0.5], ["x": 0.9, "y": 0.1, "w": 0.5, "h": 0.5]] {
-            var row = event; row["box"] = bad
-            #expect(FigureDetail.validated(Self.json(row)) == nil)
-        }
-        var boxless = event; boxless["box"] = nil
-        #expect(FigureDetail.validated(Self.json(boxless)) == nil, "no box, no detail: the words come as text")
-        var empty = event; empty["text"] = " "
-        #expect(FigureDetail.validated(Self.json(empty)) == nil)
+    /// "Extract the subfigure and more context" (`figure_detail`) was removed on 2026-10-21 (owner: one AI result, the
+    /// walkthrough). This client never asks for it; a stray `figure_detail` event is ignored; an older build's kept detail
+    /// answer still decodes (its `detail` ignored) and is neither shown nor listed in Settings › Your assets.
+    @Test func extractTheSubfigureIsGoneButOldAnswersStillRead() throws {
+        #expect(ChatAction(rawValue: "figure_detail") == nil)
+        #expect(ChatAction.figure.isFigure && ChatAction.figureSimpler.isFigure)
         var parser = ChatSSEParser()
-        let payload = String(decoding: Self.json(event), as: UTF8.self)
-        let events = try parser.consume(Array("event: figure_detail\ndata: \(payload)\n\nevent: figure_detail\ndata: {\"format\":\"x\"}\n\nevent: done\ndata: {\"stop_reason\":\"end_turn\",\"credits\":3}\n\n".utf8))
-        #expect(events.count == 2)
-        guard case .figureDetail(let streamed) = events.first else { Issue.record("no figure_detail event"); return }
-        #expect(streamed == detail)
-        // An answer kept before details existed still reads; one with a detail keeps it.
+        let detail = #"{"format":"figure-detail-v1","label":"(a)","title":"The RLHF pipeline","text":"Up close [¶12].","paragraphs":[12],"box":{"x":0.02,"y":0.1,"w":0.45,"h":0.5}}"#
+        let events = try parser.consume(Array("event: figure_detail\ndata: \(detail)\n\nevent: done\ndata: {\"stop_reason\":\"end_turn\",\"credits\":3}\n\n".utf8))
+        #expect(events.count == 1)
+        guard case .done = events.first else { Issue.record("only done: \(events)"); return }
+        let subject = #"{"paperID":"\#(UUID().uuidString)","paperTitle":"P","manifestSHA256":"m","itemID":"f1","label":"Figure 1","action":"figure_detail","savedAt":0}"#
+        let kept = try JSONDecoder().decode(FigureAnswer.self, from: Data(#"{"detail":\#(detail),"text":"","model":"m","subject":\#(subject)}"#.utf8))
+        #expect(kept.walkthrough == nil && kept.text.isEmpty && kept.subject?.action == "figure_detail")
+        #expect(!FigureAnswer.isShownFigureAction("figure_detail"))
+        #expect(FigureAnswer.isShownFigureAction("figure") && FigureAnswer.isShownFigureAction("figure_simpler"))
+        #expect(!FigureAnswer.isShownFigureAction("equation"))
+        // An answer kept before subjects existed still reads.
         let old = try JSONDecoder().decode(FigureAnswer.self, from: Data(#"{"text":"words","model":"m"}"#.utf8))
-        #expect(old.detail == nil && old.text == "words")
-        let kept = FigureAnswer(detail: detail, model: "m")
-        #expect(try JSONDecoder().decode(FigureAnswer.self, from: JSONEncoder().encode(kept)) == kept)
-        #expect(ChatAction.figureDetail.isFigure && ChatAction.figureDetail.rawValue == "figure_detail")
+        #expect(old.text == "words")
     }
 
     @Test func aBoxIsCutInWholePixelsInsideTheImage() throws {
@@ -163,11 +156,6 @@ import Testing
                                                        profile: profile, localContext: context, visualAnswers: false, image: image)
         let simplerBody = try #require(try JSONSerialization.jsonObject(with: simpler.encoded()) as? [String: Any])
         #expect(simplerBody["action"] as? String == "figure_simpler"); #expect(simplerBody["capabilities"] as? [String] == ["figure_view", "stop_signal"])
-        let detail = try ChatGenerationRequest.figure(.figureDetail, operationID: UUID(), label: "Figure 1 (a)", quote: "(a) The red panel\nThe red panel fits a reward model.",
-                                                      profile: profile, localContext: context, visualAnswers: true, image: image)
-        let detailBody = try #require(try JSONSerialization.jsonObject(with: detail.encoded()) as? [String: Any])
-        #expect(detailBody["action"] as? String == "figure_detail"); #expect(detailBody["follow_ups"] == nil); #expect(detailBody["topic_title"] == nil)
-        #expect(detailBody["capabilities"] as? [String] == chatBody["capabilities"] as? [String])
         // Never offered for Add paper, a repair or general chat.
         #expect(!ChatGenerationRequest.capabilities(action: .ingest, visualAnswers: true, figureRequests: true, paper: true).contains("figure_view"))
         #expect(!ChatGenerationRequest.capabilities(action: .diagramFix, visualAnswers: true, paper: true).contains("figure_view"))

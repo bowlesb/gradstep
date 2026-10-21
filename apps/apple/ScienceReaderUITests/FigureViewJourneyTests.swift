@@ -128,58 +128,34 @@ final class FigureViewJourneyTests: XCTestCase {
         }
         #endif
 
-        // "Back up a bit": the part again, more simply, under it.
+        // "Back up a bit": the part again, more simply, under it. Owner, 2026-10-21: no "Extract the subfigure and more
+        // context" — the walkthrough is the one AI result; a part's card zooms and expands to look closer.
         partMenu(app, 1).tap()
+        XCTAssertTrue(menuItem(app, "figureView.simpler", "Explain more simply").exists)
+        XCTAssertFalse(app.buttons["figureView.extract"].exists || app.buttons["Extract the subfigure and more context"].exists
+                       || app.menuItems["Extract the subfigure and more context"].exists, "no Extract the subfigure")
         menuItem(app, "figureView.simpler", "Explain more simply").tap()
         let simpler = app.descendants(matching: .any)["figureView.section.1.simpler"]
         XCTAssertTrue(simpler.waitForExistence(timeout: 8))
         XCTAssertTrue(wait { simpler.label.contains("synthetic fixture answer") }, "The simpler explanation streams in: \(simpler.label)")
         capture(app, "A part, more simply")
 
-        // Owner, TestFlight 62: "Extract the subfigure and more context" — a loader under the part, then its crop and the
-        // closer reading under it; a part the model can't box gets the words and says it couldn't crop.
         let second = partMenu(app, 2)
         #if targetEnvironment(macCatalyst)
         let page = app.scrollViews["figureView.walkthrough"]
-        for _ in 0..<3 where !second.isHittable { page.scroll(byDeltaX: 0, deltaY: -300) }
-        #else
-        for _ in 0..<3 where !second.isHittable { app.swipeUp() }
         #endif
-        second.tap()
-        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
-        let extractedCrop = app.descendants(matching: .any)["figureView.section.2.detailCrop"], extracted = app.descendants(matching: .any)["figureView.section.2.detail"]
-        XCTAssertTrue(extractedCrop.waitForExistence(timeout: 8), "the part, cropped")
-        XCTAssertTrue(extracted.waitForExistence(timeout: 2)); XCTAssertTrue(extracted.label.contains("single filled block"), extracted.label)
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "credit")).firstMatch.exists, "no credit counts")
-        #if !targetEnvironment(macCatalyst)
-        let composerBounds = app.descendants(matching: .any)["contextChat.composer"]
-        for _ in 0..<6 where !(extractedCrop.isHittable && extractedCrop.frame.maxY < composerBounds.frame.minY) { app.swipeUp() }
-        let beforeZoom = extractedCrop.value as? String
-        // The small iPad crop makes XCTest's 2× pinch move each finger only ~11 points.
-        // Use enough actual travel for the system gesture recognizer; still require a changed zoom value.
-        extractedCrop.pinch(withScale: 4, velocity: 1)
-        XCTAssertTrue(wait { (extractedCrop.value as? String) != beforeZoom }, "The extracted crop actually zooms")
-        let zoomEvidence = XCTAttachment(string: "Crop \(extractedCrop.frame): zoom \(beforeZoom ?? "nil") → \(extractedCrop.value as? String ?? "nil")")
-        zoomEvidence.name = "Extracted crop pinch"; zoomEvidence.lifetime = .keepAlways; add(zoomEvidence)
-        #endif
-        capture(app, "A part extracted, up close")
-        let third = partMenu(app, 3)
-        #if targetEnvironment(macCatalyst)
-        for _ in 0..<3 where !third.isHittable { page.scroll(byDeltaX: 0, deltaY: -300) }
-        #else
-        for _ in 0..<3 where !third.isHittable { app.swipeUp() }
-        #endif
-        third.tap()
-        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
-        XCTAssertTrue(app.staticTexts["figureView.section.3.detailNoCrop"].waitForExistence(timeout: 8), "no region: the words, and it says so")
-        XCTAssertFalse(app.descendants(matching: .any)["figureView.section.3.detailCrop"].exists)
 
         // Show in the paper: the part's paragraph, the sheet gone.
         #if targetEnvironment(macCatalyst)
         // Clear of the sheet's top row too: content scrolls behind the bar, and a click there lands on the bar.
-        for _ in 0..<4 where !(second.isHittable && second.frame.minY > page.frame.minY + 60) { page.scroll(byDeltaX: 0, deltaY: 150) }
+        for _ in 0..<4 where !(second.isHittable && second.frame.minY > page.frame.minY + 60) {
+            page.scroll(byDeltaX: 0, deltaY: second.frame.minY > page.frame.midY ? -150 : 150)
+        }
         #else
-        for _ in 0..<3 where !second.isHittable { app.swipeDown() }
+        let composerBar = app.descendants(matching: .any)["contextChat.composer"].firstMatch
+        for _ in 0..<4 where !(second.isHittable && second.frame.maxY < composerBar.frame.minY) {
+            second.frame.minY > app.windows.firstMatch.frame.midY ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow)
+        }
         #endif
         second.tap()
         menuItem(app, "figureView.showInPaper", "Show in the paper").tap()
@@ -191,7 +167,6 @@ final class FigureViewJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["reader.explainer.back"].waitForExistence(timeout: 5)); app.buttons["reader.explainer.back"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 3), "kept walkthrough")
         XCTAssertTrue(app.descendants(matching: .any)["figureView.section.1.simpler"].exists, "kept simpler part")
-        XCTAssertTrue(app.descendants(matching: .any)["figureView.section.2.detail"].exists, "kept extract")
         XCTAssertFalse(app.descendants(matching: .any)["figureView.loading"].exists)
 
         // The ordinary figure page also reopens its saved explainer directly (owner feedback, build 71).
@@ -262,21 +237,12 @@ final class FigureViewJourneyTests: XCTestCase {
         for _ in 0..<6 where !inView(right) { right.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
         #endif
         capture(app, "Two-plot walkthrough: right plot (\(appearance))")
-        partMenu(app, 2).tap()
-        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
-        let closer = app.descendants(matching: .any)["figureView.section.2.detailCrop"]
-        XCTAssertTrue(closer.waitForExistence(timeout: 10), "the right plot, up close")
-        XCTAssertEqual(closer.frame.width / closer.frame.height, right.frame.width / right.frame.height, accuracy: 0.04, "the same completed region")
-        #if !targetEnvironment(macCatalyst)
-        for _ in 0..<6 where !inView(closer) { closer.frame.maxY >= composer.frame.minY - 8 ? app.swipeUp(velocity: .slow) : app.swipeDown(velocity: .slow) }
-        #endif
-        capture(app, "Two-plot walkthrough: right plot up close (\(appearance))")
     }
 
     /// Owner, 2026-10-21: "we present it as a crop of the whole thing, that they can expand, rather than an actual crop".
     /// Parts are viewports into the whole figure, framed by confidence (FIGURE_VIEW.md "Parts as viewports"): the precise
     /// left box tight (as a crop looked), the deliberately imprecise right box (it starts inside the left plot) loosely with
-    /// the part outlined, and that box extracted alone (it cuts the left plot) as the whole figure with the part outlined.
+    /// the part outlined.
     /// A tap expands a card to the whole figure; pinching out of a card reveals what is around the part.
     /// `TEST_RUNNER_FIGURE_FRAMING_STAGE=before` takes only the screenshots (a build without viewports).
     func testPartsAreFramedByConfidenceAndExpandToTheWholeFigure() throws { framedParts(appearance: "light") }
@@ -337,18 +303,6 @@ final class FigureViewJourneyTests: XCTestCase {
             sleep(1)
             capture(app, "Framing: fullscreen (\(appearance))")
             app.buttons["figureView.fullscreen.close"].tap()
-        }
-        reveal(right)
-        partMenu(app, 2).tap()
-        menuItem(app, "figureView.extract", "Extract the subfigure and more context").tap()
-        let closer = app.descendants(matching: .any)["figureView.section.2.detailCrop"]
-        XCTAssertTrue(closer.waitForExistence(timeout: 10), "the right plot, extracted")
-        reveal(closer)
-        capture(app, "Framing: extracted part (\(appearance))")
-        if after {
-            // Alone, the box cuts the left plot: the whole figure (with its margin) and the part outlined, no message.
-            XCTAssertEqual(closer.frame.width / closer.frame.height, 1380.0 / 521.0, accuracy: 0.05, "detail card \(closer.frame)")
-            XCTAssertFalse(app.staticTexts["figureView.section.2.detailCropWhole"].exists)
         }
     }
 

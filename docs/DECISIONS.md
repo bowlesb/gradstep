@@ -2,11 +2,28 @@
 
 Last updated: 2026-10-21 UTC. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
+## One figure result: "Extract the subfigure" removed (owner, 2026-10-21; implemented locally, not released)
+
+Owner, verbatim: "Let's not do extract the subfigure, users can always go to the original feature and just zoom in if
+they want. Let's simplify our life by trying to consistently create one good product experience in the AI result that
+comes back." This supersedes "the extract/more-parts requests kept" in the viewports decision below.
+
+- The walkthrough (summary + parts as viewports into the whole figure) is the single figure AI result on iPhone, iPad,
+  Mac and the browser. Looking closer = zoom/expand the viewport or open the figure page.
+- "Extract the subfigure and more context" (`figure_detail`) is removed from every client entry point, view and test.
+- Follow-up rule (agent, under "prefer fewer options"): a part follow-up stays only if it returns words into the same
+  walkthrough with no new crops or presentation. **Explain more simply** (`figure_simpler`) meets it and stays; there
+  was no "more parts" request to remove. Show in the paper, Save snippet and Ask about this part are not AI results.
+- Old kept detail answers are hidden (native: not looked up, not listed; browser: dropped on restore). No migration.
+- Server keeps accepting `figure_detail` for installed builds 63–79, marked DEPRECATED in code and docs; remove it once
+  no supported build sends it. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Extract the subfigure removed".
+
 ## Figure parts as viewports, framed by confidence (owner, 2026-10-21; implemented locally, not released)
 
 Owner: "in different panels, when we present it, we present it in such a way that if it's inaccurate, the user can just
 click and see the whole figure, so we present it as a crop of the whole thing, that they can expand, rather than an
-actual crop", with framing chosen by confidence, the extract/more-parts requests kept, and nothing misleading shown.
+actual crop", with framing chosen by confidence, the extract/more-parts requests kept (superseded the same day: Extract
+removed, above), and nothing misleading shown.
 Design and thresholds: [Parts as viewports](architecture/FIGURE_VIEW.md#parts-as-viewports--2026-10-21-local-source-not-released-not-deployed).
 Agent choices (reversible): the confidence signals and their weights; a white veil (opaque on a tight frame so it looks as
 the crop did, soft on a loose one, none on the whole figure); extras beyond the caption's panels shown as the whole figure

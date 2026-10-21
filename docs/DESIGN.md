@@ -105,6 +105,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   from its frame); pinch reveals what is around it; double tap returns. A caption that names its panels caps the parts;
   extras are outlines on the whole figure. Details: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Parts as viewports".
 
+- **One AI result per explainer** (owner, 2026-10-21: "Let's not do extract the subfigure … consistently create one good
+  product experience in the AI result that comes back"): the figure walkthrough is the only result; looking closer is
+  zooming or expanding a part's viewport, never another AI request that makes new crops or a different layout. A part's
+  menu keeps one AI follow-up, **Explain more simply** (words under the part, inside the walkthrough), plus the non-AI
+  Save snippet, Show in the paper and Ask about this part. A new follow-up is added only if it returns words into the
+  same walkthrough. [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md) "Extract the subfigure removed".
+
 - **Contents discovery** (owner, 2026-10-18): open at full height. On touch devices, double-tapping article text opens
   Contents; links, equations, figures, reference entries and selections retain their own actions. Long-press selection
   remains available, and Mac double-click still selects text. Above the four tabs, show “Double tap anywhere while

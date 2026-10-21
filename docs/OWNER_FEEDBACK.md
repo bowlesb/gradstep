@@ -1,5 +1,18 @@
 # Owner feedback log
 
+## Extract the subfigure removed — October 21 (implemented on a branch; not released, not deployed)
+
+Owner: "Let's not do extract the subfigure, users can always go to the original feature and just zoom in if they want.
+Let's simplify our life by trying to consistently create one good product experience in the AI result that comes back."
+
+| Request | Outcome |
+|---|---|
+| Remove "Extract the subfigure and more context" | Done on iPhone/iPad/Mac and the browser: menu item, loader, "Up close" card, "Couldn't crop this part" note, request, event, fixtures and journeys removed. Reverses build-62 item 8 (below). The walkthrough's part viewports zoom and expand to the whole figure instead |
+| Other part follow-ups | **Explain more simply** kept (words under the part, in the walkthrough, no crop); no "more parts" request existed. Show in the paper, Save snippet and Ask about this part are not AI results and stay |
+| Older builds and saved answers | Server still accepts the request from installed builds 63–79 (marked deprecated; remove when no supported build sends it). Saved detail answers are hidden, not broken; no migration |
+
+No TestFlight upload or deploy; physical phone not used. Evidence: IMPLEMENTATION_STATUS.md "Extract the subfigure removed".
+
 ## Build 78 screenshot feedback — October 21 UTC, 14:35–15:14 (implemented on a branch; not released)
 
 iPhone/iPad/Mac and the browser where they apply; no TestFlight upload or browser deploy; the physical phone was not
@@ -760,7 +773,7 @@ fixture UI evidence does not establish live provider availability. Owner accepta
 | 5 | "different types of screens in different situations, there should be just one" | No web version vs Couldn't open | same screen as 2 |
 | 6 | "top horizontal space is poorly used… X in top right… Explain in Chat and Explain with AI… liquid styling" | figure page | DESIGN.md "Sheet top row", "Explain actions" |
 | 7 | "options on top… a little thing you can expand to get to… all your equation listings" | explainer pages | top row; title ⌄ lists the other figures/equations |
-| 8 | "a new button for 'Extract the subfigure and more context'… loader below… puts it below" | a walkthrough part | new action per part: crop + more context, on request |
+| 8 | "a new button for 'Extract the subfigure and more context'… loader below… puts it below" | a walkthrough part | new action per part: crop + more context, on request (removed 2026-10-21 at the owner's request: one AI result; see the top of this log) |
 | 9 | "remove Done, use x button, use Liquid… tabs" | Contents sheet | glass tabs + X in one row |
 | 10 | "remove the equation text… Equation 1, Equation 2… a tile view similar to figures?" | Contents › Equations | rows "Equation (n)"; View as tiles with the equations typeset |
 | 11 | "The title Equations is duplicative" | Contents sheet | no title (the tab says it) |

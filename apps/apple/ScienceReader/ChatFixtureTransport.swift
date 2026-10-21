@@ -70,8 +70,7 @@ struct ChatFixtureTransport: ChatTransport {
     /// the device: FigureCropCompletion).
     static var figurePanels: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-panels") }
     /// With `--figure-fixture-loose` too: the right box is deliberately imprecise, starting inside the left plot as a model
-    /// sometimes writes it (FIGURE_VIEW.md "Parts as viewports": framed loosely and outlined; extracted alone it cuts the
-    /// left plot, so the whole figure with the part outlined).
+    /// sometimes writes it (FIGURE_VIEW.md "Parts as viewports": framed loosely and outlined).
     static var figureLoose: Bool { ProcessInfo.processInfo.arguments.contains("--figure-fixture-loose") }
     static var rightBox: FigureWalkthrough.Box { figureLoose ? .init(x: 0.45, y: 0.1, w: 0.54, h: 0.8) : .init(x: 0.55, y: 0.07, w: 0.44, h: 0.79) }
     static var panelsWalkthrough: FigureWalkthrough { FigureWalkthrough(summary: "Figure 1 sets two results side by side: reward against divergence on the left, win rate against sampling temperature on the right [¶4].", sections: [
@@ -80,18 +79,6 @@ struct ChatFixtureTransport: ChatTransport {
         .init(label: "Right plot", title: "Win rate against temperature", text: "Each line is one method; the dashed line is an even match [¶6].", paragraphs: [6],
               box: rightBox),
         .init(label: "", title: "Reading it as a whole", text: "Together the plots make the figure’s single point. This is a synthetic fixture answer; no AI request was made.")]) }
-    static var panelsDetail: FigureDetail { FigureDetail(label: "Right plot", title: "Win rate against temperature",
-        text: "Up close, the right plot compares six methods across five temperatures [¶6]. The dashed line marks an even match [¶4].\n\nThis is a synthetic fixture answer; no AI request was made.",
-        paragraphs: [6, 4], box: rightBox) }
-    /// One part extracted: the right half, boxed; the whole-figure part comes as words without a box (no crop).
-    static let figureDetail = FigureDetail(label: "Right half", title: "What it shows",
-        text: "Up close, the right half is a single filled block: the result the caption sums up [¶6]. The introduction sets it against the left half [¶4].\n\nThis is a synthetic fixture answer; no AI request was made.",
-        paragraphs: [6, 4], box: .init(x: 0.5, y: 0, w: 0.5, h: 1))
-    static let figureDetailWords = """
-    The figure reads as one point: start left, end right [¶4].
-
-    This is a synthetic fixture answer; no AI request was made.
-    """
     static let figureSimpler = """
     Start with the left half: it is only the starting point, nothing more [¶4].
 
@@ -148,16 +135,6 @@ struct ChatFixtureTransport: ChatTransport {
                         try await Task.sleep(for: .milliseconds(500))
                         continuation.yield(.figure(Self.figurePanels ? Self.panelsWalkthrough : Self.figureWalkthrough))
                         continuation.yield(.done(stopReason: "end_turn", credits: 5, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
-                        continuation.finish(); return
-                    }
-                    if request.action == .figureDetail {
-                        try await Task.sleep(for: .milliseconds(600))
-                        if request.selection?.contains("Reading it as a whole") == true {
-                            continuation.yield(.delta(Self.figureDetailWords))
-                        } else {
-                            continuation.yield(.figureDetail(Self.figurePanels ? Self.panelsDetail : Self.figureDetail))
-                        }
-                        continuation.yield(.done(stopReason: "end_turn", credits: 3, model: ChatProfileText.apiModel(for: request.profile.model), profile: request.profile.id))
                         continuation.finish(); return
                     }
                     if request.action == .figureSimpler {

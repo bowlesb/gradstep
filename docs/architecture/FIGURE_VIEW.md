@@ -1,6 +1,44 @@
 # The figure view: a walkthrough of a figure, on request (plan, 2026-10-16; server built on staging)
 
+## Extract the subfigure removed — 2026-10-21 (local source; not released, not deployed)
+
+Owner: "Let's not do extract the subfigure, users can always go to the original feature and just zoom in if they want.
+Let's simplify our life by trying to consistently create one good product experience in the AI result that comes back."
+
+- **One figure result.** The walkthrough (summary, then part by part, each part a viewport into the whole figure, below)
+  is the only AI result. To look closer, the reader pinches/zooms a part's card, taps it (or Full screen / Open
+  fullscreen) to expand to the whole figure with the part outlined, or uses the figure page itself.
+- **Removed from every client** (iPhone/iPad/Mac one SwiftUI path, and the browser): the part menu's "Extract the
+  subfigure and more context", its loader ("Extracting this part…"), the "Up close" block with its own viewport card,
+  "Couldn't crop this part; here is the closer reading", Try again for it, the detail framing and framing-record surface
+  (`detail`), its Save snippet source, the request (`ChatAction.figureDetail` / `'figure_detail'`), the stream event
+  (`figure_detail` is now ignored like any unknown event), `FigureDetail` / `parseFigureDetail` / `detailQuote`, the
+  fixtures' detail answers and the journeys' extract steps. The live smoke (`scripts/chat-live-smoke.mjs`) no longer
+  asks for it.
+- **Kept follow-ups (and why).** *Explain more simply* (`figure_simpler`) stays: it returns words only, streamed under
+  the same part inside the walkthrough ("More simply"), no crop, no new presentation; it is the owner's original "back
+  up a bit". The other part actions are not AI results and stay: Show in the paper, Save snippet (what the card shows),
+  Ask about this part (an unsent draft in the walkthrough's own chat). There is no "more parts" request (none was ever
+  built; "more parts" in "Parts as viewports" below meant the caption cap on boxed parts). A part's menu is now:
+  Explain more simply, Save snippet (when the part has a card), Show in the paper, Ask about this part (native order;
+  the browser lists Explain more simply, Show in the paper, Save snippet, Ask in chat about this).
+- **Answers kept by older builds.** A native sealed `FigureAnswer` an older build kept for `figure_detail` still decodes
+  (the `detail` field is ignored), but no view asks for that key, and Settings › Your assets › Figure explanations
+  skips subjects whose action isn't `figure`/`figure_simpler` (`FigureAnswer.isShownFigureAction`): hidden, never
+  broken. The browser drops kept `figure_detail` entries when it restores its kept list (`ChatSession.restoreKept`), so
+  they are neither shown nor counted against the per-kind bound. No migration.
+- **Server: deprecated, still accepted.** `figure_detail` stays valid in `chat.ts` / `chat-figure-view.ts` (with
+  `FIGURE_DETAIL_INSTRUCTIONS`, the `figure_detail` event, its allowance and migration 083's settlement value), marked
+  DEPRECATED in code, so already-installed builds 63–79 and browser pages loaded before the next deploy keep working.
+  **Remove it once no supported build sends it** (then delete the server branch, instructions, event and its backend
+  tests; keep 083's value for old ledger rows). No client reads a list of actions from the server, so nothing new
+  lists it. The backend tests for it stay until then.
+- **Evidence:** see IMPLEMENTATION_STATUS.md "Extract the subfigure removed".
+
 ## Parts as viewports — 2026-10-21 (local source; not released, not deployed)
+
+*Since "Extract the subfigure removed" above: the "Extract" request and its detail card no longer exist; read the
+mentions below as history.*
 
 Owner: "in different panels, when we present it, we present it in such a way that if it's inaccurate, the user can just
 click and see the whole figure, so we present it as a crop of the whole thing, that they can expand, rather than an
@@ -54,7 +92,7 @@ as possible. Ideally, we could even log the data (later) from zoom behavior and 
 collected or sent.** When a part card is shown, zoomed, panned or expanded, both clients keep one geometry-only record per
 card in memory — `FigureFramingRecorder` (`ScienceReaderCore/FigureFramingRecord.swift`) and `figure-framing-record.ts`:
 the figure's public identity (arXiv id, revision, "Figure N"; nothing for local PDFs or snippets), surface
-(walkthrough/detail), the part's place in its set, confidence tier, the AI box, completed region and first frame, the
+(walkthrough or chat; the `detail` surface went with Extract), the part's place in its set, confidence tier, the AI box, completed region and first frame, the
 reader's final view (all normalized to the figure) and whether they zoomed, panned or expanded. At most 200 records;
 cleared on sign-out (`clearAccountView` / `auth.signOut`); never persisted, logged or uploaded. It is the one place a
 future, consented upload would attach to; the conditions are the proposal in DECISIONS.md (opt-in only, geometry only,
@@ -502,7 +540,10 @@ figure page), wired through `Reader` and `App` like the equation view's host.
   charged"), screenshots light and dark reviewed; the equation-view,
   reader-drafts, chat, chat-redesign and arxiv-html journeys still pass; `npm test`.
 
-## One part extracted (owner, TestFlight 62, 2026-10-16)
+## One part extracted (owner, TestFlight 62, 2026-10-16) — removed from the clients 2026-10-21
+
+*Removed from every client and deprecated on the server: see "Extract the subfigure removed" at the top. Kept here as
+the record of what older builds (63–79) send.*
 
 Owner, on a walkthrough's part: "a new button for 'Extract the subfigure and more context' where it opens up a loader
 below, gets the info, and puts it below". Each part's menu now has **Extract the subfigure and more context**: a loader

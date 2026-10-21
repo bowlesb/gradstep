@@ -15,7 +15,7 @@ public struct ArxivFigure: Equatable, Sendable {
 }
 
 public struct FigureFramingRecord: Equatable, Sendable {
-    public enum Surface: String, Sendable { case walkthrough, detail, chat }
+    public enum Surface: String, Sendable { case walkthrough, chat }
     public let figure: ArxivFigure
     public let surface: Surface
     /// The part's place in its set (0-based) and the set's size.

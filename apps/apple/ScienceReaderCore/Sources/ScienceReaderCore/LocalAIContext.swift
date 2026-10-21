@@ -55,7 +55,7 @@ public enum LocalAIContext {
         switch input.action {
         case .equation: task = "Explain what the selected equation says, then explain each symbol and term. Preserve the supplied LaTeX. Distinguish definitions in the paper from general conventions."
         case .equationBackground: task = "Explain the intuition and prerequisites of the selected equation, using a small example if useful."
-        case .figure, .figureDetail: task = "Explain the attached figure panel by panel: axes, units, legend, trends and what it supports. Distinguish what is visible from what the caption claims. Never invent unreadable values."
+        case .figure: task = "Explain the attached figure panel by panel: axes, units, legend, trends and what it supports. Distinguish what is visible from what the caption claims. Never invent unreadable values."
         case .figureSimpler: task = "Explain the selected part of this figure more simply, with the necessary background."
         default: task = "Answer the reader's question directly and concisely."
         }

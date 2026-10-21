@@ -51,7 +51,7 @@ async function openFigure(page:Page){
  return viewer;
 }
 
-test('a figure is explained only on request, part by part with its crop; a part goes simpler, up close, into the paper and into the chat',async({page,request})=>{
+test('a figure is explained only on request, part by part with its crop; a part goes simpler (no Extract), into the paper and into the chat',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  const errors:string[]=[];page.on('pageerror',e=>errors.push(String(e)));
  await openFixture(page,request,twoFigures);
@@ -143,7 +143,9 @@ test('a figure is explained only on request, part by part with its crop; a part 
  // A part's ⋯: Explain more simply streams under that part.
  await viewer.getByTestId('figure-section-menu-0').click();
  const menu=page.getByRole('menu',{name:'(a) · The three-stage pipeline: options'});
- await expect(menu.getByRole('menuitem')).toHaveText(['Explain more simply','Extract the subfigure and more context','Show in the paper','Ask in chat about this']);
+ // Owner, 2026-10-21: no "Extract the subfigure and more context"; the walkthrough is the one AI result.
+ await expect(menu.getByRole('menuitem')).toHaveText(['Explain more simply','Show in the paper','Ask in chat about this']);
+ await page.screenshot({path:`../../.artifacts/figure-detail-removal/browser-part-menu-${test.info().project.name}.png`});
  await menu.getByRole('menuitem',{name:'Explain more simply'}).click();
  const simpler=viewer.getByTestId('figure-section-0').getByTestId('figure-simpler');
  await expect(simpler).toContainText('is a second network that learns to score answers');
@@ -153,32 +155,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
   messages:[{role:'user',text:'Figure 1 (a)'}]});
  expect(sent[1].capabilities).toEqual(sent[0].capabilities);expect(sent[1].figures).toHaveLength(1);
  await page.screenshot({path:`../../.artifacts/figure-view-simpler-${test.info().project.name}.png`});
- // Extract the subfigure and more context (owner, TestFlight 62): a loader under the part, then its crop and the closer
- // reading; a part with no region (the Legend) gets the words and says it couldn't crop.
- await viewer.getByTestId('figure-section-menu-0').click();
- await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
- const closer=viewer.getByTestId('figure-section-0').getByTestId('figure-detail');
- await expect(closer.getByRole('status')).toHaveText('Extracting this part…');
- await expect(closer).toContainText('three boxes joined by arrows');
- const closerCrop=closer.getByTestId('figure-detail-crop');
- await expect(closerCrop).toBeVisible();
- // The left half, framed tightly by the same rules: the canvas starts 6 pixels left of the frame [−8, −8, 14, 16].
- await expect(closerCrop).toHaveAttribute('data-level','high');
- expect(await closerCrop.locator('.viewport-canvas').evaluate(e=>[e.style.left,e.style.top,e.style.width])).toEqual(['0%','0%','127.273%']);
- await expect(closer.getByTestId('figure-detail-no-crop')).toHaveCount(0);
  await expect(viewer.getByTestId('figure-walkthrough')).not.toContainText(/\d+\s+credits?\b/);
- sent=await chats();
- expect(sent[2]).toMatchObject({action:'figure_detail',selection:{quote:'(a) The three-stage pipeline\nRead left to right: preference data trains a **reward model**, which then scores samples for reinforcement learning [¶2].'},
-  messages:[{role:'user',text:'Figure 1 (a)'}]});
- expect(sent[2].capabilities).toEqual(sent[0].capabilities);expect(sent[2].figures).toHaveLength(1);
- for(const key of ['topic_title','follow_ups'])expect(sent[2]).not.toHaveProperty(key);
- await closer.scrollIntoViewIfNeeded();
- await page.screenshot({path:`../../.artifacts/figure-view-detail-${test.info().project.name}.png`});
- await viewer.getByTestId('figure-section-menu-2').click();
- await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
- const legend=viewer.getByTestId('figure-section-2').getByTestId('figure-detail');
- await expect(legend.getByTestId('figure-detail-no-crop')).toBeVisible();
- await expect(legend).toContainText('arrows for data flow');await expect(legend.getByTestId('figure-detail-crop')).toHaveCount(0);
  // Dark: the page, the parts and the crop follow the app's appearance.
  await page.emulateMedia({colorScheme:'dark'});
  await viewer.getByTestId('figure-section-1').scrollIntoViewIfNeeded();
@@ -196,9 +173,8 @@ test('a figure is explained only on request, part by part with its crop; a part 
  viewer=page.getByRole('dialog',{name:'Figures'});
  await expect(viewer.getByTestId('figure-walkthrough').locator('.figure-section')).toHaveCount(3);
  await expect(viewer.getByTestId('figure-section-0').getByTestId('figure-simpler')).toContainText('second network');
- await expect(viewer.getByTestId('figure-section-0').getByTestId('figure-detail-crop')).toBeVisible();
  await expect(viewer.getByTestId('figure-explain')).toHaveCount(0);
- expect(await chats()).toHaveLength(4);
+ expect(await chats()).toHaveLength(2);
 
  // Ask in chat about this: an unsent draft about that part, the composer focused; nothing is sent.
  await viewer.getByTestId('figure-section-menu-2').click();
@@ -207,7 +183,7 @@ test('a figure is explained only on request, part by part with its crop; a part 
  const composer=viewer.getByTestId('contextual-chat').getByRole('textbox',{name:'Message',exact:true});
  await expect(composer).toBeVisible();await expect(composer).toHaveValue('About this part: Arrows show where data flows; the trophy marks the preferred response. ');
  await expect(composer).toBeFocused();
- expect(await chats()).toHaveLength(4);
+ expect(await chats()).toHaveLength(2);
  await composer.fill('Explain the arrows.'); await viewer.getByTestId('contextual-chat').getByRole('button',{name:'Send',exact:true}).click();
  await expect(viewer.getByTestId('contextual-chat').locator('.chat-message.assistant')).toBeVisible();
  const followUp=(await chats()).at(-1)!; expect(followUp.figures).toHaveLength(1); expect(followUp.selection.quote).toContain('Figure 1');
@@ -388,7 +364,7 @@ test('concept and related-work cards keep distinct titles and paper provenance w
  await expect(related).toContainText('As described in this paper');
  await expect(viewer.getByTestId('figure-crop')).toHaveCount(0);
  await viewer.getByTestId('figure-section-menu-1').click();
- await expect(viewer.getByTestId('figure-detail-item')).toHaveCount(0);
+ await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['Explain more simply','Show in the paper','Ask in chat about this']);
  await page.keyboard.press('Escape');
  await page.screenshot({path:`../../.artifacts/figure-card-kinds-${test.info().project.name}.png`});
 });
@@ -416,25 +392,16 @@ test('crops of a real two-plot figure are completed over the ink they cut and sh
  // every side; the clipped boxes with the old 2 % margin were 626 × 416 and 626 × 416.
  const aspect=async(l:typeof left)=>{const b=(await l.boundingBox())!;return b.width/b.height;};
  expect.soft(await aspect(left)).toBeCloseTo(684/504,1);expect.soft(await aspect(right)).toBeCloseTo(668/500,1);
- await viewer.getByTestId('figure-section-menu-1').click();
- await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
- const closer=viewer.getByTestId('figure-section-1').getByTestId('figure-detail-crop');
- await expect(closer).toBeVisible();expect.soft(await aspect(closer)).toBeCloseTo(668/500,1);
- await closer.scrollIntoViewIfNeeded();
- await page.screenshot({path:shot('detail-light')});
  await page.emulateMedia({colorScheme:'dark'});
  await left.scrollIntoViewIfNeeded();
  await page.screenshot({path:shot('walkthrough-dark')});
- await closer.scrollIntoViewIfNeeded();
- await page.screenshot({path:shot('detail-dark')});
  await page.emulateMedia({colorScheme:'light'});
 });
 
 // Owner, 2026-10-21: "we present it as a crop of the whole thing, that they can expand, rather than an actual crop".
 // Parts are viewports into the whole figure (FIGURE_VIEW.md "Parts as viewports"), framed by confidence: a precise box
 // tight (as a crop looked), a deliberately imprecise one (it starts inside the neighbouring plot) loosely with the part
-// outlined, and that box alone (the part extracted), which cuts the neighbour, as the whole figure with the part outlined.
-// A tap expands a card to the whole figure; zooming out of a card reveals what is around the part.
+// outlined. A tap expands a card to the whole figure; zooming out of a card reveals what is around the part.
 test('parts are framed by confidence: an imprecise box is looser and outlined, and a card expands to the whole figure',async({page,request})=>{
  test.skip(!await durableKeys(page),'Engine cannot persist X25519 keys.');
  // FIGURE_FRAMING_STAGE=before names the screenshots of a build without viewports (only the screenshots are taken then).
@@ -484,28 +451,17 @@ test('parts are framed by confidence: an imprecise box is looser and outlined, a
   await page.screenshot({path:shot('expanded-light')});
   await page.locator('.fullscreen-figure').getByRole('button',{name:'Close',exact:true}).click();
  }
- // The part extracted alone cuts the left plot: the whole figure with the part outlined (no "Shown whole" message).
- await viewer.getByTestId('figure-section-menu-1').click();
- await page.getByRole('menu').getByRole('menuitem',{name:'Extract the subfigure and more context'}).click();
- const closer=viewer.getByTestId('figure-section-1').getByTestId('figure-detail-crop');
- await expect(closer).toBeVisible();
- await closer.scrollIntoViewIfNeeded();
- await page.screenshot({path:shot('detail-light')});
- if(after){
-  await expect(closer).toHaveAttribute('data-level','low');await expect(closer.getByTestId('part-outline')).toBeVisible();
-  await expect(viewer.getByTestId('figure-detail-whole')).toHaveCount(0);await expect(viewer.getByTestId('figure-crop-whole')).toHaveCount(0);
-  expect(await (async()=>{const b=(await closer.boundingBox())!;return b.width/b.height;})()).toBeCloseTo((1360+20)/(501+20),1);
- }
  await page.emulateMedia({colorScheme:'dark'});
+ await left.scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('walkthrough-left-dark')});
  await right.scrollIntoViewIfNeeded();
  await page.screenshot({path:shot('walkthrough-right-dark')});
- await closer.scrollIntoViewIfNeeded();
- await page.screenshot({path:shot('detail-dark')});
  await page.emulateMedia({colorScheme:'light'});
  if(after){
-  // Save snippet from a part: what the reader sees in the frame, into the snippet composer.
+  // A part's menu (owner, 2026-10-21: one AI result): no "Extract the subfigure"; Save snippet keeps what the card shows.
   await viewer.getByTestId('figure-section-menu-1').click();
-  await expect(page.getByRole('menu').getByRole('menuitem',{name:'Save snippet'})).toBeVisible();
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['Explain more simply','Show in the paper','Save snippet','Ask in chat about this']);
+  await page.screenshot({path:`../../.artifacts/figure-detail-removal/browser-panel-menu-${test.info().project.name}.png`});
   await page.keyboard.press('Escape');
  }
 });

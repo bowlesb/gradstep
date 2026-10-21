@@ -15,8 +15,8 @@
 //
 // --figure-view=N (FIGURE_VIEW.md): the figure view's requests on figure N, prepared as the browser prepares a figure
 // (stacked panels, at most 1,568 px and 1.15 MP, JPEG on white): the walkthrough (`figure`), then one part again, more
-// simply (`figure_simpler`, on the first section with a box, else the second), then one part extracted with more context
-// (`figure_detail`, on the first section without a box: its required box is drawn too). --table-view=N does the same for table N,
+// simply (`figure_simpler`, on the first section with a box, else the second). (`figure_detail`, "Extract the subfigure",
+// was removed from the apps on 2026-10-21 and is no longer exercised here.) --table-view=N does the same for table N,
 // rendered from the bundle's own HTML in headless Chromium as a device shows it. --warm asks one chat question first, so
 // the walkthrough's cache read shows it shares the chat's cached prefix. Writes the image sent, the image with the
 // walkthrough's boxes drawn and numbered, and a JSON record (sections, boxes, credits, seconds, usage) under
@@ -49,7 +49,7 @@ const EQUATION = process.argv.includes('--equation') || process.argv.includes('-
 const FIGURE_VIEW = Number(process.argv.find(a => a.startsWith('--figure-view='))?.slice(14) ?? 0);
 const TABLE_VIEW = Number(process.argv.find(a => a.startsWith('--table-view='))?.slice(13) ?? 0);
 const WARM = process.argv.includes('--warm');
-// Isolate a changed walkthrough contract without paying again for unchanged simpler/detail actions.
+// Isolate a changed walkthrough contract without paying again for the unchanged simpler action.
 const WALKTHROUGH_ONLY = process.argv.includes('--figure-walkthrough-only');
 /** `--ingest=<reference text>`: Add paper from the chat on that reference (CHAT.md "Add paper after settlement"); prints
  * the report and the operation's settlement (an add that doesn't happen settles 0 credits with the cost absorbed). */
@@ -204,7 +204,7 @@ async function figureRequest(body, token) {
   const r = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
     apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
   if (r.status !== 200) { log(await r.text()); throw new Error(`chat HTTP ${r.status}`); }
-  const out = { events: [], text: '', figure: null, detail: null, done: null, error: null, first: 0 };
+  const out = { events: [], text: '', figure: null, done: null, error: null, first: 0 };
   const reader = r.body.getReader(), decoder = new TextDecoder(); let buffer = '';
   const dispatch = frame => {
     let name = 'message', data = '';
@@ -212,7 +212,7 @@ async function figureRequest(body, token) {
     if (!data) return;
     const payload = JSON.parse(data); out.events.push(name);
     if (!out.first && name !== 'status') out.first = Date.now();
-    if (name === 'delta') out.text += payload.text; else if (name === 'figure') out.figure = payload; else if (name === 'figure_detail') out.detail = payload;
+    if (name === 'delta') out.text += payload.text; else if (name === 'figure') out.figure = payload;
     else if (name === 'done') out.done = payload; else if (name === 'error') out.error = payload;
   };
   for (;;) {
@@ -290,23 +290,6 @@ async function figureViews({ local_context, token }) {
       record.runs.push({ kind: 'figure_simpler', target: name, section: `${part.label} ${part.title}`.trim(), seconds: simpler.seconds, first_text_s: simpler.firstSeconds,
         events: [...new Set(simpler.events)], credits: simpler.done?.credits ?? null, charged: simpler.done?.charged ?? null, usage: simpler.done?.usage ?? null,
         characters: simpler.text.length, error: simpler.error });
-    }
-    // One part extracted with more context (owner, TestFlight 62): a section without a box, so its required box is new.
-    const extract = w ? (w.sections.find(s => !s.box) ?? w.sections[0]) : null;
-    if (extract && !WALKTHROUGH_ONLY) {
-      log(`=== ${name}: extract "${extract.label} ${extract.title}" ===`);
-      const quote = `${[extract.label, extract.title].filter(Boolean).join(' ')}\n${extract.text}`;
-      const closer = await figureRequest({ ...base, operation_id: randomUUID(), action: 'figure_detail', selection: { quote }, messages: [{ role: 'user', text: `${name} ${extract.label || extract.title}`.trim() }], figures }, token);
-      const d = closer.detail;
-      if (d) {
-        log(`detail: ${d.label} ${d.title} box x=${d.box.x} y=${d.box.y} w=${d.box.w} h=${d.box.h} [¶${d.paragraphs.join(',¶')}] (${[...d.text].length} chars)`);
-        console.log('--- detail ---\n' + redact(d.text) + '\n--- end ---');
-        await drawBoxes(prepared, [{ label: d.label, title: d.title, box: d.box }], `${dir}/${PAPER.key}-${target.label}-detail.png`);
-        log(`detail box drawn: .artifacts/figure-view/${PAPER.key}-${target.label}-detail.png`);
-      } else console.log('--- detail words (no box) ---\n' + redact(closer.text) + '\n--- end ---');
-      record.runs.push({ kind: 'figure_detail', target: name, section: `${extract.label} ${extract.title}`.trim(), seconds: closer.seconds,
-        events: [...new Set(closer.events)], credits: closer.done?.credits ?? null, charged: closer.done?.charged ?? null, usage: closer.done?.usage ?? null,
-        detail: d, characters: (d?.text ?? closer.text).length, error: closer.error });
     }
   }
   const file = `${dir}/${stamp}-${PAPER.key}.json`;
@@ -416,7 +399,7 @@ try {
     log(`follow-ups (${followUps.length}): ${JSON.stringify(followUps)}`);
     console.log('--- answer ---\n' + redact(answer) + '\n--- end ---');
     if (failure || !done) throw new Error(`Chat did not complete: ${failure?.code ?? 'missing_done'}`);
-    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'figure_detail', 'ingest'].includes(e)))
+    if (!answer.trim() && !requested && !events.some(e => ['equation', 'figure', 'ingest'].includes(e)))
       throw new Error('Chat completed without an answer or a usable tool result');
     if (equationAction && (failure || done?.stop_reason !== 'end_turn'
       || (equationAction === 'equation' ? !events.includes('equation') : !answer.trim())))

@@ -546,7 +546,8 @@ createServer(async (request, response) => {
       || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures !== undefined)) return send(response, 400, { code: 'invalid_request' });
     // The figure view (chat-figure-view.ts): the same, with exactly one figure under consent v3 or v4, from a build that
     // says it has the view (`figure_view`, whose chats carry the walkthrough tool).
-    const figureView = body.action === 'figure' || body.action === 'figure_simpler' || body.action === 'figure_detail';
+    // (`figure_detail`, "Extract the subfigure", is no longer asked for by any client here: removed 2026-10-21.)
+    const figureView = body.action === 'figure' || body.action === 'figure_simpler';
     if (figureView && (body.mode !== 'paper' || body.local_context?.format !== 'reader-local-context-v2' || !body.selection?.quote || body.messages.length !== 1
       || body.topic_title !== undefined || body.follow_ups !== undefined || body.figures?.length !== 1 || !['cloud-ai-v3', 'cloud-ai-v4', 'cloud-ai-v5', 'cloud-ai-v6'].includes(body.consent_version)
       || !(body.capabilities ?? []).includes('figure_view'))) return send(response, 400, { code: 'invalid_request' });
@@ -587,8 +588,7 @@ createServer(async (request, response) => {
     // figure_panels: a real two-plot Figure 1 (figure-view.spec.ts routes DPO's Figure 2), with boxes on the plotting areas
     // that clip titles, tick labels and axis titles, as models write them (completed on the device: figure-crops.ts).
     // figure_panels_loose: the same figure with a deliberately imprecise right box that starts inside the left plot (as a
-    // model sometimes writes it): framed loosely and outlined on the device (figure-framing.ts), and alone, as the part
-    // extracted, it cuts the left plot, so the whole figure with the part outlined.
+    // model sometimes writes it): framed loosely and outlined on the device (figure-framing.ts).
     const loose = mode === 'figure_panels_loose', rightBox = loose ? { x: 0.45, y: 0.1, w: 0.54, h: 0.8 } : { x: 0.55, y: 0.07, w: 0.44, h: 0.79 };
     if ((mode === 'figure_panels' || loose) && body.action === 'figure') {
       event('figure', { format: 'figure-walkthrough-v1', summary: 'Figure 1 sets two results side by side [¶2].', sections: [
@@ -596,11 +596,6 @@ createServer(async (request, response) => {
         { label: 'Right plot', title: 'Win rate against temperature', text: 'Each line is one method; the dashed line is an even match [¶2].', paragraphs: [2], box: rightBox },
         { label: '', title: 'Reading it as a whole', text: 'Together the plots make the figure’s single point.', paragraphs: [] }] });
       event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
-    }
-    if ((mode === 'figure_panels' || loose) && body.action === 'figure_detail') {
-      event('figure_detail', { format: 'figure-detail-v1', label: 'Right plot', title: 'Win rate against temperature',
-        text: 'Up close, the right plot compares six methods across five temperatures [¶2].', paragraphs: [2], box: rightBox });
-      event('done', { stop_reason: 'end_turn', credits: 3, charged: true }); return response.end();
     }
     if (body.action === 'figure') {
       // As the server relays it (FIGURE_VIEW.md "Server — as built"): one `figure` event, then `done`; one section has a box.
@@ -611,18 +606,6 @@ createServer(async (request, response) => {
             box: { x: 0.5, y: 0, w: 0.5, h: 1 } },
           { label: '', title: 'Legend', text: 'Arrows show where data flows; the trophy marks the preferred response.', paragraphs: [] }] });
       event('done', { stop_reason: 'end_turn', credits: 6, charged: true }); return response.end();
-    }
-    if (body.action === 'figure_detail') {
-      // One part extracted (owner, TestFlight 62): its region and a closer reading; the Legend (no region) as words only.
-      setTimeout(() => {
-        if (response.destroyed) return;
-        if (/Legend/.test(body.selection.quote)) event('delta', { text: 'The legend reads as the whole figure: arrows for data flow, a trophy for the preferred answer [¶2].' });
-        else event('figure_detail', { format: 'figure-detail-v1', label: '(a)', title: 'The three-stage pipeline',
-          text: 'Up close, the left half has three boxes joined by arrows: **preference data**, the **reward model** and the RL step that samples from the policy [¶2].',
-          paragraphs: [2], box: { x: 0, y: 0, w: 0.5, h: 1 } });
-        event('done', { stop_reason: 'end_turn', credits: 3, charged: true }); response.end();
-      }, 120);
-      return;
     }
     if (body.action === 'figure_simpler') {
       const text = 'Start with the left half: it is the older way [¶2].\n\nA **reward model** is a second network that learns to score answers the way people did.';

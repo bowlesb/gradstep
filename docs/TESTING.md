@@ -1,5 +1,13 @@
 # Fast and slow tests
 
+## Extract the subfigure removed — October 21
+
+Fast: browser `tests/figure-view.test.ts` (the request is no figure action, its event is ignored, kept detail answers
+are dropped on restore), backend `tests/backend/chat.test.ts` (the server still accepts the deprecated `figure_detail`
+from builds 63–79), Core `swift test --filter FigureViewTests` (old sealed answers decode, are not shown or listed).
+Slow, opt-in: Playwright `e2e/figure-view.spec.ts` (part menus without Extract) and native `FigureViewJourneyTests`
+(the walkthrough journey asserts the menu has no Extract). Screenshots under `.artifacts/figure-detail-removal/`.
+
 ## Figure parts as viewports — October 21
 
 Fast: browser `tests/figure-framing.test.ts` and `tests/figure-framing-record.test.ts` (in `npm test`); Core

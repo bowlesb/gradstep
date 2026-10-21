@@ -25,12 +25,13 @@ public enum ChatRequestError: Error, Equatable {
 /// (docs/architecture/EQUATION_VIEW.md). They are no conversation: no title, no follow-ups.
 /// `figure` and `figureSimpler` (2026-10-16): the figure view's walkthrough of one figure and one of its parts again,
 /// more simply, on the same terms (docs/architecture/FIGURE_VIEW.md); each carries exactly that figure's image.
-/// `figureDetail` (owner, TestFlight 62): one part extracted, its region cropped on the device and read more closely.
+/// (`figure_detail`, "Extract the subfigure and more context", was removed from the apps on 2026-10-21: the walkthrough is
+/// the one figure result. The server still accepts it from older builds; this client never sends it.)
 public enum ChatAction: String, Equatable, Sendable {
     case ingest, related, relevance, diagramFix = "diagram_fix", study, equation, equationBackground = "equation_background"
-    case figure, figureSimpler = "figure_simpler", figureDetail = "figure_detail"
+    case figure, figureSimpler = "figure_simpler"
     public var isEquation: Bool { self == .equation || self == .equationBackground }
-    public var isFigure: Bool { self == .figure || self == .figureSimpler || self == .figureDetail }
+    public var isFigure: Bool { self == .figure || self == .figureSimpler }
 }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
@@ -207,8 +208,6 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case equation(EquationSymbols)
     /// The figure view's walkthrough (action `figure`, servers from 2026-10-16), sent once before `done`.
     case figure(FigureWalkthrough)
-    /// One part extracted (action `figure_detail`), its box and closer reading, sent once before `done`.
-    case figureDetail(FigureDetail)
     /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
     case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     /// `credits`: what the failed answer cost (0 when the provider never started it; servers from 2026-10-14).
@@ -387,10 +386,6 @@ public struct ChatSSEParser: Sendable {
             // Informational: a walkthrough that is not usable is dropped (the view then says it couldn't explain it).
             guard let walkthrough = FigureWalkthrough.validated(payload) else { return nil }
             return .figure(walkthrough)
-        case "figure_detail":
-            // Informational: a detail without a usable box is dropped (the words then come as text, without a crop).
-            guard let detail = FigureDetail.validated(payload) else { return nil }
-            return .figureDetail(detail)
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }

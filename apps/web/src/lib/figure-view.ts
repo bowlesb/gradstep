@@ -5,25 +5,22 @@ import type { VerifiedBundle } from './bundle';
 import { figureLabel } from './chat-figures';
 
 export const FIGURE_WALKTHROUGH_FORMAT = 'figure-walkthrough-v1';
-export const FIGURE_DETAIL_FORMAT = 'figure-detail-v1';
-/** `figure_detail` (owner, TestFlight 62: "Extract the subfigure and more context"): one part, its region and a closer reading. */
-export type FigureAction = 'figure' | 'figure_simpler' | 'figure_detail';
+/** The walkthrough and one part again, more simply. ("Extract the subfigure and more context", `figure_detail`, was
+ * removed on 2026-10-21: the walkthrough is the one figure result; this browser never asks for it, and results an older
+ * page kept under its key are never looked up.) */
+export type FigureAction = 'figure' | 'figure_simpler';
 export const isFigureAction = (action: string | null | undefined): action is FigureAction =>
-  action === 'figure' || action === 'figure_simpler' || action === 'figure_detail';
+  action === 'figure' || action === 'figure_simpler';
 /** A region of the image that was sent: fractions of its width and height, (x, y) its top-left corner. */
 export interface FigureBox { x: number; y: number; w: number; h: number }
 export type FigureCardKind = 'panel' | 'concept' | 'related_work';
 export interface FigureSection { kind?: FigureCardKind; label: string; title: string; text: string; paragraphs: number[]; box?: FigureBox }
 export interface FigureWalkthrough { format: typeof FIGURE_WALKTHROUGH_FORMAT; summary: string; sections: FigureSection[] }
-/** The `figure_detail` event: one part of the walkthrough, the region it occupies (always) and a closer reading of it. */
-export interface FigureDetail { format: typeof FIGURE_DETAIL_FORMAT; label: string; title: string; text: string; paragraphs: number[]; box: FigureBox }
 /** The image the request carried (JPEG, base64), kept with the result: a box is cropped from exactly it. */
 export interface SentFigure { data: string; width: number; height: number }
 /** What the view shows for one request: the walkthrough (or, without one, the model's words) and how it ended. */
 export interface FigureResult {
   phase: 'loading' | 'done' | 'failed'; walkthrough: FigureWalkthrough | null; text: string; issue: string | null;
-  /** One part extracted (`figure_detail`); absent when the words came without a usable region (no crop). */
-  detail?: FigureDetail | null;
   image: SentFigure | null;
   /** From `done`/`error` (CHAT.md "When an answer stops early"): whether the reader paid, and if not, why. Never shown as a count. */
   credits: number | null; charged?: boolean; reason?: string;
@@ -70,27 +67,8 @@ export function parseFigureWalkthrough(value: unknown): FigureWalkthrough | null
   return sections.length ? { format: FIGURE_WALKTHROUGH_FORMAT, summary, sections } : null;
 }
 
-/** The `figure_detail` event, checked again: a title (or label), text and a box inside the image; null otherwise
- * (informational: the view then shows the words without a crop). */
-export function parseFigureDetail(value: unknown): FigureDetail | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const v = value as Record<string, unknown>;
-  if (v.format !== FIGURE_DETAIL_FORMAT) return null;
-  let title = clean(v.title, 120), label = clean(v.label, 60);
-  const text = clean(v.text, 1_500), box = figureBox(v.box);
-  if (!title) { title = label; label = ''; }
-  if (!title || !text || !box) return null;
-  const paragraphs = (Array.isArray(v.paragraphs) ? v.paragraphs : [])
-    .filter((n): n is number => Number.isSafeInteger(n) && (n as number) >= 1 && (n as number) <= 99_999).slice(0, 8);
-  return { format: FIGURE_DETAIL_FORMAT, label, title, text, paragraphs: [...new Set(paragraphs)], box };
-}
-
 /** A section's heading as the view shows it: "(a) · The three-stage pipeline", or the title alone. */
 export const sectionHeading = (s: Pick<FigureSection, 'label' | 'title'>) => s.label ? `${s.label} · ${s.title}` : s.title;
-
-/** What a part extracted sends as its passage: its label and title, then its text, so the model knows which region. */
-export const detailQuote = (part: { label: string; title: string; text: string }) =>
-  `${[part.label, part.title].filter(Boolean).join(' ')}\n${part.text}`.trim();
 
 /** The one user turn the server sees: the figure's name ("Figure 3", "Table 1"), and for `figure_simpler` the part
  * ("Figure 1 Right panel"). Only the action's instructions follow the cached paper. */

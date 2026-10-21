@@ -34,7 +34,7 @@ settled `metered_operations` (credits charged). For the current UTC month and th
 | Legacy | The part of Cost from retired direct providers (before 2026-10-18). |
 
 Features: chat (answers, titles, suggestions, Study maps, Related, Why it matters, Add paper, diagram repairs), figure
-explainer (`figure`, `figure_simpler`, `figure_detail`), equation explainer (`equation`, `equation_background`), tags,
+explainer (`figure`, `figure_simpler`, and the deprecated `figure_detail` from builds 63–79), equation explainer (`equation`, `equation_background`), tags,
 podcasts (script, review, repair, voices), search (Tavily routes). Models are named as sent to OpenRouter
 (`anthropic/claude-sonnet-5.5`, `gemini-3.8-flash`, `deepseek/deepseek-v4.1-flash-1017`, …). The page shows at most
 500 accounts, ordered by the last 30 days' cost plus held; it sorts in the browser. An account is named by its

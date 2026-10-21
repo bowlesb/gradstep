@@ -272,10 +272,10 @@ struct FigureExplainView: View {
             return
         }
         guard let paper = model.papers.first(where: { $0.id == context.paperID }) ?? model.selectedPaper, let whole = session.image else { return }
-        let index = number - 1, keys = ["figureView.section.\(number).crop", "figureView.section.\(number).detailCrop"]
-        let shown = keys.lazy.compactMap { FigureViewportScroll.shown.object(forKey: $0 as NSString) }.first
+        let index = number - 1
+        let shown = FigureViewportScroll.shown.object(forKey: "figureView.section.\(number).crop" as NSString)
         let line = max(2, Double(max(whole.width, whole.height)) / 280)
-        guard let image = shown?.visibleImage() ?? (session.framed[index] ?? session.detailFramed[index])?.renderFrame(whole, outline: FigurePartCrop.outline, lineWidth: line) else { return }
+        guard let image = shown?.visibleImage() ?? session.framed[index]?.renderFrame(whole, outline: FigurePartCrop.outline, lineWidth: line) else { return }
         let block = context.bundle.index.figures.first { $0.id == context.figureID }?.blockID ?? context.figureID
         let anchor = NoteAnchor(manifestSHA256: context.bundle.manifestSHA256, rendererRevision: ReaderVersions.revision(of: context.bundle) ?? 0,
                                 blockIDs: NoteAnchor.isBlockID(block) ? [block] : [], rects: [], viewport: nil, quote: nil)
@@ -346,7 +346,7 @@ struct FigureExplainView: View {
     }
 
     private func sectionCard(_ section: FigureWalkthrough.Section, index: Int, session: FigureExplainSession) -> some View {
-        let number = index + 1, simpler = session.simpler[index], detail = session.details[index]
+        let number = index + 1, simpler = session.simpler[index]
         return VStack(alignment: .leading, spacing: 10) {
             // A tap on the part's heading opens its menu (owner: "tap on different parts of the response and ask to back
             // up a bit, or link back into the paper"); a long press or right-click anywhere on the part does too.
@@ -388,7 +388,6 @@ struct FigureExplainView: View {
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) { Rectangle().fill(Color.accentColor.opacity(0.35)).frame(width: 3) }
             }
-            if let detail { detailBlock(detail, number: number, index: index, session: session) }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground)))
@@ -397,41 +396,15 @@ struct FigureExplainView: View {
         .accessibilityIdentifier("figureView.section.\(number)")
     }
 
-    /// One part extracted (owner, TestFlight 62: "opens up a loader below, gets the info, and puts it below"): the region
-    /// cropped from the image that was sent, then the closer reading; the words alone when no region could be given.
-    @ViewBuilder private func detailBlock(_ detail: FigureExplainSession.Part, number: Int, index: Int, session: FigureExplainSession) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Up close", systemImage: "viewfinder").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-            if detail.detail != nil, let part = session.detailFramed[index], let image = session.image {
-                partCard(part, image: image, label: part.level == .low ? "\(context.label), whole" : "This part of \(context.label), up close",
-                         identifier: "figureView.section.\(number).detailCrop", maxHeight: 320, recordKey: session.recordKey(.detail, index))
-            }
-            let words = detail.detail?.text ?? detail.text
-            if detail.state == .done, !words.isEmpty {
-                ChatMessageText(source: words, fontSize: bodySize, streaming: false, speaker: "Assistant",
-                                identifier: "figureView.section.\(number).detail", assistant: true, onCite: cite)
-                if detail.detail == nil {
-                    Text("Couldn’t crop this part; here is the closer reading.").font(.footnote).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("figureView.section.\(number).detailNoCrop")
-                }
-            }
-            status(detail, working: "Extracting this part…", retry: { session.retryDetail(index) })
-        }
-        .padding(.leading, 12)
-        .overlay(alignment: .leading) { Rectangle().fill(Color.accentColor.opacity(0.35)).frame(width: 3) }
-    }
-
+    /// A part's menu (owner, 2026-10-21: "consistently create one good product experience in the AI result"): Explain
+    /// more simply is the one AI follow-up (words under the part, nothing else); to look closer, the card zooms and
+    /// expands to the whole figure. "Extract the subfigure and more context" was removed.
     @ViewBuilder private func menuItems(_ section: FigureWalkthrough.Section, index: Int, session: FigureExplainSession) -> some View {
-        let state = session.simpler[index]?.state, extracted = session.details[index]?.state
+        let state = session.simpler[index]?.state
         Button { session.simplify(index) } label: { Label("Explain more simply", systemImage: "arrow.uturn.backward") }
             .disabled(state == .loading || state == .done)
             .accessibilityIdentifier("figureView.simpler")
-        if section.cardKind == .panel {
-            Button { session.extract(index) } label: { Label("Extract the subfigure and more context", systemImage: "viewfinder") }
-                .disabled(extracted == .loading || extracted == .done)
-                .accessibilityIdentifier("figureView.extract")
-        }
-        if session.framed[index] != nil || session.detailFramed[index] != nil {
+        if session.framed[index] != nil {
             Button { saveSnippet(section, number: index + 1, session: session) } label: { Label("Save snippet", systemImage: "note.text.badge.plus") }
                 .accessibilityIdentifier("figureView.saveSnippet")
         }

@@ -25,7 +25,7 @@ import type { Journal, StoredDraft, StoredTurn } from './journal';
 import type { NotesStore } from './notes-store';
 import { EMPTY_STUDY_MAP, studyStart, type StudyMap } from './study';
 import { equationKey, equationTurn, type EquationAction, type EquationResult } from './equation';
-import { detailQuote, figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
+import { figureKey, figureName, figureTurn, type FigureAction, type FigureResult } from './figure-view';
 import { MAX_KEPT_PER_KIND, boundKept, type KeptEntry } from './kept-explanations';
 
 /** One equation or figure this tab explained (its symbols or its walkthrough): the paper's document id, the bundle it was
@@ -667,7 +667,9 @@ export class ChatSession {
   keptEntries(): KeptEntry[] { return boundKept([...this.kept.values()]); }
   /** What this browser kept before: the answers come back without a new request, and Your assets lists them. */
   restoreKept(entries: readonly KeptEntry[]) {
-    for (const e of boundKept(entries)) if (!this.kept.has(`${e.kind}|${e.key}`)) this.kept.set(`${e.kind}|${e.key}`, e);
+    // An older page's "Extract the subfigure" answers (`figure_detail`, removed 2026-10-21) are let go: never shown again.
+    const shown = entries.filter(e => !(e.kind === 'figure' && e.key.split('|')[2] === 'figure_detail'));
+    for (const e of boundKept(shown)) if (!this.kept.has(`${e.kind}|${e.key}`)) this.kept.set(`${e.kind}|${e.key}`, e);
     const listed = [...this.kept.values()].filter(e => e.listed).map(e => ({ kind: e.kind, ...e.listed!, at: e.savedAt }) as Explanation);
     this.explained = [...this.explained, ...listed].sort((a, b) => b.at - a.at)
       .filter((e, i, all) => all.findIndex(o => o.kind === e.kind && o.documentID === e.documentID && o.targetID === e.targetID) === i).slice(0, 500);
@@ -779,8 +781,7 @@ export class ChatSession {
     if (signal.aborted || this.signal.aborted) return finish('cancelled');
     result = { ...result, image: { data: image.data, width: image.width, height: image.height } }; update(result);
     const name = figureName(bundle, figure.id);
-    // A part extracted names the part (label and title) with its text, so the model knows which region to box.
-    const quote = action === 'figure' ? (figure.caption || figure.alt || name) : action === 'figure_detail' ? detailQuote(input.part!) : input.part!.text;
+    const quote = action === 'figure' ? (figure.caption || figure.alt || name) : input.part!.text;
     const request = makeRequest(crypto.randomUUID(), null, [{ role: 'user', text: figureTurn(name, action !== 'figure' ? (input.part!.label || input.part!.title) : undefined) }],
       quote, action, { ...(table ? { profile, autoEffort: requestProfile(table, profile)?.effort === 'auto' } : {}), visualAnswers: readVisualAnswers() });
     try { request.localContext = localChatContext(named, bundle); } catch { return finish('local_reader_unavailable'); }
@@ -790,11 +791,10 @@ export class ChatSession {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
         if (event.type === 'delta') { result = { ...result, text: boundedText(result.text + event.text) }; update(result); }
         else if (event.type === 'figure') { result = { ...result, walkthrough: event.walkthrough }; update(result); }
-        else if (event.type === 'figure_detail') { result = { ...result, detail: event.detail }; update(result); }
         else if (event.type === 'error') { result = { ...result, credits: event.credits ?? null, charged: event.charged, reason: event.reason }; finish(event.code); break; }
         else if (event.type === 'done') {
           result = { ...result, credits: event.credits, charged: event.charged, reason: event.reason, ...(event.model ? { model: event.model } : {}) };
-          finish(result.walkthrough || result.detail || result.text.trim() ? null : 'provider_unavailable'); break;
+          finish(result.walkthrough || result.text.trim() ? null : 'provider_unavailable'); break;
         }
       }
       if (result.phase === 'loading') finish('transport');
@@ -1135,7 +1135,7 @@ export class ChatSession {
         else if (event.type === 'study') nextMap = event.map;
         else if (event.type === 'figure_parts') figureParts = event.parts;
         else if (event.type === 'figure_request') asked = event.figure;
-        else if (event.type === 'equation' || event.type === 'figure' || event.type === 'figure_detail') { /* the equation and figure views' own events; a chat never asks for them */ }
+        else if (event.type === 'equation' || event.type === 'figure') { /* the equation and figure views' own events; a chat never asks for them */ }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; if (event.credits !== undefined) c.credits = event.credits; end = { credits: event.credits, charged: event.charged }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; end = { credits: event.credits, charged: event.charged }; break; }
         this.publish();

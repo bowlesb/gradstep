@@ -10,7 +10,7 @@ import type { FramingLevel } from './figure-framing';
 
 /** A public arXiv figure: the paper's id and revision and the figure's number as the paper names it ("Figure 3"). */
 export interface ArxivFigure { sourceID: string; revision: number; figure: string }
-export type FramingSurface = 'walkthrough' | 'detail' | 'chat';
+export type FramingSurface = 'walkthrough' | 'chat';
 
 /** One card's record. Rectangles are [x0, y0, x1, y1] fractions of the figure (a frame may reach past 0–1 by its margin). */
 export interface FramingRecord {

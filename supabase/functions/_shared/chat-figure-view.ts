@@ -10,6 +10,11 @@
 import type { ToolDefinition } from './model-request.ts';
 import { EFFORTS } from './chat-profiles.ts';
 
+/** `figure_detail` ("Extract the subfigure and more context") is DEPRECATED (2026-10-21, owner: "Let's not do extract the
+ * subfigure"). No current client sends it; it is accepted only so already-installed iPhone/iPad/Mac builds 63–79 (and
+ * browser pages loaded before the next deploy) keep working. Remove it, with its instructions, event and allowance, once
+ * no supported build sends it (migration 083's settlement value stays for old ledger rows). FIGURE_VIEW.md "Extract the
+ * subfigure removed". */
 export const FIGURE_ACTIONS = ['figure', 'figure_simpler', 'figure_detail'] as const;
 export type FigureAction = typeof FIGURE_ACTIONS[number];
 export const isFigureAction = (action: string | null | undefined): action is FigureAction =>
@@ -26,7 +31,8 @@ export const FIGURE_ANSWER_TOKENS = 6_000;
 export function figureMaxTokens(effort: string): number {
   return FIGURE_ANSWER_TOKENS + (EFFORTS.find(entry => entry.id === effort)?.thinkingTokens ?? 4_000);
 }
-/** One part, extracted (`figure_detail`): its box and up to ~1,500 characters, plus the effort's thinking. */
+/** One part, extracted (`figure_detail`, deprecated: see FIGURE_ACTIONS): its box and up to ~1,500 characters, plus the
+ * effort's thinking. */
 export const FIGURE_DETAIL_FORMAT = 'figure-detail-v1';
 export const FIGURE_DETAIL_ANSWER_TOKENS = 2_500;
 export function figureDetailMaxTokens(effort: string): number {
@@ -72,7 +78,8 @@ Call figure_walkthrough once with the whole walkthrough, even when part of the i
 
 export const FIGURE_SIMPLER_INSTRUCTIONS = `The reader is reading a walkthrough of the attached figure (F1) and asked for one part of it, in the <selected_passage> block, to be explained more simply ("back up a bit"). Explain only that part again, for someone meeting it for the first time: where to look in the image and what is there, in plain words; the background it relies on, each idea briefly (what the axes or quantities mean, why this kind of plot or measure is used, any term the passage takes for granted); then what to notice and why it matters to the paper, with a small concrete example when it helps. Do not walk through the rest of the figure and do not repeat the passage. Cite the paper as usual. Do not use any tool and do not search the web.`;
 
-/** "Extract the subfigure and more context" (owner, build 62): one part of the walkthrough, cropped and read again with
+/** Deprecated with `figure_detail` (see FIGURE_ACTIONS; older builds only).
+ * "Extract the subfigure and more context" (owner, build 62): one part of the walkthrough, cropped and read again with
  * more of the paper around it. Same tool as the walkthrough (so the cached tools stay the chat's), one section, its box
  * required: the device crops the image it sent to that region and shows the text under it. */
 export const FIGURE_DETAIL_INSTRUCTIONS = `The reader is reading a walkthrough of the attached figure (F1) and asked to extract one part of it, in the <selected_passage> block (the part's label, title and text from the walkthrough), and for more context about it. Look closely at that part of the image.
@@ -156,8 +163,8 @@ export function figureWalkthrough(input: unknown, paragraphs: number): FigureWal
 }
 
 export interface FigureDetail { format: typeof FIGURE_DETAIL_FORMAT; label: string; title: string; text: string; paragraphs: number[]; box: FigureBox }
-/** The model's figure_walkthrough input for one part (`figure_detail`), checked: its first usable section with a usable
- * box. Null when there is none (the words still reach the reader, without a crop: `figureWalkthroughText`). */
+/** Deprecated with `figure_detail` (older builds only). The model's figure_walkthrough input for one part, checked: its
+ * first usable section with a usable box. Null when there is none (the words still reach the reader, without a crop: `figureWalkthroughText`). */
 export function figureDetail(input: unknown, paragraphs: number): FigureDetail | null {
   if (!input || typeof input !== 'object' || Array.isArray(input) || !Array.isArray((input as Record<string, unknown>).sections)) return null;
   const first = ((input as Record<string, unknown>).sections as unknown[]).find(s => !!s && typeof s === 'object' && !Array.isArray(s));

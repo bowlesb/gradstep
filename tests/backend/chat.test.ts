@@ -2245,7 +2245,8 @@ test('the walkthrough is held back, checked and relayed once; without one the wo
 });
 
 // One part extracted (owner, TestFlight 62: "Extract the subfigure and more context"): `figure_detail`, the walkthrough's
-// tool with one section and its box required, on the chat's cached prefix.
+// tool with one section and its box required, on the chat's cached prefix. Deprecated 2026-10-21 (removed from every
+// client); these tests keep it working for already-installed builds 63–79 until it is removed (FIGURE_VIEW.md).
 const detailBody = (overrides: Record<string, unknown> = {}) => figureBody({ action: 'figure_detail',
   selection: { quote: '(a) The RLHF pipeline\nThree stages: a reward model, then RL [¶12].' }, messages: [{ role: 'user', text: 'Figure 2 (a)' }], ...overrides });
 const detailInput = (box: unknown = { x: 0.02, y: 0.1, w: 0.45, h: 0.5 }) => ({ summary: 'The left half: the RLHF pipeline.', sections: [

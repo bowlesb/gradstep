@@ -1,10 +1,32 @@
 # Implementation status
 
+## Extract the subfigure removed — 2026-10-21 (local source; not released, not deployed)
+
+Owner: "Let's not do extract the subfigure … consistently create one good product experience in the AI result that comes
+back." The walkthrough (summary + parts as viewports) is the single figure result on iPhone/iPad/Mac and the browser.
+Removed from every client: the part-menu item "Extract the subfigure and more context", its loader, "Up close" card,
+no-crop note, retry, framing/record surface, snippet source, request, event parsing, models, fixtures and journey steps.
+Kept: Explain more simply (words under the part, in the walkthrough); no "more parts" request ever existed. Old kept
+detail answers are hidden (native: never looked up, not listed in Your assets; browser: dropped on restore); no migration.
+Server still accepts `figure_detail` from builds 63–79, marked DEPRECATED in `chat-figure-view.ts` / `chat.ts`, to be
+removed once no supported build sends it; the live smoke no longer asks for it. Design: [FIGURE_VIEW.md](architecture/FIGURE_VIEW.md)
+"Extract the subfigure removed"; decision in DECISIONS.md.
+
+Evidence (no provider call, no deploy, no physical phone): `npm test` passes (backend 698 including the deprecated
+`figure_detail` cases, browser units 600); Core `swift test` 398 pass (new `extractTheSubfigureIsGoneButOldAnswersStillRead`:
+no action, event ignored, an old sealed detail answer decodes and is not shown/listed); app units `FigureViewAppTests` +
+`ChatVisualTests` 8/8; on a fresh iPhone 17 Pro Simulator (iOS 26.4), run one at a time: `FigureViewJourneyTests`
+walkthrough journey (asserts no Extract in the part menu, simpler, Show in the paper, kept on reopen, Ask about a part),
+Ask in chat (dark), two-plot crops, framed-by-confidence light and dark — 5/5. Playwright `figure-view.spec.ts` desktop +
+phone 17 passed, 1 pre-existing desktop skip; menus asserted as Explain more simply · Show in the paper · (Save snippet) ·
+Ask in chat about this. Screenshots (iPhone light/dark, browser desktop/phone light/dark, the menus):
+`.artifacts/figure-detail-removal/`. Not run: iPad/Mac journeys (same SwiftUI path; no layout change), physical device.
+
 ## Figure parts as viewports, framed by confidence — 2026-10-21 (local source; not released, not deployed)
 
 Owner-approved design: part cards are viewports into the whole figure, framed by confidence (tight as the crop looked;
 looser with the part outlined; the whole figure with the part outlined), expandable to the whole figure, never a
-misleading crop; "Shown whole…" is gone. Extract/simpler/chat parts stay under the same rules; parts beyond a caption's
+misleading crop; "Shown whole…" is gone. Extract (since removed, above)/simpler/chat parts stay under the same rules; parts beyond a caption's
 named panels become outlines on the whole figure. Save snippet from a part captures what its card shows. A local-only,
 geometry-only framing record (arXiv figures only, in memory, cleared on sign-out) is the one place a future opt-in upload
 would attach; nothing is collected (DECISIONS.md proposal). Design and thresholds: [Parts as viewports](architecture/FIGURE_VIEW.md).
