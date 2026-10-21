@@ -1,6 +1,6 @@
 import type { ClientEntry, LibraryPaper, LocalPDFPaper } from './device-pdf';
 // What the library table shows for each entry: the native LibraryRowFacts, minus chats.
-import { distinctiveKeyword, tagsFromCategories, TAG_VOCABULARY } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
+import { distinctiveKeyword, specificTagsFromCategories, tagsFromCategories, TAG_VOCABULARY } from '../../../../supabase/functions/_shared/tag-vocabulary.ts';
 import { isSourcePaper, readingSource, type ReaderPaper } from './reader-paper';
 import type { Entry, Import, Item } from './library';
 import { type ImportAction, importAction, importStatus, importStep, retryingAutomatically } from './progress';
@@ -30,6 +30,14 @@ export function effectiveTags(item: LibraryPaper): string[] {
   const add = (tag: string) => { if (allowedKeyword(tag) && !result.some(t => t.toLowerCase() === tag.toLowerCase())) result.push(tag); };
   for (const tag of item.tags ?? []) if (!hidden.has(tag.toLowerCase()) && distinctiveKeyword(tag)) add(tag);
   for (const tag of item.user_tags ?? []) add(tag);
+  // Nothing specific and nothing the reader chose or removed (a new paper before its catalog tags, or only generic ones;
+  // owner, build 78: "No Gradstep keywords"): as the apps, keywords from its title and abstract, then its narrower arXiv
+  // subjects (never machine learning, AI, language or vision).
+  if (!result.length && !item.user_tags?.length && !item.hidden_tags?.length) {
+    const m = item.metadata;
+    const derived = deriveKeywords(m?.title ?? '', m?.abstract ?? '');
+    return derived.length ? derived : specificTagsFromCategories(m?.categories ?? []).filter(distinctiveKeyword);
+  }
   return result;
 }
 

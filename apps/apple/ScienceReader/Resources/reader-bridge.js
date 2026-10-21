@@ -1147,7 +1147,7 @@
       // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
       '.sr-paper-tags{display:block;margin:1.5em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',
-      '.sr-paper-tags h2{margin:0 0 .5em}.sr-paper-tags .sr-tag{display:inline-block;margin:0 .4em .4em 0}.sr-keyword-source{display:block;font-size:.8em;color:var(--sr-muted,#777);margin-bottom:.5em}[data-sr-abstract-list]{padding-left:0;list-style:none;margin-left:0}[data-sr-abstract-list]>li{margin-left:0;padding-left:0}',
+      '.sr-paper-tags h2{margin:0 0 .5em}.sr-paper-tags .sr-tag{display:inline-block;margin:0 .4em .4em 0}.sr-paper-tags .sr-tag-add{color:var(--sr-link)}.sr-keyword-source{display:block;font-size:.8em;color:var(--sr-muted,#777);margin-bottom:.5em}[data-sr-abstract-list]{padding-left:0;list-style:none;margin-left:0}[data-sr-abstract-list]>li{margin-left:0;padding-left:0}',
       '.sr-paper-tags .sr-tag:active{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible,.sr-paper-tags .sr-tag:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
       '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags .sr-tag:active{background:rgba(120,120,128,.36)}}',
       // A paper's own contents: one entry per line, indented by depth, the page muted on the right.
@@ -1190,6 +1190,8 @@
     else { row.setAttribute('role', 'button'); row.tabIndex = 0; row.setAttribute('aria-label', 'Add keywords'); }
     const label = document.createElement('h2'); label.textContent = 'Gradstep Keywords'; row.append(label);
     if (source !== 'Gradstep') { const origin = document.createElement('span'); origin.className = 'sr-keyword-source'; origin.textContent = source; row.append(origin); }
+    // No keywords: a visible Add keywords chip, never a bare heading (owner, build 78: "No Gradstep keywords"; TAGS.md).
+    if (!names.length) { const add = document.createElement('span'); add.className = 'sr-tag sr-tag-add'; add.textContent = 'Add keywords'; add.setAttribute('aria-hidden', 'true'); row.append(add); }
     for (const name of names) {
       const chip = document.createElement('span');
       chip.className = 'sr-tag'; chip.textContent = name; chip.setAttribute('data-sr-tag', name);

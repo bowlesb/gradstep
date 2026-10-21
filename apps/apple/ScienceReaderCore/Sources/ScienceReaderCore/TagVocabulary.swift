@@ -162,6 +162,17 @@ public enum TagVocabulary {
         return result
     }
 
+    /// arXiv subject classes too broad to name a paper (build 70: "Hard no on AI/ML keywords"): machine learning, AI,
+    /// language and vision. The server's `BROAD_CATEGORIES` is the same list (a backend test compares the two).
+    public static let broadCategories: Set<String> = ["cs.LG", "stat.ML", "cs.AI", "cs.CL", "cs.CV", "eess.IV"]
+
+    /// The last resort for a paper with no specific keyword from its title, abstract or catalog tags (owner, build 78:
+    /// "No Gradstep keywords"): the names of its narrower arXiv subjects ("cs.IR" → "Information retrieval"), never the
+    /// broad ones.
+    public static func specificNames(forCategories categories: [String], limit: Int = 2) -> [String] {
+        names(forCategories: categories.filter { !broadCategories.contains($0) }, limit: limit)
+    }
+
     /// Keywords too broad to tell one paper from another (owner, builds 70 and 75): left out of derived keywords and
     /// of catalog tags as the reader sees them; a tag the reader typed stays theirs. Lower case, matched whole; the
     /// server's `GENERIC_KEYWORDS` is the same list (a backend test compares the two).

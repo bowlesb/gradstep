@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { distinctiveKeyword, GENERIC_KEYWORDS, TAG_NAMES, TAG_VOCABULARY, TAG_VOCABULARY_VERSION, tagsFromCategories, vocabularyName } from '../../supabase/functions/_shared/tag-vocabulary.ts';
+import { BROAD_CATEGORIES, distinctiveKeyword, GENERIC_KEYWORDS, specificTagsFromCategories, TAG_NAMES, TAG_VOCABULARY, TAG_VOCABULARY_VERSION, tagsFromCategories, vocabularyName } from '../../supabase/functions/_shared/tag-vocabulary.ts';
 import { classifyPaper, createTagClient, estimateMicrousd, parseTags, priceUsage, TAG_MODEL, TAG_SCHEMA, TAG_SYSTEM_PROMPT, tagCatalog,
   tagRequest, type Classification, type ClaimedVersion, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 
@@ -36,6 +36,16 @@ test('the app carries the same vocabulary (names, kinds, definitions, categories
   const generic = /public static let generic: Set<String> = \[([\s\S]*?)\]/.exec(swift);
   assert.ok(generic, 'TagVocabulary.generic');
   assert.deepEqual([...generic[1].matchAll(/"(.*?)"/g)].map(match => match[1]).sort(), [...GENERIC_KEYWORDS].sort());
+  // The broad subject classes the keyword fallback skips (build 78): the same list on both sides.
+  const broad = /public static let broadCategories: Set<String> = \[([\s\S]*?)\]/.exec(swift);
+  assert.ok(broad, 'TagVocabulary.broadCategories');
+  assert.deepEqual([...broad[1].matchAll(/"(.*?)"/g)].map(match => match[1]).sort(), [...BROAD_CATEGORIES].sort());
+});
+
+test('the keyword fallback names a narrower subject, never machine learning, AI, language or vision (build 78)', () => {
+  assert.deepEqual(specificTagsFromCategories(['cs.IR', 'cs.LG', 'cs.CL']), ['Information retrieval']);
+  assert.deepEqual(specificTagsFromCategories(['cs.LG', 'stat.ML', 'cs.AI', 'cs.CL', 'cs.CV']), []);
+  assert.deepEqual(specificTagsFromCategories(['cs.RO', 'cs.CR', 'math.OC']), ['Robotics', 'Security']);
 });
 
 test('generic keywords never describe a paper; specific ones and the vocabulary spelling do', () => {

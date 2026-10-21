@@ -109,14 +109,22 @@ final class PaperWebViewTests: XCTestCase {
             window.__scienceReaderSetPaperTags({names:['Tool use','TreeCut'],source:'Gradstep'});
             const chip=document.querySelector('[data-sr-tag="TreeCut"]');
             chip.click(); document.querySelector('[data-sr-paper-tags] h2').click();
-            return {text:document.getElementById('refs').textContent, links, abstractList, indent,
+            // No keywords (build 78: "No Gradstep keywords"): a visible Add keywords chip under the heading, never a bare one.
+            window.__scienceReaderSetPaperTags({names:[],source:'Gradstep'});
+            const add=document.querySelector('[data-sr-paper-tags] .sr-tag-add');
+            const empty={add:add?.textContent??'', visible:!!add&&add.getBoundingClientRect().height>0, chips:document.querySelectorAll('[data-sr-tag]').length};
+            add?.click();
+            return {text:document.getElementById('refs').textContent, links, abstractList, indent, empty,
                     messages:received.filter(m=>m.type==='tag'||m.type==='tags').map(m=>m.type+':'+(m.name??''))};
             """, [:]) as? [String: Any]
         XCTAssertEqual(result?["text"] as? String, original, "the text is unchanged")
         XCTAssertEqual(result?["links"] as? [String], ["Sec.\u{00A0}2.2", "Appendix A", "§3"])
         XCTAssertEqual(result?["abstractList"] as? Bool, true)
         XCTAssertEqual(result?["indent"] as? String, "0px")
-        XCTAssertEqual(result?["messages"] as? [String], ["tag:TreeCut", "tags:"])
+        XCTAssertEqual(result?["messages"] as? [String], ["tag:TreeCut", "tags:", "tags:"], "Add keywords opens the editor")
+        let empty = result?["empty"] as? [String: Any]
+        XCTAssertEqual(empty?["add"] as? String, "Add keywords"); XCTAssertEqual(empty?["visible"] as? Bool, true)
+        XCTAssertEqual(empty?["chips"] as? Int, 0)
     }
 
     func testFindMatchesAcrossInlineMarkupWithoutChangingThePaperOrSelection() async throws {

@@ -52,6 +52,17 @@ describe('native paper tag parity', () => {
     expect(rows([item({ metadata: paper.metadata })])[0].tags).toEqual([]); // Generic categories are not paper keywords.
     expect(rows([item({ metadata: paper.metadata, hidden_tags: ['Machine learning'] })])[0].tags).toEqual([]);
   });
+  it('never leaves a paper with nothing specific keyword-less: title/abstract, then a narrower subject (build 78)', () => {
+    // "Evolving Semantic Indexes for Generative Retrieval": only generic catalog tags, nothing derivable from the title.
+    const metadata = { title: 'Evolving Semantic Indexes for Generative Retrieval', authors: [], categories: ['cs.IR', 'cs.LG'],
+      abstract: 'Large language models generate document identifiers.' };
+    expect(effectiveTags(item({ metadata, tags: ['Large language models'] }))).toEqual(['Information retrieval']);
+    expect(effectiveTags(item({ metadata, tags: [] }))).toEqual(['Information retrieval']);
+    expect(effectiveTags(item({ metadata: { ...metadata, categories: ['cs.LG', 'cs.CL'] }, tags: [] }))).toEqual([]);
+    expect(effectiveTags(item({ metadata: { ...metadata, abstract: 'We study tool use.' }, tags: [] }))).toEqual(['Tool use']);
+    // Anything the reader chose or removed stays as they left it.
+    expect(effectiveTags(item({ metadata, tags: ['Large language models'], hidden_tags: ['Information retrieval'] }))).toEqual([]);
+  });
   it('uses only other visible papers’ personal tags, ranked by use', () => {
     const tags = ownTagsInLibrary([item({ user_tags: ['Excluded'] }), item({ id: 'two', user_tags: ['Review', 'Methods', 'review'] }),
       item({ id: 'three', archived: true, user_tags: ['review'] }), item({ id: 'four', visible: false, user_tags: ['Removed'] })], item().id);

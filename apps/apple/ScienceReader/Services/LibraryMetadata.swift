@@ -86,8 +86,13 @@ enum LibraryTags {
         let own = distinct(paper.tags).filter(PaperKeywords.allowed)
         if paper.tagsCustomized { return own }
         let derived = PaperKeywords.derive(title: paper.title, abstract: paper.abstract)
+        if !derived.isEmpty { return derived }
         // Catalog tags the reader didn't choose keep only the specific ones (builds 70 and 75: no LLM, Reasoning...).
-        return derived.isEmpty ? own.filter(PaperKeywords.distinctive) : derived
+        let catalog = own.filter(PaperKeywords.distinctive)
+        if !catalog.isEmpty { return catalog }
+        // Nothing specific yet (a new paper before its catalog tags, or only generic ones; owner, build 78: "No Gradstep
+        // keywords"): its narrower arXiv subjects, never machine learning, AI, language or vision.
+        return TagVocabulary.specificNames(forCategories: paper.keywords).filter(PaperKeywords.distinctive)
     }
 
     static func tags(for item: LibraryImportRecord) -> [String] {

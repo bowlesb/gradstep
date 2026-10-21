@@ -255,6 +255,18 @@ final class PaperTableTests: XCTestCase {
         return paper
     }
 
+    /// Build 78 ("No Gradstep keywords", Evolving Semantic Indexes for Generative Retrieval): a paper whose title and
+    /// abstract give nothing specific and whose catalog tags are missing or generic shows its narrower arXiv subject.
+    func testAPaperWithNothingSpecificShowsItsNarrowerSubject() {
+        var shown = paper("Evolving Semantic Indexes for Generative Retrieval", keywords: ["cs.IR", "cs.LG"], tags: ["Large language models"])
+        XCTAssertEqual(LibraryTags.tags(for: shown), ["Information retrieval"])
+        shown = paper("Evolving Semantic Indexes for Generative Retrieval", keywords: ["cs.IR", "cs.LG"])
+        XCTAssertEqual(LibraryTags.tags(for: shown), ["Information retrieval"], "before its catalog tags arrive")
+        XCTAssertEqual(LibraryTags.tags(for: paper("A", keywords: ["cs.LG", "cs.CL", "cs.AI", "cs.CV"])), [], "never the broad subjects")
+        shown.tagsCustomized = true
+        XCTAssertEqual(LibraryTags.tags(for: shown), [], "a list the reader cleared stays empty")
+    }
+
     func testTagsKeepSpecificKeywordsWithoutBroadCategoryFallback() {
         XCTAssertEqual(LibraryTags.tags(for: paper("A", keywords: ["cs.LG", "cs.CL", "stat.ML", "cs.LG"])),
                        [], "Broad arXiv subject classes are not discriminative paper keywords (build 70 feedback)")

@@ -187,6 +187,15 @@ export function vocabularyName(value: string): string | null {
   return byLowerName.get(value.trim().toLowerCase()) ?? null;
 }
 
+/** arXiv subject classes too broad to name a paper (build 70: "Hard no on AI/ML keywords"). TagVocabulary.swift's
+ * `broadCategories` is the same list (a backend test compares the two). */
+export const BROAD_CATEGORIES: readonly string[] = Object.freeze(['cs.LG', 'stat.ML', 'cs.AI', 'cs.CL', 'cs.CV', 'eess.IV']);
+/** The last resort for a paper with no specific keyword from its title, abstract or catalog tags (owner, build 78: "No
+ * Gradstep keywords"): its narrower arXiv subjects' names ("cs.IR" → "Information retrieval"), never the broad ones. */
+export function specificTagsFromCategories(categories: readonly string[], limit = 2): string[] {
+  return tagsFromCategories(categories.filter(category => !BROAD_CATEGORIES.includes(category)), limit);
+}
+
 /** Fallback tags from arXiv categories: distinct vocabulary names in the paper's own order, at most `limit`. */
 export function tagsFromCategories(categories: readonly string[], limit = 3): string[] {
   const result: string[] = [];

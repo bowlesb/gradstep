@@ -32,6 +32,15 @@ projection adds `tags_customized` without changing catalog metadata. Nonempty ex
 customized. Clearing all keywords must stay empty after sync and restart. The reader presents the editable row
 immediately before the first body section, with an Add keywords action when empty. No model call is involved.
 
+**Never an empty row** (owner, build 78: "No Gradstep keywords", on "Evolving Semantic Indexes for Generative
+Retrieval", whose row showed only its heading). Without the reader's own choice the shown keywords are, in order: specific
+keywords derived from the title and abstract; the catalog's specific tags; then the names of the paper's narrower arXiv
+subjects (`TagVocabulary.specificNames` / `specificTagsFromCategories`: cs.IR → Information retrieval), never the broad
+ones (`broadCategories` / `BROAD_CATEGORIES`: cs.LG, stat.ML, cs.AI, cs.CL, cs.CV, eess.IV — the build-70 "hard no").
+The browser now derives the same way for a catalog paper with nothing specific (it showed only catalog tags). A paper
+that still has none — or a list the reader cleared — shows a visible **Add keywords** chip under the heading, which opens
+Edit tags, instead of a bare heading.
+
 ## Two kinds of tags
 
 | | Catalog tags | Personal tags |
