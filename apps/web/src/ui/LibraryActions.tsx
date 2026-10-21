@@ -169,7 +169,7 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
   const [awaiting, setAwaiting] = useState<CommandResponse | null>(null);
   const ref = useRef<HTMLDialogElement>(null), field = useRef<HTMLInputElement>(null), alive = useRef(false), submitted = useRef(false);
   const moving = selection.action === 'catalog';
-  const [destination, setDestination] = useState(() => library.catalogs?.state.catalogFor(entryCatalogKey(selection.item)) ?? '');
+  const [destination, setDestination] = useState(() => library.catalogs?.state.catalogFor(entryCatalogKey(selection.item, library.catalogs.state)) ?? '');
   const editing = selection.action === 'tags', archive = selection.action === 'archive', archiveTarget = !selection.item.archived;
   const changed = JSON.stringify(tags) !== JSON.stringify(effectiveTags(baseline));
   const dirty = editing && (changed || draft.trim().length > 0);
@@ -234,7 +234,7 @@ function PaperActionDialog({ selection, actions }: { selection: Selection; actio
     try {
       if (moving) {
         if (!library.catalogs?.ready || !library.catalogs.currentState().catalogs.some(c => c.id === destination)) throw new BackendError('item_unavailable');
-        await library.catalogs.assign(entryCatalogKey(baseline), destination); observed(null);
+        await library.catalogs.assign(entryCatalogKey(baseline, library.catalogs.currentState()), destination); observed(null);
       } else observed(await (editing ? library.setTags(baseline, tags) : archive ? library.archive(baseline, archiveTarget) : library.removePaper(baseline)));
     } catch (error) {
       if (!alive.current) return;

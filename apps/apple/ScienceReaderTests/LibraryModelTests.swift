@@ -188,6 +188,10 @@ private final class LibraryModelServer: @unchecked Sendable {
                     request.respond(bytes(sequence))
                 } else { request.respond(Data("{}".utf8), status: 400) }
             case "v1_acknowledge_cursor": privateCalls.append("ack"); request.respond(Data(), status: 204)
+            case "add-paper":
+                // functions/v1/add-paper: a DOI the server resolved to an open-access web paper and queued.
+                request.respond(bytes(["status": "added", "route": "doi", "paper": ["title": "An Open-Access Paper", "year": 2024,
+                    "source_id": "openalex:W2741809807", "kind": "web"]]))
             case "v5_set_source_details":
                 // Captured and left unconfirmed (a busy server), so the change stays pending.
                 capturedCommands.append(.init(endpoint: request.request.url!.lastPathComponent, body: body(request.request)))
@@ -782,6 +786,24 @@ final class LibraryModelTests: XCTestCase {
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: sent.body) as? [String: Any])
         XCTAssertEqual(body["p_archived"] as? Bool, true)
         XCTAssertEqual(body["p_tags"] as? [String], [], "The stored list, so the server keeps the keywords derived")
+    }
+
+    /// A5, A6: a web (DOI) paper the server added joins the catalog selected when Add was pressed, under its source
+    /// key; and the add is reported as added even when this device can't write its catalog at that moment.
+    func testAddedWebPaperJoinsTheSelectedCatalogAndKeepsTheServersOutcome() async throws {
+        let server = LibraryModelServer(activated: true), f = try fixture(server), model = f.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        let thesis = try await model.createCatalog("Thesis")
+        XCTAssertEqual(model.currentCatalog.id, thesis)
+        let added = await model.addPaperOutcome("10.1234/open-access")
+        XCTAssertEqual(added?.kind, .added)
+        XCTAssertEqual(model.libraryCatalogs.catalogID(for: "source:openalex:W2741809807"), thesis, "Filed where Add was pressed")
+        model.selectCatalog(LibraryCatalogBatch.initialCatalogID)
+        model.localPersistence.failingWritesForTesting = 1
+        let again = await model.addPaperOutcome("10.1234/open-access")
+        XCTAssertEqual(again?.kind, .added, "The server added it; the catalog write failing doesn't make it a failure")
+        XCTAssertEqual(model.libraryCatalogs.catalogID(for: "source:openalex:W2741809807"), thesis)
     }
 
     /// A4: signing out cancels the account's background downloads and clears their progress, so no row stays

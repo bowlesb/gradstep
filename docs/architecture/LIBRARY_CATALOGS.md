@@ -44,6 +44,14 @@ paper keeps its catalog. Local and legacy document keys use their stable UUID. P
 document retain their source key. Re-adding a previously removed paper explicitly assigns it to the currently
 selected catalog. An older client that adds without catalog metadata places that paper in the original Default.
 
+October 21 (native review A5/A6): a web (open-access, `openalex:W…`) paper added by DOI or link now uses
+`source:openalex:W…`, so its pending import and installed paper share one key and it joins the catalog selected when
+Add was pressed. A web paper moved earlier under its `paper:<document>` key keeps that assignment until it is moved
+again (the assigned key wins). Readers before this change reject a batch containing the new key kind; each such
+assignment is written in a batch of its own, so those readers only show that paper in Default. A paper the server
+added is reported as added even when this device can't write its catalog at that moment (recovery, activation, a
+local write failure); the arXiv Add path still persists its assignment before beginning the import, as above.
+
 Retiring a catalog records a durable redirect for its assignments, including concurrent assignments to that
 catalog. Follow redirect chains with cycle protection and deterministic fallback to the original Default.
 Concurrent edits cannot make papers disappear. Deleting the current/default catalog selects the named destination;

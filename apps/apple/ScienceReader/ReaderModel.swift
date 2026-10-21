@@ -345,10 +345,29 @@ final class ReaderModel {
         !workOwnership.isActivating && !needsRecovery
     }
     func catalogKey(_ paper: Paper) -> String {
-        paper.sourceID.flatMap(LibraryCatalogBatch.arxivKey) ?? LibraryCatalogBatch.documentKey(paper.id)
+        paper.sourceID.flatMap(LibraryCatalogBatch.arxivKey) ?? stableCatalogKey(source: paper.sourceID, document: paper.id)
     }
     func catalogKey(_ item: LibraryImportRecord) -> String {
-        item.sourceID.flatMap(LibraryCatalogBatch.arxivKey) ?? LibraryCatalogBatch.documentKey(item.documentID ?? item.id)
+        item.sourceID.flatMap(LibraryCatalogBatch.arxivKey) ?? stableCatalogKey(source: item.sourceID, document: item.documentID ?? item.id)
+    }
+    /// A web paper keeps one key from its pending import to the installed paper. A move recorded under its document
+    /// key (before source keys) still applies until it is moved again.
+    private func stableCatalogKey(source: String?, document: UUID) -> String {
+        let documentKey = LibraryCatalogBatch.documentKey(document)
+        guard let key = source.flatMap(LibraryCatalogBatch.sourceKey) else { return documentKey }
+        return libraryCatalogs.isAssigned(key) || !libraryCatalogs.isAssigned(documentKey) ? key : documentKey
+    }
+    /// The key a paper the server just added is filed under: its arXiv or web source key.
+    private static func addedCatalogKey(_ sourceID: String?) -> String? {
+        sourceID.flatMap { LibraryCatalogBatch.arxivKey($0) ?? LibraryCatalogBatch.sourceKey($0) }
+    }
+    /// Files a paper the server added into the catalog chosen when Add was pressed, unless it is there already.
+    /// Best effort: the add has happened even when this device can't write its catalog now (recovery, activation, a
+    /// local write failure); the paper then shows in the Default catalog.
+    private func assignAddedPaper(key: String, to destination: UUID) async {
+        guard libraryCatalogs.catalog(destination) != nil, libraryCatalogs.catalogID(for: key) != destination else { return }
+        do { try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)]) }
+        catch { SessionTimeline.shared.record("catalog", ["phase": "assign-failed"]) }
     }
     func catalogContains(_ key: String) -> Bool { libraryCatalogs.catalogID(for: key) == currentCatalog.id }
     func catalogCount(_ id: UUID) -> Int {
@@ -3446,25 +3465,24 @@ final class ReaderModel {
     func referenceOutcome(_ text: String) async -> ReferenceNotice? {
         guard let backend, let accountID else { return nil }
         let scope = sessionID, destination = currentCatalog.id
-        do {
-            let result = try await backend.addReference(text, accountID: accountID)
-            guard sessionID == scope else { return nil }
-            if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
-                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
-            }
-            let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
-            let source = result.paper?.source_id
-            if result.status == "added" { Task { await refreshLibrary() } }
-            switch result.status {
-            case "added": return .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text, sourceID: source)
-            case "present": return .init(kind: .present, message: "\(title) is already in your library.", reference: text, sourceID: source)
-            case "closed": return .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
-            case "not_found": return .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
-            case "needs_update": return .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
-            default: return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
-            }
-        } catch {
-            return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+        let result: AddReferenceResult
+        do { result = try await backend.addReference(text, accountID: accountID) }
+        catch { return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text) }
+        guard sessionID == scope else { return nil }
+        // The outcome is the server's: a catalog this device can't write now never turns an add into a failure.
+        if result.status == "added" {
+            if let key = Self.addedCatalogKey(result.paper?.source_id) { await assignAddedPaper(key: key, to: destination) }
+            Task { await refreshLibrary() }
+        }
+        let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
+        let source = result.paper?.source_id
+        switch result.status {
+        case "added": return .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text, sourceID: source)
+        case "present": return .init(kind: .present, message: "\(title) is already in your library.", reference: text, sourceID: source)
+        case "closed": return .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
+        case "not_found": return .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
+        case "needs_update": return .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
+        default: return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
         }
     }
 
@@ -3585,17 +3603,16 @@ final class ReaderModel {
     func addPaperOutcome(_ query: String) async -> AddOutcome? {
         guard let service = addingService else { return nil }
         let scope = sessionID, destination = currentCatalog.id
-        do {
-            let result = try await service.addPaper(query)
-            guard sessionID == scope else { return nil }
-            if result.status == "added", let source = result.paper?.source_id, let key = LibraryCatalogBatch.arxivKey(source) {
-                try await writeCatalog([.init(.assign, catalogID: destination, paperKey: key)])
-            }
-            if result.status == "added" { Task { await refreshLibrary() } }
-            return AddOutcome.from(result)
-        } catch {
-            return sessionID == scope && !(error is CancellationError) ? .unavailable : nil
+        let result: AddPaperResult
+        do { result = try await service.addPaper(query) }
+        catch { return sessionID == scope && !(error is CancellationError) ? .unavailable : nil }
+        guard sessionID == scope else { return nil }
+        // The outcome is the server's: a catalog this device can't write now never turns an add into a failure.
+        if result.status == "added" {
+            if let key = Self.addedCatalogKey(result.paper?.source_id) { await assignAddedPaper(key: key, to: destination) }
+            Task { await refreshLibrary() }
         }
+        return AddOutcome.from(result)
     }
 
     /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Quote in Chat (was "Ask about this")

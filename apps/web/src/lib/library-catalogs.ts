@@ -2,6 +2,7 @@
 // not a new strict event kind: older readers keep them without losing their history.
 import { parseArxiv } from './arxiv';
 import { isUUID } from './bytes';
+import { isWebSourceID } from './library';
 import { PrivateState, type PrivateEvent } from './events';
 import type { ClientEntry } from './device-pdf';
 
@@ -21,10 +22,20 @@ export function catalogName(raw: string): string | null {
 }
 export const arxivCatalogKey = (raw: string) => { const ref = parseArxiv(raw); return ref ? 'arxiv:' + ref.sourceID : null; };
 export const documentCatalogKey = (id: string) => 'paper:' + id.toLowerCase();
-export function entryCatalogKey(entry: ClientEntry): string {
-  return entry.source_id && arxivCatalogKey(entry.source_id) || documentCatalogKey(entry.kind === 'item' ? entry.document_id : entry.kind === 'import' ? entry.document_id ?? entry.id : entry.id);
+/** A web (open-access) paper keeps one key from its pending import to the installed paper (LibraryCatalog.swift
+ *  `sourceKey`). Older readers ignore a batch with this key, so it is written in a batch of its own. */
+export const sourceCatalogKey = (sourceID: string) => isWebSourceID(sourceID) ? 'source:' + sourceID : null;
+/** Pass the catalog state: a web paper moved under its document key (before source keys) stays there until moved again. */
+export function entryCatalogKey(entry: ClientEntry, catalogs?: LibraryCatalogs): string {
+  const arxiv = entry.source_id && arxivCatalogKey(entry.source_id);
+  if (arxiv) return arxiv;
+  const document = documentCatalogKey(entry.kind === 'item' ? entry.document_id : entry.kind === 'import' ? entry.document_id ?? entry.id : entry.id);
+  const source = entry.kind !== 'local_pdf' && entry.source_id ? sourceCatalogKey(entry.source_id) : null;
+  if (!source) return document;
+  return !catalogs || catalogs.isAssigned(source) || !catalogs.isAssigned(document) ? source : document;
 }
 function validKey(key: string) {
+  if (key.startsWith('source:')) return sourceCatalogKey(key.slice(7)) === key;
   return key.startsWith('arxiv:') ? arxivCatalogKey(key.slice(6)) === key : key.startsWith('paper:') && isUUID(key.slice(6)) && key === key.toLowerCase();
 }
 function decode(text: string): Batch | null {
@@ -109,5 +120,6 @@ export class LibraryCatalogs {
     return this.active.has(id) ? id : this.fallback;
   }
   catalogFor(key: string): string { return this.resolve(this.assignments.get(key) ?? INITIAL_CATALOG); }
+  isAssigned(key: string): boolean { return this.assignments.has(key); }
 }
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;

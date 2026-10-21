@@ -1,6 +1,6 @@
 import type { DevicePDFs } from './useDevicePDFs';
 import { CatalogsDialog } from './Catalogs';
-import { entryCatalogKey, arxivCatalogKey } from '../lib/library-catalogs';
+import { entryCatalogKey, arxivCatalogKey, sourceCatalogKey } from '../lib/library-catalogs';
 import { compactAuthors, firstAuthorLine } from '../lib/authors';
 import type { LibraryPaper, ClientEntry } from '../lib/device-pdf';
 import { isLibraryPaper } from '../lib/reader-paper';
@@ -77,7 +77,7 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
   if (visible) seen.current = current;
   const activity = seen.current;
   const [rowCache] = useState(() => new WeakMap<ClientEntry, Row>());
-  const all = useMemo(() => buildRows(library.entries.filter(e => !library.catalogs || library.catalogs.state.catalogFor(entryCatalogKey(e)) === library.catalogs.currentID), rowCache), [library.entries, rowCache, library.catalogs?.state, library.catalogs?.currentID]);
+  const all = useMemo(() => buildRows(library.entries.filter(e => !library.catalogs || library.catalogs.state.catalogFor(entryCatalogKey(e, library.catalogs.state)) === library.catalogs.currentID), rowCache), [library.entries, rowCache, library.catalogs?.state, library.catalogs?.currentID]);
   const counts = useMemo(() => {
     const live = all.filter(r => !r.archived);
     return {
@@ -566,8 +566,9 @@ export function AddPaper({ open, onClose, library, account, keys, localPDFs }: {
     const destination = library.catalogs?.currentID;
     try {
       const raw = await addPaper(account, value, controller.signal);
-      const key = raw.paper?.source_id && arxivCatalogKey(raw.paper.source_id);
-      if (raw.status === 'added' && key && destination) await library.catalogs?.assign(key, destination);
+      const key = raw.paper?.source_id && (arxivCatalogKey(raw.paper.source_id) ?? sourceCatalogKey(raw.paper.source_id));
+      // The server added it: a catalog this device can't write now never turns the add into a failure.
+      if (raw.status === 'added' && key && destination) await library.catalogs?.assign(key, destination).catch(() => {});
       const result = addOutcome(raw);
       if (controller.signal.aborted) return;
       if (result.finished) { library.refresh().catch(() => {}); setText(''); }

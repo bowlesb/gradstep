@@ -196,16 +196,18 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:Ca
   const latest = useRef(displayed); latest.current = displayed;
   const catalogEntries = (id: string) => {
     const state = catalogs?.currentState();
-    return [...new Map(latest.current.filter(e => e.visible && state?.catalogFor(entryCatalogKey(e)) === id).map(e => [entryCatalogKey(e), e])).values()];
+    return [...new Map(latest.current.filter(e => e.visible && state?.catalogFor(entryCatalogKey(e, state)) === id).map(e => [entryCatalogKey(e, state), e])).values()];
   };
   const deleteCatalogPapers = async (id: string, progress: (done: number, total: number) => void) => {
     if (!catalogs?.ready) throw Error('Unlock your library before changing catalogs.');
     const owner = lifetime.current; if (!owner || owner.signal.aborted) throw new BackendError('cancelled');
     // Capture exactly the confirmed papers and revision preconditions. New arrivals never join this batch.
-    const plan = latest.current.filter(e => e.visible && catalogs.currentState().catalogFor(entryCatalogKey(e)) === id);
+    const confirmed = catalogs.currentState();
+    const plan = latest.current.filter(e => e.visible && confirmed.catalogFor(entryCatalogKey(e, confirmed)) === id);
     for (const [i, entry] of plan.entries()) {
       owner.signal.throwIfAborted();
-      if (catalogs.currentState().catalogFor(entryCatalogKey(entry)) !== id) continue;
+      const now = catalogs.currentState();
+      if (now.catalogFor(entryCatalogKey(entry, now)) !== id) continue;
       if (entry.kind !== 'local_pdf' && !reconciler.current.entries.get(entry.kind + ':' + entry.id)?.visible) continue;
       if (pendingKeys.current.has(entry.id)) throw Error('A paper change is still syncing. The catalog is still here with its remaining papers.');
       progress(i + 1, plan.length);
@@ -213,7 +215,8 @@ export function useLibrary(account: string, devicePDFs?:DevicePDFs, catalogs?:Ca
     }
     owner.signal.throwIfAborted();
     // Reconciler is authoritative immediately after catch-up, before React publishes its render.
-    const remaining = [...reconciler.current.entries.values()].some(e => e.visible && catalogs.currentState().catalogFor(entryCatalogKey(e)) === id);
+    const after = catalogs.currentState();
+    const remaining = [...reconciler.current.entries.values()].some(e => e.visible && after.catalogFor(entryCatalogKey(e, after)) === id);
     const localRemaining = catalogEntries(id).some(e => e.kind === 'local_pdf' && !plan.some(p => p.id === e.id));
     if (remaining || localRemaining) throw Error('Papers were added to this catalog during deletion. Review the remaining papers before deleting it.');
     const destination = catalogs.currentState().catalogs.find(c => c.id !== id)?.id;

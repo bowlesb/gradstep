@@ -16,6 +16,23 @@ import Testing
         var value = PrivateState(); for event in events { try value.apply(event) }; return value
     }
 
+    /// NATIVE_REVIEW_20261021 A6: a web paper's source key is valid, round-trips, and is recorded as assigned; other
+    /// identifiers never become source keys (shared with apps/web/src/lib/library-catalogs.ts).
+    @Test func webSourceKeysAreValidAndAssignable() throws {
+        let key = try #require(LibraryCatalogBatch.sourceKey("openalex:W2741809807"))
+        #expect(key == "source:openalex:W2741809807")
+        #expect(LibraryCatalogBatch.validPaperKey(key))
+        #expect(LibraryCatalogBatch.sourceKey("2305.18290") == nil)
+        #expect(LibraryCatalogBatch.sourceKey("local:" + UUID().wire) == nil)
+        #expect(!LibraryCatalogBatch.validPaperKey("source:https://example.com"))
+        let other = UUID()
+        let created = try record([.init(.create, catalogID: other, name: "Thesis")])
+        let assigned = try record([.init(.assign, catalogID: other, paperKey: key)], parents: [created.id])
+        let projection = LibraryCatalogState(try state([created, assigned]))
+        #expect(projection.catalogID(for: key) == other)
+        #expect(projection.isAssigned(key)); #expect(!projection.isAssigned("source:openalex:W1"))
+    }
+
     @Test func defaultChoiceDoesNotMoveExistingUnassignedPapers() throws {
         let other = UUID()
         let created = try record([.init(.create, catalogID: other, name: "Robotics"), .init(.makeDefault, catalogID: other)])

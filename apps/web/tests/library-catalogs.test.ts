@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PrivateState, decodeEvent, encodeEvent, type AppliedEvent } from '../src/lib/events';
-import { CATALOG_ENTITY, INITIAL_CATALOG, LibraryCatalogs, arxivCatalogKey, catalogEvent, catalogName, type CatalogOperation } from '../src/lib/library-catalogs';
+import { CATALOG_ENTITY, INITIAL_CATALOG, LibraryCatalogs, arxivCatalogKey, catalogEvent, catalogName, entryCatalogKey, sourceCatalogKey, type CatalogOperation } from '../src/lib/library-catalogs';
+import type { ClientEntry } from '../src/lib/device-pdf';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const key = 'arxiv:2305.18290', other = id(90), destination = id(91);
@@ -57,5 +58,22 @@ describe('encrypted library catalogs', () => {
     expect(catalogName('  Reading  ')).toBe('Reading'); expect(catalogName('a'.repeat(81))).toBeNull();
     expect(catalogName('a\nb')).toBeNull(); expect(catalogName('a\u202eb')).toBeNull();
     expect(() => catalogEvent(new PrivateState(), [{ action: 'assign', catalogID: other, paperKey: 'private-url' }])).toThrow();
+  });
+  // NATIVE_REVIEW_20261021 A6, shared with LibraryCatalog.swift.
+  it('files a web paper by its source from pending import to installed paper, keeping an earlier document-key move', () => {
+    const source = 'openalex:W2741809807', sourceKey = 'source:' + source;
+    expect(sourceCatalogKey(source)).toBe(sourceKey); expect(sourceCatalogKey('local:' + id(1))).toBeNull();
+    expect(sourceCatalogKey('2305.18290')).toBeNull();
+    const filed = new LibraryCatalogs(state(record(1, [{ action: 'create', catalogID: other, name: 'Thesis' }]),
+      record(2, [{ action: 'assign', catalogID: other, paperKey: sourceKey }], [id(1)])));
+    const pending = { kind: 'import', id: id(10), visible: true, source_id: source } as unknown as ClientEntry;
+    const installed = { kind: 'item', id: id(11), document_id: id(12), visible: true, source_id: source } as unknown as ClientEntry;
+    expect(filed.catalogFor(entryCatalogKey(pending, filed))).toBe(other);
+    expect(filed.catalogFor(entryCatalogKey(installed, filed))).toBe(other);
+    const legacy = new LibraryCatalogs(state(record(1, [{ action: 'create', catalogID: other, name: 'Thesis' },
+      { action: 'assign', catalogID: other, paperKey: 'paper:' + id(12) }])));
+    expect(entryCatalogKey(installed, legacy)).toBe('paper:' + id(12)); expect(legacy.catalogFor(entryCatalogKey(installed, legacy))).toBe(other);
+    const arxiv = { kind: 'item', id: id(13), document_id: id(14), visible: true, source_id: '2305.18290' } as unknown as ClientEntry;
+    expect(entryCatalogKey(arxiv, legacy)).toBe('arxiv:2305.18290');
   });
 });

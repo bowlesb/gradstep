@@ -77,8 +77,15 @@ public struct LibraryCatalogBatch: Codable, Equatable, Sendable {
         (try? ArxivReference(input)).map { "arxiv:" + $0.sourceID }
     }
     public static func documentKey(_ id: UUID) -> String { "paper:" + id.wire }
+    /// A web (open-access, `openalex:W…`) paper: its source identity is the same for the pending import and the
+    /// installed paper, where the import and document IDs differ. Older readers ignore a batch with this key (the
+    /// paper then shows in their Default catalog), so it is written in a batch of its own.
+    public static func sourceKey(_ sourceID: String) -> String? {
+        LibrarySource.isWebSourceID(sourceID) ? "source:" + sourceID : nil
+    }
     public static func validPaperKey(_ key: String) -> Bool {
         if key.hasPrefix("arxiv:") { return arxivKey(String(key.dropFirst(6))) == key }
+        if key.hasPrefix("source:") { return sourceKey(String(key.dropFirst(7))) == key }
         if key.hasPrefix("paper:"), let id = UUID(uuidString: String(key.dropFirst(6))) { return documentKey(id) == key }
         return false
     }
@@ -177,5 +184,7 @@ public struct LibraryCatalogState: Equatable, Sendable {
     }
     public func resolved(_ id: UUID) -> UUID { Self.resolve(id, redirects: redirects, active: activeIDs, fallback: fallbackID) }
     public func catalogID(for paperKey: String) -> UUID { resolved(assignments[paperKey] ?? LibraryCatalogBatch.initialCatalogID) }
+    /// Whether any batch assigned this key (a paper with two possible keys uses the assigned one).
+    public func isAssigned(_ paperKey: String) -> Bool { assignments[paperKey] != nil }
     public func catalog(_ id: UUID) -> LibraryCatalog? { catalogs.first { $0.id == id } }
 }
