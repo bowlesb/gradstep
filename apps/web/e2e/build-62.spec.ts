@@ -41,7 +41,7 @@ test('Reader version details: this paper’s version and this browser’s; an ol
  await expect(page.getByText(/newer reader|prepared again/i)).toHaveCount(0);
  await page.locator('.reader-actions').getByRole('button',{name:/^Actions for/}).click();
  const item=page.getByRole('menu',{name:'Paper actions'}).getByRole('menuitem',{name:'Reader version details'});
- await expect(page.getByRole('menu',{name:'Paper actions'}).getByRole('menuitem').first()).toHaveText('Reader version details');
+ await expect(item).toBeVisible(); // after Find similar papers and sharing, as in the apps' ⋯ (PaperView)
  await item.click();
  const sheet=page.getByRole('dialog',{name:'Reader version'});
  await expect(sheet.getByTestId('reader-version-paper')).toHaveText('An earlier version');

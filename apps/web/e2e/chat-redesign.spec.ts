@@ -97,8 +97,10 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   await page.keyboard.press('Escape'); await expect(menu).toHaveCount(0); await expect(page.getByTestId('chat-menu')).toBeFocused();
   await page.getByTestId('chat-menu').click(); await page.getByTestId('answer-options-item').click();
   const options = page.getByRole('dialog', { name: 'Answer options' });
-  await expect(options.getByRole('radiogroup')).toHaveCount(2);
-  await expect(options.getByRole('radiogroup', { name: 'Model' }).getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus', 'DeepSeek']);
+  // Models in two groups since the providers changed (Anthropic models, Other providers), then Length.
+  await expect(options.getByRole('radiogroup')).toHaveCount(3);
+  await expect(options.getByRole('radiogroup', { name: 'Anthropic models' }).getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus']);
+  await expect(options.getByRole('radiogroup', { name: 'Other providers' }).getByRole('radio')).toHaveText(['DeepSeek']);
   await expect(options.getByRole('radiogroup', { name: 'Length' }).getByRole('radio')).toHaveText(['Brief', 'Standard', 'Detailed']);
   await expect(options.getByRole('button', { name: 'About AI chat options' })).toBeVisible();
   await expect(options).not.toContainText(/credit|Effort|Reset/);

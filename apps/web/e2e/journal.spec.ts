@@ -22,7 +22,8 @@ async function openChat(page: Page) {
   await expect(page.getByTestId('reader-frame')).toBeVisible();
   if (!await page.getByTestId('chat-pane').isVisible()) await page.getByTestId('ask').click();
 }
-const saved = (page: Page) => expect(page.getByTestId('draft-status')).toContainText(/Saved (on this device|in this browser)\./);
+// Saved: the hint goes away (build 69: only what the reader should act on shows, as reader-drafts.spec checks).
+const saved = (page: Page) => expect(page.getByTestId('draft-status')).toHaveCount(0);
 const evidence = async (request: any) => (await request.get(`${API}/__chat-evidence`)).json();
 async function records(page: Page) {
   return page.evaluate(async () => {
@@ -143,5 +144,5 @@ test('version-1 activation waits for an explicit acknowledgement; deferring leav
   await page.getByRole('checkbox', { name: 'I saved or copied' }).check(); await page.getByRole('button', { name: 'Save drafts' }).click();
   await expect(page.getByTestId('reader-frame')).toBeVisible();
   expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === 'gradstep')?.version)).toBe(2);
-  await expect(page.getByTestId('draft-status')).toContainText(/Saved (on this device|in this browser)\./);
+  await expect(page.getByTestId('draft-status')).toHaveCount(0); // saved: the hint goes away (build 69)
 });

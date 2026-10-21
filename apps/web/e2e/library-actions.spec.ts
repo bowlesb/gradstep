@@ -33,10 +33,12 @@ test('paper menus support keyboard and pointer; dirty Escape keeps the tag draft
   const trigger = paper(page).getByRole('button', { name: /^Actions for/ });
   await trigger.focus(); await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menu')).toHaveAttribute('data-library-row-owner', `item:${ITEM}`);
-  await expect(page.getByRole('menuitem', { name: 'Edit tags…' })).toBeFocused();
+  // Find similar papers first, as in the apps' row actions (LibraryRowActions).
+  await expect(page.getByRole('menuitem', { name: 'Find similar papers' })).toBeFocused();
   await page.keyboard.press('End'); await expect(page.getByRole('menuitem', { name: 'Remove from library…' })).toBeFocused();
   await page.keyboard.press('ArrowUp'); await expect(page.getByRole('menuitem', { name: 'Archive…', exact: true })).toBeFocused();
-  await page.keyboard.press('Home'); await page.keyboard.press('Enter');
+  while (!await page.getByRole('menuitem', { name: 'Edit tags…' }).evaluate(e => e === document.activeElement)) await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Enter');
   await expect(editor(page)).toHaveAttribute('data-library-row-owner', `item:${ITEM}`);
   await page.keyboard.press('Escape'); await expect(editor(page)).toHaveCount(0); await expect(trigger).toBeFocused();
   await trigger.click(); await expect(page.getByRole('menu', { name: 'Paper actions' })).toBeVisible();
@@ -75,11 +77,14 @@ test('saving every catalog tag hidden stays empty; suggestions and custom tags u
   expect(evidence.entries.find((entry: any) => entry.id === ITEM)).toMatchObject({ membership_revision: 2, hidden_tags: ['Large language models', 'Alignment'] });
   await tags(page);
   await expect(editor(page).getByRole('button', { name: 'Add Large language models', exact: true })).toBeVisible();
-  await addTag(page, 'machine learning'); await addTag(page, '  My   reading  ');
-  await expect(editor(page).getByRole('button', { name: 'Remove tag Machine learning', exact: true })).toBeVisible();
+  await addTag(page, 'machine learning');
+  await expect(editor(page).getByText('Choose a specific method, dataset or topic instead of AI or machine learning.')).toBeVisible();
+  await editor(page).getByRole('textbox', { name: 'Add a tag' }).fill('');
+  await addTag(page, 'natural language processing'); await addTag(page, '  My   reading  ');
+  await expect(editor(page).getByRole('button', { name: 'Remove tag Natural language processing', exact: true })).toBeVisible();
   await editor(page).getByRole('button', { name: 'Save', exact: true }).click(); await expect(editor(page)).toHaveCount(0);
   evidence = await (await request.get(`${FIXTURE}/__library-action-evidence`)).json();
-  expect(evidence.entries.find((entry: any) => entry.id === ITEM)).toMatchObject({ membership_revision: 3, user_tags: ['Machine learning', 'My reading'], hidden_tags: ['Large language models', 'Alignment'] });
+  expect(evidence.entries.find((entry: any) => entry.id === ITEM)).toMatchObject({ membership_revision: 3, user_tags: ['Natural language processing', 'My reading'], hidden_tags: ['Large language models', 'Alignment'] });
   await page.screenshot({ path: test.info().outputPath('tags-saved.png') });
 });
 

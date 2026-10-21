@@ -46,12 +46,12 @@ test('equation explanation, model choice and follow-up remain together with encr
  await expect(display).toBeVisible({timeout:20000});
  // Metadata controls are independent of the verified paper text.
  await expect(frame.getByRole('button',{name:'More papers by A. Author'})).toBeVisible();
- const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('Machine learning');
+ const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('Gradstep Keywords'); await expect(keywords).toContainText('HTML');
  expect(await keywords.evaluate(e=>e.nextElementSibling?.textContent)).toContain('Introduction');
  await keywords.click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
  await display.click(); const bar=page.getByRole('toolbar',{name:'Selected passage'});
- await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Related']);
+ await expect(bar.getByRole('button')).toHaveText(['Chat about Equation','AI Explainer','Copy as Text','Related','Add to note']); // Copy as Text (B10), Add to note (Notes)
  await bar.getByRole('button',{name:'Chat about Equation',exact:true}).click();
  const view=page.getByTestId('equation-view'), context=view.getByTestId('contextual-chat');
  await expect(context.getByRole('textbox',{name:'Message',exact:true})).toBeVisible();

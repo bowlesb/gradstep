@@ -47,7 +47,7 @@ for (const scheme of ['light', 'dark'] as const) test(`choose model and length; 
   await login(page);
   const dialog = await answerOptions(page, 'Sonnet · Standard');
   // Model and Length, nothing else (owner, build 57: "literally nothing else is needed on this UI").
-  await expect(dialog.getByRole('radiogroup')).toHaveCount(2);
+  await expect(dialog.getByRole('radiogroup')).toHaveCount(3); // Anthropic models, Other providers, Length
   await expect(dialog.getByRole('radio')).toHaveText(['Haiku', 'Sonnet', 'Opus', 'DeepSeek', 'Brief', 'Standard', 'Detailed']);
   await expect(dialog).not.toContainText('credits'); await expect(dialog).not.toContainText('Effort');
   await expect(dialog.getByRole('button', { name: /^Use for new (paper|general) chat$/ })).toBeDisabled();
@@ -113,6 +113,7 @@ test('rename in the chat header; AI chat options sets new chats; Use for new cha
   // Owner, build 59: "Default options for new chats" holds Model, Length and Visual answers; the rest is behind its ⓘ.
   await expect(settings.getByRole('heading', { name: 'Default options for new chats' })).toBeVisible();
   await expect(settings.getByTestId('visual-answers')).toBeVisible(); await expect(settings.getByTestId('chat-credits')).toHaveCount(0);
+  await settings.getByRole('combobox', { name: 'Activity' }).selectOption('paper');
   await settings.getByRole('radio', { name: 'Haiku', exact: true }).click();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-default-options.png` });
   await settings.getByRole('button', { name: 'About AI chat options' }).click();
@@ -208,7 +209,7 @@ test('a saved question retains its settings through lost acknowledgement and rel
   await expect(page.getByRole('alert')).toContainText('question couldn’t be saved');
   expect((await evidence(request)).requests).toHaveLength(0);
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('A later draft must survive');
-  await expect(page.getByTestId('draft-status')).toContainText(/Saved (on this device|in this browser)\./);
+  await expect(page.getByTestId('draft-status')).toHaveCount(0); // saved: the hint goes away (build 69)
   await page.reload(); await expect(page.getByTestId('reader-frame')).toBeVisible();
   if (!await page.getByTestId('chat-pane').isVisible()) await page.getByTestId('ask').click();
   await expect(page.getByTestId('chat-user')).toHaveText(/Question with an exact saved answer choice/);
@@ -238,8 +239,8 @@ test('Flash is the new default after named consent; explicit Sonnet is preserved
   await options.getByRole('button', { name: 'Close', exact: true }).click();
   await send(page, 'Explain the method.');
   const consent = page.getByRole('dialog', { name: 'Cloud AI answers' });
-  await expect(consent).toContainText('Google through OpenRouter');
-  await expect(consent).toContainText('Anthropic still writes');
+  await expect(consent).toContainText('All cloud answers use OpenRouter. Gemini Flash and Claude run on Google Vertex');
+  await expect(consent).toContainText('Titles and suggested questions use Claude on Google Vertex.');
   expect((await evidence(request)).requests).toHaveLength(0);
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-gemini-consent.png` });
   await consent.getByRole('button', { name: 'Allow and get answer' }).click();
