@@ -114,6 +114,17 @@ paper used for training/evaluation here is one of those (`metrics-v1/data-licens
    (unlettered: every score ≥ .85; singles need a confident whole-figure box): **4,725 compound + 7,023 single**.
    QA: 15 of 16 sampled look right.
 
+8. **LaTeX sub-figure page composites** (`subfig_pages.py`), aimed at the failure category above: on the
+   original arXiv PDF pages of training papers, a "Figure N" caption line anchors a figure region (bounded by
+   body text, running headers and the column); printed subcaptions starting with consecutive letters (a), (b), …
+   define one cell each (between row neighbours, down to the subcaption). A labelling is kept only if cell
+   boundaries cross no ink, every cell holds a graphic above its subcaption, nothing but captions lies below
+   the last row, and the region is not a table. This yields real lettered compounds of every kind — framed
+   diagrams, photo/sample grids, heatmaps, plots — with panel identity printed in the text layer:
+   **5,443 figures from 2,441 papers** (2–12 panels). QA: the first version included running headers,
+   paragraph tails and a table; after fixes, 14 of 16 sampled are right (two keep a page header or section
+   title as shared context).
+
 Paid vision-LLM labelling was not used: the only OpenRouter key on this Mac is the app's production chat key,
 which the project explicitly keeps out of research runs. Spend **$0**.
 
@@ -156,7 +167,11 @@ App success with 95% CI; other columns are point estimates. All new rows use com
 | r5 + agreement | **96.5** (94–99) | 0.0 | 88.7 (82–95) | 90.7 | 80.7 | 80.1 | 97.4 | 100.0 |
 
 (The frozen set has no captions, so its caption step is inactive.) Selection between r2, r5 and the
-running r4 is still open; differences among r1/r2/r5 with the full policy are within the intervals.
+running r4/r6 is still open; differences among r1/r2/r5 with the full policy are within the intervals.
+
+**Ensembles did not help.** Weighted box fusion of r1+r2+r5 (or r2+r5) reaches 73.5% / 72.7% on arXiv
+validation with the full policy — no better than r2 alone — and 97.1% on frozen validation. The models make
+correlated errors; the limit is the training data for non-plot compounds, not variance.
 
 **Where the best system still fails** (r2 + policy, arXiv validation): perfect 116/176 compounds,
 not split 24, clipped 16, extra crops 10, merged 6, wrong boxes 3, missed 1; false splits 3/62 singles.
@@ -185,6 +200,7 @@ where possible. Checkpoint selection by mean app success over both validation se
 | r3-r18-clean | r2 without SCI-3000 (rights-clean) | 11 (5) | 76 min / 6.1 GB | ran concurrently with r2 |
 | r5-r18-pseudo | r2 + grouped 159 + pseudo 11.7K | 12 (7) | 49 min / 6.1 GB | |
 | r4-r50m-pseudo | r5 data, RT-DETRv2-M (R50) | running | | |
+| r6-r18-subfig-ft | r5 data + LaTeX sub-figure composites, fine-tuned from r5 e07 | running | | |
 
 Exact configs, source/data hashes, per-epoch metrics, predictions and resource samples are in each
 `runs/<id>/` on the GPU host (`d21/`), with copied summaries under
@@ -195,8 +211,9 @@ Exact configs, source/data hashes, per-epoch metrics, predictions and resource s
 `export_coreml.py` converts a two-class checkpoint (here r1's best) to an FP32 ML Program on this Mac
 (coremltools 9.0, Torch 2.8) and replays 20 arXiv validation images: max matched box error 0.00027,
 probability error 0.00055, **identical delivered crops (count and edges within 0.0002 px)**. Package
-80.3 MB; first prediction 1.17 s, warm median 85 ms on a busy M1 Max. ONNX export (`export_onnx.py`) is
-prepared for the host. The selected final checkpoint will be re-exported; physical-device memory/thermals
+80.3 MB; first prediction 1.17 s, warm median 85 ms on a busy M1 Max. ONNX (opset 17,
+`export_onnx.py`) of r2's EMA e07 (SHA `235392cd…`) is 80.2 MB and matches PyTorch in onnxruntime 1.31 on 30
+validation images (max box error 0.00061, probability error 0.00004; 120 ms median on the busy host CPU). The selected final checkpoint will be re-exported; physical-device memory/thermals
 remain unmeasured (paused).
 
 ## Integration proposal (not implemented)
