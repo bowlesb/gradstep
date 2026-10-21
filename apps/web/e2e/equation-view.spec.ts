@@ -46,7 +46,8 @@ test('equation explanation, model choice and follow-up remain together with encr
  await expect(display).toBeVisible({timeout:20000});
  // Metadata controls are independent of the verified paper text.
  await expect(frame.getByRole('button',{name:'More papers by A. Author'})).toBeVisible();
- const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('Machine learning');
+ // A specific keyword from the title; the AI/ML categories never (build 70, de722cf; the old expectation was stale).
+ const keywords=frame.locator('[data-sr-paper-tags]'); await expect(keywords).toContainText('HTML'); await expect(keywords).not.toContainText('Machine learning');
  expect(await keywords.evaluate(e=>e.nextElementSibling?.textContent)).toContain('Introduction');
  await keywords.click(); await expect(page.getByRole('dialog',{name:'Edit tags',exact:true})).toBeVisible();
  await page.getByRole('dialog',{name:'Edit tags',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click();
