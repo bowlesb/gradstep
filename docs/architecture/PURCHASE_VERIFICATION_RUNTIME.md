@@ -113,6 +113,45 @@ Do not store attacker-selected receipt hashes as permanent denial/deduplication 
 
 Malformed framing is rejected before admission. Quota exhaustion or unavailable admission returns a retryable service failure; it never returns a successful receipt acknowledgement. In particular, Apple notifications receive 503 so production retries remain possible. Sandbox notifications do not retry; app restore/unfinished delivery remains the existing backstop, and API reconciliation is still a separate pending feature. Anonymous flooding can exhaust its notification allowance and delay legitimate delivery; alert on refusals and investigate rather than silently expanding the limit or pretending the flood is cost-free.
 
+### Notification authentication before admission (review A8, 2026-10-21)
+
+The flooding risk above was real: the only check before `worker_start_store_verifier` consumed the global
+`notification` allowance (60/hour, 200/day, 1,000/month) was compact-JWS framing, and the URL is public and
+predictable, so a script posting JWS-shaped junk could use the allowance and delay real notifications (Sandbox does not
+retry reliably). The Edge function now authenticates the outer JWS itself, before any database call, admission or
+verifier request (`_shared/app-store-jws.ts`), with the checks Apple's library applies to the outer JWS:
+
+- `alg` is `ES256` and `x5c` holds exactly three base64 DER certificates (bounded sizes);
+- the third is byte-identical to the pinned Apple Root CA - G3 (the same bytes and published SHA-256 as the verifier's
+  `app-store.ts`; a test asserts they are identical, so the root is still pinned in one reviewed value);
+- the intermediate names the root as issuer, is signed by the root's key and is a CA (basic constraints); the leaf
+  names the intermediate and is signed by it (ECDSA with SHA-256 or SHA-384, P-256 or P-384, DER signatures converted
+  to WebCrypto's r||s);
+- the leaf carries Apple's App Store receipt-signing marker `1.2.840.113635.100.6.11.1` and the intermediate the WWDR
+  marker `1.2.840.113635.100.6.2.1`;
+- every certificate is valid now within Apple's 60-second skew (the verifier runs with online checks, so Apple's
+  library also uses the current time);
+- the JWS signature verifies under the leaf's P-256 key;
+- the payload names our bundle ID and an allowed environment (`data`, `summary`, `appData` or
+  `externalPurchaseToken`, as Apple's library reads them), so Apple-signed notifications of another app cannot use our
+  allowance either.
+
+It uses WebCrypto and a minimal bounded DER reader only: no Apple SDK and no `node:crypto` X509 methods (unavailable in
+the hosted Edge runtime, above). A refusal answers the same `400 {"outcome":"invalid"}` an unverifiable payload always
+received (the hosted `store` check and `scripts/smoke-store.mjs` expect it) and logs only a fixed code
+(`notification_unauthenticated`, `failure`); no JWS, certificate or claim. It decides only whether a request may
+consume admission: the private verifier still runs Apple's SDK with OCSP, the inner transaction, environment
+agreement and every financial rule, and nothing here authorizes a purchase. A genuine notification of our own app can
+still be replayed by whoever holds one; it consumes one admission and records nothing twice (purchase SQL is
+idempotent). The production function passes no root or clock: the test-only parameters cannot be set from
+configuration or a request. Tests: `tests/backend/app-store-jws.test.ts` (an Apple-shaped P-384/P-256 chain; a negative
+case for every check; the real root parses and verifies its own signature).
+
+Not done: a daily reconciliation from the App Store Server API's notification history. It needs an App Store Connect
+In-App Purchase API key (issuer ID, key ID, private key) for this app, which is not configured for the Edge or the
+verifier, and its own design for credentials, scheduling and idempotent replay; until then app restore and the app's
+own transaction sync remain the backstop for a lost Sandbox notification.
+
 Keep 038's account observations and later owner ledger separate. Migration 033 needs a bounded owner readout of admitted/denied counts, remaining allowance and policy state, with no receipt content. Later admin integration can display the same contract without redefining it.
 
 ## Execution bounds and cost
