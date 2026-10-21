@@ -23,6 +23,20 @@ import Testing
         #expect(!PaperKeywords.allowed("Artificial intelligence")); #expect(!PaperKeywords.allowed("Machine learning"))
         #expect(PaperKeywords.derive(title: "A study", abstract: "Machine learning and artificial intelligence").isEmpty)
     }
+    /// C2: the word-index matching keeps the phrase semantics of the original substring search: whole words only,
+    /// hyphens as spaces, a plural term matching its singular, and a repeat (the memo) the same answer.
+    @Test func keywordPhrasesMatchWholeWordsHyphensAndSingulars() {
+        #expect(PaperKeywords.derive(title: "A study", abstract: "We train graph-neural networks on molecules.").contains("Graph neural networks"))
+        #expect(PaperKeywords.derive(title: "A study", abstract: "A graph neural network for molecules.").contains("Graph neural networks"))
+        #expect(!PaperKeywords.derive(title: "A study", abstract: "Subgraph neural networking is not the same words.").contains("Graph neural networks"))
+        #expect(!PaperKeywords.derive(title: "A study", abstract: "Neural networks on a graph.").contains("Graph neural networks"))
+        let title = "Transformers beat diffusion models", abstract = "We compare state space models."
+        let first = PaperKeywords.derive(title: title, abstract: abstract)
+        #expect(first.prefix(2).sorted() == ["Diffusion models", "Transformers"], "Title matches rank above abstract matches")
+        #expect(first.contains("State space models"))
+        #expect(PaperKeywords.derive(title: title, abstract: abstract) == first)
+        #expect(PaperKeywords.derive(title: title, abstract: abstract, text: "mixture of experts appear in the body") .contains("Mixture of experts"))
+    }
     @Test func textIndexIsBoundedAndIndependentPapersCanBeForgotten() {
         var index = DevicePaperTextIndex(); let a = UUID(), b = UUID()
         index.insert(.init(digest: "a", text: "A distinctive superconductor appendix result"), for: a)
