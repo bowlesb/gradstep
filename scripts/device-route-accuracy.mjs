@@ -102,7 +102,7 @@ function runRoute() {
     if (own.includes('--skip-done') && existsSync(join(out, 'wall.json'))) continue;
     const meta = JSON.parse(readFileSync(join(CORPUS, key, 'meta.json'), 'utf8'));
     const started = Date.now();
-    const run = spawnSync(tool, [join(CORPUS, key, 'paper.pdf'), out, '--models', models, '--compiler', compiler, '--title', meta.title ?? key, ...passthrough.map(a => a.replaceAll('{out}', out))],
+    const run = spawnSync(tool, [join(CORPUS, key, 'paper.pdf'), out, '--models', models, '--compiler', compiler, '--title', meta.title ?? key, ...passthrough.map(a => a.replaceAll('{out}', out).replaceAll('{authors}', (meta.authors ?? []).join(';')))],
       { encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, ...(process.env.DEVICE_ROUTE_ENV ? JSON.parse(process.env.DEVICE_ROUTE_ENV) : {}) } });
     const seconds = (Date.now() - started) / 1000;
     writeFileSync(out + '.log', (run.stdout ?? '') + (run.stderr ?? ''));
@@ -129,11 +129,16 @@ function leafText(node) {
   visit(node);
   return foldLeaves(out.join(''));
 }
-const foldLeaves = s => s.normalize('NFKC').replace(/[\s⁡-⁤​︎️]/g, '').replace(/∥/g, '‖').replace(/[−–]/g, '-').replace(/[′’]/g, "'").replace(/[∣]/g, '|').replace(/[⋅·]/g, '⋅');
+const foldLeaves = s => s.normalize('NFKC').replace(/[\u0305\u00af\u203e]/g, '\u0304').replace(/[\s⁡-⁤​︎️]/g, '').replace(/∥/g, '‖').replace(/[−–]/g, '-').replace(/[′’]/g, "'").replace(/[∣]/g, '|').replace(/[⋅·]/g, '⋅');
+const { tidyLatex } = await import(`${ROOT}/supabase/functions/_shared/reader/device-pdf/math.ts`);
+/** The glyphs a recognition would show (as read, else tidied as the converter tidies it); '' when Temml refuses both. */
 function texLeaves(latex, display) {
   if (!latex) return '';
-  try { return leafText(parseHTML(temml.renderToString(latex, { displayMode: display, throwOnError: true, xml: true, trust: false }), true)); }
-  catch { return ''; }
+  for (const tex of [latex, tidyLatex(latex)]) {
+    try { return leafText(parseHTML(temml.renderToString(tex, { displayMode: display, throwOnError: true, xml: true, trust: false }), true)); }
+    catch { /* the tidied form next */ }
+  }
+  return '';
 }
 // LaTeX normalisation: the desktop's scorer (gradstep/eval/equations.py `normalize`), ported.
 function normalizeTeX(tex) {
@@ -212,7 +217,7 @@ export function readBundle(html, { device = false } = {}) {
         const display = cls.includes('reader-display') || (!cls.includes('reader-inline') && n.parent?.attribs?.['data-reader-kind'] === 'equation');
         const math = n.children.find(c => c.type === 'tag' && c.name === 'math');
         const shown = math ? 'typeset' : cls.includes('reader-math-image') ? 'image' : 'text';
-        tokens.push({ f: true, display, latex: n.attribs['data-latex'] ?? '', shown, leaves: math ? leafText(math) : null });
+        tokens.push({ f: true, id: n.attribs.id, display, latex: n.attribs['data-latex'] ?? '', shown, leaves: math ? leafText(math) : null });
         return;
       }
       if (n.name === 'img' || (n.attribs.class ?? '').includes('reader-tag')) return;
@@ -263,7 +268,9 @@ const headingText = b => b.tokens.filter(t => t.w).map(t => t.w).join(' ');
 /** One paper: the device bundle's page against the HTML reader's page. */
 export function compare(truthBlocks, deviceBlocks) {
   const dict = new Map(); const id = s => { let v = dict.get(s); if (v === undefined) { v = dict.size + 1; dict.set(s, v); } return v; };
-  const flat = blocks => blocks.flatMap((b, bi) => b.tokens.map(t => ({ ...t, block: bi })));
+  // A number set in math mode ($48$, $85\%$) reads the same as text: it is not counted as a formula on either side.
+  const numeric = t => t.f && !t.display && /^[0-9.,%\-+−\s]*$/.test(t.leaves ?? (t.parts ? 'x' : texLeaves(t.latex, false) || 'x'));
+  const flat = blocks => blocks.flatMap((b, bi) => b.tokens.filter(t => !numeric(t)).map(t => ({ ...t, block: bi })));
   const T = flat(truthBlocks), D = flat(deviceBlocks);
   // Words alone: the text fidelity (order-sensitive alignment, and the order-free bag).
   const tw = T.filter(t => t.w), dw = D.filter(t => t.w);
@@ -303,26 +310,53 @@ export function compare(truthBlocks, deviceBlocks) {
     adjacent_in_order: round(adjacentOK / Math.max(1, matches.length - 1)), pairs_in_order: round(concordant / Math.max(1, pairsN)) };
   // Headings (the desktop's comparison: letters only; run-in paragraph titles and the HTML reader's h5/h6 theorem and proof
   // labels left out of the truth).
-  const th = new Set(truthBlocks.filter(b => b.kind === 'heading' && /^h[1-4]$/.test(b.tag)).map(headingText).filter(t => t && !runIn(t)).map(normTitle));
-  const dh = new Set(deviceBlocks.filter(b => b.kind === 'heading').map(headingText).map(normTitle).filter(Boolean));
-  const headHits = [...dh].filter(h => th.has(h)).length;
-  const headings = { truth: th.size, device: dh.size, matched: headHits, recall: round(headHits / Math.max(1, th.size)), precision: round(headHits / Math.max(1, dh.size)) };
-  // Formulas: aligned with the words around them (a formula token matches any formula token of the same placement), then
-  // each aligned pair's LaTeX (normalised) and glyph content (MathML leaves) compared.
-  const tokenID = t => t.w ? id(t.w) : -(t.display ? 2 : 1);
-  const allPairs = lcsPairs(T.map(tokenID), D.map(tokenID)) ?? [];
+  // A \paragraph{…} title is set run-in in the PDF ("Baselines. We compare …") and the HTML reader makes it a heading:
+  // a truth heading that opens a device paragraph is run-in, not missed.
+  const paragraphStarts = deviceBlocks.filter(b => b.kind === 'paragraph').map(b => b.tokens.filter(t => t.w).slice(0, 12).map(t => t.w).join(''));
+  const opensParagraph = t => { const n = t.replace(/[^a-z]/g, ''); return n.length > 0 && paragraphStarts.some(s => s.startsWith(n)); };
+  const th = new Set(truthBlocks.filter(b => b.kind === 'heading' && /^h[1-4]$/.test(b.tag)).map(headingText).filter(t => t && !runIn(t) && !opensParagraph(t)).map(normTitle));
+  // Device headings as a list: a title or "Abstract" made twice is a heading too many.
+  const dh = deviceBlocks.filter(b => b.kind === 'heading').map(headingText).map(normTitle).filter(Boolean);
+  const headHits = new Set(dh.filter(h => th.has(h))).size;
+  const headings = { truth: th.size, device: dh.length, matched: headHits, recall: round(headHits / Math.max(1, th.size)), precision: round(headHits / Math.max(1, dh.length)) };
+  // Formulas: each truth formula is paired within the stretch of the device's page between the words matched just before
+  // and just after it (the word alignment above), with the device formula of the same placement whose glyphs are
+  // nearest; then each pair's LaTeX (normalised) and glyph content (MathML leaves) are compared.
+  const leafCache = new Map();
+  const leaves = t => { if (!leafCache.has(t)) leafCache.set(t, (t.parts ?? [t]).map(x => x.leaves ?? texLeaves(x.latex, x.display)).join('')); return leafCache.get(t); };
+  const tWordAt = [], dWordAt = [];
+  T.forEach((t, i) => { if (t.w) tWordAt.push(i); });
+  D.forEach((t, i) => { if (t.w) dWordAt.push(i); });
+  const anchor = new Map(wordPairs.map(([a, b]) => [tWordAt[a], dWordAt[b]])); // truth token index -> device token index
+  const anchoredT = [...anchor.keys()].sort((a, b) => a - b);
+  const used = new Set(), allPairs = [], unpaired = [];
+  let k = 0;
+  for (let i = 0; i < T.length; i++) {
+    if (!T[i].f) continue;
+    while (k < anchoredT.length && anchoredT[k] < i) k++;
+    const lo = k > 0 ? anchor.get(anchoredT[k - 1]) : -1, hi = k < anchoredT.length ? anchor.get(anchoredT[k]) : D.length;
+    let best = -1, bestCost = Infinity;
+    for (let j = lo + 1; j < hi; j++) {
+      const c = D[j];
+      if (!c.f || used.has(j) || c.display !== T[i].display) continue;
+      const a = leaves(T[i]), b = leaves(c);
+      const cost = Math.min(1, editDistance(a, b) / Math.max(1, a.length, b.length));
+      if (cost < bestCost) { bestCost = cost; best = j; }
+    }
+    if (best >= 0) { used.add(best); allPairs.push([i, best]); }
+    else if (unpaired.length < 200) unpaired.push({ display: T[i].display, kind: truthBlocks[T[i].block].kind, truth: T[i].latex.slice(0, 120) });
+  }
   const eq = {};
   for (const kind of ['inline', 'display']) eq[kind] = { truth: 0, device: 0, aligned: 0, latex_equal: 0, glyphs_equal: 0, cer_sum: 0,
     typeset: 0, typeset_glyphs_equal: 0, image: 0, text: 0 };
   for (const t of T) if (t.f) eq[t.display ? 'display' : 'inline'].truth++;
   for (const t of D) if (t.f) { const e = eq[t.display ? 'display' : 'inline']; e.device++; e[t.shown]++; }
-  const misses = [];
+  const misses = [], pairRecords = [];
   for (const [i, j] of allPairs) {
     const a = T[i], b = D[j];
     if (!a.f) continue;
     const e = eq[a.display ? 'display' : 'inline'];
     e.aligned++;
-    const leaves = t => (t.parts ?? [t]).map(x => x.leaves ?? texLeaves(x.latex, x.display)).join('');
     const aLeaves = leaves(a), bLeaves = leaves(b);
     const glyphs = !!aLeaves && aLeaves === bLeaves;
     e.latex_equal += normalizeTeX(a.latex) === normalizeTeX(b.latex) ? 1 : 0;
@@ -330,6 +364,7 @@ export function compare(truthBlocks, deviceBlocks) {
     e.cer_sum += Math.min(1, editDistance(aLeaves, bLeaves) / Math.max(1, aLeaves.length));
     if (b.shown === 'typeset') { e.typeset_aligned = (e.typeset_aligned ?? 0) + 1; e.typeset_glyphs_equal += glyphs ? 1 : 0; }
     if (!glyphs) misses.push({ display: a.display, shown: b.shown, truth: a.latex.slice(0, 160), device: b.latex.slice(0, 160), truth_glyphs: aLeaves.slice(0, 80), device_glyphs: bLeaves.slice(0, 80) });
+    if (b.id) pairRecords.push([b.id, a.display ? 1 : 0, glyphs ? 1 : 0, b.shown]);
   }
   for (const e of Object.values(eq)) {
     e.recall = round(e.aligned / Math.max(1, e.truth));
@@ -346,7 +381,7 @@ export function compare(truthBlocks, deviceBlocks) {
   const ttw = tableWords(truthBlocks), dtw = tableWords(deviceBlocks);
   tables.word_f1 = round(2 * (lcsPairs(ttw, dtw)?.length ?? 0) / Math.max(1, ttw.length + dtw.length));
   const figures = { truth: truthBlocks.filter(b => b.kind === 'figure').length, device: deviceBlocks.filter(b => b.kind === 'figure').length };
-  return { text, order, headings, equations: eq, tables, figures, misses };
+  return { text, order, headings, equations: eq, tables, figures, misses, unpaired, pairs: pairRecords };
 }
 const round = v => Math.round(v * 1000) / 1000;
 

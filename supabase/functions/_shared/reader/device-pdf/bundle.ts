@@ -103,7 +103,7 @@ function assemble(input: DevicePDFInput, host: DevicePDFHost, reading: Reading, 
   }
   const rendered = reading.committed.filter(id => formulas.get(id)!.rendered).length;
   const summary = {
-    pages: input.pages, blocks: index.blocks.length, headings: index.headings.length, equations: reading.committed.length, rendered,
+    pages: input.pages, blocks: index.blocks.length, headings: index.headings.length, equations: reading.committed.length, rendered, transcribed: reading.committed.filter(id => formulas.get(id)!.transcribed).length,
     figures: index.figures.length, images: emitted.images.size, unowned: reading.unowned,
     recognition_failures: reading.recognitionFailures, degraded: emitted.degraded, seconds: pyRound((Date.now() - started) / 1000, 1),
     warnings: reading.warnings.slice(0, 20),

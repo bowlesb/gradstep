@@ -20,6 +20,12 @@ public final class DevicePDFRoute {
         public var trace: Bool
         /// Evaluation: the host's answers written down (`Output.record`) for the Node replay of the converter.
         public var record = false
+        /// Converter rules beyond the port kit, by their input names (device-pdf/types.ts): `transcribe` (simple inline
+        /// formulas from the text layer), `frontMatter` (the title page's title and author lines found by the library's
+        /// metadata), `tidy` (confident recognitions Temml refuses, tidied).
+        public var rules: Set<String> = []
+        /// The library's authors (the `frontMatter` rule finds the author lines by them).
+        public var authors: [String] = []
         public var maxPages: Int
         /// Recogniser calls in flight at once: crops (one-crop export) or batches (a batched export). Same results.
         public var recogniserConcurrency = 2
@@ -271,6 +277,8 @@ public final class DevicePDFRoute {
             "pdf": ["sha256": digest, "bytes": data.count, "name": name], "pages": pageCount,
             "models": models.provenance, "tagger": models.taggerVocabulary, "trace": options.trace, "record": options.record,
         ]
+        for rule in options.rules where ["transcribe", "frontMatter", "tidy"].contains(rule) { input[rule] = true }
+        if !options.authors.isEmpty { input["authors"] = Array(options.authors.prefix(200)) }
         if let title = options.title { input["title"] = title }
         if let sourceID = options.sourceID, let revision = options.revision { input["paper"] = ["source_id": sourceID, "revision": revision] }
         let start = DispatchTime.now().uptimeNanoseconds

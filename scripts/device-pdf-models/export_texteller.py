@@ -174,6 +174,7 @@ def main() -> None:
     ap.add_argument("--max-len", type=int, default=256)
     ap.add_argument("--cross-dtype", choices=["float32", "float16"], default="float32")
     ap.add_argument("--int8", action="store_true")
+    ap.add_argument("--fp16-parts", default="", help="multifunction: functions that keep float16 weights with --int8 (prefill, step)")
     ap.add_argument("--samples", type=Path, help="the first export's directory (samples/*.npy and export.json token ids) for the equivalence check")
     ap.add_argument("--skip-encoder", action="store_true")
     ap.add_argument("--protocol", choices=["cross-input", "multifunction"], default="cross-input")
@@ -294,7 +295,8 @@ def export_multifunction(args, model, tok, enc: Encoder, common: dict, check, t0
     work.mkdir(exist_ok=True)
     desc = ct.utils.MultiFunctionDescriptor()
     for name, m in parts.items():
-        if args.int8:
+        # --fp16-parts prefill: that function keeps float16 weights (int8 weights cost the GPU a dequantisation per pass).
+        if args.int8 and name not in (args.fp16_parts or "").split(","):
             from coremltools.optimize.coreml import OpLinearQuantizerConfig, OptimizationConfig, linear_quantize_weights
             m = linear_quantize_weights(m, OptimizationConfig(global_config=OpLinearQuantizerConfig(mode="linear_symmetric", granularity="per_channel")))
         m.save(str(work / f"{name}.mlpackage"))

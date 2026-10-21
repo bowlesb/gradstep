@@ -39,6 +39,9 @@ struct Tool {
         // --serial: the port kit's order (layout on demand, one tagger thread, formulas page by page), for comparisons.
         let serial = flag("--serial"), prefetch = Int(option("--prefetch") ?? "2") ?? 2, taggerThreads = Int(option("--tagger-threads") ?? "4") ?? 4
         let previewPath = option("--preview"), record = flag("--record")
+        // --rules transcribe,frontMatter,tidy: converter rules beyond the port kit (DevicePDFRoute.Options.rules).
+        let rules = Set((option("--rules") ?? "").split(separator: ",").map { String($0) })
+        let authors = option("--authors")?.split(separator: ";").map { String($0) } ?? []
         let title = option("--title"), maxPages = Int(option("--max-pages") ?? "0") ?? 0, trace = flag("--trace")
         func units(_ name: String?, _ fallback: MLUnits) -> MLUnits { name.flatMap(MLUnits.init(rawValue:)) ?? fallback }
         let layoutUnits = units(option("--layout"), .ne), recogniserUnits = units(option("--recogniser"), .gpu), taggerUnits = units(option("--tagger"), .cpu)
@@ -62,7 +65,7 @@ struct Tool {
                 if let data = try? JSONSerialization.data(withJSONObject: object) { lines.text += String(decoding: data, as: UTF8.self) + "\n" }
             }
         }
-        let output = try route.convert(pdf: data, name: pdf.lastPathComponent, options: { var o = DevicePDFRoute.Options(title: title, trace: trace, maxPages: maxPages, observeDetections: observe); o.recogniserConcurrency = concurrency; o.record = record
+        let output = try route.convert(pdf: data, name: pdf.lastPathComponent, options: { var o = DevicePDFRoute.Options(title: title, trace: trace, maxPages: maxPages, observeDetections: observe); o.recogniserConcurrency = concurrency; o.record = record; o.rules = rules; o.authors = authors
             if serial { o.background = false; o.prefetchPages = 0; o.taggerThreads = 1 } else { o.prefetchPages = prefetch; o.taggerThreads = taggerThreads }
             // --preview <file>: when the first reading (formulas as images) arrives, its seconds since the start.
             if let previewPath {

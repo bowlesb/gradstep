@@ -4,7 +4,7 @@
 import { check, fail, sha256Hex, utf8 } from '../util.ts';
 import { assign, byX, canonicalText, centreIn, clipBytes, growLines, joinLines, lineText, linesOf, median, orphanRegions,
   pyRound, recogniserRect, union, visible } from './geometry.ts';
-import { confidence, renderMath } from './math.ts';
+import { confidence, renderMath, tidyLatex } from './math.ts';
 import { furniture, isFrontMatter, isFurniture, marginGlyphLines, structure } from './structure.ts';
 import { cellSpanOk, tableCells, type Cell } from './tables.ts';
 import { spansOf, tagInput } from './tagger.ts';
@@ -41,6 +41,8 @@ export interface Reading {
   warnings: string[]; unowned: number; recognitionFailures: number;
   /** Recognitions submitted to the host's background recogniser and not yet collected (`settle`). */
   submissions: { ticket: number; formulas: Formula[] }[];
+  /** The recogniser's LaTeX tidied when Temml refuses it as read (math.tidyLatex). */
+  tidy: boolean;
 }
 
 interface Page { width: number; height: number; imageWidth: number; imageHeight: number; scale: number; glyphs: Glyph[]; detections: PageInput['detections'] }
@@ -176,6 +178,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
     const gone = new Set(glyphs.filter(g => [...dropped].some(r => centreIn(g, r.pt))));
     glyphs = glyphs.filter(g => !gone.has(g));
     regions = [...regions, ...orphanRegions(glyphs, growLines(glyphs, assign(glyphs, regions)), s)];
+    if (p === 0 && input.frontMatter) frontMatterRoles(regions, glyphs, input);
     const ordered = structure(regions, page.imageWidth, p === 0);
     const readers = [...ordered.filter(r => r.cls !== 'authors'), ...ordered.filter(r => r.cls === 'authors').flatMap(r => r.parts ?? []),
       ...ordered.flatMap(r => r.captions ?? [])];
@@ -337,7 +340,7 @@ export function read(input: DevicePDFInput, host: DevicePDFHost): Reading {
   recognisePending();
 
   trace.title = title || input.pdf.name.replace(/\.[^.]*$/, '');
-  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions,
+  return { prefix, title, blocks, formulas, committed, trace, traceFigureBlocks, warnings, recognitionFailures, submissions, tidy: !!input.tidy,
     unowned: pyRound(nUnowned / Math.max(1, nGlyphs), 4),
     pages: pages.map(pg => ({ width: pg.width, height: pg.height, imageWidth: pg.imageWidth, imageHeight: pg.imageHeight })) };
 }
@@ -348,6 +351,32 @@ function byXCached(gl: Glyph[]): Glyph[] {
   let sorted = sortedCells.get(gl);
   if (!sorted) { sorted = byX(gl); sortedCells.set(gl, sorted); }
   return sorted;
+}
+
+const letters = (text: string) => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+/** The first page's title and author lines when the layout called them headings (REVTeX and other title pages): a
+ * heading that is the library's title becomes the title (when the layout found none), and a heading above the abstract
+ * and the first paragraph that names one of the library's authors joins the author block (structure.ts gathers the
+ * paragraphs between the title and the first heading). In place. */
+export function frontMatterRoles(regions: Region[], glyphs: readonly Glyph[], input: Pick<DevicePDFInput, 'title' | 'authors'>): void {
+  const text = (r: Region) => joinLines(linesOf(glyphs.filter(g => centreIn(g, r.pt))).map(ln => lineText(ln, [])[0]));
+  const title = input.title ? letters(input.title) : '';
+  if (title && !regions.some(r => r.cls === 'title')) {
+    const match = regions.filter(r => r.cls === 'heading').sort((a, b) => a.box[1] - b.box[1]).find(r => letters(text(r)) === title);
+    if (match) match.cls = 'title';
+  }
+  const families = (input.authors ?? []).map(a => letters(a.trim().split(/\s+/).pop() ?? '')).filter(f => f.length >= 3);
+  const top = regions.find(r => r.cls === 'title');
+  if (!families.length || !top) return;
+  const body = regions.filter(r => r.cls === 'abstract' || r.cls === 'paragraph').map(r => r.box[1]);
+  const limit = body.length ? Math.min(...body) : Infinity;
+  for (const r of regions) {
+    if (r.cls !== 'heading' || r.box[1] < top.box[3] - 2 || r.box[1] > limit) continue;
+    const t = text(r);
+    if (/^\s*(\d+(\.\d+)*|[IVX]+\.?)\s|^\s*[A-Z]\.\s+(?![A-Z]\.)/.test(t)) continue; // a numbered section is a section (not an initial)
+    const words = letters(t);
+    if (families.some(f => words.includes(f))) r.cls = 'paragraph';
+  }
 }
 
 /** Each formula's recognition (LaTeX and token probabilities) and its confidence; returns how many had none. */
@@ -377,7 +406,12 @@ export function gate(reading: Reading): void {
   for (const id of reading.committed) {
     const f = reading.formulas.get(id)!;
     if (f.latex && f.confidence >= (f.display ? GATE_DISPLAY : GATE)) {
-      const math = renderMath(f.latex, f.display);
+      let math = renderMath(f.latex, f.display);
+      // Port revision 5: the recogniser's LaTeXML-style rows and package commands, tidied when Temml refuses them as read.
+      if (!math && reading.tidy) {
+        const tidied = tidyLatex(f.latex);
+        if (tidied !== f.latex && (math = renderMath(tidied, f.display))) f.latex = tidied;
+      }
       if (math) { f.rendered = true; f.mathml = math; }
     }
   }

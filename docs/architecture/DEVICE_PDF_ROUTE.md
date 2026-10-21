@@ -25,7 +25,8 @@ first-class path (owner direction, 2026-10-13), the PDF never leaves the device,
 
 ```
 input = { pdf: { sha256, bytes, name }, pages: n, title?: catalog title, paper?: { source_id, revision },
-          models: [{ role, id, sha256 }], tagger: { vocab, prior, cvocab, threshold, max_len }, trace?: bool }
+          models: [{ role, id, sha256 }], tagger: { vocab, prior, cvocab, threshold, max_len }, trace?: bool,
+          transcribe?: bool (simple inline formulas from the text layer, below), record?: bool (evaluation, below) }
 host.page(i)      -> { width, height (points), image_width, image_height (150 dpi pixels), scale (s_canvas),
                        glyphs: { text[], x0[], top[], x1[], bottom[], size[], font[], upright[] } (stream order),
                        detections: [{ cls, score, box: [x0, y0, x1, y1] (canvas pixels) }] (decoded, score order) }
@@ -36,8 +37,20 @@ host.image(r)     -> { png (base64), width, height, rect? }   r: { page, dpi: 15
                      clean?: { em, margin } (pixels at dpi; formula crops) }; with `clean` the host trims the crop (below)
                      and returns where the image now sits, `rect`, in the same pixels
 host.progress(stage, done, total); host.cancelled() -> bool
-result = { manifest (base64 of canonical bytes), manifest_sha256, members: { path: base64 }, summary, trace? }
+host.submit(c)    -> ticket   (optional, with collect; port revision 5) c as for recognise, each with display: bool;
+                     the host cuts the crops now and recognises them in the background while the converter reads on
+host.collect(t)   -> [{ latex, probs[] } | null]   that submission's results, waited for (after the last page)
+host.preview(b)   (optional) b: a complete bundle made before any formula is read (every formula its image), same shape
+                     as the result; the app shows it while the recogniser finishes
+result = { manifest (base64 of canonical bytes), manifest_sha256, members: { path: base64 }, summary, trace?, record? }
 ```
+
+Since port revision 5 (2026-10-21, [review](../reviews/DEVICE_PDF_ROUTE_20261021.md)) the host overlaps the stages:
+the pages' layout and text are read ahead on two threads (each with its own `CGPDFDocument`; `host.page(i)` waits for
+page i), the tagger's lines run on four threads, and the recogniser runs in the background on batches of eight crops
+of one placement, narrowest first (`DevicePDFPipeline.swift`). Results are the same as one crop at a time: the batched
+export decodes every crop's tokens exactly as the one-crop export does (20/20 and 80/80 on the export's samples, the
+same bundles on the fixtures).
 
 Crop rectangles are computed by the converter exactly as the reference does (integer pixel rounding included),
 so the rules live in one place; the host only renders, cuts, encodes and infers.

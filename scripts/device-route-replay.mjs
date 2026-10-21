@@ -4,10 +4,11 @@
 // through this checkout's converter in Node, so a rule change is scored in seconds, without the models. Images are
 // blank pixels of the asked size; a tagger line or crop the record lacks counts as a miss (printed).
 //
-//   node scripts/device-route-replay.mjs --from <variant with record.json> --to <new variant> [--only id,…]
+//   node scripts/device-route-replay.mjs --from <variant with record.json> --to <new variant> [--only id,…] [--set transcribe=true …]
 //   then: node scripts/device-route-accuracy.mjs score --variant <new variant>
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +17,7 @@ const arg = (name, fallback) => { const i = process.argv.indexOf(name); return i
 const FROM = join(ROOT, '.artifacts/device-route/accuracy', arg('--from', ''));
 const TO = join(ROOT, '.artifacts/device-route/accuracy', arg('--to', ''));
 const only = (arg('--only', '') ?? '').split(',').filter(Boolean);
+const CORPUS = resolve(arg('--corpus', join(homedir(), 'gradstep-mac/device-route-corpus')));
 const { composeDevicePDFReader } = await import(`${ROOT}/supabase/functions/_shared/reader/device-pdf/bundle.ts`);
 const { replayHost } = await import(`${ROOT}/supabase/functions/_shared/reader/device-pdf/record.ts`);
 
@@ -39,8 +41,13 @@ for (const key of readdirSync(FROM).filter(k => existsSync(join(FROM, k, 'record
     return { png: png(w, h, 200 + (distinct++ % 50)).toString('base64'), width: w, height: h, ...(r.clean ? { rect: r.rect } : {}) };
   });
   const started = Date.now();
+  // --set name=json: an input option for this replay (`--set transcribe=true --set frontMatter=true`); the library's
+  // authors come from the corpus's meta.json when the record has none.
+  const overrides = {};
+  process.argv.forEach((a, i) => { if (a === '--set') { const [k, ...v] = process.argv[i + 1].split('='); overrides[k] = JSON.parse(v.join('=')); } });
+  const meta = existsSync(join(CORPUS, key, 'meta.json')) ? JSON.parse(readFileSync(join(CORPUS, key, 'meta.json'), 'utf8')) : {};
   let bundle;
-  try { bundle = composeDevicePDFReader({ ...record.input, trace: true }, host); }
+  try { bundle = composeDevicePDFReader({ ...record.input, authors: record.input.authors ?? meta.authors, trace: true, ...overrides }, host); }
   catch (e) { console.log(`${key}: ${e.code ?? e.message}`); continue; }
   const out = join(TO, key);
   mkdirSync(out, { recursive: true });

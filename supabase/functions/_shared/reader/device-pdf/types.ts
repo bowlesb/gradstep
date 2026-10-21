@@ -86,6 +86,12 @@ export interface DevicePDFInput {
   record?: boolean;
   /** Simple inline formulas written from the text layer instead of recognised (transcribe.ts). */
   transcribe?: boolean;
+  /** The library's authors (names as listed): the first page's author lines are found by them (convert.frontMatterRoles). */
+  authors?: string[];
+  /** The first page's title and author lines found when the layout called them headings (convert.frontMatterRoles). */
+  frontMatter?: boolean;
+  /** A confident recognition Temml refuses is tidied and tried again (math.tidyLatex). */
+  tidy?: boolean;
 }
 
 export interface Formula {

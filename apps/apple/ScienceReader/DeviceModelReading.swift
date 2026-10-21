@@ -73,6 +73,9 @@ enum DeviceModelEngine {
         return url
     }
     static var compilerURL: URL? { Bundle.main.url(forResource: "device-pdf-reader", withExtension: "js") }
+    /// The converter rules beyond the port kit, each turned on after it was measured against the arXiv HTML of real
+    /// papers (docs/reviews/DEVICE_PDF_ROUTE_20261021.md; DevicePDFRoute.Options.rules).
+    static let rules: Set<String> = []
     /// The models and the converter are in this build and the system can run the stateful recogniser.
     static var available: Bool {
         guard #available(iOS 18.0, *) else { return false }
@@ -82,7 +85,7 @@ enum DeviceModelEngine {
     @available(iOS 18.0, *)
     /// `preview`: the reading before its formulas are read (each one its page image), verified like the final one; it
     /// arrives once, from a background thread, while the recogniser finishes.
-    static func read(pdf: Data, name: String, title: String, source: DevicePDFPaper,
+    static func read(pdf: Data, name: String, title: String, authors: [String] = [], source: DevicePDFPaper,
                      progress: @escaping @Sendable (DevicePDFRoute.Stage) -> Void,
                      preview: @escaping @Sendable (VerifiedReaderBundle) -> Void = { _ in }) async throws -> (VerifiedReaderBundle, DeviceModelSummary) {
         guard let directory = modelsDirectory, let compilerURL else { throw DevicePDFModelError.missing("DeviceModels") }
@@ -91,6 +94,7 @@ enum DeviceModelEngine {
             let models = try DevicePDFModels(directory: directory)
             let route = DevicePDFRoute(models: models, compilerSource: try String(contentsOf: compilerURL, encoding: .utf8))
             var options = DevicePDFRoute.Options(title: title, sourceID: source.sourceID, revision: source.revision)
+            options.authors = authors; options.rules = rules
             options.onPreview = { output in
                 guard let verified = try? VerifiedReaderBundle.verify(manifest: output.manifest, expectedSHA256: output.manifestSHA256, members: output.members),
                       let bundle = try? ReaderBundleLoader.admitImages(in: verified) else { return }
@@ -247,7 +251,7 @@ extension ReaderModel {
                     return
                 }
                 let pdf = try await load()
-                let (bundle, summary) = try await DeviceModelEngine.read(pdf: pdf, name: "\(source.sourceID)v\(source.revision).pdf", title: paper.title, source: source) { stage in
+                let (bundle, summary) = try await DeviceModelEngine.read(pdf: pdf, name: "\(source.sourceID)v\(source.revision).pdf", title: paper.title, authors: paper.authorNames, source: source) { stage in
                     Task { @MainActor [weak self] in
                         guard let self, self.sessionID == scope, var run = self.deviceModelRun, run.id == runID else { return }
                         switch stage {
