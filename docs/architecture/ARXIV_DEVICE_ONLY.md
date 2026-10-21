@@ -837,8 +837,8 @@ staging or switched on.
 ### 6.0.1 OpenAlex after step 4
 
 With both switches on, search and DOI naming no longer use OpenAlex. What still does, by area:
-- **Server code (no switch yet):** `find-paper.ts` (title lookups for Ingest, Add by text and chat's find-paper),
-  `reference.ts` (`byDOI` and the title route of Add to library on a reference), `web-source.ts` and
+- **Server code (switched since 2026-10-21, §6.0.4):** `find-paper.ts` (title lookups for Ingest, Add by text and chat's
+  find-paper), `reference.ts` (`byDOI` and the title route of Add to library on a reference), `web-source.ts` and
   `metadata-pipeline.ts` (papers without an arXiv copy: `openalex:W…` works, their open-access PDF and metadata),
   `discover.ts` (the switched-off search functions and `openAlexCandidates`, which `identify.ts` and `find-paper.ts`
   share), and comments in `chat.ts`, `anthropic.ts` and `add-reference/index.ts`.
@@ -998,6 +998,30 @@ failures, the guard's block default, the arXiv counter, arXiv DOIs and links. Da
 5. Undeploy the Edge paper-worker: `SUPABASE_ACCESS_TOKEN=$(security find-generic-password -s 'Supabase CLI' -w) npx supabase functions delete paper-worker --project-ref coxhjvqpflgxkleydati`.
 6. First run, if step 2's checks were skipped: `node scripts/workflow-checks.mjs --only=egress.no-arxiv,html.membership --record`;
    the next deploy suite's `config.edge-functions` no longer reports the retired paper-worker.
+
+### 6.0.4 The OpenAlex switch is enforced on every add path (review A15, 2026-10-21)
+
+Migration 075 set `openalex_enabled = false`, but only `identify.resolveDOI` read it: the shared finder
+(`find-paper.ts`, used by chat Ingest, Add by text/DOI/link and a reference's Add to library) and `reference.ts`
+(`byDOI`, the last-resort search) still asked `api.openalex.org` on every lookup, and add-paper treated an unreadable
+policy as "on". Decision: keep the code behind the owner's recorded switch rather than delete it. The switch is the
+audited control (075's `admin_audit_events` row), the metadata stage still reads OpenAlex for existing `openalex:W…`
+web papers, and deleting the lookups would also remove web-paper discovery permanently, which the owner has not
+asked for. What changes:
+
+- **Fail closed.** `paperFinder(user, search, fetch, { openAlex })`, `resolveReference({ …, openAlex })` and
+  `addPaper({ …, openAlex })` ask OpenAlex only for an explicit `true`. `openAlexAllowed(policy)` accepts only
+  `worker_search_policy().openalex === true`. An RPC error, a missing field or a missing option is off.
+- **Where the policy is read.** add-paper and add-reference read `worker_search_policy` alongside the rate limit
+  (one round trip, not two). Chat reads it lazily, at most once per request, and only when an Ingest looks a title up.
+- **With the switch off (today).** A DOI is named by Crossref and the title goes to DataCite. A reference falls through
+  to its title (DataCite) and Crossref's citation matcher. A paper found nowhere is `closed` under its DOI; there is
+  no OpenAlex last-resort search. Consequence: no new `openalex:W…` web paper can be found by Add or Ingest while the
+  switch is off; existing web papers keep their metadata stage.
+- **Evidence.** Backend tests `add-paper.test.ts` and `reference.test.ts` check that no OpenAlex request is made with
+  the switch off, unread or throwing. A live check after deploying `add-paper`, `add-reference` and `chat`: Admin ›
+  Reliability › provider hours shows no `openalex` rows from those routes, while Add by DOI and by reference still
+  work.
 
 ### 6.1 Steps and tests
 

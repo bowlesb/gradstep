@@ -51,10 +51,10 @@ const openAlexWork = (extra: Record<string, unknown>) => ({ id: 'https://openale
   title: 'Restoration Of Atmospheric Turbulent Video Containing Real Motion Using Rank Filtering And Elastic Image Registration',
   authorships: [{ author: { display_name: 'Shai Gepshtein' } }], locations: [], best_oa_location: null, ...extra });
 
-function deps(routes: Record<string, (url: URL) => Response>, findPaper?: ReferenceDeps['findPaper']): ReferenceDeps & { calls: string[] } {
+function deps(routes: Record<string, (url: URL) => Response>, findPaper?: ReferenceDeps['findPaper'], openAlex?: boolean): ReferenceDeps & { calls: string[] } {
   const calls: string[] = [];
   return {
-    calls,
+    calls, ...(openAlex === undefined ? {} : { openAlex }),
     fetch: (async (input: string | URL) => {
       const url = new URL(String(input)); calls.push(url.hostname + url.pathname);
       const route = Object.entries(routes).find(([prefix]) => (url.hostname + url.pathname).startsWith(prefix));
@@ -82,7 +82,7 @@ test('Crossref matches the entry, then the finder looks for an open copy; a book
   const conference = deps({
     'api.crossref.org/works': () => json({ message: { items: [{ DOI: '10.5281/zenodo.38240', title: ['Restoration of atmospheric turbulent video containing real motion using rank filtering and elastic image registration'], author: [{ family: 'Gepshtein', given: 'S.' }], issued: { 'date-parts': [[2004]] }, score: 120 }] } }),
     'api.openalex.org/works/doi:': () => json(openAlexWork({ best_oa_location: { pdf_url: 'https://zenodo.org/record/38240', landing_page_url: 'https://zenodo.org/record/38240', is_oa: true } })),
-  });
+  }, undefined, true);
   const found = await resolveReference(conference, eusipco, true, new AbortController().signal);
   assert.equal(found.route, 'crossref');
   assert.equal(found.result.status, 'found');
@@ -93,12 +93,27 @@ test('Crossref matches the entry, then the finder looks for an open copy; a book
   const textbook = deps({
     'api.crossref.org/works': () => json({ message: { items: [{ DOI: '10.1016/b978-1-55860-737-8.x5000-5', title: ['Curves and Surfaces for CAGD'], author: [{ family: 'Farin' }], issued: { 'date-parts': [[2002]] }, score: 95 }] } }),
     'api.openalex.org/works/doi:': () => json({ ...openAlexWork({}), title: 'Curves and Surfaces for CAGD', locations: [] }),
-  }, async () => ({ status: 'not_found' }));
+  }, async () => ({ status: 'not_found' }), true);
   const closed = await resolveReference(textbook, book, true, new AbortController().signal);
   assert.equal(closed.result.status, 'closed');
+
+  // The switch off (migration 075) or unread (review A15: fail closed): Crossref names the entry, the finder searches its
+  // title, and a paper it cannot find is closed under its DOI. OpenAlex is never asked.
+  for (const openAlex of [false, undefined]) {
+    const titles: string[] = [];
+    const off = deps({
+      'api.crossref.org/works': () => json({ message: { items: [{ DOI: '10.5281/zenodo.38240', title: ['Restoration of atmospheric turbulent video containing real motion using rank filtering and elastic image registration'], author: [{ family: 'Gepshtein', given: 'S.' }], issued: { 'date-parts': [[2004]] }, score: 120 }] } }),
+      'api.openalex.org/': () => json(openAlexWork({})),
+    }, async wanted => { titles.push(wanted.title); return { status: 'not_found' }; }, openAlex);
+    const result = await resolveReference(off, eusipco, true, new AbortController().signal);
+    assert.equal(result.route, 'crossref');
+    assert.deepEqual(result.result, { status: 'closed', paper: { source_id: 'doi:10.5281/zenodo.38240', title: 'Restoration of atmospheric turbulent video containing real motion using rank filtering and elastic image registration', year: 2004, link: 'https://doi.org/10.5281/zenodo.38240' } });
+    assert.ok(titles.length >= 1);
+    assert.ok(!off.calls.some(c => c.startsWith('api.openalex.org')), off.calls.join(' '));
+  }
 });
 
-test('without a citation match, OpenAlex search is accepted only for a title the entry contains; otherwise not found', async () => {
+test('without a citation match, OpenAlex search (switch on) is accepted only for a title the entry contains; otherwise not found', async () => {
   const seen: string[] = [];
   const fallback = deps({
     'api.crossref.org/works': () => json({ message: { items: [{ DOI: '10.1/other', title: ['A completely different study'], score: 30 }] } }),
@@ -108,15 +123,19 @@ test('without a citation match, OpenAlex search is accepted only for a title the
     // Only OpenAlex's exact title is known to the (fake) finder: the entry's own title misses first.
     return wanted.title === 'Palm: Scaling Language Modeling With Pathways'
       ? { status: 'found', paper: { source_id: '2204.02311', title: wanted.title, year: 2022, kind: 'arxiv' } } : { status: 'not_found' };
-  });
+  }, true);
   const reference = 'A. Chowdhery et al. Palm: Scaling language modeling with pathways. JMLR 2023.';
+  // With the switch off (the default), the last-resort OpenAlex search is not made: not found, nothing sent there.
+  const quiet = deps({ 'api.crossref.org/works': () => json({ message: { items: [] } }), 'api.openalex.org/works': () => json({ results: [] }) }, async () => ({ status: 'not_found' }));
+  assert.deepEqual(await resolveReference(quiet, reference, true, new AbortController().signal), { route: 'none', result: { status: 'not_found' } });
+  assert.ok(!quiet.calls.some(c => c.startsWith('api.openalex.org')));
   const found = await resolveReference(fallback, reference, true, new AbortController().signal);
   assert.equal(found.route, 'openalex'); assert.equal(found.result.status, 'found');
   assert.deepEqual(seen, ['Palm: Scaling language modeling with pathways', 'Palm: Scaling Language Modeling With Pathways'], 'the entry title first, then OpenAlex');
-  const nothing = deps({ 'api.crossref.org/works': () => json({ message: { items: [] } }), 'api.openalex.org/works': () => json({ results: [] }) });
+  const nothing = deps({ 'api.crossref.org/works': () => json({ message: { items: [] } }), 'api.openalex.org/works': () => json({ results: [] }) }, undefined, true);
   assert.deepEqual(await resolveReference(nothing, 'Some Author. A paper nobody wrote about anything. 2031.', true, new AbortController().signal),
     { route: 'none', result: { status: 'not_found' } });
   const offline = deps({ 'api.crossref.org/works': () => new Response('down', { status: 503 }), 'api.openalex.org/works': () => new Response('down', { status: 503 }) },
-    async () => ({ status: 'unavailable' }));
+    async () => ({ status: 'unavailable' }), true);
   assert.equal((await resolveReference(offline, 'Some Author. A paper nobody wrote. 2031.', true, new AbortController().signal)).result.status, 'unavailable');
 });

@@ -6,7 +6,7 @@ import { PublicError, sha256 } from '../_shared/http.ts';
 import { errorResponse } from '../_shared/retry-after.ts';
 import { retryOnceWhenBusy, type ProviderOutcome } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
-import { paperFinder } from '../_shared/find-paper.ts';
+import { openAlexAllowed, paperFinder } from '../_shared/find-paper.ts';
 import { type SearchFailure } from '../_shared/tavily.ts';
 import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
 import { providerForModel, publishedProfiles } from '../_shared/chat-profiles.ts';
@@ -81,7 +81,11 @@ Deno.serve(async request => {
     ? (body as { action: string }).action : 'chat';
   const spending = { accountID, feature, operationID: typeof rawID === 'string' ? rawID.toLowerCase() : '', rpc, sha256Hex: sha256, log };
   const search = tavilyKey ? admittedTavily(spending, 'chat_search', providerFetch, tavilyKey) : null;
-  const finder = paperFinder(user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined);
+  // Ingest asks OpenAlex only while the owner's `openalex_enabled` switch is on (off since migration 075): the policy is
+  // read lazily, only when an Ingest looks a title up, and an unreadable policy keeps OpenAlex off.
+  // An Ingest's import is named after this chat operation (migration 120), so it can never be queued twice.
+  const finder = paperFinder(user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', providerFetch, tavilyKey) : undefined, fetch, {
+    requestID: spending.operationID, openAlex: () => Promise.resolve(service.rpc('worker_search_policy')).then(({ data, error }) => !error && openAlexAllowed(data), () => false) });
   const deps: ChatDependencies = {
     accountID,
     rpc,

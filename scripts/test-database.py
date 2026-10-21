@@ -57,6 +57,7 @@ parser.add_argument('--auth-admission-only', action='store_true', help='Run the 
 parser.add_argument('--testing-allowance-only', action='store_true', help='Run testing allowance, provider and account lifecycle checks.')
 parser.add_argument('--note-assets-only', action='store_true', help='Run the encrypted note image inventory, quota and deletion checks (migration 095).')
 parser.add_argument('--spending-fixes-only', action='store_true', help='Run the 2026-10-21 spending review fixtures (migrations 0100 and later).')
+parser.add_argument('--server-add-only', action='store_true', help='Run the server add-once fixture (migration 120) only.')
 args = parser.parse_args()
 # Review 2026-10-21 (docs/reviews/WEB_SERVER_REVIEW_20261021.md): spending, budget and reconciliation fixes, in
 # migration order. They run against every migration, in the final phase and alone with --spending-fixes-only.
@@ -77,6 +78,9 @@ if args.spending_fixes_only:
     raise SystemExit(0)
 if args.note_assets_only:
     phase([*all_migrations, ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql'], ['note_assets_concurrency'])
+    raise SystemExit(0)
+if args.server_add_only:
+    phase([*all_migrations, ROOT / 'tests/database/server_add_once.sql'], [])
     raise SystemExit(0)
 if args.auth_admission_only:
     phase([*all_migrations, ROOT / 'tests/database/durable_beta_admission.sql'], [])
@@ -109,4 +113,4 @@ phase([*[p for p in cutover_migrations if p.name < switch.name], ROOT / 'tests/d
 # Retained legacy accounting is verified before the explicit runtime cutover.
 phase([*cutover_migrations, ROOT / 'tests/database/html_first_cutover.sql', ROOT / 'tests/database/chat_follow_up_quotes.sql', ROOT / 'tests/database/admin_health.sql', ROOT / 'tests/database/budget_period.sql', ROOT / 'tests/database/chat_study_quotes.sql', ROOT / 'tests/database/podcast_script_repair.sql', ROOT / 'tests/database/podcast_deepseek_profiles.sql', ROOT / 'tests/database/podcast_writer_choice.sql', ROOT / 'tests/database/podcast_device_sources.sql', ROOT / 'tests/database/account_deletion_episode_folders.sql', ROOT / 'tests/database/device_source_metadata.sql', ROOT / 'tests/database/device_search.sql', ROOT / 'tests/database/provider_resilience.sql', ROOT / 'tests/database/podcast_source_deletion.sql', ROOT / 'tests/database/arxiv_egress_off.sql', ROOT / 'tests/database/chat_deepseek.sql', ROOT / 'tests/database/contained_overruns.sql', ROOT / 'tests/database/figure_view_actions.sql', ROOT / 'tests/database/provider_billing_attention.sql', ROOT / 'tests/database/import_metadata.sql', ROOT / 'tests/database/chat_gemini.sql', ROOT / 'tests/database/chat_claude_openrouter.sql'], [])
 
-phase([*all_migrations, ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', *SPENDING_FIXES], ['testing_allowance_concurrency', 'note_assets_concurrency'])
+phase([*all_migrations, ROOT / 'tests/database/openrouter_all_inference.sql', ROOT / 'tests/database/idle_metadata_health.sql', ROOT / 'tests/database/durable_beta_admission.sql', ROOT / 'tests/database/testing_allowance.sql', ROOT / 'tests/database/note_assets.sql', ROOT / 'tests/database/server_add_once.sql', *SPENDING_FIXES], ['testing_allowance_concurrency', 'note_assets_concurrency'])

@@ -601,3 +601,47 @@ compilation and independent admission in 13.74 s, retaining 338 blocks, seven fi
 other three replay papers also pass; five native tests pass and the unrelated opt-in live-download test is
 skipped. Evidence: `native-reader-21.xcresult` under
 `.artifacts/feedback/all-20261018/`.
+
+## Server adds without duplicates (review A5, 2026-10-21; migration 120, not deployed)
+
+The three server paths that add a paper for the reader (Add by DOI/link/text through `add-paper`, a reference's Add to
+library through `add-reference`, and chat Ingest) shared `find-paper.ts importPaper`. It paged the oldest 300 library
+entries and treated a paper as present only as an `item` or an import in `accepted/resolving/acquiring`. Since the
+HTML-first cutover a finished arXiv import rests in `source_only`, so re-adding a paper the reader already has (or a
+retried request) created another import and another visible membership. Each call also minted a fresh operation UUID,
+so a retried request was never recognised, and each duplicate used up the lifetime per-account and environment
+import allowances.
+
+Design (additive; existing client commands unchanged):
+
+- **One authenticated RPC, `v2_add_paper_once(p_operation_id, p_source_id, p_web)`**, called with the reader's own
+  token (like `v2_begin_import`). It takes the same rate rule (`library-write`) and the same locks in the same order:
+  account, then library policy and the account's sync state. It replays an earlier receipt for the operation UUID
+  first. It then decides presence under those locks, so two concurrent adds of one paper cannot both insert:
+  - an import of that source that is `desired_present` in `accepted`, `resolving`, `acquiring` or `source_only` (the
+    visible, not-failed memberships), or
+  - a visible library item (`removed_at is null`) whose approval's catalog metadata names that source.
+
+  Present returns `{status:'present', kind, id}` with the current entry. It writes no receipt and no change, and uses
+  no import, active-import or receipt capacity, so asking again later (for example after the reader removed the paper)
+  starts a real import. A failed, cancelled or conflicting import is not present: Add after a failure starts a new
+  attempt, as the app's own Add does. Otherwise it inserts exactly what `v2_begin_import`/`v2_begin_web_import` insert,
+  with the same capacity checks. The observed cursor is the account's current sequence, read under the lock: the
+  server has seen the whole library. It writes the receipt under its own digest (`server-add-v1`, web flag, source),
+  so it can never be confused with a client's `v2_begin_import` receipt.
+- **A retry-stable operation UUID.** The caller derives it from its own request identity: the add-paper or
+  add-reference `operation_id`, or the chat operation for Ingest. It is the SHA-256 of a domain-separated tuple
+  (request id, kind, source id), shaped as a UUID. A retried request therefore replays its receipt (`added` again)
+  instead of queuing another import. Without a request identity (no current caller) a random UUID is used.
+- **Index.** `import_requests(account_id, source_id) where desired_present` keeps the presence check off a scan of the
+  account's import history.
+- **Unchanged.** `v2_begin_import`, `v2_begin_web_import` and the v5 wrappers keep their contracts. The browser still
+  calls `v2_begin_import` directly for arXiv IDs with a fresh UUID (`apps/web/src/lib/add.ts`); moving it to this RPC is a
+  separate client change. The lifetime import counters themselves are not changed here.
+
+Evidence: `tests/database/server_add_once.sql` (presence by import phase and by item, replay, capacity untouched,
+another account, web sources, grants) and `tests/backend/add-paper.test.ts` (derived identity, outcome mapping).
+Deploy order: apply migration 120, then deploy `add-paper`, `add-reference` and `chat` (the functions call the new RPC
+and report `failed` until it exists). Live check: on staging, add the same arXiv ID twice through Add › "arXiv ID, DOI
+or link" with a DOI that names it (or Add to library on a reference twice); the second answers "already in your
+library" and `import_requests` gains one row, not two.
