@@ -284,6 +284,7 @@ where possible. Checkpoint selection by mean app success over both validation se
 | r3-r18-clean | r2 without SCI-3000 (rights-clean) | 11 (5) | 76 min / 6.1 GB | ran concurrently with r2 |
 | r5-r18-pseudo | r2 + grouped 159 + pseudo 11.7K | 12 (7) | 49 min / 6.1 GB | |
 | **r4-r50m-pseudo** | r5 data, RT-DETRv2-M (R50, COCO EMA init) | 10 (4) | 88 min (partly shared GPU) / 14.1 GB | **frozen system**, EMA e04 SHA `f7736570…a167` |
+| r7-r50m-clean (after the test) | r4 data without SCI-3000, R50-M | 10 (9, still improving at the cap) | 65 min / 14.1 GB | validation only: 74.8% arXiv / 93.9% frozen, harmful 17.2% (frozen system 75.6 / 96.2 / 13.4); EMA e09 SHA `02db1e92…f845`; test not re-used |
 | r6-r18-subfig-ft | r5 data + 5,443 LaTeX sub-figure composites, fine-tuned from r5 e07, LR 1e-4 | 6 (3) | ≈45 min (shared GPU) / 6.1 GB | no gain; rejected |
 
 Exact configs, source/data hashes, per-epoch metrics, predictions and resource samples are in each
@@ -354,7 +355,10 @@ Electricity is not priced. The $100/month service budget is unchanged.
 
 1. Ship the **completeness check** for AI-written crops (integration step 1) — model-free, directly targets
    the TestFlight complaints.
-2. Retrain the R50-M recipe **without SCI-3000** for a distributable checkpoint; re-export and re-run parity.
+2. A distributable checkpoint: the rights-clean R50-M run (r7, trained after the test) is ~1.5 points lower
+   on validation with a higher harmful rate and was still improving at its 10-epoch cap — train it longer,
+   then re-export and re-run parity. The spent final test should not be reused to choose it; a fresh test is
+   needed for a release claim.
 3. Fix the dominant failure — lettered groups of several plots — with labels at the caption's granularity:
    group vector axes by printed letter positions (letters sit at group corners), and teach a "part" vs "axes"
    distinction; add more framed-diagram compounds from single-image sources.
