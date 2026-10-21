@@ -57,3 +57,49 @@ other 13, lettered-plot-groups 6. Locked hashes: annotations `4f2b41c8…56a7`, 
 DETR-style decoders pick the top queries by score, so small numeric changes swap which queries survive; FP16
 and post-training int8 therefore change decisions, not just coordinates. A smaller model needs quantization-
 aware fine-tuning or a smaller FP32 backbone (R18, 80 MB).
+
+## On-device API for the integration (step 2: parts P1, P2… offered to the explainer)
+
+Reference implementation: `scripts/subfigure-detector/sfd/core/policy.py` (`letterbox_transform`,
+`decode_outputs`, `decide`, `caption_letters`, `letters_from_text`). End-to-end golden cases (raw model outputs
+→ expected parts) are produced by `sfd/export/golden.py` into `.artifacts/subfigure-detector-20261022/golden/`;
+they are not placed in `tests/fixtures/figure-crops/` (owned by the completeness-port work).
+
+**Call (per displayed image asset, never across stacked-asset boundaries):**
+
+```
+detectFigureParts(image: RGBA8 bitmap as displayed/sent, caption: String, ocrLines: [TextLine]?)
+  -> FigureParts { status: "split" | "whole", reason: String, parts: [Part], modelSHA256, policyRevision }
+Part { id: "P1"…, box: {x, y, width, height} in original image pixels (before the 2% display margin),
+       score: Float (detector confidence of the part, 0–1) }
+TextLine { text: String, box: {x0, y0, x1, y1} in image pixels }   // Mac: VNRecognizeTextRequest, .accurate
+```
+
+**Preprocessing (identical for both runs):** composite alpha over white; RGB; for zoom z ∈ {1.0, 0.75}:
+`s = min(640/W, 640/H)·z`, `rw = max(1, round(W·s))`, `rh = max(1, round(H·s))`, bilinear resize to rw×rh,
+paste at `left = floor((640−rw)/2)`, `top = floor((640−rh)/2)` on a 640×640 white canvas; float32 NCHW, /255.
+
+**Model:** input `images` [1,3,640,640]; outputs `logits` [1,300,2] (class 0 = panel, 1 = shared context) and
+`boxes` [1,300,4] (normalized cx, cy, w, h in the 640 canvas). **Decode:** p = sigmoid(logits), class = argmax,
+score = max, keep score ≥ 0.03, `x0 = (cx·640 − w·320 − left)/sx` etc., clamp to the image.
+
+**Policy (`decide`, constants in `configs/systems/*.json`):** ink = min(R,G,B) < 235; panel boxes ≥ 0.5;
+suppress IoU > 0.5 or containment > 0.85; a box ≥ 85% of the image means one figure; completion; optional OCR
+letter grouping; caption-constrained decoding when the caption names L ≥ 2 letters (candidates ≥ 0.15, exactly
+L non-overlapping boxes covering ≥ 70% of the ink); the 0.75-zoom run must agree (same count, pairwise
+IoU ≥ 0.7). Parts are ordered in reading order (rows top to bottom, then left to right).
+
+**"Unsure → fall back":** `status == "whole"` with `reason` ∈ {`single-or-unsure`, `views-disagree`}. The app
+then behaves exactly as today (whole figure; the explainer may still write its own boxes, which the
+completeness check guards). `split` parts are candidates, not ground truth: the explainer chooses, groups or
+ignores them by id.
+
+**Prompt contract (proposal):** send `<figure_parts>P1 [x,y,w,h] P2 […]</figure_parts>` (normalized
+top-left x, y, width, height, 4 decimals) with the figure; add an optional `parts: ["P1", "P2"]` field to
+walkthrough sections and `show_figure_parts` parts. The server validates ids against the parts sent; the device
+crops its own boxes (plus the display margin) for the chosen ids, union for groups. No coordinates need come
+from the model when parts exist.
+
+**Resources (Mac):** run once per image in a cancellable background task; two model runs per figure (≈ 80 ms
+warm FP32 R50-M on the M1 Max, plus ≈ 0.9 s first load); one model instance; cache by image SHA-256 + model
+SHA-256 + `policyRevision`.
