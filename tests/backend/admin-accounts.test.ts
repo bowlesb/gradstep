@@ -259,6 +259,24 @@ test('A14: a replayed sign-in request applies the database\'s current state to A
   assert.deepEqual((await send(same, signIn())).json, { account_id: TESTER, disabled: true, replayed: true });
 });
 
+test('A9: the testing allowance is set by the signed-in owner (the audit actor), with a bounded monthly cap', async () => {
+  const h = harness();
+  const service = h.deps.service(), original = service.rpc.bind(service);
+  service.rpc = async (name: string, params: Record<string, unknown> = {}) => name === 'worker_set_testing_allowance'
+    ? (h.calls.push({ who: 'service', name, params }), { data: { enabled: true, replayed: false, monthly_cap_microusd: params.p_monthly_cap_microusd }, error: null })
+    : original(name, params);
+  h.deps.service = () => service;
+  const body = { action: 'set_testing_allowance', request_id: REQUEST, account_id: TESTER, enabled: true, reason: 'Second test round', monthly_cap_usd: 12.5 };
+  const ok = await send(h, body);
+  assert.deepEqual([ok.status, ok.json], [200, { account_id: TESTER, enabled: true, replayed: false, monthly_cap_microusd: 12_500_000 }]);
+  assert.deepEqual(h.calls.find(c => c.name === 'worker_set_testing_allowance')!.params, { p_actor_id: OWNER, p_request_id: REQUEST, p_account_id: TESTER,
+    p_enabled: true, p_reason: 'Second test round', p_monthly_cap_microusd: 12_500_000 });
+  for (const cap of [51, -1, 1.234, '10'] as unknown[]) assert.equal((await send(harness(), { ...body, monthly_cap_usd: cap })).status, 400, String(cap));
+  const refused = harness({ rpcErrors: { worker_set_testing_allowance: 'testing_allowance_role_required' } });
+  assert.deepEqual((await send(refused, body)).json, { code: 'testing_allowance_role_required' });
+  assert.deepEqual((await send(harness({ owner: false }), body)).json, { code: 'owner_mfa_required' });
+});
+
 import { FinalRequestError, once } from '../../apps/admin/src/retry-key.ts';
 test('A14: the admin retry key survives a lost answer but is cleared by any final answer', async () => {
   const store = new Map<string, string>();

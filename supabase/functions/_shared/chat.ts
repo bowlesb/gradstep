@@ -571,6 +571,8 @@ export interface ChatDependencies {
 
 const RESERVE_ERRORS: Record<string, ChatErrorCode> = {
   insufficient_credits: 'insufficient_credits', platform_budget_exhausted: 'platform_budget_exhausted',
+  // Review A9 (migration 0105): an account's testing allowance reached its monthly provider-cost cap.
+  testing_cap_reached: 'insufficient_credits',
   too_many_active_operations: 'rate_limited', operation_id_conflict: 'invalid_request',
   account_unavailable: 'service_unavailable', invalid_reservation: 'invalid_request',
 };

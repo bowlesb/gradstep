@@ -10,7 +10,9 @@ export interface AdminAccount {
   plan: { plan: string; environment: string; expires_at: string } | null;
   credits: { available: number; reserved: number }; library_items: number;
 }
-export interface AccountList { generated_at: string; total: number; matched: number; accounts: AdminAccount[] }
+/** Migration 0105 (review A9): an owner-authorized testing allowance, its monthly provider-cost cap and this month's spend. */
+export interface TestingAllowance { account_id: string; enabled: boolean; monthly_cap_microusd: number; month_spend_microusd: number; updated_at: string }
+export interface AccountList { generated_at: string; total: number; matched: number; accounts: AdminAccount[]; testing_allowances?: TestingAllowance[] }
 export type AccountSort = 'created' | 'last_sign_in';
 export interface AddTesterResult { account_id: string; email: string; created: boolean; status: AccountStatus; starting_credits: number; starting_granted: boolean }
 export interface AccountsApi {
@@ -20,6 +22,8 @@ export interface AccountsApi {
   setSignIn(accountID: string, disabled: boolean, reason: string): Promise<{ disabled: boolean }>;
   /** Withdraws an address's invitation (migration 127): no new account can be created with it. */
   revokeAdmission(email: string, reason: string): Promise<{ existing_login: boolean }>;
+  /** Owner testing allowance (migration 0105): owner or tester accounts only; `capUSD` null keeps the current cap. */
+  setTestingAllowance?(accountID: string, enabled: boolean, capUSD: number | null, reason: string): Promise<{ enabled: boolean }>;
 }
 
 export const MAX_GRANT = 2000;
@@ -35,6 +39,8 @@ export function liveAccountsApi(ownerID: string): AccountsApi {
     setSignIn: (account_id, disabled, reason) => once(ownerID, 'admin-sign-in', { account_id, disabled, reason },
       request_id => adminAccounts({ action: 'set_sign_in', request_id, account_id, disabled, reason })),
     revokeAdmission: (email, reason) => adminAccounts({ action: 'revoke_admission', email, reason }),
+    setTestingAllowance: (account_id, enabled, monthly_cap_usd, reason) => once(ownerID, 'admin-testing', { account_id, enabled, monthly_cap_usd, reason },
+      request_id => adminAccounts({ action: 'set_testing_allowance', request_id, account_id, enabled, monthly_cap_usd, reason })),
   };
 }
 
@@ -58,7 +64,8 @@ const STATUS: Record<AccountStatus, [string, string]> = {
 const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 const label = (account: AdminAccount) => account.email ?? `deleted account ${account.id.slice(0, 8)}`;
 
-type Dialog = { kind: 'grant' | 'disable' | 'enable'; account: AdminAccount };
+type Dialog = { kind: 'grant' | 'disable' | 'enable' | 'testing'; account: AdminAccount };
+const usd = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(micro / 1e6);
 
 export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: number }) {
   const [search, setSearch] = useState(''); const [query, setQuery] = useState('');
@@ -80,6 +87,7 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
   const ariaSort = (column: AccountSort) => sort === column ? (ascending ? 'ascending' : 'descending') : undefined;
   const done = async (message: string) => { setDialog(null); setNotice(message); await load(); };
   const synthetic = list?.accounts.filter(a => a.synthetic).length ?? 0;
+  const testing = new Map((list?.testing_allowances ?? []).map(t => [t.account_id, t]));
 
   return <div className="accounts">
     <AddTester add={api.addTester} onAdded={result => { setAdded(result); void load(); }} added={added} />
@@ -100,7 +108,8 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
           </tr></thead>
           <tbody>{list?.accounts.map(account => <tr key={account.id} className={account.synthetic ? 'synthetic' : undefined}>
             <th scope="row"><span className={account.email ? 'email' : 'email muted'}>{label(account)}</span>
-              {(account.roles.includes('owner') || account.synthetic) && <span className="tags">{account.roles.includes('owner') && <span className="badge plain">Owner</span>}{account.synthetic && <span className="badge plain test" title="Synthetic login used by automated checks (@example.invalid)">Test</span>}</span>}</th>
+              {(account.roles.includes('owner') || account.synthetic || testing.get(account.id)?.enabled) && <span className="tags">{account.roles.includes('owner') && <span className="badge plain">Owner</span>}{account.synthetic && <span className="badge plain test" title="Synthetic login used by automated checks (@example.invalid)">Test</span>}
+                {testing.get(account.id)?.enabled && <span className="badge plain" title="Owner-authorized testing allowance: credits refill automatically; the provider cost this month is capped">Unlimited testing · {usd(testing.get(account.id)!.month_spend_microusd)} of {usd(testing.get(account.id)!.monthly_cap_microusd)} this month</span>}</span>}</th>
             <td><span className={'badge ' + STATUS[account.status][1]}>{STATUS[account.status][0]}</span></td>
             <td>{account.plan ? <>{account.plan.plan[0].toUpperCase() + account.plan.plan.slice(1)}{account.plan.environment === 'Sandbox' && <small>Sandbox</small>}</> : <span className="muted">—</span>}</td>
             <td className="num">{account.credits.available.toLocaleString()}{account.credits.reserved > 0 && <small>{account.credits.reserved.toLocaleString()} held</small>}</td>
@@ -110,6 +119,8 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
             <td>{account.last_sign_in_at ? <time dateTime={account.last_sign_in_at} title={full.format(new Date(account.last_sign_in_at))}>{day.format(new Date(account.last_sign_in_at))}</time> : <span className="muted">Never</span>}</td>
             <td className="actions">{account.status === 'active' || account.status === 'disabled' ? <>
               <button className="secondary small" aria-label={`Grant credits to ${label(account)}`} onClick={() => setDialog({ kind: 'grant', account })}>Grant credits</button>
+              {api.setTestingAllowance && (account.roles.includes('owner') || account.roles.includes('tester') || account.synthetic || testing.get(account.id)?.enabled)
+                && <button className="secondary small" aria-label={`Testing allowance for ${label(account)}`} onClick={() => setDialog({ kind: 'testing', account })}>Testing</button>}
               {account.status === 'disabled'
                 ? <button className="secondary small" aria-label={`Enable sign-in for ${label(account)}`} onClick={() => setDialog({ kind: 'enable', account })}>Enable</button>
                 : !account.roles.includes('owner') && <button className="secondary small danger" aria-label={`Disable sign-in for ${label(account)}`} onClick={() => setDialog({ kind: 'disable', account })}>Disable</button>}
@@ -124,6 +135,8 @@ export function Accounts({ api, reloadKey }: { api: AccountsApi; reloadKey: numb
     <WithdrawInvitation revoke={api.revokeAdmission} />
     {dialog?.kind === 'grant' && <GrantDialog account={dialog.account} onCancel={() => setDialog(null)}
       onGrant={async (credits, reason) => { const r = await api.grant(dialog.account.id, credits, reason); await done(`${r.replayed ? 'Already granted' : 'Granted'} ${plural(r.credits, 'credit')} to ${label(dialog.account)}.`); }} />}
+    {dialog?.kind === 'testing' && api.setTestingAllowance && <TestingDialog account={dialog.account} current={testing.get(dialog.account.id) ?? null} onCancel={() => setDialog(null)}
+      onConfirm={async (enabled, cap, reason) => { const r = await api.setTestingAllowance!(dialog.account.id, enabled, cap, reason); await done(`${r.enabled ? 'Testing allowance on' : 'Testing allowance off'} for ${label(dialog.account)}.`); }} />}
     {(dialog?.kind === 'disable' || dialog?.kind === 'enable') && <SignInDialog account={dialog.account} disable={dialog.kind === 'disable'} onCancel={() => setDialog(null)}
       onConfirm={async reason => { const r = await api.setSignIn(dialog.account.id, dialog.kind === 'disable', reason); await done(`${r.disabled ? 'Disabled' : 'Enabled'} sign-in for ${label(dialog.account)}.`); }} />}
   </div>;
@@ -233,6 +246,26 @@ function GrantDialog({ account, onCancel, onGrant }: { account: AdminAccount; on
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions"><button type="button" className="secondary" onClick={confirming ? () => setConfirming(false) : onCancel}>{confirming ? 'Back' : 'Cancel'}</button>
         <button disabled={busy || !valid}>{busy ? 'Granting…' : confirming ? 'Confirm grant' : `Grant ${Number.isInteger(amount) && amount > 0 ? amount.toLocaleString() + ' ' : ''}credits`}</button></div>
+    </form>
+  </Modal>;
+}
+
+/** Review A9: the testing allowance names the acting owner, applies only to owner/tester accounts and caps the month. */
+function TestingDialog({ account, current, onCancel, onConfirm }: { account: AdminAccount; current: TestingAllowance | null; onCancel: () => void;
+  onConfirm: (enabled: boolean, capUSD: number | null, reason: string) => Promise<void> }) {
+  const on = !!current?.enabled;
+  const [cap, setCap] = useState(String((current?.monthly_cap_microusd ?? 25_000_000) / 1e6)); const [reason, setReason] = useState('');
+  const { busy, error, run } = useAction();
+  const amount = Number(cap), valid = reason.trim().length >= 3 && (on || (Number.isFinite(amount) && amount >= 0 && amount <= 50));
+  return <Modal title={on ? 'End the testing allowance?' : 'Turn on the testing allowance'} onCancel={onCancel}>
+    <p>{on ? <>For <strong>{label(account)}</strong>: unused testing credits are removed; work in progress still settles. Purchased credits are untouched.</>
+      : <>For <strong>{label(account)}</strong>: credits refill automatically before each paid request, and its provider cost this month may not pass the cap. The platform budget still applies. Owner and tester accounts only.</>}</p>
+    <form onSubmit={event => { event.preventDefault(); if (valid) void run(() => onConfirm(!on, on ? null : amount, reason.trim())); }}>
+      {!on && <label>Monthly cap (USD of provider cost)<input type="number" inputMode="decimal" min={0} max={50} step={0.01} required value={cap} onChange={e => setCap(e.target.value)} /></label>}
+      <label>Reason<input required minLength={3} maxLength={200} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Recorded in the audit log; no personal details" /></label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+        <button className={on ? 'danger' : undefined} disabled={busy || !valid}>{busy ? 'Saving…' : on ? 'End allowance' : 'Turn on'}</button></div>
     </form>
   </Modal>;
 }

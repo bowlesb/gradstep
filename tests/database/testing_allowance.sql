@@ -19,14 +19,17 @@ grant execute on all functions in schema test to anon,authenticated,service_role
 \set DISABLE '94000000-0000-0000-0000-000000000012'
 \set OP1 '94000000-0000-0000-0000-000000000021'
 \set OP2 '94000000-0000-0000-0000-000000000022'
+\set OWN '94000000-0000-0000-0000-0000000000ff'
 insert into auth.users(id,email,email_confirmed_at) values
- (:'A','test-allowance-a@example.invalid',now()),(:'B','test-allowance-b@example.invalid',now());
+ (:'A','test-allowance-a@example.invalid',now()),(:'B','test-allowance-b@example.invalid',now()),(:'OWN','owner-allowance@gradstep.test.org',now());
+-- Migration 0105 (review A9): every change names the acting owner.
+insert into app_private.app_roles(account_id,role) values(:'OWN','owner');
 select date_trunc('month',now() at time zone 'UTC')::date as month \gset
 set role service_role;
 select public.worker_set_platform_budget(:'month',1000000,true);
 select public.worker_grant_credits(:'A','purchased','testing-normal-purchase',400,now(),null,'Ordinary purchased balance') as purchased \gset
-select public.worker_set_testing_allowance(:'A',:'ENABLE',true,'Owner requested unlimited testing');
-select test.assert((public.worker_set_testing_allowance(:'A',:'ENABLE',true,'Owner requested unlimited testing')->>'replayed')::boolean,'enable replay');
+select public.worker_set_testing_allowance(:'OWN',:'ENABLE',:'A',true,'Owner requested unlimited testing');
+select test.assert((public.worker_set_testing_allowance(:'OWN',:'ENABLE',:'A',true,'Owner requested unlimited testing')->>'replayed')::boolean,'enable replay');
 reset role;
 select test.assert((select count(*)=1 from app_private.admin_audit_events where id=:'ENABLE'),'one audit for replay');
 select set_config('request.jwt.claim.sub',:'A',true);
@@ -63,8 +66,8 @@ update app_private.accounts set spending_suspended=false where id=:'A';
 
 -- Revocation preserves held work; old enable replay never revives it.
 set role service_role;
-select public.worker_set_testing_allowance(:'A',:'DISABLE',false,'End the testing allowance');
-select test.assert(public.worker_set_testing_allowance(:'A',:'ENABLE',true,'Owner requested unlimited testing')->>'enabled'='false','stale enable replay does not revive');
+select public.worker_set_testing_allowance(:'OWN',:'DISABLE',:'A',false,'End the testing allowance');
+select test.assert(public.worker_set_testing_allowance(:'OWN',:'ENABLE',:'A',true,'Owner requested unlimited testing')->>'enabled'='false','stale enable replay does not revive');
 select public.worker_settle_operation(:'A',:'OP2',10,50);
 reset role;
 set role authenticated;
@@ -77,13 +80,13 @@ select set_config('request.jwt.claim.sub',:'B',true);
 set role authenticated;
 select test.assert(public.v1_credit_balance()->>'unlimited_testing'='false' and (public.v1_credit_balance()->>'available')::bigint=0,'account isolation');
 reset role;
-select test.assert(not has_function_privilege('authenticated','public.worker_set_testing_allowance(uuid,uuid,boolean,text)','execute')
- and not has_function_privilege('anon','public.worker_set_testing_allowance(uuid,uuid,boolean,text)','execute'),'service-only policy');
+select test.assert(not has_function_privilege('authenticated','public.worker_set_testing_allowance(uuid,uuid,uuid,boolean,text,bigint)','execute')
+ and not has_function_privilege('anon','public.worker_set_testing_allowance(uuid,uuid,uuid,boolean,text,bigint)','execute'),'service-only policy');
 select test.assert(not has_table_privilege('authenticated','app_private.testing_allowances','update'),'no client policy write');
 
 -- A fresh identity after actual deletion never inherits testing access.
 set role service_role;
-select public.worker_set_testing_allowance(:'A',gen_random_uuid(),true,'Testing enabled again');
+select public.worker_set_testing_allowance(:'OWN',gen_random_uuid(),:'A',true,'Testing enabled again');
 select public.worker_delete_account_begin(:'A');
 select public.worker_delete_account_finish(:'A');
 select test.reject(format('select public.worker_reserve_operation(%L,gen_random_uuid(),%L,sha256(%L),%L,1,1)',:'A','chat','closed','beta-credits-v1'),'account_unavailable');

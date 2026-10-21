@@ -36,6 +36,7 @@ const accountErrors: Record<string, string> = {
   request_id_conflict: 'This change conflicts with an earlier one. Reload and try again.',
   sign_in_change_unconfirmed: 'The change was recorded but sign-in could not be updated. Try again.',
   request_superseded: 'A newer change to this account came after this one. Reload to see its current state.',
+  testing_allowance_role_required: 'The testing allowance is only for owner and tester accounts.',
 };
 export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T> {
   if (!backend || !url || !key) throw new Error('The backend has not been configured for this build.');

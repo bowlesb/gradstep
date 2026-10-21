@@ -27,6 +27,25 @@ and beta-return fixtures also pass, plus `npm test` and native balance decoding 
 `.artifacts/testing-allowance-*.log`, `.artifacts/testing-allowance-native.xcresult`, and private grant readback
 `.artifacts/credits/owner-unlimited-20261019/verified.json`. No paid model request was used.
 
+### Safeguards — 2026-10-21 (review A9, migration 0105; not deployed)
+
+Migration 094 let any service-role caller give any account self-refilling credits, recorded the target as its own actor
+with a hard-coded authority, refused to disable it for a suspended account, let re-enabling sign-in silently restore it,
+had no per-account cap inside the shared budget, and had no control or marker in the admin site.
+
+- `worker_set_testing_allowance(actor, request, account, enabled, reason, monthly_cap)` — the actor must be an owner
+  account (`require_owner_account`) and is the audit row's actor; the target must be an owner or tester (`app_roles`) or
+  a synthetic test account. Enabling needs an open, unsuspended account; disabling works in any state. The admin site's
+  Accounts tab calls it through `admin-accounts` (`set_testing_allowance`) with the signed-in owner (MFA) as actor.
+- **Monthly cap.** Each allowance carries `monthly_cap_microusd` (default **$25**, at most $50, the whole month's schema
+  ceiling). A new paid operation of that account is refused (`testing_cap_reached`; chat reports `insufficient_credits`)
+  when the account's provider cost this month (settled cost and liability plus open holds) plus its hold would pass the
+  cap; it is checked under the same budget → account locks as the reservation. Deploying 0105 gives the owner's current
+  allowance the $25 default; the owner can change it in Accounts. The $100/month budget and platform limit are unchanged.
+- **Suspension ends it.** Disabling sign-in (`worker_admin_set_sign_in`) also ends the allowance, audited to the same
+  owner; re-enabling sign-in does not bring it back.
+- Admin › Accounts marks accounts with the allowance (this month's spend against the cap) and offers the control.
+
 Status, 2026-10-08 UTC: **migrations 034–038 and their provider/worker controls are deployed on staging**;
 039 upload accounting is also applied. Read-only takeover evidence at
 `.artifacts/takeover-20261008/spending-policies.json` records provider admission enabled with coverage beginning
