@@ -35,7 +35,7 @@ and the Mac (Catalyst), then deleted; the physical iPhone stayed paused.
   figure preselected; Settings from the Library, Feed, Paper, Chat, Notes and note menus returning to each (Report this
   screen just above it); light and dark — **all pass**. Wide layout — Notes beside Feed/Library/Reader/Browse/General
   Chat, list beside the note, capture beside the chat column, Settings round trip: **passes on iPad (light and dark) and
-  on the Mac** (menu-bar Draw Snippet; Escape cancels drawing). `SettingsTests` 6/6 with the new navigation.
+  on the Mac (light and dark)** (menu-bar Draw Snippet; Escape cancels drawing). `SettingsTests` 6/6 with the new navigation.
 - **Regression context**: the full app unit bundle (510 tests) has failures unrelated to Notes — four
   `PaperWebViewTests` Contents cases fail identically on the base commit `82c8656`; two podcast tests follow main's
   podcast-script change; one needs the local import corpus; three timed out only while other suites shared the machine
