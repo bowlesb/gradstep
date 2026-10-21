@@ -411,9 +411,16 @@ struct LibraryView: View {
     /// The selected paper is highlighted only where it is shown beside the list (iPad Browse).
     private var highlightsSelection: Bool { model.wideMode == .browse && Platform.isLargeScreen }
 
+    /// The catalog beside the search field when there is a choice of catalogs (owner, build 75: "Move the catalog to the
+    /// left of the search bar and move the + option as a new row inside the dialogue on the far right").
+    private var showsCatalog: Bool {
+        !searching && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default")
+    }
+
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
+                if showsCatalog { catalogMenu }
                 LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search ML papers" : "Search",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
                     .padding(.leading, 10).padding(.trailing, 6).frame(height: DesignMetrics.headerControl)
@@ -425,9 +432,6 @@ struct LibraryView: View {
                         searchFocused = false
                     }.accessibilityIdentifier("library.search.cancel")
                 } else {
-                    Button {
-                        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
-                    } label: { HeaderButtonLabel(systemImage: "plus") }.buttonStyle(.plain).accessibilityLabel("Add a paper")
                     optionsMenu
                 }
             }
@@ -435,25 +439,6 @@ struct LibraryView: View {
                 Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("ML paper search").tag(true) }
                     .pickerStyle(.segmented).accessibilityIdentifier("library.searchScope")
                 if model.searchExternal { AdvancedPaperSearch(model: model) }
-            }
-            if !model.searchExternal && (model.libraryCatalogs.catalogs.count > 1 || model.currentCatalog.name != "Default") {
-                HStack {
-                    Menu {
-                        ForEach(model.libraryCatalogs.catalogs) { catalog in
-                            Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
-                                model.selectCatalog(catalog.id)
-                            }
-                        }
-                        Divider()
-                        Button("Manage catalogs…") { model.showCatalogs = true }
-                    } label: {
-                        HStack {
-                            Label(model.currentCatalog.name, systemImage: "folder").lineLimit(1)
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
-                    }.accessibilityIdentifier("library.catalog")
-                    Spacer()
-                }.font(.subheadline)
             }
         }
         .modifier(HeaderWidth(fullWidth: tableShown))
@@ -464,10 +449,44 @@ struct LibraryView: View {
         .animation(.snappy(duration: 0.2), value: searching)
     }
 
+    /// The current catalog as a compact glass control (its name truncates), choosing another or managing them.
+    private var catalogMenu: some View {
+        Menu {
+            ForEach(model.libraryCatalogs.catalogs) { catalog in
+                Button(catalog.name, systemImage: model.currentCatalog.id == catalog.id ? "checkmark" : "folder") {
+                    model.selectCatalog(catalog.id)
+                }
+            }
+            Divider()
+            Button("Manage catalogs…") { model.showCatalogs = true }
+        } label: {
+            // A long name is shortened so the search field keeps most of the row.
+            let name = model.currentCatalog.name
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                Text(name.count > 14 ? String(name.prefix(13)).trimmingCharacters(in: .whitespaces) + "…" : name).lineLimit(1)
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+            }
+            .font(.subheadline.weight(.semibold)).foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12).frame(height: DesignMetrics.headerControl)
+            .fixedSize()
+            .chromeSurface(Capsule(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Catalog: \(model.currentCatalog.name)")
+        .accessibilityIdentifier("library.catalog")
+    }
+
     /// Every Library option behind one button (design audit F3): how the list looks, as submenus that
     /// show the current choice, then where else to go, then reporting.
     private var optionsMenu: some View {
         Menu {
+            // Add is the first row here (owner, build 75), not a + beside the field.
+            Section {
+                MenuRow("Add paper…", systemImage: "plus") {
+                    if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
+                }.accessibilityIdentifier("library.add")
+            }
             Section {
                 MenuRow("Catalogs", systemImage: "folder") { model.showCatalogs = true }
             }

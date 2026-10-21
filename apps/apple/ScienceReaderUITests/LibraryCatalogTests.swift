@@ -40,8 +40,30 @@ final class LibraryCatalogTests: XCTestCase {
         field.typeText("Research"); app.buttons["Save"].tap()
         XCTAssertTrue(menu("Options for Research").waitForExistence(timeout: 5))
         menu("Options for Research").tap(); command("Make default").tap()
+        // Build 75 (AExY): a quick local change shows no "Saving…" and leaves the rows as they were.
+        XCTAssertFalse(app.descendants(matching: .any)["catalog.saving"].exists)
+        XCTAssertTrue(menu("Options for Research").isEnabled)
+        #if !targetEnvironment(macCatalyst)
+        // Build 75 (ACLs): the catalog as CSV through the share sheet (Save to Files, Mail…).
+        menu("Options for Research").tap(); command("Export as CSV…").tap()
+        let share = app.otherElements["ActivityListView"]
+        XCTAssertTrue(share.waitForExistence(timeout: 8), "the share sheet offers the CSV")
+        let exportShot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot()); exportShot.name = "Catalog CSV share sheet"
+        exportShot.lifetime = .keepAlways; add(exportShot)
+        if app.buttons["Close"].exists { app.buttons["Close"].tap() } else { share.swipeDown(velocity: .fast) }
+        XCTAssertTrue(share.waitForNonExistence(timeout: 5))
+        #endif
         app.buttons["Close catalogs"].tap()
         XCTAssertTrue(menu("library.catalog").waitForExistence(timeout: 5))
+        // Build 75 (AHI8): the catalog left of the search field; Add is the first row of Library options.
+        let search = app.descendants(matching: .any)["library.search"]
+        XCTAssertLessThan(menu("library.catalog").frame.maxX, search.frame.minX)
+        XCTAssertFalse(app.buttons["Add a paper"].exists, "no + beside the search field")
+        let placement = XCTAttachment(screenshot: app.windows.firstMatch.screenshot()); placement.name = "Catalog left of search"
+        placement.lifetime = .keepAlways; add(placement)
+        options.tap(); XCTAssertTrue(command("Add paper…").waitForExistence(timeout: 3)); command("Add paper…").tap()
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 5)); app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForNonExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Attention Is All You Need"].exists)
         options.tap(); command("Catalogs").tap()
         menu("Options for Reading").tap(); command("Delete catalog…").tap()
