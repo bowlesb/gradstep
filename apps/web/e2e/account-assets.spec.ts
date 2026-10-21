@@ -59,13 +59,15 @@ for (const scheme of ['light', 'dark'] as const) test(`AI credits, Subscription 
   const diagrams = page.getByRole('dialog', { name: 'All diagrams' });
   await expect(diagrams.getByTestId('diagrams-empty')).toHaveText('No diagrams yet');
   await diagrams.getByRole('button', { name: 'Done' }).click(); await expect(diagrams).toBeHidden();
-  // Equation and Figure explanations (owner, build 62): this tab's, None yet; the ⓘ says where they're kept.
+  // Equation and Figure explanations (owner, build 62): none yet, in the apps' words (KeptExplanationsView); since B4 they
+  // are kept in this browser, and the ⓘ says so.
   for (const [item, title] of [['assets-equations', 'Equation explanations'], ['assets-figures', 'Figure explanations']] as const) {
     await page.getByTestId('account-menu').click(); await page.getByTestId(item).click();
     const kept = page.getByRole('dialog', { name: title });
     await expect(kept.getByRole('heading', { name: title })).toBeVisible();
-    await expect(kept.getByTestId('explanations-empty')).toHaveText('None yet');
-    await expect(kept.getByTestId('explanations-info')).toHaveAccessibleDescription('The Gradstep apps keep these explanations on your iPhone, iPad or Mac. This browser keeps them only until this tab closes.');
+    const noun = item === 'assets-equations' ? 'equation' : 'figure';
+    await expect(kept.getByTestId('explanations-empty')).toHaveText(`No ${noun} explanations${noun === 'equation' ? 'Equations' : 'Figures'} you ask the AI Explainer about are kept in this browser.`);
+    await expect(kept.getByTestId('explanations-info')).toHaveAccessibleDescription('Kept in this browser, encrypted with its key, as the apps keep them on your iPhone, iPad or Mac. Opening one shows it again without a new request.');
     if (item === 'assets-equations') await page.screenshot({ path: `${SHOTS}/${info.project.name}-${scheme}-equation-explanations.png` });
     await kept.getByTestId('explanations-close').click(); await expect(kept).toBeHidden();
   }
