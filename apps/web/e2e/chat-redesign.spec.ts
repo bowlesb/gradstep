@@ -141,7 +141,8 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
   const options2 = page.getByRole('menu', { name: 'All chats options' });
   await expect(options2.getByRole('group', { name: 'Sort by' }).getByRole('menuitemradio')).toHaveText([/Last read/, /Started/, /Title/]);
   await expect(options2.getByRole('menuitemradio', { name: /Last read/ })).toHaveAttribute('aria-checked', 'true');
-  await expect(options2.getByRole('group', { name: 'Columns' }).getByRole('menuitemcheckbox')).toHaveText([/Paper/, /Messages/, /Started/]);
+  // The apps' All chats columns (B9): Kind, Topics and Answer length besides these.
+  await expect(options2.getByRole('group', { name: 'Columns' }).getByRole('menuitemcheckbox')).toHaveText([/Paper/, /Kind/, /Topics/, /Messages/, /Started/, /Answer length/]);
   await expect(options2.getByRole('menuitem', { name: 'Close' })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-all-chats-menu.png` });
   await page.keyboard.press('Escape');
@@ -150,6 +151,11 @@ test('⋯ › Answer options holds Model and Length only (DeepSeek when listed);
     await chats.getByTestId('history-menu').click();
     await page.getByRole('menuitemcheckbox', { name: /Messages/ }).click();
     await expect(chats.getByRole('columnheader', { name: 'Messages' })).toBeVisible();
+    for (const name of [/Kind/, /Topics/, /Answer length/]) await page.getByRole('menuitemcheckbox', { name }).click();
+    await expect(chats.getByRole('columnheader')).toContainText(['Conversation', 'Paper', 'Kind', 'Topics', 'Messages', 'Answer length', 'Last read']);
+    const row = chats.getByTestId('history-table').locator('tbody tr').first();
+    await expect(row.locator('.history-kind')).toHaveText(/^(Paper|General)$/);
+    await expect(row.locator('.history-length')).toHaveText(/^(—|1 word|\d+ words|\d+(\.\d)?k words)$/);
     await page.keyboard.press('Escape');
   }
   await page.screenshot({ path: `${SHOTS}/${info.project.name}-all-chats.png` });

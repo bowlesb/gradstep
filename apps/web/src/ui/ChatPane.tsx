@@ -395,15 +395,27 @@ const Answer = memo(function Answer({ text, streaming = false }: { text: string;
   return <Suspense fallback={<div className="question-text">{text}</div>}><RichAnswer text={text} streaming={streaming} /></Suspense>;
 });
 
-export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOpen }: {
+export function ChatHistory({ chat, open, onClose, papers, currentDocument, onOpen, topics }: {
   chat: ChatSession | null; open: boolean; onClose: () => void; papers: Map<string, string>; currentDocument: string | null;
   onOpen: (documentID: string | null, anchor?: TextAnchor) => void;
+  /** Each paper's library tags (All chats' Topics). */ topics?: Map<string, string[]>;
 }) {
-  return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} /> : <p>Loading chats…</p>}</Dialog>;
+  return <Dialog open={open} onClose={onClose} title="All chats" wide>{chat ? <HistoryList chat={chat} papers={papers} currentDocument={currentDocument} onClose={onClose} onOpen={onOpen} topics={topics} /> : <p>Loading chats…</p>}</Dialog>;
 }
-interface HistoryColumns { paper: boolean; messages: boolean; started: boolean }
+// The apps' All chats columns in their order (ChatHistoryView): Kind, Topics and Answer length since B9; a choice saved
+// before them keeps working (they start off).
+type HistoryColumn = 'paper' | 'kind' | 'topics' | 'messages' | 'started' | 'length';
+type HistoryColumns = Record<'paper' | 'messages' | 'started', boolean> & Partial<Record<'kind' | 'topics' | 'length', boolean>>;
+const HISTORY_COLUMNS: readonly [HistoryColumn, string][] = [['paper', 'Paper'], ['kind', 'Kind'], ['topics', 'Topics'], ['messages', 'Messages'], ['started', 'Started'], ['length', 'Answer length']];
 const DEFAULT_HISTORY_COLUMNS: HistoryColumns = { paper: true, messages: false, started: false };
-const validHistoryColumns = (v: unknown) => !!v && typeof v === 'object' && ['paper', 'messages', 'started'].every(k => typeof (v as Record<string, unknown>)[k] === 'boolean');
+const validHistoryColumns = (v: unknown) => !!v && typeof v === 'object' && ['paper', 'messages', 'started'].every(k => typeof (v as Record<string, unknown>)[k] === 'boolean')
+  && ['kind', 'topics', 'length'].every(k => (v as Record<string, unknown>)[k] === undefined || typeof (v as Record<string, unknown>)[k] === 'boolean');
+/** "1 word", "320 words", "1.2k words" (ChatHistory's answer length); none is a dash. */
+export function answerLength(words: number): string {
+  if (!words) return '—';
+  if (words === 1) return '1 word';
+  return words < 1000 ? `${words} words` : `${(words / 1000).toFixed(1).replace(/\.0$/, '')}k words`;
+}
 function useNarrow() {
   const query = '(max-width: 600px)';
   const [narrow, setNarrow] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches);
@@ -415,7 +427,7 @@ function useNarrow() {
   }, []);
   return narrow;
 }
-function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null, anchor?: TextAnchor) => void }) {
+function HistoryList({ chat, papers, currentDocument, onClose, onOpen, topics }: { chat: ChatSession; papers: Map<string, string>; currentDocument: string | null; onClose: () => void; onOpen: (documentID: string | null, anchor?: TextAnchor) => void; topics?: Map<string, string[]> }) {
   const historyVersion = useChatUpdates(chat);
   // All first and chosen (owner, build 57: "You can put All to the left and make that the default").
   const [search, setSearch] = useState(''), [filter, setFilter] = useState('all');
@@ -444,7 +456,8 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
   }, [chat, historyVersion, filter, currentDocument, search, papers, sort]); // eslint-disable-line react-hooks/exhaustive-deps
   // The reader's columns (≡ › Columns); a narrow window shows the conversation and Last read only (as an iPhone in portrait).
   const narrow = useNarrow();
-  const shown = { paper: columns.paper && !narrow, messages: columns.messages && !narrow, started: columns.started && !narrow };
+  const shown = { paper: columns.paper && !narrow, messages: columns.messages && !narrow, started: columns.started && !narrow,
+    kind: !!columns.kind && !narrow, topics: !!columns.topics && !narrow, length: !!columns.length && !narrow };
   const paperName = (c: ConversationSummary) => c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General';
   // Owner, build 57: "The paper should only be in its column not duplicated on left column".
   const secondLine = (c: ConversationSummary) => shown.paper || !c.documentID ? conversationPreview(c) : paperName(c);
@@ -459,8 +472,8 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
           {(['last', 'started', 'title'] as const).map(s => <button key={s} type="button" role="menuitemradio" aria-checked={sort === s} className="menu-item menu-check"
             onClick={() => { setSort(s); close(); }}><span className="menu-check-mark" aria-hidden="true">{sort === s ? '✓' : ''}</span>{sortTitles[s]}</button>)}</div>
         <div className="menu-section" role="group" aria-label="Columns"><p className="fine menu-heading">Columns</p>
-          {(['paper', 'messages', 'started'] as const).map(k => <button key={k} type="button" role="menuitemcheckbox" aria-checked={columns[k]} className="menu-item menu-check"
-            onClick={() => setColumns(v => ({ ...v, [k]: !v[k] }))}><span className="menu-check-mark" aria-hidden="true">{columns[k] ? '✓' : ''}</span>{({ paper: 'Paper', messages: 'Messages', started: 'Started' })[k]}</button>)}
+          {HISTORY_COLUMNS.map(([k, label]) => <button key={k} type="button" role="menuitemcheckbox" aria-checked={!!columns[k]} className="menu-item menu-check"
+            onClick={() => setColumns(v => ({ ...v, [k]: !v[k] }))}><span className="menu-check-mark" aria-hidden="true">{columns[k] ? '✓' : ''}</span>{label}</button>)}
           {narrow && <p className="fine">A wider window shows them.</p>}</div>
         <button type="button" role="menuitem" className="menu-item" onClick={() => { close(false); onClose(); }} data-testid="history-close"><Icon name="close" size={14} /> Close</button>
       </>}</MenuButton>
@@ -473,8 +486,11 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
     <div className="history-table-wrap"><table className="history-table" data-testid="history-table"><thead><tr>
       <th className="history-conversation"><button className="link" aria-pressed={sort === 'title'} onClick={() => setSort('title')}>Conversation</button></th>
       {shown.paper && <th className="history-paper">Paper</th>}
+      {shown.kind && <th className="history-kind">Kind</th>}
+      {shown.topics && <th className="history-topics">Topics</th>}
       {shown.messages && <th className="history-count">Messages</th>}
       {shown.started && <th className="history-started"><button className="link" aria-pressed={sort === 'started'} onClick={() => setSort('started')}>Started</button></th>}
+      {shown.length && <th className="history-length">Answer length</th>}
       <th className="history-last"><button className="link" aria-pressed={sort === 'last'} onClick={() => setSort('last')}>Last read</button></th>
       <th className="history-actions"><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>{rows.map(c => <tr key={c.id}><td>{renamingID === c.id
@@ -483,8 +499,11 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
         : <><button className="history-title" onClick={() => { chat.open(c.id); onOpen(c.documentID ?? null); onClose(); }}>{summaryTitle(c) || 'Chat'}</button>
           <span className="fine history-meta" data-testid="history-second-line">{secondLine(c) || ' '}</span></>}</td>
         {shown.paper && <td className="history-paper">{paperName(c)}</td>}
+        {shown.kind && <td className="fine history-kind">{c.documentID ? 'Paper' : 'General'}</td>}
+        {shown.topics && <td className="history-topics">{(c.documentID && topics?.get(c.documentID)?.length) ? <span className="tags">{topics.get(c.documentID)!.slice(0, 3).map(t => <span key={t} className="tag">{t}</span>)}</span> : null}</td>}
         {shown.messages && <td className="fine history-count">{c.messageCount}</td>}
         {shown.started && <td className="fine">{formatDate(c.startedAt)}</td>}
+        {shown.length && <td className="fine history-length">{answerLength(c.latestAnswerWords)}</td>}
         <td className="fine">{formatDate(c.lastUsedAt)}</td>
         <td className="history-row-actions">{c.anchor && c.documentID && papers.has(c.documentID) && <button className="link" aria-label={`Go to the passage of ${summaryTitle(c) || 'chat'}`}
           onClick={() => { chat.open(c.id); onOpen(c.documentID!, c.anchor); onClose(); }}>Go to passage</button>}

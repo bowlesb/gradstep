@@ -283,6 +283,10 @@ table.papers { width: max(100%, calc(var(--library-title-width) + var(--library-
 .papers tbody tr:hover td.col-title { background: var(--row-hover); }
 .papers .col-authors { white-space: nowrap; text-overflow: ellipsis; }
 .papers .col-year { font-variant-numeric: tabular-nums; }
+/* Venue (two lines), Source (one, cut in the middle on the apps), Pages and Chats as numbers (B9). */
+.papers td.col-venue { white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.papers td.col-source { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.papers .col-pages, .papers .col-chats { font-variant-numeric: tabular-nums; text-align: right; }
 .papers .col-added, .papers .col-opened { white-space: nowrap; }
 @media print {
   .app:has(.library), .app:has(.library) .workspace, .app:has(.library) .pane-center,
@@ -978,3 +982,4 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 /* Actions on a selected answer passage or formula (B1): above the composer, in view while the transcript scrolls. */
 .answer-math { display: contents; }
 .chat-selection-bar { position: sticky; bottom: 6px; left: auto; transform: none; margin: 6px auto 0; width: max-content; max-width: calc(100% - 8px); }
+

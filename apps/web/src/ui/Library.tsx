@@ -29,6 +29,7 @@ import { LibraryRows, type LibraryRowsCommands, type LibraryViewport, WINDOW_THR
 
 export type Library = ReturnType<typeof useLibrary>;
 type SortKey = 'title' | 'authors' | 'year' | 'tags' | 'added' | 'opened' | 'progress';
+const SORTABLE = new Set<string>(['authors', 'year', 'tags', 'added', 'opened', 'progress']);
 export type Filter = 'all' | 'unread' | 'reading' | 'failed' | 'archived';
 export interface LibraryQuery { query: string; filter: Filter; tag: string; sort: { key: SortKey; descending: boolean } }
 export const INITIAL_QUERY: LibraryQuery = { query: '', filter: 'all', tag: '', sort: { key: 'added', descending: true } };
@@ -257,8 +258,10 @@ function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTM
   </div>;
 }
 
-export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar }: {
+export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd, prepared, onSimilar, chatCount }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
+  /** Saved chats about a paper (the Chats column, B9). */
+  chatCount?: (entry: ClientEntry) => number;
   /** Whether this tab has the paper prepared (the row's check); without it every paper shows as still to download. */
   prepared?: (entry: ClientEntry) => boolean;
   currentID: string | null; onOpen: (item: LibraryPaper) => void; onAdd: () => void; onSimilar?:(item:LibraryPaper)=>void;
@@ -363,7 +366,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
           <table className="papers" data-testid="library-table" aria-label="Papers" aria-rowcount={shown.length + 1}>
             <colgroup><col className="col-title" />{visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
             <thead ref={tableHeader}><tr aria-rowindex={1}>
-              {header('title', 'Title', 'col-title')}{visibleColumns.map(c => c.key === 'device' ? <th key={c.key} className="col-device" scope="col">{c.label}</th> : header(c.key, c.label, `col-${c.key}`))}
+              {header('title', 'Title', 'col-title')}{visibleColumns.map(c => !SORTABLE.has(c.key) ? <th key={c.key} className={`col-${c.key}`} scope="col">{c.label}</th> : header(c.key as SortKey, c.label, `col-${c.key}`))}
             </tr></thead>
             <LibraryRows rows={shown} scroller={scroller} header={tableHeader} viewport={model.viewport}
               query={JSON.stringify(view)} columns={columns} full={!model.windowed || printing} printing={printing} commands={rowCommands} showAll={showAll} render={(row, index, measure) => {
@@ -371,7 +374,8 @@ export function LibraryView({ library, model, activity, view, setView, showChips
                 return <PaperRow key={row.key} row={row} opened={a?.opened ?? null} progress={a ? a.progress : null} mark={library.marks.get(row.entry.id)}
                   onDevice={!!prepared?.(row.entry)} isNew={isReaderPaper(row.entry) && isNewPaper(row.entry, !!a)} activeTag={view.tag}
                   busy={library.pending.has(row.entry.id)} current={row.entry.id === currentID} onOpen={onOpen} retry={library.retry} remove={library.remove} run={run}
-                  onTag={setView} columns={columns} index={index} measure={measure} menuOpen={actions.menuItemID === row.entry.id} onMenu={actions.open} />;
+                  onTag={setView} columns={columns} index={index} measure={measure} menuOpen={actions.menuItemID === row.entry.id} onMenu={actions.open}
+                  chats={chatCount?.(row.entry) ?? 0} />;
               }} />
           </table>
         </div>
@@ -403,8 +407,9 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
   return <span className="pill passive" title="Credits can be added in Gradstep on iPhone, iPad or Mac">Get credits in the app</span>;
 }
 
-const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu, onDevice, isNew, activeTag }: {
+const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu, onDevice, isNew, activeTag, chats = 0 }: {
   row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean; onDevice: boolean; isNew: boolean; activeTag: string;
+  /** Saved chats about it (the apps' Chats column; 0 shows as 0). */ chats?: number;
   onOpen: (item: LibraryPaper) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
   index: number; measure?: (element: HTMLTableRowElement | null) => void;
   menuOpen: boolean; onMenu: ReturnType<typeof useLibraryActions>['open'];
@@ -413,6 +418,8 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
   const progress = useImportProgress(entry, mark);
   const open = () => { if (row.readable && isLibraryPaper(entry)) onOpen(entry); };
   const authors = authorList(entry);
+  // Venue as the library has it; Source: arXiv's ID, a web paper's site, or Your PDF (LibraryMetadata.source).
+  const venue = entry.metadata?.venue?.split(/\s+/).join(' ').trim() ?? '', source = entry.kind === 'local_pdf' ? 'Your PDF' : row.source;
   // A paper still being added (no title or authors yet) keeps the height it will have: two title lines and, when the
   // authors show under the title (no Authors column), their line (owner, build 58), so the row never grows when its
   // details arrive.
@@ -433,13 +440,17 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
       {columns.includes('device') && <td className="col-device"><RowMarks isNew={isNew} copy={deviceCopy(entry, onDevice)} /></td>}
       {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{compactAuthors(authors) || <span className="faint">—</span>}</td>}
       {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
+      {columns.includes('venue') && <td className="col-venue" title={venue}>{venue || <span className="faint">—</span>}</td>}
       {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
         // Tapping the active tag again clears the filter; the active one is drawn in the accent (PaperTable's chips).
         <button className={t === activeTag ? 'tag on' : 'tag'} key={t} aria-pressed={t === activeTag} onClick={e => { e.stopPropagation(); onTag(q => ({ ...q, tag: q.tag === t ? '' : t })); }}
           title={t === activeTag ? `Show all papers` : `Show papers tagged “${t}”`}>{t}</button>))}</span>
         : <span className="faint">—</span>}</td>}
+      {columns.includes('source') && <td className="col-source" title={source}>{source || <span className="faint">—</span>}</td>}
+      {columns.includes('pages') && <td className="col-pages">{row.pages ?? <span className="faint">—</span>}</td>}
       {columns.includes('added') && <td className="col-added"><TableDate ms={row.added} /></td>}
       {columns.includes('opened') && <td className="col-opened"><TableDate ms={opened} /></td>}
+      {columns.includes('chats') && <td className="col-chats">{String(chats)}</td>}
       {columns.includes('progress') && <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">

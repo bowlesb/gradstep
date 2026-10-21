@@ -1,7 +1,7 @@
 // Per-browser presentation preferences (theme, pane widths and visibility, text size). Conveniences
 // only: storage can be unavailable (private windows, blocked site data) and every read falls back.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { defaultLibraryColumns, LIBRARY_COLUMNS_KEY, parseLibraryColumns, type LibraryColumn } from '../lib/library-columns';
+import { defaultLibraryColumns, LIBRARY_COLUMNS_KEY, parseLibraryColumns, type LibraryColumn, LIBRARY_COLUMNS_VERSION } from '../lib/library-columns';
 
 export function readStored<T>(key: string, fallback: T, valid: (value: unknown) => boolean): T {
   try {
@@ -46,7 +46,7 @@ export function useLibraryColumns() {
   });
   const update = useCallback((next: readonly LibraryColumn[]) => {
     setColumns(next);
-    writeStored(LIBRARY_COLUMNS_KEY, { version: 2, columns: next });
+    writeStored(LIBRARY_COLUMNS_KEY, { version: LIBRARY_COLUMNS_VERSION, columns: next });
   }, []);
   // Defaults differ at first use or an explicit Reset only. Resizing never hides a chosen column.
   const reset = useCallback(() => update(defaultLibraryColumns(compactLibrary())), [update]);

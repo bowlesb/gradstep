@@ -129,6 +129,8 @@ export interface ConversationSummary {
   lastArrival: number; startArrival: number; latestAnswer?: string; questions: string; anchor?: TextAnchor;
   /** Where `title` came from: absent for the first question, else `generated` (topic title) or `renamed`. */
   titleSource?: string;
+  /** Words in the newest answer (All chats' Answer length). */
+  latestAnswerWords: number;
 }
 
 /** A topic title as one plain line of at most 80 characters (ChatTopicTitle.clean): control and bidirectional
@@ -388,7 +390,8 @@ export class PrivateState {
       out.push({ id, title: root.payload.text ?? '', titleSource: root.payload.titleSource, documentID: root.payload.documentID, messageCount: new Set(surviving.map(e => e.payload.entityID)).size,
         startedAt: rootTime ?? (times.length ? Math.min(...times) : undefined), lastUsedAt: all.length ? Math.max(...all) : undefined,
         lastArrival: Math.max(-1, ...[...revisions, ...surviving].map(e => arrival(e.id))), startArrival: Math.min(...revisions.map(e => arrival(e.id))),
-        latestAnswer: answer ? stripPartMarkers(answer).slice(0, 1000) : undefined, questions, anchor: root.payload.anchor });
+        latestAnswer: answer ? stripPartMarkers(answer).slice(0, 1000) : undefined, questions, anchor: root.payload.anchor,
+        latestAnswerWords: answer ? stripPartMarkers(answer).split(/\s+/).filter(Boolean).length : 0 });
     }
     return out.sort((a, b) => (a.id < b.id ? -1 : 1));
   }

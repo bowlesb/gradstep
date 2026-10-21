@@ -526,6 +526,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   };
   const railVisible = ws.left.open && ws.left.inline;
   const paperContext = orphanPaper ?? (item ? { documentID: paperIdentity(item), title: item.metadata?.title ?? 'Paper', available: isSourcePaper(item) || !!readingSource(item) || (item.readiness === 'converted_ready' && item.render_availability === 'available') } : null);
+  // Saved chats per paper for the library's Chats column (B9): one pass over the cached summaries per history change.
+  const chatCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of chat?.history.state.conversationSummaries() ?? []) if (c.documentID) counts.set(c.documentID, (counts.get(c.documentID) ?? 0) + 1);
+    return counts;
+  }, [chat, historyVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paperTopics = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), effectiveTags(e)])), [library.entries]);
+  const chatCount = useCallback((entry: ClientEntry) => chatCounts.get(isReaderPaper(entry) ? paperIdentity(entry) : entry.id) ?? 0, [chatCounts]);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is ReaderPaper => isReaderPaper(e) && e.visible).map(e => [paperIdentity(e), e.metadata?.title ?? 'Paper'])), [library.entries]);
   // Papers an answer names (B2): in the library already (a paper or a visible import), opened or shown there; else added
   // as the Add paper dialog adds an arXiv ID, or a DOI through the reader's free reference lookup.
@@ -698,7 +706,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       onOpen={sourceID => { const paper = library.entries.find((e): e is ReaderPaper => isReaderPaper(e) && e.visible && e.source_id === sourceID); if (paper) void openPaper(paper); }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible} prepared={prepared}
-      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} />;
+      currentID={lastPaper} onOpen={openPaper} onSimilar={similar} onAdd={() => setAdding(true)} chatCount={chatCount} />;
   }
 
   // Paper (phone): the paper last open in this tab, else the one most recently opened on this device.
@@ -795,7 +803,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <AddPaper localPDFs={devicePDFs} open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
       </RegionBoundary>
       <RegionBoundary region="chats" label="All chats" compact resetKey={chats} onReport={report}>
-        <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} />
+        <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={(item ? paperIdentity(item) : undefined) ?? null} onOpen={openChatDocument} topics={paperTopics} />
       </RegionBoundary>
       {chat && <RegionBoundary region="chat-defaults" label="AI chat options" compact resetKey={chatDefaults} onReport={report}><ChatDefaults chat={chat} view={chatDefaults} onView={setChatDefaults} onClose={() => setChatDefaults(false)} /></RegionBoundary>}
       {chat && <RegionBoundary region="diagrams" label="All diagrams" compact resetKey={diagramsOpen} onReport={report}><DiagramsDialog chat={chat} open={diagramsOpen} onClose={() => setDiagramsOpen(false)} /></RegionBoundary>}
