@@ -7,6 +7,12 @@ decision are built and deployed to staging (migration 079, chat function; [as bu
 four live drills passed.** Owner: "I don't want the entire app to break if a response starts failing; we need to think
 and plan carefully there."
 
+**2026-10-21 (OpenRouter only, not deployed):** every model call goes through OpenRouter; the inventory below names
+the Anthropic/DeepSeek call sites of its time. `anthropic.ts` is now `inference.ts`, `admittedAnthropic` is
+`admittedModelCalls`, the direct-provider SDK adapter and the Messages-format drill stream are removed, and
+provider-health no longer treats direct model hosts as providers (the egress guard refuses them first). Fault drills
+run on `openrouter` (and Tavily); historical `anthropic`/`deepseek`/`google` health and breaker rows remain as history.
+
 **Built on the clients (2026-10-15):**
 - **Browser:** an error boundary per region (reader, chat, library, feed, Listen, side panel, player, dialogs) with "…
   hit a problem · Try again · Report it", a last-resort app boundary and `error`/`unhandledrejection` handlers that
@@ -303,10 +309,10 @@ open the wrapper answers at once with a synthetic 429 (`Retry-After` = the remai
 `provider_unavailable` with `retry_after`, a podcast requeues. Instances learn the state from each recorded call's
 reply and, at start, from `worker_provider_breakers()`.
 
-**Chat retry (fix 7).** `retryOnceWhenBusy` in `anthropic.ts`: one more try, same model, only when the first ended
+**Chat retry (fix 7).** `retryOnceWhenBusy` in `inference.ts` (was `anthropic.ts`): one more try, same model, only when the first ended
 before any message started with a 429 or 529; it waits the provider's `Retry-After` when that is at most 5 s, else
 1–3 s jittered, and gives up at once when the wait would be longer or the reader left. Each attempt has its own grant
-(`admittedAnthropic`): a 429 settles at zero, a 529 keeps the platform's liability rule unchanged, and the reader is
+(`admittedModelCalls`, was `admittedAnthropic`): a 429 settles at zero, a 529 keeps the platform's liability rule unchanged, and the reader is
 charged only for the answer that runs. The bound is 5 s rather than the proposed 3 s so a breaker's or a drill's 5 s
 `Retry-After` is honoured. The "busy, retrying" status line is a client change left to the client work.
 
@@ -361,8 +367,8 @@ to run when one more anomaly could trip the tripwire). Recovery answers use Clau
 Wired today: OpenRouter on chat (Anthropic until the OpenRouter-only cutover of 2026-10-18; chat no longer calls
 Anthropic, so an Anthropic drill injected nothing — review D4, 2026-10-21). The overrun drill admits its synthetic
 attempt as `openrouter`/`chat`/`anthropic/claude-haiku-5.5`. The streamed `midstream`/`slow` faults are synthesized
-only for the Anthropic and DeepSeek stream formats in `provider-health.ts`; an OpenRouter-format synthetic stream is
-needed before `--mode=midstream`/`stop` exercise the live path. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
+in OpenRouter's stream format (`syntheticRouterStream`, review D4); the Messages-format stream was removed on
+2026-10-21. Next: Tavily on chat (needs a question that reliably searches); podcasts (the
 worker's environment needs `FAULT_INJECTION`; `deploy-pipeline-worker.py` doesn't pass it yet); search and add-paper
 (their provider calls carry no account yet).
 

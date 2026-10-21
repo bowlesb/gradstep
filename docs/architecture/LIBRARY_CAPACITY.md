@@ -8,13 +8,47 @@ browser/admin framework; SwiftUI/Catalyst remains the Apple client.
 This plan follows the owner's request for large libraries and careful infrastructure design in
 [Decisions](../DECISIONS.md). Read the acceptance gates before changing limits.
 
+## No import quota (2026-10-21)
+
+Owner: "I'm not sure why import quota is even a thing? Users can import and download whenever they want if it's
+free". Migration 0142 (local, **not deployed**) sets every lifetime count in `app_private.library_policy` to NULL: a
+NULL limit never refuses, because every check compares `count + 1 > limit`. No function is rewritten; the counts are
+still taken (the C7/E2 performance follow-up may drop them). After it:
+
+| Boundary | Before | After 0142 |
+| --- | --- | --- |
+| Import requests (lifetime) | 2,000/account, 20,000/service | none |
+| Membership rows (lifetime) | 2,000/account, 20,000/service | none |
+| Library commands/receipts (lifetime) | 12,000/account, 120,000/service | none |
+| Shared catalog metadata | 10,000 records, 32 MiB (service) | none; still 32 KiB per record |
+| Synced descriptors (count) | items + imports per account/service | none; descriptor and history **bytes** still bounded |
+| Imports in flight at once | 10/account, 100/service | 100/account, 2,000/service (backstop) |
+| Request rates | add-paper and add-reference 120/h, library-write 1,000/h | unchanged (the abuse protection) |
+| Journal, transfer, pages, note assets, podcast device sources | as below | unchanged (storage and transfer bounds) |
+
+Paid AI work keeps its own credits, holds, platform budget and attempt windows. Fixture:
+`tests/database/no_import_quota.sql`.
+
+Client strings that still mention a quota or limit (owned by the app agents; servers no longer send the lifetime
+codes): browser `apps/web/src/ui/Library.tsx:39-40` (`library_active_import_limit` → "Several papers are already being
+added…"; `library_account_import_limit`/`library_account_receipt_limit` → "Your library has reached its current
+limit."), `apps/web/src/lib/library.ts:8,287` (the 4,000 retained-entry `capacity` bound, a client limit),
+`apps/web/src/ui/useDevicePDFs.ts:36` (a per-tab device PDF cache limit); native
+`apps/apple/ScienceReader/Services/LibraryCommandCoordinator.swift:350,363` (any `library_*_limit` → "The library limit
+has been reached…"), `BackendClient.swift:1125-1145`, and the 4,000-entry bound in `LibraryWire.swift:8` and
+`LibraryReconciler.swift:281`. With the server quotas gone, a library past 4,000 retained entries meets those client
+bounds first; raising them is client work.
+
 ## Current contract and evidence
+
+The table below is the design baseline of 2026-10-07; the lifetime rows and receipts are superseded by
+[No import quota](#no-import-quota-2026-10-21).
 
 | Boundary | Current behavior |
 | --- | --- |
 | Client projection | 4,000 retained items/imports, including hidden mappings and removed entries; not 4,000 visible papers |
-| Backend lifetime rows | 2,000 membership rows and 2,000 import intents/account; 20,000 of each/environment |
-| Mutation receipts | 12,000/account, 120,000/environment, with reserved withdrawal headroom |
+| Backend lifetime rows | 2,000 membership rows and 2,000 import intents/account; 20,000 of each/environment (none since 0142) |
+| Mutation receipts | 12,000/account, 120,000/environment, with reserved withdrawal headroom (none since 0142) |
 | Journal | 8 MiB/10,000 batches/account; 64 MiB/100,000 batches/environment; compaction advances `retained_after` |
 | Transfer | 256 MiB/account/month and 2 GiB/environment/month; additional request-rate limits |
 | Pages | At most 100 entries/batches and 1 MiB; clients allow at most 256 pages per refresh |
