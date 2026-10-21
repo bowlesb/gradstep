@@ -296,8 +296,9 @@ unaudited credits; `resolve` handled only retired Mathpix OCR.
 
 - `worker_owner_set_budget_limit(actor, request, limit, reason)`: owner only, the current UTC month and every later
   month already created, never the pause switch, within the schema ceiling ($50), audited (`platform_budget_limit`,
-  before and after) and replay-safe. The unaudited `worker_set_platform_budget` is no longer executable by the service
-  role (migrations and the local fixtures still use it as the database owner).
+  before and after) and replay-safe. The unaudited `worker_set_platform_budget` keeps its service grant (about 25
+  database fixtures and provisioning use it); no operator tool calls it any more. Closing it is a follow-up once those
+  fixtures move to the audited function.
 - `pipeline-ops.py budget --usd N --actor OWNER --reason TEXT` uses it; pausing stays the admin site's control. `grant`
   and `resolve` are removed (the admin site's audited, capped grant remains; OCR is retired).
 - This does not raise the $100/month operating budget or any month's provider limit.
