@@ -442,6 +442,12 @@ export function isSingleEquation(quote: string): boolean {
   return formula.display || /[=<>≤≥≈]|\\(?:leq?|geq?|approx|propto|equiv|neq|ne|simeq|cong)(?![A-Za-z])/.test(formula.body);
 }
 
+/** Explain / Define on selected answer text (B1; ReaderModel's chat actions): Explain asks as a selection's Explain does
+ * (an equation gets the equation prompt), Define asks for the terms and symbols. */
+export function answerActionPrompt(action: 'explain' | 'define', quote: string): string {
+  return action === 'explain' ? selectionPrompt('define', quote) : `Define the terms and symbols in: ${quote}`;
+}
+
 /** A saved title (the first question): a known prompt becomes "Label · passage" (display only; nothing saved changes). */
 export function chatTitle(saved: string): { label: string | null; text: string; truncated: boolean } {
   const truncated = [...saved].length >= 100;

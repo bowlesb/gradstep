@@ -4,7 +4,7 @@ import type { DiagramFormat } from '../lib/events';
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
 import { type CSSProperties, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { TranscriptFollow } from '../lib/chat-follow';
-import { chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
+import { answerActionPrompt, chatTitle, composerPlaceholder, conversationPreview, failureText, progressText } from '../lib/chat';
 import { answeredBy, profileSummary, modelOption } from '../lib/chat-profiles';
 import { AI_USE_CASE_TITLES, ChatSession, composerBusy, type Composer } from '../lib/chat-session';
 import { chooseStarters, type StarterPaper } from '../lib/chat-starters';
@@ -20,6 +20,7 @@ import { useMedia, useStored } from './prefs';
 import { PaneHeader, useWorkspaceControls } from './Shell';
 import { StudyPanel } from './StudyPanel';
 import { PapersInAnswer, type AnswerPapers } from './AnswerPapers';
+import { AnswerSelectionBar, formulaPick, useAnswerSelection } from './AnswerSelection';
 import { persistenceState, subscribePersistence } from '../lib/persistence';
 import { asOf } from '../lib/retry';
 
@@ -162,6 +163,17 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       void chat.send(c, selection, null, context.anchor);
     } else void chat.send(c);
   };
+  // Selected answer text or a formula (B1): Quote in Chat puts it in the draft; Explain and Define ask at once when the
+  // box is empty, else join the draft without sending (ReaderModel's chat actions).
+  const region = useCallback(() => viewport.current, []);
+  const [pick, setPick] = useAnswerSelection(region, c.id);
+  const focusEnd = () => requestAnimationFrame(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } });
+  const quoteInChat = (quote: string) => { if (chat.edit(c, `About “${quote}”: ${c.draft}`)) focusEnd(); };
+  const askAbout = (action: 'explain' | 'define', quote: string) => {
+    const prompt = answerActionPrompt(action, quote);
+    if (!c.draft.trim()) { if (chat.edit(c, prompt)) send(); }
+    else if (chat.edit(c, `${prompt}\n\n${c.draft}`)) focusEnd();
+  };
   // Study (experimental): an adaptive tutor for this paper; offered when the paper is numbered on this device.
   const studyOffered = !context && mode === 'paper' && !!paper?.available && chat.canStudy(documentID) && !c.study && !deleted && !retired;
   const startStudy = () => { if (!disabled) void chat.startStudy(c); };
@@ -264,6 +276,11 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       setAway(!follow.current.scrolled(el.scrollTop, el.scrollHeight - el.clientHeight));
     }} onClick={e => {
       if (cite(e.target as Element)) { e.preventDefault(); return; }
+      // A click on a formula in a saved answer offers its actions; elsewhere it puts them away (not on the bar itself).
+      if ((e.target as Element).closest?.('.chat-selection-bar')) return;
+      const formula = (e.target as Element).closest?.('[data-answer] .answer-math[data-latex]');
+      if (formula && document.getSelection()?.isCollapsed !== false) { const picked = formulaPick(formula); if (picked) setPick({ ...picked, clicked: true }); return; }
+      if (pick?.clicked) setPick(null);
       const a = (e.target as Element).closest('a[href]'); if (!a) return;
       e.preventDefault(); const href = safeLink(a.getAttribute('href') ?? ''); if (href) setLink(href);
     }} onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).classList?.contains('cite') && cite(e.target as Element)) e.preventDefault(); }}>
@@ -281,7 +298,7 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
         </div>}
       </div>}
       {!providedContext && promoted && <section className="promoted-explanation" data-testid="promoted-context"><h3>{promoted.label}</h3>{promoted.image && <img src={promoted.image} alt={promoted.label} style={{maxWidth:'100%'}}/>}<Answer text={promoted.explanation ?? promoted.quote} /></section>}
-      {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
+      {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`} data-answer={m.payload.role === 'assistant' ? m.payload.entityID : undefined}>
         {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={stripPartMarkers(m.payload.text ?? '')} label="Copy answer" /></div>
           {inlineParts(m.payload.entityID) ? <FigurePartsAnswer text={m.payload.text ?? ''} diagram={diagrams.get(m.payload.entityID)!} image={(manifest, paths) => chat.figureImage(c.documentID, manifest, paths)} />
             : <Answer text={stripPartMarkers(m.payload.text ?? '')} />}
@@ -312,6 +329,9 @@ export function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage
       {canAnswer && (c.issue || last?.payload.role === 'user') && <p className="fine" data-testid="retry-profile">This question: {profileSummary(chat.retryProfile(c), table)}</p>}
       {c.credits !== null && <p className="fine answer-cost">{c.credits === 0 && c.issue ? 'No credits used' : `${c.credits} ${c.credits === 1 ? 'credit' : 'credits'} used`}</p>}
       {deleted && <p className="issue">This conversation was deleted. Your draft is still here to copy.</p>}
+      {pick && <AnswerSelectionBar pick={pick} canQuote={!retired} canAsk={!disabled && !composerBusy(c) && !c.answer}
+        onQuote={quoteInChat} onExplain={quote => askAbout('explain', quote)} onDefine={quote => askAbout('define', quote)}
+        onDone={() => { document.getSelection()?.removeAllRanges(); setPick(null); }} />}
       {away && <button className="jump-latest secondary small" onClick={() => { follow.current.reset(); setAway(false); showLatest(); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
       <div ref={bottom} />
     </div>

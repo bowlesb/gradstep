@@ -136,6 +136,39 @@ test('selection tools and passage return keep the verified paper context', async
   await page.getByTestId('account-menu').click(); await page.getByTestId('passage-marks').click(); await page.keyboard.press('Escape');
 });
 
+test('selected answer text and formulas: Quote in Chat, Explain, Define, Copy LaTeX and Copy as text (B1)', async ({ page, request, browserName }, info) => {
+  test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
+  if (browserName === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await login(page); await send(page, 'Explain the objective', true);
+  const answer = page.getByTestId('chat-assistant').first(); await expect(answer.locator('math')).toBeVisible();
+  const select = (selector: string) => answer.locator(selector).first().evaluate(node => {
+    const r = document.createRange(); r.selectNodeContents(node); const s = getSelection()!; s.removeAllRanges(); s.addRange(r);
+  });
+  const bar = page.getByTestId('answer-selection'), box = page.getByRole('textbox', { name: 'Message', exact: true });
+  // Text: Quote in Chat makes a draft, nothing is sent.
+  await select('p'); await expect(bar).toHaveAttribute('aria-label', 'Selected text');
+  await expect(bar.getByRole('button')).toHaveText(['Quote in Chat', 'Explain', 'Define']);
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-answer-selection.png` });
+  await bar.getByRole('button', { name: 'Quote in Chat' }).click();
+  await expect(box).toHaveValue(/^About “The objective compares preferences/); await expect(bar).toHaveCount(0);
+  // A formula (clicked): Copy LaTeX and Copy as text too; with a draft, Explain joins it unsent.
+  await answer.locator('.answer-math').first().click(); await expect(bar).toHaveAttribute('aria-label', 'Selected formula');
+  await expect(bar.getByRole('button')).toHaveText(['Copy LaTeX', 'Copy as text', 'Quote in Chat', 'Explain', 'Define']);
+  await bar.getByRole('button', { name: 'Copy LaTeX' }).click(); await expect(bar).toContainText('LaTeX copied');
+  if (browserName === 'chromium') expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('L = -\\log \\sigma(\\beta x)');
+  await bar.getByRole('button', { name: 'Copy as text' }).click();
+  if (browserName === 'chromium') expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('L = -log σ(β x)');
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-answer-formula.png` });
+  await bar.getByRole('button', { name: 'Explain' }).click();
+  await expect(box).toHaveValue(/^Explain this equation: \\\[L = -\\log \\sigma\(\\beta x\)\\\]/);
+  await expect(box).toHaveValue(/\n\nAbout “The objective/);
+  expect((await evidence(request)).requests).toHaveLength(1);
+  // An empty box: Define asks at once.
+  await box.fill(''); await select('p'); await bar.getByRole('button', { name: 'Define' }).click();
+  await expect(page.getByTestId('chat-user').last()).toContainText('Define the terms and symbols in: The objective compares preferences');
+  await expect.poll(async () => (await evidence(request)).requests.length).toBe(2);
+});
+
 test('the chat menu sets the chat text size for this browser; the paper keeps its own (B8)', async ({ page, request }, info) => {
   test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
   await login(page); await send(page, 'Explain the objective', true);

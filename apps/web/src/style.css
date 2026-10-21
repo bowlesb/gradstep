@@ -975,3 +975,6 @@ button.tag.on:hover { background: var(--accent); color: var(--accent-text); filt
 .answer-paper-id { display: inline-flex; align-items: center; gap: 3px; }
 .answer-paper-details .link.small { display: inline-flex; align-items: center; gap: 3px; min-height: 24px; }
 .answer-paper-notice { display: inline-flex; align-items: center; gap: 6px; }
+/* Actions on a selected answer passage or formula (B1): above the composer, in view while the transcript scrolls. */
+.answer-math { display: contents; }
+.chat-selection-bar { position: sticky; bottom: 6px; left: auto; transform: none; margin: 6px auto 0; width: max-content; max-width: calc(100% - 8px); }
